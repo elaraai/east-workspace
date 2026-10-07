@@ -16,14 +16,12 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { Plan } from "@elaraai/e3-ui/internal";
 import type { Slice } from "@elaraai/east-ui/internal";
 import type { EditIssue, HistoryBarProps } from "@elaraai/east-ui-components";
-import type { ReviewFootLabels } from "@elaraai/east-ui-components/internal";
 import type { PlanScale } from "../scale.js";
 import type { PlanGrain } from "../plan-state.js";
 import type { PlanSearch } from "../use-seek.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
-import type { PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 
@@ -38,7 +36,7 @@ export interface PlanChrome {
     words: PlanWords;
     /** The canvas's resolved `plan` recipe styles. */
     styles: Styles;
-    /** The canvas's storage key: where the review summary's subtree keeps its state. */
+    /** The canvas's storage key. */
     storageKey: string;
     /** The scale every row positions against: the window the counts are read over, and the active resolution. */
     scale: PlanScale;
@@ -56,10 +54,6 @@ export interface PlanChrome {
     search: PlanSearch | undefined;
     /** What the canvas carried on past (#811). */
     diagnostics: PlanDiagnostics;
-    /** The review chrome (#569), when the root declares `review`. */
-    review: PlanReview | undefined;
-    /** The review item's button words: on a paged canvas, how many loaded rows they cover (#880). */
-    reviewLabels: ReviewFootLabels;
     /** The history bar's props, when the root declares editing (#880): its session, words and actions. */
     history: HistoryBarProps<PlanEntryRef> | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */

@@ -31,7 +31,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { ApprovalStateType, StatusValueType, type ApprovalStateLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
+import { StatusValueType, type StatusValueLiteral } from "@elaraai/east-ui";
 import { resolveTag } from "@elaraai/east-ui/internal";
 import {
     PlanGutterType,
@@ -77,8 +77,6 @@ export interface PlanRowFields {
     height?: SubtypeExprOrValue<OptionType<StringType>>;
     /** The gutter status dot. */
     status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
-    /** The review verdict. */
-    approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
     /** The expand-in-place declaration. */
     expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
     /** The gestures the row takes (#880) — none by default. */
@@ -86,7 +84,7 @@ export interface PlanRowFields {
 }
 
 /** A row that takes no gesture — every row but an editable series' (#880, #825). */
-const NO_EDITS = { verdict: false, drop: false, move: none };
+const NO_EDITS = { drop: false, move: none };
 
 /**
  * THE row envelope (#822) — an entry's row, a derived parent, a section header,
@@ -112,7 +110,6 @@ export function planRow(f: PlanRowFields): ExprType<PlanRowType> {
         pinned:    f.pinned ?? false,
         height:    f.height ?? none,
         status:    f.status ?? none,
-        approval:  f.approval ?? none,
         expand:    f.expand ?? none,
         edits:     f.edits ?? NO_EDITS,
     }, PlanRowType);
@@ -184,7 +181,6 @@ export function planGutter(f: PlanGutterFields): ExprType<PlanGutterType> {
  * @property pinned - Pin the row above the virtualised body, under the ruler
  * @property height - Fixed row-height override (px)
  * @property status - The quiet gutter status dot
- * @property approval - The review verdict (review chrome only)
  * @property expand - The expand-in-place declaration
  */
 export interface PlanRowBaseInput {
@@ -212,8 +208,6 @@ export interface PlanRowBaseInput {
     height?: SubtypeExprOrValue<StringType>;
     /** The quiet gutter status dot. */
     status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
-    /** The review verdict (rendered only with the root's review chrome). */
-    approval?: SubtypeExprOrValue<ApprovalStateType> | ApprovalStateLiteral;
     /** The expand-in-place declaration (R2) — see {@link PlanExpandInput}; the render is the root's `expandRender`. */
     expand?: PlanExpandInput;
 }
@@ -265,6 +259,10 @@ function literalId(key: SubtypeExprOrValue<StringType>): ExprType<PlanRowIdType>
 
 /** A hand-built row — one row from its base input and its kind, at the top of its own stream. */
 function literalRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): ExprType<PlanRowType> {
+    // The removed verdict, named (#1260) — a plain JS caller would otherwise lose it silently.
+    if ("approval" in (base as object)) {
+        throw new Error("Plan: a hand-built row gives `approval`, which is removed (#1260) — a Plan approves and rejects nothing");
+    }
     return planRow({
         id:        literalId(base.key),
         parent:    none,
@@ -274,7 +272,6 @@ function literalRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): Ex
         pinned:    base.pinned ?? false,
         height:    base.height !== undefined ? some(base.height) : none,
         status:    base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
-        approval:  base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,
         expand:    base.expand !== undefined ? some(buildExpand(base.expand)) : none,
     });
 }
@@ -368,7 +365,6 @@ export const REBASE_ROWS = East.function(
             pinned:    r.pinned,
             height:    r.height,
             status:    r.status,
-            approval:  r.approval,
             expand:    r.expand,
             edits:     r.edits,
         }));

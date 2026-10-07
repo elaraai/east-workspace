@@ -10,7 +10,7 @@
  * `n` buckets (a window ÷ a resolution or step, or an ordinal list) over
  * heterogeneous rows — Gantt-style state-runs, Planner allocation lanes,
  * Chart measures, Matrix heat cells, Table numerals, Roster chips and event
- * marks — sliced and reviewed as one surface.
+ * marks — sliced and planned as one surface.
  *
  * Rows are an ordered STREAM in the IR (`ArrayType(PlanRowType)`, #822): the
  * stream IS the render order. The top-level series list is the layout — each
@@ -34,7 +34,7 @@
  * and no per-element UI embeds** — rich surfaces resolve through the ROOT's
  * `popover` / `hover` / `expandRender` functions over
  * {@link PlanElementRefType} / row refs, so a row is a storable, pageable
- * dataset element. Only the root, review and the resolver signatures are
+ * dataset element. Only the root and the resolver signatures are
  * UIComponent-coupled (`./ir.ts` — the canvas's root, which the `Plan`
  * carrier's payload holds as its `plan`).
  *
@@ -62,7 +62,6 @@ import {
 } from "@elaraai/east";
 
 import {
-    ApprovalStateType,
     DensityType,
     EventStateType,
     IconType,
@@ -902,7 +901,7 @@ export type PlanEventMarkKindType = typeof PlanEventMarkKindType;
 /**
  * A row's identity (#822) — which series made it, and the path of entry keys
  * that leads to it. Every callback that names a row (`onSelect`, an element
- * ref's `row`, `links`, review, `expand`) carries this; `Plan.ref` /
+ * ref's `row`, `links`, `expand`) carries this; `Plan.ref` /
  * `Plan.sectionRef` build one.
  *
  * @remarks
@@ -1036,17 +1035,14 @@ export type PlanMoveType = typeof PlanMoveType;
 
 /**
  * A gesture on the canvas — what one draft is made by (#880). A series writes
- * it into the entry its row came from, through the fields it declares: a
- * verdict into its `review.verdict` field, a drop into its `edit.items`, a
- * move into the item's instant fields (and, across rows, into another row's
- * list — #825).
+ * it into the entry its row came from, through the fields it declares: a drop
+ * into its `edit.items`, a move into the item's instant fields (and, across
+ * rows, into another row's list — #825).
  *
- * @property verdict - Approve or Reject (their "all" forms are the same verdict on every row the canvas holds)
  * @property drop - A library card dropped on a row
  * @property move - A run, chip, tile or mark moved or resized ({@link PlanMoveType}, #825)
  */
 export const PlanGestureType = VariantType({
-    verdict: ApprovalStateType,
     drop:    PlanDropType,
     move:    PlanMoveType,
 });
@@ -1073,17 +1069,15 @@ export const PlanMoveEditsType = StructType({
 export type PlanMoveEditsType = typeof PlanMoveEditsType;
 
 /**
- * Which gestures a row takes (#880) — whether its series declares the field
- * each one writes, so the canvas offers only what a draft can hold: the
- * decision buttons act on a `verdict` row, a card lands only on a `drop` row,
- * and an element is picked up only on a `move` row (#825).
+ * Which gestures a row takes (#880) — whether its series declares the fields
+ * each one writes, so the canvas offers only what a draft can hold: a card
+ * lands only on a `drop` row, and an element is picked up only on a `move`
+ * row (#825).
  *
- * @property verdict - Its series names the field a verdict writes (`review.verdict`)
  * @property drop - Its series names where a dropped card lands and how it becomes an item (`edit.create`)
  * @property move - Its series names the item fields a move writes (`edit.key` and `start` / `end`, or `at`) — {@link PlanMoveEditsType}
  */
 export const PlanRowEditsType = StructType({
-    verdict: BooleanType,
     drop:    BooleanType,
     move:    OptionType(PlanMoveEditsType),
 });
@@ -1459,8 +1453,7 @@ export type PlanRowKindType = typeof PlanRowKindType;
  * the initial state of a row that has children; `pinned` rows render above
  * the virtualised body under the ruler (both `false` unless declared, #824);
  * `height` is a fixed CSS-px override; `status` the quiet gutter dot;
- * `approval` the review verdict (rendered only with the root's review
- * chrome); `expand` the R2 declaration (the render itself is the root's
+ * `expand` the R2 declaration (the render itself is the root's
  * `expandRender` resolver); `edits` the gestures the row takes (#880 —
  * neither, unless its series declares the fields they write).
  */
@@ -1473,7 +1466,6 @@ export const PlanRowType = StructType({
     pinned: BooleanType,
     height: OptionType(StringType),
     status: OptionType(StatusValueType),
-    approval: OptionType(ApprovalStateType),
     expand: OptionType(PlanExpandType),
     edits: PlanRowEditsType,
 });
@@ -1596,15 +1588,14 @@ export function PlanPatchEventTypeFor<R extends EastType>(entryType: R) {
 
 /**
  * One entry's gesture, to be written (#880) — the entry's id (its key's text),
- * its bytes, the rows the gesture was made on, and the gesture. Approve all
- * writes every entry the canvas holds in one call, and a move to another row
- * writes the entry holding its source row, then the one holding its target
- * (#825) — one request when both rows are the same entry's.
+ * its bytes, the rows the gesture was made on, and the gesture. A move to
+ * another row writes the entry holding its source row, then the one holding
+ * its target (#825) — one request when both rows are the same entry's.
  *
  * @internal
  * @property id - The entry's id — its key, as a row path's first segment spells it
  * @property entry - The entry as it stands now (its draft, else the source's), encoded
- * @property rows - The rows the gesture was made on — one, each of the entry's for a verdict on all, or a move's source then target
+ * @property rows - The rows the gesture was made on — one, or a move's source then target
  * @property gesture - The gesture
  */
 export const PlanWriteRequestType = StructType({

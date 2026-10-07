@@ -22,10 +22,8 @@
  *
  * An event whose resource is none, or names a resource its kind does not have,
  * draws on its kind's Unassigned row, after every resource kind (PB16). Every
- * kind's events are read with its drafts in place, so a draft draws as Apply
- * would leave it (PB17). A reviewed kind's rows carry their events' verdict in
- * the decision column, and each element shows its own verdict in the lifecycle
- * it wears (PB18).
+ * kind's events are read with its drafts in place, so a draft draws as Save
+ * would leave it (PB17).
  *
  * Every block is fixed: no entry of the canvas's `data` makes these rows, so a
  * paged canvas serves them with every window and draws them once.
@@ -44,7 +42,7 @@ import {
     StructType, none, some, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
-import { ApprovalStateType, EventStateType, IconType, PickStateType, StatusValueType } from "@elaraai/east-ui";
+import { IconType, PickStateType, StatusValueType } from "@elaraai/east-ui";
 import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
@@ -159,39 +157,6 @@ const elementKey = East.function([PlanEventItemType], StringType, ($, item) => {
     return East.print(ref);
 });
 
-/**
- * The lifecycle an element wears: its event's, with the event's verdict
- * shown (PB18). An approved estimate or proposal wears confirmed (a proposed
- * removal stays struck through); a rejected estimate, proposal or confirmed
- * event wears rejected. What is in progress or actual is observed truth, and
- * keeps its own.
- */
-const shownState = East.function([EventStateType, OptionType(ApprovalStateType)], EventStateType, ($, state, verdict) => {
-    const out = $.let(state, EventStateType);
-    $.match(verdict, {
-        some: ($2, v) => {
-            $2.match(v, {
-                approved: ($3) => {
-                    $3.match(state, {
-                        estimated: ($4) => { $4.assign(out, variant("confirmed", null)); },
-                        proposed: ($4, flavour) => {
-                            $4.if(flavour.hasTag("removed").not(), ($5) => { $5.assign(out, variant("confirmed", null)); });
-                        },
-                    });
-                },
-                rejected: ($3) => {
-                    $3.match(state, {
-                        estimated: ($4) => { $4.assign(out, variant("rejected", null)); },
-                        proposed: ($4) => { $4.assign(out, variant("rejected", null)); },
-                        confirmed: ($4) => { $4.assign(out, variant("rejected", null)); },
-                    });
-                },
-            });
-        },
-    });
-    return out;
-});
-
 /** The warning an element is ringed with: its status's, when the status's tone is a warning (`Plan Builder Spec.md` §4.1). */
 const warningOf = East.function([OptionType(ScheduleStatusType)], OptionType(StatusValueType), ($, status) => {
     const out = $.let(none, OptionType(StatusValueType));
@@ -206,7 +171,6 @@ const warningOf = East.function([OptionType(ScheduleStatusType)], OptionType(Sta
 /** The events as bars. */
 const placedRuns = East.function([PlacedListType], ArrayType(PlanRunType), ($, list) => {
     const keyOf = $.const(elementKey);
-    const shown = $.const(shownState);
     const ring = $.const(warningOf);
     return list.map(($2, p) => East.value({
         key: keyOf(p.item),
@@ -214,7 +178,7 @@ const placedRuns = East.function([PlacedListType], ArrayType(PlanRunType), ($, l
         end: variant("time", p.end),
         label: p.item.title,
         quantity: p.item.quantity,
-        state: shown(p.item.state, p.item.verdict),
+        state: p.item.state,
         status: ring(p.item.status),
         moved: none,
         icon: some(p.icon),
@@ -224,7 +188,6 @@ const placedRuns = East.function([PlacedListType], ArrayType(PlanRunType), ($, l
 /** The events as tiles in their start's bucket, each in its lane. */
 const placedTiles = East.function([PlacedListType], ArrayType(PlanBucketEventType), ($, list) => {
     const keyOf = $.const(elementKey);
-    const shown = $.const(shownState);
     const ring = $.const(warningOf);
     return list.map(($2, p) => East.value({
         key: keyOf(p.item),
@@ -232,7 +195,7 @@ const placedTiles = East.function([PlacedListType], ArrayType(PlanBucketEventTyp
         lane: p.item.lane,
         label: some(p.item.title),
         icon: some(p.icon),
-        state: shown(p.item.state, p.item.verdict),
+        state: p.item.state,
         tone: ring(p.item.status),
         color: none,
         colorPalette: none,
@@ -245,13 +208,12 @@ const placedTiles = East.function([PlacedListType], ArrayType(PlanBucketEventTyp
 /** The events as chips over the buckets they span. */
 const placedChips = East.function([PlacedListType], ArrayType(PlanChipType), ($, list) => {
     const keyOf = $.const(elementKey);
-    const shown = $.const(shownState);
     return list.map(($2, p) => East.value({
         key: keyOf(p.item),
         from: variant("time", p.start),
         to: variant("time", p.end),
         label: p.item.title,
-        state: shown(p.item.state, p.item.verdict),
+        state: p.item.state,
         icon: some(p.icon),
     }, PlanChipType));
 });
@@ -280,35 +242,6 @@ const placedLanes = East.function([PlacedListType], ArrayType(PlanLaneType), ($,
         $2.match(p.item.lane, { some: ($3, lane) => { $3(lanes.tryInsert(lane)); } });
     });
     return lanes.toArray(($2, lane) => East.value({ key: lane, label: some(lane) }, PlanLaneType));
-});
-
-/**
- * A row's verdict, from its events of reviewed kinds (PB18): none when it has
- * none; pending while any awaits a call; else rejected when any was declined;
- * else approved.
- */
-const placedVerdict = East.function([PlacedListType], OptionType(ApprovalStateType), ($, list) => {
-    const reviewed = $.let(false, BooleanType);
-    const pending = $.let(false, BooleanType);
-    const rejected = $.let(false, BooleanType);
-    $.for(list, ($2, p) => {
-        $2.match(p.item.verdict, {
-            some: ($3, v) => {
-                $3.assign(reviewed, true);
-                $3.match(v, {
-                    pending: ($4) => { $4.assign(pending, true); },
-                    rejected: ($4) => { $4.assign(rejected, true); },
-                });
-            },
-        });
-    });
-    const out = $.let(none, OptionType(ApprovalStateType));
-    $.if(reviewed, ($2) => {
-        $2.assign(out, some(variant("approved", null)));
-        $2.if(rejected, ($3) => { $3.assign(out, some(variant("rejected", null))); });
-        $2.if(pending, ($3) => { $3.assign(out, some(variant("pending", null))); });
-    });
-    return out;
 });
 
 // ============================================================================
@@ -445,7 +378,6 @@ function resourceBlocks(
             title: `${kind.name}: ${names}`,
             keyType,
             ...gutter,
-            approval: (_row: ExprType<EastType>, key: ExprType<EastType>) => placedVerdict(eventsOf(key)),
         };
         switch (draw) {
             case "span":
@@ -554,7 +486,6 @@ function unassignedBlock(
         const list = lost[i]!;
         $.if(list.size().greater(0n), ($2) => {
             const id = $2.let(East.value(variant("entry", { series: `${slot}.unassigned`, path: [kind.draw] }), PlanRowIdType));
-            const verdict = $2.let(placedVerdict(list));
             const rowKind = kind.draw === "span" ? spanKind({ runs: placedRuns(list) }, East.value(none, OptionType(PlanRollupType)))
                 : kind.draw === "buckets" ? bucketsKind({ lanes: placedLanes(list), events: placedTiles(list) })
                     : kind.draw === "cards" ? cardsKind(placedChips(list))
@@ -564,7 +495,6 @@ function unassignedBlock(
                 parent: East.value(none, OptionType(PlanRowIdType)),
                 gutter: planGutter({ label: "Unassigned", sub: some(kind.name) }),
                 kind: rowKind,
-                approval: verdict,
             })));
         });
     });

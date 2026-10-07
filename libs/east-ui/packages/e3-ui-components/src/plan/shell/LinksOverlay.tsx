@@ -70,9 +70,8 @@ export interface LinksOverlayProps {
     scale: PlanScale;
     /** A run's instants by `(rowKey, runKey)`. */
     runDates: (rowKey: string, runKey: string) => { start: PlanInstantValue; end: PlanInstantValue } | undefined;
-    /** The grid's fixed tracks either side of the plot: the gutter, and the review column (px). */
+    /** The grid's fixed track before the plot: the gutter (px). */
     gutterPx: number;
-    trailingPx: number;
     /** A bounded frame's scroll element and the sticky chrome above its rows —
      *  what the view is read from. Absent for an unbounded frame, which shows
      *  every row. */
@@ -107,15 +106,15 @@ function RunRing({ end, side }: { end: RibbonEnd; side: "from" | "to" }) {
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
 export function LinksOverlay({
-    styles, links, visibleKeys, body, beyond, scale, runDates, gutterPx, trailingPx, frame,
+    styles, links, visibleKeys, body, beyond, scale, runDates, gutterPx, frame,
 }: LinksOverlayProps) {
     const uid = useId();
     const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
     const layerRef = useRef<HTMLDivElement | null>(null);
-    // The plot's px are the layer's width less the grid's fixed tracks.
+    // The plot's px are the layer's width less the gutter's.
     const width = useElementWidth(layerRef, true);
-    const plotWidth = width !== undefined ? width - gutterPx - trailingPx : 0;
+    const plotWidth = width !== undefined ? width - gutterPx : 0;
     // ── The view (a bounded frame only) — what clamps an endpoint ──
     // The rows sit under the sticky chrome, so the view in the rows' own
     // coordinates starts at the scroll offset and is the viewport less that

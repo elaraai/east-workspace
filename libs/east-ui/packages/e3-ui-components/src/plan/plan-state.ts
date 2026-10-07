@@ -311,8 +311,8 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
 // controller runs (#815): it adds the bookkeeping that lets a host data commit
 // RECONCILE the ephemeral UI state instead of resetting it, and hands each
 // transition's effects back to the controller, which runs them in the same
-// action. An Approve click, a committed drop, any Reactive write the
-// series read is "the data changed"; open groups, expanded charts, selection
+// action. A Save, or any other Reactive write the series read, is "the data
+// changed"; open groups, expanded charts, selection
 // and focus must all survive it, dropping only the entries whose rows are
 // actually gone. The user's own collapse toggles and expanded charts also
 // outlive the component: the canvas persists them under its `storageKey`, and

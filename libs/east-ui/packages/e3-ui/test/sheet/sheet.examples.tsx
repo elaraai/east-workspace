@@ -42,7 +42,7 @@ import e3 from "@elaraai/e3";
 //
 // Every sheet binds its rows from e3, so each runs on e3-web in the showcase
 // (#1180): a record seeded with an authored literal (§2a), whose patch door
-// every Apply commits through, or a task's output, made where data is made.
+// every Save commits through, or a task's output, made where data is made.
 // `State` holds only what the viewer owns: a configurator's axes, saved views,
 // the week picked. The names are made up; the domain is a joinery workshop
 // (decision 14).
@@ -65,18 +65,18 @@ export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob),
     ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
     ["J-0004", { task: "Spray finish", start: none, qty: none }],
 ]));
-/** The jobs' patch door — every Apply commits through it. */
+/** The jobs' patch door — every Save commits through it. */
 export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
 
 /**
  * The smallest sheet (§3.1) — the jobs an e3 record holds, in its frame: one
  * row per job in key order and a blank tail for the next, three typed
- * columns, every gesture a draft the history item undoes, and Apply one
+ * columns, every gesture a draft the history item undoes, and Save one
  * commit through the record's patch door. It is given no pane.
  */
 export const sheetBasic = example({
     keywords: ["Sheet", "basic", "BuilderFrame", "record", "Record", "Record.bind", "e3.record", "patch", "commit", "column", "date", "text", "quantity", "key order", "Reactive"],
-    description: "The smallest sheet — an e3 record's entries as its rows, in key order, under three typed columns, edited as drafts and applied as one commit through the record's patch door, in its frame with no pane",
+    description: "The smallest sheet — an e3 record's entries as its rows, in key order, under three typed columns, edited as drafts and saved as one commit through the record's patch door, in its frame with no pane",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
@@ -113,7 +113,7 @@ export const sheetVariantsPlans = e3.record("sheet_variants_plans", DictType(Str
         { id: "j3", start: none, task: "Wrapping", qty: none, notes: "" },
     ] }],
 ]));
-/** The record's patch door — every Apply commits through it. */
+/** The record's patch door — every Save commits through it. */
 export const sheetVariantsPlansPatch = e3.mutation.patch(sheetVariantsPlans);
 
 /**
@@ -122,7 +122,7 @@ export const sheetVariantsPlansPatch = e3.mutation.patch(sheetVariantsPlans);
  * only and the copilot switch (a fill provider that reads the switch through
  * its captured bind handle). Selection (`onSelect`) and every gesture
  * (`onPatch`) log to the reactive aside. Its rows are the host's (`data`):
- * the week's jobs, read from an e3 record, and Apply hands the checked batch
+ * the week's jobs, read from an e3 record, and Save hands the checked batch
  * to `onApply`, which commits it to that record. Its panes are fixed when it
  * is built, so they are no axis here: it is given none. The configurator's
  * axes are the viewer's own state.
@@ -537,7 +537,7 @@ export const sheetWorkshopOrders = e3.record("sheet_workshop_orders", DictType(S
           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
     ] }],
 ]));
-/** The orders' patch door — every Apply commits through it. */
+/** The orders' patch door — every Save commits through it. */
 export const sheetWorkshopOrdersPatch = e3.mutation.patch(sheetWorkshopOrders);
 
 /** The model behind the workshop's async proposer — an e3 function, a service, a notebook; the sheet needs only its types. */
@@ -801,7 +801,7 @@ export const sheetWorkshop = example({
                 { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
                 { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
             ], ArrayType(WorkshopOperation));
-            // A new operation's and a new order's defaults, and the check every order passes before Apply.
+            // A new operation's and a new order's defaults, and the check every order passes before Save.
             const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WorkshopOperation), () =>
                 Sheet.patch(WorkshopOperation, { start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "planner" })));
             const newGroup = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(WorkshopOrder), () =>
@@ -950,12 +950,12 @@ export const sheetWeekPlans = e3.record("sheet_week_plans", DictType(StringType,
           machines: { from: [], to: [] } },
     ] }],
 ]));
-/** The plans' patch door — every Apply commits through it. */
+/** The plans' patch door — every Save commits through it. */
 export const sheetWeekPlansPatch = e3.mutation.patch(sheetWeekPlans);
 
 /**
  * One entry's rows (§3.4) — the week the viewer picks, its rows in the
- * planner's order; each week keeps its own drafts until Apply or Discard, and
+ * planner's order; each week keeps its own drafts until Save or Discard, and
  * a week the record does not hold opens empty and read-only. Every column
  * kind the workshop does not draw, with its rules: a date read at each row's
  * own level, with the actual start once one is recorded; an integer; a
@@ -971,7 +971,7 @@ export const sheetWeekPlansPatch = e3.mutation.patch(sheetWeekPlans);
  */
 export const sheetWeeks = example({
     keywords: ["Sheet", "BuilderFrame", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry", "inspector", "update", "Field.Slider", "column", "date", "text", "quantity", "integer", "reference", "enum", "set", "stamped", "owned", "register", "options", "level", "actual", "detail", "ranged", "DateLevel", "week", "day", "range", "time", "rule", "ready", "row", "Readiness", "completeness", "validation", "onPatch", "PatchEvent", "provenance", "source", "newRowId", "newRow", "write-back"],
-    description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Apply or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids minted by a counter, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
+    description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Save or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids minted by a counter, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const plans = $.let(Record.bind(sheetWeekPlans, [sheetWeekPlansPatch]));
@@ -1116,7 +1116,7 @@ export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType,
         ] },
     ] }],
 ]));
-/** The days' patch door — every Apply commits through it. */
+/** The days' patch door — every Save commits through it. */
 export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
 
 /**
@@ -1125,7 +1125,7 @@ export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
  * template dragged from the library lands on the seam it is dropped on — a
  * step into the batch under the pointer, a whole batch between two — and a
  * grip moves a step within its batch or into another, or a whole batch to
- * another place in the day. A batch needs a name before Apply, and a new step
+ * another place in the day. A batch needs a name before Save, and a new step
  * and a new batch start from their defaults. A step's own records hang under
  * it as sub rows, read only, sharing none of its columns: the parts it works
  * (a struct source — chips and labelled facets, a `none` facet dropping out)
@@ -1135,7 +1135,7 @@ export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
  */
 export const sheetBatches = example({
     keywords: ["Sheet", "BuilderFrame", "drag", "drop", "move", "grip", "seam", "templates", "group", "grouped", "entry", "order", "Sheet.library.rows", "children", "newGroup", "newRow", "Patch", "defaults", "completeness", "fold", "undo", "redo", "ready", "subRows", "subRow", "sub rows", "SubRow", "Facet", "chips", "facets", "lead", "detail", "noun", "variant", "match", "read-only", "inspector", "Sheet.field", "hidden"],
-    description: "A sheet over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips, a batch named before Apply, new steps and batches from their defaults, and each step's parts and bookings as read-only sub rows under it, declared per array field like columns, beside a library and an inspector pane",
+    description: "A sheet over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips, a batch named before Save, new steps and batches from their defaults, and each step's parts and bookings as read-only sub rows under it, declared per array field like columns, beside a library and an inspector pane",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
@@ -1145,7 +1145,7 @@ export const sheetBatches = example({
                 { task: "Seal", qty: none, parts: [], bookings: [] },
                 { task: "Spray", qty: none, parts: [], bookings: [] },
             ], ArrayType(BatchStep));
-            // A batch needs a name before Apply.
+            // A batch needs a name before Save.
             const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
                 $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
                     $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));
@@ -1225,7 +1225,7 @@ export const sheetLooseWork = e3.record("sheet_loose_work", DictType(StringType,
         ] }),
     ] }],
 ]));
-/** The work's patch door — every Apply commits through it. */
+/** The work's patch door — every Save commits through it. */
 export const sheetLooseWorkPatch = e3.mutation.patch(sheetLooseWork);
 
 /**
@@ -1282,7 +1282,7 @@ export const sheetLoose = example({
  */
 export const sheetPaged = example({
     keywords: ["Sheet", "BuilderFrame", "record", "window", "Data.bindPaged", "paged", "key order", "key search", "edits", "insertRows", "removeRows", "insert", "before", "after", "Undo"],
-    description: "A sheet over a large record, read a window at a time in key order — Data.bindPaged over the same record its Apply commits to — whose edits add rows (gutter seams, the selection strip, Alt+Insert) and never remove one",
+    description: "A sheet over a large record, read a window at a time in key order — Data.bindPaged over the same record its Save commits to — whose edits add rows (gutter seams, the selection strip, Alt+Insert) and never remove one",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
@@ -1359,7 +1359,7 @@ export const sheetMachineUpkeep = e3.record("sheet_machine_upkeep", DictType(Str
         in_service: true, guard_checked: some(true),
         serviced: new Date("2026-10-01T08:00:00Z"), next_service: some(new Date("2026-12-01T08:00:00Z")), serial: "SB-0391-0017" }],
 ]));
-/** The upkeep's patch door — every Apply commits through it. */
+/** The upkeep's patch door — every Save commits through it. */
 export const sheetMachineUpkeepPatch = e3.mutation.patch(sheetMachineUpkeep);
 
 /**
@@ -1374,7 +1374,7 @@ export const sheetMachineUpkeepPatch = e3.mutation.patch(sheetMachineUpkeep);
  * offered from a list, a checklist, a nested struct's fields under its name,
  * a checkbox, a date and a time, and Options set and cleared. The hinted
  * fields lead, in hint order, and the rest follow in declared order. A
- * machine out of service needs its next service booked before Apply. It is
+ * machine out of service needs its next service booked before Save. It is
  * given no library.
  */
 export const sheetUpkeep = example({

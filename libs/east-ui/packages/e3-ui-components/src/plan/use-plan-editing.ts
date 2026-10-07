@@ -7,15 +7,14 @@
  * The Plan's editing session (#880) — the session every editable collection
  * shares (`useEditSession`, #879), over the canvas's top-level ENTRIES.
  *
- * A gesture on a row — a verdict, a card dropped on it — drafts the entry the
- * row came from, whole: the canvas hands the entry and the gesture to the
- * series that made the row (`editing.write`), which writes the field it
- * declares, and the session records the entry before and after as one
- * undoable transaction. Approve all / Reject all is one gesture over every row
- * the canvas holds that takes a verdict — on a paged canvas, the loaded rows.
+ * A gesture on a row — a card dropped on it, an element moved or resized on
+ * it (#825) — drafts the entry the row came from, whole: the canvas hands the
+ * entry and the gesture to the series that made the row (`editing.write`),
+ * which writes the fields it declares, and the session records the entry
+ * before and after as one undoable transaction.
  *
  * The canvas draws the drafted entries by deriving their rows again, so a
- * draft looks exactly as the applied batch will: inline, the whole canvas with
+ * draft looks exactly as the saved batch will: inline, the whole canvas with
  * the drafts in their entries' place (`editing.derive`); paged, a source whose
  * windows are derived with the drafts in them — ONE wrapper per source (a host
  * function is equivalent only to itself, so a new wrapper would drop the
@@ -60,9 +59,6 @@ export interface PlanEntryRef {
 /** A drafted row's mark — the Sheet's (#879). */
 export type PlanDraftMark = "pending" | "incomplete" | "invalid";
 
-/** A verdict a gesture drafts. */
-export type PlanDraftVerdict = "approved" | "rejected";
-
 /** What {@link usePlanEditing} hands the canvas. */
 export interface PlanEditing {
     /** Whether the root declares editing at all. */
@@ -81,10 +77,6 @@ export interface PlanEditing {
     draftsVersion: number;
     /** Each drafted row's mark, by row key. */
     marks: ReadonlyMap<RowKey, PlanDraftMark>;
-    /** Draft a verdict on one row, by key. Stable. */
-    verdict(key: RowKey, verdict: PlanDraftVerdict): void;
-    /** Draft a verdict on every one of `rows` that takes one — one gesture. Stable. */
-    verdictAll(verdict: PlanDraftVerdict, rows: readonly PlanRowValue[]): void;
     /**
      * A card dropped on a row — drafted into its entry. Stable.
      *
@@ -179,7 +171,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     // ── The resident entries ─────────────────────────────────────────────
     // Every entry a canvas row came from, in order. A paged entry's position
     // is its element index — its window's start and its place among the
-    // window's ids — which is where a reconcile reads it after an Apply; the
+    // window's ids — which is where a reconcile reads it after a Save; the
     // entry itself is read back from the very window the canvas paged it in.
     const resident = useMemo(() => {
         const ids: string[] = [];
@@ -220,7 +212,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     // ── The paged source a reconcile reads ───────────────────────────────
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so no gesture drafts —
-    // and the factory refuses such a source an apply.
+    // and the factory refuses editing over such a source.
     const source = useMemo<EditSource<PlanEntryRef> | undefined>(() => {
         if (editing === undefined || paged === undefined) return undefined;
         const { revision, refresh } = paged;
@@ -400,27 +392,6 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         return updates.length > 0 && session.record(updates, origin, label);
     };
     const gestures = {
-        verdict(key: RowKey, verdict: PlanDraftVerdict): void {
-            const id = rowIdOfKey(key);
-            const entry = id !== undefined ? entryOf(id) : undefined;
-            if (id === undefined || entry === undefined) return;
-            record([{ id: entry, rows: [id] }], variant("verdict", variant(verdict, null)), "verdict",
-                `${verdict === "approved" ? "Approve" : "Reject"} ${args.labelOf(key)}`);
-        },
-        verdictAll(verdict: PlanDraftVerdict, all: readonly PlanRowValue[]): void {
-            // One request per entry, over each of its rows that takes a verdict.
-            const byEntry = new Map<string, PlanRowId[]>();
-            for (const row of all) {
-                if (!row.edits.verdict) continue;
-                const entry = entryOf(row.id);
-                if (entry === undefined) continue;
-                const list = byEntry.get(entry);
-                if (list !== undefined) list.push(row.id);
-                else byEntry.set(entry, [row.id]);
-            }
-            record([...byEntry].map(([id, ids]) => ({ id, rows: ids })), variant("verdict", variant(verdict, null)), "verdict",
-                verdict === "approved" ? "Approve all" : "Reject all");
-        },
         drop(event: DragEventValue): boolean {
             if (event.type !== "add") return false;
             const { from, into, duplicate } = event.value;
@@ -458,8 +429,6 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     // Stable to the rows and the drag layer: each runs the latest render's.
     const current = useRef(gestures);
     current.current = gestures;
-    const verdict = useCallback((key: RowKey, v: PlanDraftVerdict) => current.current.verdict(key, v), []);
-    const verdictAll = useCallback((v: PlanDraftVerdict, all: readonly PlanRowValue[]) => current.current.verdictAll(v, all), []);
     const drop = useCallback((event: DragEventValue) => current.current.drop(event), []);
     const move = useCallback((request: PlanMoveRequest) => current.current.move(request), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
@@ -473,8 +442,6 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         data: shownData,
         draftsVersion: drafts.version,
         marks,
-        verdict,
-        verdictAll,
         drop,
         move,
         action,

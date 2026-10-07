@@ -122,7 +122,7 @@ describe("<Sheet> through its carrier (#1179, #1216)", () => {
 const JOBS_KEY = "sheet.carrier.jobs";
 const TICK_KEY = "sheet.carrier.tick";
 
-/** A Reactive sheet over the jobs bound in State, applied through `onUpdate`;
+/** A Reactive sheet over the jobs bound in State, saved through `onUpdate`;
  *  the render also reads a tick nothing else does — so a tick write rebuilds a
  *  sheet over the same data, decoded anew. */
 const EDITED = East.compile(East.function([], UIComponentType, (_$) =>
@@ -141,7 +141,7 @@ const readJobs = East.compile(East.function([], Jobs, ($) => {
 }), getRegisteredPlatformImplementations());
 
 describe("an edit through the carrier (#1179)", () => {
-    test("a draft survives the host's rebuild over the same data, and Apply writes the bound State through the decoded onApply", async () => {
+    test("a draft survives the host's rebuild over the same data, and Save writes the bound State through the decoded onApply", async () => {
         initializeStore(new UIStore());
         const { container, getByRole } = mount(EDITED(), "sheet-carrier-edit");
         const row = () => container.querySelector('[data-row-id="j2"]')!;
@@ -165,12 +165,12 @@ describe("an edit through the carrier (#1179)", () => {
         await flush();
         expect(cell().textContent).toBe("7");
         expect(row().hasAttribute("data-draft")).toBe(true);
-        // Apply runs the decoded onApply: the State takes the batch, and the
+        // Save runs the decoded onApply: the State takes the batch, and the
         // sheet reconciles to it.
-        const apply = getByRole("button", { name: "Apply changes" });
-        await act(async () => { fireEvent.mouseDown(apply, { button: 0 }); fireEvent.click(apply); });
+        const save = getByRole("button", { name: "Save" });
+        await act(async () => { fireEvent.mouseDown(save, { button: 0 }); fireEvent.click(save); });
         expect(readJobs()).toEqual([JOBS[0], { ...JOBS[1]!, qty: 7n }, JOBS[2]]);
-        await waitFor(() => expect((getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true));
+        await waitFor(() => expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true));
         expect(row().hasAttribute("data-draft")).toBe(false);
         expect(cell().textContent).toBe("7");
     }, 30_000);

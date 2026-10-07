@@ -514,8 +514,6 @@ export interface QueryMessages {
     tab: (p: { tab: "query" | "datasets" | "library" }) => string;
     /** A new query's name — `Untitled orders query`. */
     untitled: (p: { source: string }) => string;
-    /** The history item's Apply, in the builder's words. */
-    save: () => string;
     /** The saved queries could not be read. */
     savedUnreadable: (p: { message: string }) => string;
     /** The open saved query is not in the record — its heading. */
@@ -1253,7 +1251,6 @@ export const queryMessages: QueryMessages = {
     pane: () => "Query",
     tab: ({ tab }) => (tab === "query" ? "Query" : tab === "datasets" ? "Datasets" : "Library"),
     untitled: ({ source }) => `Untitled ${source} query`,
-    save: () => "Save",
     savedUnreadable: ({ message }) => `The saved queries couldn't be read: ${message}`,
     queryGone: ({ name }) => `“${name}” isn't saved here`,
     queryGoneHint: () => "It was renamed or removed. Open another from the Library tab, or start a new query from the Datasets tab.",

@@ -81,7 +81,7 @@ function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolea
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
         collapsed: collapsed === true,
-        pinned: false, height: none, status: none, approval: none, expand: none,
+        pinned: false, height: none, status: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
@@ -96,7 +96,7 @@ function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknow
         grain: none,
         popover: opts.popover !== undefined ? some(opts.popover) : none,
         hover: opts.hover !== undefined ? some(opts.hover) : none,
-        expandRender: none, expandGutter: none, review: none, pick: none,
+        expandRender: none, expandGutter: none, pick: none,
         slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: opts.onElementClick !== undefined ? some(opts.onElementClick) : none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,

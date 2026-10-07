@@ -22,7 +22,7 @@ import {
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ApprovalStateType, Chart, DragEventType, Paged, UIComponentType } from "@elaraai/east-ui";
+import { Chart, DragEventType, Paged, UIComponentType } from "@elaraai/east-ui";
 import { Text } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanPayloadType, Record, Schedule, planKeys } from "@elaraai/e3-ui/internal";
 import { Plan as PublicPlan } from "@elaraai/e3-ui";
@@ -96,7 +96,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 const WINDOW = { min: FIRST, max: LAST };
 const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
 const rowIds = equalFor(ArrayType(Plan.Types.RowId));
-const NO_EDITS = { verdict: false, drop: false, move: none };
+const NO_EDITS = { drop: false, move: none };
 
 /** An event kind's events in the window, by key. */
 function keysIn(kind: EventKind): string[] {
@@ -176,7 +176,7 @@ describe("the payload (PB8, PB11)", () => {
         assert.deepEqual([payload.blocks.type, payload.canDrop.type, payload.settings.applyMode.type, payload.settings.date.type], ["some", "none", "batch", "none"]);
     });
 
-    test("§3.3: presses and crews by hall, jobs as bars, stops as marks and shifts as chips, each kind's templates, the pinned chart, review and the grain", () => {
+    test("§3.3: presses and crews by hall, jobs as bars, stops as marks and shifts as chips, each kind's templates, the pinned chart and the grain", () => {
         const payload = payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const crews = $.let(Record.bind(ex.planPrintCrews, []));
@@ -210,7 +210,7 @@ describe("the payload (PB8, PB11)", () => {
                         name: "Print job", icon: "file-lines", draw: "span",
                         title: "title", start: "start", end: "end",
                         resource: { field: "press", of: "presses" },
-                        state: "state", review: "verdict", quantity: { field: "sheets", unit: "sheets" },
+                        state: "state", quantity: { field: "sheets", unit: "sheets" },
                         backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
                         fields: {
                             customer: Schedule.field.text({ label: "Customer" }),
@@ -219,17 +219,13 @@ describe("the payload (PB8, PB11)", () => {
                         },
                         templates: [
                             { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                              values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                                        verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+                              values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none } },
                             { key: "catalogue", name: "Catalogue run", group: "Jobs", duration: variant("hours", 12.0),
-                              values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0,
-                                        verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+                              values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0, customer: "", stock: variant("coated", null), due: none } },
                             { key: "poster", name: "Poster run", group: "Jobs", duration: variant("hours", 4.0),
-                              values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0,
-                                        verdict: variant("pending", null), customer: "", stock: variant("uncoated", null), due: none } },
+                              values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0, customer: "", stock: variant("uncoated", null), due: none } },
                             { key: "board", name: "Board run", group: "Jobs", duration: variant("hours", 8.0),
-                              values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0,
-                                        verdict: variant("pending", null), customer: "", stock: variant("board", null), due: none } },
+                              values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "", stock: variant("board", null), due: none } },
                         ],
                     }),
                     stop: Schedule.events(stops, {
@@ -257,7 +253,6 @@ describe("the payload (PB8, PB11)", () => {
                     key: "output", label: "SHEETS / DAY", id: true, pinned: true, height: "spark", expandable: true,
                     layers: [Chart.Column(days, { x: (r) => r.day, y: (r) => r.sheets })],
                 })],
-                review: { columnLabel: "Decision" },
                 grain: "resource",
             });
         });
@@ -276,8 +271,8 @@ describe("the payload (PB8, PB11)", () => {
         ]);
         assert.deepEqual(payload.events.map((k) => k.templates.map((t) => t.key)), [["brochure", "catalogue", "poster", "board"], ["plates", "service"], ["early", "late", "night"]]);
         const roles = equalFor(Schedule.Types.PlanRoles);
-        assert.ok(roles(payload.events[0]!.roles, { state: some("state"), quantity: some("sheets"), lane: none, review: some("verdict") }));
-        assert.ok(roles(payload.events[2]!.roles, { state: some("state"), quantity: none, lane: none, review: none }));
+        assert.ok(roles(payload.events[0]!.roles, { state: some("state"), quantity: some("sheets"), lane: none }));
+        assert.ok(roles(payload.events[2]!.roles, { state: some("state"), quantity: none, lane: none }));
         assert.deepEqual(payload.events.map((k) => keysIn(k).length), [22, 6, 24]);
         // A job's customer, stock and sheets lead its form, as hinted.
         assert.deepEqual(payload.events[0]!.fields.slice(0, 3).map((f) => [f.path, f.label, f.editor.type]), [
@@ -289,8 +284,7 @@ describe("the payload (PB8, PB11)", () => {
         const [chart] = blocks[0]!.rows;
         assert.deepEqual([chart!.pinned, chart!.kind.type], [true, "chart"]);
         assert.ok(rowIds([chart!.id], [variant("entry", { series: "", path: ["output"] })]));
-        // Review and the grain, on the canvas.
-        assert.equal(payload.plan.review.type === "some" ? payload.plan.review.value.columnLabel : "", "Decision");
+        // The grain, on the canvas.
         assert.equal(payload.plan.grain.type === "some" ? payload.plan.grain.value.type : "", "resource");
     });
 
@@ -662,8 +656,8 @@ describe("links between events (PB10)", () => {
 });
 
 describe("rows over a dataset (PB9)", () => {
-    const StockRow = StructType({ name: StringType, verdict: ApprovalStateType, marks: ArrayType(Plan.Types.EventMark) });
-    const STOCK = new Map([["board", { name: "Board", verdict: variant("pending", null), marks: [] }]]);
+    const StockRow = StructType({ name: StringType, marks: ArrayType(Plan.Types.EventMark) });
+    const STOCK = new Map([["board", { name: "Board", marks: [] }]]);
     const table = () => Plan.series.table(StockRow, { key: "stock", title: "Paper stock", label: (s) => s.name });
 
     test("a `data` that is no keyed collection, and no series", () => {
@@ -673,15 +667,12 @@ describe("rows over a dataset (PB9)", () => {
             /^Plan\.over: lays series over the dataset — give at least one `Plan\.series\.\*`$/);
     });
 
-    test("a series that writes — `review` or `edit` — is refused, naming Schedule.events", () => {
+    test("a series that writes — an `edit` — is refused, naming Schedule.events", () => {
         const data = ($: BlockBuilder<NullType>) => $.const(STOCK, DictType(StringType, StockRow));
-        assert.match(refusal(($) => Plan.over(data($), [Plan.series.span(StockRow, {
-            key: "reviewed", title: "Reviewed", label: (s) => s.name, runs: () => [], review: { verdict: "verdict" },
-        })])), /^Plan\.over: series\[0\], span "Reviewed", declares `review` or `edit` — a Plan's rows over a dataset are read only, and its edits go through its event kinds \(Schedule\.events\)$/);
         assert.match(refusal(($) => Plan.over(data($), [table(), Plan.series.events(StockRow, {
             key: "marks", title: "Marks", label: (s) => s.name, marks: (s) => s.marks,
             edit: { items: "marks", create: (drop) => ({ key: drop.from.key, at: drop.at, kind: variant("milestone", null), icon: none, label: none }) },
-        })])), /^Plan\.over: series\[1\], events "Marks", declares `review` or `edit`/);
+        })])), /^Plan\.over: series\[1\], events "Marks", declares `edit` — a Plan's rows over a dataset are read only, and its edits go through its event kinds \(Schedule\.events\)$/);
     });
 
     test("a series held in a variable, over another entry type, or repeating another's key", () => {

@@ -223,7 +223,7 @@ test("with nothing selected, Details counts the rows, the pending drafts and the
     expect([...panel(container).querySelectorAll("li")].map((li) => li.textContent)).toEqual([
         "Click a cell to see its row's every field here",
         "Click a row number to select it — shift-click to select several",
-        "Changes stay drafts until Apply; the history item undoes each one",
+        "Changes stay drafts until Save; the history item undoes each one",
     ]);
     // A draft counts as pending.
     await select(cell(container, 1, "task"));
@@ -382,12 +382,12 @@ test("a band: the group's own fields, its line count and its issues, then Add li
     expect(bands(container).some((words) => words.includes("WO-2202"))).toBe(false);
 });
 
-test("a band's Duplicate copies the order with its lines, under a key of its own, as one step Apply commits (SB49)", async () => {
+test("a band's Duplicate copies the order with its lines, under a key of its own, as one step Save commits (SB49)", async () => {
     const { container, getByRole } = mount(ex.sheetWorkshop);
     await settle();
     await select(bandCell(container, 0, "end"));
     await press(within(panel(container)).getByRole("button", { name: "Duplicate with its lines" }));
-    await press(getByRole("button", { name: "Apply changes" }));
+    await press(getByRole("button", { name: "Save" }));
     const orders = readRecord(ex.sheetWorkshopOrders);
     expect(orders.size).toBe(7);
     const kitchen = orders.get("WO-2201")!;
@@ -439,7 +439,7 @@ test("Issues lists every issue of the batch by row, and a click puts the ring on
     // No issues yet: the empty state.
     fireEvent.click(within(pane(container)).getByRole("tab", { name: /Issues/ }));
     await settle();
-    expect(panel(container).querySelector("[data-inspector-no-issues]")!.textContent).toBe("No issuesEvery draft is complete — nothing stands in the way of Apply.");
+    expect(panel(container).querySelector("[data-inspector-no-issues]")!.textContent).toBe("No issuesEvery draft is complete — nothing stands in the way of Save.");
     fireEvent.click(within(pane(container)).getByRole("tab", { name: "Details" }));
     await settle();
     for (const row of [0, 1]) {
@@ -513,7 +513,7 @@ test("the author's update is one transaction: a column's field through its cell,
     expect(panel(container).querySelector("[data-state]")).toBeNull();
 
     await press(within(panel(container)).getByRole("button", { name: "Double it" }));
-    await press(getByRole("button", { name: "Apply changes" }));
+    await press(getByRole("button", { name: "Save" }));
     const job = readJobs().get("J-0001")!;
     expect(job.task).toBe("Panel cutting, twice");
     expect(equalFor(ex.SheetJob.fields.qty)(job.qty, some(96.0))).toBe(true);

@@ -9,7 +9,7 @@
  * event kinds, laid out as `data` and `series` lay a canvas out.
  *
  * A Plan's edits go through its event kinds' records, so a series here that
- * declares `review` or `edit` is refused.
+ * declares `edit` is refused.
  *
  * @packageDocumentation
  */
@@ -77,13 +77,13 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  * @param series - The `Plan.series.*` values over its entries, written in place — the list is the layout
  * @returns The blocks, for a Plan's `rows`
  * @throws {Error} When `data` is not a keyed collection; no series is given; a series is not a `Plan.series.*` value
- *   written in place, is built over entries of another type, or declares `review` or `edit`; or two series share a key
+ *   written in place, is built over entries of another type, or declares `edit`; or two series share a key
  *
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, some, variant } from "@elaraai/east";
- * import { ApprovalStateType, EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
@@ -95,7 +95,6 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *     press: OptionType(StringType),
  *     state: EventStateType,
  *     sheets: FloatType,
- *     verdict: ApprovalStateType,
  *     customer: StringType,
  *     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
  *     due: OptionType(DateTimeType),
@@ -110,10 +109,10 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *     ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
  * ]));
  * export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), new Map([
- *     ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
- *     ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
- *     ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
- *     ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+ *     ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+ *     ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+ *     ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
  * ]));
  * export const planLinkJobsPatch = e3.mutation.patch(planLinkJobs);
  * export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([
@@ -196,7 +195,7 @@ export function createOver<K extends PlanAxisKindLiteral = never>(
             throw new Error(`Plan.over: series[${i}] is a Plan.series.* value written in place — a series bound or stored elsewhere cannot be checked to be read only`);
         }
         if (facts.writes) {
-            throw new Error(`Plan.over: series[${i}], ${facts.arm} "${facts.title}", declares \`review\` or \`edit\` — a Plan's rows over a dataset are read only, and its edits go through its event kinds (Schedule.events)`);
+            throw new Error(`Plan.over: series[${i}], ${facts.arm} "${facts.title}", declares \`edit\` — a Plan's rows over a dataset are read only, and its edits go through its event kinds (Schedule.events)`);
         }
         // Written in place, so its keys are known: its own and its nested series'.
         return { facts, keys: planSeriesKeys([one]) ?? [facts.key] };

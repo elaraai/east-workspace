@@ -21,7 +21,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { ApprovalStateType, Chart, EventStateType, Format, Reactive, SegmentGroup, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Chart, EventStateType, Format, Reactive, SegmentGroup, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -50,8 +50,8 @@ export const PrintCrew = StructType({ name: StringType, hall: StringType });
 
 /**
  * A print job: when it runs and on which press — none of the three while it
- * waits in the backlog — the lifecycle it wears, its sheets, the verdict a
- * review writes, and the customer's details.
+ * waits in the backlog — the lifecycle it wears, its sheets, and the
+ * customer's details.
  */
 export const PrintJob = StructType({
     title: StringType,
@@ -60,7 +60,6 @@ export const PrintJob = StructType({
     press: OptionType(StringType),
     state: EventStateType,
     sheets: FloatType,
-    verdict: ApprovalStateType,
     customer: StringType,
     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
     due: OptionType(DateTimeType),
@@ -100,45 +99,44 @@ export const planPrintCrews = e3.record("plan_print_crews", DictType(StringType,
 
 /**
  * The print jobs: actual before 14 October, in progress on it, confirmed,
- * proposed and estimated after it; the proposed and estimated ones awaiting
- * review; two overlapping on Press B2 on the 20th; and eight with no start
- * waiting in the backlog, two due this week, two next week, two later and two
- * with no due date.
+ * proposed and estimated after it; two overlapping on Press B2 on the 20th;
+ * and eight with no start waiting in the backlog, two due this week, two next
+ * week, two later and two with no due date.
  */
 export const planPrintJobs = e3.record("plan_print_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-1001", { title: "Spring catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, verdict: variant("approved", null), customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
-    ["J-1002", { title: "Museum guide", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 72000.0, verdict: variant("approved", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-1003", { title: "Event posters", start: some(new Date("2026-10-14T07:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a1"), state: variant("in-progress", null), sheets: 60000.0, verdict: variant("approved", null), customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
-    ["J-1004", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-1005", { title: "Menu cards", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T08:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, verdict: variant("pending", null), customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-1006", { title: "Tour brochure", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a2"), state: variant("actual", null), sheets: 80000.0, verdict: variant("approved", null), customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
-    ["J-1007", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, verdict: variant("approved", null), customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1008", { title: "Seed catalogue", start: some(new Date("2026-10-21T06:00:00Z")), end: some(new Date("2026-10-21T16:00:00Z")), press: some("a2"), state: variant("proposed", variant("added", null)), sheets: 100000.0, verdict: variant("pending", null), customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-24T00:00:00Z")) }],
-    ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, verdict: variant("pending", null), customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
-    ["J-1010", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, verdict: variant("approved", null), customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-1011", { title: "Stationery set", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 24000.0, verdict: variant("approved", null), customer: "Ivy Lane Studio", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1012", { title: "Gift boxes", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T12:00:00Z")), press: some("a3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
-    ["J-1013", { title: "Holiday catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T22:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 240000.0, verdict: variant("approved", null), customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
-    ["J-1014", { title: "Magazine run", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 180000.0, verdict: variant("approved", null), customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
-    ["J-1015", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("b1"), state: variant("in-progress", null), sheets: 150000.0, verdict: variant("approved", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1016", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T12:00:00Z")), press: some("b1"), state: variant("estimated", null), sheets: 90000.0, verdict: variant("pending", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
-    ["J-1017", { title: "Timetables", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T10:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 48000.0, verdict: variant("approved", null), customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
-    ["J-1018", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, verdict: variant("approved", null), customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
-    ["J-1019", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, verdict: variant("pending", null), customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, verdict: variant("pending", null), customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
-    ["J-1021", { title: "Handbook covers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["J-1022", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
-    ["J-1023", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, verdict: variant("pending", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-1024", { title: "Order forms", start: none, end: none, press: none, state: variant("proposed", variant("added", null)), sheets: 40000.0, verdict: variant("pending", null), customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
-    ["J-1025", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, verdict: variant("pending", null), customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
-    ["J-1026", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, verdict: variant("pending", null), customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
-    ["J-1027", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, verdict: variant("pending", null), customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-11-06T00:00:00Z")) }],
-    ["J-1028", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, verdict: variant("pending", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-11-13T00:00:00Z")) }],
-    ["J-1029", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, verdict: variant("pending", null), customer: "Meridian Monthly", stock: variant("board", null), due: none }],
-    ["J-1030", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, verdict: variant("pending", null), customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
+    ["J-1001", { title: "Spring catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+    ["J-1002", { title: "Museum guide", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 72000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+    ["J-1003", { title: "Event posters", start: some(new Date("2026-10-14T07:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a1"), state: variant("in-progress", null), sheets: 60000.0, customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+    ["J-1004", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+    ["J-1005", { title: "Menu cards", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T08:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+    ["J-1006", { title: "Tour brochure", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a2"), state: variant("actual", null), sheets: 80000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+    ["J-1007", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-1008", { title: "Seed catalogue", start: some(new Date("2026-10-21T06:00:00Z")), end: some(new Date("2026-10-21T16:00:00Z")), press: some("a2"), state: variant("proposed", variant("added", null)), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-24T00:00:00Z")) }],
+    ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
+    ["J-1010", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+    ["J-1011", { title: "Stationery set", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 24000.0, customer: "Ivy Lane Studio", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-1012", { title: "Gift boxes", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T12:00:00Z")), press: some("a3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+    ["J-1013", { title: "Holiday catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T22:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 240000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+    ["J-1014", { title: "Magazine run", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 180000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
+    ["J-1015", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("b1"), state: variant("in-progress", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-1016", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T12:00:00Z")), press: some("b1"), state: variant("estimated", null), sheets: 90000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+    ["J-1017", { title: "Timetables", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T10:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 48000.0, customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
+    ["J-1018", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+    ["J-1019", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+    ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+    ["J-1021", { title: "Handbook covers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+    ["J-1022", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+    ["J-1023", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-1024", { title: "Order forms", start: none, end: none, press: none, state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
+    ["J-1025", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+    ["J-1026", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+    ["J-1027", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-11-06T00:00:00Z")) }],
+    ["J-1028", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-11-13T00:00:00Z")) }],
+    ["J-1029", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+    ["J-1030", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
 ]));
 
-/** The jobs' patch door: every Apply commits through it. */
+/** The jobs' patch door: every Save commits through it. */
 export const planPrintJobsPatch = e3.mutation.patch(planPrintJobs);
 
 /** The stops: plate changes and services across the presses. */
@@ -234,7 +232,7 @@ export const planPrintOutput = e3.input("plan_print_output", ArrayType(FloatType
 /**
  * The smallest Plan of event kinds (`Plan Builder Spec.md` §3.2): a row per
  * press, each job a bar on its press. Jobs move and resize along a press and
- * between presses, and Apply commits the drafts as one patch through the
+ * between presses, and Save commits the drafts as one patch through the
  * jobs' patch door. It lists no `library` and is given no `inspector`, so it
  * draws neither pane. The two `Schedule` values are exactly what a Calendar
  * takes.
@@ -281,8 +279,8 @@ export const planEvents = example({
 /**
  * The print works (`Plan Builder Spec.md` §3.3): two resource kinds grouped
  * by hall, three event kinds drawn three ways — jobs as bars, stops as marks
- * at their instants, shifts as chips — review on jobs, a utilisation heat row
- * under each press, and a pinned chart of the sheets printed each day. Each
+ * at their instants, shifts as chips — a utilisation heat row under each
+ * press, and a pinned chart of the sheets printed each day. Each
  * kind declares its templates. Its library (#1195) lists every kind's
  * templates, the backlog, the series a viewer shows and hides, and the
  * customers, a card apiece that sets the customer of the job it is dropped
@@ -295,12 +293,12 @@ export const planPrintWorks = example({
     keywords: [
         "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Schedule.field", "event kinds", "print works",
         "presses", "crews", "jobs", "stops", "shifts", "draw", "span", "marks", "cards", "at", "instant", "group",
-        "hall", "sub", "measures", "utilisation", "heat", "state", "review", "verdict", "quantity", "backlog",
+        "hall", "sub", "measures", "utilisation", "heat", "state", "quantity", "backlog",
         "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "library",
         "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
         "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197",
     ],
-    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle, sheets and verdict, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, a pinned chart of the sheets printed each day, its library (the templates, the backlog, the series and the customers) and its inspector, where a stop shows the stop kind's own",
+    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle and sheets, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, a pinned chart of the sheets printed each day, its library (the templates, the backlog, the series and the customers) and its inspector, where a stop shows the stop kind's own",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(planPrintPresses, []));
@@ -369,7 +367,7 @@ export const planPrintWorks = example({
                             name: "Print job", icon: "file-lines", draw: "span",
                             title: "title", start: "start", end: "end",
                             resource: { field: "press", of: "presses" },
-                            state: "state", review: "verdict",
+                            state: "state",
                             quantity: { field: "sheets", unit: "sheets" },
                             backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
                             fields: {
@@ -380,16 +378,16 @@ export const planPrintWorks = example({
                             templates: [
                                 { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
                                   values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                                            verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+                                            customer: "", stock: variant("coated", null), due: none } },
                                 { key: "catalogue", name: "Catalogue run", group: "Jobs", duration: variant("hours", 12.0),
                                   values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0,
-                                            verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+                                            customer: "", stock: variant("coated", null), due: none } },
                                 { key: "poster", name: "Poster run", group: "Jobs", duration: variant("hours", 4.0),
                                   values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0,
-                                            verdict: variant("pending", null), customer: "", stock: variant("uncoated", null), due: none } },
+                                            customer: "", stock: variant("uncoated", null), due: none } },
                                 { key: "board", name: "Board run", group: "Jobs", duration: variant("hours", 8.0),
                                   values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0,
-                                            verdict: variant("pending", null), customer: "", stock: variant("board", null), due: none } },
+                                            customer: "", stock: variant("board", null), due: none } },
                             ],
                         }),
                         stop: Schedule.events(stops, {
@@ -424,7 +422,6 @@ export const planPrintWorks = example({
                             layers: [Chart.Column(days, { x: r => r.day, y: r => r.sheets })],
                         }),
                     ]}
-                    review={{ columnLabel: "Decision" }}
                     grain="resource"
                     library={[
                         Plan.library.events(),
@@ -451,12 +448,12 @@ export const planPrintWorks = example({
 
 /** Six jobs for the library's example: three on the presses, and three in the backlog, due this week, next week and never. */
 export const planLibraryJobs = e3.record("plan_library_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-3001", { title: "Shop catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 64000.0, verdict: variant("approved", null), customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
-    ["J-3002", { title: "Gallery guide", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T10:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 32000.0, verdict: variant("approved", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-3003", { title: "Term timetable", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, verdict: variant("pending", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["J-3004", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, verdict: variant("pending", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-3005", { title: "Gift tags", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
-    ["J-3006", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 4000.0, verdict: variant("pending", null), customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+    ["J-3001", { title: "Shop catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 64000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+    ["J-3002", { title: "Gallery guide", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T10:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 32000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-3003", { title: "Term timetable", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+    ["J-3004", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-3005", { title: "Gift tags", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+    ["J-3006", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 4000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
 ]));
 
 /** The library example's jobs' patch door. */
@@ -500,7 +497,7 @@ export const planLibrary = example({
                             templates: [
                                 { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
                                   values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                                            verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+                                            customer: "", stock: variant("coated", null), due: none } },
                             ],
                         }),
                     }}
@@ -531,10 +528,10 @@ export const PrintStock = StructType({ name: StringType, weekly: ArrayType(Float
 
 /** Four jobs: the covers and the sleeves on Press B3, and the handbooks and the boxes they go into on Press A1. */
 export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), new Map([
-    ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
-    ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
-    ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
-    ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+    ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+    ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+    ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
 ]));
 
 /** The linked jobs' patch door. */

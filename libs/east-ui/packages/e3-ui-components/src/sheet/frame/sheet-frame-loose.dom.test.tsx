@@ -10,7 +10,7 @@
  * declares them. A loose task is a plain row numbered in the packages'
  * sequence, Details shows it as a row — the sheet given the inspector pane —
  * Alt+Insert beside it adds another with a minted id, and a grip moves it, or
- * a package with its tasks, between the entries; one Apply commits each to
+ * a package with its tasks, between the entries; one Save commits each to
  * the record.
  */
 
@@ -76,7 +76,7 @@ const gripOf = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-slot=
 const panel = (c: HTMLElement) => slot(c, "end")!.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
 
 /** Clicks a history button in the toolbar, as a pointer does. */
-async function history(c: HTMLElement, name: "Undo" | "Apply changes") {
+async function history(c: HTMLElement, name: "Undo" | "Save") {
     const button = within(slot(c, "toolbar")!).getByRole("button", { name });
     await act(async () => { fireEvent.mouseDown(button, { button: 0 }); fireEvent.click(button); });
     await settle();
@@ -124,7 +124,7 @@ test("the week's entries in the planner's order: a loose task a plain row number
         .toEqual(["task:text", "qty:number", "notes:text"]);
 });
 
-test("Alt+Insert beside a loose task adds a loose task after it, its id minted; typed and applied, the record holds it as an entry in its place, in one commit", async () => {
+test("Alt+Insert beside a loose task adds a loose task after it, its id minted; typed and saved, the record holds it as an entry in its place, in one commit", async () => {
     const { container } = mount(ex.sheetLoose);
     await settle();
     fireEvent.mouseDown(entryRow(container, "brief").querySelector('[data-key="task"]')!, { button: 0 });
@@ -151,7 +151,7 @@ test("Alt+Insert beside a loose task adds a loose task after it, its id minted; 
     await settle();
     expect(sheetText(container)[1]).toBe("Measure the site");
     expect(within(slot(container, "toolbar")!).getByRole("button", { name: "0 issues" })).toBeTruthy();
-    await history(container, "Apply changes");
+    await history(container, "Save");
     // An entry of its own, between the first and the first package — `newRow`'s defaults under what was typed.
     const entries = readWork().get("2026-W42")!.entries;
     expect(entries.map((entry) => entry.value.id)).toEqual(["brief", minted, "doors", "handover", "finish"]);
@@ -161,7 +161,7 @@ test("Alt+Insert beside a loose task adds a loose task after it, its id minted; 
     expect(main(container).querySelectorAll('[data-slot="row"][data-draft]').length).toBe(0);
 });
 
-test("Alt+Insert beside a package's task adds a task in the package, its id minted as a loose task's is — the field both are identified by; typed, it applies", async () => {
+test("Alt+Insert beside a package's task adds a task in the package, its id minted as a loose task's is — the field both are identified by; typed, it saves", async () => {
     const { container } = mount(ex.sheetLoose);
     await settle();
     fireEvent.mouseDown(linesOf(container, "doors")[0]!.querySelector('[data-key="task"]')!, { button: 0 });
@@ -180,8 +180,8 @@ test("Alt+Insert beside a package's task adds a task in the package, its id mint
     await settle();
     expect(linesOf(container, "doors").map((line) => line.querySelector('[data-key="task"]')!.textContent))
         .toEqual(["Cut door blanks", "Sand the blanks", "Inspect the blanks"]);
-    // Complete — its id minted — so Apply is free to commit it.
-    await history(container, "Apply changes");
+    // Complete — its id minted — so Save is free to commit it.
+    await history(container, "Save");
     const doors = readWork().get("2026-W42")!.entries[1]!;
     if (doors.type !== "group") throw new Error(`expected the package, got a ${doors.type}`);
     const minted = doors.value.tasks[1]!.id;
@@ -193,7 +193,7 @@ test("Alt+Insert beside a package's task adds a task in the package, its id mint
     ] }))).toBe(true);
 });
 
-test("a loose task's grip moves it between the entries — over a package, to the seam before it — and a package's moves it with its tasks; a line stays in its package; one Apply commits the order", async () => {
+test("a loose task's grip moves it between the entries — over a package, to the seam before it — and a package's moves it with its tasks; a line stays in its package; one Save commits the order", async () => {
     const { container } = mount(ex.sheetLoose, { drag: true });
     await settle();
     // The loose task before the last: over the first package's band, either half, or one of its lines — the seam before the package.
@@ -230,8 +230,8 @@ test("a loose task's grip moves it between the entries — over a package, to th
     await release("bottom");
     expect(announced()).toBe("Line 2 of Kitchen doors was not dropped.");
     expect(linesOf(container, "doors")).toHaveLength(2);
-    // Two moves, one Apply: the entries in their new order, the package's tasks with it.
-    await history(container, "Apply changes");
+    // Two moves, one Save: the entries in their new order, the package's tasks with it.
+    await history(container, "Save");
     expect(entryIds()).toEqual(["finish", "brief", "handover", "doors"]);
     // The package moved whole: as it was seeded, its task inside it.
     const seeded = ex.sheetLooseWork.default!.get("2026-W42")!.entries[3]!;

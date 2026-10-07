@@ -53,23 +53,23 @@ let restoreFrame: () => void = () => {};
 beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
 afterEach(() => { cleanup(); restoreFrame(); });
 
-test("Apply commits the open editor before writing the checked batch; applied Undo stages its inverse", async () => {
+test("Save commits the open editor before writing the checked batch; a saved Undo stages its inverse", async () => {
     const ui = mount();
     await ui.edit("9");
     expect(quantity()).toBe(1n);
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(false);
-    await ui.press("Apply changes");
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+    await ui.press("Save");
     expect(quantity()).toBe(9n);
     ui.refresh();
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.queryByRole("status")).toBeNull();
     await ui.press("Undo");
     expect(ui.cell().textContent).toBe("1");
     expect(quantity()).toBe(9n);
-    await ui.press("Apply changes");
+    await ui.press("Save");
     expect(quantity()).toBe(1n);
     ui.refresh();
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.queryByRole("status")).toBeNull();
 });
 
@@ -98,7 +98,7 @@ test("an acknowledgement lost after persistence freezes mutations and retries th
         return result;
     })) } } });
     await ui.edit("8");
-    await ui.press("Apply changes");
+    await ui.press("Save");
     expect(quantity()).toBe(8n);
     // The frame's banner says so (#1184), the error under its title, and holds the Retry.
     expect(ui.getByRole("alert").closest('[data-session-banner="unknown"]')!.textContent).toContain("Acknowledgement lost");
@@ -118,16 +118,16 @@ test("an acknowledgement lost after persistence freezes mutations and retries th
     expect(requests).toHaveLength(2);
     expect(requests[1]).toEqual(requests[0]);
     ui.refresh();
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.queryByRole("status")).toBeNull();
 });
 
-test("a missing required field blocks Apply and the issue button focuses its cell", async () => {
+test("a missing required field blocks Save and the issue button focuses its cell", async () => {
     const ui = mount();
     await ui.edit("");
-    await ui.press("Apply changes");
+    await ui.press("Save");
     expect(quantity()).toBe(1n);
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     await ui.press("1 issue");
     expect(ui.cell().hasAttribute("data-selected")).toBe(true);
     expect(ui.container.querySelector('[data-slot="footerMessage"]')!.textContent).toMatch(/qty/);
@@ -146,7 +146,7 @@ test("invalid pasted integers stay visible, block the whole batch, and undo as o
     expect(ui.cell().getAttribute("aria-invalid")).toBe("true");
     expect(ui.cell().querySelector('[data-slot="cellText"]')!.textContent).toBe("1.5");
     expect(quantity()).toBe(1n);
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(document.getElementById(ui.cell().getAttribute("aria-describedby")!)!.textContent).toContain("1.5");
     await ui.press("Undo");
     expect(ui.cell().textContent).toBe("1");
@@ -158,7 +158,7 @@ test("invalid pasted integers stay visible, block the whole batch, and undo as o
 });
 
 
-test("discarding a never-applied row emits one patch, preserves missing fields through Undo, and never writes the source", async () => {
+test("discarding a never-saved row emits one patch, preserves missing fields through Undo, and never writes the source", async () => {
     const journal = sheetJournal(view());
     const ui = mount(journal.value);
     const blank = ui.container.querySelector('[data-slot="row"][data-blank] [data-key="qty"]')!;
@@ -179,7 +179,7 @@ test("discarding a never-applied row emits one patch, preserves missing fields t
     await ui.press("Undo");
     expect(draftRow()?.hasAttribute("data-incomplete")).toBe(true);
     expect(journal.drafts.get(id)).toEqual(draft);
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     await ui.press("Redo");
     expect(draftRow()).toBeNull();
     expect(quantity()).toBe(1n);
@@ -207,7 +207,7 @@ test("discarding a new row first commits another row's open editor as a separate
 });
 
 
-test("an author rule marks the affected row, blocks Apply, focuses its issue and clears on Undo", async () => {
+test("an author rule marks the affected row, blocks Save, focuses its issue and clears on Undo", async () => {
     const sheet = view();
     const root = sheet.sheet;
     const batchOf = decodeBeast2For(SheetReadyBatchType);
@@ -220,9 +220,9 @@ test("an author rule marks the affected row, blocks Apply, focuses its issue and
         });
     }) } } });
     await ui.edit("0");
-    await ui.press("Apply changes");
+    await ui.press("Save");
     expect(quantity()).toBe(1n);
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.cell().closest('[data-slot="row"]')!.hasAttribute("data-incomplete")).toBe(true);
     expect(ui.cell().getAttribute("aria-invalid")).toBe("true");
     expect(document.getElementById(ui.cell().getAttribute("aria-describedby")!)!.textContent).toContain("Quantity needs approval");

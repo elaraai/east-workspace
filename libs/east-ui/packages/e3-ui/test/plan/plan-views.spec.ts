@@ -15,10 +15,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, NullType, OptionType, RecursiveType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, NullType, OptionType, RecursiveType, StringType, StructType,
     decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { ApprovalStateType } from "@elaraai/east-ui";
 import { Plan } from "@elaraai/e3-ui/internal";
 
 const axis = Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-12T00:00:00Z") }, resolution: "day" });
@@ -143,62 +142,70 @@ test("a span member that declares rollup rolls up the children nested under its 
 
 // ── Entries that hold more of themselves — a gesture on a nested member row ──
 
-const Node = RecursiveType((self) => StructType({ name: StringType, verdict: ApprovalStateType, kids: DictType(StringType, self) }));
+const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
+const Node = RecursiveType((self) => StructType({ name: StringType, jobs: ArrayType(Job), kids: DictType(StringType, self) }));
 const Nodes = DictType(StringType, Node);
-type Verdict = ValueTypeOf<typeof ApprovalStateType>;
-const PENDING: Verdict = variant("pending", null);
-const APPROVED: Verdict = variant("approved", null);
-/** A ← B ← C, their verdicts as given. */
-const treeOf = (a: Verdict, b: Verdict, c: Verdict) => ({
-    name: "A", verdict: a, kids: new Map([["b", {
-        name: "B", verdict: b, kids: new Map([["c", { name: "C", verdict: c, kids: new Map() }]]),
+type JobValue = ValueTypeOf<typeof Job>;
+/** Where a card lands, and the job it becomes there: an hour long. */
+const AT = new Date("2026-10-06T06:00:00Z");
+const DROPPED: JobValue = { key: "card", start: AT, end: new Date("2026-10-06T07:00:00Z") };
+/** A ← B ← C, their jobs as given. */
+const treeOf = (a: JobValue[], b: JobValue[], c: JobValue[]) => ({
+    name: "A", jobs: a, kids: new Map([["b", {
+        name: "B", jobs: b, kids: new Map([["c", { name: "C", jobs: c, kids: new Map() }]]),
     }]]),
 });
+/** A card dropped on a row, at {@link AT}. */
+const dropOn = (row: RowId) => variant("drop", { from: { library: "jobs", key: "card" }, row, at: variant("time", AT), duplicate: false });
 const encodeNode = encodeBeast2For(Node);
 const decodeNode = decodeBeast2For(Node);
 const sameNode = equalFor(Node);
 
-test("a verdict on a nested member row is written into its entry, through the field `children` reads — at every depth", () => {
+test("a card dropped on a nested member row is written into its entry, through the field `children` reads — at every depth", () => {
     const root = East.compile(East.function([], Plan.Types.Root, ($) => {
-        const data = $.const(new Map([["a", treeOf(PENDING, PENDING, PENDING)]]), Nodes);
+        const data = $.const(new Map([["a", treeOf([], [], [])]]), Nodes);
         return Plan.Root({
             axis, data,
             series: [Plan.series.views(Node, { key: "v", title: "Nodes", children: (n) => n.kids }, [
-                Plan.series.span(Node, { key: "v.span", title: "Bars", label: (n) => n.name, runs: () => [], review: { verdict: "verdict" } }),
+                Plan.series.span(Node, {
+                    key: "v.span", title: "Bars", label: (n) => n.name, runs: () => [],
+                    edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
+                }),
                 Plan.series.events(Node, { key: "v.marks", title: "Marks", label: (n) => n.name, marks: () => [] }),
             ])],
             editing: {},
         });
     }), [])();
-    // Drawn: every level's member rows, each showing its verdict.
+    // Drawn: every level's member rows.
     assert.ok(sameIds(rowsOf(root).map((r) => r.id), [
         id("v.span", "a"), id("v.marks", "a"), id("v.span", "a", "b"), id("v.marks", "a", "b"), id("v.span", "a", "b", "c"), id("v.marks", "a", "b", "c"),
     ]));
     if (root.editing.type !== "some") return assert.fail("expected the canvas to declare editing");
     const wire = root.editing.value;
     const written = (row: RowId) => {
-        const [out] = wire.write([{ id: "a", entry: encodeNode(treeOf(PENDING, PENDING, PENDING)), rows: [row], gesture: variant("verdict", APPROVED) }]);
+        const [out] = wire.write([{ id: "a", entry: encodeNode(treeOf([], [], [])), rows: [row], gesture: dropOn(row) }]);
         return out?.type === "some" ? decodeNode(out.value) : undefined;
     };
     const top = written(id("v.span", "a"));
-    assert.ok(top !== undefined && sameNode(top, treeOf(APPROVED, PENDING, PENDING)));
+    assert.ok(top !== undefined && sameNode(top, treeOf([DROPPED], [], [])));
     const second = written(id("v.span", "a", "b"));
-    assert.ok(second !== undefined && sameNode(second, treeOf(PENDING, APPROVED, PENDING)));
+    assert.ok(second !== undefined && sameNode(second, treeOf([], [DROPPED], [])));
     const third = written(id("v.span", "a", "b", "c"));
-    assert.ok(third !== undefined && sameNode(third, treeOf(PENDING, PENDING, APPROVED)));
+    assert.ok(third !== undefined && sameNode(third, treeOf([], [], [DROPPED])));
     // A member that takes no gesture, and an entry the tree lacks — at the end of the path or on the way — write nothing.
     assert.equal(written(id("v.marks", "a", "b")), undefined);
     assert.equal(written(id("v.span", "a", "x")), undefined);
     assert.equal(written(id("v.span", "a", "x", "c")), undefined);
 });
 
-test("a data series' own walk writes a nested verdict, and nothing for a row naming an entry the tree lacks — where it used to throw", () => {
+test("a data series' own walk writes a nested drop, and nothing for a row naming an entry the tree lacks — where it used to throw", () => {
     const root = East.compile(East.function([], Plan.Types.Root, ($) => {
-        const data = $.const(new Map([["a", treeOf(PENDING, PENDING, PENDING)]]), Nodes);
+        const data = $.const(new Map([["a", treeOf([], [], [])]]), Nodes);
         return Plan.Root({
             axis, data,
             series: [Plan.series.span(Node, {
-                key: "s", title: "Nodes", label: (n) => n.name, runs: () => [], review: { verdict: "verdict" }, children: (n) => n.kids,
+                key: "s", title: "Nodes", label: (n) => n.name, runs: () => [], children: (n) => n.kids,
+                edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
             })],
             editing: {},
         });
@@ -206,22 +213,25 @@ test("a data series' own walk writes a nested verdict, and nothing for a row nam
     if (root.editing.type !== "some") return assert.fail("expected the canvas to declare editing");
     const wire = root.editing.value;
     const written = (row: RowId) => {
-        const [out] = wire.write([{ id: "a", entry: encodeNode(treeOf(PENDING, PENDING, PENDING)), rows: [row], gesture: variant("verdict", APPROVED) }]);
+        const [out] = wire.write([{ id: "a", entry: encodeNode(treeOf([], [], [])), rows: [row], gesture: dropOn(row) }]);
         return out;
     };
     const nested = written(id("s", "a", "b", "c"));
-    assert.ok(nested?.type === "some" && sameNode(decodeNode(nested.value), treeOf(PENDING, PENDING, APPROVED)));
+    assert.ok(nested?.type === "some" && sameNode(decodeNode(nested.value), treeOf([], [], [DROPPED])));
     assert.equal(written(id("s", "a", "x", "c"))?.type, "none");
     assert.equal(written(id("s", "a", "b", "x"))?.type, "none");
 });
 
 test("a member that takes gestures under a computed `children` collection is refused at build — a write could not follow it back", () => {
-    const Rv = StructType({ name: StringType, verdict: ApprovalStateType, parent: OptionType(StringType) });
+    const Rv = StructType({ name: StringType, jobs: ArrayType(Job), parent: OptionType(StringType) });
     assert.throws(() => East.function([], NullType, ($) => {
         const all = $.const(new Map(), DictType(StringType, Rv));
         $(East.value(Plan.series.views(Rv, {
             key: "v", title: "V",
             children: (_r, k) => all.filter((_$, c) => c.parent.hasTag("some").and(() => c.parent.unwrap("some").equal(k))),
-        }, [Plan.series.span(Rv, { key: "v.span", title: "Bars", label: (r) => r.name, runs: () => [], review: { verdict: "verdict" } })])));
+        }, [Plan.series.span(Rv, {
+            key: "v.span", title: "Bars", label: (r) => r.name, runs: () => [],
+            edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addHours(1n) }) },
+        })])));
     }), /a member takes gestures, and one on a child row is written back into its entry through `children` — which must read a field of the entry/);
 });

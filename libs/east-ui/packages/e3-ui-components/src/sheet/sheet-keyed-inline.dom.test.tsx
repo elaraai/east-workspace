@@ -8,9 +8,9 @@
  * order, a keyed inline source. A new row takes its key from `newRowId` and
  * sits where its key sorts, at the key's own type; nothing is placed by
  * position; a removal is a delete by key; and readiness holds a new row's
- * missing field against Apply. Every root built by the e3-ui factory a
+ * missing field against Save. Every root built by the e3-ui factory a
  * record's rows reach the sheet through, in the Sheet's payload, and
- * COMPILED; Apply is a spy over the batch the record would be handed. The
+ * COMPILED; its `onApply` is a spy over the batch the record would be handed. The
  * Sheet is mounted in its frame (#1216).
  */
 
@@ -40,7 +40,7 @@ const COLUMNS = {
 const BY_TEXT = new SortedMap([["J-0003", { task: "Edge banding", qty: 12n }], ["J-0001", { task: "Panel cutting", qty: 48n }]], compareFor(StringType));
 const BY_NUMBER = new SortedMap([[10n, { task: "Spray finish", qty: 2n }], [9n, { task: "Assembly", qty: 1n }]], compareFor(IntegerType));
 
-/** The record's Apply, as `Record.onApply(record, { keyed: true })` types it — the spy below stands in for it. */
+/** The record's `onApply`, as `Record.onApply(record, { keyed: true })` types it — the spy below stands in for it. */
 const APPLY_TEXT = East.asyncFunction([Editing.Types.ChangeSet(JobType, StringType)], Editing.Types.ApplyResult,
     (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
 const APPLY_NUMBER = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,
@@ -71,7 +71,7 @@ const numberSheet = East.compile(East.function([], SheetPayloadType, ($) => {
 const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(JobType, StringType));
 type Batch = ValueTypeOf<ReturnType<typeof Editing.Types.ChangeSet<typeof JobType, typeof StringType>>>;
 
-/** A sheet whose Apply records the batches it is handed. */
+/** A sheet whose `onApply` records the batches it is handed. */
 function withApplySpy(sheet: SheetValue) {
     const batches: Batch[] = [];
     const root = sheet.sheet;
@@ -141,14 +141,14 @@ test("nothing is placed by position: a seam offers Add row, and the new row sits
     expect(journal.events[0]!.draftChanges[0]!.place).toEqual(some(variant("keyOrder", null)));
 });
 
-test("a removal is a delete by key, handed to Apply in the session's keyed batch", async () => {
+test("a removal is a delete by key, handed over on Save in the session's keyed batch", async () => {
     const { value, batches } = withApplySpy(textSheet());
     const ui = mount(value);
     fireEvent.mouseDown(ui.cellOf("J-0003", "task"), { button: 0 });
     fireEvent.click(ui.container.querySelector('[data-row-id="J-0003"] [data-slot="checkbox"]')!); await ui.flush();
     fireEvent.keyDown(ui.card(), { key: "Backspace" }); await ui.flush();
     expect(ui.ids()).toEqual(["J-0001"]);
-    await ui.press("Apply changes");
+    await ui.press("Save");
     expect(batches).toHaveLength(1);
     const change = batches[0]!.changes[0]!;
     expect(batches[0]!.changes.map((c) => c.id)).toEqual(["J-0003"]);
@@ -157,11 +157,11 @@ test("a removal is a delete by key, handed to Apply in the session's keyed batch
     expect(batches[0]!.base.type).toBe("snapshot");
 });
 
-test("readiness: a new row missing a required field holds Apply back until it is filled", async () => {
+test("readiness: a new row missing a required field holds Save back until it is filled", async () => {
     const ui = mount(withApplySpy(textSheet()).value);
     await ui.paste(ui.blankCell("task"), "Sanding");
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.getByRole("button", { name: "1 issue" })).toBeTruthy();
     await ui.paste(ui.cellOf("J-0002", "qty"), "6");
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
 });

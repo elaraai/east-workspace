@@ -53,12 +53,12 @@ screenshot.
   bind handle or a paged source, edited through `onApply`, `onUpdate` and
   `onPatch` (#1216).
 - **Draws.** `BuilderFrame`: one toolbar (the view tabs, the lens's context,
-  the slice's rail, the history item with Apply); the library, the tabs
+  the slice's rail, the history item with Save); the library, the tabs
   `library` lists (Rows, Columns and the author's own), in the start pane,
   and none when it lists none; the sheet and its strip in main; the inspector
   (Details · Issues) in the end pane when the sheet is given `inspector`, and
   none when it is not; the sheet's footer.
-- **Built in.** Undo, redo and discard; Apply as one checked commit through
+- **Built in.** Undo, redo and discard; Save as one checked commit through
   the record's patch mutation, or the host's `onApply`; drag and drop (templates and the author's
   cards into the sheet, rows and groups to new places); the inspector's form
   for every field, with or without a column. The app wires none of it.
@@ -95,6 +95,9 @@ These are settled; the proposal was approved on 2026-10-04.
    checked commit through `Record.onApply`. Conflicts, refusals and the
    out-of-date state are banners, and drafts last until applied or
    discarded, per entry.
+   *Amended (2026-10-07, the user's ruling, #1260):* the commit decisions 4
+   and 5 call Apply reads Save, as every builder's does. Apply stays the
+   API's word: `onApply`, `Record.onApply`, `applyMode`, `Sheet.apply`.
 6. **The library is the author's** (amended 2026-10-05, on the live
    showcase): `library` lists its tabs, in order, each a `Sheet.library.*`
    call — `rows()` (templates, and on a grouped sheet groups with their
@@ -244,7 +247,7 @@ export const jobSheet = ui("job_sheet", [], East.function([], UIComponentType, _
 
 That is a working editor. There is one row per job in key order, with a blank
 tail for the next one. Every gesture is a draft the history item can undo,
-and Apply commits the drafts as one patch through `jobsPatch`. A new row's
+and Save commits the drafts as one patch through `jobsPatch`. A new row's
 key is minted unless `newRowId` names one. It lists no `library` and is given
 no `inspector`, so it has neither pane: the toolbar, the grid and the footer.
 It fills the box it is given, 560px here, and scrolls its own rows.
@@ -375,7 +378,7 @@ planner gives them.
 ### 3.4 One entry's rows, and a paged record
 
 ```tsx
-// The week the viewer picked; each week keeps its own drafts until Apply or Discard.
+// The week the viewer picked; each week keeps its own drafts until Save or Discard.
 const plans = $.let(Record.bind(d.plans, [d.plansPatch]));
 const week  = $.let(State.bind([StringType], "plans.week", "2026-W42"));
 <Sheet record={plans} entry={{ key: week.read(), rows: "rows", id: "id" }} columns={{ /* … */ }} />
@@ -393,7 +396,7 @@ const page = $.let(Data.bindPaged(d.jobs));
 | A row's identity | Its key | The `id` field |
 | A new row | A minted key (`newRowId`), placed where its key sorts | At the seam it was made at |
 | Moving rows | Flat: no. Grouped: lines move between groups, and groups keep key order | As `edits` allows: within, between groups, and groups too |
-| Apply | `Record.onApply(record, { keyed: true })`: each changed row an insert, update or delete by key, checked against what it was when the edit began | `Record.onApply(record, { entry, get, set, idField })`: one diff of that entry, reaching its rows and nothing else |
+| Save | `Record.onApply(record, { keyed: true })`: each changed row an insert, update or delete by key, checked against what it was when the edit began | `Record.onApply(record, { entry, get, set, idField })`: one diff of that entry, reaching its rows and nothing else |
 | A large record | `window={Data.bindPaged(d.jobs)}` reads it a window at a time | Read whole: an entry is one value |
 
 Reading a whole record in key order is new. `data` refuses an inline `Dict`,
@@ -606,9 +609,9 @@ which lands first; the helper is generic.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ SHEET  KITCHENS  ON HOLD +1  ±0 ±1 ±3  12 matches   Filter Search   2 issues ↶ ↷ ✕ Apply │
+│ SHEET  KITCHENS  ON HOLD +1  ±0 ±1 ±3  12 matches   Filter Search   2 issues ↶ ↷ ✕ Save  │
 ├──────────────────────────────────────────────────────────────────────────────────────────┤
-│ banners: an Apply's conflicts and refusals · the record changed under your drafts        │
+│ banners: a Save's conflicts and refusals · the record changed under your drafts          │
 ├──────────────┬──────────────────────────────────────────────────────────┬────────────────┤
 │ LIBRARY      │ ACTIVITY      START   END     QTY   WORK CENTRES   NOTES │ INSPECTOR      │
 │ Rows         │ ▾ WO-2207 · Kitchen, oak   PLANNED   due 23 Oct          │ Details·Issues │
@@ -624,7 +627,7 @@ which lands first; the helper is generic.
 | Region | Holds |
 |---|---|
 | Toolbar | Every control the sheet has, as items of the shared `Toolbar` (§7.1). |
-| Banners | An Apply's conflicts and refusals, naming the rows; the record changing under pending drafts; a write whose outcome is unknown; an `entry` the record doesn't hold. |
+| Banners | A Save's conflicts and refusals, naming the rows; the record changing under pending drafts; a write whose outcome is unknown; an `entry` the record doesn't hold. |
 | Start pane "Library" | The tabs `library` lists (§9.7); none, no pane. |
 | Main | The grid: its two-line header, rows, bands, seams, lens bands and proposed rows. The strip is docked under it, where candidates, fills and what a cell accepts show while a cell is edited (`Sheet Spec.md` B§9). Nothing floats over the grid but the editor overlay, as today. |
 | End pane "Inspector" | Tabs Details · Issues (§9.9), when the sheet is given `inspector`; none, no pane. |
@@ -652,7 +655,7 @@ toolbar.
 | Key search, on a paged keyed record | end | Folds to its icon, which opens the box in the edit popover with the focus in it — after the sheet's own steps, before the history item's (#1221). It replaces the rail's search, and keeps its form while a query is typed. |
 | The slice's rail: filter · search · cohort | end | Folds first: clause chips into `+M more`, the affordances into summary chips, one chip naming what is set, then the icon. Each opens the slice editor popover. |
 | Scope badge: `loaded rows only`, while a paged sheet is narrowed | end | Shown while it applies |
-| The history item: status line · issues · Undo · Redo · Discard · Apply | end | Folds last, to its buttons |
+| The history item: status line · issues · Undo · Redo · Discard · Save | end | Folds last, to its buttons |
 
 The rail's items come from `useSliceToolbarItems(slice, [{ key: "rail",
 kinds, side: "end" }])`, the hook Plan's toolbar, the Sheet's and the
@@ -769,7 +772,7 @@ the grid.
 - **SB15.** With `entry`, the rows are the `entry.rows` field of the entry at
   `entry.key`, in their order, identified by `entry.id`. An entry the record
   doesn't hold shows an empty, read-only sheet and a banner naming the key.
-- **SB16.** Apply over the entries is `Record.onApply(record, { keyed: true
+- **SB16.** Save over the entries is `Record.onApply(record, { keyed: true
   })`, taking the session's keyed batches as they are, read whole or paged:
   each changed row an insert, update or delete by key, checked against what
   it was when the edit began. Over one entry's rows it is `Record.onApply(record, {
@@ -794,7 +797,7 @@ the grid.
 - **SB21.** Main holds the grid and, docked under it, the strip.
 - **SB22.** The footer is the sheet's footer, with, over a record, the last
   commit's time from the record's history (`saved 14:02`).
-- **SB23.** The banners, in this order: an Apply's conflict, naming its rows
+- **SB23.** The banners, in this order: a Save's conflict, naming its rows
   and who changed the record last; a refusal, with its reason; an unknown
   outcome, with Retry; a failed confirmation read, with Retry; the
   out-of-date notice, with Discard; an `entry` the record doesn't hold. A
@@ -802,22 +805,22 @@ the grid.
 - **SB24.** The panes are `BuilderFrame`'s, and their open tab and collapsed
   state persist under the sheet's `name`.
 
-### 9.6 Editing, undo and Apply (owner: the builder's editing)
+### 9.6 Editing, undo and Save (owner: the builder's editing)
 
 - **SB25.** The sheet's session is the shared `Editing` session over its
   rows: every gesture (typing, a paste, a fill, a
   row fill, a proposal taken, an insert, a removal, a move, a library drop,
   an inspector edit) is one undoable transaction, reported to `onPatch`.
-- **SB26.** The history item shows the session's status (applying,
+- **SB26.** The history item shows the session's status (saving,
   confirming, conflict, refused, unknown, out of date), the issue count, Undo,
-  Redo, Discard and Apply. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in
+  Redo, Discard and Save. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in
   the frame — the grid, a pane, the toolbar — never while typing in an input
   outside the grid's editor: a field being typed into keeps its own undo.
-- **SB27.** Apply is on when the batch is structurally complete, `ready`
+- **SB27.** Save is on when the batch is structurally complete, `ready`
   passes and there is a change. It sends one request through the record's
   patch mutation (SB16), or, over `data`, the host's `onApply` or `onUpdate`.
 - **SB28.** A conflict or a refusal keeps every draft and shows its banner. A
-  write with no answer leaves the session unknown: Apply turns into Retry,
+  write with no answer leaves the session unknown: Save turns into Retry,
   which resends the same request, its id unchanged, and never a new one.
 - **SB29.** After a commit the drafts retire once the rows read back as the
   commit left them (on a paged record, at the committed revision); until then
@@ -827,10 +830,10 @@ the grid.
   what the commit set in it — a field another write set beside those is the
   record's, and the session's version of that row goes, with the history over
   it, so the next edit begins from the record's. The record changing under
-  pending drafts makes the session out of date: Apply is off, a banner offers
+  pending drafts makes the session out of date: Save is off, a banner offers
   Discard, and nothing is rebased.
 - **SB30.** Sessions live in the UI store by source, so a remount finds the
-  drafts; with `entry` each entry keeps its own until Apply or Discard.
+  drafts; with `entry` each entry keeps its own until Save or Discard.
 - **SB31.** `applyMode: "auto"` sends each ready gesture as it lands, through
   the same protocol; Undo then commits the inverse.
 
@@ -977,7 +980,7 @@ registers no drop target and its rows have no grips.
   cell; a field the drafts changed is tinted against what the record holds,
   and the copilot is asked again when its column is a trigger.
 - **SB53.** Issues lists every issue of the batch by row (incomplete and
-  invalid fields, `ready`'s, an Apply's conflicts and refusals), and a click
+  invalid fields, `ready`'s, a Save's conflicts and refusals), and a click
   selects its cell, seeking it on a paged sheet.
 - **SB58.** `inspector={(row, update) => …}` (ruled 2026-10-05): an East
   function over the row — its own struct, a grouped sheet's line — and a
@@ -998,7 +1001,7 @@ registers no drop target and its rows have no grips.
 ### 9.10 Showcase and docs (owner: the Sheet builder's showcase and docs)
 
 - **SB54.** The workshop (§3.3) runs on e3-web in the showcase with its
-  records seeded, and Apply commits to them.
+  records seeded, and Save commits to them.
 - **SB55.** Responsive specs measure the frame, the toolbar's fold order at
   desktop and phone widths, both themes, the panes, a drop and a move.
 - **SB56.** The e3-ui skill documents `<Sheet>` with tested examples, and the
@@ -1072,7 +1075,7 @@ before anything is drawn or written.
 8. The library pane.
 9. `Fields` (#1147, the Calendar's), built here first.
 10. The inspector.
-11. Editing, undo and Apply.
+11. Editing, undo and Save.
 12. Drag and drop.
 13. The showcase on e3-web, the skill and examples.
 14. One Sheet: `<Sheet>` in its frame, its panes optional props (#1216).

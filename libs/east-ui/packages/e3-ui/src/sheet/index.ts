@@ -368,7 +368,7 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  *             { task: "Seal", qty: none, parts: [], bookings: [] },
  *             { task: "Spray", qty: none, parts: [], bookings: [] },
  *         ], ArrayType(BatchStep));
- *         // A batch needs a name before Apply.
+ *         // A batch needs a name before Save.
  *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
  *                 $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));
@@ -793,7 +793,7 @@ const SHEET_MEMBERS = {
  *   `Array<R>`, a bind handle or a paged source, identified by `id`.
  * - **Every gesture is a draft** of the shared editing session, which the
  *   history item in the one toolbar undoes, redoes and discards. Over a
- *   record, Apply commits the drafts as one patch through the record's patch
+ *   record, Save commits the drafts as one patch through the record's patch
  *   mutation, checked against what each row was when the edit began; over
  *   `data`, it hands the checked batch to `onApply` (or `onUpdate` rebuilds
  *   the collection), and with neither the sheet is read only.

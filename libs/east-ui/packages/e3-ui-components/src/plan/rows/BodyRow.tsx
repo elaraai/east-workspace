@@ -36,7 +36,6 @@ import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
 import { rowToggle } from "./row-facts.js";
-import { PlanDecisionCell, hasDecision, tagOf, type PlanReview } from "../shell/Review.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanRowState } from "../controller/react.js";
 import { usePlanGridRow } from "../root/grid.js";
@@ -104,8 +103,6 @@ export interface PlanBodyRowProps {
      *  the loaded windows; every other row's numbers are exact
      *  (`spansWindows`, #822). */
     partial: boolean | undefined;
-    /** The review model, when the canvas carries review chrome. */
-    review: PlanReview | undefined;
     /** The shared drop registration, when the canvas is a drag target. */
     rowDrop: PlanRowDrop | undefined;
     /** The row's draft mark, when a draft of its entry changed it (#880). */
@@ -171,7 +168,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 export const PlanBodyRow = memo(function PlanBodyRow({
     v, h, styles, gridTemplate, hasChildren, derived,
     dispatch, focusRole, focusTag, axisMode,
-    showLinksControl, showExpandControl, partial, review, rowDrop, draft, groupEnd,
+    showLinksControl, showExpandControl, partial, rowDrop, draft, groupEnd,
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
@@ -251,12 +248,6 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             bandHeight,
             ...(expandGutter !== undefined ? { expandGutter } : {}),
         } : {}),
-        // A verdict is drafted on a row whose series names the field it
-        // writes; a row that only shows one draws it with the buttons off.
-        decision: review !== undefined && hasDecision(v.row)
-            ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} enabled={review.writable && v.row.edits.verdict}
-                review={review} grid />
-            : undefined,
         // Only the kinds that hold droppable objects register a cell —
         // a chart / heat / table row is inert to a drag by construction,
         // not by predicate (see `DROPPABLE_KINDS`) — and of those, only a

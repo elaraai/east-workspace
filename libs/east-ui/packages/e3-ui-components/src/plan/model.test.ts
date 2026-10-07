@@ -55,7 +55,7 @@ function wire(key: string, kind: unknown, opts?: RowOpts): PlanWireRow {
         collapsed: opts?.collapsed === true,
         pinned: opts?.pinned === true,
         height: opts?.height !== undefined ? some(opts.height) : none,
-        status: none, approval: none,
+        status: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }

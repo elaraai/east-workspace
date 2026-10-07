@@ -5,11 +5,11 @@
 
 /**
  * A Sheet bound to an e3 record commits to it (#1180, #1189). The paged
- * sheet reads the jobs a window at a time (`Data.bindPaged`), and Apply
- * commits its drafts through the record's patch door. An edited task, applied,
+ * sheet reads the jobs a window at a time (`Data.bindPaged`), and Save
+ * commits its drafts through the record's patch door. An edited task, saved,
  * is what the record holds next: the smallest sheet, which reads the same
  * record whole, shows the task, and the paged sheet has no draft left to
- * apply. Each in its frame (#1216). At the desktop width.
+ * save. Each in its frame (#1216). At the desktop width.
  *
  * Every read is polled until it holds, on a page at rest.
  *
@@ -32,7 +32,7 @@ async function entryOf(page: Page, name: string): Promise<Locator> {
 test.describe("a Sheet bound to an e3 record (#1180)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    test("an edited task, applied through a window of the record, is what the record holds — another sheet over it reads it back", async ({ page }) => {
+    test("an edited task, saved through a window of the record, is what the record holds — another sheet over it reads it back", async ({ page }) => {
         await page.goto("/#e3/sheet/sheet/sheetPaged");
         await page.waitForSelector("header", { timeout: 20_000 });
         const paged = await entryOf(page, "sheetPaged");
@@ -42,11 +42,11 @@ test.describe("a Sheet bound to an e3 record (#1180)", () => {
         const input = page.locator("[data-slot='editorInput']");
         await input.fill("Panel cutting, oak");
         await input.press("Enter");
-        const apply = paged.getByRole("button", { name: "Apply changes" });
-        await expect(apply).toBeEnabled();
-        await apply.click();
-        // Confirmed by the rows the record reads back: no draft left to apply.
-        await expect(apply).toBeDisabled();
+        const save = paged.getByRole("button", { name: "Save" });
+        await expect(save).toBeEnabled();
+        await save.click();
+        // Confirmed by the rows the record reads back: no draft left to save.
+        await expect(save).toBeDisabled();
         await expect(paged.locator("[data-frame-slot=main] [data-slot='row'][data-draft]")).toHaveCount(0);
         await expect(task).toHaveText("Panel cutting, oak");
 

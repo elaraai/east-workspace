@@ -5,8 +5,8 @@
 
 /**
  * The Plan's editing session under test (#880) — ONE canvas, a row per press
- * that takes a verdict and takes dropped jobs as its decisions, built by the
- * e3-ui factory and COMPILED over a source the test holds. The same canvas
+ * that takes dropped jobs as its decisions, built by the e3-ui factory and
+ * COMPILED over a source the test holds. The same canvas
  * inline and paged, so a test states one behaviour and runs it on both:
  *
  * - inline, over a `State.bind` handle written through the `onUpdate`
@@ -30,7 +30,7 @@ import {
     compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { ApprovalStateType, DragEventType, Editing, State } from "@elaraai/east-ui/internal";
+import { DragEventType, Editing, State } from "@elaraai/east-ui/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
     system, getRegisteredPlatformImplementations, registerReactiveTracker, type ReactiveTracker, DragLayerProvider,
@@ -46,23 +46,18 @@ import { rowKey, rowSel } from "./plan.test-utils.js";
 
 /** A job dropped on a press — a decision at the bucket it landed in. */
 export const Job = StructType({ key: StringType, at: Plan.Types.Instant });
-/** A press — its name, its verdict, and the jobs dropped on it. */
-export const Press = StructType({ label: StringType, approval: ApprovalStateType, jobs: ArrayType(Job) });
+/** A press — its name, the crew that runs it (none yet), and the jobs dropped on it. */
+export const Press = StructType({ label: StringType, crew: OptionType(StringType), jobs: ArrayType(Job) });
 /** The canvas's source — presses by key. */
 export const Presses = DictType(StringType, Press);
 /** One press, decoded. */
 export type PressValue = ValueTypeOf<typeof Press>;
-type Verdict = ValueTypeOf<typeof ApprovalStateType>;
 
-export const PENDING: Verdict = variant("pending", null);
-export const APPROVED: Verdict = variant("approved", null);
-export const REJECTED: Verdict = variant("rejected", null);
-
-/** Three presses: two awaiting a verdict, one approved. */
+/** Three presses, no job on any: Press 2 has no crew yet. */
 export const SEED: ReadonlyMap<string, PressValue> = new Map([
-    ["p1", { label: "Press 1", approval: PENDING, jobs: [] }],
-    ["p2", { label: "Press 2", approval: PENDING, jobs: [] }],
-    ["p3", { label: "Press 3", approval: APPROVED, jobs: [] }],
+    ["p1", { label: "Press 1", crew: some("Crew A"), jobs: [] }],
+    ["p2", { label: "Press 2", crew: none, jobs: [] }],
+    ["p3", { label: "Press 3", crew: some("Crew C"), jobs: [] }],
 ]);
 
 /** The presses series' key — every press row's id is `entry { series, [key] }`. */
@@ -83,17 +78,14 @@ const AXES = {
     ordinal: Plan.axis.ordinal({ values: PHASES }),
 };
 
-/** The presses as rows — each taking a verdict into `approval`, and a dropped job into `jobs`. */
-const TAKEN = [
-    Plan.series.span(Press, {
-        key: PRESSES, title: "Presses",
-        label: (p) => p.label,
-        runs: () => [],
-        decisions: (p) => p.jobs.map((_$, j) => Plan.decision({ key: j.key, at: j.at, applied: false })),
-        review: { verdict: "approval" },
-        edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, at: drop.at }) },
-    }),
-];
+/** The presses as rows — each taking a dropped job into `jobs`. */
+const PRESS_ROWS = Plan.series.span(Press, {
+    key: PRESSES, title: "Presses",
+    label: (p) => p.label,
+    runs: () => [],
+    decisions: (p) => p.jobs.map((_$, j) => Plan.decision({ key: j.key, at: j.at, applied: false })),
+    edit: { items: "jobs", create: (drop) => ({ key: drop.from.key, at: drop.at }) },
+});
 /** A second row per press that takes no gesture — its series names no field. */
 const LOADS = Plan.series.span(Press, { key: "loads", title: "Loads", label: (p) => p.label, runs: () => [] });
 /** The press's marks series' key. */
@@ -104,24 +96,14 @@ const MOVING = Plan.series.events(Press, {
     marks: (p) => p.jobs.map((_$, j) => Plan.mark({ key: j.key, at: j.at, kind: "milestone" })),
     edit: { items: "jobs", key: "key", at: "at" },
 });
-/** The presses as rows that only SHOW their verdict — no field a gesture writes. */
-const SHOWN = [
-    Plan.series.span(Press, {
-        key: PRESSES, title: "Presses",
-        label: (p) => p.label,
-        runs: () => [],
-        approval: (p) => some(p.approval),
-    }),
-];
-
-/** The author's check: a press holds one job at most, and a rejected press needs one. */
+/** The author's check: a press holds one job at most, and runs one only with its crew. */
 const READY = East.function([Press, StringType], Editing.Types.Readiness, ($, press) => {
     const result = $.let(variant("ready", null), Editing.Types.Readiness);
     $.if(press.jobs.size().greater(1n), ($2) => {
         $2.assign(result, variant("invalid", [{ field: "jobs", message: "One job per press" }]));
     });
-    $.if(press.approval.hasTag("rejected").and(() => press.jobs.size().equal(0n)), ($2) => {
-        $2.assign(result, variant("incomplete", [{ field: "approval", message: "A rejected press needs a job" }]));
+    $.if(press.crew.hasTag("none").and(() => press.jobs.size().greater(0n)), ($2) => {
+        $2.assign(result, variant("incomplete", [{ field: "crew", message: "A press runs a job only with its crew" }]));
     });
     return result;
 });
@@ -139,7 +121,7 @@ const ONLY_PRESS_1 = East.function([DragEventType], BooleanType, ($, event) => {
 const Committed = StructType({ revision: StringType, presses: Presses });
 const Batch = Editing.Types.ChangeSet(Press, StringType);
 
-/** The paged source's store, and the Rerun probe — platform calls the test answers. */
+/** The paged source's store — platform calls the test answers. */
 const Host = {
     page: East.platform("plan_880_page", [IntegerType, IntegerType], OptionType(Presses)),
     total: East.platform("plan_880_total", [], OptionType(IntegerType)),
@@ -148,14 +130,12 @@ const Host = {
     committed: East.platform("plan_880_committed", [], Committed),
     replay: East.platform("plan_880_replay", [StringType], OptionType(StringType)),
     commit: East.platform("plan_880_commit", [StringType, Presses], StringType),
-    rerun: East.platform("plan_880_rerun", [], NullType),
 };
 
 const PAGE = East.function([IntegerType, IntegerType], OptionType(Presses), (_$, offset, limit) => Host.page(offset, limit));
 const TOTAL = East.function([], OptionType(IntegerType), () => Host.total());
 const REVISION = East.function([], OptionType(StringType), () => Host.revision());
 const REFRESH = East.function([OptionType(StringType)], NullType, ($, target) => { $(Host.refresh(target)); });
-const RERUN = East.function([], NullType, ($) => { $(Host.rerun()); });
 
 /**
  * The paged author's apply: a request it has answered before answers the same
@@ -291,9 +271,8 @@ export class PressStore {
     }
 }
 
-/** The mounted canvas's store and probes — what the platform calls answer from. */
+/** The mounted canvas's store — what the platform calls answer from. */
 let store: PressStore | undefined;
-let reruns = 0;
 const held = (): PressStore => {
     if (store === undefined) throw new Error("no paged canvas is mounted");
     return store;
@@ -307,10 +286,6 @@ const HOST = [
     Host.committed.implement(() => ({ revision: held().committed.revision, presses: new Map(held().committed.presses) })),
     Host.replay.implement((requestId) => held().replay(requestId)),
     Host.commit.implement((requestId, next) => held().commit(requestId, next)),
-    Host.rerun.implement(() => {
-        reruns += 1;
-        return null;
-    }),
 ];
 
 // ── The canvas ──────────────────────────────────────────────────────────────
@@ -326,12 +301,6 @@ export interface CanvasOptions {
     axis?: "time" | "number" | "ordinal";
     /** Whether the canvas declares editing (default `true`). */
     editing?: boolean;
-    /** Whether it declares review chrome (default `true`). */
-    review?: boolean;
-    /** Whether its review declares Rerun. */
-    rerun?: boolean;
-    /** The presses' verdicts: taken by the canvas (default), or only shown. */
-    verdicts?: "taken" | "shown";
     /** A second row per press beside the first, that takes no gesture. */
     alongside?: boolean;
     /** A row per press whose marks are its jobs, and move (#825). */
@@ -361,7 +330,6 @@ type Resolved = Required<Omit<CanvasOptions, "heldFrom" | "seed" | "events">> & 
 /** The root's chrome besides its rows and editing. */
 function chromeOf(o: Resolved) {
     return {
-        ...(o.review ? { review: o.rerun ? { onRerun: RERUN } : {} } : {}),
         ...(o.target ? { id: SURFACE } : {}),
         sources: o.sources,
         ...(o.onlyPress1 ? { canDrop: ONLY_PRESS_1 } : {}),
@@ -370,7 +338,7 @@ function chromeOf(o: Resolved) {
 
 /** The canvas's program — the factory's payload, compiled with the test's platform. */
 function compileCanvas(o: Resolved): () => PlanRootValue {
-    const series = [...(o.verdicts === "taken" ? TAKEN : SHOWN), ...(o.alongside ? [LOADS] : []), ...(o.moves ? [MOVING] : [])];
+    const series = [PRESS_ROWS, ...(o.alongside ? [LOADS] : []), ...(o.moves ? [MOVING] : [])];
     const axis = AXES[o.axis];
     const chrome = chromeOf(o);
     const ready = o.ready ? { ready: READY } : {};
@@ -450,8 +418,6 @@ export interface EditingCanvas extends RenderResult {
     patches: PlanPatch[];
     /** Every apply request's bytes, in order. */
     applies: Uint8Array[];
-    /** How many times Rerun ran. */
-    reruns: () => number;
     /** What the source holds now. */
     stored: () => ReadonlyMap<string, PressValue>;
     /** How many writes the source took. */
@@ -460,7 +426,7 @@ export interface EditingCanvas extends RenderResult {
     confirm: () => Promise<void>;
     /** Another writer changes the source, and the canvas reads it. */
     move: (next: ReadonlyMap<string, PressValue>) => Promise<void>;
-    /** Paged: another writer commits, and the canvas does not read it — an Apply then meets it. */
+    /** Paged: another writer commits, and the canvas does not read it — a Save then meets it. */
     race: (next: ReadonlyMap<string, PressValue>) => void;
     /** The next apply persists, then loses its acknowledgement. */
     loseNextAck: () => void;
@@ -491,12 +457,11 @@ export async function settle(): Promise<void> {
  */
 export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas> {
     const o: Resolved = {
-        axis: "time", editing: true, review: true, rerun: false, verdicts: "taken", alongside: false, moves: false, target: true, sources: [JOBS],
+        axis: "time", editing: true, alongside: false, moves: false, target: true, sources: [JOBS],
         onlyPress1: false, ready: false, storageKey: `plan-880-${options.arm}`, wrap: (plan) => plan, ...options,
         seed: new Map(options.seed ?? SEED),
     };
     const probe: Probe = { patches: [], applies: [], loseAck: false };
-    reruns = 0;
     const program = compileCanvas(o);
     let paged: PressStore | undefined;
     if (o.arm === "paged") {
@@ -532,7 +497,6 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
         arm: o.arm,
         patches: probe.patches,
         applies: probe.applies,
-        reruns: () => reruns,
         stored: () => (paged !== undefined ? paged.committed.presses : decodePresses(getStore().read(STATE_KEY)!)),
         writes: () => (paged !== undefined ? paged.writes : getStore().getKeyVersion(STATE_KEY) - baseline),
         confirm: async () => {
@@ -563,10 +527,6 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
 export const pressRow = (c: HTMLElement, press: string): HTMLElement =>
     c.querySelector<HTMLElement>(rowSel(press, "data-plan-row", PRESSES))!;
 
-/** A press's decision cell — its verdict as drawn. */
-export const verdictOf = (c: HTMLElement, press: string): string | null =>
-    pressRow(c, press).querySelector('[data-slot="decisionCell"]')!.getAttribute("data-verdict");
-
 /** The draft mark a press wears — its row on the canvas, its card in the narrow layout: `pending`, `incomplete`, `invalid`, or none. */
 export function markOf(c: HTMLElement, press: string): "pending" | "incomplete" | "invalid" | undefined {
     const drawn = c.querySelector<HTMLElement>(`${rowSel(press, "data-plan-row", PRESSES)}, ${rowSel(press, "data-plan-card", PRESSES)}`)!;
@@ -581,26 +541,6 @@ export const marks = (c: HTMLElement, presses: readonly string[] = [...SEED.keys
 /** The decisions a press's row draws — its jobs, by key. */
 export const jobsDrawn = (c: HTMLElement, press: string): string[] =>
     [...pressRow(c, press).querySelectorAll("[data-mark]")].map((m) => m.getAttribute("data-mark")!);
-
-/** A press's Approve / Reject button. */
-export const verdictButton = (c: HTMLElement, press: string, verdict: "approve" | "reject"): HTMLButtonElement =>
-    c.querySelector<HTMLButtonElement>(rowSel(press, `data-plan-${verdict}`, PRESSES))!;
-
-/** Click a press's Approve or Reject. */
-export async function decide(c: HTMLElement, press: string, verdict: "approve" | "reject"): Promise<void> {
-    await act(async () => { fireEvent.click(verdictButton(c, press, verdict)); });
-    await settle();
-}
-
-/** The review item's batch button, in the frame's toolbar (#1193). */
-export const batchButton = (c: HTMLElement, verb: "approve" | "reject" | "rerun"): HTMLButtonElement | null =>
-    c.querySelector<HTMLButtonElement>(`[data-frame-slot="toolbar"] [data-review-batch="${verb}"]`);
-
-/** Click the toolbar's Approve all / Reject all / Rerun. */
-export async function batch(c: HTMLElement, verb: "approve" | "reject" | "rerun"): Promise<void> {
-    await act(async () => { fireEvent.click(batchButton(c, verb)!); });
-    await settle();
-}
 
 /** A history bar button, by its name — the bar's own, never a banner's of the same name (#1193). */
 export const historyButton = (canvas: RenderResult, name: string): HTMLButtonElement =>

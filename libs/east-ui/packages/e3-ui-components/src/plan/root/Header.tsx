@@ -16,7 +16,6 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { HorizonBrush } from "../shell/HorizonBrush.js";
 import { FocusBar } from "../shell/FocusBar.js";
 import { PlanRuler } from "../shell/Ruler.js";
-import { PlanDecisionHeader } from "../shell/Review.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanUiView } from "./view.js";
 
@@ -34,8 +33,6 @@ export interface PlanHeaderProps {
     /** The ruler's gutter caption — the active grain's name. */
     rulerCaption: string;
     cursorChipRef: RefObject<HTMLDivElement | null>;
-    /** The decision column's header label, when the canvas carries review chrome. */
-    reviewLabel: string | undefined;
     /** The pinned rows, already rendered. */
     pinned: ReactNode;
     /** The id of the pinned rows' group — the treegrid owns it (`aria-owns`,
@@ -52,7 +49,7 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, slice, affordances, now, rulerCaption, cursorChipRef, reviewLabel,
+    styles, gridTemplate, headerRef, slice, affordances, now, rulerCaption, cursorChipRef,
     pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
@@ -63,8 +60,7 @@ export function PlanHeader({
                 <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice} now={now} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
-                cursorChipRef={cursorChipRef}
-                trailing={reviewLabel !== undefined ? <PlanDecisionHeader label={reviewLabel} /> : undefined} />
+                cursorChipRef={cursorChipRef} />
             {/* Pinned rows collapse like every other row under a focus — they
                 are not exempt from "collapse, never remove". */}
             {pinnedId !== undefined && <Box role="rowgroup" id={pinnedId}>{pinned}</Box>}

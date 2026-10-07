@@ -19,7 +19,7 @@
  * inset and the bucket columns line up down the page.
  *
  * What does not change: the bar vocabulary, the slice semantics, the
- * now-line, the review verbs. The input model does: tap selects, a second
+ * now-line. The input model does: tap selects, a second
  * tap on a row that declares `expand` drills it in place (~148pt; its
  * neighbours keep their size — a vertical list needs no strip compression),
  * horizontal pan is two-finger so page scroll stays vertical. The horizon
@@ -71,7 +71,6 @@ import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
 import { bandCaption, failureCaption } from "../rows/WindowBand.js";
 import { bandElements } from "../use-plan-paging.js";
-import type { PlanReview } from "../shell/Review.js";
 import {
     rowHeight, spansWindows,
     type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
@@ -122,7 +121,6 @@ export interface PlanNarrowProps {
     view: PlanUiView;
     dense: boolean;
     storageKey: string;
-    review: PlanReview | undefined;
     /** The focused row's developer render / gutter body (the root resolvers
      *  called with the focus), or `null`. */
     expandBody: UIValue | null;
@@ -151,7 +149,7 @@ const selectNav = (s: PlanSnapshot) => s.scroll.nav;
 
 /** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
-    styles, index, derived, view, dense, storageKey, review,
+    styles, index, derived, view, dense, storageKey,
     expandBody, expandGutterBody, canExpand, partial, fill,
     failures, onRetry, paging, marks,
 }: PlanNarrowProps) {
@@ -321,7 +319,7 @@ export function PlanNarrow({
                 drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
                 hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
                 styles={styles} derived={derived} storageKey={storageKey}
-                review={review} watch={watch} draft={marks.get(row.key)} />
+                watch={watch} draft={marks.get(row.key)} />
         );
     };
 

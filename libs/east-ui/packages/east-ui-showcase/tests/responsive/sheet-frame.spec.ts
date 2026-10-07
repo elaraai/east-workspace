@@ -24,7 +24,7 @@
  * 2px brand seam it would land on — and dropped there; a card refused, red;
  * a batch moved to the top by its grip, every row drawn from the first
  * (#1213); and at 560px the library sliding off main while a drag is under
- * way. Apply in each record form (SB54): the workshop's orders, the record's
+ * way. Save in each record form (SB54): the workshop's orders, the record's
  * entries, and one week's plan, one entry's rows — each an edit committed to
  * the page's e3, and read back by the sheet mounted again over the record.
  * On a phone (#1215) the sheet's gutter folds: the first column's cell shows
@@ -529,15 +529,15 @@ test.describe("The Sheet's frame — the key search on a phone (#1221)", () => {
             const row = band.querySelector("[data-toolbar]")!;
             const edge = row.getBoundingClientRect().right;
             const seek = row.querySelector("[data-toolbar-item='seek']");
-            const apply = row.querySelector("[aria-label='Apply changes']")?.getBoundingClientRect();
+            const save = row.querySelector("[aria-label='Save']")?.getBoundingClientRect();
             return {
                 seek: seek?.getAttribute("data-toolbar-form") ?? null,
                 icon: seek?.querySelector("[data-key-search='icon']")?.getAttribute("aria-label") ?? null,
-                // Every item inside the row — the history's Apply among them.
+                // Every item inside the row — the history's Save among them.
                 fits: [...row.children].every((el) => el.getBoundingClientRect().right <= edge + 0.5),
-                apply: apply !== undefined && apply.right <= edge + 0.5,
+                save: save !== undefined && save.right <= edge + 0.5,
             };
-        })).toEqual({ seek: "1", icon: "Search keys", fits: true, apply: true });
+        })).toEqual({ seek: "1", icon: "Search keys", fits: true, save: true });
         const icon = toolbar.locator("[data-key-search='icon']");
         await icon.tap();
         await expect(page.locator("[data-key-search='popover'] input")).toBeFocused();
@@ -733,10 +733,10 @@ async function remount(page: Page, hash: string): Promise<Locator> {
 /** The rows of a sheet that still hold a draft. */
 const drafts = (box: Locator) => box.locator("[data-frame-slot=main] [data-slot='row'][data-draft]");
 
-test.describe("The Sheet's frame — Apply on e3-web (SB54)", () => {
+test.describe("The Sheet's frame — Save on e3-web (SB54)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    test("the workshop's orders, the record's entries: an operation's notes, edited and applied, are one commit to the page's e3 — and the sheet, mounted again over the record, shows them", async ({ page }) => {
+    test("the workshop's orders, the record's entries: an operation's notes, edited and saved, are one commit to the page's e3 — and the sheet, mounted again over the record, shows them", async ({ page }) => {
         const box = await openSheet(page);
         // The wardrobes order's first operation: a line, its notes empty.
         const notesOf = (b: Locator) => b.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2202"]:not([data-blank]) [data-key="notes"]').first();
@@ -744,18 +744,18 @@ test.describe("The Sheet's frame — Apply on e3-web (SB54)", () => {
         const input = page.locator("[data-slot='editorInput']");
         await input.fill("Ash veneered board");
         await input.press("Enter");
-        const apply = box.getByRole("button", { name: "Apply changes" });
-        await expect(apply).toBeEnabled();
-        await apply.click();
-        // Confirmed by the rows the record reads back: Apply off, no draft left.
-        await expect(apply).toBeDisabled();
+        const save = box.getByRole("button", { name: "Save" });
+        await expect(save).toBeEnabled();
+        await save.click();
+        // Confirmed by the rows the record reads back: Save off, no draft left.
+        await expect(save).toBeDisabled();
         await expect(drafts(box)).toHaveCount(0);
         const again = await remount(page, HASH);
         await expect(notesOf(again)).toHaveText("Ash veneered board");
         await expect(drafts(again)).toHaveCount(0);
     });
 
-    test("one week's plan, one entry's rows: a task, edited and applied, is one commit to the week in the page's e3 — and the sheet, mounted again over the record, shows it", async ({ page }) => {
+    test("one week's plan, one entry's rows: a task, edited and saved, is one commit to the week in the page's e3 — and the sheet, mounted again over the record, shows it", async ({ page }) => {
         const box = await openSheet(page, "light", 1440, WEEKS);
         const taskOf = (b: Locator) => b.locator("[data-frame-slot=main] [data-slot='row'][data-row-id='w42-1'] [data-key='task']");
         await expect(taskOf(box)).toHaveText("Cut the kitchen carcasses");
@@ -763,10 +763,10 @@ test.describe("The Sheet's frame — Apply on e3-web (SB54)", () => {
         const input = page.locator("[data-slot='editorInput']");
         await input.fill("Cut the wardrobe carcasses");
         await input.press("Enter");
-        const apply = box.getByRole("button", { name: "Apply changes" });
-        await expect(apply).toBeEnabled();
-        await apply.click();
-        await expect(apply).toBeDisabled();
+        const save = box.getByRole("button", { name: "Save" });
+        await expect(save).toBeEnabled();
+        await save.click();
+        await expect(save).toBeDisabled();
         await expect(drafts(box)).toHaveCount(0);
         const again = await remount(page, WEEKS);
         await expect(taskOf(again)).toHaveText("Cut the wardrobe carcasses");

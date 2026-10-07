@@ -9,25 +9,22 @@
  * toolbar (`BuilderFrame`'s), in this order: the slice's narrowing (cohort ·
  * filter · search), the scope badge, the key search, the GROUP · RESOURCE
  * grain, the slice's range, the resolution, the diagnostics; then, at the
- * row's end, the summary, the overlaps chip, the review's summary with
- * Approve all and Reject all, and the history item. The GROUP · RESOURCE strip
- * is the canvas's own (#632): a canvas with a root group mounts it, slice or
- * no slice. There is no Series button: the library's Series tab holds the
- * series (#1195). The overlaps chip (#1198, PB52) counts the pairs of events
+ * row's end, the summary, the overlaps chip and the history item. The GROUP ·
+ * RESOURCE strip is the canvas's own (#632): a canvas with a root group
+ * mounts it, slice or no slice. There is no Series button: the library's
+ * Series tab holds the series (#1195). The overlaps chip (#1198, PB52) counts the pairs of events
  * that overlap in the window; a click selects the first pair, earliest first,
  * and brings it into view.
  *
  * They fold on one ladder (#952): the slice rail's two clusters first — the
  * narrowing affordances and the range, merged in the rail's order — then the
  * Plan's own items (the user's decision, 2026-09-27): the summary shortens to
- * its count, the overlaps chip to its glyph and its count, and the review's
- * summary goes, leaving its buttons — words give way before a control does —
- * then the resolution segment folds into a one-chip menu, then the grain
- * segment does, and the summary hides. On a row
- * narrower still the review's buttons fold into one menu, and the key search
- * into its icon, which opens the box in a popover (#1193): with those, a
- * phone's row holds every item. The history item folds last, to its buttons.
- * Nothing wraps or goes to a second row.
+ * its count and the overlaps chip to its glyph and its count — words give way
+ * before a control does — then the resolution segment folds into a one-chip
+ * menu, then the grain segment does, and the summary hides. On a row narrower
+ * still the key search folds into its icon, which opens the box in a popover
+ * (#1193): with that, a phone's row holds every item. The history item folds
+ * last, to its buttons. Nothing wraps or goes to a second row.
  */
 
 import { useMemo, type KeyboardEvent } from "react";
@@ -35,7 +32,7 @@ import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } fro
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import {
-    HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds, radioGroupKey, reviewToolbarItem,
+    HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds, radioGroupKey,
 } from "@elaraai/east-ui-components/internal";
 import {
     useSliceReactivity, type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem,
@@ -56,21 +53,18 @@ import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 const NARROWING_KINDS = new Set(["filter", "cohort", "presets", "breakdown", "search"]);
 
 /** The Plan's own fold ranks, after every step of the slice rail's (#952):
- *  the summary shortens, the overlaps chip keeps its glyph and its count, and
- *  the review's summary goes (one rank: the summary first, in the row's
- *  order), the resolution then the grain segment fold into their menus, the
- *  summary hides, the review's buttons fold into their menu and the key
- *  search into its icon. The history item's step (`DEFAULT_RANK`) comes after
+ *  the summary shortens and the overlaps chip keeps its glyph and its count
+ *  (one rank: the summary first, in the row's order), the resolution then the
+ *  grain segment fold into their menus, the summary hides, and the key search
+ *  folds into its icon. The history item's step (`DEFAULT_RANK`) comes after
  *  all of them. */
 const PLAN_RANK = {
     summaryShort: HOST_RANK,
     overlapsShort: HOST_RANK,
-    reviewSummary: HOST_RANK,
     resolution: HOST_RANK + 1,
     grain: HOST_RANK + 2,
     summaryHide: HOST_RANK + 3,
-    reviewMenu: HOST_RANK + 4,
-    seek: HOST_RANK + 5,
+    seek: HOST_RANK + 4,
 } as const;
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -263,7 +257,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     }, [showSummary, slice, transport, sliceVersion, words]);
 
     if (chrome === undefined) return [];
-    const { styles, grain, diagnostics, review, history, selectEvents } = chrome;
+    const { styles, grain, diagnostics, history, selectEvents } = chrome;
     const resolution = chrome.scale.resolution ?? "";
     const summaryLine = (text: string) => <Box css={styles.footerItem} data-slot="toolbarSummary">{text}</Box>;
     // The first pair, earliest first — what the chip's click selects (PB52).
@@ -305,7 +299,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             ],
         },
         hasDiagnostics(diagnostics) && { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] },
-        // The row's end: the summary line, the review, the history.
+        // The row's end: the summary line, the overlaps, the history.
         summary !== undefined && {
             key: "summary",
             side: "end",
@@ -324,13 +318,6 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
                 <OverlapsChip n={overlaps.pairs.length} short onSelect={selectFirst} />,
             ],
         },
-        // Approve all and Reject all, moved here from the review foot: a
-        // verdict is a draft of the editing session (#880).
-        review !== undefined && reviewToolbarItem(review, {
-            storageKey: chrome.storageKey,
-            labels: { ...chrome.reviewLabels, menu: words.m.reviewMenu() },
-            rank: { summary: PLAN_RANK.reviewSummary, menu: PLAN_RANK.reviewMenu },
-        }),
         // The banners say the session's error, so the toolbar keeps one row.
         history !== undefined && historyToolbarItem({ ...history, showError: false }),
     ];

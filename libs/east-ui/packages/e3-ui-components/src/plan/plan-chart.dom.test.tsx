@@ -58,7 +58,7 @@ function planRow(key: string, kind: unknown): PlanWireRow {
         id: rowId(key), parent: none,
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
@@ -68,7 +68,7 @@ function planRoot(rows: PlanWireRow[], n: number): PlanRootValue {
         rows: variant("inline", oneBlock(rows)),
         links: [],
         axis: variant("number", { window: some({ min: 0, max: n }), step: 1, now: none, format: none }),
-        grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
+        grain: none, popover: none, hover: none, expandRender: none, pick: none,
         slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;

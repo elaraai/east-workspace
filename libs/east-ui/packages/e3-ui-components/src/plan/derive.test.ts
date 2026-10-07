@@ -136,7 +136,7 @@ function trow(key: string, parent: string | undefined, kind: unknown, opts?: { c
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
         collapsed: opts?.collapsed === true,
-        pinned: false, height: none, status: none, approval: none, expand: none,
+        pinned: false, height: none, status: none, expand: none,
         duplicateOf: undefined,
     } as unknown as PlanRowValue;
 }
@@ -148,7 +148,7 @@ function wire(key: string, parent: string | undefined, kind: unknown): PlanWireR
         parent: parent !== undefined ? some(rowId(parent)) : none,
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
     } as unknown as PlanWireRow;
 }
 

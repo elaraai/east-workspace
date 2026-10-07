@@ -1073,7 +1073,7 @@ describe("the probe, inverted — a window holds its entries whole (#823)", () =
         id: rowId(key),
         parent: parent !== undefined ? some(rowId(parent)) : none,
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
-        kind, collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        kind, collapsed: false, pinned: false, height: none, status: none, expand: none,
     }) as unknown as PlanWireRow;
     /** Window w serves hall `H{w+1}` with its presses: p001 p003 p005 p007 in
      *  window 0, p002 … p008 in window 1. */

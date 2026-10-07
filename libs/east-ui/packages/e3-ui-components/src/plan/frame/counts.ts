@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * What the Plan's footer counts of its event kinds (#1193, PB23): the events
- * in the window, the backlog, the events to review, and when a kind's record
- * was last saved — read from the kinds' own seams, every kind's drafts in
+ * in the window, the backlog, and when a kind's record was last saved — read
+ * from the kinds' own seams, every kind's drafts in
  * place, and read again when a record they read commits. The inspector shows
  * them too when nothing is selected, with how long the events run (#1197,
  * PB41).
@@ -42,8 +42,6 @@ export interface PlanEventCounts {
     readonly minutes: number;
     /** The unscheduled events — every backlog kind's; `undefined` when no kind has a backlog. */
     readonly backlog: number | undefined;
-    /** The events in the window whose verdict waits on a call; `undefined` when no kind is reviewed. */
-    readonly toReview: number | undefined;
     /** The newest commit to any kind's record; `undefined` while there is none. */
     readonly saved: Date | undefined;
     /** The overlaps among the events in the window: two events of a kind that warns of them, on one resource at once (#1198, PB51). */
@@ -81,7 +79,6 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
         let events = 0;
         let minutes = 0;
         let backlog: number | undefined;
-        let toReview: number | undefined;
         let saved: Date | undefined;
         // Each kind that warns of its overlaps: two of its events are a pair (PB51).
         const warned: (readonly PlanEventItemValue[])[] = [];
@@ -91,9 +88,6 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             if (kind.overlaps.type === "warn") warned.push(items.value);
             events += items.value.length;
             for (const item of items.value) minutes += Number(item.minutes);
-            if (kind.roles.review.type === "some") {
-                toReview = (toReview ?? 0) + items.value.filter((item) => item.verdict.type === "some" && item.verdict.value.type === "pending").length;
-            }
             if (kind.backlog) {
                 const unscheduled = kind.planUnscheduled(NO_DRAFTS);
                 if (unscheduled.type === "none") return READING;
@@ -103,7 +97,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             const newest = commits.type === "some" ? commits.value[0]?.at : undefined;
             if (newest !== undefined && (saved === undefined || compareDateTime(newest, saved) > 0)) saved = newest;
         }
-        return { events, minutes, backlog, toReview, saved, overlaps: scheduleOverlaps(warned) };
+        return { events, minutes, backlog, saved, overlaps: scheduleOverlaps(warned) };
     }, [kinds, from, to]);
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.

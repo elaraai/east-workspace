@@ -11,15 +11,14 @@
  *
  * One event: its head — its kind's icon tile beside its kind, its title, when
  * it runs and its status — then its facts (where it is, when, its lane, its
- * state and its quantity), its verdict, its fields or its kind's own UI, and
- * its gestures. Several: how many, each kind's count, the list, and the bulk
- * edit. A row: its resource's name and line, its events in the window, and
- * its measures at the bucket a click on it named. Nothing: the window's counts
- * and three hints. The edit controls sit in one fieldset, disabled while the
- * event kinds take no edit (#1194). Under one event's head, and a row's, the
- * overlaps banner (#1198): the shared `Banner` in its guard tone, a line per
- * event the event overlaps — or per pair on the row — each a button that
- * selects it.
+ * state and its quantity), its fields or its kind's own UI, and its gestures.
+ * Several: how many, each kind's count, the list, and the bulk edit. A row:
+ * its resource's name and line, its events in the window, and its measures at
+ * the bucket a click on it named. Nothing: the window's counts and three
+ * hints. The edit controls sit in one fieldset, disabled while the event kinds
+ * take no edit (#1194). Under one event's head, and a row's, the overlaps
+ * banner (#1198): the shared `Banner` in its guard tone, a line per event the
+ * event overlaps — or per pair on the row — each a button that selects it.
  *
  * The parts it lays out as the Sheet's inspector does are the inspector's
  * shared parts (`inspector.ts`); this adds the Plan's own. Its words take the
@@ -38,7 +37,6 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         ...inspectorSlots,
         "headRow", "kindTile", "headText", "when", "status",
         "facts", "factLabel", "factValue",
-        "verdict", "verdictWord",
         "list", "listItem", "listText", "listTitle", "listWhen",
         "shift", "edits", "custom", "measures",
         "overlaps", "overlapList", "overlapLine", "overlapItem", "overlapWhen", "overlapTitle",
@@ -94,16 +92,6 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         },
         factLabel: { textStyle: "caption.eyebrow" },
         factValue: { textStyle: "body.sm", color: "fg", margin: "0", minWidth: 0, overflowWrap: "anywhere" },
-        /* Its verdict, and the review's two buttons. */
-        verdict: { ...INSPECTOR_SECTION, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: "{spacing.2}" },
-        verdictWord: {
-            textStyle: "body.sm",
-            color: "fg",
-            marginRight: "auto",
-            "&[data-verdict=pending]": { color: "fg.warning" },
-            "&[data-verdict=approved]": { color: "fg.success" },
-            "&[data-verdict=rejected]": { color: "fg.danger" },
-        },
         /* Several events: each its kind's icon, its title and when it runs. */
         list: { ...INSPECTOR_SECTION, gap: "{spacing.2}", margin: "0", listStyle: "none" },
         listItem: { display: "flex", alignItems: "flex-start", gap: "{spacing.2}", minWidth: 0, "& > svg": { marginTop: "3px", fontSize: "11px", color: "fg.muted" } },

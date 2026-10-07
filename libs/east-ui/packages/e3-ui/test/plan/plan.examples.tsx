@@ -23,8 +23,8 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { ApprovalStateType, DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack, deriveApproval } from "@elaraai/east-ui";
+import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -209,14 +209,14 @@ export const planTargetState = example({
     keywords: [
         "Plan", "canvas", "data", "series", "match", "axis", "window", "resolution", "now",
         "span", "run", "group", "section", "heat", "buckets", "cards", "chip", "events", "mark", "chart",
-        "layers", "rollup", "bands", "review", "footer", "milestone",
+        "layers", "rollup", "bands", "footer", "milestone",
         "decision", "exception", "pinned", "port", "hovercard", "popover",
         "slice", "brush", "horizon", "toolbar", "affordances", "expand",
         "expandRender", "resolver", "data-driven", "accessor", "raw", "target state",
         "layout", "row id", "Plan.ref", "links", "quantity", "Plan.quantity", "onElementClick",
         "Data.bind", "bound", "e3.input", "e3.task", "generated", "dataset",
     ],
-    description: "Every row kind on one axis from a single raw ops source bound from e3, with slice chrome over a horizon an e3 task generates, expand, review and a status footer",
+    description: "Every row kind on one axis from a single raw ops source bound from e3, with slice chrome over a horizon an e3 task generates, expand and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
         const cfg = Slice.config(TargetHorizonRow, {
             fields: {
@@ -414,7 +414,6 @@ export const planTargetState = example({
             // link ribbon, by the same ref the popover resolver receives.
             const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, (_$, _ref) => null));
             const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, (_$, _e) => null));
-            const onBatch = $.const(East.function([], NullType, (_$) => null));
             return (
                 <Plan
                     slice={{ slice, affordances: ["cohort", "filter", "search", "range", "resolution", "brush", "summary"] }}
@@ -433,12 +432,6 @@ export const planTargetState = example({
                     ]}
                     data={ops}
                     series={series}
-                    // The review chrome — its foot and Rerun. A verdict is a
-                    // draft of an editing session (`planReview`, `planEditing`).
-                    review={{
-                        summary: <Text>4 JOBS · 2 FLAGGED NEED A CALL · +6H FLOAT</Text>,
-                        onRerun: onBatch,
-                    }}
                     expandRender={expandRender}
                     popover={popover}
                     hover={hover}
@@ -2590,7 +2583,7 @@ export const DropOpsRow = StructType({
 });
 
 /**
- * The ops RECORD a drop drafts and Apply commits to — its initial state the
+ * The ops RECORD a drop drafts and Save commits to — its initial state the
  * genesis commit. The droppable and inert kinds interleave, and the Hall 3
  * press is a section's member.
  */
@@ -2620,7 +2613,7 @@ export const planDropOps = e3.record("plan_drop_ops", DictType(StringType, DropO
                 jobs: [{ key: "j4903", label: "RUN · J-4903", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null) }] }],
 ]));
 
-/** The ops record's patch door — every Apply commits through it. */
+/** The ops record's patch door — every Save commits through it. */
 export const planDropOpsPatch = e3.mutation.patch(planDropOps);
 
 /** A card in the palette — a thing a row of its family takes. */
@@ -2663,7 +2656,7 @@ export const planDropCards = e3.input("plan_drop_cards", ArrayType(DropCard), va
  *     on every row, which is what a card with nowhere to go should look like.
  *  3. **As a draft (#880).** A drop is a gesture of the editing session: the
  *     entry is drafted with the new item in its list and its rows derived
- *     again — drawn at once with the pending mark, undone with ⌘Z — and Apply
+ *     again — drawn at once with the pending mark, undone with ⌘Z — and Save
  *     writes every draft as ONE checked batch, one commit through the
  *     record's patch door (`Record.onApply`).
  *
@@ -2678,15 +2671,15 @@ export const planRowDrop = example({
         "Plan", "Library", "DnD", "drag", "drop", "canDrop", "sources", "id", "edit", "items", "create",
         "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "section", "row id", "row text",
-        "droppable", "inert", "bucket instant", "editing", "onApply", "onPatch", "draft", "Apply", "undo",
+        "droppable", "inert", "bucket instant", "editing", "onApply", "onPatch", "draft", "Save", "undo",
         "Plan.Types.PatchEvent", "Reactive", "State", "re-derive", "#880",
         "auto-scroll", "keyboard", "screen reader", "announcements", "#608",
         "Record", "Record.bind", "Record.onApply", "e3.record", "patch", "commit", "Data.bindPaged", "Data.bind",
     ],
-    description: "Library + Plan DnD over an e3 record — a card lands only on a series that declares `edit`, `canDrop` admits only the matching family, and every drop is a draft applied as one checked batch, one commit through the record's patch door",
+    description: "Library + Plan DnD over an e3 record — a card lands only on a series that declares `edit`, `canDrop` admits only the matching family, and every drop is a draft saved as one checked batch, one commit through the record's patch door",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // The source is a RECORD: the canvas pages it, and each Apply is
+            // The source is a RECORD: the canvas pages it, and each Save is
             // one commit through its patch door.
             const ops = $.let(Data.bindPaged(planDropOps));
             const record = $.let(Record.bind(planDropOps, [planDropOpsPatch]));
@@ -2751,7 +2744,7 @@ export const planRowDrop = example({
             // ── The session ──────────────────────────────────────────────
             // Every drop is a DRAFT of the entry it landed on: the canvas
             // draws the new item at once, marked pending, and the history bar
-            // undoes, redoes, discards and applies it. Apply commits every
+            // undoes, redoes, discards and saves it. Save commits every
             // draft to the record as one checked batch; `onPatch` hears each
             // gesture as it is made, into a log the viewer keeps.
             const lastBind = $.let(State.bind([StringType], "ex.plan.lastdrop", "none yet"));
@@ -3090,155 +3083,32 @@ export const planFill = example({
 });
 
 // ============================================================================
-// planReview — the review chrome, and what a verdict is FOR (#569)
-// ============================================================================
-
-/** A job — its window, its sheets, whether it is flagged, and the verdict:
- *  what the reviewer decides about it is a FIELD of the job. */
-export const ReviewJob = StructType({
-    start: DateTimeType, end: DateTimeType, sheets: FloatType, flagged: BooleanType,
-    approval: ApprovalStateType,
-});
-
-/** The jobs under review — a RECORD: a verdict drafts a job with `approval`
- *  changed, and Apply commits the drafts to it. */
-export const planReviewJobs = e3.record("plan_review_jobs", DictType(StringType, ReviewJob), new Map([
-    ["H1-P03", { start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), sheets: 96.0,  flagged: true,  approval: variant("pending", null) }],
-    ["H1-P04", { start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), sheets: 112.0, flagged: true,  approval: variant("approved", null) }],
-    ["H1-P07", { start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), sheets: 64.0,  flagged: true,  approval: variant("rejected", null) }],
-    ["H2-P11", { start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), sheets: 88.0,  flagged: false, approval: variant("approved", null) }],
-]));
-
-/** The jobs' patch door — every Apply commits through it. */
-export const planReviewJobsPatch = e3.mutation.patch(planReviewJobs);
-
-/** Rerun — a fresh proposal: every job's verdict back to what its flag derives
- *  ("clean rests pre-approved, flagged awaits an explicit call"). */
-export const planReviewRerun = e3.mutation.reduce("rerun", planReviewJobs,
-    East.function([DictType(StringType, ReviewJob)], DictType(StringType, ReviewJob), (_$, jobs) =>
-        jobs.map((_$2, j) => ({
-            start: j.start, end: j.end, sheets: j.sheets, flagged: j.flagged,
-            approval: deriveApproval(j.flagged).unwrap("some"),
-        }))));
-
-/**
- * Review as drafts (#880): a verdict is a FIELD of the record the reviewer
- * decides about — `approval`, an `ApprovalStateType` — and the series whose
- * rows are reviewed names it (`review: { verdict: "approval" }`). Approve or
- * Reject on a row, and Approve all / Reject all at the foot, draft the entries
- * with the field changed: the canvas derives the drafted rows again at once —
- * buttons, bar, dot and run — marked pending, the history bar undoes, redoes
- * and discards them, and Apply commits them to the record as one checked batch,
- * through its patch door. The foot's summary is the HOST's, over what it holds:
- * the committed record, which moves only when Apply lands.
- */
-export const planReview = example({
-    keywords: [
-        "Plan", "review", "approval", "approve", "reject", "verdict", "decision", "ApprovalStateType",
-        "deriveApproval", "flagged", "chrome", "batch", "foot", "Approve all", "Reject all", "onRerun",
-        "editing", "onApply", "draft", "pending", "Apply", "undo", "redo", "discard", "Reactive",
-        "derived", "accessor", "data", "row id", "#880",
-        "Record", "Record.bind", "Record.onApply", "e3.record", "e3.mutation.reduce", "patch", "commit", "Data.bindPaged",
-    ],
-    description: "Review as drafts over an e3 record — a verdict drafts the job's `approval` field, the canvas re-derives buttons, bar and dot from the draft, Apply commits the batch through the record's patch door, and Rerun is a mutation of the record",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            // The jobs are a RECORD: the canvas pages it, and each Apply is
-            // one commit through its patch door.
-            const jobs = $.let(Data.bindPaged(planReviewJobs));
-            const record = $.let(Record.bind(planReviewJobs, [planReviewJobsPatch, planReviewRerun]));
-            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-                return w1.addWeeks(n.subtract(1n));
-            }));
-
-            // Rerun is not a verdict — it asks for a fresh proposal, so it stays
-            // a callback, and writes the RECORD through its own mutation. Drafts
-            // made before it sit over a record that moved, and say so.
-            const onRerun = $.const(East.function([], NullType, ($) => {
-                $(record.mutate.rerun());
-            }));
-
-            const series = $.const([
-                Plan.series.span(ReviewJob, {
-                    key: "jobs", title: "Jobs",
-                    label: (_r, k) => k, id: true,
-                    value: r => some(East.str`${East.Float.printFixed(r.sheets, 0n)} k sheets`),
-                    // The verdict's FIELD: the decision buttons show it, and a
-                    // verdict drafts the job with it changed.
-                    review: { verdict: "approval" },
-                    // ...and the SAME field drives the bar and the dot, because
-                    // appearance is derived like everything else. Click Approve
-                    // and the draft repaints — the chrome never touched it.
-                    status: r => r.approval.hasTag("rejected").ifElse(
-                        () => some(variant("danger", null)),
-                        () => r.flagged.and(_$ => r.approval.hasTag("pending")).ifElse(
-                            () => some(variant("warning", null)),
-                            () => none)),
-                    runs: (r, k) => [Plan.run({
-                        key: k, start: r.start, end: r.end,
-                        label: East.str`RUN · ${k}`,
-                        quantity: Plan.quantity(r.sheets, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
-                        state: r.approval.hasTag("approved").ifElse(
-                            () => variant("confirmed", null),
-                            () => r.approval.hasTag("rejected").ifElse(
-                                () => variant("rejected", null),
-                                () => variant("proposed", variant("recommended", null)))),
-                    })],
-                }),
-            ], ArrayType(Plan.Types.Series(ReviewJob)));
-            const axis = $.const(Plan.axis({
-                window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
-            }));
-            // The host's summary reads what it holds — the committed jobs.
-            const saved = $.let(record.read());
-            const pending = $.let(saved.filter((_$, j) => j.approval.hasTag("pending")).size());
-            const rejected = $.let(saved.filter((_$, j) => j.approval.hasTag("rejected")).size());
-            return (
-                <Plan
-                    axis={axis}
-                    data={jobs}
-                    series={series}
-                    review={{
-                        summary: <Text>{East.str`SAVED · ${East.Float.printFixed(pending.toFloat(), 0n)} PENDING · ${East.Float.printFixed(rejected.toFloat(), 0n)} REJECTED`}</Text>,
-                        onRerun,
-                    }}
-                    editing={{ onApply: Record.onApply(record, { keyed: true }) }}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
-// planEditing — every change a draft, one checked Apply (#880, #825)
+// planEditing — every change a draft, one checked Save (#880, #825)
 // ============================================================================
 
 /** A job on a press. */
 export const EditJob = StructType({
     key: StringType, label: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
 });
-/** A press — the verdict on it, and its jobs. */
-export const EditPress = StructType({ approval: ApprovalStateType, jobs: ArrayType(EditJob) });
+/** A press — its jobs. */
+export const EditPress = StructType({ jobs: ArrayType(EditJob) });
 /** A hall — its name, and its presses. */
 export const EditHall = StructType({ name: StringType, presses: DictType(StringType, EditPress) });
 
-/** The halls — a RECORD every gesture drafts and Apply commits to. P11 already
+/** The halls — a RECORD every gesture drafts and Save commits to. P11 already
  *  holds four jobs, so one more is refused. */
 export const planEditingHalls = e3.record("plan_editing_halls", DictType(StringType, EditHall), new Map([
     ["H1", { name: "Hall 1", presses: new Map([
-        ["P03", { approval: variant("pending", null), jobs: [
+        ["P03", { jobs: [
             { key: "j4642", label: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
         ] }],
-        ["P04", { approval: variant("approved", null), jobs: [
+        ["P04", { jobs: [
             { key: "j4624", label: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null) },
             { key: "j4657", label: "J-4657", start: new Date("2026-07-27T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
         ] }],
     ]) }],
     ["H2", { name: "Hall 2", presses: new Map([
-        ["P11", { approval: variant("pending", null), jobs: [
+        ["P11", { jobs: [
             { key: "j4723", label: "J-4723", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) },
             { key: "j4732", label: "J-4732", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
             { key: "j4741", label: "J-4741", start: new Date("2026-07-27T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
@@ -3247,7 +3117,7 @@ export const planEditingHalls = e3.record("plan_editing_halls", DictType(StringT
     ]) }],
 ]));
 
-/** The halls' patch door — every Apply commits through it. */
+/** The halls' patch door — every Save commits through it. */
 export const planEditingHallsPatch = e3.mutation.patch(planEditingHalls);
 
 /** A card in the palette the jobs come from. */
@@ -3262,14 +3132,11 @@ export const planEditingCards = e3.input("plan_editing_cards", ArrayType(EditCar
 /**
  * The Plan's editing session (#880) — the Sheet's, over the canvas's entries.
  *
- * The source holds HALLS, each holding its presses. A press is reviewed
- * (its `approval` field), receives dropped jobs (its `jobs` list) and has its
- * jobs moved and resized, and every gesture lands on the PRESS rows, one
- * level down — yet each drafts the HALL, the source's top-level entry, which
- * the whole subtree rides in:
+ * The source holds HALLS, each holding its presses. A press receives dropped
+ * jobs (its `jobs` list) and has its jobs moved and resized, and every gesture
+ * lands on the PRESS rows, one level down — yet each drafts the HALL, the
+ * source's top-level entry, which the whole subtree rides in:
  *
- *  - Approve / Reject on a press, and Approve all / Reject all at the foot,
- *    draft its `approval` (`review: { verdict: "approval" }` on the presses).
  *  - A job card dropped on a press drafts a new job in its `jobs` at the
  *    bucket's instant (`edit: { items: "jobs", create }`).
  *  - A job's run moves along its press or onto another press, and resizes
@@ -3284,26 +3151,26 @@ export const planEditingCards = e3.input("plan_editing_cards", ArrayType(EditCar
  * Every gesture is one transaction, drawn at once with the pending mark; the
  * toolbar's history bar undoes, redoes and discards it (so do ⌘Z and ⌘⇧Z).
  * `ready` is the author's check over a drafted hall: a press holding more
- * than four jobs is refused, by name, and Apply waits until it is fixed — P11
- * already holds four, so a job moved onto it holds Apply until one leaves.
- * The halls are an e3 record: Apply commits the batch to it through its patch
+ * than four jobs is refused, by name, and Save waits until it is fixed — P11
+ * already holds four, so a job moved onto it holds Save until one leaves.
+ * The halls are an e3 record: Save commits the batch to it through its patch
  * door (`Record.onApply`), and `onPatch` hears each gesture as it is made.
  */
 export const planEditing = example({
     keywords: [
         "Plan", "editing", "session", "draft", "drafts", "transaction", "onApply", "onPatch", "ready",
-        "Readiness", "Editing.Types.Readiness", "invalid", "review", "verdict", "approval", "ApprovalStateType",
-        "Approve all", "Reject all", "edit", "items", "create", "drop", "Library", "DnD", "id", "sources",
-        "undo", "redo", "discard", "Apply", "history bar", "pending", "nested", "children", "Plan.children",
+        "Readiness", "Editing.Types.Readiness", "invalid",
+        "edit", "items", "create", "drop", "Library", "DnD", "id", "sources",
+        "undo", "redo", "discard", "Save", "history bar", "pending", "nested", "children", "Plan.children",
         "top-level entry", "Plan.Types.PatchEvent", "Reactive", "State", "#880",
         "move", "resize", "drag", "run", "key", "start", "end", "Shift", "snap", "keyboard", "Space",
         "cross-row", "Plan.Types.Move", "#825",
         "Record", "Record.bind", "Record.onApply", "e3.record", "patch", "commit", "Data.bindPaged",
     ],
-    description: "The Plan's editing session over an e3 record — verdicts, dropped jobs and moved or resized runs on nested press rows draft their hall (both halls when a job changes hall), the history bar undoes and applies them as one commit, and `ready` refuses a crowded press",
+    description: "The Plan's editing session over an e3 record — dropped jobs and moved or resized runs on nested press rows draft their hall (both halls when a job changes hall), the history bar undoes and saves them as one commit, and `ready` refuses a crowded press",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // The halls are a RECORD: the canvas pages it, and each Apply is
+            // The halls are a RECORD: the canvas pages it, and each Save is
             // one commit through its patch door.
             const halls = $.let(Data.bindPaged(planEditingHalls));
             const record = $.let(Record.bind(planEditingHalls, [planEditingHallsPatch]));
@@ -3331,17 +3198,13 @@ export const planEditing = example({
                 });
                 return result;
             }));
-            // Every gesture, as it is made — a verdict, a drop, an undo — into
-            // a log the viewer keeps.
+            // Every gesture, as it is made — a drop, a move, an undo — into a
+            // log the viewer keeps.
             const lastBind = $.let(State.bind([StringType], "ex.plan.editing.last", "none yet"));
             const onPatch = $.const(East.function([Plan.Types.PatchEvent(EditHall)], NullType, ($, event) => {
                 $(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
             }));
             const last = $.let(lastBind.read());
-
-            // The host's summary reads what it holds — the committed halls.
-            const saved = $.let(record.read());
-            const pending = $.let(saved.toArray((_$, l) => l.presses.filter((_$, m) => m.approval.hasTag("pending")).size()).sum());
             const axis = $.const(Plan.axis({
                 window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
             }));
@@ -3370,10 +3233,6 @@ export const planEditing = example({
                                     Plan.series.span(EditPress, {
                                         key: "presses", title: "Presses",
                                         label: (_m, k) => k, id: true,
-                                        review: { verdict: "approval" },
-                                        status: m => m.approval.hasTag("rejected").ifElse(
-                                            () => some(variant("danger", null)),
-                                            () => none),
                                         runs: m => m.jobs.map((_$, j) => Plan.run({
                                             key: j.key, start: j.start, end: j.end,
                                             label: East.str`RUN · ${j.label}`, state: j.state,
@@ -3399,9 +3258,6 @@ export const planEditing = example({
                                 ]),
                             }),
                         ]}
-                        review={{
-                            summary: <Text>{East.str`SAVED · ${East.print(pending)} PENDING`}</Text>,
-                        }}
                         editing={{ onApply: Record.onApply(record, { keyed: true }), onPatch, ready }}
                         style={{ height: "360px" }}
                     />

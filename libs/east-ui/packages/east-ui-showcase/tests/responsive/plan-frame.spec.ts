@@ -9,9 +9,8 @@
  * holding the canvas, the footer — drawing no border of its own and no pane it
  * is not given: the library its `library` lists (#1195), and the inspector
  * (#1197). Its toolbar is one 44px row at every width from 1440px to 360px
- * and on a phone: the rail folds first, then the Plan's own steps, the
- * review's buttons into their menu and the key search into its icon, the
- * history item last. A declared height is the whole Plan's, and a host that
+ * and on a phone: the rail folds first, then the Plan's own steps and the
+ * key search into its icon, the history item last. A declared height is the whole Plan's, and a host that
  * gives the frame a height bounds the canvas, which then scrolls its own rows
  * inside main. A selected event wears the brand's 1.5px ring, and the
  * inspector shows it, every line inside the pane. On a phone the library and
@@ -34,11 +33,10 @@ import { settled } from "./settle";
 const EVENTS = "e3/plan/plan-events";
 
 /** Plans of every source and chrome, each by its examples file and the panes
- *  it is given: a slice and a review; a review and editing over a keyed paged
- *  source; event kinds, with and without a library; the narrow layout's box. */
+ *  it is given: a slice; editing over a keyed paged source; event kinds, with
+ *  and without a library; the narrow layout's box. */
 const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly string[] }> = [
     { name: "planTargetState", file: PLAN_EXAMPLES },
-    { name: "planReview", file: PLAN_EXAMPLES },
     { name: "planEditing", file: PLAN_EXAMPLES },
     { name: "planEvents", file: EVENTS },
     { name: "planPrintWorks", file: EVENTS, panes: ["start", "end"] },
@@ -97,8 +95,8 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
                 if (r.left < row.left - 0.5 || r.right > row.right + 0.5) bad.push(`toolbar item ${key}: ${r.left.toFixed(1)}–${r.right.toFixed(1)} past the row's ${row.left.toFixed(1)}–${row.right.toFixed(1)}`);
             }
         }
-        // The canvas draws no toolbar of its own, no review foot, no chip row.
-        if (main !== null && main.querySelector("[data-toolbar], [data-slot='reviewFoot'], [data-slot='narrowChips']") !== null) {
+        // The canvas draws no toolbar of its own, no chip row.
+        if (main !== null && main.querySelector("[data-toolbar], [data-slot='narrowChips']") !== null) {
             bad.push("main holds a toolbar of its own");
         }
         // The history item, where there is one, folds last.
@@ -129,7 +127,7 @@ test.describe("the Plan's frame (#1193)", () => {
     // A Plan with nothing to control draws no toolbar: the frame's DOM test holds
     // it (`plan-frame.dom.test.tsx`), over the event kinds' Plan with its jobs'
     // overlap moved apart — every Plan the showcase shows has a control.
-    test("a Plan with a slice and a review has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip alone", async ({ page }) => {
+    test("a Plan with a slice has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip alone", async ({ page }) => {
         const slice = await openExample(page, "planTargetState");
         expect((await frameFaults(slice)).toolbar).toBe(true);
         // Press B2's two jobs on the 20th overlap (#1198).
@@ -190,9 +188,9 @@ test.describe("the Plan's frame (#1193)", () => {
 test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "swept once, at the desktop project");
 
-    // A slice, its segments and a one-verb review; a review and editing over a
-    // keyed paged source, its key search in the row — each folding on its own ladder.
-    for (const name of ["planTargetState", "planReview", "planEditing"]) {
+    // A slice and its segments; editing over a keyed paged source, its key
+    // search in the row — each folding on its own ladder.
+    for (const name of ["planTargetState", "planEditing"]) {
         test(`${name}: one 44px row from 1440px to 360px — nothing past its edge, nothing scrolled — folded as far as its own ladder says, the rail first and the history last, never less at a narrower frame`, async ({ page }) => {
             test.setTimeout(120_000);
             const entry = await openExample(page, name);
@@ -241,23 +239,19 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         });
     }
 
-    test("planEditing, at 360px: the review's verbs in their menu, the key search an icon that opens its box in a popover with the focus in it, the history beside them", async ({ page }) => {
+    test("planEditing, at 360px: no review in the row — the key search an icon that opens its box in a popover with the focus in it, the history beside it", async ({ page }) => {
         const entry = await openExample(page, "planEditing");
         const box = entry.locator("[data-plan-frame]").first().locator("xpath=..");
         await sizeTo(page, box, 360);
         const toolbar = entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']");
-        await expect(toolbar.locator("[data-slot='reviewMenu']")).toBeVisible();
-        await expect(toolbar.locator("[data-review-batch]")).toHaveCount(0);
+        // A Plan approves and rejects nothing (#1260): no review item, no verdict menu.
+        await expect(toolbar.locator("[data-toolbar-item='review'], [data-slot='reviewMenu'], [data-review-batch]")).toHaveCount(0);
         await expect(toolbar.locator("[data-toolbar-item='history'] [data-slot='history']")).toBeVisible();
         const icon = toolbar.locator("[data-key-search='icon']");
         await expect(icon).toHaveAttribute("aria-label", "Search keys");
         await icon.click();
         const input = page.locator("[data-key-search='popover'] input");
         await expect(input).toBeFocused();
-        // The review's menu holds its verbs.
-        await page.keyboard.press("Escape");
-        await toolbar.locator("[data-slot='reviewMenu']").click();
-        await expect(page.locator("[role='menu'] [role='menuitem'][data-review-batch]")).toHaveText([/^Reject /, /^Approve /]);
     });
 });
 

@@ -9,7 +9,7 @@
  * the row that fits a joining tile (L10), the drop stages (L11), a dropped
  * card built by `create` and the veto (L12), the keyboard (L15), and every
  * gesture as one transaction of the shared session — undone, redone,
- * discarded and applied as one checked batch (L16). Then the builder's frame
+ * discarded and saved as one checked batch (L16). Then the builder's frame
  * (#995), laid out by the shared builder frame (#1125): the one toolbar, the
  * zoom and the design widths over a bound view, the selection bar, the saved
  * time, and the panes. Then a pane beside the
@@ -376,11 +376,11 @@ describe("L16 — every gesture is one transaction", () => {
         await history(canvas, "Discard");
         expect(rowsDrawn(c)).toEqual(SEED_ROWS);
         expect(marks(c)).toEqual({});
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
         expect(canvas.writes()).toBe(0);
     }, 30_000);
 
-    test("Apply sends one checked batch — and the source holds the order the canvas shows", async () => {
+    test("Save sends one checked batch — and the source holds the order the canvas shows", async () => {
         const canvas = await mountSnapGrid();
         const c = canvas.container;
         await drop(tileEl(c, "board"), gapEl(c, 0));
@@ -390,7 +390,7 @@ describe("L16 — every gesture is one transaction", () => {
         await clickTile(c, "region");
         await key(c, { key: "Delete" }, "region");
         const drawn = rowsDrawn(c);
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.applies).toHaveLength(1);
         expect(canvas.writes()).toBe(1);
         // The source's order is the canvas's.
@@ -399,7 +399,7 @@ describe("L16 — every gesture is one transaction", () => {
         await canvas.confirm();
         expect(rowsDrawn(c)).toEqual(drawn);
         expect(marks(c)).toEqual({});
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
     }, 30_000);
 
     test("a height is written into the tile's own row — `some` for a height, `none` back to auto", async () => {
@@ -407,16 +407,16 @@ describe("L16 — every gesture is one transaction", () => {
         const c = canvas.container;
         await clickTile(c, "region");
         await dragHandle(c, "region", "height", { y: 250 });
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "region")!.height).toEqual(some(240n));
         await canvas.confirm();
         await clickTile(c, "region");
         await dragHandle(c, "region", "height", { y: -300 });
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "region")!.height).toEqual(none);
     }, 30_000);
 
-    test("the author's check marks the tile it refuses — and Apply waits for it", async () => {
+    test("the author's check marks the tile it refuses — and Save waits for it", async () => {
         const canvas = await mountSnapGrid({ ready: true });
         const c = canvas.container;
         await clickTile(c, "region");
@@ -424,10 +424,10 @@ describe("L16 — every gesture is one transaction", () => {
         expect(marks(c)).toEqual({ region: "pending" });
         await key(c, { key: "[" }, "region");
         expect(marks(c)).toEqual({ region: "invalid" });
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
         await history(canvas, "Undo");
         expect(marks(c)).toEqual({ region: "pending" });
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(false);
+        expect(historyButton(canvas, "Save").disabled).toBe(false);
     }, 30_000);
 });
 
@@ -502,13 +502,13 @@ describe("the builder's frame (#995)", () => {
         expect([...bar().children].map((el) => el.textContent)).toEqual(["", "Assignment board", "board · sales_daily"]);
     }, 30_000);
 
-    test("once the source confirms an Apply the toolbar says when it saved; a Discard clears it", async () => {
+    test("once the source confirms a Save the toolbar says when it saved; a Discard clears it", async () => {
         const canvas = await mountSnapGrid({ chrome: true });
         const c = canvas.container;
         const saved = () => c.querySelector("[data-snap-grid-saved]")?.textContent;
         expect(saved()).toBeUndefined();
         await drop(tileEl(c, "board"), gapEl(c, 0));
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         await canvas.confirm();
         expect(saved()).toMatch(/^Saved · \d\d:\d\d$/);
         expect(toolbarItems(c).slice(0, 3)).toEqual(["start-0", "grid", "saved"]);
@@ -603,7 +603,7 @@ describe("a pane beside the canvas (#996)", () => {
         expect(tileEl(c, "trend").getAttribute("data-align")).toBe("center");
         expect(labels(canvas)).toEqual(["Align Revenue trend"]);
         expect(origins(canvas)).toEqual(["typed"]);
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "trend")!.align.type).toBe("center");
         cleanup();
         initializeStore(new UIStore());
@@ -683,7 +683,7 @@ describe("an Apply a screen asks for (#998)", () => {
         await canvas.confirm();
         expect(canvas.boundApply()).toEqual(variant("applied", "ask-2"));
         expect(marks(c)).toEqual({});
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
     }, 30_000);
 
     test("each ask is answered under its own id", async () => {

@@ -82,7 +82,6 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: s
         pinned: opts?.pinned === true,
         height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
-        approval: none,
         expand: opts?.expand === true ? some({ height: some("120px"), axis: variant("keep", null) }) : none,
     } as unknown as PlanWireRow;
 }
@@ -126,7 +125,7 @@ function planRoot(rows: PlanWireRow[], opts: {
         expandRender: opts.expandRender === true
             ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
-        expandGutter: none, review: none, pick: none, slice: none, footer: [],
+        expandGutter: none, pick: none, slice: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
         onElementClick: opts.onElementClick !== undefined ? some(opts.onElementClick) : none,

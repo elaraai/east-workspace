@@ -642,7 +642,7 @@ export interface SheetDriverValue {
  *             { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
  *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
  *         ], ArrayType(WorkshopOperation));
- *         // A new operation's and a new order's defaults, and the check every order passes before Apply.
+ *         // A new operation's and a new order's defaults, and the check every order passes before Save.
  *         const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WorkshopOperation), () =>
  *             Sheet.patch(WorkshopOperation, { start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "planner" })));
  *         const newGroup = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(WorkshopOrder), () =>

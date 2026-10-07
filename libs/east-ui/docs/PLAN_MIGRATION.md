@@ -87,6 +87,16 @@ line.
 East type. The wire does not change. See
 [Paged data is bound-only (#849)](#paged-data-is-bound-only-849) below.
 
+**#1260 takes review off the Plan**: a Plan approves and rejects nothing. Its
+changes are drafts its editing session undoes, redoes, discards or saves
+together, so the decision column, Approve all and Reject all and the verdict
+on each element go. `PlanReviewType` and the root's `review`, a row's
+`approval`, the gesture's `verdict` arm and a row's `verdict` edit leave the
+Plan's payload, and an event kind's `review` role and its events' `verdict`
+leave e3-ui's `Schedule`. The payload is a UI task's output, carried by its
+package: no repository upgrade step. See
+[Review removed (#1260)](#review-removed-1260) below.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -394,7 +404,9 @@ history bar or the keyboard, and applied as one checked batch.
 | a callback writing the verdict or the dropped item into `State` | `editing={{ onUpdate: handle.write }}` with `data={handle}` — the inline adapter applies each batch over the handle's latest `Dict` — or `onApply` for a host transaction | `planReview`, `planRowDrop` |
 | `approval: r => some(r.approval)` feeding the buttons of a verdict the canvas takes | `review: { verdict: "approval" }`; `approval` stays for a verdict the canvas only shows. Giving both fails the build | `planReview` |
 
-Each removed callback throws at build, naming its replacement.
+Each removed callback throws at build, naming its replacement. Since #1260
+there is no review at all: the rows above that name `review` or `approval`
+give way to [Review removed (#1260)](#review-removed-1260).
 
 ### Behaviour
 
@@ -549,6 +561,52 @@ Plan.series.span(Press, {
   `useDropCell`'s options gain `accepts(payload)`, and `resolveCoord`,
   `onHover` and `name` receive the payload.
 
+## Review removed (#1260)
+
+Before #1260 a Plan's changes were drafts of its editing session (#880), and a
+verdict sat on top of them: a decision column, Approve all and Reject all, and
+Approve and Reject on each event. It was a second way to say yes or no to what
+the history item already commits. Now the history item is the one way: Undo,
+Redo, Discard and Save.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanReviewType` (`Plan.Types.Review`) | `{ columnLabel, summary, onRerun, rerunLabel }` | removed |
+| the root's `review` | `Option<PlanReviewType>` | removed |
+| `PlanRowType.approval` | `Option<ApprovalState>` | removed |
+| `PlanGestureType` (`Plan.Types.Gesture`) | `verdict(ApprovalState) \| drop(PlanDrop) \| move(PlanMove)` | `drop(PlanDrop) \| move(PlanMove)` |
+| `PlanRowEditsType` (`Plan.Types.RowEdits`) | `{ verdict: Boolean, drop: Boolean, move: Option<PlanMoveEdits> }` | `{ drop: Boolean, move: Option<PlanMoveEdits> }` |
+| an event kind's roles (e3-ui `Schedule`) | `{ state, quantity, lane, review }` | `{ state, quantity, lane }` |
+| an event as a Plan draws it | its roles' values and `verdict: Option<ApprovalState>` | its roles' values |
+
+`Editing.Types.Origin` keeps its `verdict` case. Nothing makes one now; the
+case stays so a journal of earlier patch events still reads.
+
+### Removals
+
+| Removed | What to do |
+|---|---|
+| `<Plan review={…}>` | leave it out: the history item saves the drafts. A sign-off an app keeps is a field of its own record, edited like any other |
+| a series' `review` and `approval` | leave them out; a row's `status` still shows its dot |
+| a hand-built row's `approval` | leave it out |
+| `Schedule.events(record, { review })` | leave it out; the inspector edits the field through the kind's `fields`, like any other |
+| the `planReview` example | `planEditing`: every change a draft, saved together |
+
+Each is refused at build, naming the removal.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+- `PlanMessages` loses the review's words: `approve`, `reject`, `approveAll`,
+  `rejectAll`, `approveLoaded`, `rejectLoaded`, `reviewMenu`,
+  `inspectorVerdict` and `footerToReview`.
+- The toolbar loses the review item, the inspector its verdict, and the
+  footer its count of the events to review.
+- The history item's commit reads Save (`EditingMessages.apply`), as it does
+  in every builder: the Plan, the Sheet, the SnapGrid's editing canvas and the
+  query builder.
+
 ## Paged data is bound-only (#849)
 
 Before #849, `Paged.of` was the one paged producer that was not a platform
@@ -668,10 +726,8 @@ domain id, never an index.
   declaration once it names the item's key and instant fields
   (`edit: { items, key, start, end }`, #825). `onTaskProgressChange` has no
   equivalent.
-- **Review**: the same chrome, but a verdict is a draft (#880). Name the
-  entry's `ApprovalStateType` field on the series
-  (`review: { verdict: "approval" }`) and give the root `editing`. There are
-  no per-row callbacks, and nothing is addressed by `{ rowIndex }`.
+- **Review**: none (#1260). A Plan's changes are drafts its history item
+  saves together; a sign-off an app keeps is a field of its own record.
 
 ### `<Planner.Point>` → `<Plan>` with a buckets series
 
@@ -747,13 +803,13 @@ gutter-imposing stack container any more.
 |---|---|
 | `ganttBasic` | `planSeriesData`, `planSpanRows` |
 | `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planSpanRows` (lifecycle flavours), `planFill` (fill + 200-row stress), `planTargetState` |
-| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Apply writes the State handle); `planEditing` (runs move and resize, #825) |
-| `ganttReview` | `planReview` |
+| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Save commits it); `planEditing` (runs move and resize, #825) |
+| `ganttReview` | none: review is removed (#1260) |
 | `ganttLibraryDnd` | `planRowDrop` |
 | `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |
 | `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
-| `plannerReview` | `planReview` |
-| `plannerLibraryDnd` (add + veto + review loop) | `planEditing` (drops and verdicts in one session), `planRowDrop` + `planReview` |
+| `plannerReview` | none: review is removed (#1260) |
+| `plannerLibraryDnd` (add + veto + review loop) | `planEditing` (drops, moves and resizes in one session), `planRowDrop` |
 | `plannerSpan` | `planSpanRows` |
 | `plannerFill` | `planFill` |
 | `alignedStackAll` | `planTargetState` (all kinds, one axis), `planChartRows` (chart compositions) |

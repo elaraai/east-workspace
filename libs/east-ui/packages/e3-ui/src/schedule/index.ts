@@ -51,7 +51,7 @@ export {
     type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
     type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
     type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
-    type ScheduleTemplate, type ScheduleValuesOf, type ScheduleVerdictField,
+    type ScheduleTemplate, type ScheduleValuesOf,
 } from "./events.js";
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from "./resources.js";
 export { scheduleDays, scheduleUnscheduled } from "./days.js";

@@ -45,7 +45,7 @@ function mount(sheet: SheetValue) {
     return { ...ui, rows, input, flush, press, finish, insertAbove, refresh: (value: SheetValue) => ui.rerender(component(value)) };
 }
 
-test("insertion before the first row emits one draft gesture, applies in order and preserves constructor and hidden fields", async () => {
+test("insertion before the first row emits one draft gesture, saves in order and preserves constructor and hidden fields", async () => {
     const view = program();
     const ui = mount(view());
     await ui.press(ui.insertAbove(ui.rows()[0]!));
@@ -54,12 +54,12 @@ test("insertion before the first row emits one draft gesture, applies in order a
     expect(ui.input().closest('[data-row-id]')).toBe(ui.rows()[0]);
     expect(ui.rows()[0]!.querySelector('[data-key="qty"]')!.textContent).toBe("3");
     await ui.finish("Inserted");
-    await ui.press(ui.getByRole("button", { name: "Apply changes" }));
+    await ui.press(ui.getByRole("button", { name: "Save" }));
     const saved = view();
     if (saved.sheet.rows.type !== "inline" || saved.sheet.editing.snapshot.type !== "some") throw new Error("Expected inline");
     expect(saved.sheet.rows.value.map(row => row.cells.get("task"))).toEqual([variant("String", "Inserted"), variant("String", "First"), variant("String", "Second")]);
     ui.refresh(saved);
-    expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.queryByRole("status")).toBeNull();
 });
 

@@ -5,7 +5,7 @@
 
 /**
  * The Plan's UIComponent-coupled IR — since the data-interface redesign only
- * the ROOT and the review config touch `UIComponentType`; the whole row
+ * the ROOT touches `UIComponentType`; the whole row
  * vocabulary (elements, kinds, rows) is pure data in `./types.ts`. The root
  * is the canvas `<Plan>` carries in its payload (`./plan.ts`, #1191).
  *
@@ -41,33 +41,6 @@ import {
 // ============================================================================
 
 /**
- * The Plan's review chrome (#880) — the decision column's header, the foot's
- * summary and its Rerun.
- *
- * @remarks
- * A verdict is a GESTURE of the root's editing session: the series whose rows
- * are reviewed names the field it writes (`review.verdict`), Approve / Reject
- * on a row and Approve all / Reject all over the canvas draft the entries,
- * and Apply sends them as one checked batch. So the chrome carries no verdict
- * callbacks — the shared contract's (`reviewType`) stay with Table, Roster
- * and Board until they adopt a session. Rerun changes no data, so it stays a
- * callback.
- *
- * @property columnLabel - The decision column's header (`"Decision"` by default)
- * @property summary - The foot's eyebrow — a host-composed component
- * @property onRerun - The Rerun verb (absent ⇒ no Rerun button)
- * @property rerunLabel - The Rerun button's label (`"Rerun"` by default)
- */
-export const PlanReviewType = StructType({
-    columnLabel: StringType,
-    summary:     OptionType(UIComponentType),
-    onRerun:     OptionType(FunctionType([], NullType)),
-    rerunLabel:  StringType,
-});
-/** Type alias for {@link PlanReviewType}. */
-export type PlanReviewType = typeof PlanReviewType;
-
-/**
  * The Plan root IR — the whole canvas.
  *
  * @remarks
@@ -101,9 +74,8 @@ export const PlanRootType = StructType({
     // author's — identity that only earns its place when the row has the
     // canvas. Same shape as `expandRender`, over the same row id.
     expandGutter: OptionType(FunctionType([PlanRowIdType], UIComponentType)),
-    review: OptionType(PlanReviewType),
-    // The editing session (#880) — every verdict, every dropped card and every
-    // moved or resized element (#825) is a draft, applied as one checked batch.
+    // The editing session (#880) — every dropped card and every moved or
+    // resized element (#825) is a draft, saved as one checked batch.
     editing: OptionType(PlanEditingType),
     pick: OptionType(PickBindType),
     slice: OptionType(SliceChromeType),

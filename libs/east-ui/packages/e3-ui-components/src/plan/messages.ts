@@ -6,9 +6,9 @@
 /**
  * Every word the Plan says itself (#820) — ONE typed message table. The
  * canvas's own chrome (the toolbar, the footer, the diagnostics, the bands,
- * the narrow layout's tabs and cards, the review buttons), the words it gives
- * a reader for what it shows only by shape or colour, and what its live
- * region announces all come from here. What the AUTHOR wrote — a row's label,
+ * the narrow layout's tabs and cards), the words it gives a reader for what
+ * it shows only by shape or colour, and what its live region announces all
+ * come from here. What the AUTHOR wrote — a row's label,
  * a footer item, a series title — is data, and never passes through it.
  *
  * Each message is a function of named parameters, so a translation can put
@@ -68,13 +68,13 @@ export type PlanLibraryTabWord = "events" | "backlog" | "series" | "tab";
 export type PlanDueWord = "thisWeek" | "nextWeek" | "later" | "none";
 
 /** A section of the inspector pane (#1197). */
-export type PlanInspectorSection = "verdict" | "fields" | "bulk" | "window" | "measures";
+export type PlanInspectorSection = "fields" | "bulk" | "window" | "measures";
 
 /** A fact the inspector pane shows of an event or a row (#1197). */
 export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities";
 
 /** What the inspector pane counts when nothing is selected (#1197, PB41). */
-export type PlanInspectorStat = "events" | "hours" | "backlog" | "review";
+export type PlanInspectorStat = "events" | "hours" | "backlog";
 
 /**
  * The Plan's message table.
@@ -163,10 +163,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     footerEvents: (p: { n: number; count: string }) => string;
     /** The event kinds' unscheduled events — `9 in backlog`. */
     footerBacklog: (p: { n: number; count: string }) => string;
-    /** The changes waiting on Apply — `4 pending`. */
+    /** The changes waiting on Save — `4 pending`. */
     footerPending: (p: { n: number; count: string }) => string;
-    /** The events whose verdict waits on a call — `2 to review`. */
-    footerToReview: (p: { n: number; count: string }) => string;
     /** When an event kind's record was last saved — `saved 14:02`: `when` is its time today, else its date and time. */
     footerSaved: (p: { when: string }) => string;
 
@@ -216,8 +214,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     inspectorUnassigned: () => string;
     /** A row that is no resource's: the eyebrow over its name. */
     inspectorRow: () => string;
-    /** A verdict, in words — `Pending`. */
-    inspectorVerdict: (p: { verdict: string }) => string;
     /** One of the gestures on what is selected. */
     inspectorAction: (p: { action: "duplicate" | "delete" }) => string;
     /** A step of the bulk edit's shift in time — `−1 d`, `+1 h`. */
@@ -291,23 +287,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     quantities: (p: { parts: readonly string[] }) => string;
     /** The resting chip of a proposed bucket tile. */
     planChip: () => string;
-
-    // ── Review ─────────────────────────────────────────────────────────────
-    /** A row's approve button. */
-    approve: () => string;
-    /** A row's reject button. */
-    reject: () => string;
-    /** The toolbar's approve-all button (the review item, #1193). */
-    approveAll: () => string;
-    /** The toolbar's reject-all button. */
-    rejectAll: () => string;
-    /** The toolbar's approve-all button on a paged canvas, where it covers
-     *  the loaded rows (#880) — `Approve 120 loaded`. */
-    approveLoaded: (p: { n: number; count: string }) => string;
-    /** The toolbar's reject-all button on a paged canvas. */
-    rejectLoaded: (p: { n: number; count: string }) => string;
-    /** The menu a toolbar short of room folds the review's buttons into (#1193). */
-    reviewMenu: () => string;
 
     // ── Moves (#825) ───────────────────────────────────────────────────────
     /** How a keyboard reader moves an element — the description of every one that moves. */
@@ -516,7 +495,6 @@ export const planMessages: PlanMessages = {
     footerEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
     footerBacklog: ({ count }) => `${count} in backlog`,
     footerPending: ({ count }) => `${count} pending`,
-    footerToReview: ({ count }) => `${count} to review`,
     footerSaved: ({ when }) => `saved ${when}`,
 
     libraryPane: () => "Library",
@@ -548,7 +526,7 @@ export const planMessages: PlanMessages = {
         : endDay === undefined ? `${day} · ${from}–${to}` : `${day}, ${from} – ${endDay}, ${to}`),
     inspectorUnscheduled: () => "Not scheduled — in the backlog",
     inspectorSection: ({ section }) => ({
-        verdict: "Verdict", fields: "Fields", bulk: "Edit all", window: "In the window", measures: "Measures",
+        fields: "Fields", bulk: "Edit all", window: "In the window", measures: "Measures",
     })[section],
     inspectorFact: ({ fact }) => ({
         resource: "Resource", start: "Start", end: "End", at: "At", lane: "Lane", state: "State", quantity: "Quantity",
@@ -556,7 +534,6 @@ export const planMessages: PlanMessages = {
     })[fact],
     inspectorUnassigned: () => "Unassigned",
     inspectorRow: () => "Row",
-    inspectorVerdict: ({ verdict }) => (verdict === "approved" ? "Approved" : verdict === "rejected" ? "Rejected" : "Pending"),
     inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
     inspectorShift: ({ by, unit }) => `${by < 0 ? "−" : "+"}1 ${unit === "day" ? "d" : "h"}`,
     inspectorShiftLabel: () => "Shift",
@@ -564,7 +541,7 @@ export const planMessages: PlanMessages = {
     inspectorNoBucket: () => "Click the row's plot to read its measures at that bucket.",
     inspectorNoValue: () => "—",
     inspectorStat: ({ stat, n }) => ({
-        events: plural(n, "Event", "Events"), hours: "Hours", backlog: "In backlog", review: "To review",
+        events: plural(n, "Event", "Events"), hours: "Hours", backlog: "In backlog",
     })[stat],
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
@@ -598,14 +575,6 @@ export const planMessages: PlanMessages = {
     quantity: ({ value, unit }) => (unit !== undefined && unit !== "" ? `${value} ${unit}` : value),
     quantities: ({ parts }) => parts.join(" · "),
     planChip: () => "plan",
-
-    approve: () => "Approve",
-    reject: () => "Reject",
-    approveAll: () => "Approve all",
-    rejectAll: () => "Reject all",
-    approveLoaded: ({ count }) => `Approve ${count} loaded`,
-    rejectLoaded: ({ count }) => `Reject ${count} loaded`,
-    reviewMenu: () => "Review",
 
     moveHelp: () =>
         "Press Space to pick it up. The arrow keys then move it — Shift with left or right moves its end, Alt its start — " +

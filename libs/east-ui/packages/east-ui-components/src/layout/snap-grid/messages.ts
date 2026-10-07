@@ -66,7 +66,7 @@ export interface SnapGridMessages extends EditingMessages {
     announceCleared: () => string;
     /** The toolbar's grid chip — `12 col · snap on`. */
     gridChip: () => string;
-    /** When the source last confirmed an Apply — `Saved · 14:32`; `time` is formatted for the locale. */
+    /** When the source last confirmed a Save — `Saved · 14:32`; `time` is formatted for the locale. */
     saved: (p: { time: string }) => string;
     /** The design width readout — `1440 px`; `px` is formatted for the locale. */
     widthReadout: (p: { px: string }) => string;
@@ -117,7 +117,7 @@ export const snapGridMessages: SnapGridMessages = {
     viewLabel: () => "View",
     noSelection: () => "No selection",
     noSelectionHint: () => "Click a component on the grid to arrange it",
-    applyRefused: () => "The drafts could not be applied",
+    applyRefused: () => "The drafts could not be saved",
 };
 
 const SnapGridMessagesContext = createContext<SnapGridMessages>(snapGridMessages);

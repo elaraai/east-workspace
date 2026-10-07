@@ -199,7 +199,6 @@ export {
     type PlanOverRows,
     type PlanCanvasOptions,
     PlanRootType,
-    PlanReviewType,
     PlanEditingType,
     PlanWriteRequestType,
     PlanReadyEntryType,
@@ -232,10 +231,8 @@ export {
     type PlanChartLayerInput,
     type PlanChartAxisInput,
     type PlanHeatCellsOptions,
-    type PlanReviewConfig,
     type PlanEditingConfig,
     type PlanBindHandle,
-    type PlanReviewInput,
     type PlanEditInput,
     type PlanRowsInput,
     type PlanRowsValue,
@@ -379,7 +376,7 @@ export {
     type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
     type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
     type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
-    type ScheduleTemplate, type ScheduleValuesOf, type ScheduleVerdictField,
+    type ScheduleTemplate, type ScheduleValuesOf,
 } from './schedule/events.js';
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from './schedule/resources.js';
 export { scheduleDays, scheduleUnscheduled } from './schedule/days.js';

@@ -11,7 +11,7 @@
  * beside a loose row, inserts one; it edits, deletes, pastes and counts on
  * its own; fold-all passes it by, and no band sticks over it. Every value
  * built by `<Sheet>`'s factory and COMPILED, and rendered in its frame
- * (#1216); Apply writes through the live onUpdate adapter.
+ * (#1216); Save writes through the live onUpdate adapter.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -83,7 +83,7 @@ function buildLoose(opts: { proposer?: boolean } = {}): SheetValue {
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
 
-/** The same sheet over a live binding: Apply writes the checked batch through onUpdate. */
+/** The same sheet over a live binding: Save writes the checked batch through onUpdate. */
 const liveProgram = East.function([], SheetPayloadType, ($) => {
     const entries = $.const(State.bind([ArrayType(EntryType)], "sheet-loose-dom", ENTRIES));
     const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(TaskType), () => Sheet.patch(TaskType, { note: "new" })));
@@ -369,8 +369,8 @@ describe("proposals", () => {
     });
 });
 
-describe("Apply", () => {
-    test("a loose row inserted above a band and a line inserted into a group apply through onUpdate — the entries in their places, each with its id", async () => {
+describe("Save", () => {
+    test("a loose row inserted above a band and a line inserted into a group save through onUpdate — the entries in their places, each with its id", async () => {
         const ui = mount(liveView());
         const wire = () => {
             const root = liveView().sheet;
@@ -387,8 +387,8 @@ describe("Apply", () => {
         ui.type("Denib");
         ui.editorKey("Enter");
         await ui.flush();
-        expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(false);
-        await ui.press("Apply changes");
+        expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+        await ui.press("Save");
         const rows = wire();
         expect(rows.map((r) => [r.id, r.band.type])).toEqual([
             ["brief", "none"], ["p1", "some"], ["handover", "none"], ["signoff", "none"], [rows[4]!.id, "none"], ["p2", "some"],

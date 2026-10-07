@@ -84,14 +84,14 @@ export const recordBindStatus = example({
 });
 
 // A keyed record a Sheet edits — each job's key is its id — and its patch
-// door, which every Apply commits through.
+// door, which every Save commits through.
 export const JobType = StructType({ task: StringType, qty: IntegerType });
 export const jobs = e3.record("jobs", DictType(StringType, JobType), new Map());
 export const jobsPatch = e3.mutation.patch(jobs);
 
 export const recordSheetApply = example({
-    keywords: ["Record", "onApply", "Sheet", "Apply", "patch", "commit", "conflict", "discard", "bindPaged", "editing", "system of record"],
-    description: "A Sheet over a record: its rows paged from the record, each Apply one commit through the record's patch door — a stale Apply is a conflict naming the entry, and nothing is overwritten",
+    keywords: ["Record", "onApply", "Sheet", "Save", "patch", "commit", "conflict", "discard", "bindPaged", "editing", "system of record"],
+    description: "A Sheet over a record: its rows paged from the record, each Save one commit through the record's patch door — a stale Save is a conflict naming the entry, and nothing is overwritten",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const rows = $.let(Data.bindPaged(jobs));

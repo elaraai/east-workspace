@@ -132,7 +132,7 @@ export interface SheetSubRowsValue<R extends StructType> {
  *             { task: "Seal", qty: none, parts: [], bookings: [] },
  *             { task: "Spray", qty: none, parts: [], bookings: [] },
  *         ], ArrayType(BatchStep));
- *         // A batch needs a name before Apply.
+ *         // A batch needs a name before Save.
  *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
  *                 $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));
@@ -285,7 +285,7 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  *             { task: "Seal", qty: none, parts: [], bookings: [] },
  *             { task: "Spray", qty: none, parts: [], bookings: [] },
  *         ], ArrayType(BatchStep));
- *         // A batch needs a name before Apply.
+ *         // A batch needs a name before Save.
  *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
  *                 $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));

@@ -5,7 +5,7 @@
 
 import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ApprovalStateType, CellRefType, Chart, Editing, Text } from "@elaraai/east-ui/internal";
+import { CellRefType, Chart, Editing, Text } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import { Plan, type PlanSeriesValue } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan.examples.js";
@@ -56,7 +56,6 @@ describeEast("Plan", (test) => {
         planLibraryDnd: ex.planLibraryDnd,
         planRowDrop: ex.planRowDrop,
         planFill: ex.planFill,
-        planReview: ex.planReview,
         planEditing: ex.planEditing,
         planUiState: ex.planUiState,
         // Was never wired — the example shipped without ever being executed.
@@ -147,24 +146,6 @@ describeEast("Plan", (test) => {
         // A stated window builds, inline or paged alike.
         const stated = $.let(Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series: [] }));
         $(Assert.equal(stated.axis.unwrap("time").window.hasTag("some"), true));
-    });
-
-    test("review config defaults the column and rerun labels; the chrome carries no verdict callback (#880)", $ => {
-        const Row = StructType({ id: StringType });
-        const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Root({
-            axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
-            data,
-            series: [],
-            review: { onRerun: East.function([], NullType, (_$) => null) },
-        }));
-        const review = $.let(p.review.unwrap("some"));
-        $(Assert.equal(review.columnLabel, "Decision"));
-        $(Assert.equal(review.rerunLabel, "Rerun"));
-        $(Assert.equal(review.onRerun.hasTag("some"), true));
-        $(Assert.equal(review.summary.hasTag("none"), true));
-        // Review alone takes no gesture: without `editing` there is no session.
-        $(Assert.equal(p.editing.hasTag("none"), true));
     });
 
     test("the root carries the link graph (R1); Plan.link maps over data — a key, two run refs and a quantity (#824)", $ => {
@@ -368,14 +349,14 @@ describeEast("Plan", (test) => {
         $(Assert.equal(ui.has(), true));
     });
 
-    test("the review chrome carries no verdict callback, and the root no onDrag — both are gestures of `editing` (#880)", $ => {
-        // A verdict and a drop are drafts of the session; only Rerun, which
-        // changes no data, stays a callback.
-        $(Assert.equal(East.value(Object.keys(Plan.Types.Review.fields)), ["columnLabel", "summary", "onRerun", "rerunLabel"]));
+    test("the root has no review and no onDrag, and a row no verdict — a drop and a move are drafts of `editing` (#880, #1260)", $ => {
+        $(Assert.equal(East.value("review" in Plan.Types.Root.fields), false));
         $(Assert.equal(East.value("onDrag" in Plan.Types.Root.fields), false));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Root.fields.editing, OptionType(Plan.Types.Editing))), true));
-        // Every gesture reaches a row through the row's own flags.
+        // Every gesture reaches a row through the row's own flags: a drop and a move.
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Row.fields.edits, Plan.Types.RowEdits)), true));
+        $(Assert.equal(East.value(Object.keys(Plan.Types.RowEdits.fields)), ["drop", "move"]));
+        $(Assert.equal(East.value("approval" in Plan.Types.Row.fields), false));
     });
 
     test("expand renders receive the row id", $ => {
@@ -397,32 +378,26 @@ describeEast("Plan", (test) => {
     // driven from the host in plan-editing.spec.ts
     // =========================================================================
 
-    test("a reviewed series' rows show the field a verdict writes, and every row says which gestures it takes (#880)", $ => {
-        const Row = StructType({ approval: ApprovalStateType, marks: ArrayType(Plan.Types.EventMark) });
-        const data = $.const(new Map([["a", { approval: variant("rejected", null), marks: [] }]]), DictType(StringType, Row));
+    test("every row says which gestures it takes: a card lands on a series that declares `edit.create`, and on no other (#880)", $ => {
+        const Row = StructType({ marks: ArrayType(Plan.Types.EventMark) });
+        const data = $.const(new Map([["a", { marks: [] }]]), DictType(StringType, Row));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
-                Plan.series.span(Row, { key: "reviewed", title: "Reviewed", label: (_r, k) => k, review: { verdict: "approval" }, runs: _r => [] }),
+                Plan.series.events(Row, { key: "plain", title: "Plain", label: (_r, k) => k, marks: r => r.marks }),
                 Plan.series.events(Row, {
                     key: "dropped", title: "Dropped", label: (_r, k) => k, marks: r => r.marks,
                     edit: { items: "marks", create: (drop) => ({ key: drop.from.key, at: drop.at, kind: variant("milestone", null), icon: none, label: none }) },
                 }),
-                // A verdict the canvas only SHOWS — nothing to write it into.
-                Plan.series.span(Row, { key: "shown", title: "Shown", label: (_r, k) => k, approval: r => some(r.approval), runs: _r => [] }),
                 Plan.series.rows(Row, { key: "chrome", title: "Chrome" }, [Plan.events({ key: "ms", label: "MS" })]),
             ],
         }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
-        $(Assert.equal(rows.get(0n).approval.unwrap("some").hasTag("rejected"), true));
-        $(Assert.equal(rows.get(0n).edits, { verdict: true, drop: false, move: none }));
-        $(Assert.equal(rows.get(1n).approval.hasTag("none"), true));
-        $(Assert.equal(rows.get(1n).edits, { verdict: false, drop: true, move: none }));
-        $(Assert.equal(rows.get(2n).approval.unwrap("some").hasTag("rejected"), true));
-        $(Assert.equal(rows.get(2n).edits, { verdict: false, drop: false, move: none }));
+        $(Assert.equal(rows.get(0n).edits, { drop: false, move: none }));
+        $(Assert.equal(rows.get(1n).edits, { drop: true, move: none }));
         // A hand-built row belongs to no entry, so it takes no gesture either.
-        $(Assert.equal(rows.get(3n).edits, { verdict: false, drop: false, move: none }));
+        $(Assert.equal(rows.get(2n).edits, { drop: false, move: none }));
     });
 
     test("a series declaring a move's fields flags its rows with its item type, and whether its elements resize (#825)", $ => {
@@ -445,7 +420,7 @@ describeEast("Plan", (test) => {
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // The item type as East prints it — no `create`, so no card lands.
         const jobs = printFor(EastTypeType)(toEastTypeValue(Job));
-        $(Assert.equal(rows.get(0n).edits, { verdict: false, drop: false, move: some({ items: jobs, resize: true }) }));
+        $(Assert.equal(rows.get(0n).edits, { drop: false, move: some({ items: jobs, resize: true }) }));
         // Two series over one item type say so alike: a job moves between their rows.
         $(Assert.equal(rows.get(1n).edits.move, some({ items: jobs, resize: true })));
         // A tile has one instant, and its items are another type.
@@ -487,54 +462,62 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(buckets({ items: "jobs", key: "key", at: "start" })), ""));
     });
 
-    test("review and edit name fields of the entry — another field, or review beside approval, fails the build naming the series (#880)", $ => {
-        const Row = StructType({ approval: ApprovalStateType, jobs: ArrayType(StringType), note: StringType });
+    test("edit names fields of the entry — another field fails the build naming the series (#880)", $ => {
+        const Row = StructType({ jobs: ArrayType(StringType), note: StringType });
         const refusal = (build: () => unknown): string => {
             try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
-        const notVerdict = refusal(() => Plan.series.span(Row, {
-            key: "a", title: "A", label: (_r, k) => k, runs: _r => [], review: { verdict: "note" as never },
-        }));
-        $(Assert.equal(East.value(notVerdict.includes('Plan.series.span "a": `review.verdict` names "note", which is not an ApprovalStateType field')), true));
-        const both = refusal(() => Plan.series.span(Row, {
-            key: "b", title: "B", label: (_r, k) => k, runs: _r => [], review: { verdict: "approval" }, approval: r => some(r.approval),
-        }));
-        $(Assert.equal(East.value(both.includes("not both")), true));
         const notList = refusal(() => Plan.series.span(Row, {
             key: "c", title: "C", label: (_r, k) => k, runs: _r => [], edit: { items: "note" as never, create: () => "x" },
         }));
-        $(Assert.equal(East.value(notList.includes('`edit.items` names "note", which is not an Array field')), true));
+        $(Assert.equal(East.value(notList.includes('Plan.series.span "c": `edit.items` names "note", which is not an Array field')), true));
         // An entry that is not a struct has no field to write.
         const Group = DictType(StringType, Row);
         const notStruct = refusal(() => (Plan.series.span as (...args: unknown[]) => unknown)(Group, {
-            key: "d", title: "D", label: () => "D", runs: () => [], review: { verdict: "approval" },
+            key: "d", title: "D", label: () => "D", runs: () => [], edit: { items: "jobs", create: () => "x" },
         }));
         $(Assert.equal(East.value(notStruct.includes("its entries must be structs")), true));
     });
 
+    test("a series given `review` or `approval` fails the build: a Plan approves and rejects nothing (#1260)", $ => {
+        const Row = StructType({ jobs: ArrayType(StringType) });
+        const refusal = (removed: "review" | "approval", value: unknown): string => {
+            try {
+                (Plan.series.span as (...args: unknown[]) => unknown)(Row, {
+                    key: "s", title: "S", label: () => "S", runs: () => [], [removed]: value,
+                });
+                return "";
+            } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        const removed = (prop: string) => `Plan.series.span "s": \`${prop}\` is removed (#1260) — a Plan approves and rejects nothing: ` +
+            "its changes are drafts of the root's `editing` session";
+        $(Assert.equal(East.value(refusal("review", { verdict: "approval" })), removed("review")));
+        $(Assert.equal(East.value(refusal("approval", () => none)), removed("approval")));
+    });
+
     test("a gesture below an entry is written back through a field — an editable series under a computed collection is refused (#880)", $ => {
-        const Press = StructType({ approval: ApprovalStateType, runs: IntegerType });
+        const Press = StructType({ jobs: ArrayType(StringType), runs: IntegerType });
         const Hall = StructType({ presses: DictType(StringType, Press) });
         const refusal = (build: () => unknown): string => {
             try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
-        const reviewed = () => Plan.series.span(Press, {
-            key: "presses", title: "Presses", label: (_m, k) => k, runs: _m => [], review: { verdict: "approval" },
+        const editable = () => Plan.series.span(Press, {
+            key: "presses", title: "Presses", label: (_m, k) => k, runs: _m => [], edit: { items: "jobs", create: () => "x" },
         });
-        // A filtered collection is a copy: a verdict written into it would be lost.
+        // A filtered collection is a copy: a card dropped into it would be lost.
         const filtered = refusal(() => Plan.series.span(Hall, {
             key: "halls", title: "Halls", label: (_h, k) => k, runs: _l => [],
-            children: Plan.children(h => h.presses.filter((_$, m) => m.runs.greater(0n)), [reviewed()]),
+            children: Plan.children(h => h.presses.filter((_$, m) => m.runs.greater(0n)), [editable()]),
         }));
         $(Assert.equal(East.value(filtered.includes("`of` must read a field of the entry")), true));
         // The field itself, or the entry itself, is written in place.
         $(Assert.equal(East.value(refusal(() => Plan.series.span(Hall, {
             key: "halls", title: "Halls", label: (_h, k) => k, runs: _l => [],
-            children: Plan.children(h => h.presses, [reviewed()]),
+            children: Plan.children(h => h.presses, [editable()]),
         }))), ""));
         $(Assert.equal(East.value(refusal(() => Plan.series.group(DictType(StringType, Press), {
             key: "groups", title: "Groups", label: (_g, k) => k,
-            children: Plan.children(g => g, [reviewed()]),
+            children: Plan.children(g => g, [editable()]),
         }))), ""));
         // A computed collection under series that take no gesture has nothing to write back.
         $(Assert.equal(East.value(refusal(() => Plan.series.span(Hall, {
@@ -544,19 +527,19 @@ describeEast("Plan", (test) => {
             ]),
         }))), ""));
         // A recursive series walks its own children: they too must be a field.
-        const Tree = RecursiveType((self) => StructType({ approval: ApprovalStateType, kids: DictType(StringType, self) }));
+        const Tree = RecursiveType((self) => StructType({ jobs: ArrayType(StringType), live: BooleanType, kids: DictType(StringType, self) }));
         const walked = refusal(() => Plan.series.span(Tree, {
-            key: "tree", title: "Tree", label: (_t, k) => k, runs: _t => [], review: { verdict: "approval" },
-            children: t => t.kids.filter((_$, kid) => kid.unwrap().approval.hasTag("pending")),
+            key: "tree", title: "Tree", label: (_t, k) => k, runs: _t => [], edit: { items: "jobs", create: () => "x" },
+            children: t => t.kids.filter((_$, kid) => kid.unwrap().live),
         }));
         $(Assert.equal(East.value(walked.includes("`children` — which must read a field of the entry")), true));
     });
 
     test("editing is checked at build — one apply, a live handle for onUpdate, an apply for auto, a revision for a paged apply, and every callback's signature (#880)", $ => {
-        const Row = StructType({ approval: ApprovalStateType });
+        const Row = StructType({ jobs: ArrayType(StringType) });
         const Rows = DictType(StringType, Row);
-        const data = $.const(new Map([["a", { approval: variant("pending", null) }]]), Rows);
-        const series = [Plan.series.span(Row, { key: "rows", title: "Rows", label: (_r, k) => k, runs: _r => [], review: { verdict: "approval" } })];
+        const data = $.const(new Map([["a", { jobs: [] }]]), Rows);
+        const series = [Plan.series.span(Row, { key: "rows", title: "Rows", label: (_r, k) => k, runs: _r => [], edit: { items: "jobs", create: () => "x" } })];
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
         type Config = Parameters<typeof Plan.Root>[0];
         const refusal = (editing: NonNullable<Config["editing"]>, source: Config["data"] = data): string => {
@@ -577,7 +560,7 @@ describeEast("Plan", (test) => {
         }, Paged.Types.Source(Rows));
         $(Assert.equal(East.value(refusal({ onApply }, paged).includes("needs its revision and refresh")), true));
         // A callback over another entry or key type is named with the signature it must have.
-        const Other = StructType({ approval: ApprovalStateType, extra: StringType });
+        const Other = StructType({ jobs: ArrayType(StringType), extra: StringType });
         const wrongApply = East.function([Editing.Types.ChangeSet(Other, StringType)], Editing.Types.ApplyResult, () => variant("applied", { revision: none }));
         $(Assert.equal(East.value(refusal({ onApply: wrongApply }).includes("editing.onApply must be an East sync or async function over Editing.Types.ChangeSet(R, K)")), true));
         const wrongPatch = East.function([Plan.Types.PatchEvent(Other)], NullType, () => null);
@@ -596,8 +579,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(wire.snapshot.unwrap("some").decodeBeast(Rows, "v2"), data));
     });
 
-    test("the removed onDrag and review verbs fail with the migration named (#880)", $ => {
-        const Row = StructType({ approval: ApprovalStateType });
+    test("the removed onDrag and review fail with the migration named (#880, #1260)", $ => {
+        const Row = StructType({ v: FloatType });
         const data = $.const(new Map(), DictType(StringType, Row));
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
         const refusal = (config: Record<string, unknown>): string => {
@@ -607,17 +590,19 @@ describeEast("Plan", (test) => {
         const noop = East.function([], NullType, () => null);
         const drag = refusal({ onDrag: noop });
         $(Assert.equal(East.value(drag.includes("`onDrag` is removed (#880)") && drag.includes("`edit: { items, create }`")), true));
-        const verbs = refusal({ review: { onApprove: noop, onRejectAll: noop } });
-        $(Assert.equal(East.value(verbs.includes("review.onApprove / review.onRejectAll are removed (#880)") && verbs.includes("review: { verdict: \"approval\" }")), true));
+        const review = refusal({ review: { columnLabel: "Decision", onRerun: noop } });
+        $(Assert.equal(East.value(review), "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
+            "`editing` session, undone, redone, discarded or saved together"));
     });
 
     test("Plan.Types.PatchEvent(R) is the shared patch event over whole-entry drafts (#880)", $ => {
-        const Row = StructType({ approval: ApprovalStateType, note: StringType });
+        const Row = StructType({ v: FloatType, note: StringType });
         const event = Plan.Types.PatchEvent(Row);
         $(Assert.equal(East.value(isTypeEqual(event.fields.draftChanges, ArrayType(Editing.Types.Change(Editing.Types.DraftField(Row))))), true));
         $(Assert.equal(East.value(isTypeEqual(event.fields.domainChanges, OptionType(ArrayType(Editing.Types.Change(Row))))), true));
         $(Assert.equal(East.value(isTypeEqual(event.fields.origin, Editing.Types.Origin)), true));
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Gesture.cases.verdict, ApprovalStateType)), true));
+        // A gesture is a drop or a move (#1260: no verdict).
+        $(Assert.equal(East.value(Object.keys(Plan.Types.Gesture.cases)), ["drop", "move"]));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.row, Plan.Types.RowId)), true));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.at, Plan.Types.Instant)), true));
         // A move or a resize (#825) names its element, the rows it leaves and
@@ -736,7 +721,7 @@ describeEast("Plan", (test) => {
         ], ArrayType(MeasureRow));
         const rows = $.let(Plan.chart({
             key: "ontime", label: "ON-TIME", id: true, sub: "demand", value: "94.2%",
-            meta: "8 rs", stacked: true, pinned: true, status: "warning", approval: "pending",
+            meta: "8 rs", stacked: true, pinned: true, status: "warning",
             swatches: [{ color: "teal.solid", label: "col" }],
             expand: { height: "152px", axis: "dim" },
             layers: Chart.Line(series, { x: r => r.week, y: r => r.pct }),
@@ -751,7 +736,6 @@ describeEast("Plan", (test) => {
         $(Assert.equal(row.gutter.swatches.get(0n).color, "teal.solid"));
         $(Assert.equal(row.pinned, true));
         $(Assert.equal(row.status.unwrap("some").hasTag("warning"), true));
-        $(Assert.equal(row.approval.unwrap("some").hasTag("pending"), true));
         const expand = $.let(row.expand.unwrap("some"));
         $(Assert.equal(expand.height.unwrap("some"), "152px"));
         $(Assert.equal(expand.axis.hasTag("dim"), true));
@@ -762,6 +746,14 @@ describeEast("Plan", (test) => {
         $(Assert.equal(plain.gutter.stacked, false));
         $(Assert.equal(plain.pinned, false));
         $(Assert.equal(plain.collapsed, false));
+    });
+
+    test("a hand-built row given `approval` fails the build: a Plan approves and rejects nothing (#1260)", $ => {
+        const refusal = (() => {
+            try { Plan.span({ key: "p", label: "P", approval: "pending" } as Parameters<typeof Plan.span>[0]); return ""; }
+            catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(refusal), "Plan: a hand-built row gives `approval`, which is removed (#1260) — a Plan approves and rejects nothing"));
     });
 
     // =========================================================================
