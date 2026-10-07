@@ -5,11 +5,15 @@
 
 /**
  * Flowchart slot recipe — the state-transition flowchart per the
- * `Flowchart` design spec: 44px eyebrow (slice cluster left; orientation
- * segment + freshness chip right), body canvas (lane bands, node cards,
- * H/V links), 38px derived-count footer. Node cards are 116×40 r6 with a
- * mono 12/700 code line and a 10.5px muted label; the hover-card SHELL is
- * paper / rule-strong / r6, with no shadow (its body is dev-defined UI).
+ * `Flowchart` design spec, in its builder frame (#1245): the root holding the
+ * frame and the colours the canvas draws with; the freshness chip's dot (the
+ * chip, a toolbar item, is the shared `chip`); the canvas filling main (lane
+ * bands, node cards, H/V links), scrolling both ways in its own box; and the
+ * 38px derived-count footer in the frame's footer, its rule its own. Node
+ * cards are 116×40 r6
+ * with a mono 12/700 code line and a 10.5px muted label; the hover-card SHELL
+ * is paper / rule-strong / r6, with no shadow (its body is dev-defined UI).
+ * The frame's own regions are the `builderFrame` recipe's.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -17,23 +21,22 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
     slots: [
-        "root", "eyebrow", "eyebrowLeft", "eyebrowRight",
-        "orientationSegment", "freshnessChip", "freshnessDot", "freshnessDate",
+        "root", "freshnessDot",
         "body", "scroll", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
         "stateGhost", "stateEditor", "moveClone",
         "legend", "legendTitle", "legendRow",
         "minimap",
-        "footer", "footerStrong", "footerNeg", "footerSplit",
+        "footer", "footerFlow", "footerStrong", "footerNeg", "footerSplit",
         "hoverCard",
     ],
     base: {
-        /* Bare like Table / Planner — identity chrome is host composition.
-         * The --fc-* variables name the design system's colours (--ink-2 /
-         * --ink-3 / --ink-4 / --paper / --paper-2 / --rule-strong / --info /
-         * --brand / --brand-d / --brand-dd / --neg) through the theme's one
-         * token for each, so both modes follow it — SVG geometry consumes
-         * them directly. */
+        /* Fills the box it is given and draws no border: the frame inside it
+         * fills it in turn (#1245). The --fc-* variables name the design
+         * system's colours (--ink-2 / --ink-3 / --ink-4 / --paper / --paper-2
+         * / --rule-strong / --info / --brand / --brand-d / --brand-dd / --neg)
+         * through the theme's one token for each, so both modes follow it —
+         * SVG geometry consumes them directly. */
         root: {
             "--fc-ink":         "{colors.fg.strong}",
             "--fc-ink3":        "{colors.fg.muted}",
@@ -46,87 +49,17 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "--fc-brand-d":     "{colors.brand.solid}",
             "--fc-brand-dd":    "{colors.brandPressed}",
             "--fc-neg":         "{colors.status.neg}",
-            background: "bg.surface",
             display: "flex",
             flexDirection: "column",
+            width: "100%",
+            height: "100%",
+            minWidth: 0,
             minHeight: 0,
             position: "relative",
         },
 
-        /* ── eyebrow — one row, 44px, never wraps ─────────────────────── */
-        eyebrow: {
-            height: "44px",
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "3",
-            paddingX: "3",
-            borderBottomWidth: "1px",
-            borderColor: "border.subtle",
-            overflow: "hidden",
-        },
-        eyebrowLeft: {
-            display: "flex",
-            alignItems: "center",
-            gap: "2",
-            minWidth: 0,
-            flex: "1 1 auto",
-            overflow: "hidden",
-            /* Spec eyebrow anatomy: chips first, then a COMPACT find-state
-             * field — never a full-width search box. */
-            "& input": { maxWidth: "128px" },
-        },
-        /* Right zone, fixed: orientation segment then the freshness chip. */
-        eyebrowRight: {
-            display: "flex",
-            alignItems: "center",
-            gap: "2",
-            flexShrink: 0,
-        },
-        orientationSegment: {
-            display: "flex",
-            alignItems: "stretch",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "4px",
-            overflow: "hidden",
-            "& > button": {
-                fontFamily: "mono",
-                fontSize: "10px",
-                fontWeight: "600",
-                letterSpacing: "0.5px",
-                paddingX: "2",
-                paddingY: "1",
-                color: "fg.muted",
-                background: "bg.panel",
-                cursor: "pointer",
-                _hover: { color: "fg" },
-            },
-            "& > button[data-active]": {
-                background: "bg.surface",
-                color: "fg",
-            },
-            "& > button + button": {
-                borderLeftWidth: "1px",
-                borderColor: "border.subtle",
-            },
-        },
-        freshnessChip: {
-            display: "flex",
-            alignItems: "center",
-            gap: "1.5",
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "600",
-            color: "fg.muted",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "full",
-            paddingX: "2.5",
-            paddingY: "1",
-            whiteSpace: "nowrap",
-        },
+        /* ── the freshness chip's dot — the chip itself is the shared
+         *    `chip` recipe's, a toolbar item (#1245) ───────────────────── */
         freshnessDot: {
             width: "6px",
             height: "6px",
@@ -134,11 +67,11 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             background: "status.pos",
             flexShrink: 0,
         },
-        freshnessDate: { color: "fg.subtle", fontWeight: "400" },
 
-        /* ── body ─────────────────────────────────────────────────────── */
+        /* ── body — main's whole box; the canvas scrolls inside it ─────── */
         body: {
             flex: "1 1 0%",
+            minWidth: 0,
             minHeight: 0,
             position: "relative",
         },
@@ -331,7 +264,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             lineHeight: 0,
         },
 
-        /* ── footer — 38px, derived count only ────────────────────────── */
+        /* ── footer — 38px, derived counts, in the frame's footer ──────── */
         footer: {
             height: "38px",
             flexShrink: 0,
@@ -347,6 +280,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
         },
+        /* The open flow's name, leading the counts over many flows. */
+        footerFlow: { color: "fg", fontWeight: "600" },
         footerStrong: { color: "fg", fontWeight: "700" },
         footerNeg: { color: "status.neg", fontWeight: "600" },
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },

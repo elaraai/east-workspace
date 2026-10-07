@@ -9,7 +9,8 @@
  * and the minimap, density, the hover cards, the selection callbacks, the
  * connect veto, the bound slice — and the edit callbacks the flowchart still
  * takes until its session replaces them (#1247). The payload carries one
- * whole, as its `canvas`.
+ * whole, as its `canvas`. The flowchart fills the box it is given (#1245): it
+ * takes no height of its own.
  *
  * @packageDocumentation
  */
@@ -52,8 +53,7 @@ import {
  * Per-field docs live on {@link FlowchartCanvasOptions}; events are
  * documented in `./types.ts`. The edit callbacks (`linkMode`, `onCreateLink`,
  * `onDeleteLink`, `onAddLane`, `onRenameLane`, `onDeleteLane`, `onAddState`,
- * `onEditState`, `onMoveState`) and `height` / `maxHeight` stay until the
- * session (#1247) and the frame (#1245) replace them.
+ * `onEditState`, `onMoveState`) stay until the session (#1247) replaces them.
  */
 export const FlowchartCanvasType: StructType<{
     orientation: OptionType<FlowchartOrientationType>,
@@ -61,8 +61,6 @@ export const FlowchartCanvasType: StructType<{
     minimap: OptionType<BooleanType>,
     legend: OptionType<BooleanType>,
     density: OptionType<DensityType>,
-    height: OptionType<StringType>,
-    maxHeight: OptionType<StringType>,
     slice: OptionType<SliceChromeType>,
     stateHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
@@ -87,8 +85,6 @@ export const FlowchartCanvasType: StructType<{
     minimap: OptionType(BooleanType),
     legend: OptionType(BooleanType),
     density: OptionType(DensityType),
-    height: OptionType(StringType),
-    maxHeight: OptionType(StringType),
     slice: OptionType(SliceChromeType),
     stateHover: OptionType(FunctionType([StringType], UIComponentType)),
     linkHover: OptionType(FunctionType([StringType], UIComponentType)),
@@ -125,7 +121,8 @@ export type FlowchartOrientationLiteral = "LR" | "TD";
 export type FlowchartLinkModeLiteral = "draw" | "connect";
 
 /**
- * Eyebrow freshness chip input.
+ * The freshness chip's input: the toolbar's chip naming the evidence the flow
+ * was drawn from.
  */
 export interface FlowchartFreshnessInput {
     /** Chip label ("evidence-2026.06"). */
@@ -150,9 +147,9 @@ export interface FlowchartFreshnessInput {
  * and the pointer-highlight grammar are built in.
  */
 export interface FlowchartCanvasOptions {
-    /** Initial orientation — "LR" (default) | "TD"; the eyebrow segment toggles it (view state, never a chip). */
+    /** Initial orientation — "LR" (default) | "TD"; the toolbar's LR · TD segment toggles it (view state, never a chip). */
     orientation?: SubtypeExprOrValue<FlowchartOrientationType> | FlowchartOrientationLiteral;
-    /** Optional eyebrow freshness chip. */
+    /** Optional freshness chip, in the toolbar. */
     freshness?: FlowchartFreshnessInput;
     /** Optional minimap toggle (default: auto — shown at ≥ 25 states). */
     minimap?: SubtypeExprOrValue<BooleanType> | boolean;
@@ -160,10 +157,6 @@ export interface FlowchartCanvasOptions {
     legend?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Optional density. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
-    /** Optional height — pins the component (uniform sizing #320); body scrolls within. */
-    height?: SubtypeExprOrValue<StringType>;
-    /** Optional maxHeight — caps the component, content-sized until the cap. */
-    maxHeight?: SubtypeExprOrValue<StringType>;
 
     /** Optional hover-card content builder for STATES — receives the hovered state's key and returns arbitrary UI, evaluated lazily on hover; absent ⇒ no state hover card. */
     stateHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
@@ -207,9 +200,9 @@ export interface FlowchartCanvasOptions {
  * `data` only: a flow from a record is the record's, never narrowed.
  */
 export interface FlowchartSliceOptions {
-    /** Optional bound slice handle — mounts the eyebrow slice cluster; the host feeds `Flowchart.over`'s `links` through `Slice.rows`. */
+    /** Optional bound slice handle — mounts the slice's rail in the toolbar; the host feeds `Flowchart.over`'s `links` through `Slice.rows`. */
     slice?: SubtypeExprOrValue<SliceBindType>;
-    /** Slice affordances (default `["filter","search"]`; search = "⌕ find state"). `"brush"` is refused at build — a flowchart has no continuous 1-D axis. */
+    /** The rail's affordances (default `["filter","search"]`), narrowing the transitions. `"brush"` is refused at build — a flowchart has no continuous 1-D axis. */
     affordances?: SliceAffordanceLiteral[];
 }
 
@@ -256,8 +249,6 @@ export function buildCanvas(options: FlowchartCanvasOptions, slice: FlowchartSli
         density: options.density !== undefined
             ? some(typeof options.density === "string" ? East.value(variant(options.density, null), DensityType) : options.density)
             : none,
-        height: options.height !== undefined ? some(options.height) : none,
-        maxHeight: options.maxHeight !== undefined ? some(options.maxHeight) : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
         stateHover: options.stateHover !== undefined ? some(East.value(options.stateHover, FunctionType([StringType], UIComponentType))) : none,
         linkHover: options.linkHover !== undefined ? some(East.value(options.linkHover, FunctionType([StringType], UIComponentType))) : none,

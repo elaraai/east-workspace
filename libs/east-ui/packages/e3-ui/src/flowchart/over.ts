@@ -201,7 +201,7 @@ function kindOption(
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { East, variant } from "@elaraai/east";
- * import { UIComponentType } from "@elaraai/east-ui";
+ * import { Box, UIComponentType } from "@elaraai/east-ui";
  * import { Flowchart } from "@elaraai/e3-ui";
  *
  * const flowchart = East.function([], UIComponentType, ($) => {
@@ -223,13 +223,15 @@ function kindOption(
  *         { src: "LDD", dst: "DSP", kind: observed },
  *     ]);
  *     return (
- *         <Flowchart
- *             data={Flowchart.over(states, {
- *                 state: s => ({ key: s.code, label: s.name, lane: s.phase }),
- *                 links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
- *                 lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
- *             })}
- *         />
+ *         <Box height="500px">
+ *             <Flowchart
+ *                 data={Flowchart.over(states, {
+ *                     state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+ *                     links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
+ *                     lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
+ *                 })}
+ *             />
+ *         </Box>
  *     );
  * });
  * ```

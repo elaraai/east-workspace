@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  *
- * The Flowchart through its carrier (#1243, #1244). `<Flowchart>` returns
+ * The Flowchart through its carrier (#1243, #1244, #1245). `<Flowchart>` returns
  * the flowchart as the `Flowchart` extension — its payload's bytes beside its
  * kind — and the dispatcher hands it to the renderer registered against that
  * kind, decoding the payload's functions against the registered platform: a
@@ -117,7 +117,10 @@ const boundFlows = East.function([], FlowsHandle, (_$) => ({
 }) as never);
 
 /** A flowchart over the record of flows, the returns flow opened first. */
-const RECORD_VIEW = East.function([], UIComponentType, ($) => Flowchart({ record: $.let(boundFlows()), flow: "Returns" }));
+const RECORD_VIEW = East.function([], UIComponentType, ($) => {
+    const flows = $.let(boundFlows());
+    return Flowchart({ record: flows, flow: "Returns" });
+});
 
 describe("<Flowchart> through its carrier (#1243, #1244)", () => {
     test("the flowchart is the Flowchart extension — its payload carried as bytes beside its kind — and the dispatcher draws it", async () => {
@@ -128,7 +131,9 @@ describe("<Flowchart> through its carrier (#1243, #1244)", () => {
         const { container } = mount(value, "flowchart-carrier-view");
         await waitFor(() => expect(stateKeys(container)).toEqual(["ARV", "SCN", "SRT"]));
         expect(container.querySelector('[data-flowchart-node="SCN"]')!.textContent).toContain("Scanned");
-        expect(container.querySelector("[data-flowchart-footer]")!.textContent).toContain("1 planned · 1 observed");
+        // In its frame (#1245): the canvas in main, the counts in the frame's footer.
+        expect(container.querySelector("[data-builder-frame] [data-frame-slot='main'] [data-flowchart-node='SCN']")).not.toBeNull();
+        expect(container.querySelector("[data-frame-slot='footer'] [data-flowchart-footer]")!.textContent).toContain("1 planned · 1 observed");
     });
 
     test("over a record of flows, the decoded handle's read gives the flows, and the canvas draws the one `flow` opens first", async () => {

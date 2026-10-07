@@ -13,7 +13,9 @@
  * back through the `Flowchart` carrier's beast2 bytes; a record of one flow
  * refused, as the user ruled (2026-10-07: e3's patch mutation writes only
  * keyed records); every refusal of §4.4 this child owns, each naming its
- * prop; and the tag's forms, type by type.
+ * prop; the tag's forms, type by type; and the frame's (#1245): the keys its
+ * panes keep their state under, and no height of its own — the flowchart fills
+ * the box it is given.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -30,7 +32,7 @@ import e3 from "@elaraai/e3";
 import {
     Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordBindingType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
 } from "@elaraai/e3-ui";
-import { Flowchart, FlowchartLibraryTabType, FlowchartPayloadType } from "@elaraai/e3-ui/internal";
+import { Flowchart, FlowchartCanvasType, FlowchartLibraryTabType, FlowchartPayloadType, flowchartKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "./flowchart.examples.js";
 
 type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
@@ -421,7 +423,8 @@ describe("the payload (FB6)", () => {
         }
     });
 
-    hostTest("the canvas carries today's options, none for every one left out", () => {
+    hostTest("the canvas carries today's options, none for every one left out — and no height: the flowchart fills its box (#1245)", () => {
+        assert.deepEqual(Object.keys(FlowchartCanvasType.fields).filter((field) => /height/iu.test(field)), []);
         const payload = carried((_$) => PublicFlowchart({ data: INBOUND_VALUE }));
         const canvas = payload.canvas;
         for (const [field, value] of Object.entries(canvas)) assert.deepEqual(value, none, `canvas.${field} is none`);
@@ -452,6 +455,11 @@ describe("the payload (FB6)", () => {
         ];
         const tabsType = ArrayType(FlowchartLibraryTabType);
         assert.ok(equalFor(tabsType)(decodeBeast2For(tabsType)(encodeBeast2For(tabsType)(tabs)), tabs));
+    });
+
+    hostTest("a flowchart keeps its frame's panes — their open tab and collapsed state — under its name (#1245)", () => {
+        assert.deepEqual(flowchartKeys(undefined), { frame: "flowchart.frame" });
+        assert.deepEqual(flowchartKeys("depot"), { frame: "flowchart.depot.frame" });
     });
 });
 
@@ -498,6 +506,10 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `states` is one of the tables, or the row mappers, Flowchart\.over builds a flow from — pass data=\{Flowchart\.over\(states, \{ … \}\)\}/],
         ["a row mapper, which Flowchart.over takes", (_$) => ({ data: INBOUND_VALUE, link: () => ({}) }),
             /^Error: Flowchart: `link` is one of the tables, or the row mappers, Flowchart\.over builds a flow from/],
+        ["`height`, which the box the flowchart fills sets (#1245)", (_$) => ({ data: INBOUND_VALUE, height: "560px" }),
+            /^Error: Flowchart: `height` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … \/><\/Box>$/],
+        ["`maxHeight`, which the box the flowchart fills sets (#1245)", (_$) => ({ data: INBOUND_VALUE, maxHeight: "560px" }),
+            /^Error: Flowchart: `maxHeight` is not a prop — the flowchart fills the box it is given/],
     ];
     for (const [what, props, refusal] of refusals) {
         hostTest(`refuses ${what}`, () => {
@@ -548,6 +560,8 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ record: flows, data: FLOWS });
             // @ts-expect-error — the tables are Flowchart.over's
             PublicFlowchart({ data: INBOUND_VALUE, states: STATE_ROWS });
+            // @ts-expect-error — the flowchart fills the box it is given: no height of its own (#1245)
+            PublicFlowchart({ data: INBOUND_VALUE, height: "560px" });
         });
     };
     assert.equal(typeof never, "function");
