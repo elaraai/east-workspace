@@ -60,7 +60,9 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
             fontSize: "12px",
         },
         headText: { flex: "1", minWidth: 0, display: "flex", flexDirection: "column", gap: "3px" },
-        when: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
+        /* When an event runs: its lines balanced, so a line too narrow for it breaks after its day, its times
+         * (`06:00–14:00`) whole on the next — never after their dash. Each place a time is said does so. */
+        when: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere", textWrap: "balance" },
         /* An event's status, in its tone — open, as a tentative status draws, when it is a ring. */
         status: {
             fontFamily: "mono",
@@ -97,7 +99,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         listItem: { display: "flex", alignItems: "flex-start", gap: "{spacing.2}", minWidth: 0, "& > svg": { marginTop: "3px", fontSize: "11px", color: "fg.muted" } },
         listText: { flex: "1", minWidth: 0, display: "flex", flexDirection: "column", gap: "1px" },
         listTitle: { textStyle: "body.sm", color: "fg", overflowWrap: "anywhere" },
-        listWhen: { textStyle: "mono.xs", color: "fg.muted" },
+        listWhen: { textStyle: "mono.xs", color: "fg.muted", textWrap: "balance" },
         /* The bulk edit's shift in time: its four steps. */
         shift: { display: "flex", flexWrap: "wrap", gap: "{spacing.1}" },
         /* The edit controls' fieldset: no frame of its own. */
@@ -111,12 +113,15 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         /* Its lines, under the banner's title. */
         overlapList: { display: "flex", flexDirection: "column", gap: "{spacing.1}", margin: "0", padding: "0", paddingTop: "{spacing.1}", listStyle: "none" },
         overlapLine: { display: "flex", minWidth: 0 },
-        /* A line: when, then what — a button that selects it. On a coarse pointer
+        /* A line: when, and what under it, each the line's width — the pane has
+         * no room for both side by side, where the names stood a letter to a
+         * line beside the time — a button that selects it. On a coarse pointer
          * each is a 44px row, as the lines stack (#346). */
         overlapItem: {
             display: "flex",
-            alignItems: "baseline",
-            gap: "{spacing.2}",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: "2px",
             minWidth: 0,
             padding: "0",
             border: "0",
@@ -127,11 +132,12 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
             color: "fg.strong",
             _hover: { color: "fg" },
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
-            _coarse: { minHeight: "44px", alignItems: "center" },
+            _coarse: { minHeight: "44px", justifyContent: "center" },
         },
-        overlapWhen: { textStyle: "mono.xs", color: "fg.muted", flexShrink: "0" },
+        overlapWhen: { textStyle: "mono.xs", color: "fg.muted", textWrap: "balance" },
+        /* Its names wrap between words; a word wider than the whole line breaks. */
         overlapTitle: {
-            minWidth: 0,
+            maxWidth: "100%",
             overflowWrap: "anywhere",
             textDecoration: "underline",
             textDecorationColor: "border.strong",
