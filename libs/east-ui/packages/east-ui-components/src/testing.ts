@@ -17,7 +17,7 @@
  */
 
 export { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "./testing/drag-layer.js";
-export { ICON_GLYPHS, faIcons, loneGlyphs, markOf } from "./testing/icons.js";
+export { ICON_GLYPHS, faIcons, foreignIcons, loneGlyphs, markOf } from "./testing/icons.js";
 export { integerField, sliceConfig, stringField, type SliceFieldSpec } from "./testing/slice.js";
 export { setVirtualRowsMeasureProbe } from "./collections/virtual-rows.js";
 export { editingMessages } from "./editing/messages.js";

@@ -8,7 +8,9 @@
  *
  * Trigger is mono uppercase eyebrow grammar; closed chevron points right,
  * open chevron points down (CSS rotation). Open trigger uses `paper-2`
- * (canvas) fill; closed stays on `paper`. Outer container carries
+ * (canvas) fill; closed stays on `paper`. The chevron is Font Awesome's
+ * (#1263), in the 12px square Chakra's took (its `_icon`, 1.2em of 10px).
+ * Outer container carries
  * `1px rule` + 6px radius + overflow hidden so item dividers read cleanly.
  *
  * @packageDocumentation
@@ -79,8 +81,14 @@ export const accordionSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
         },
         itemIndicator: {
+            // A box the icon's own, never a line box around it (Font Awesome
+            // draws inline), so the indicator stays the icon's 12px square.
+            display: "inline-flex",
             color: "fg.subtle",
-            fontSize: "10px",
+            // Font Awesome's own height is 1em, outranking the `_icon` size:
+            // the indicator's font is the icon's size, and `--fa-width` its width.
+            fontSize: "12px",
+            "--fa-width": "1em",
             transitionProperty: "transform",
             transitionDuration: "{durations.fast}",
             transitionTimingFunction: "{easings.out}",

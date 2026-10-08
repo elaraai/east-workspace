@@ -19,7 +19,8 @@
  *   shape lines plain again.
  * - **R4**: each way a run gives no result, worded.
  * - **R5**: the footer — the count, the fields, the run, what it read.
- * - **R6**: downloads — the CSV's text and name, the BEAST2's bytes.
+ * - **R6**: downloads — the CSV's text and name, the BEAST2's bytes; the note
+ *   after one closed by Font Awesome's xmark, named Close (#1263).
  * - **R7**: the Table and the Value tree through the production renderers,
  *   picked by the result and overridden by the toolbar until the next run.
  */
@@ -29,7 +30,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { ArrayType, IntegerType, StructType, decodeBeast2, decodeEastIR, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, variant } from "@elaraai/east";
 import { ApiError } from "@elaraai/e3-api-client";
 import type { ExecuteResult } from "@elaraai/e3-types";
-import { markOf } from "@elaraai/east-ui-components/testing";
+import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import type { QueryCall } from "./hooks.js";
 import {
     FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
@@ -300,6 +301,12 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
             expect(fromEastTypeValue(typed.type).type).toBe("Array");
             expect(equalFor(ArrayType(Row))((typed.value as { order: bigint }[]).map((r) => ({ order: r.order })), expected.map((r) => ({ order: r.order })))).toBe(true);
             expect(banners()).toEqual(["Downloaded top-shipped-orders-2026.beast2 — the result as the run returned it, with its type."]);
+            // The note's close is Font Awesome's xmark, named Close, and closes it (#1263).
+            const note = document.querySelector<HTMLElement>("[data-query-strips] [role=status]")!;
+            const close = within(note).getByRole("button", { name: "Close" });
+            expect([markOf(close), foreignIcons(note)]).toEqual(["fas xmark", []]);
+            await act(async () => { fireEvent.click(close); });
+            expect(banners()).toEqual([]);
             // A text with a comma is quoted, RFC 4180's way; and a jq run's BEAST2 is the bytes the run returned.
             await typeJq(".orders[:2] | map({order: .id, note: \"big, shipped\"})");
             await run();

@@ -6,7 +6,7 @@
 import { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { Box, Combobox as ChakraCombobox, Portal, createListCollection, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -109,7 +109,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                                     <Box as="span" css={styles.footerLabel} color="fg.muted" flexShrink={0} whiteSpace="nowrap">{item.meta}</Box>
                                 )}
                             </Box>
-                            <ChakraCombobox.ItemIndicator />
+                            <ChakraCombobox.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraCombobox.ItemIndicator>
                         </ChakraCombobox.Item>
                     ))}
                 </ChakraCombobox.Content>
@@ -169,7 +169,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                         <ChakraCombobox.Input ref={box} placeholder="Search…" fontFamily="mono" />
                         <ChakraCombobox.IndicatorGroup>
                             {clearButton}
-                            <ChakraCombobox.Trigger />
+                            <ChakraCombobox.Trigger><FontAwesomeIcon icon={faChevronDown} /></ChakraCombobox.Trigger>
                         </ChakraCombobox.IndicatorGroup>
                     </ChakraCombobox.Control>
                     {dropdown}

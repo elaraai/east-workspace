@@ -7,8 +7,9 @@
  * The two-line sticky header (B§11): the gutter's corner — a checkbox over
  * the rail (indeterminate while any row is picked), `#` over the numbers
  * and, on a grouped sheet, the fold-all over the actions column (a ghost
- * button like the rows' actions, drawn as the group chevron doubled and
- * turning like it: right while every group is folded, down otherwise) —
+ * button like the rows' actions, drawn as the group chevron doubled —
+ * Font Awesome's angles-right — and turning like it: right while every
+ * group is folded, down otherwise) —
  * then one cell per column: the label line (mono 10/600/.16em uppercase)
  * over the grey `sub` line that tells the planner what the cell accepts.
  * To assistive tech it is the grid's first row, the gutter its first column
@@ -19,7 +20,7 @@
 import { memo } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMinus } from "@fortawesome/free-solid-svg-icons";
+import { faAnglesRight, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { countNoun, type SheetColumnMeta } from "./model.js";
 import type { SheetNounValue } from "./values.js";
 import { useSheetWords } from "./words.js";
@@ -37,13 +38,9 @@ export interface SheetHeaderProps {
     foldAll?: { folded: boolean; count: number; noun: SheetNounValue; onFoldAll: (folded: boolean) => void } | undefined;
 }
 
-/** The fold-all's glyph: two of the groups' 10 px stroke chevrons side by side; the button turns it down while any group is open. */
+/** The fold-all's mark: Font Awesome's angles-right — the groups' chevron doubled — in the recipe's 10 px box (#1263); the button turns it down while any group is open. */
 function DoubleChevron() {
-    return (
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2.25 2.5 4.75 5l-2.5 2.5M5.75 2.5 8.25 5l-2.5 2.5" />
-        </svg>
-    );
+    return <FontAwesomeIcon icon={faAnglesRight} aria-hidden />;
 }
 
 /** Renders the header row. */

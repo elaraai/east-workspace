@@ -4,7 +4,9 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { CloseButton as ChakraCloseButton, type CloseButtonProps } from "@chakra-ui/react";
+import { CloseButton as ChakraCloseButton, useRecipe, type CloseButtonProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { CloseButton } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -28,6 +30,9 @@ export type EastChakraCloseButtonProps = {
  * @remarks
  * `aria-label` defaults to `"Close"` when `value.label` is absent. State +
  * behaviour come from main; visual presentation comes from `value.style`.
+ * Its mark is Font Awesome's xmark, never Chakra's own icon (#1263), at
+ * the size Chakra's icon took in a button of its size (the `iconButtonMark`
+ * recipe).
  */
 export const EastChakraCloseButton = memo(function EastChakraCloseButton({ value, ...rest }: EastChakraCloseButtonProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
@@ -59,5 +64,11 @@ export const EastChakraCloseButton = memo(function EastChakraCloseButton({ value
         return out as CloseButtonProps;
     }, [style, disabled, label]);
 
-    return <ChakraCloseButton {...rest} {...props} onClick={onClickFn ? handleClick : undefined} />;
+    const mark = useRecipe({ key: "iconButtonMark" })({ size: props.size ?? rest.size ?? "md" });
+
+    return (
+        <ChakraCloseButton {...rest} {...props} css={mark} onClick={onClickFn ? handleClick : undefined}>
+            <FontAwesomeIcon icon={faXmark} />
+        </ChakraCloseButton>
+    );
 }, (prev, next) => closeButtonEqual(prev.value, next.value));

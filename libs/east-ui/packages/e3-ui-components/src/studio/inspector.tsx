@@ -14,7 +14,8 @@
  *
  * Its layout is the `studioInspector` recipe's; its controls are the theme's
  * shared ones — the brand `stepper` for the span, the numeric `input` for the
- * row, the `select` for the height and the `seg` strip for the alignment.
+ * row, the `select` for the height — its chevron and check Font Awesome's
+ * (#1263) — and the `seg` strip for the alignment.
  *
  * @packageDocumentation
  */
@@ -25,7 +26,7 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faLock, faMinus, faPlus, faTriangleExclamation,
+    faArrowsToDot, faArrowsUpDown, faArrowsUpToLine, faCheck, faChevronDown, faLock, faMinus, faPlus, faTriangleExclamation,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { pathToString } from "@elaraai/e3-types";
@@ -241,7 +242,7 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
                                 <ChakraSelect.ValueText />
                             </ChakraSelect.Trigger>
                             <ChakraSelect.IndicatorGroup>
-                                <ChakraSelect.Indicator />
+                                <ChakraSelect.Indicator><FontAwesomeIcon icon={faChevronDown} /></ChakraSelect.Indicator>
                             </ChakraSelect.IndicatorGroup>
                         </ChakraSelect.Control>
                         <Portal>
@@ -250,7 +251,7 @@ export const StudioInspector = memo(function StudioInspector({ value }: StudioIn
                                     {heights.items.map((item) => (
                                         <ChakraSelect.Item key={item.value} item={item}>
                                             {item.label}
-                                            <ChakraSelect.ItemIndicator />
+                                            <ChakraSelect.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraSelect.ItemIndicator>
                                         </ChakraSelect.Item>
                                     ))}
                                 </ChakraSelect.Content>

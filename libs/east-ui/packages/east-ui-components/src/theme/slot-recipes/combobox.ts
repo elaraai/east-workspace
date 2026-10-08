@@ -8,6 +8,11 @@
  *
  * Trigger inherits the input shape (4 px radius, 1 px border.subtle).
  * Content listbox is a `frame.flat` 6 px popup, bordered, with no shadow.
+ * The clear, the chevron and a picked item's check are Font Awesome's
+ * (#1263), each in the square Chakra's icon took, the size's
+ * `--combobox-indicator-size`: Font Awesome's own height is 1em, outranking
+ * the `_icon` size, so the part's font is the icon's size, and `--fa-width`
+ * its width.
  *
  * @packageDocumentation
  */
@@ -79,13 +84,23 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             paddingX: "{spacing.2}",
             color: "fg.muted",
             cursor: "pointer",
+            fontSize: "var(--combobox-indicator-size)",
+            "--fa-width": "1em",
             ...coarseHitArea({ position: true }),
         },
         clearTrigger: {
+            display: "inline-flex",
+            alignItems: "center",
             paddingX: "{spacing.1}",
             color: "fg.muted",
             cursor: "pointer",
+            fontSize: "var(--combobox-indicator-size)",
+            "--fa-width": "1em",
             ...coarseHitArea({ position: true }),
+        },
+        itemIndicator: {
+            fontSize: "var(--combobox-indicator-size)",
+            "--fa-width": "1em",
         },
         content: {
             background: "bg.surface",
@@ -126,6 +141,15 @@ export const comboboxSlotRecipe = defineSlotRecipe({
                     _focusVisible: { outline: "none", boxShadow: "none" },
                 },
             },
+        },
+        // Chakra's own sizes give the trigger a text style, which outranks a
+        // font size: each size clears it, so the chevron takes the size's
+        // `--combobox-indicator-size`.
+        size: {
+            xs: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
+            sm: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
+            md: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
+            lg: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
         },
     },
 });
