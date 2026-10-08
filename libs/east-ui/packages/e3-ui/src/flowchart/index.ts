@@ -4,7 +4,7 @@
  */
 
 /**
- * The Flowchart (#1243–#1248): the state-transition flowchart, e3-ui's as the
+ * The Flowchart (#1243–#1249): the state-transition flowchart, e3-ui's as the
  * Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows from
  * an e3 record of flows by name, or from the host — flows by name, or one
  * flow — and returns its payload through the `Flowchart` carrier, which
@@ -242,6 +242,13 @@ const MEMBERS = {
  *   input's or a record's, an Array or a `Dict<String, T>` — apart from the
  *   flows and from the other tabs. A click selects a card, and a click on the
  *   selected card lets it go; an empty tab says so in the shared empty state.
+ * - **Its drops** (#1249): a card carried onto the canvas lands where its tab
+ *   says — a state template on a lane, adding a state at the row under the
+ *   pointer, its key the drop's, made unique or minted; a transition template
+ *   on a transition, retyping it; an author's card on what its drop's type
+ *   names — the ghost saying where, or, red, why not. ⏎ on a card drops it on
+ *   the canvas's selection, and on a touch screen so does a tap on the
+ *   selected card. Each drop is one transaction of the open flow's session.
  * - **Its edits** are its editing session's (#1247): over a record, and over
  *   `data` given `onApply`, every gesture — "+ LANE", a lane's header renamed
  *   or its × (off while the lane holds states), the "+ STATE" ghost, a state

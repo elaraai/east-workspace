@@ -26,18 +26,32 @@
  *   no evidence — keyed `<from>→<to>`, made unique (`-2`, `-3`, …, FB20); and
  *   deleted by the key it goes by.
  * - **A decision** is deleted, cleared from the transitions it governs.
+ * - **A library card dropped** (#1249, FB31–FB33) inserts a state at its place
+ *   among the flow's states, or sets the fields its patch sets on a state, a
+ *   transition, a lane or a decision: a state's new key rekeying its
+ *   transitions' ends and the decisions' queues and a lane's moving its states
+ *   (FB18), as a decision's renames it on the transitions it governs.
  *
  * @packageDocumentation
  */
 
-import { ArrayType, OptionType, StringType, diffFor, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, OptionType, StringType, diffFor, equalFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, type BatchReadiness, type EditIssue, type Origin } from "@elaraai/east-ui-components";
-import { linkKey, type FlowchartFlowValue, type FlowchartLinkValue } from "./model.js";
+import { linkKey, type FlowchartFlowValue, type FlowchartLaneValue, type FlowchartLinkValue, type FlowchartStateValue, type FlowchartTriggerValue } from "./model.js";
 
 const keyEqual = equalFor(StringType);
 const descriptionEqual = equalFor(OptionType(StringType));
+
+/** A state card's fields — the patch its drop sets, decoded: every field of a state as an `Option`. */
+export type FlowchartStatePatch = ValueTypeOf<typeof Flowchart.Types.StateCard>["sets"];
+/** A transition card's fields, decoded. */
+export type FlowchartLinkPatch = ValueTypeOf<typeof Flowchart.Types.TransitionCard>["sets"];
+/** A lane card's fields, decoded. */
+export type FlowchartLanePatch = ValueTypeOf<typeof Flowchart.Types.LaneCard>["sets"];
+/** A decision card's fields, decoded. */
+export type FlowchartDecisionPatch = ValueTypeOf<typeof Flowchart.Types.DecisionCard>["sets"];
 
 /** The gestures a flowchart edits its open flow with, each one transaction (FB17). */
 export type FlowchartEdit =
@@ -93,6 +107,40 @@ export function uniqueKey(wanted: string, taken: (key: string) => boolean): stri
     }
 }
 
+/**
+ * A key minted for a new row: `<prefix>-<n>`, `n` the first number from
+ * `from` whose key no row takes — as "+ LANE" keys a lane `lane-<n>`.
+ *
+ * @param prefix - What the row is: `state`
+ * @param from - The first number tried: one past the rows' count
+ * @param taken - Whether a row takes a key
+ * @returns The key
+ */
+export function mintKey(prefix: string, from: number, taken: (key: string) => boolean): string {
+    let n = from;
+    while (taken(`${prefix}-${n}`)) n++;
+    return `${prefix}-${n}`;
+}
+
+/**
+ * A row of a flow with a card's fields over it (#1249): each field the
+ * card's patch sets — `some` — takes its value, and each it leaves — `none`
+ * — stays as the row has it.
+ *
+ * @typeParam R - The row: a state, a transition, a lane or a decision
+ * @param row - The row
+ * @param patch - The fields the card sets, every field of the row an `Option`
+ * @returns The row as the card leaves it
+ */
+export function patched<R extends object>(row: R, patch: { readonly [K in keyof R]: option<R[K]> }): R {
+    const out = { ...row };
+    for (const field of Object.keys(patch) as (keyof R)[]) {
+        const set = patch[field];
+        if (set.type === "some") out[field] = set.value;
+    }
+    return out;
+}
+
 // ── Lanes ────────────────────────────────────────────────────────────────────
 
 /**
@@ -137,6 +185,22 @@ export function rekeyLane(flow: FlowchartFlowValue, key: string, next: string): 
         lanes: flow.lanes.map((l) => (keyEqual(l.key, key) ? { ...l, key: next } : l)),
         states: flow.states.map((s) => (keyEqual(s.lane, key) ? { ...s, lane: next } : s)),
     };
+}
+
+/**
+ * Sets a lane card's fields on a lane (#1249, FB33) — every lane of its key,
+ * as a rename names them — a new key moving its states with it (FB18).
+ *
+ * @param flow - The open flow
+ * @param key - The lane's key
+ * @param patch - The fields the card sets
+ * @returns The flow
+ */
+export function setLane(flow: FlowchartFlowValue, key: string, patch: FlowchartLanePatch): FlowchartFlowValue {
+    const lanes = flow.lanes.map((l): FlowchartLaneValue => (keyEqual(l.key, key) ? patched(l, patch) : l));
+    const next = getSomeorUndefined(patch.key);
+    if (next === undefined || keyEqual(next, key)) return { ...flow, lanes };
+    return { ...flow, lanes, states: flow.states.map((s) => (keyEqual(s.lane, key) ? { ...s, lane: next } : s)) };
 }
 
 /**
@@ -212,15 +276,61 @@ export function editState(flow: FlowchartFlowValue, key: string, next: string, l
     const { at, shared } = drawnState(flow, key);
     if (at < 0) return flow;
     const states = flow.states.map((s, i) => (i === at ? { ...s, key: next, label: label === "" ? none : some(label) } : s));
-    if (keyEqual(key, next) || shared) return { ...flow, states };
+    return { ...flow, states, ...followState(flow, key, next, shared) };
+}
+
+/**
+ * Where a state's key goes, its transitions' ends and the decisions' queues
+ * follow (FB18) — unless another state shares the old key, which keeps them.
+ *
+ * @param flow - The open flow, before the state's key changed
+ * @param key - The state's key
+ * @param next - Its key now
+ * @param shared - Whether another state shares the old key
+ * @returns The flow's transitions and decisions, following it
+ */
+function followState(flow: FlowchartFlowValue, key: string, next: string, shared: boolean): Pick<FlowchartFlowValue, "links" | "triggers"> {
+    if (keyEqual(key, next) || shared) return { links: flow.links, triggers: flow.triggers };
     const rekey = (end: string): string => (keyEqual(end, key) ? next : end);
     return {
-        ...flow,
-        states,
         links: flow.links.map((l) => (keyEqual(l.from, key) || keyEqual(l.to, key) ? { ...l, from: rekey(l.from), to: rekey(l.to) } : l)),
         triggers: flow.triggers.map((t) => (t.queue.type === "some" && t.queue.value.some((q) => keyEqual(q, key))
             ? { ...t, queue: some(t.queue.value.map(rekey)) } : t)),
     };
+}
+
+/**
+ * Inserts a state at a place among the flow's states (#1249, FB31): a
+ * dropped template's state, its row among its lane's states the one before
+ * which it stands — the flow's states keep their order, so a lane draws them
+ * in it.
+ *
+ * @param flow - The open flow
+ * @param at - Its place in the flow's states: the states before it stay before it
+ * @param state - The state
+ * @returns The flow
+ */
+export function insertState(flow: FlowchartFlowValue, at: number, state: FlowchartStateValue): FlowchartFlowValue {
+    const i = Math.max(0, Math.min(at, flow.states.length));
+    return { ...flow, states: [...flow.states.slice(0, i), state, ...flow.states.slice(i)] };
+}
+
+/**
+ * Sets a state card's fields on a state (#1249, FB33): the one the canvas
+ * draws under its key, the last of that key; a new key rekeys its
+ * transitions' ends and the decisions' queues (FB18).
+ *
+ * @param flow - The open flow
+ * @param key - The state's key
+ * @param patch - The fields the card sets
+ * @returns The flow
+ */
+export function setState(flow: FlowchartFlowValue, key: string, patch: FlowchartStatePatch): FlowchartFlowValue {
+    const { at, shared } = drawnState(flow, key);
+    if (at < 0) return flow;
+    const state = patched(flow.states[at]!, patch);
+    const states = flow.states.map((s, i) => (i === at ? state : s));
+    return { ...flow, states, ...followState(flow, key, state.key, shared) };
 }
 
 /**
@@ -290,6 +400,21 @@ export function deleteLink(flow: FlowchartFlowValue, key: string): FlowchartFlow
 }
 
 /**
+ * Sets a transition card's fields on a transition (#1249, FB32): the first
+ * that goes by the key — a connection makes a transition of the default type,
+ * and a card retypes it ("Connect, then retype").
+ *
+ * @param flow - The open flow
+ * @param key - The key the transition goes by
+ * @param patch - The fields the card sets
+ * @returns The flow
+ */
+export function setLink(flow: FlowchartFlowValue, key: string, patch: FlowchartLinkPatch): FlowchartFlowValue {
+    const at = flow.links.findIndex((l, i) => keyEqual(linkKeyOf(l, i), key));
+    return at < 0 ? flow : { ...flow, links: flow.links.map((l, i): FlowchartLinkValue => (i === at ? patched(l, patch) : l)) };
+}
+
+/**
  * Deletes a decision, cleared from the transitions it governs.
  *
  * @param flow - The open flow
@@ -302,6 +427,22 @@ export function deleteDecision(flow: FlowchartFlowValue, key: string): Flowchart
         triggers: flow.triggers.filter((t) => !keyEqual(t.key, key)),
         links: flow.links.map((l) => (l.trigger.type === "some" && keyEqual(l.trigger.value, key) ? { ...l, trigger: none } : l)),
     };
+}
+
+/**
+ * Sets a decision card's fields on a decision (#1249, FB33) — every decision
+ * of its key — a new key renaming it on the transitions it governs.
+ *
+ * @param flow - The open flow
+ * @param key - The decision's key
+ * @param patch - The fields the card sets
+ * @returns The flow
+ */
+export function setDecision(flow: FlowchartFlowValue, key: string, patch: FlowchartDecisionPatch): FlowchartFlowValue {
+    const triggers = flow.triggers.map((t): FlowchartTriggerValue => (keyEqual(t.key, key) ? patched(t, patch) : t));
+    const next = getSomeorUndefined(patch.key);
+    if (next === undefined || keyEqual(next, key)) return { ...flow, triggers };
+    return { ...flow, triggers, links: flow.links.map((l) => (l.trigger.type === "some" && keyEqual(l.trigger.value, key) ? { ...l, trigger: some(next) } : l)) };
 }
 
 // ── What holds Save off, and what waits on it ───────────────────────────────
