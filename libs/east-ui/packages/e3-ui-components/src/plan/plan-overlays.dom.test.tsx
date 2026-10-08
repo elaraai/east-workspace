@@ -454,3 +454,82 @@ describe("one overlay layer (#816)", () => {
         await waitFor(() => expect(screen.queryByText("IN · 40 k sheets")).toBeNull());
     });
 });
+
+/**
+ * A label drawn cut is one hover away (#1264). jsdom computes no layout and no
+ * container query, so each test draws the label's state itself: hidden — the
+ * recipe's `display: none` below a letter and the ellipsis — or ellipsized, its
+ * text wider than its box.
+ */
+describe("a cut label says itself in the tooltip (#1264)", () => {
+    const tooltip = () => document.querySelector('[data-plan-overlay="tooltip"]');
+    /** Draws a label hidden, as the recipe's container query does below a letter and the ellipsis. */
+    const hide = (label: HTMLElement) => { label.style.display = "none"; };
+    /** Draws a label ellipsized: its text wider than its box. */
+    const ellipsize = (label: HTMLElement) => {
+        Object.defineProperty(label, "scrollWidth", { configurable: true, get: () => 120 });
+        Object.defineProperty(label, "clientWidth", { configurable: true, get: () => 20 });
+    };
+    /** Long enough for both delays (150ms) to pass, and the layer to render. */
+    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+
+    test("a bar's hidden or ellipsized label shows whole on hover, and goes when the pointer leaves; a label drawn whole says nothing", async () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4), run("c7", 5, 6), run("w1", 7, 9)]))]), "plan-1264-bar");
+        const label = (key: string) => container.querySelector<HTMLElement>(`[data-run="${key}"] [data-plan-label]`)!;
+        hide(label("j4642"));
+        ellipsize(label("c7"));
+        const user = userEvent.setup();
+        for (const [key, text] of [["j4642", "J4642"], ["c7", "C7"]] as const) {
+            const bar = container.querySelector<HTMLElement>(`[data-run="${key}"]`)!;
+            await user.hover(bar);
+            await waitFor(() => expect(tooltip()?.textContent, key).toBe(text));
+            await user.unhover(bar);
+            await waitFor(() => expect(tooltip(), key).toBeNull());
+        }
+        // Drawn whole: its hover says nothing.
+        await user.hover(container.querySelector<HTMLElement>('[data-run="w1"]')!);
+        await settle();
+        expect(tooltip()).toBeNull();
+    });
+
+    test("a hover card open on the element says more: the tooltip gives way — and where the resolver opens none, the tooltip says the label", async () => {
+        const hov = recording("HOV");
+        const hover = (ref: PlanElementRefValue) => (ref.type === "run" && ref.value.run === "j4642" ? hov.fn(ref) : none);
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4), run("c7", 5, 6)]))], { hover }), "plan-1264-card");
+        for (const key of ["j4642", "c7"]) hide(container.querySelector<HTMLElement>(`[data-run="${key}"] [data-plan-label]`)!);
+        const user = userEvent.setup();
+        await user.hover(container.querySelector<HTMLElement>('[data-run="j4642"]')!);
+        expect(await screen.findByText("HOV · run:m1/j4642")).toBeTruthy();
+        await settle();
+        expect(tooltip()).toBeNull();
+        await user.unhover(container.querySelector<HTMLElement>('[data-run="j4642"]')!);
+        await waitFor(() => expect(screen.queryByText("HOV · run:m1/j4642")).toBeNull());
+        await user.hover(container.querySelector<HTMLElement>('[data-run="c7"]')!);
+        await waitFor(() => expect(tooltip()?.textContent).toBe("C7"));
+    });
+
+    test("a chip's label and a rollup band's caption say themselves the same way", async () => {
+        const chip = (key: string, from: number, to: number) => ({
+            key, from: t(week(from)), to: t(week(to)), label: `Shift ${key}`, state: variant("confirmed", null), icon: none,
+        });
+        const parent = planRow("hall", variant("span", { runs: [], decisions: [], ports: [], rollup: some(variant("union", null)) }));
+        const { container } = renderPlan(planRoot([
+            planRow("crew", variant("cards", { chips: [chip("s1", 1, 2)] })),
+            parent,
+            // Two runs over one interval: one band, its caption their count.
+            planRow("m1", spanKind([run("j4642", 1, 4), run("j4643", 2, 5)]), "hall"),
+        ]), "plan-1264-chip-band");
+        const user = userEvent.setup();
+        hide(container.querySelector<HTMLElement>('[data-chip="s1"] [data-plan-label]')!);
+        await user.hover(container.querySelector<HTMLElement>('[data-chip="s1"]')!);
+        await waitFor(() => expect(tooltip()?.textContent).toBe("Shift s1"));
+        await user.unhover(container.querySelector<HTMLElement>('[data-chip="s1"]')!);
+        await waitFor(() => expect(tooltip()).toBeNull());
+        const band = container.querySelector<HTMLElement>(`${rowSel("hall")} [data-plan-band]`)!;
+        const caption = band.querySelector<HTMLElement>("[data-plan-label]")!;
+        expect(caption.textContent).not.toBe("");
+        ellipsize(caption);
+        await user.hover(band);
+        await waitFor(() => expect(tooltip()?.textContent).toBe(caption.textContent));
+    });
+});

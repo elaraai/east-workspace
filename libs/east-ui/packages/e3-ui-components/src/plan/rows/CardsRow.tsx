@@ -70,6 +70,8 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
         <Box css={styles.cardChip}
             data-ctx={ctx === true ? "" : undefined}
             data-chip={chip.key}
+            // Its label hides sooner beside an icon (#1264).
+            data-icon={icon !== undefined ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
             // Focusable: Enter opens its popover (#816), and the
             // row's Tab walk reaches it (#819).
@@ -88,8 +90,14 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
-            {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
-            <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{chip.label}</Box>
+            {/* Its icon and its label, each drawn whole or not at all; a hidden or
+                ellipsized label is said by its hover (#1264). */}
+            {icon !== undefined && (
+                <Box as="span" css={styles.cardChipIcon} data-plan-icon="">
+                    <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />
+                </Box>
+            )}
+            <Box as="span" css={styles.cardChipLabel} data-plan-label="">{chip.label}</Box>
             {edges !== undefined && (
                 <>
                     <Box css={styles.moveEdge} {...edges.start} />

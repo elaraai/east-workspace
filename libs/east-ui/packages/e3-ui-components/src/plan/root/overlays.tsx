@@ -28,7 +28,11 @@
  *   the card;
  * - hovering a labelled port, cell marker, link ribbon (#818) or row control
  *   (#1258) shows its `aria-label` as a tooltip — a ribbon opens no hover
- *   card: its caption is what hovering it says.
+ *   card: its caption is what hovering it says;
+ * - hovering a bar, a chip or a rollup band whose label is hidden (too narrow
+ *   for a letter and the ellipsis) or ellipsized shows the whole label as a
+ *   tooltip (#1264) — read from what the page draws as the hover lands — and a
+ *   hover card open on the element says more, so the tooltip gives way to it.
  *
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
@@ -61,6 +65,9 @@ export const PLAN_LINK_SELECTOR = "[data-link-key]";
  *  cell markers, link ribbons (#818) and a row's focus controls (#1258). */
 export const PLAN_TIP_SELECTOR =
     "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label]";
+/** The elements whose label (`data-plan-label`) a tooltip says while it is
+ *  hidden or ellipsized (#1264): a bar, a chip and a rollup band. */
+export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-plan-band]";
 
 /** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
 const OPEN_DELAY_MS = 150;
@@ -152,6 +159,28 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
     if (control !== null) return { key: `${row}|control|${control}`, text };
     const port = el.getAttribute("data-port");
     return { key: port !== null ? `${row}|port|${port}` : `${row}|marker|${el.getAttribute("data-marker") ?? ""}`, text };
+}
+
+/**
+ * The tooltip an element's label makes (#1264): its whole text, while the
+ * page draws it hidden — too narrow for a letter and the ellipsis — or
+ * ellipsized; read as the hover lands.
+ *
+ * @param el - A bar, a chip or a rollup band ({@link PLAN_LABELLED_SELECTOR})
+ * @returns Its identity and its label's text, or `undefined` while the label shows whole
+ */
+function labelTipOf(el: Element): { key: string; text: string } | undefined {
+    const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]");
+    const text = label?.textContent?.trim() ?? "";
+    if (label === null || text === "") return undefined;
+    if (getComputedStyle(label).display !== "none" && label.scrollWidth <= label.clientWidth) return undefined;
+    const holder = el.closest("[data-plan-row],[data-plan-card]");
+    const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
+    if (row === null || row === undefined) return undefined;
+    // A band has no key of its own: its place among its row's bands names it.
+    const id = el.getAttribute("data-run") ?? el.getAttribute("data-chip")
+        ?? `band${[...(el.parentElement?.querySelectorAll(":scope > [data-plan-band]") ?? [])].indexOf(el)}`;
+    return { key: `${row}|label|${id}`, text };
 }
 
 /** A stable identity for an open surface — its element's kind, row and key
@@ -255,11 +284,14 @@ export function usePlanOverlayHandlers(
             openAt: (el) => hasPopover && openPopover(el, false),
             onPointerOver: (e) => {
                 const body = bodyRef.current;
-                const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR);
+                // A labelled mark says its `aria-label`; else a bar, a chip or a
+                // band says a label it draws cut (#1264).
+                const mark = elementIn(body, e.target, PLAN_TIP_SELECTOR);
+                const tip = mark ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
                 if (tip !== null && anchors.tooltip !== tip) {
                     clearTimeout(anchors.tipOpen);
                     anchors.tipOpen = setTimeout(() => {
-                        const open = tipOf(tip);
+                        const open = mark !== null ? tipOf(mark) : labelTipOf(tip);
                         if (open === undefined || !tip.isConnected) return;
                         anchors.tooltip = tip;
                         controller.tooltipIntent(open);
@@ -284,7 +316,7 @@ export function usePlanOverlayHandlers(
             onPointerOut: (e) => {
                 const body = bodyRef.current;
                 const to = e.relatedTarget instanceof Node ? e.relatedTarget : null;
-                const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR);
+                const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR) ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
                 if (tip !== null && (to === null || !tip.contains(to))) {
                     clearTimeout(anchors.tipOpen);
                     if (anchors.tooltip === tip) {
@@ -398,7 +430,8 @@ export function PlanOverlays({ anchors, styles, storageKey }: {
                     </Portal>
                 </HoverCard.Root>
             )}
-            {tooltip !== null && (
+            {/* A hover card open on the tooltip's element says more: the tooltip gives way (#1264). */}
+            {tooltip !== null && !(hover !== null && anchors.hover !== null && anchors.hover === anchors.tooltip) && (
                 <Tooltip.Root
                     key={tooltip.key}
                     open

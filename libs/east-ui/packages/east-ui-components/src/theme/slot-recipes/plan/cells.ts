@@ -20,7 +20,7 @@ import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focu
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell",
-    "tile", "tileLabel", "laneLabel", "markerIcon", "cardChip", "tableCellText", "tableCellPart",
+    "tile", "tileLabel", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellPart",
 ] as const;
 
 /** Their base styles. */
@@ -272,13 +272,15 @@ export const cellsBase = {
     // ── Cards chips (K6) — the Roster `.shift` chip, verbatim: 5px
     //    radius, brand tint + 1px brand ring, mono 10/500, text left ──
     // A chip too short for its padding draws the canvas's narrowest chip, and
-    // a link meets it where it ends as drawn (#1258).
+    // a link meets it where it ends as drawn (#1258). A container, so its
+    // icon and its label read the width inside it (#1264).
     cardChip: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
         height: "var(--plan-chip-h)",
         minWidth: "var(--plan-chip-min-w)",
+        containerType: "inline-size",
         display: "flex",
         alignItems: "center",
         justifyContent: "flex-start",
@@ -325,6 +327,27 @@ export const cellsBase = {
         },
         ...planElementSelected,
         ...planElementFocus,
+    },
+    // A chip's icon (`data-plan-icon`) — Font Awesome's, 1.25em wide in the
+    // chip's font; a chip narrower inside than that draws none, never a part
+    // of it (#1264).
+    cardChipIcon: {
+        display: "inline-flex",
+        flex: "none",
+        "@container (width < 1.25em)": { display: "none" },
+    },
+    // A chip's label — whole, or ellipsized when it does not fit. Below a
+    // letter and the ellipsis — in the chip's mono face each one `ch` wide,
+    // after the icon and the gap when the chip has one (`data-icon`) — it is
+    // not drawn at all, never a sliver of a glyph (#1264), and its hover says
+    // it in the canvas's tooltip.
+    cardChipLabel: {
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        "@container (width < 2ch)": { display: "none" },
+        "[data-icon] > &": { "@container (width < calc(1.25em + 4px + 2ch))": { display: "none" } },
     },
     // ── Table cells (K5) — mono numerals per bucket, CENTRED in their
     //    column as the ruler's ticks and the heat values are (#949); the

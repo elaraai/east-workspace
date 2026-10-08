@@ -20,7 +20,7 @@ import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focu
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barLabel", "barQty", "rollBand", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -104,7 +104,11 @@ export const elementsBase = {
         ...planElementFocus,
     },
     // A span's label — whole, or ellipsized when it alone does not fit, its
-    // line the bar's inside height (#1258).
+    // line the bar's inside height (#1258). Below a letter and the ellipsis
+    // it is not drawn at all, never a sliver of a glyph (#1264): in the bar's
+    // mono face every glyph, the ellipsis too, is one `ch` wide, and a
+    // container query reads `ch` in the bar's own font. Its hover then says
+    // it, in the canvas's tooltip.
     barLabel: {
         flex: "0 1 auto",
         minWidth: 0,
@@ -112,6 +116,7 @@ export const elementsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
+        "@container (width < 2ch)": { display: "none" },
     },
     // A span's quantity — the label's own weight (#949: one weight per span).
     // It never shrinks: when it does not fit beside the label it wraps out of
@@ -123,12 +128,16 @@ export const elementsBase = {
         lineHeight: "100cqh",
         whiteSpace: "nowrap",
     },
-    // Parent rollup band — 12px, centred `×k · qty` caption.
+    // Parent rollup band — 12px, centred `×k · qty` caption (`rollBandLabel`).
+    // A size container, as a bar is: its caption reads the width inside it,
+    // and its line is the height inside its border (`100cqh`), so the 9.5px
+    // caption's line box never stands taller than the 12px band (#1264).
     rollBand: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
         height: "var(--plan-roll-bar-h)",
+        containerType: "size",
         borderRadius: "2px",
         display: "flex",
         alignItems: "center",
@@ -160,6 +169,18 @@ export const elementsBase = {
             borderStyle: "dashed",
             borderColor: "border.strong",
         },
+    },
+    // A rollup band's caption — centred while it fits; a band too narrow for it
+    // shows it from its start, ellipsized, and one too narrow for a letter and
+    // the ellipsis draws none (#1264), its hover saying it in the canvas's
+    // tooltip.
+    rollBandLabel: {
+        minWidth: 0,
+        lineHeight: "100cqh",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        "@container (width < 2ch)": { display: "none" },
     },
     // Quantity in/out port glyph on a span row.
     port: {
