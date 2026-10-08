@@ -13,9 +13,11 @@
  * - **Container width** (`useContainerBreakpoint` / `useContainerBelow`):
  *   components adapt to the box they render in — a splitter pane, a task
  *   preview, a webview — never to the viewport. Both hooks observe the
- *   referenced element with a shared, rAF-coalesced `ResizeObserver` and
- *   re-render only when the derived value crosses a threshold (not on
- *   every pixel).
+ *   referenced element with a `ResizeObserver` and re-render only when the
+ *   derived value crosses a threshold (not on every pixel) — before the
+ *   frame at the new width paints, as the shared toolbar and the builder
+ *   frame take a width, so a component never paints a frame of the layout it
+ *   is leaving (#1259).
  * - **Pointer capability** (`useCoarsePointer` / `useHoverCapable`): a
  *   global media fact, mirroring the theme conditions `_coarse`
  *   (`@media (pointer: coarse)`) and `_hoverNone` (`@media (hover: none)`)
@@ -27,6 +29,7 @@
  */
 
 import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
+import { flushSync } from "react-dom";
 
 /** Container width class: `compact < compactBelow ≤ regular < wideAbove ≤ wide`. */
 export type ContainerBreakpoint = "compact" | "regular" | "wide";
@@ -49,8 +52,9 @@ function classify(width: number, compactBelow: number, wideAbove: number): Conta
 }
 
 /**
- * Observe an element's inline size and call `onWidth` (rAF-coalesced) when
- * it changes. Shared plumbing for the two public container hooks.
+ * Observe an element's inline size and call `onWidth` when it changes, what
+ * it sets committed before the frame paints. Shared plumbing for the two
+ * public container hooks.
  */
 function useContainerWidthEffect(
     ref: RefObject<HTMLElement | null>,
@@ -59,21 +63,18 @@ function useContainerWidthEffect(
     useLayoutEffect(() => {
         const el = ref.current;
         if (!el || typeof ResizeObserver === "undefined") return;
-        let frame = 0;
         const measure = () => {
-            frame = 0;
             const width = el.getBoundingClientRect().width;
             if (width > 0) onWidth(width);
         };
-        const ro = new ResizeObserver(() => {
-            if (frame === 0) frame = requestAnimationFrame(measure);
-        });
+        // A width change is taken before this frame paints: a crossing
+        // commits at once, so the frame shows the layout for the width it is
+        // painted at, and what the layout tells its host — the Plan's toolbar
+        // items, say — with it (#1259).
+        const ro = new ResizeObserver(() => flushSync(measure));
         ro.observe(el);
         measure();
-        return () => {
-            ro.disconnect();
-            if (frame !== 0) cancelAnimationFrame(frame);
-        };
+        return () => ro.disconnect();
         // The consumer's callback identity is intentionally not a dependency:
         // both public hooks pass stable setters derived from state.
         // eslint-disable-next-line react-hooks/exhaustive-deps
