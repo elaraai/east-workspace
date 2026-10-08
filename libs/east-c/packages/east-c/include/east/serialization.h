@@ -713,6 +713,11 @@ EastValue *east_paged_hydrated(EastValue *v);
 // `v` added — what decoding the input whole came to, for a runner's account
 // of it. -1 when `v` is not a paged value that has been hydrated.
 long east_paged_hydrated_kb(EastValue *v);
+// Names a paged value for the profiler, which times its segment decodes as an
+// entry of that name (east_profile_paged_enter): a runner names each lazily
+// opened input as its -v account does, "input N". Copied; NULL unnames it.
+// Nothing for a value that is not paged.
+void east_paged_set_label(EastValue *v, const char *label);
 
 // Byte extents of an indexed v5 collection blob, for splicing (issue #484):
 // everything a host needs to byte-copy the blob's segment frames into a merged

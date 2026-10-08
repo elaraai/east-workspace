@@ -584,6 +584,9 @@ cdef extern from "east/serialization.h":
     # added; -1 when the value is not one that has been hydrated. `long` is 32
     # bits on Windows: widen before scaling to bytes.
     long east_paged_hydrated_kb(EastValue *v)
+    # Names a paged value for the profiler, whose entry for its segment
+    # decodes takes the name: a runner names its inputs "input N".
+    void east_paged_set_label(EastValue *v, const char *label)
     EastType *east_beast2_pages_type(Beast2Pages *p)
 
     # Segment manifests: a collection held as standalone segment blobs and a

@@ -198,7 +198,7 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], whole: bool,
         open_manifest_file,
         open_paged_file,
     )
-    from east.serialization._beast2_eastc import _resident_bytes
+    from east.serialization._beast2_eastc import _paged_set_label, _resident_bytes
 
     input_types = handle.get_input_types()
     inputs: list[object] = []
@@ -219,6 +219,9 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], whole: bool,
                 opened = None
         if opened is not None:
             lazy_inputs.append(i)
+            # A profile names the time its segment decodes take as this
+            # account names the input.
+            _paged_set_label(getattr(opened, "_east_c_paged", 0), f"input {i}")
             if verbose:
                 print(f"  input {i}: opened lazily — mapped from the file", file=sys.stderr)
             inputs.append(opened)

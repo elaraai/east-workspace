@@ -1455,6 +1455,9 @@ struct Beast2Pages {
     EastValue *manifest;
     Beast2SegmentSource segments;
     bool sm_from_segment; /* `sm` came from a segment's header */
+    /* What a runner calls the collection — "input N" — which names its
+     * decodes in a profile (east_paged_set_label); owned, NULL when unnamed. */
+    char *label;
 };
 
 /* Where segment i's frame is for one read: in the blob behind a blob pager,
@@ -1734,8 +1737,8 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
  * fields only — which the shared cache counts it by. `freeze` decodes the
  * segment frozen whatever the pager was opened as: the cache's segments are
  * shared by every read they serve (#1129). */
-static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr,
-                                       size_t *weight_out, bool freeze)
+static EastValue *pages_decode_one(Beast2Pages *p, size_t i, const Beast2Projection *pr,
+                                   size_t *weight_out, bool freeze)
 {
     if (!p) return NULL;
     /* Self-contained is checked BEFORE the range check: on a cross-aliased
@@ -1834,6 +1837,17 @@ done:
     b2v5_frames_dispose(&f);
     pages_frame_close(p, &view);
     return result;
+}
+
+/* Every segment a read decodes, keyed, scanned or projected: a call of its
+ * collection's entry when the profiler runs. */
+static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr,
+                                       size_t *weight_out, bool freeze)
+{
+    east_profile_paged_enter(p ? p->label : NULL);
+    EastValue *segment = pages_decode_one(p, i, pr, weight_out, freeze);
+    east_profile_paged_exit();
+    return segment;
 }
 
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
@@ -2097,6 +2111,7 @@ void east_beast2_pages_free(Beast2Pages *p)
     free(p->cumulative);
     if (p->manifest) east_value_release(p->manifest);
     if (p->segments.free) p->segments.free(p->segments.ctx);
+    free(p->label);
     free(p);
 }
 
@@ -2847,12 +2862,15 @@ EastValue *east_paged_hydrated(EastValue *v)
      * pager decodes it segment by segment. */
     Beast2Pages *pages = v->data.paged.pages;
     long before = east_resident_kb();
+    /* The whole decode is one call of the collection's entry. */
+    east_profile_paged_enter(pages->label);
     EastValue *whole = pages->manifest ? pages_decode_whole(pages, v->data.paged.frozen)
                        : v->data.paged.frozen
                            ? east_beast2_decode_full_frozen(v->data.paged.data, v->data.paged.len,
                                                             east_beast2_pages_type(pages))
                            : east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
                                                      east_beast2_pages_type(pages));
+    east_profile_paged_exit();
     if (!whole) return NULL;
     long grown = east_resident_kb() - before;
     pages->hydrated_kb = grown > 0 ? grown : 0;
@@ -2871,6 +2889,14 @@ long east_paged_hydrated_kb(EastValue *v)
     if (!v || v->kind != EAST_VAL_PAGED || !v->data.paged.hydrated || !v->data.paged.pages)
         return -1;
     return v->data.paged.pages->hydrated_kb;
+}
+
+void east_paged_set_label(EastValue *v, const char *label)
+{
+    if (!v || v->kind != EAST_VAL_PAGED || !v->data.paged.pages) return;
+    Beast2Pages *p = v->data.paged.pages;
+    free(p->label);
+    p->label = label ? strdup(label) : NULL;
 }
 
 bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out)

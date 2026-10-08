@@ -113,8 +113,12 @@ after a failure's error, every East function and platform function it called,
 by self time, with its call count, its total time and where it is — the
 `file:line:column` it was written at and, for a helper called inside another
 body, where it was called. A platform function (a model, a solver) is an entry
-of its own, so the time inside it is not its caller's. The profiler is
-east-c's, so the report is the one `east-c run --profile` prints.
+of its own, so the time inside it is not its caller's, and so is a lazily read
+input's decoding: each segment its reads decode is a call of one entry named
+after the input as `-v` names it (`input 1`), so keyed reads at random beyond
+the segments the pager keeps, or a scan repeated, show there rather than in
+the reading function's self time. The profiler is east-c's, so the report is
+the one `east-c run --profile` prints.
 
 `EAST_PROFILE=1` profiles without the flag — e3 hands its environment to the
 runner, so a task's report lands in its log — and `EAST_PROFILE_INTERVAL=N`

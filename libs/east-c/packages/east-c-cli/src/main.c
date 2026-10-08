@@ -707,6 +707,11 @@ static size_t load_inputs(const char *const *paths, EastType **types, size_t n, 
             }
             return i;
         }
+        /* A profile names the time its segment decodes take as this account
+         * names the input. */
+        char label[32];
+        snprintf(label, sizeof(label), "input %zu", i);
+        east_paged_set_label(args[i], label);
         if (verbose && mapped)
             report_input_lazy(i);
         else if (verbose)

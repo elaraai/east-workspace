@@ -167,6 +167,20 @@ def test_what_a_lazy_read_came_to(tmp_path, monkeypatch, capsys):
     decodes, segments, fences = (int(g) for g in account.groups())
     assert decodes == 200 and segments >= 8 and fences == segments, err
 
+    # Profiled, the decodes are the input's own entry, named as the account
+    # names it — a call for each, placed by the read that made them — and not
+    # the reading function's time. east-c prints the report on the process's
+    # stderr, which a subprocess captures.
+    profiled = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "paged_scatter.beast2"),
+         "-i", str(table), "--profile"],
+        capture_output=True, text=True, check=True,
+    )
+    assert profiled.stdout.strip() == "200"
+    entry = re.search(r"^  input 0 +(\d+) calls .* segment decodes  read at "
+                      r".*generate_fixtures\.mjs:\d+:\d+$", profiled.stderr, re.M)
+    assert entry is not None and int(entry.group(1)) == 200, profiled.stderr
+
     run_program(FIXTURES / "paged_scatter.beast2", [], [], [table], verbose=True, whole=True)
     out, err = capsys.readouterr()
     assert out.strip() == "200"
