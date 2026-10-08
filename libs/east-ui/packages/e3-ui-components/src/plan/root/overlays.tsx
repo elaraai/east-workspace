@@ -29,10 +29,11 @@
  * - hovering a labelled port, cell marker, link ribbon (#818) or row control
  *   (#1258) shows its `aria-label` as a tooltip — a ribbon opens no hover
  *   card: its caption is what hovering it says;
- * - hovering a bar, a chip or a rollup band whose label is hidden (too narrow
- *   for a letter and the ellipsis) or ellipsized shows the whole label as a
- *   tooltip (#1264) — read from what the page draws as the hover lands — and a
- *   hover card open on the element says more, so the tooltip gives way to it.
+ * - hovering a bar, a chip, a tile or a rollup band whose label is hidden (too
+ *   narrow for a letter and the ellipsis) or ellipsized shows the whole label
+ *   as a tooltip (#1264, #1266) — read from what the page draws as the hover
+ *   lands — and a hover card open on the element says more, so the tooltip
+ *   gives way to it.
  *
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
@@ -66,8 +67,9 @@ export const PLAN_LINK_SELECTOR = "[data-link-key]";
 export const PLAN_TIP_SELECTOR =
     "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label]";
 /** The elements whose label (`data-plan-label`) a tooltip says while it is
- *  hidden or ellipsized (#1264): a bar, a chip and a rollup band. */
-export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-plan-band]";
+ *  hidden or ellipsized: a bar, a chip and a rollup band (#1264), and a tile
+ *  (#1266). */
+export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-event],[data-plan-band]";
 
 /** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
 const OPEN_DELAY_MS = 150;
@@ -162,23 +164,29 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
 }
 
 /**
- * The tooltip an element's label makes (#1264): its whole text, while the
- * page draws it hidden — too narrow for a letter and the ellipsis — or
+ * The tooltip an element's label makes (#1264, #1266): its whole text, while
+ * the page draws it hidden — too narrow for a letter and the ellipsis: not
+ * displayed, or, in a tile, moved off the tile's line below it — or
  * ellipsized; read as the hover lands.
  *
- * @param el - A bar, a chip or a rollup band ({@link PLAN_LABELLED_SELECTOR})
+ * @param el - A bar, a chip, a tile or a rollup band ({@link PLAN_LABELLED_SELECTOR})
  * @returns Its identity and its label's text, or `undefined` while the label shows whole
  */
 function labelTipOf(el: Element): { key: string; text: string } | undefined {
     const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]");
     const text = label?.textContent?.trim() ?? "";
     if (label === null || text === "") return undefined;
-    if (getComputedStyle(label).display !== "none" && label.scrollWidth <= label.clientWidth) return undefined;
+    // A label moved off its element's line lies wholly below it — below the
+    // inside of its border, where the element clips.
+    const drawn = label.getBoundingClientRect();
+    const inside = el.getBoundingClientRect().bottom - (Number.parseFloat(getComputedStyle(el).borderBottomWidth) || 0);
+    const offLine = drawn.height > 0 && drawn.top >= inside - 0.5;
+    if (getComputedStyle(label).display !== "none" && !offLine && label.scrollWidth <= label.clientWidth) return undefined;
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
     if (row === null || row === undefined) return undefined;
     // A band has no key of its own: its place among its row's bands names it.
-    const id = el.getAttribute("data-run") ?? el.getAttribute("data-chip")
+    const id = el.getAttribute("data-run") ?? el.getAttribute("data-chip") ?? el.getAttribute("data-event")
         ?? `band${[...(el.parentElement?.querySelectorAll(":scope > [data-plan-band]") ?? [])].indexOf(el)}`;
     return { key: `${row}|label|${id}`, text };
 }
