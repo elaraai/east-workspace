@@ -34,10 +34,10 @@
  * resource kind draws no rows; a hidden measure no row under each resource. A
  * resource's first row is its own, and stays while its kind shows.
  *
- * A resource kind with a `window` (#1199, PB55) is PAGED, as a paged canvas
- * pages its blocks: its rows come a window of resources at a time as the
- * canvas scrolls, through the payload's `paged` ({@link createEventPaged}),
- * and the key search seeks a resource by its key. The `blocks` seam keeps its
+ * A resource kind given its resources as a paged read (#1199, PB55) is PAGED,
+ * as a paged canvas pages its blocks: its rows come a window of resources at a
+ * time as the canvas scrolls, through the payload's `paged`
+ * ({@link createEventPaged}), and the key search seeks a resource by its key. The `blocks` seam keeps its
  * place among the kinds' blocks with an empty paged block (`fixed: false`,
  * the one block it serves that is not fixed) and never reads its resources;
  * the events placed on them are read with the rest, by way of drawing and by
@@ -572,7 +572,7 @@ export function createEventBlocks(
             const items = reads.map((read) => $2.let(read.unwrap("some"), ArrayType(PlanEventItemType)));
             // Each resource kind's resources, read once — but a paged kind's (#1199), which come a window at a time.
             const whole = resources.filter(([, kind]) => kind.window === undefined);
-            const sources = new Map(whole.map(([slot, kind]) => [slot, $2.let(kind.source) as unknown as ExprType<DictType<EastType, EastType>>]));
+            const sources = new Map(whole.map(([slot, kind]) => [slot, $2.let(kind.source!) as unknown as ExprType<DictType<EastType, EastType>>]));
             // The events each way of drawing places on each resource kind, by the resource's key.
             const placed = new Map(whole.map(([slot]) => [slot, new Map(eventDrawsOf(slot, events).map((draw) =>
                 [draw, $2.let(new Map(), PlacedByKeyType)] as const))]));
@@ -683,17 +683,17 @@ type PagedHandle = ExprType<StructType<{
 
 /**
  * The paged resource kind's rows (see {@link PlanEventPagedType}), when a
- * resource kind has a `window`.
+ * resource kind is given its resources as a paged read.
  *
  * @remarks
  * Made inside the function that assembles the payload, as the `blocks` seam
  * is, so `built` is the payload's own array of event kinds.
  *
- * @param resources - The resource kinds, by slot, in order — at most one of them with a `window` (the Plan refuses more)
+ * @param resources - The resource kinds, by slot, in order — at most one of them paged (the Plan refuses more)
  * @param events - The event kinds, by slot, in order
  * @param built - The event kinds as the payload holds them, in the same order
- * @returns The paged rows, or `undefined` when no resource kind has a `window`
- * @throws {Error} When the kind's `window` is not a paged source of its resources
+ * @returns The paged rows, or `undefined` when no resource kind is paged
+ * @throws {Error} When the kind's paged read is not a paged source of its resources
  * @internal
  */
 export function createEventPaged(
@@ -708,7 +708,7 @@ export function createEventPaged(
     // The resources a window at a time — each window whole, a piece the source cut short read on to its end.
     const resolved = resolveRowSource(kind.window, where);
     if (resolved.kind === "inline") {
-        throw new Error(`${where}: \`window\` pages the resources — Data.bindPaged(record) over the resources' record`);
+        throw new Error(`${where}: a paged kind's resources are a paged read — Data.bindPaged(record) over the resources' record`);
     }
     const window = buildPagedWindow(resolved);
     const handle = resolved.source as unknown as PagedHandle;

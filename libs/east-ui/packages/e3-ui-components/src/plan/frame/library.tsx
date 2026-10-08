@@ -20,7 +20,9 @@
  *   each card its kind's icon, its
  *   title and `6 h · Press A · due Fri 16`, grouped by when it is due — Due
  *   this week, Due next week, Later, No date — counted from the week the
- *   axis's now is in, or today's (PB28).
+ *   axis's now is in, or today's (PB28). A card's resource on a paged resource
+ *   kind is named once it is read by its key (#1199, `resources.ts`), its key
+ *   standing in meanwhile.
  * - **Series** (`Plan.library.series()`) — `Pick.Panel`'s list, frameless in
  *   the pane: each resource kind and its measures, the event kinds, `data`'s
  *   picked series and the Plan's `rows`, each with its kind's icon, its title
@@ -51,7 +53,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
-import { ScheduleEventRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined, useTrackedEvaluation,
     type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
@@ -61,6 +63,7 @@ import { DUE_GROUPS, dueGroupOf, durationMinutes, type DueGroup } from "../../sh
 import type { PlanLibraryTabWord } from "../messages.js";
 import type { PlanWords } from "../words.js";
 import type { PlanValue } from "./index.js";
+import { usePlanResourceRows, type PlanResourceRefValue } from "./resources.js";
 
 /** The names a Plan keeps its viewer's state under. */
 type PlanKeys = ReturnType<typeof planKeys>;
@@ -69,7 +72,7 @@ type PlanEventKindValue = PlanValue["events"][number];
 /** One event as a kind's seams read it. */
 type PlanEventItemValue = Extract<ReturnType<PlanEventKindValue["planUnscheduled"]>, { type: "some" }>["value"][number];
 /** A resource an event is on, if it is. */
-type PlanResourceRefValue = PlanEventItemValue["resource"];
+type PlanResourceOptionValue = PlanEventItemValue["resource"];
 /** An author's tab, decoded. */
 type PlanAuthorTabValue = Extract<PlanValue["library"][number], { type: "tab" }>["value"];
 /** A pick, decoded: the canvas's own over `data`'s series, and the Series tab's. */
@@ -85,6 +88,8 @@ const stringEqual = equalFor(StringType);
 const compareDateTime = compareFor(DateTimeType);
 /** A card's key: its kind and its key, as East prints a `Schedule.Types.EventRef`. */
 const printRef = printFor(ScheduleEventRefType);
+/** A resource among those the backlog's cards name, by its ref as East prints it. */
+const printResource = printFor(ScheduleResourceRefType);
 
 /** The library open: the Calendar's 272px (§8). */
 const LIBRARY_SIZE = "272px";
@@ -261,15 +266,8 @@ export function usePlanLibrary({
     const empty = useCallback((tab: PlanLibraryTabWord, name: string) => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
     const listsBacklog = library.some((tab) => tab.type === "backlog");
 
-    // Each resource kind's name, by slot, and its resources' names, by their key's text.
-    const resourceKinds = useMemo(() => new Map(resources.map((kind) => [kind.key, {
-        name: kind.name,
-        rows: new Map(kind.rows.map((row) => [row.key, row.label])),
-    }] as const)), [resources]);
-    const resourceName = useCallback((ref: PlanResourceRefValue): string | undefined => {
-        const at = getSomeorUndefined(ref);
-        return at === undefined ? undefined : resourceKinds.get(at.kind)?.rows.get(at.key) ?? at.key;
-    }, [resourceKinds]);
+    // Each resource kind's name, by slot.
+    const resourceKinds = useMemo(() => new Map(resources.map((kind) => [kind.key, { name: kind.name }] as const)), [resources]);
 
     // ── Events: every kind's templates, under its name, then their group (PB27) ──
     const templates = useMemo(() => libraryOf({
@@ -329,6 +327,20 @@ export function usePlanLibrary({
         heldBacklog.current = result.value;
         return result.value;
     }, [result]);
+    // The resources its cards are on, by name: a listed kind's at once, a paged kind's read by its key (#1199).
+    const named = useMemo(() => {
+        const out = new Map<string, PlanResourceRefValue>();
+        for (const { item } of unscheduled) {
+            const at = getSomeorUndefined(item.resource);
+            if (at !== undefined) out.set(printResource(at), at);
+        }
+        return [...out.values()];
+    }, [unscheduled]);
+    const resourceRows = usePlanResourceRows(resources, named);
+    const resourceName = useCallback((ref: PlanResourceOptionValue): string | undefined => {
+        const at = getSomeorUndefined(ref);
+        return at === undefined ? undefined : resourceRows(at)?.label ?? at.key;
+    }, [resourceRows]);
     const backlog = useMemo(() => {
         const rank = (group: DueGroup): number => DUE_GROUPS.indexOf(group);
         const dated = unscheduled.map((entry) => {

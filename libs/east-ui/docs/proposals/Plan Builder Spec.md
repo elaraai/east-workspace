@@ -390,9 +390,18 @@ accepted and ignored there.
 | `overlaps` | `"warn"`, `"allow"` | both | Whether two events of the kind on one resource at once are a conflict. `warn` by default. |
 | `backlog` | `{ duration, due? }` | both | For Option times: how long an unscheduled row takes, and when it is due. |
 | `fields`, `templates`, `ready`, `window`, `backlogWindow` | as the Calendar's | both | The inspector's editors (`Schedule.field` is `Fields`, #1147), the library's presets, the app's check on a draft, and reads by day index. |
+| `entries` | `Data.bindPaged` over the kind's record | both | Beside `window`, which requires it (#1199): one event read by its key — the inspector's, a gesture's, a Save's read back, a conflict's — so the record is never read whole. |
 | `inspector` | `(row, update) => UIComponentType` | Plan | The kind's own inspector for one event, in place of the form over its `fields` (PB60, #1197): an East function over the event's row and a writer of the edited row, passed through untouched and called only where the pane draws it. A function over another row type, or with no writer, is refused at build. |
 
-### 4.2 `Schedule.resources(rows, config)`: a resource kind
+### 4.2 `Schedule.resources(source, config)`: a resource kind
+
+The resources are a `Dict` — a record's `read()`, a dataset's — or a paged
+read of them, `Data.bindPaged(record)`, told apart by its East type (#1199).
+A paged read pages the kind (§9.11): its resources keyed by String, with no
+`group` or `parent`, its types its page's `Dict`'s. The Calendar reads a
+kind's resources whole and refuses a paged read at build, naming the `Dict`
+form. The `window` option is gone: refused at build, naming
+`Schedule.resources(Data.bindPaged(record), { … })`.
 
 | Option | Takes | Used by | What it does |
 |---|---|---|---|
@@ -402,7 +411,6 @@ accepted and ignored there.
 | `sub`, `value`, `status` | accessors returning `Option`s | Plan | The gutter's sub line, value slot and status dot. |
 | `rollup`, `collapsed` | as `Plan.series.span`'s | Plan | How a parent's bands roll its children's events up, and whether it starts folded. |
 | `measures` | `Plan.series.heat`, `table` or `chart` values over the resource's row type | Plan | Read-only rows under each resource, in order: ordinary series, laid out as `Plan.series.views` lays an entry out today. A series that declares `edit` is refused here. |
-| `window` | `Data.bindPaged` over the resources' record | Plan | Pages the resource rows as today's paged canvas does (§9.11): the resources keyed by String, with no `group` or `parent`. |
 
 ### 4.3 `<Plan>`'s props
 
@@ -486,9 +494,11 @@ paged canvas serves with every window. As built (#1191):
 ```ts
 PlanPayloadType = StructType({
     plan:      PlanRootType,                     // the canvas whole: the axis, the rows over `data` then `rows`, links, the slice, `data`'s session
-    resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, its measures' keys (#1197), and its rows resolved (label, group, parent, gutter)
+    resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, its measures' keys (#1197), and its rows resolved (label, group, parent, gutter),
+                                                 // or, paged, none and a resource read by its key (`byKey`, #1199)
     events:    ArrayType(PlanEventKindType),     // the Calendar's closed kind + draw and the state, quantity and lane roles,
-                                                 // one event by its key (`planEvent`) and the kind's own inspector, over bytes (#1197)
+                                                 // one event by its key (`planEvent`) and the kind's own inspector, over bytes (#1197),
+                                                 // and its record read by key when it is read a window at a time (`entries`, #1199)
     blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType)),
                                         ArrayType(StringType)],
                                        OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192), what the viewer hides left out (#1195)
@@ -1200,10 +1210,11 @@ As built (#1198):
 
 - **PB54.** A kind with a `window` (a `Data.bindPaged` over its day index,
   `Schedule.days`) reads only the days in view, and with a `backlogWindow` its
-  unscheduled rows, as the Calendar's do (#1156).
-- **PB55.** A resource kind with a `window` pages its rows as today's paged
-  canvas does: blocks come a window at a time as the canvas scrolls, and the
-  key search seeks a resource by its key.
+  unscheduled rows, as the Calendar's do (#1156); with `entries`, one event by
+  its key, so its record is never read whole.
+- **PB55.** A resource kind given a paged read of its resources pages its rows
+  as today's paged canvas does: blocks come a window at a time as the canvas
+  scrolls, and the key search seeks a resource by its key.
 
 As built (#1199):
 
@@ -1228,11 +1239,46 @@ As built (#1199):
   inspector) and the backlog (the library's Backlog tab, the footer's
   backlog).
 - Refused at build: a window that is not an index window of the kind's own
-  record, named by what it serves; a `backlogWindow` on plain times; and a
+  record, named by what it serves; a `backlogWindow` on plain times; a
   `window` over Option times without a `backlogWindow`, as the backlog would
-  read the record whole. A window that reads the index alone (`join` not
-  given) is refused as it is read, naming `join: true`: the handle's type
+  read the record whole; a `window` without `entries`, `entries` without a
+  `window`, and `entries` that are not a paged read of the record's own
+  entries naming its snapshot. A window that reads the index alone (`join`
+  not given) is refused as it is read, naming `join: true`: the handle's type
   cannot say.
+- One event, by its key: the kind's `planEvent` takes the range the canvas
+  reads, and looks for the event first among the rows the windows hold there
+  — where a gesture's event is drawn — and its backlog's, then reads it by its
+  key through `entries`: the key sought by its `.east` text, and a one-row
+  page read from the row it lands on; `none` while either is in flight. The
+  inspector's events are read so, and a row's facts through the windows.
+- The editing (#1194) of a kind read a window at a time is a session over its
+  record's revision, never its snapshot: the kind's `editing` carries none.
+  An event's version before its first gesture is read where the canvas holds
+  it, or by its key; a new event's — a template's, a duplicate's — is absent,
+  read nowhere. Save sends the drafts' patch, each change checked by the
+  record against what it began from, and the session reads each entry back by
+  its key at the revision the Save committed. A new String key is made past
+  the keys the drafts hold, and the record checks it at Save (an insert of a
+  key it holds is a conflict); a new Integer key past the record's largest,
+  read by its key order and kept current.
+- A Save's conflict, by the batch's base: over a snapshot, `Record.onApply`
+  reads the record and names the entries another write moved, as it always
+  has. At a revision it never reads the record: it answers the record's own
+  issue — what the record said of the write, and who changed it last
+  (`history()`) — and each entry the batch changed, in the words a moved one
+  takes. Once its source reads at another revision, the session reads each of
+  those entries there by its key — the seek and the one-row page its
+  reconcile reads — and names each its change no longer applies to (East's
+  patch apply, the record's own check, so they are the entries a snapshot's
+  conflict names) in the record's words; the record's own issue stays only
+  when it names none. The paged Sheet's session and `data`'s over a paged
+  record name their rows so too.
+- A record bound with `Record.bind` and read with `Data.bindPaged` too is in
+  a `ui()` task's `records` and `pages`, not its `paths`: it is never
+  preloaded or polled whole. A commit's or a conflict's refresh polls the
+  workspace's status, which fetches the content of the paths the task
+  preloads alone; the record's windows hear its new hash.
 - A paged resource kind lists no rows on the wire. Its place among the event
   kinds' blocks is one block that is not fixed, which the payload's `paged`
   (§5.2) fills a window of resources at a time: `placed` reads the events on
@@ -1243,28 +1289,36 @@ As built (#1199):
   own rows, fixed. New events placed, a new set of what the viewer hides or
   new rows of the root's are a new revision of the wrapper: its windows are
   read again, the rows standing in until they land. A window waits in flight
-  until the events are placed. A new revision clears a standing key search,
-  as every new snapshot does, so a pan that places other events on the
-  resources clears it, as one does for paged `data` beside event kinds
-  (#1192). The canvas keeps the one wrapper while the payload's `paged` is
-  the same from one evaluation to the next: handles bound with `$.const`;
-  over handles bound with `$.let` the seams are new each time the Reactive
-  body runs, as every function capturing a variable is, and the canvas takes
-  a new wrapper, its windows read again from what the paged runtime holds.
+  until the events are placed. The wrapper names the snapshot of the kind's
+  resources — their window's revision — apart from its own: a new revision
+  over the same snapshot leaves a standing key search as it is, its text, its
+  matches and the view. A new snapshot of the resources asks the search again
+  there (the control's `requery`), its text kept and the view where it is.
+  So does a paged `data`, beside event kinds (#1192) or alone, whose own
+  revision is its snapshot: where a new revision of it dropped a standing
+  search (#821), the canvas asks it again there. The canvas keeps the one
+  wrapper while the payload's `paged` is the same from one evaluation to the
+  next: handles bound with `$.const`; over handles bound with `$.let` the
+  seams are new each time the Reactive body runs, as every function
+  capturing a variable is, and the canvas takes a new wrapper, its windows
+  read again from what the paged runtime holds.
 - Refused at build: a paged kind keyed by anything but a String, as the key
   search seeks by text; one given `group` or `parent`, which gather resources
-  from anywhere in the record; two paged kinds; and a paged kind beside a
-  paged `data`. A canvas pages one source.
-- What a paged kind does not do yet, as only a window of its resources is
-  read: an event on a resource the kind does not have draws on no row, where
-  a kind read whole draws it on the Unassigned row; a link's end on one of its
-  rows is not found; the library's backlog cards and the inspector name its
-  resources by their keys; and the bulk edit's resource offers none of them.
-- Still read whole: the editing (#1194) — each kind's session is a keyed
-  source read whole (`useEditHistory`), so the kind's `editing` carries its
-  record's snapshot — and the inspector's event (`planEvent`), read by its
-  key. A `ui()` task preloads every record and dataset its manifest names
-  whole, a `Record.bind`'s included, as it does for a paged Sheet's.
+  from anywhere in the record; two paged kinds; a paged kind beside a paged
+  `data`, as a canvas pages one source; and `window`, which is gone, naming
+  `Schedule.resources(Data.bindPaged(record), { … })`.
+- A paged kind's resources by name: a link's end on one of its rows is named
+  by the row's id, `entry { series: "<slot>.<draw>", path: [key] }`, from the
+  events placed on its resources, never looked for in a window; the inspector
+  and the library's backlog cards read each resource they name by its key
+  (`byKey`: the window's key search, then a one-row page), its key standing in
+  until the read lands; the ghost names one by its row on the canvas.
+- What a paged kind does not do, as only a window of its resources is read:
+  an event on a resource the kind does not have draws on no row, where a kind
+  read whole draws it on the Unassigned row; and the bulk edit's resource
+  offers none of its resources, which it does not list.
+- The Calendar takes no paged resource kind: it reads a kind's resources
+  whole, and refuses a paged read at build, naming the `Dict` form.
 
 ### 9.12 Showcase and docs (owner: the Plan builder's showcase and docs)
 
@@ -1320,8 +1374,9 @@ As built (#1199):
   own inspector and its by-key read, and each resource kind's measures' keys
   (#1197).
 - **Windowed reads (#1199).** The payload's `paged`, a paged resource kind's
-  rows, rides a UI task's output, carried by the packages: no stored form
-  changes, and no repository upgrade step.
+  rows, rides a UI task's output, carried by the packages, as do an event
+  kind's `entries` and a resource kind's `byKey`: no stored form changes, and
+  no repository upgrade step.
 - **Review removed (#1260).** The root's `review`, a series' `review` and
   `approval`, a row's `approval` and an event kind's `review` role leave the
   payload, a UI task's output the packages carry: no stored form changes,

@@ -633,6 +633,7 @@ export {
     sessionErrorText,
     type BatchReadiness,
     type EditHistoryJoined,
+    type EditHistoryPaged,
     type EditHistoryPart,
     type EditHistorySource,
     type EditHistoryState,

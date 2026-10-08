@@ -8,7 +8,12 @@
  * committed to a record through its patch door as one commit. The record is
  * the in-memory stand-in, whose patch mutation applies the patch with East's
  * own checks — a before the record no longer holds is a conflict — so each
- * Apply meets the checks a deployed record makes.
+ * Apply meets the checks a deployed record makes. A batch drafted over the
+ * record read whole names the entries another write moved; one drafted at a
+ * revision — over the record read a window at a time (#1199) — never reads the
+ * record whole, and leaves naming them to its session. Every read of the
+ * record whole is counted, but the stand-in server's own as it applies a
+ * patch.
  */
 
 import assert from "node:assert/strict";
@@ -45,11 +50,20 @@ const decodeJobsPatch = decodeBeast2For(PatchType(JobsType));
 const CUT: Job = { task: "Cut", qty: 2n };
 const GLUE: Job = { task: "Glue", qty: 1n };
 
-/** A dataset cache holding what the in-memory record writes into it. */
-function fakeCache(): ReactiveDatasetCacheInterface {
+/** The record's whole reads, counted — but the server's own, while it applies a patch. */
+interface WholeReads {
+    count: number;
+    serving: boolean;
+}
+
+/** A dataset cache holding what the in-memory record writes into it, its reads counted. */
+function fakeCache(reads: WholeReads): ReactiveDatasetCacheInterface {
     const store = new Map<string, Uint8Array>();
     return {
-        read: (w: string, p: TreePath) => store.get(datasetCacheKey(w, p)),
+        read: (w: string, p: TreePath) => {
+            if (!reads.serving) reads.count++;
+            return store.get(datasetCacheKey(w, p));
+        },
         getStatus: () => variant("up-to-date", null),
         async write(w: string, p: TreePath, v: Uint8Array) { store.set(datasetCacheKey(w, p), v); },
         async refresh() { /* the in-memory record writes the cache itself */ },
@@ -59,11 +73,12 @@ function fakeCache(): ReactiveDatasetCacheInterface {
 
 /**
  * A record in memory whose one mutation is its patch door, bound through a
- * runtime: the record's api, every request the runtime sent it, and the
- * bound handle.
+ * runtime: the record's api, every request the runtime sent it, the bound
+ * handle, and the count of the record's whole reads but the server's own.
  */
 function inMemory<T extends DictType>(name: string, type: T, initial: ValueTypeOf<T>, handleType: StructType, wrap?: (api: RecordApi) => RecordApi) {
-    const cache = fakeCache();
+    const reads: WholeReads = { count: 0, serving: false };
+    const cache = fakeCache(reads);
     const applyPatch = applyFor(type);
     const memory = createInMemoryRecordApi(cache, ws, [{
         name, stateType: type, initial,
@@ -72,11 +87,20 @@ function inMemory<T extends DictType>(name: string, type: T, initial: ValueTypeO
     const requests: RecordMutateArgs[] = [];
     const recording: RecordApi = {
         ...memory,
-        mutate: (w, record, mutation, req) => { requests.push(req); return memory.mutate(w, record, mutation, req); },
+        mutate: (w, record, mutation, req) => {
+            requests.push(req);
+            // The server reads the record as it applies the patch, before its first wait.
+            reads.serving = true;
+            try {
+                return memory.mutate(w, record, mutation, req);
+            } finally {
+                reads.serving = false;
+            }
+        },
     };
     const runtime = new RecordRuntime();
     runtime.initialize(wrap?.(recording) ?? recording, cache, ws);
-    return { memory, requests, runtime, handle: runtime.buildHandle(toEastTypeValue(handleType), name) };
+    return { memory, requests, runtime, handle: runtime.buildHandle(toEastTypeValue(handleType), name), reads };
 }
 
 /** The jobs record, holding a cut job and a glue job. */
@@ -143,11 +167,28 @@ describe("Record.onApply — over the record's own entries", () => {
         const { memory, runtime, handle } = jobs();
         await writeOver(memory, "a", CUT, { task: "Cut", qty: 5n });
 
-        const result = await sheetApply(runtime)(handle, EDIT);
+        // Drafted over the record read whole: its base the jobs as the edit began.
+        const result = await sheetApply(runtime)(handle, { ...EDIT, base: variant("snapshot", new SortedMap([["a", CUT], ["b", GLUE]], keys)) });
         assert.equal(result.type, "conflict");
         assert.deepEqual(result.value, [{ entry: "a", row: none, field: none, message: "Changed since this edit began — last changed by memory" }]);
         const state = (handle as { read: () => SortedMap<string, Job> }).read();
         assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 5n }], ["b", GLUE]], "the other write stands, and none of this one landed");
+    });
+
+    test("at a revision — over the record read a window at a time — a stale Apply never reads the record: it answers the record's own issue, what the record said and who changed it last, and each entry it changed in the words a moved one takes (#1199)", async () => {
+        const { memory, runtime, handle, reads } = jobs();
+        await writeOver(memory, "a", CUT, { task: "Cut", qty: 5n });
+        const before = reads.count;
+
+        const result = await sheetApply(runtime)(handle, EDIT);
+        assert.equal(result.type, "conflict");
+        assert.equal(reads.count, before, "the record is never read whole");
+        const by = " — last changed by memory";
+        const moved = (entry: string) => ({ entry, row: none, field: none, message: `Changed since this edit began${by}` });
+        assert.deepEqual(result.value, [
+            { entry: "", row: none, field: none, message: `The record changed since this edit began: primary: Cannot apply replace - expected 2, found 5${by}` },
+            moved("a"), moved("b"), moved("c"),
+        ]);
     });
 
     test("an entry another write moved is no conflict for a batch that leaves it alone", async () => {

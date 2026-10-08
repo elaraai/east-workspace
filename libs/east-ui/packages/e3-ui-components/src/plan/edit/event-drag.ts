@@ -36,7 +36,11 @@
  *
  * Its answers read the latest kinds, drafts and selection, and are kept per
  * question until any of them moves: a drag resting over a bucket asks the
- * kind's `write` and `canDrop` once.
+ * kind's `write` and `canDrop` once. An event is read as the kinds' editing
+ * reads it ({@link PlanEventEditing.read}) — for a kind read a window at a
+ * time (#1199), among the rows the canvas holds, where the event dragged is
+ * drawn — and a paged resource kind's resource is named by its row on the
+ * canvas, which the window the drag rests on holds.
  *
  * @packageDocumentation
  */
@@ -55,7 +59,7 @@ import type { PlanRowMove } from "../rows/SpanRow.js";
 import type { PlanScale } from "../scale.js";
 import { fromPlanSlot } from "../slot.js";
 import type { PlanWords } from "../words.js";
-import type { PlanEventChange, PlanEventEditing, PlanEventGestureValue } from "./events.js";
+import type { PlanEventChange, PlanEventEditing, PlanEventGestureValue, PlanEventReadValue } from "./events.js";
 import type { PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store.js";
 import { originOf, unmoved, type PlanMoveRequest } from "./use-carry.js";
 
@@ -68,8 +72,6 @@ type PlanResourceKindValue = PlanPayloadValue["resources"][number];
 type PlanLibraryTabValue = PlanPayloadValue["library"][number];
 /** An author's tab. */
 type PlanAuthorTabValue = Extract<PlanLibraryTabValue, { type: "tab" }>["value"];
-/** One event read by its key, its kind's drafts in place: as Plan draws it, and its row. */
-type PlanEventReadValue = Extract<ReturnType<PlanEventKindValue["planEvent"]>, { type: "some" }>["value"];
 /** The resource an event is on, if it is. */
 type PlanResourceOption = option<ValueTypeOf<typeof ScheduleResourceRefType>>;
 /** The names a Plan keeps its viewer's state under. */
@@ -367,11 +369,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             }
             return undefined;
         };
-        /** An event as Plan draws it, and its row, its kind's drafts in place. */
+        /** An event as Plan draws it, and its row, its kind's drafts in place — as the kinds' editing reads it. */
         const readEvent = (kind: PlanEventKindValue, id: string): PlanEventReadValue | undefined => {
             try {
-                const read = kind.planEvent(id, latest.current.editing.draftsOf(kind.key));
-                return read.type === "some" ? read.value : undefined;
+                return latest.current.editing.read(kind.key, id);
             } catch (err) {
                 console.error(`[Plan] ${kind.name}'s event ${id} could not be read:`, err);
                 return undefined;
@@ -403,11 +404,22 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         /** The resource a row stands for, as an event names it. */
         const resourceOf = (target: PlanEventTarget): PlanResourceOption =>
             (target.kind === "resource" ? some({ kind: target.slot, key: target.key }) : none);
-        /** A row's resource by name: its row's label, else its key; an Unassigned row's, `Unassigned`. */
+        /**
+         * A row's resource by name: its row's label, else its key; an Unassigned row's, `Unassigned`. A paged kind
+         * lists no resources (#1199): its resource's first row on the canvas — the one its gutter names it on, in
+         * the window that holds the row the drag rests on — says its name.
+         */
         const whereName = (target: PlanEventTarget): string => {
             const a = latest.current;
             if (target.kind === "unassigned") return a.words.m.inspectorUnassigned();
             const kind = a.resources.find((r) => stringEqual(r.key, target.slot));
+            if (kind?.byKey.type === "some") {
+                for (const draw of DRAWS) {
+                    const row = a.rowOf(rowKeyOf(variant("entry", { series: `${target.slot}.${draw}`, path: [...target.path] }) as PlanRowId));
+                    if (row !== undefined) return row.gutter.label;
+                }
+                return target.key;
+            }
             return kind?.rows.find((r) => stringEqual(r.key, target.key))?.label ?? target.key;
         };
         /** Whether a kind is placed on what a row stands for. */

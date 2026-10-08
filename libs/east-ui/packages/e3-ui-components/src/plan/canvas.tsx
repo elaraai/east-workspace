@@ -116,7 +116,7 @@ import { PlanControllerContext, useControllerSelector } from "./controller/react
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
 import { usePlanWindow } from "./root/window.js";
-import { usePlanEventBlocks, usePlanEventRoot, type PlanEventRows } from "./root/events.js";
+import { eventReadRange, usePlanEventBlocks, usePlanEventRoot, type PlanEventRows } from "./root/events.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -323,11 +323,13 @@ export function usePlanCanvas({
     // ── The event kinds' editing (#1194) ──────────────────────────────────
     // A session per event kind over its record, under one history with
     // `data`'s session: Undo and Redo in gesture order whatever the source,
-    // Discard of every one, Save per source.
+    // Discard of every one, Save per source. A kind read a window at a time
+    // reads a gesture's event where the canvas reads its rows (#1199).
     const joined = useMemo(
         () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
         [editing.enabled, editing.historyKey, editing.session]);
-    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined });
+    const eventRange = useMemo(() => eventReadRange(scale), [scale]);
+    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined, range: eventRange });
     const history = eventEditing.history;
     historyRef.current = history;
 
@@ -451,13 +453,17 @@ export function usePlanCanvas({
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
-    // with its element's key (#822). The control is keyed on the search's
-    // epoch: a new source revision drops the matches it holds, which index the
-    // previous snapshot (#821).
+    // with its element's key (#822). The control is keyed on the source
+    // itself — another collection, which its query was never asked of — and
+    // asks the query it holds again as the search's `again` moves: a new
+    // snapshot of the source's data, whose rows the matches it holds no longer
+    // index (#821, #1199). New rows over the same data — a pan reading the
+    // event kinds' rows again, a draft — move neither, so the search stands.
     const seekable = data.rows.type !== "inline" && data.rows.value.seek.type === "some";
+    const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     const search = useMemo<PlanSearch | undefined>(
-        () => (seekable ? { ...controller.search, resetKey: String(seek.epoch) } : undefined),
-        [seekable, controller, seek.epoch]);
+        () => (seekable ? { ...controller.search, resetKey: sourceId, requery: seek.again } : undefined),
+        [seekable, controller, sourceId, seek.again]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
@@ -756,8 +762,9 @@ export function usePlanCanvas({
     const onHistory = useCallback((action: HistoryAction) => history.act(action), [history]);
     const edits = editing.enabled || kinds.length > 0;
     const historyProps = edits ? { session: history, words, editing: false, onAction: onHistory, onIssue } : undefined;
-    // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles.
-    const draftsOf = eventEditing.draftsOf;
+    // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
+    // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
+    const readEvent = eventEditing.read;
     const sessions = useMemo((): readonly PlanSessionBanner[] => {
         const actOn = (key: string) => (action: HistoryAction) => history.actOn(key, action);
         const out: PlanSessionBanner[] = editing.enabled
@@ -772,8 +779,7 @@ export function usePlanCanvas({
                 where: (issue) => {
                     if (issue.entry === "") return "";
                     try {
-                        const read = kind.planEvent(issue.entry, draftsOf(kind.key));
-                        return read.type === "some" ? read.value.item.title : issue.entry;
+                        return readEvent(kind.key, issue.entry)?.item.title ?? issue.entry;
                     } catch {
                         return issue.entry;
                     }
@@ -781,7 +787,7 @@ export function usePlanCanvas({
             });
         }
         return out;
-    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, draftsOf, history]);
+    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, readEvent, history]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first — published to

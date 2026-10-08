@@ -27,9 +27,13 @@
  *   what it draws at that bucket;
  * - **nothing** (PB41): the window's counts and three hints.
  *
- * Each event is read through its kind's own seam (`planEvent`), its kind's
- * drafts in place, tracked, so a commit to its record reads it again, and an
- * event no longer there is left out.
+ * Each event is read as the kinds' editing reads it (`read`, its kind's own
+ * `planEvent`), its kind's drafts in place, tracked, so a commit to its record
+ * reads it again, and an event no longer there is left out — a kind read a
+ * window at a time (#1199) looking for it among the rows the canvas holds,
+ * then reading it by its key. A paged resource kind's resource is named once
+ * it is read by its key (`resources.ts`); its key stands in meanwhile, and the
+ * bulk edit offers none of a paged kind's resources, which it does not list.
  *
  * Its edits (#1194, PB42, PB60) are steps of the Plan's one history, each one
  * transaction: a field of the kind's form, written through the kind's own
@@ -63,6 +67,7 @@ import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
 import type { PlanEventChange, PlanEventEditing } from "../edit/events.js";
+import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { stateText } from "../a11y.js";
 import type { PlanSnapshot } from "../controller/index.js";
@@ -100,6 +105,10 @@ type EventDrafts = ValueTypeOf<typeof PlanEventDraftsType>;
 const NO_DRAFTS: Parameters<PlanEventKindValue["planEvent"]>[1] = new SortedMap([], compareFor(StringType));
 /** No kind holds a draft. */
 const NONE_DRAFTED: EventDrafts = new SortedMap([], compareFor(StringType));
+/** No range: a canvas with no time window, beside which a windowed kind reads an event by its key alone. */
+const NO_RANGE = new Date(0);
+/** No resource named. */
+const NO_RESOURCES_NAMED: readonly PlanResourceRefValue[] = [];
 
 /** A Plan whose kinds take no edit — none here, as every kind is a record with its patch door — writes nothing. */
 const NO_EDIT = (): void => {};
@@ -196,21 +205,28 @@ export interface PlanInspectorProps {
  * @param kinds - The event kinds
  * @param elements - The selected events, by their elements' keys
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
+ * @param editing - The kinds' editing, which reads an event where the canvas reads its rows (#1199); none without a window
  * @returns The events, in the order they were selected — the last read's while a read is in flight or has failed
  */
-function useSelectedEvents(kinds: PlanValue["events"], elements: readonly string[], drafts: EventDrafts): readonly InspectedEvent[] {
+function useSelectedEvents(
+    kinds: PlanValue["events"], elements: readonly string[], drafts: EventDrafts, editing: PlanEventEditing | undefined,
+): readonly InspectedEvent[] {
     const bySlot = useMemo(() => new Map(kinds.map((kind) => [kind.key, kind] as const)), [kinds]);
+    const readEvent = editing?.read;
     const read = useCallback((): readonly InspectedEvent[] => {
         const out: InspectedEvent[] = [];
         for (const key of elements) {
             const ref = parseRef(key);
             if (!ref.success) continue;
             const kind = bySlot.get(ref.value.kind);
-            const got = kind?.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS);
-            if (kind !== undefined && got !== undefined && got.type === "some") out.push({ key, kind, item: got.value.item, row: got.value.row });
+            if (kind === undefined) continue;
+            // The editing reads the latest drafts — these, which re-run the read as they move.
+            const got = readEvent !== undefined ? readEvent(kind.key, ref.value.key)
+                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE));
+            if (got !== undefined) out.push({ key, kind, item: got.item, row: got.row });
         }
         return out;
-    }, [bySlot, elements, drafts]);
+    }, [bySlot, elements, drafts, readEvent]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<readonly InspectedEvent[]>(NO_EVENTS);
     return useMemo(() => {
@@ -232,7 +248,7 @@ function useSelectedEvents(kinds: PlanValue["events"], elements: readonly string
 export function usePlanInspector({ shown, kinds, resources, chrome, counts, keys, words }: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     const selection = usePlanSelector(shown ? selectSelection : selectNothing, sameSelection);
-    const events = useSelectedEvents(kinds, selection.elements, chrome?.events?.drafts ?? NONE_DRAFTED);
+    const events = useSelectedEvents(kinds, selection.elements, chrome?.events?.drafts ?? NONE_DRAFTED, chrome?.events);
     // No `inspector`: no pane (#1197).
     if (!shown) return undefined;
     const row = selection.row !== null ? chrome?.inspect.row(selection.row) : undefined;
@@ -365,15 +381,30 @@ function OverlapsBanner({ styles, title, lines, onSelect }: {
  * A resource by its name: its kind's row of that key, else its key.
  *
  * @param ref - The resource an event is on, if any
- * @param resources - The resource kinds
+ * @param resources - The resources the pane names, by their kind and key
  * @param w - The Plan's words
  * @returns Its name, or `Unassigned`
  */
-function resourceText(ref: PlanEventItemValue["resource"], resources: PlanValue["resources"], w: PlanWords): string {
+function resourceText(ref: PlanEventItemValue["resource"], resources: PlanResourceLookup, w: PlanWords): string {
     const at = getSomeorUndefined(ref);
     if (at === undefined) return w.m.inspectorUnassigned();
-    const kind = resources.find((k) => stringEqual(k.key, at.kind));
-    return kind?.rows.find((r) => stringEqual(r.key, at.key))?.label ?? at.key;
+    return resources(at)?.label ?? at.key;
+}
+
+/**
+ * The one resource a view names, as the pane reads it by its key: the same
+ * array while it names the same one, so its read is not asked again.
+ *
+ * @param ref - The resource, if any
+ * @returns It, alone; none for none
+ */
+function useNamedResource(ref: PlanResourceRefValue | undefined): readonly PlanResourceRefValue[] {
+    const text = ref === undefined ? undefined : printResource(ref);
+    return useMemo(() => {
+        if (text === undefined) return NO_RESOURCES_NAMED;
+        const read = parseResource(text);
+        return read.success ? [read.value] : NO_RESOURCES_NAMED;
+    }, [text]);
 }
 
 /** How long minutes run, in hours to one place — `26.5`. */
@@ -427,7 +458,8 @@ function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEd
         const id = editing.mint(event.kind.key, event.item.key, minted);
         if (id === undefined) continue;
         minted.add(id);
-        changes.push({ kind: event.kind.key, id, row: event.row });
+        // A copy is a new event: absent before it, read nowhere (#1199).
+        changes.push({ kind: event.kind.key, id, row: event.row, created: true });
         copies.push(printRef({ kind: event.kind.key, key: id }));
     }
     if (editing.record(changes, "insert", labelOf("Duplicate", events))) chrome?.selectEvents(copies, row ?? undefined);
@@ -480,6 +512,9 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const lane = getSomeorUndefined(item.lane);
     const quantity = getSomeorUndefined(item.quantity);
     const status = getSomeorUndefined(item.status);
+    // Its resource by name — a paged kind's read by its key (#1199).
+    const named = useNamedResource(getSomeorUndefined(item.resource));
+    const resourceRows = usePlanResourceRows(resources, named);
 
     // Its row, held by its data: a read that brings the same row again draws nothing new.
     const row = useDataStable(event.row, blobEqual);
@@ -490,8 +525,11 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
         const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
         return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
     }, [kind.fields, roles]);
-    // What its record holds (PB42): what a drafted field is tinted against — a new event's every field, against nothing.
-    const held = editing?.held(kind.key, item.key) ?? NEW_EVENT;
+    // What its record holds (PB42): what a drafted field is tinted against — a new event's every field, against
+    // nothing. An event its drafts do not hold stands as its record holds it (#1199: a kind read a window at a time
+    // holds no snapshot to read it from).
+    const drafted = editing?.draftsOf(kind.key).has(item.key) === true;
+    const held = editing?.held(kind.key, item.key) ?? (drafted ? NEW_EVENT : value);
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
     const onField = useCallback((path: readonly string[], next: unknown) => {
         const spec = specs.find((s) => samePath(s.path, path));
@@ -541,12 +579,12 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                 of the edits' fieldset, so its lines select while that is disabled. */}
             {peers.length > 0 && chrome !== undefined && (
                 <OverlapsBanner styles={styles}
-                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, resources, words) })}
+                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, resourceRows, words) })}
                     lines={peers.map((peer) => ({ keys: [scheduleEventKey(peer)], when: whenText(peer, kind.instant, words), title: peer.title }))}
                     onSelect={chrome.selectEvents} />
             )}
             <Box as="dl" css={styles.facts} data-inspector-facts="">
-                <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, resources, words)} />
+                <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, resourceRows, words)} />
                 {start !== undefined && end !== undefined && (kind.instant
                     ? <Fact styles={styles} fact="at" label={m.inspectorFact({ fact: "at" })} value={words.dateTime(start)} />
                     : (
@@ -626,7 +664,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
         }
         return out;
     }, [selectedKinds, m]);
-    // The resources the selected kinds are placed on: each its kind's rows, by name.
+    // The resources the selected kinds are placed on: each its kind's rows, by name — a paged kind lists none (#1199).
     const options = useMemo(() => {
         const slots = selectedKinds.flatMap((kind) => kind.takes);
         const placed = resources.filter((r: PlanResourceKindValue) => slots.some((slot) => stringEqual(slot, r.key)));
@@ -854,7 +892,10 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
     const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
     const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
-    const resource = target.kind === "resource" ? target.resources.rows.find((r) => stringEqual(r.key, target.key)) : undefined;
+    // Its resource: a listed kind's row, or a paged kind's read by its key (#1199).
+    const named = useNamedResource(on?.value);
+    const resourceRows = usePlanResourceRows(resources, named);
+    const resource = on !== undefined ? resourceRows(on.value) : undefined;
     const group = resource !== undefined ? getSomeorUndefined(resource.group) : undefined;
     const lines = resource !== undefined ? [getSomeorUndefined(resource.sub), getSomeorUndefined(resource.meta)].filter((line): line is string => line !== undefined) : [];
     const bucketIndex = at !== null ? scale.bucketOf(at) : -1;

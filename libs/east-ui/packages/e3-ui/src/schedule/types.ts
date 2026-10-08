@@ -240,6 +240,26 @@ export const ScheduleReadyEntryType = StructType({ id: StringType, entry: BlobTy
 export type ScheduleReadyEntryType = typeof ScheduleReadyEntryType;
 
 /**
+ * A kind's record read by key, for a kind read a window at a time (#1199):
+ * what its editing session's base is — the record's revision — and how one
+ * event is read without the record whole.
+ *
+ * @property revision - The record's revision, `none` while it resolves: the snapshot every read of the record is at
+ * @property refresh - Moves every read of the record to a revision, or to the one it holds now
+ * @property entry - One event by its key's text: `none` while its read is in flight, `some(none)` for a key the record does not hold, else its row as bytes at the record's entry type
+ * @property last - The record's largest key's text — how a new Integer key is made past every key it holds: `none` while its read is in flight, `some(none)` for an empty record
+ */
+export const ScheduleEntriesType = StructType({
+    revision: FunctionType([], OptionType(StringType)),
+    refresh: FunctionType([OptionType(StringType)], NullType),
+    entry: FunctionType([StringType], OptionType(OptionType(BlobType))),
+    last: FunctionType([], OptionType(OptionType(StringType))),
+});
+
+/** Type representing {@link ScheduleEntriesType}. */
+export type ScheduleEntriesType = typeof ScheduleEntriesType;
+
+/**
  * One event kind, closed: every row crosses as bytes at the record's own entry
  * type, so a builder's payload is one type whatever the records hold.
  *
@@ -255,7 +275,8 @@ export type ScheduleReadyEntryType = typeof ScheduleReadyEntryType;
  * @property unscheduled - Its backlog: the rows with no time, the drafts in place
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
- * @property editing - The shared session over the record: its entry and key types, and its patch door
+ * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
+ * @property entries - The record read by key, for a kind read a window at a time (#1199); `none` for a kind read whole
  * @property history - The record's commits, newest first
  */
 export const ScheduleKindType = StructType({
@@ -272,6 +293,7 @@ export const ScheduleKindType = StructType({
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
     editing: EditingType,
+    entries: OptionType(ScheduleEntriesType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
 });
 
@@ -381,7 +403,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property roles - The fields its roles read
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight
  * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place
- * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event
+ * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event. A kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` — the range the canvas reads, where a gesture's event is drawn — and its backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the range
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
  */
 export const PlanEventKindType = StructType({
@@ -392,7 +414,7 @@ export const PlanEventKindType = StructType({
     roles: PlanEventRolesType,
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
     planUnscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
-    planEvent: FunctionType([StringType, ScheduleDraftsType], OptionType(PlanEventReadType)),
+    planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(PlanEventReadType)),
     inspector: OptionType(RowInspectorType),
 });
 
@@ -431,7 +453,8 @@ export type PlanResourceRowType = typeof PlanResourceRowType;
  * @property icon - Its Font Awesome icon
  * @property rollup - How a parent's bands roll its children's events up
  * @property measures - Its measures' keys, in order: the rows under each of its resources, each at its resource's path (#1197)
- * @property rows - Its resources, in key order
+ * @property rows - Its resources, in key order — none for a kind paged a window at a time (#1199)
+ * @property byKey - A paged kind's resource by its key's text (#1199): its window's key search for the key, then a one-row page, as Plan's builder takes it — `none` while either is in flight, `some(none)` for a key the kind does not have; `none` for a kind whose rows are listed
  */
 export const PlanResourcesType = StructType({
     key: StringType,
@@ -440,6 +463,7 @@ export const PlanResourcesType = StructType({
     rollup: PlanRollupType,
     measures: ArrayType(StringType),
     rows: ArrayType(PlanResourceRowType),
+    byKey: OptionType(FunctionType([StringType], OptionType(OptionType(PlanResourceRowType)))),
 });
 
 /** Type representing {@link PlanResourcesType}. */

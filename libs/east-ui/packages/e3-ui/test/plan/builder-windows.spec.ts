@@ -17,22 +17,33 @@
  *   days it brings in, the views the same as the whole record's, and the
  *   record never read whole by a seam; its `backlogWindow`, the index of the
  *   rows with no start, read whole;
- * - a resource kind's `window`: the payload's `paged` — the kind's place in
- *   the event kinds' blocks an empty block that is not fixed, the events
- *   placed on its resources, a window of them as one paged block, its key
- *   search and its size — and its rows never read;
+ * - one event by its key (`planEvent`): first among the rows the windows hold
+ *   over the canvas's range and the backlog's, with no read of its own, then
+ *   through the record's own entries (`entries`) — its key sought, then a
+ *   one-row page — a draft read as drafted with no read at all; and the
+ *   kind's editing over the record's revision: no snapshot, an entry read by
+ *   its key, the record's revision and its largest key;
+ * - a resource kind over a paged read of its resources: the payload's `paged`
+ *   — the kind's place in the event kinds' blocks an empty block that is not
+ *   fixed, the events placed on its resources, a window of them as one paged
+ *   block, its key search and its size — its rows never read, and one
+ *   resource read by its key, which names it;
  * - the windows' types and their refusals: a window that is not an index
  *   window of the kind's own record, a `join` missing (refused as the window
- *   is read), a kind read by day whose backlog has no window, a paged
- *   resource kind keyed by another type than String, grouped or nested, two
- *   paged kinds, and a paged kind beside a paged `data`.
+ *   is read), a kind read by day whose backlog has no window, a `window`
+ *   without `entries`, `entries` without a `window` or not the record's own
+ *   entries, `window` on a resource kind (gone), a paged resource kind keyed
+ *   by another type than String, grouped or nested, read by the Calendar, two
+ *   paged kinds, and a paged kind beside a paged `data`;
+ * - the windows example's manifest: its records and its presses paged reads
+ *   alone, none of them preloaded or polled whole.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SetType as SetTypeOf, SortedMap, StringType, StructType,
-    compareFor, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
+    ArrayType, BlobType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SetType as SetTypeOf, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
     type BlockBuilder, type EastIR, type EastType, type EastTypeValue, type ExprType, type SetType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
@@ -40,7 +51,7 @@ import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { SeekQueryType } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
 import {
-    Data, Plan, PlanPayloadType, Record, Schedule, bindPagedPinnedPlatformFn, bindPlatformFn, recordBindPlatformFn,
+    Data, Plan, PlanPayloadType, Record, Schedule, bindPagedPinnedPlatformFn, bindPlatformFn, deriveManifest, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as ex from "./plan-windows.examples.js";
@@ -263,18 +274,23 @@ const RUNS = new SortedMap<string, Job>([
 /** What the sources were asked, each test's own. */
 let askedDays: Asked;
 let askedBacklog: Asked;
+let askedEntries: Asked;
 let askedPresses: Asked;
 let askedRuns: Asked;
 /** What holds a read in flight, each test's own. */
-let holding: { days: (what: "seek" | bigint) => boolean; backlog: (what: "seek" | bigint) => boolean; presses: (what: "seek" | bigint) => boolean };
+let holding: {
+    days: (what: "seek" | bigint) => boolean; backlog: (what: "seek" | bigint) => boolean;
+    entries: (what: "seek" | bigint) => boolean; presses: (what: "seek" | bigint) => boolean;
+};
 
 /** Starts a test afresh: nothing asked, nothing read, nothing held. */
 function fresh(): void {
     askedDays = { seeks: [], pages: [] };
     askedBacklog = { seeks: [], pages: [] };
+    askedEntries = { seeks: [], pages: [] };
     askedPresses = { seeks: [], pages: [] };
     askedRuns = { seeks: [], pages: [] };
-    holding = { days: () => false, backlog: () => false, presses: () => false };
+    holding = { days: () => false, backlog: () => false, entries: () => false, presses: () => false };
     wholeReads.clear();
 }
 fresh();
@@ -290,9 +306,11 @@ const PLATFORM = [
     ...memoryPages(new Map<string, MemorySource>([
         [`${JOBS_PATH}@${ex.planWindowJobsByDay.name}`, { entries: BY_DAY, get asked() { return askedDays; }, held: (w) => holding.days(w) }],
         [`${JOBS_PATH}@${ex.planWindowJobsUnscheduled.name}`, { entries: UNSCHEDULED, get asked() { return askedBacklog; }, held: (w) => holding.backlog(w) }],
+        [JOBS_PATH, { entries: JOBS, get asked() { return askedEntries; }, held: (w) => holding.entries(w) }],
         [PRESSES_PATH, { entries: PRESSES, get asked() { return askedPresses; }, held: (w) => holding.presses(w) }],
         [`${pathText(runs.path)}@${runsByDay.name}`, { entries: indexOf(runsByDay, RUNS), get asked() { return askedRuns; }, held: () => false }],
         [`${pathText(runs.path)}@${runsUnscheduled.name}`, { entries: indexOf(runsUnscheduled, RUNS), get asked() { return askedRuns; }, held: () => false }],
+        [pathText(runs.path), { entries: RUNS, get asked() { return askedRuns; }, held: () => false }],
     ])),
 ];
 
@@ -301,11 +319,12 @@ function windowedJobs($: BlockBuilder<EastType>) {
     const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
     const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+    const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" }, state: "state",
         backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-        window: days, backlogWindow: backlog,
+        window: days, backlogWindow: backlog, entries,
     });
 }
 
@@ -397,6 +416,7 @@ describe("an event kind read by its day index (PB54)", () => {
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)) },
                 window: $.let(Data.bindPaged(runs, { index: runsByDay, join: true })),
                 backlogWindow: $.let(Data.bindPaged(runs, { index: runsUnscheduled, join: true })),
+                entries: $.let(Data.bindPaged(runs)),
             });
         });
         // Monday's 256 runs fill the first page: the page after it is read for the Tuesday's, which ends the window.
@@ -469,7 +489,104 @@ describe("an event kind read by its day index (PB54)", () => {
 });
 
 // ============================================================================
-// A resource kind's window: its rows a window at a time (PB55)
+// One event by its key, and the editing over the record's revision (#1199)
+// ============================================================================
+
+describe("one event by its key, never the record whole (#1199)", () => {
+    const FROM = at("2026-10-07T00:00:00Z");
+    const TO = at("2026-10-10T00:00:00Z");
+    const jobEqual = equalFor(PrintJob);
+    const decodeJob = decodeBeast2For(PrintJob);
+
+    test("a gesture's event is found among the rows the days' window holds over the canvas's range: no read by its key", () => {
+        fresh();
+        const jobs = kindOf(windowedJobs);
+        // The canvas reads its range first.
+        keysIn(jobs, "2026-10-07T00:00:00Z", "2026-10-10T00:00:00Z");
+        const [sought] = askedDays.seeks;
+        wholeReads.clear();
+        const read = jobs.planEvent("W-0009", NO_DRAFTS, FROM, TO);
+        if (read.type !== "some") assert.fail("expected the job");
+        assert.equal(read.value.item.title, "Timetables");
+        assert.ok(jobEqual(decodeJob(read.value.row), JOBS.get("W-0009")!));
+        // The very search the canvas read its range with — a runtime answers it from what it holds — and nothing by key.
+        assert.ok(askedDays.seeks.every((q) => equalFor(SeekQueryType)(q, sought!)));
+        assert.deepEqual([askedEntries.seeks.length, askedEntries.pages.length], [0, 0]);
+        assert.equal(wholeReads.get(ex.planWindowJobs.name) ?? 0, 0);
+    });
+
+    test("a backlog event is found in the backlog's window, with no read by its key", () => {
+        fresh();
+        const jobs = kindOf(windowedJobs);
+        const read = jobs.planEvent("W-0018", NO_DRAFTS, FROM, TO);
+        if (read.type !== "some") assert.fail("expected the job");
+        assert.equal(read.value.item.title, "Winter brochure");
+        assert.deepEqual([askedEntries.seeks.length, askedEntries.pages.length], [0, 0]);
+    });
+
+    test("an event the windows don't hold is read by its key: sought in the record's own entries, then a one-row page; none while either is in flight", () => {
+        fresh();
+        const jobs = kindOf(windowedJobs);
+        // The ticket books run on 22 October: not in the days of the range, nor in the backlog.
+        holding.entries = (what) => what === "seek";
+        assert.equal(jobs.planEvent("W-0014", NO_DRAFTS, FROM, TO).type, "none");
+        assert.deepEqual(askedEntries.pages, [], "no page before the search lands");
+        holding.entries = (what) => what === 13n;
+        assert.equal(jobs.planEvent("W-0014", NO_DRAFTS, FROM, TO).type, "none");
+        holding.entries = () => false;
+        askedEntries = { seeks: [], pages: [] };
+        wholeReads.clear();
+        const read = jobs.planEvent("W-0014", NO_DRAFTS, FROM, TO);
+        if (read.type !== "some") assert.fail("expected the job");
+        assert.ok(jobEqual(decodeJob(read.value.row), JOBS.get("W-0014")!));
+        // Its key's `.east` literal sought, then the one row the search found.
+        assert.ok(equalFor(ArrayType(SeekQueryType))(askedEntries.seeks, [variant("key", printFor(StringType)("W-0014"))]));
+        assert.deepEqual(askedEntries.pages, [[13n, 1n]]);
+        assert.equal(wholeReads.get(ex.planWindowJobs.name) ?? 0, 0);
+        // A key the record does not hold: none, and no page.
+        askedEntries = { seeks: [], pages: [] };
+        assert.equal(jobs.planEvent("W-0999", NO_DRAFTS, FROM, TO).type, "none");
+        assert.deepEqual(askedEntries.pages, []);
+    });
+
+    test("a drafted event reads as drafted, and a deleted one as none, with no read at all", () => {
+        fresh();
+        const jobs = kindOf(windowedJobs);
+        const moved = { ...JOBS.get("W-0014")!, title: "Ticket books, reprint" };
+        const drafts = draftsOf([["W-0014", jobDraft(variant("value", moved))], ["W-0009", jobDraft(variant("missing", null))]]);
+        const read = jobs.planEvent("W-0014", drafts, FROM, TO);
+        if (read.type !== "some") assert.fail("expected the drafted job");
+        assert.equal(read.value.item.title, "Ticket books, reprint");
+        assert.equal(jobs.planEvent("W-0009", drafts, FROM, TO).type, "none");
+        assert.deepEqual([askedDays.seeks.length, askedBacklog.pages.length, askedEntries.seeks.length], [0, 0, 0]);
+    });
+
+    test("its editing is a session over the record's revision: no snapshot, an entry read by its key, the record's revision and its largest key", () => {
+        fresh();
+        const jobs = kindOf(windowedJobs);
+        const whole = kindOf(wholeJobs);
+        wholeReads.clear();
+        assert.equal(jobs.editing.snapshot.type, "none");
+        assert.equal(jobs.entries.type, "some");
+        const entries = jobs.entries.type === "some" ? jobs.entries.value : assert.fail("expected the record read by key");
+        assert.ok(equalFor(OptionType(StringType))(entries.revision(), some(`${JOBS_PATH}-state-0`)));
+        const held = entries.entry("W-0003");
+        assert.ok(held.type === "some" && held.value.type === "some" && jobEqual(decodeJob(held.value.value), JOBS.get("W-0003")!));
+        assert.ok(equalFor(OptionType(OptionType(BlobType)))(entries.entry("W-0999"), some(none)), "a key the record does not hold");
+        assert.ok(equalFor(OptionType(OptionType(StringType)))(entries.last(), some(some("W-0020"))), "the largest key");
+        const readEntry = jobs.editing.readEntry("W-0003", 0n);
+        assert.ok(readEntry.type === "some" && jobEqual(decodeJob(readEntry.value), JOBS.get("W-0003")!));
+        holding.entries = (what) => what === "seek";
+        assert.equal(entries.entry("W-0005").type, "none", "in flight");
+        assert.equal(wholeReads.get(ex.planWindowJobs.name) ?? 0, 0);
+        // A kind read whole keeps its snapshot, and reads no entry by key.
+        assert.equal(whole.editing.snapshot.type, "some");
+        assert.equal(whole.entries.type, "none");
+    });
+});
+
+// ============================================================================
+// A resource kind over a paged read: its rows a window at a time (PB55)
 // ============================================================================
 
 describe("a resource kind paged on the canvas (PB55)", () => {
@@ -478,12 +595,11 @@ describe("a resource kind paged on the canvas (PB55)", () => {
     /** The windows example's Plan, built in East over the records in memory. */
     function payloadOf(): Payload {
         return East.compile(East.function([], PlanPayloadType, ($) => {
-            const presses = $.let(Data.bind(ex.planWindowPresses));
-            const pages = $.let(Data.bindPaged(ex.planWindowPresses));
+            const presses = $.let(Data.bindPaged(ex.planWindowPresses));
             return Plan.Payload({
                 axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
                 resources: {
-                    presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall), window: pages }),
+                    presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
                 },
                 events: { job: windowedJobs($ as never) },
             });
@@ -560,6 +676,34 @@ describe("a resource kind paged on the canvas (PB55)", () => {
         const none_ = paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["events.job"]);
         assert.deepEqual(none_.type === "some" ? [...none_.value.get("span")!.keys()] : undefined, []);
     });
+
+    test("names a resource by its key: its window's key search, then a one-row page — never the kind whole; a kind read whole lists its rows instead", () => {
+        fresh();
+        const payload = payloadOf();
+        const [presses] = payload.resources;
+        const byKey = presses!.byKey.type === "some" ? presses!.byKey.value : assert.fail("expected the paged kind read by key");
+        wholeReads.clear();
+        const press = byKey("P-1333");
+        if (press.type !== "some" || press.value.type !== "some") assert.fail("expected the press");
+        assert.ok(equalFor(Schedule.Types.PlanResourceRow)(press.value.value, {
+            key: "P-1333", label: "Press 1333", meta: none, group: none, parent: none, sub: some("Hall 5"), value: none, status: none, collapsed: false,
+        }));
+        assert.ok(equalFor(ArrayType(SeekQueryType))(askedPresses.seeks, [variant("key", printFor(StringType)("P-1333"))]));
+        assert.deepEqual(askedPresses.pages, [[332n, 1n]]);
+        assert.equal(wholeReads.get(PRESSES_PATH) ?? 0, 0);
+        // A key the kind does not have: some(none), and no page; in flight: none.
+        askedPresses = { seeks: [], pages: [] };
+        assert.ok(equalFor(OptionType(OptionType(Schedule.Types.PlanResourceRow)))(byKey("P-9999"), some(none)));
+        assert.deepEqual(askedPresses.pages, []);
+        holding.presses = (what) => what === "seek";
+        assert.equal(byKey("P-1001").type, "none");
+        // A kind read whole lists its rows, and reads none by its key.
+        const whole = East.compile(East.function([], Schedule.Types.PlanResources, ($) => {
+            const rows = $.const(new SortedMap([...PRESSES].slice(0, 2), compareString), DictType(StringType, PrintPress));
+            return Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name }).buildPlan("presses");
+        }), [])();
+        assert.deepEqual([whole.rows.length, whole.byKey.type], [2, "none"]);
+    });
 });
 
 // ============================================================================
@@ -583,10 +727,12 @@ describe("the windows' types and their refusals", () => {
         } as never);
     };
 
+    const entries = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs));
+
     test("a kind's window is an index window of its own record: its day index for `window`, its backlog index for `backlogWindow`", () => {
         const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
         const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
-        assert.equal(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($) })), "");
+        assert.equal(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: entries($) })), "");
         // The record whole is no index window.
         assert.match(refusal(($) => kindWith($, { window: $.let(Data.bindPaged(ex.planWindowJobs)), backlogWindow: backlog($) })),
             /^Schedule\.events: "Print job": `window` reads the record through a day index keyed by Schedule\.days — Data\.bindPaged\(record, \{ index, join: true \}\), each window an Array of \{ ik: \.DateTime, key, value, row: Option<.*> \} — and this one serves \.Dict/);
@@ -612,52 +758,78 @@ describe("the windows' types and their refusals", () => {
             /^Schedule\.events: "Print job": `window` reads the days in view through a day index, so the record is never read whole — and this kind's times are Options, so it has a backlog: read it through `backlogWindow` beside it/);
     });
 
+    test("a kind given `window` reads one event by its key through `entries`: refused without it, without a window, and over anything but the record's own entries", () => {
+        const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
+        const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+        assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($) })),
+            /^Schedule\.events: "Print job": `window` reads the days in view, so the record is never read whole — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it, Data\.bindPaged\(record\), the record's own entries$/);
+        assert.match(refusal(($) => kindWith($, { entries: entries($) })),
+            /^Schedule\.events: "Print job": `entries` reads one event by its key beside `window` — and this kind has no `window`, so it reads its record whole, every event with it$/);
+        // An index's window, the entries whole, and another record's entries.
+        assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: days($) })),
+            /^Schedule\.events: "Print job": `entries` reads the record's own entries by key — Data\.bindPaged\(record\), a window at a time of \.Dict.* — and this one serves an index's window, /);
+        assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: $.let(Record.bind(ex.planWindowJobs, [])).read() })),
+            /`entries` reads the record's own entries by key — .* and this one serves \.Dict.* whole$/);
+        const PlateSet = StructType({ title: StringType, at: DateTimeType, press: StringType });
+        const plates = e3.record("builder_windows_entry_plates", DictType(StringType, PlateSet), new Map());
+        assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: $.let(Data.bindPaged(plates)) })),
+            /`entries` reads the record's own entries by key — .* and this one serves \.Dict \(key=\.String, value=\.Struct \[\(name="title", type=\.String\), \(name="at", type=\.DateTime\), \(name="press", type=\.String\)\]\)$/);
+    });
+
     test("a window that reads no rows is refused as it is read, naming `join: true`", () => {
         fresh();
         const jobs = East.compile(East.function([], Schedule.Types.PlanKind, ($) => {
             const bound = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
             const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay }));
             const backlog = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+            const all = $.let(Data.bindPaged(ex.planWindowJobs));
             return Schedule.events(bound, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
-                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)) }, window: days, backlogWindow: backlog,
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)) }, window: days, backlogWindow: backlog, entries: all,
             }).buildPlan("job");
         }), PLATFORM)() as EventKind;
         assert.throws(() => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS),
             /Schedule\.events: "Print job": `window` reads each event's row from the record through a day index keyed by Schedule\.days — Data\.bindPaged\(record, \{ index, join: true \}\) — and this one reads the index alone: give it `join: true`/);
     });
 
-    test("a paged resource kind: over its own record, keyed by String, neither grouped nor nested", () => {
+    test("a paged resource kind: over its own record, keyed by String, neither grouped nor nested — and `window`, which is gone", () => {
         const pressesOf = ($: BlockBuilder<NullType>, options: object) => {
-            const presses = $.let(Data.bind(ex.planWindowPresses));
-            return Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p: ExprType<typeof PrintPress>) => p.name, ...options } as never);
+            const pages = $.let(Data.bindPaged(ex.planWindowPresses));
+            return Schedule.resources(pages, { name: "Presses", icon: "print", label: (p: ExprType<typeof PrintPress>) => p.name, ...options } as never);
         };
-        const pages = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowPresses));
-        assert.equal(refusal(($) => pressesOf($, { window: pages($) })), "");
-        assert.match(refusal(($) => pressesOf($, { window: pages($), group: (p: ExprType<typeof PrintPress>) => p.hall })),
-            /^Schedule\.resources: "Presses": `window` pages the resources a window at a time in their key order, and `group` gathers resources from anywhere in the record/);
-        assert.match(refusal(($) => pressesOf($, { window: pages($), parent: () => none })),
-            /^Schedule\.resources: "Presses": `window` pages the resources a window at a time in their key order, and `parent` gathers resources/);
+        assert.equal(refusal(($) => pressesOf($, {})), "");
+        assert.match(refusal(($) => pressesOf($, { group: (p: ExprType<typeof PrintPress>) => p.hall })),
+            /^Schedule\.resources: "Presses": a paged kind reads its resources a window at a time in their key order, and `group` gathers resources from anywhere in the record/);
+        assert.match(refusal(($) => pressesOf($, { parent: () => none })),
+            /^Schedule\.resources: "Presses": a paged kind reads its resources a window at a time in their key order, and `parent` gathers resources/);
         const ByNumber = DictType(IntegerType, PrintPress);
         const numbered = e3.input("builder_windows_numbered", ByNumber, variant("value", new Map()));
+        // Refused at compile time too: a paged read's key type is a String one.
+        assert.match(refusal(($) => Schedule.resources($.let(Data.bindPaged(numbered)) as never, { name: "Presses", icon: "print", label: (p: ExprType<typeof PrintPress>) => p.name } as never)),
+            /^Schedule\.resources: "Presses": a paged kind's key search seeks a resource by its key, as text — key the resources by String, and these are keyed by \.Integer$/);
+        // The form before #1199 is refused, naming the one that took its place.
         assert.match(refusal(($) => {
-            const rows = $.let(Data.bind(numbered));
-            return Schedule.resources(rows.read(), { name: "Presses", icon: "print", label: (p) => p.name, window: $.let(Data.bindPaged(numbered)) });
-        }), /^Schedule\.resources: "Presses": `window` pages the resources and the key search seeks one by its key, as text — key the resources by String, and these are keyed by \.Integer$/);
+            const rows = $.let(Data.bind(ex.planWindowPresses));
+            return Schedule.resources(rows.read(), { name: "Presses", icon: "print", label: (p: ExprType<typeof PrintPress>) => p.name, window: $.let(Data.bindPaged(ex.planWindowPresses)) } as never);
+        }), /^Schedule\.resources: "Presses": `window` is gone — a kind pages when its resources are a paged read: Schedule\.resources\(Data\.bindPaged\(record\), \{ … \}\)/);
+    });
+
+    test("the Calendar reads a resource kind whole, and refuses a paged one in words", () => {
+        assert.match(refusal(($) => {
+            const pages = $.let(Data.bindPaged(ex.planWindowPresses));
+            return Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name }).build("presses");
+        }), /^Schedule\.resources: "Presses": the Calendar reads a resource kind's resources whole, and this one's are a paged read — give it the resources as a Dict, usually a record's read\(\)$/);
     });
 
     test("a Plan pages one source: two paged resource kinds, or a paged kind beside a paged `data`, are refused", () => {
         const axis = Plan.axis({ window: { min: at("2026-10-05T00:00:00Z"), max: at("2026-10-19T00:00:00Z") }, resolution: "day" });
-        const pressesOf = ($: BlockBuilder<NullType>) => {
-            const presses = $.let(Data.bind(ex.planWindowPresses));
-            return Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, window: $.let(Data.bindPaged(ex.planWindowPresses)) });
-        };
+        const pressesOf = ($: BlockBuilder<NullType>) => Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
         assert.equal(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: windowedJobs($ as never) } })), "");
         assert.match(refusal(($) => Plan.Payload({
             axis,
             resources: { presses: pressesOf($), spares: pressesOf($) },
             events: { job: windowedJobs($ as never) },
-        })), /^Plan: resources\.presses and resources\.spares each page their rows \(`window`\), and a canvas pages one source — read all but one of them whole$/);
+        })), /^Plan: resources\.presses and resources\.spares each page their rows \(Data\.bindPaged\), and a canvas pages one source — read all but one of them whole$/);
         const Row = StructType({ v: IntegerType });
         const rows = e3.input("builder_windows_rows", DictType(StringType, Row), variant("value", new Map()));
         assert.match(refusal(($) => Plan.Payload({
@@ -666,6 +838,30 @@ describe("the windows' types and their refusals", () => {
             series: [Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] })],
             resources: { presses: pressesOf($) },
             events: { job: windowedJobs($ as never) },
-        })), /^Plan: resources\.presses pages its rows \(`window`\), and `data` is paged too, and a canvas pages one source — bind `data` whole, or read the resources whole$/);
+        })), /^Plan: resources\.presses pages its rows \(Data\.bindPaged\), and `data` is paged too, and a canvas pages one source — bind `data` whole, or read the resources whole$/);
+    });
+});
+
+// ============================================================================
+// The windows example's manifest (#1199)
+// ============================================================================
+
+describe("the windows example's manifest: what a ui() task preloads and polls whole (#1199)", () => {
+    test("names the jobs record and the presses as paged reads alone: neither is preloaded or polled whole", () => {
+        const manifest = deriveManifest(ex.planWindows.fn as never);
+        const texts = (paths: readonly unknown[]) => paths.map(pathText);
+        assert.deepEqual(manifest.records, [ex.planWindowJobs.name]);
+        assert.ok(texts(manifest.pages).includes(JOBS_PATH), "the jobs record is read by window");
+        assert.ok(texts(manifest.pages).includes(PRESSES_PATH), "the presses are read by window");
+        assert.ok(!texts(manifest.paths).includes(JOBS_PATH), "the jobs record is never preloaded");
+        assert.ok(!texts(manifest.paths).includes(PRESSES_PATH), "the presses are never preloaded");
+        assert.deepEqual(texts(manifest.paths), []);
+    });
+
+    test("a record bound alone with Record.bind is preloaded and polled, as it was", () => {
+        const manifest = deriveManifest(East.function([], NullType, ($) => {
+            $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+        }) as never);
+        assert.deepEqual([manifest.records, manifest.paths.map(pathText), manifest.pages.map(pathText)], [[ex.planWindowJobs.name], [JOBS_PATH], []]);
     });
 });

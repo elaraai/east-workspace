@@ -98,3 +98,62 @@ test("a keyed paged source's reconcile seeks each entry by its key's `.east` lit
     expect(queries).toContain("\"b\"");
     expect(queries).not.toContain("b");
 });
+
+test("a keyed paged source's conflicting Save is named by its entries read at the revision it moves to — each sought by its key and read from a one-row page (#1199)", async () => {
+    initializeStore(new UIStore());
+    // The source as it holds the runs now: another write moves b's end, and the source moves to r2.
+    const held = { revision: "r1", runs: RUNS };
+    const queries: string[] = [];
+    const pages: string[] = [];
+    const sourceAt = (): EditSource<Bar> => ({
+        page: (offset, count) => {
+            pages.push(`${held.revision} ${offset}+${count}`);
+            return some(held.runs.slice(Number(offset), Number(offset + count)).map((run) => ({ key: run.id, end: run.end })));
+        },
+        revision: () => some(held.revision),
+        refresh: () => null,
+        seek: some((query) => {
+            if (query.type === "key") queries.push(query.value);
+            const at = query.type === "key" ? held.runs.findIndex((run) => printString(run.id) === query.value) : -1;
+            return some({ found: at >= 0, row: BigInt(Math.max(at, 0)), count: at >= 0 ? 1n : 0n });
+        }),
+    });
+    // The source's answer: its own issue, and its words for each entry the Save changed.
+    const issue = (entry: string, message: string) => ({ entry, row: none, field: none, message });
+    const editing: EditingValue = {
+        ...editingOf(true), sourceId: "bars-conflict", snapshot: none,
+        readEntry: (id, offset) => {
+            const run = held.runs[Number(offset)];
+            return run?.id === id ? some(encodeRun(run)) : none;
+        },
+        onApply: some(variant("sync", () => variant("conflict", [
+            issue("", "The record changed since this edit began"), issue("b", "b moved"), issue("c", "c moved"),
+        ]))),
+    };
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, BARS, POSITIONS, "bars-conflict", { idOf }), { initialProps: { source: sourceAt() } });
+    act(() => {
+        const { session, original } = hook.result.current;
+        const b = original("b");
+        const c = original("c");
+        session.record([
+            { id: "b", before: b, after: { ...b, draft: { id: variant("value", "b"), end: variant("value", 5n) } } },
+            { id: "c", before: c, after: { ...c, draft: { id: variant("value", "c"), end: variant("value", 7n) } } },
+        ], "typed", "Edit b and c");
+    });
+    await act(async () => { await hook.result.current.session.apply(); });
+    const session = () => hook.result.current.session;
+    expect(session().status).toBe("conflict");
+    expect(session().issues).toEqual([issue("", "The record changed since this edit began")]);
+    // The source moves on: b's end is another write's now; c stands as its edit began.
+    held.revision = "r2";
+    held.runs = [{ id: "a", end: 1n }, { id: "b", end: 9n }, { id: "c", end: 3n }];
+    queries.length = 0;
+    pages.length = 0;
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    // Each entry the Save changed was sought by its literal and read from a one-row page at r2.
+    expect(queries).toEqual(expect.arrayContaining(["\"b\"", "\"c\""]));
+    expect(pages).toEqual(expect.arrayContaining(["r2 1+1", "r2 2+1"]));
+    expect(session().issues).toEqual([issue("b", "b moved")]);
+    expect(session().stale).toBe(true);
+});

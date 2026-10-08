@@ -13,8 +13,10 @@
  * pans, the days a pan brings in. Nothing on screen moves when a window lands:
  * read frame by frame, every row in view keeps its place and stays drawn, the
  * scroll stays where it was put, and a pan moves every bar once, all of them
- * by the same days. Read at the desktop width; a phone's canvas is its narrow
- * list.
+ * by the same days. A job is edited and saved with its record never read
+ * whole: the page preloads nothing of it, as a `ui()` task does not, so a
+ * read of it whole would fail. Read at the desktop width; a phone's canvas is
+ * its narrow list.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-windows`.
@@ -143,5 +145,31 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         const frames = await framesOf(page);
         expect(movedIn(frames, true)).toEqual([]);
         await expect(entry.locator("[data-plan-count='events']")).toHaveText("8 events");
+    });
+
+    test("planWindows: a job carried a day on and saved on a page that preloads none of its record, so a read of it whole fails — the draft drawn at once, Save committing through the jobs' patch door and reading the job back by its key", async ({ page }) => {
+        // The page loads what the example's manifest reads whole, and the jobs' record is not among them (e3-ui's
+        // manifest tests pin that): a read of the jobs whole fails here, and says so.
+        const failures: string[] = [];
+        page.on("pageerror", (e) => failures.push(String(e)));
+        page.on("console", (message) => {
+            if (message.type() === "error" && /\[Plan\]|Record\.bind|Data\.bindPaged|not loaded/u.test(message.text())) failures.push(message.text());
+        });
+        const entry = await openExample(page, "planWindows", WINDOWS);
+        const brochure = entry.locator("[data-run]", { hasText: "Brochure run" });
+        await expect(brochure).toHaveAttribute("aria-label", /^Brochure run, Oct 5, 2026, 06:00 – Oct 5, 2026, 14:00/);
+        // Carried a day on by the keyboard: one draft, drawn where it lands.
+        await brochure.focus();
+        await page.keyboard.press(" ");
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press(" ");
+        await expect(entry.locator("[data-plan-count='pending']")).toHaveText("1 pending");
+        await expect(brochure).toHaveAttribute("aria-label", /^Brochure run, Oct 6, 2026, 06:00 – Oct 6, 2026, 14:00/);
+        // Saved: committed, and read back as the commit left it.
+        await entry.getByRole("button", { name: "Save" }).click();
+        await expect(entry.locator("[data-plan-count='pending']")).toHaveText("0 pending");
+        await expect(brochure).toHaveAttribute("aria-label", /^Brochure run, Oct 6, 2026, 06:00 – Oct 6, 2026, 14:00/);
+        await expect(entry.locator("[data-session-banner]")).toHaveCount(0);
+        expect(failures).toEqual([]);
     });
 });

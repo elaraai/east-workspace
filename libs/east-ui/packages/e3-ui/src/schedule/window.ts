@@ -29,6 +29,14 @@
  *   index's end. An event filed under several of the days is kept once, by
  *   its key.
  * - **The backlog**: every page of the backlog index, from its start.
+ * - **One event by its key** — the inspector's, a draft's original, a Save's
+ *   entries read back and a conflict's — through a paged read of the record's
+ *   own entries (`entries`, `Data.bindPaged(record)`): its key sought, then a
+ *   one-row page at the row the search found ({@link scheduleEntryByKey}).
+ *   The index windows can't be sought by the record's key, as their key leads
+ *   with the index's, and a kind can't open a read of the record's own entries
+ *   itself: a paged read is declared where it is bound, which is what lets a
+ *   `ui()` task read it at all.
  * - **In flight**, the search or a page answers `none`, and so does the read:
  *   the reader keeps nothing between reads, and the read that asked is asked
  *   again when it lands.
@@ -37,10 +45,11 @@
  */
 
 import {
-    DateTimeType, DictType, East, Expr, IntegerType, OptionType, isTypeEqual, none, printType, some, variant,
+    DateTimeType, DictType, East, Expr, IntegerType, NullType, OptionType, StringType, VariantType, isTypeEqual, none, printType, some, variant,
     type ArrayType, type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
+import { resolveRowSource } from "@elaraai/east-ui/internal";
 
 /**
  * How many index entries the reader asks for at a time: each read starts at a
@@ -255,4 +264,149 @@ export function scheduleBacklogWindow(
         $.if(landed, ($2) => { $2.assign(result, some(held)); });
         return result;
     }) as unknown as ExprType<FunctionType<[], OptionType<DictType<EastType, EastType>>>>;
+}
+
+// ============================================================================
+// One entry by its key (#1199)
+// ============================================================================
+
+/** A paged read of a record's own entries, as the reader reads it: its pages, its size and its key search. */
+type EntriesHandle = ExprType<StructType<{
+    page: FunctionType<[IntegerType, IntegerType], OptionType<DictType<EastType, EastType>>>;
+    total: FunctionType<[], OptionType<IntegerType>>;
+    seek: OptionType<FunctionType<[typeof SeekQueryType], OptionType<typeof SeekRangeType>>>;
+}>>;
+
+/**
+ * Checks a paged read of a record's own entries at build (#1199): the record's
+ * entries by key, `Data.bindPaged(record)`, which names the snapshot its reads
+ * are at — what a kind given `window` reads one event by, and a paged resource
+ * kind its resources.
+ *
+ * @param entries - The read, as the author gave it
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param where - What reads it, as a refusal names it: the option and its kind
+ * @returns The read, as an East expression
+ * @throws {Error} Naming what it serves instead: the entries whole, an index's window, another collection, or a read that names no snapshot
+ */
+export function checkEntries(entries: unknown, keyType: EastType, rowType: EastType, where: string): ExprType<EastType> {
+    const resolved = resolveRowSource(entries, where);
+    const wanted = DictType(keyType, rowType);
+    if (resolved.kind !== "paged" || !isTypeEqual(resolved.collectionType, wanted)) {
+        const serves = resolved.kind === "inline" ? `${typeText(resolved.collectionType)} whole`
+            : resolved.kind === "ordered" ? `an index's window, ${typeText(resolved.collectionType)}`
+                : typeText(resolved.collectionType);
+        throw new Error(`${where} reads the record's own entries by key — Data.bindPaged(record), a window at a time of ${typeText(wanted)} — and this one serves ${serves}`);
+    }
+    if (!resolved.pinned) {
+        throw new Error(`${where} reads the record's own entries at the snapshot every read of it is at — Data.bindPaged(record)'s handle, with its revision and refresh — and this one names no snapshot`);
+    }
+    return resolved.source as unknown as ExprType<EastType>;
+}
+
+/** A key's text: a String key as it is, any other key as East prints it. */
+function keyTextOf(keyType: EastType): ExprType<FunctionType<[EastType], StringType>> {
+    return (keyType.type === "String"
+        ? East.function([StringType], StringType, (_$, key) => key)
+        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
+}
+
+/**
+ * One entry of a record read by its key (#1199): its read still in flight, the
+ * key the record does not hold, or the entry held — its row.
+ *
+ * @param rowType - The record's row type
+ * @returns The variant
+ */
+export function ScheduleKeyReadType<R extends EastType>(rowType: R): VariantType<{ reading: NullType; absent: NullType; held: R }> {
+    return VariantType({ reading: NullType, absent: NullType, held: rowType });
+}
+
+/**
+ * Reads one entry of a record by its key through a paged read of the record's
+ * own entries (#1199): the key sought — the `.east` literal of the key its text
+ * names — then a one-row page at the row the search found.
+ *
+ * @param entries - The read, checked ({@link checkEntries})
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @returns `(id)` → the entry's row, held; `absent` for a key the record does not hold; `reading` while the search or the page is in flight
+ */
+export function scheduleEntryByKey(
+    entries: ExprType<EastType>, keyType: EastType, rowType: EastType,
+): ExprType<FunctionType<[StringType], VariantType<{ reading: NullType; absent: NullType; held: EastType }>>> {
+    const Read = ScheduleKeyReadType(rowType);
+    // A key from its text: a String key is its own text, any other key its `.east` printing, read back.
+    const keyOf = (keyType.type === "String"
+        ? East.function([StringType], StringType, (_$, id) => id)
+        : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
+    // The `.east` literal a seek takes: a String key's is its text quoted; any other key's text is its literal already.
+    const literalOf = keyType.type === "String"
+        ? East.function([StringType], StringType, (_$, id) => East.print(id))
+        : East.function([StringType], StringType, (_$, id) => id);
+    return East.function([StringType], Read, ($, id) => {
+        const handle = entries as unknown as EntriesHandle;
+        const src = $.const(handle);
+        const parse = $.const(keyOf);
+        const literal = $.const(literalOf);
+        const result = $.let(variant("reading", null), Read);
+        $.match(src.seek, {
+            some: ($2, seek) => {
+                const query = $2.let(variant("key", literal(id)), SeekQueryType);
+                $2.match(seek(query), {
+                    some: ($3, found) => {
+                        $3.if(found.found, ($4) => {
+                            $4.match(src.page(found.row, 1n), {
+                                some: ($5, page) => {
+                                    $5.match(page.tryGet(parse(id)), {
+                                        some: ($6, row) => { $6.assign(result, variant("held", row) as never); },
+                                        none: ($6) => { $6.assign(result, variant("absent", null)); },
+                                    });
+                                },
+                            });
+                        }).else(($4) => { $4.assign(result, variant("absent", null)); });
+                    },
+                });
+            },
+        });
+        return result;
+    }) as unknown as ExprType<FunctionType<[StringType], VariantType<{ reading: NullType; absent: NullType; held: EastType }>>>;
+}
+
+/**
+ * Reads the largest key of a record through a paged read of its own entries
+ * (#1199) — the last entry, as the read serves them in key order: how a new
+ * Integer key is made past every key the record holds, which no window of it
+ * says.
+ *
+ * @param entries - The read, checked ({@link checkEntries})
+ * @param keyType - The record's key type
+ * @returns `()` → `some(some(text))`, the largest key's text; `some(none)` for an empty record; `none` while a read is in flight
+ */
+export function scheduleLastKey(
+    entries: ExprType<EastType>, keyType: EastType,
+): ExprType<FunctionType<[], OptionType<OptionType<StringType>>>> {
+    const Found = OptionType(OptionType(StringType));
+    const textOf = keyTextOf(keyType);
+    return East.function([], Found, ($) => {
+        const handle = entries as unknown as EntriesHandle;
+        const src = $.const(handle);
+        const text = $.const(textOf);
+        const result = $.let(none, Found);
+        $.match(src.total(), {
+            // The size is learned from a window: the first one's, read.
+            none: ($2) => { $2(src.page(0n, 1n)); },
+            some: ($2, total) => {
+                $2.if(total.equal(0n), ($3) => { $3.assign(result, some(none)); }).else(($3) => {
+                    $3.match(src.page(total.subtract(1n), 1n), {
+                        some: ($4, page) => {
+                            $4.for(page, ($5, _row, key) => { $5.assign(result, some(some(text(key)))); });
+                        },
+                    });
+                });
+            },
+        });
+        return result;
+    }) as unknown as ExprType<FunctionType<[], OptionType<OptionType<StringType>>>>;
 }

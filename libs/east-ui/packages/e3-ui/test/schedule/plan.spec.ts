@@ -8,7 +8,8 @@
  * PB4–PB7), over the print works' records (§3.1): each option resolved — how
  * a kind draws, an instant kind's `at`, the lifecycle, quantity and lane its
  * events carry, the kind's own inspector (PB60, #1197), a resource kind's
- * groups, nesting, gutter, fold, rollup, measures and window — the Calendar's
+ * groups, nesting, gutter, fold, rollup, measures and a paged read of its
+ * resources (#1199) — the Calendar's
  * kinds unchanged with Plan's options present, each refusal at build, the
  * removed `review` among them (#1260), and each mistyped name failing to
  * compile.
@@ -184,6 +185,8 @@ const plainShiftKind = East.compile(East.function([], Schedule.Types.PlanKind, (
 
 const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
 const DAY = ["2026-10-05T00:00:00Z", "2026-10-06T00:00:00Z"] as const;
+/** The range a canvas reads, which a kind read whole takes no notice of. */
+const RANGE = [at(DAY[0]), at(DAY[1])] as const;
 const itemEqual = equalFor(Schedule.Types.PlanItem);
 const rolesEqual = equalFor(Schedule.Types.PlanRoles);
 
@@ -240,12 +243,12 @@ describe("Schedule.events — Plan's options (PB5)", () => {
     });
 
     test("reads one event by its key — as Plan draws it, and its row — with its draft in place; none for a key there is no event of (#1197)", () => {
-        const read = jobKind.planEvent("j1", NO_DRAFTS);
+        const read = jobKind.planEvent("j1", NO_DRAFTS, ...RANGE);
         if (read.type !== "some") assert.fail("expected the job read");
         const [run] = onTheFifth(jobKind);
         assert.ok(itemEqual(read.value.item, run!));
         assert.ok(equalFor(JobType)(decodeBeast2For(JobType)(read.value.row), JOBS.get("j1")!));
-        assert.equal(jobKind.planEvent("j9", NO_DRAFTS).type, "none");
+        assert.equal(jobKind.planEvent("j9", NO_DRAFTS, ...RANGE).type, "none");
         // A draft in place: an edited job reads as drafted, a deleted one as none, and one drafted new as itself.
         const encodeDraft = encodeBeast2For(EditingDraftFieldType(JobType));
         const reprint = { ...JOBS.get("j1")!, title: "Brochure reprint" };
@@ -254,12 +257,12 @@ describe("Schedule.events — Plan's options (PB5)", () => {
             ["j2", encodeDraft(variant("missing", null))],
             ["j3", encodeDraft(variant("value", { ...reprint, title: "Leaflet run" }))],
         ], compareFor(StringType));
-        const edited = jobKind.planEvent("j1", drafts);
+        const edited = jobKind.planEvent("j1", drafts, ...RANGE);
         if (edited.type !== "some") assert.fail("expected the drafted job");
         assert.equal(edited.value.item.title, "Brochure reprint");
         assert.ok(equalFor(JobType)(decodeBeast2For(JobType)(edited.value.row), reprint));
-        assert.equal(jobKind.planEvent("j2", drafts).type, "none");
-        const added = jobKind.planEvent("j3", drafts);
+        assert.equal(jobKind.planEvent("j2", drafts, ...RANGE).type, "none");
+        const added = jobKind.planEvent("j3", drafts, ...RANGE);
         if (added.type !== "some") assert.fail("expected the job drafted new");
         assert.deepEqual([added.value.item.key, added.value.item.title], ["j3", "Leaflet run"]);
     });
@@ -420,18 +423,19 @@ describe("Schedule.resources — Plan's options (PB5)", () => {
         assert.ok(equalFor(Schedule.Types.Resources)(build(false), build(true)));
     });
 
-    test("keeps its measures in order, and a window over the resources' record", () => {
+    test("keeps its measures in order; a paged read of its resources pages it, and a Dict reads them whole (#1199)", () => {
         East.function([], NullType, ($) => {
             const rows = $.const(PRESSES, Presses);
             const util = Plan.series.heat(PressType, { key: "util", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }) });
             const output = Plan.series.table(PressType, { key: "output", title: "Output", label: () => "Output" });
             const trend = Plan.series.chart(PressType, { key: "trend", title: "Trend", label: () => "Trend", layers: () => [] });
-            const window = $.let(Data.bindPaged(pressesRecord));
-            const presses = Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, measures: [util, output, trend], window });
+            const pages = $.let(Data.bindPaged(pressesRecord));
+            const presses = Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name, measures: [util, output, trend] });
             assert.equal(presses.measures.length, 3);
             [util, output, trend].forEach((series, i) => { assert.equal(presses.measures[i], series, `measures[${i}] as declared`); });
-            assert.ok(presses.window !== undefined);
-            assert.equal(Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name }).window, undefined);
+            assert.ok(presses.window !== undefined && presses.source === undefined, "paged: its window, and no whole read");
+            const whole = Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name });
+            assert.ok(whole.window === undefined && whole.source !== undefined, "whole: its rows, and no window");
         });
         // On the wire, the measures' keys in order: each lays its row out at its resource's path (#1197).
         const built = East.compile(East.function([], Schedule.Types.PlanResources, ($) => {
@@ -532,12 +536,19 @@ describe("Schedule.resources — Plan's options refused at build (PB7)", () => {
             /measures\[1\], heat "Utilisation", repeats the key "util" — a measure row's id is its series' key and its resource's path/);
     });
 
-    test("a window over another record", () => {
+    test("`window`, which is gone, refused naming the paged form; and an index's window for the resources (#1199)", () => {
         assert.throws(() => East.function([], NullType, ($) => {
             const rows = $.const(PRESSES, Presses);
             const window = $.let(Data.bindPaged(crewsRecord));
-            Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, window });
-        }), /`window` pages the resources — Data\.bindPaged\(record\) over the resources' record — and this one serves \.Dict/);
+            Schedule.resources(rows, { name: "Presses", icon: "print", label: (p: { name: unknown }) => p.name, window } as never);
+        }), /Schedule\.resources: "Presses": `window` is gone — a kind pages when its resources are a paged read: Schedule\.resources\(Data\.bindPaged\(record\), \{ … \}\) in place of Schedule\.resources\(rows, \{ window: Data\.bindPaged\(record\) \}\)$/);
+        const byHall = e3.recordIndex("plan_spec_presses_by_hall", pressesRecord, {
+            key: East.function([StringType, PressType], StringType, (_$, _key, press) => press.hall),
+        });
+        assert.throws(() => East.function([], NullType, ($) => {
+            const halls = $.let(Data.bindPaged(pressesRecord, { index: byHall, join: true }));
+            Schedule.resources(halls as never, { name: "Presses", icon: "print", label: (p: { name: unknown }) => p.name } as never);
+        }), /Schedule\.resources: "Presses": a paged kind reads its resources' own entries a window at a time — Data\.bindPaged\(record\) over the resources' record, a Dict — and this read serves an index's window, \.Array/);
     });
 });
 
@@ -602,4 +613,9 @@ export function planScheduleTypeChecks(): void {
     Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, status: (p) => some(p.name) });
     // @ts-expect-error — `rollup` is "union", "byStatus" or "sum"
     Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, rollup: "average" });
+    // A paged read of the resources compiles in their place (#1199), its rows typed from its page.
+    const pages = Data.bindPaged(pressesRecord);
+    Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) });
+    // @ts-expect-error — `window` is gone (#1199): a kind pages when its resources are a paged read
+    Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, window: pages });
 }

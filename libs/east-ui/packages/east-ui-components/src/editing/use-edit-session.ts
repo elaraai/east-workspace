@@ -7,8 +7,9 @@
  * React integration for the editing session (#879): one session per source,
  * view and schema, kept in the UI store so it survives remounts; one
  * unresolved request per source across every view of it (the gate); and the
- * tracked reads that give a session its base and acknowledge an applied
- * request once the source reads back as the request left it.
+ * tracked reads that give a session its base, acknowledge an applied request
+ * once the source reads back as the request left it, and read a conflicting
+ * Save's entries at a paged source's new revision, which names them (#1199).
  *
  * @packageDocumentation
  */
@@ -119,36 +120,38 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // their fresh result as its readiness — derived here, not on every
         // read of it (#859).
         session.recheck(binding.ready, binding.ready?.(session.entries));
-        // The entries read back at the revision an Apply committed: each one's
-        // value, or `none` for one confirmed absent. The session judges them.
+        // The entries read at a revision: an Apply's, read back at the revision
+        // it committed; or a conflicting Save's, at the revision the source
+        // moved to (#1199) — each one's value, or `none` for one confirmed
+        // absent. The session judges them.
         const reads = new Map<string, option<unknown>>();
         if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads };
         const revision = source?.revision();
-        if (revision?.type !== "some") return undefined;
-        if (session.status === "reconciling" && source !== undefined) {
-            for (const [id, entry] of session.entries) {
-                const resident = rowIndex.get(id);
-                let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
-                if (keyType !== undefined && source.seek.type === "some") {
-                    // A seek takes the key's `.east` literal: an id IS that
-                    // text for any key but a String, whose literal is quoted.
-                    const found = source.seek.value(variant("key", keyType.type === "String" ? printString(id) : id));
-                    if (found.type === "none") continue;
-                    at = Number(found.value.row);
-                }
-                if (at === undefined) continue;
-                // A loaded page distinguishes confirmed absence from an
-                // entry whose page has not arrived. Keep this read tracked.
-                const page = source.page(BigInt(at), 1n);
-                if (page.type === "none") continue;
-                const present = page.value.some(row => stringEqual(idOf(row), id));
-                if (entry.draft === undefined) {
-                    if (!present) reads.set(id, none);
-                } else if (present) {
-                    const raw = editing.readEntry(id, BigInt(at));
-                    if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
-                }
+        if (revision?.type !== "some" || source === undefined) return undefined;
+        const naming = session.naming;
+        const ids = session.status === "reconciling" ? [...session.entries.keys()]
+            : naming !== undefined && !stringEqual(revision.value, naming.revision) ? naming.ids : [];
+        for (const id of ids) {
+            const resident = rowIndex.get(id);
+            let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
+            if (keyType !== undefined && source.seek.type === "some") {
+                // A seek takes the key's `.east` literal: an id IS that
+                // text for any key but a String, whose literal is quoted.
+                const found = source.seek.value(variant("key", keyType.type === "String" ? printString(id) : id));
+                if (found.type === "none") continue;
+                at = Number(found.value.row);
             }
+            if (at === undefined) continue;
+            // A loaded page distinguishes confirmed absence from an
+            // entry whose page has not arrived. Keep this read tracked.
+            const page = source.page(BigInt(at), 1n);
+            if (page.type === "none") continue;
+            if (!page.value.some(row => stringEqual(idOf(row), id))) {
+                reads.set(id, none);
+                continue;
+            }
+            const raw = editing.readEntry(id, BigInt(at));
+            if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
         }
         return { base: variant("revision", revision.value), reads };
         // Session status and entries change under the external-store version.
@@ -163,8 +166,10 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // evaluation, so a read that fails again after a Retry says so again.
         session.confirmFailed(result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error));
         if (!observed) return;
-        // An inline snapshot the session reads itself; at a revision, the entries read here.
+        // An inline snapshot the session reads itself; at a revision, the entries read here —
+        // a commit's, read back, and a conflict's, which they name (#1199).
         session.reconcile(observed.base, (id) => observed.reads.get(id));
+        session.nameConflicts(observed.base, (id) => observed.reads.get(id));
         session.observeBase(observed.base);
     }, [session, result, observed]);
 

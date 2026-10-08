@@ -198,6 +198,35 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(onInputChange).toHaveBeenLastCalledWith(""));
     });
 
+    test("a host's source moving to another snapshot asks the query held again — its text kept, the new answer counted; none held, nothing asked (#1199)", async () => {
+        let answer = { found: true, row: 100, count: 3 };
+        const onFind = vi.fn(async (_query: unknown, _again?: boolean) => answer);
+        const onListRange = vi.fn(async () => ["a", "b", "c"]);
+        const onJump = vi.fn();
+        const props = { keyType: StringKey, onFind, onListRange, onJump };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search keys") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
+        expect(onFind).toHaveBeenCalledTimes(1);
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" });
+        // The same snapshot again asks nothing.
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        expect(onFind).toHaveBeenCalledTimes(1);
+        // A new one: the query held, asked again — its text standing — and its answer the box's.
+        answer = { found: true, row: 98, count: 5 };
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={1} /></ChakraProvider>);
+        await waitFor(() => expect(screen.getByText("5 matches")).toBeTruthy());
+        expect(onFind).toHaveBeenCalledTimes(2);
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" }, true);
+        expect(input.value).toBe("a");
+        // Cleared, nothing is held: another snapshot asks nothing.
+        fireEvent.click(screen.getByLabelText("Clear search"));
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={2} /></ChakraProvider>);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(onFind).toHaveBeenCalledTimes(2);
+    });
+
     test("misses report No matches; the control is the shared combobox recipe", async () => {
         const onFind = vi.fn(async () => ({ found: false, row: 7, count: 0 }));
         const onListRange = vi.fn(async () => [] as string[]);

@@ -26,7 +26,10 @@
  * driver reads its windows again and keeps the rows it has standing in until
  * they land (#821). Until the first read answers, as many empty fixed blocks
  * stand in for them, so the canvas's blocks are laid out alike from the
- * first window.
+ * first window. The wrapper names the snapshot of the source's own data apart
+ * from that revision (`snapshot`, #1199): new rows over the same data read the
+ * windows again and are no new snapshot of it, so a key search standing stays
+ * where it is.
  *
  * # A paged resource kind (#1199)
  *
@@ -39,9 +42,10 @@
  * the kind's resources are read with the rest of the rows, so they move the
  * same version, and a new version, a new set of what the viewer hides or new
  * rows of the root's are a new revision: the driver reads its windows again,
- * the rows it has standing in until they land. Until the events are placed,
- * a window is in flight. A canvas pages one source, so `data` beside a paged
- * kind is inline (the Plan refuses it paged).
+ * the rows it has standing in until they land — over the same snapshot of the
+ * kind's resources, which only their window's own revision moves. Until the
+ * events are placed, a window is in flight. A canvas pages one source, so
+ * `data` beside a paged kind is inline (the Plan refuses it paged).
  *
  * # A link's event end
  *
@@ -49,7 +53,11 @@
  * kind's slot with no path, whose run is the event's key. The canvas finds the
  * event's element where it draws — its key is the event's ref as East prints
  * it — and names that row and element instead, so the links focus gathers the
- * row and a ribbon meets the element. An event the rows do not draw keeps its
+ * row and a ribbon meets the element. An event on a paged kind's resource is
+ * named by its resource's row id, `entry { series: "<slot>.<draw>", path:
+ * [key] }`, from the events placed on the kind's resources — never looked for
+ * in a window (#1199): the row is the one the window holding that resource
+ * draws, whether or not it has landed. An event the rows do not draw keeps its
  * end, which no row has, and its ribbon is not drawn.
  *
  * @packageDocumentation
@@ -132,6 +140,30 @@ function emptyBlocks(count: number): readonly PlanWireBlock[] {
     return Array.from({ length: count }, (): PlanWireBlock => ({ fixed: true, parent: none, rows: [] }));
 }
 
+/** The range the canvas reads its event kinds' rows over. */
+export interface PlanEventRange {
+    /** Its start: the scale's window less the periods laid out before it. */
+    readonly from: Date;
+    /** Its end, exclusive: the window and the periods laid out after it. */
+    readonly to: Date;
+}
+
+/**
+ * The range the canvas reads its event kinds' rows over (#619): the scale's
+ * window and the periods it lays out beyond each edge. A kind read a window
+ * at a time (#1199) holds there every event the canvas draws, so a gesture on
+ * one reads it from what the windows hold, with no read of its own.
+ *
+ * @param scale - The shared scale
+ * @returns The range; `undefined` with no scale, or one whose instants are not times
+ */
+export function eventReadRange(scale: PlanScale | undefined): PlanEventRange | undefined {
+    if (scale === undefined) return undefined;
+    const from = timeMs(scale.offset(scale.window.min, -OVERSCAN_BUCKETS));
+    const to = timeMs(scale.offset(scale.window.max, OVERSCAN_BUCKETS));
+    return from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) };
+}
+
 /**
  * The event kinds' rows over the range the canvas draws: the scale's window
  * and the periods laid out beyond each edge, what the viewer hides left out,
@@ -151,8 +183,9 @@ export function usePlanEventBlocks(
     const blocks = events?.blocks;
     const paged = events?.paged;
     const count = events?.count ?? 0;
-    const from = scale !== undefined ? timeMs(scale.offset(scale.window.min, -OVERSCAN_BUCKETS)) : undefined;
-    const to = scale !== undefined ? timeMs(scale.offset(scale.window.max, OVERSCAN_BUCKETS)) : undefined;
+    const range = eventReadRange(scale);
+    const from = range?.from.getTime();
+    const to = range?.to.getTime();
     // One read: the rows, and a paged kind's events with them — `undefined` while either is in flight.
     const read = useCallback((): LeadRead | undefined => {
         if (blocks === undefined || from === undefined || to === undefined) return undefined;
@@ -249,6 +282,8 @@ export function usePlanEventRoot(
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
+            // The snapshot of `data` itself (#1199): its own revision, which new rows over it leave.
+            snapshot: () => latest.current.src?.revision?.() ?? none,
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
@@ -303,14 +338,19 @@ export function usePlanEventRoot(
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
+            // The snapshot of the kind's resources (#1199): their window's own revision, which the events
+            // placed on them, the drafts and the root's rows leave.
+            snapshot: () => current.current.pages?.revision() ?? none,
         };
         composedOf.current = { seam: pages, composed: next };
         return next;
     }, [pages]);
 
+    const placed = lead?.placed;
+    const pagedSlot = pages?.kind;
     const links = useMemo(
-        () => (blocks !== undefined ? resolveEventLinks(data.links, blocks) : data.links),
-        [blocks, data.links]);
+        () => (blocks !== undefined ? resolveEventLinks(data.links, blocks, placed, pagedSlot) : data.links),
+        [blocks, data.links, placed, pagedSlot]);
     const rowsOf = useCallback((root: PlanRootValue): PlanRootValue["rows"] => {
         if (composed !== undefined) return variant("pinned", composed) as PlanRootValue["rows"];
         if (inline !== undefined) return variant("inline", inline) as PlanRootValue["rows"];
@@ -350,18 +390,33 @@ function isEventEnd(end: PlanLinkEnd): boolean {
 /**
  * A root's links with each event end named where its event draws: the row
  * holding the element whose key is the event's ref as East prints it, and
- * that key.
+ * that key — on a paged kind's resource, that resource's row by its id
+ * (#1199), wherever the window that draws it is.
  *
  * @param links - The root's links
  * @param blocks - The event kinds' rows
+ * @param placed - The events placed on a paged kind's resources, by way of drawing and by resource, when a kind pages
+ * @param pagedSlot - The paged kind's slot, beside `placed`
  * @returns The links — the same array when none names an event
  */
-export function resolveEventLinks(links: PlanRootValue["links"], blocks: readonly PlanWireBlock[]): PlanRootValue["links"] {
+export function resolveEventLinks(
+    links: PlanRootValue["links"], blocks: readonly PlanWireBlock[], placed?: PlanEventPlacedValue, pagedSlot?: string,
+): PlanRootValue["links"] {
     if (!links.some((l) => isEventEnd(l.from) || isEventEnd(l.to))) return links;
     // Where each element is, by its key — an event draws once.
     const where = new Map<string, PlanRowId>();
     for (const block of blocks) {
         for (const row of block.rows) for (const key of elementKeysOf(row)) where.set(key, row.id);
+    }
+    // A paged kind's events (#1199): on the row its way of drawing gives its resource — the row's id, a
+    // series key and the resource's key, is known from the event alone, never looked for in a window.
+    if (placed !== undefined && pagedSlot !== undefined) {
+        for (const [draw, byResource] of placed) {
+            for (const [resource, list] of byResource) {
+                const row: PlanRowId = variant("entry", { series: `${pagedSlot}.${draw}`, path: [resource] });
+                for (const one of list) where.set(printEventRef({ kind: one.item.kind, key: one.item.key }), row);
+            }
+        }
     }
     const resolve = (end: PlanLinkEnd): PlanLinkEnd => {
         if (!isEventEnd(end) || end.row.type !== "entry") return end;

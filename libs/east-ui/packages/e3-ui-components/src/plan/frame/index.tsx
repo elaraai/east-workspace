@@ -128,8 +128,8 @@ const NO_LIBRARY: PlanLibraryTabs = [];
 
 /** Whether two libraries list the same tabs and cards: they hold data alone. */
 const libraryEqual = equalFor(PlanPayloadType.fields.library);
-/** Whether two lists of resource kinds name the same resources. */
-const resourcesEqual = equalFor(PlanPayloadType.fields.resources);
+/** Whether two lists of resource kinds name the same resources — a paged kind's read by key (#1199) by its IR and what it captures. */
+const resourcesEquivalent = equivalentFor(PlanPayloadType.fields.resources);
 /** Whether two drop vetoes are one: by their IR and what they capture (#809). */
 const canDropEquivalent = equivalentFor(PlanPayloadType.fields.canDrop);
 
@@ -234,7 +234,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
-    && (prev.resources === next.resources || resourcesEqual(prev.resources ?? NO_RESOURCES, next.resources ?? NO_RESOURCES))
+    && (prev.resources === next.resources || resourcesEquivalent(prev.resources ?? NO_RESOURCES, next.resources ?? NO_RESOURCES))
     && (prev.library === next.library || libraryEqual(prev.library ?? NO_LIBRARY, next.library ?? NO_LIBRARY)));
 
 /** Props of {@link PlanFrame}. */

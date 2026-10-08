@@ -13,7 +13,7 @@
  * it already showed; the source's channels outlive a disconnect.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { buildSliceHandle, UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
 import { sliceConfig } from "@elaraai/east-ui-components/testing";
@@ -762,8 +762,10 @@ describe("the source's channels (#815)", () => {
 describe("a new source revision (#821)", () => {
     /** A source that answers a key search at once and names its revision;
      *  reading the revision registers the "rev" channel, as the runtime's
-     *  source-level channel does. */
-    function revisionedSource() {
+     *  source-level channel does. With `snapshot`, it names the snapshot of its
+     *  data apart from its revision, as a source the canvas composes over
+     *  another does (#1199). */
+    function revisionedSource(opts: { snapshot?: boolean } = {}) {
         const subs = new Map<string, Set<() => void>>();
         let recording: string[] | null = null;
         const tracker: ReactiveTracker = {
@@ -780,7 +782,7 @@ describe("a new source revision (#821)", () => {
                 getKeyVersion: () => 0,
             }),
         };
-        const state: { revision: string | undefined } = { revision: undefined };
+        const state: { revision: string | undefined; snapshot: string | undefined; snapshotFails: boolean } = { revision: undefined, snapshot: undefined, snapshotFails: false };
         const source = {
             id: "c821",
             page: (offset: bigint) => {
@@ -794,6 +796,14 @@ describe("a new source revision (#821)", () => {
                 return state.revision === undefined ? none : some(state.revision);
             },
             refresh: () => null,
+            ...(opts.snapshot === true
+                ? {
+                    snapshot: () => {
+                        if (state.snapshotFails) throw new Error("the snapshot could not be read");
+                        return state.snapshot === undefined ? none : some(state.snapshot);
+                    },
+                }
+                : {}),
         };
         const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
         return { tracker, source, state, fire };
@@ -802,19 +812,90 @@ describe("a new source revision (#821)", () => {
     let unregister: (() => void) | undefined;
     afterEach(() => { unregister?.(); unregister = undefined; });
 
-    test("drops a standing search — its matches index the previous snapshot — and re-keys the control", async () => {
+    test("asks a standing search again — its matches index the previous snapshot — keeping the query, and the view where it is (#1199)", async () => {
         const h = revisionedSource();
         h.state.revision = "A";
         unregister = registerReactiveTracker(h.tracker);
         const { c } = show(root([], { source: h.source }));
         expect(await c.search.find({ prefix: "w0" })).toEqual({ found: true, row: 0, count: 1 });
-        expect(c.getSnapshot().seek.sought).not.toBeNull();
-        expect(c.getSnapshot().seek.epoch).toBe(0);
+        const sought = c.getSnapshot().seek.sought;
+        expect(sought).not.toBeNull();
+        expect(c.getSnapshot().seek.again).toBe(0);
+        expect(c.getSnapshot().scroll.searchSeq).toBe(1);
         h.state.revision = "B";
         h.fire("rev");
         expect(c.getSnapshot().paging.revision).toBe("B");
-        expect(c.getSnapshot().seek.sought).toBeNull();
-        expect(c.getSnapshot().seek.epoch).toBe(1);
+        // The query stands, and the control is told to ask it again there.
+        expect(c.getSnapshot().seek.sought).toBe(sought);
+        expect(c.getSnapshot().seek.again).toBe(1);
+        // Asked again, it answers at the new snapshot and takes the view nowhere.
+        expect(await c.search.find({ prefix: "w0" }, true)).toEqual({ found: true, row: 0, count: 1 });
+        await microtasks();
+        expect(c.getSnapshot().scroll.searchSeq).toBe(1);
+        // A query the reader types is a new search: it goes to its match.
+        await c.search.find({ prefix: "w0" });
+        await microtasks();
+        expect(c.getSnapshot().scroll.searchSeq).toBe(2);
+    });
+
+    test("a new revision over the same data — its windows read again — leaves a standing search as it is (#1199)", async () => {
+        const h = revisionedSource({ snapshot: true });
+        h.state.revision = "A#1";
+        h.state.snapshot = "A";
+        unregister = registerReactiveTracker(h.tracker);
+        const { c } = show(root([], { source: h.source }));
+        await c.search.find({ prefix: "w0" });
+        const sought = c.getSnapshot().seek.sought;
+        h.state.revision = "A#2";
+        h.fire("rev");
+        expect(c.getSnapshot().paging.revision).toBe("A#2");
+        expect(c.getSnapshot().paging.dataSnapshot).toBe("A");
+        expect(c.getSnapshot().seek.sought).toBe(sought);
+        expect(c.getSnapshot().seek.again).toBe(0);
+        // The data itself moving is a new snapshot: the search is asked again.
+        h.state.revision = "B#3";
+        h.state.snapshot = "B";
+        h.fire("rev");
+        expect(c.getSnapshot().paging.dataSnapshot).toBe("B");
+        expect(c.getSnapshot().seek.again).toBe(1);
+    });
+
+    test("a snapshot that could not be read is no new one: the last stands, and the search is asked nothing (#1199)", async () => {
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const h = revisionedSource({ snapshot: true });
+            h.state.revision = "A#1";
+            h.state.snapshot = "A";
+            unregister = registerReactiveTracker(h.tracker);
+            const { c } = show(root([], { source: h.source }));
+            await c.search.find({ prefix: "w0" });
+            h.state.revision = "A#2";
+            h.state.snapshotFails = true;
+            h.fire("rev");
+            expect(c.getSnapshot().paging.sourceError).toBe("the snapshot could not be read");
+            expect(c.getSnapshot().paging.dataSnapshot).toBe("A");
+            expect(c.getSnapshot().seek.again).toBe(0);
+            // Read again, the same data: still nothing to ask.
+            h.state.revision = "A#3";
+            h.state.snapshotFails = false;
+            h.fire("rev");
+            expect(c.getSnapshot().paging.sourceError).toBeUndefined();
+            expect(c.getSnapshot().seek.again).toBe(0);
+            expect(String(errors.mock.calls[0]?.[0])).toMatch(/paged source snapshot failed/);
+        } finally {
+            errors.mockRestore();
+        }
+    });
+
+    test("a new snapshot with no search standing asks nothing", () => {
+        const h = revisionedSource();
+        h.state.revision = "A";
+        unregister = registerReactiveTracker(h.tracker);
+        const { c } = show(root([], { source: h.source }));
+        h.state.revision = "B";
+        h.fire("rev");
+        expect(c.getSnapshot().paging.revision).toBe("B");
+        expect(c.getSnapshot().seek).toMatchObject({ sought: null, again: 0 });
     });
 
     test("a key search targets the first row its element placed — a `views` entry's first view row (#822)", async () => {
@@ -878,7 +959,7 @@ describe("a new source revision (#821)", () => {
         h.fire("rev");
         expect(c.getSnapshot().paging.revision).toBe("A");
         expect(c.getSnapshot().seek.sought).not.toBeNull();
-        expect(c.getSnapshot().seek.epoch).toBe(0);
+        expect(c.getSnapshot().seek.again).toBe(0);
     });
 });
 

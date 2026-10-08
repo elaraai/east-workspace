@@ -105,7 +105,7 @@ const WEEKLY = { resolution: "week" } as unknown as PlanScale;
 
 /** A key search over a seekable source's String keys — the toolbar mounts it; nothing here searches. */
 const SEARCH: NonNullable<PlanChrome["search"]> = {
-    resetKey: "r1", keyType: toEastTypeValue(StringType),
+    resetKey: "r1", requery: 0, keyType: toEastTypeValue(StringType),
     find: async () => ({ found: false, row: 0, count: 0 }), listRange: async () => [], jump: () => {}, clear: () => {},
 };
 
