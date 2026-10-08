@@ -29,8 +29,11 @@
  * Each data tab's cards are a `Library`'s, drawn by the shared parts — every
  * icon Font Awesome's solid set, every style the `library` recipe's — and
  * drag from the library `${flowchartKeys(name).library}:<the tab's key>`
- * ({@link flowchartLibraryId}), each card keyed by its row's key: what the
- * canvas takes dropped is #1249's.
+ * ({@link flowchartLibraryId}), each card keyed by its row's key: the canvas
+ * takes them dropped (#1249, `use-drop.ts`). A card that drops takes ⏎ too —
+ * the card, dropped on the canvas's selection — and on a touch screen a tap
+ * on the selected card does the same, so no edit needs a precise drag (FB34);
+ * the tap leaves it selected, for the next.
  *
  * @packageDocumentation
  */
@@ -39,7 +42,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { StringType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import type { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraLibrary, getSomeorUndefined, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
+    EastChakraLibrary, getSomeorUndefined, useCoarsePointer, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
 } from "@elaraai/east-ui-components";
 import type { FlowchartMessages, FlowchartWords } from "./messages.js";
 import type { FlowchartValue } from "./model.js";
@@ -166,16 +169,20 @@ export interface FlowchartLibraryProps {
     readonly keys: FlowchartKeys;
     /** The flowchart's words. */
     readonly words: FlowchartWords;
+    /** A card's ⏎ (#1249, FB34): the card, by its library and its key, dropped on the canvas's selection. */
+    readonly enter?: ((library: string, key: string) => void) | undefined;
 }
 
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The tabs listed, the Flows tab's body, the flowchart's keys, and its words
+ * @param props - The tabs listed, the Flows tab's body, the flowchart's keys, its words, and a card's ⏎
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
-export function useFlowchartLibrary({ library, flows, keys, words }: FlowchartLibraryProps): BuilderFrameDock | undefined {
+export function useFlowchartLibrary({ library, flows, keys, words, enter }: FlowchartLibraryProps): BuilderFrameDock | undefined {
     const m = words.m;
+    // A touch screen: a tap on the selected card drops it on the canvas's selection (FB34).
+    const coarse = useCoarsePointer();
     // The card each data tab's click selected, by the tab's key (FB26): a click on another moves it, a click on it lets it go.
     const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map());
     const onCard = useCallback((tabKey: string, key: string) => {
@@ -187,12 +194,19 @@ export function useFlowchartLibrary({ library, flows, keys, words }: FlowchartLi
             return next;
         });
     }, []);
+    // Each card that drops takes ⏎: the card, dropped on the canvas's selection (#1249) — one function per tab, held still.
+    const enters = useMemo(() => new Map(library.flatMap((tab): [string, (key: string) => void][] => {
+        if (tab.type === "flows" || enter === undefined || !cardsOf(tab).drags) return [];
+        const id = flowchartLibraryId(keys, flowchartTabKey(tab));
+        return [[flowchartTabKey(tab), (key: string) => enter(id, key)]];
+    })), [library, keys, enter]);
     // Each data tab's Library: its own rows' cards, as its tab reads them.
     const libraries = useMemo(() => new Map(library.flatMap((tab): [string, LibraryValue][] => {
         if (tab.type === "flows") return [];
         const tabKey = flowchartTabKey(tab);
         const { cards, drags, icon } = cardsOf(tab);
         const chosen = picked.get(tabKey);
+        const onEnter = enters.get(tabKey);
         return [[tabKey, {
             id: flowchartLibraryId(keys, tabKey),
             hint: none,
@@ -206,14 +220,19 @@ export function useFlowchartLibrary({ library, flows, keys, words }: FlowchartLi
             noun: some({ singular: m.libraryNoun({ tab: tab.type, n: 1 }), plural: m.libraryNoun({ tab: tab.type, n: 2 }) }),
             addLabel: none,
             onAdd: none,
-            onCardClick: some((key: string) => { onCard(tabKey, key); return null; }),
+            // On a touch screen a tap on the selected card is its ⏎, and leaves it selected (FB34); else a click selects or lets go.
+            onCardClick: some((key: string) => {
+                if (coarse && onEnter !== undefined && chosen !== undefined && stringEqual(chosen, key)) onEnter(key);
+                else onCard(tabKey, key);
+                return null;
+            }),
             slice: none,
             style: FILL,
             variant: none,
             layout: none,
             toolbar: true,
         }]];
-    })), [library, picked, keys, m, onCard]);
+    })), [library, picked, keys, m, onCard, enters, coarse]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (FB29).
@@ -228,12 +247,12 @@ export function useFlowchartLibrary({ library, flows, keys, words }: FlowchartLi
                 label: name,
                 count: words.number(value.items.length),
                 body: (
-                    <EastChakraLibrary value={value} storageKey={`${keys.library}.${tabKey}`}
+                    <EastChakraLibrary value={value} storageKey={`${keys.library}.${tabKey}`} onCardEnter={enters.get(tabKey)}
                         empty={{ title: m.libraryEmpty({ tab: tab.type, name }), description: m.libraryEmptyHint({ tab: tab.type, name }) }} />
                 ),
             };
         });
         // Collapsed, the rail counts the first tab's cards (FB25).
         return { label: m.libraryPane(), icon: "layer-group", badge: tabs[0]!.count, size: LIBRARY_SIZE, persist: "local", tabs };
-    }, [library, flows, libraries, keys, m, words]);
+    }, [library, flows, libraries, enters, keys, m, words]);
 }

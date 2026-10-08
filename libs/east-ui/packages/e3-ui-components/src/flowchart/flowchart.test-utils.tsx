@@ -4,19 +4,20 @@
  */
 
 /**
- * The Flowchart's DOM tests' shared harness (#1246–#1248): a record of flows
+ * The Flowchart's DOM tests' shared harness (#1246–#1249): a record of flows
  * in memory, bound with its patch mutation, whose patch door applies each
  * patch with East's own checks — as an app binds one — beside any other
  * records a test binds too (a library tab's rows, #1248), and the flowchart
- * over it through its carrier, so a Save is a real commit; and the waits and
- * presses its tests share.
+ * over it through its carrier, so a Save is a real commit — under the page's
+ * drag layer where a test drags (#1249); and the waits and presses its tests
+ * share.
  */
 
 import { act, fireEvent, render, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, PatchType, applyFor, decodeBeast2For, encodeBeast2For, variant, type BlockBuilder, type EastType, type ExprType, type PatchTypeOf, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { DragLayerProvider, EastChakraComponent, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { Flowchart, RecordBindHandleType, recordBindPlatformFn } from "@elaraai/e3-ui/internal";
 import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
@@ -182,16 +183,21 @@ export function bindOther<T extends EastType>($: BlockBuilder<UIComponentType>, 
  * over the bound record, compiled, and rendered through its carrier.
  *
  * @param props - Its props beside `record` — or what makes them in the surface's body, where it binds other records; the Flows tab listed, by default
+ * @param options - `drag`: under the drag layer an app mounts once at its root, as the showcase does — its library's cards drag, and its canvas takes them (#1249)
  * @returns The render
  */
-export async function mountRecord(props: object | (($: BlockBuilder<UIComponentType>) => object) = { library: [Flowchart.library.flows()] }): Promise<RenderResult> {
+export async function mountRecord(
+    props: object | (($: BlockBuilder<UIComponentType>) => object) = { library: [Flowchart.library.flows()] },
+    options: { readonly drag?: boolean } = {},
+): Promise<RenderResult> {
     const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const flows = $.let(recordBindPlatformFn([FlowsHandle], RECORD));
         return Flowchart({ record: flows as never, ...(typeof props === "function" ? props($) : props) });
     }))), getRegisteredPlatformImplementations()) as () => UIValue;
+    const flowchart = <EastChakraComponent value={program()} storageKey="flowchart-record" />;
     const utils = render(
         <ChakraProvider value={system}>
-            <EastChakraComponent value={program()} storageKey="flowchart-record" />
+            {options.drag === true ? <DragLayerProvider>{flowchart}</DragLayerProvider> : flowchart}
         </ChakraProvider>,
     );
     await settle();

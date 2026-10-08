@@ -12,7 +12,10 @@
  * transition connected of the default type, keyed `<from>→<to>` made unique
  * (FB20), and deleted by the key it goes by; a decision deleted, cleared from
  * the transitions it governs; two of one key raising the issue that holds Save
- * off (FB22); and the changes waiting on Save counted row by row (FB10).
+ * off (FB22); the changes waiting on Save counted row by row (FB10); and a
+ * library card's (#1249): a state inserted at its place, a card's fields set
+ * on a state, a transition, a lane or a decision — `some` setting a field,
+ * `none` leaving it — and a key a card sets followed as FB18 has it.
  */
 
 import { describe, expect, test } from "vitest";
@@ -208,5 +211,54 @@ describe("two of one key, and the changes waiting on Save (FB22, FB10)", () => {
             addState: "insert", editState: "typed", moveState: "move", deleteState: "remove",
             connect: "insert", deleteLink: "remove", deleteDecision: "remove",
         });
+    });
+});
+
+describe("a library card dropped (#1249, FB31–FB33)", () => {
+    const stateFields = (fields: Partial<edits.FlowchartStatePatch>): edits.FlowchartStatePatch => ({ key: none, label: none, lane: none, members: none, notes: none, ...fields });
+
+    test("a card's fields over a row: each it sets — some — takes its value, an Option's none among them; each it leaves — none — stays", () => {
+        const chutes = SORT.states[1]!;
+        const patched = edits.patched(chutes, stateFields({ label: some(some("Chutes")), members: some(none), notes: some(some("By postcode")) }));
+        expect(equalFor(Flowchart.Types.State)(patched, { key: "CH*", label: some("Chutes"), lane: "sort", members: none, notes: some("By postcode") })).toBe(true);
+        expect(equalFor(Flowchart.Types.State)(edits.patched(chutes, stateFields({})), chutes)).toBe(true);
+    });
+
+    test("a state is inserted at its place among the flow's states — clamped to them — the others' order kept", () => {
+        const held = { key: "HLD", label: none, lane: "sort", members: none, notes: none };
+        expect(edits.insertState(SORT, 1, held).states.map((s) => s.key)).toEqual(["IND", "HLD", "CH*", "SRD"]);
+        expect(edits.insertState(SORT, 0, held).states.map((s) => s.key)).toEqual(["HLD", "IND", "CH*", "SRD"]);
+        expect(edits.insertState(SORT, 99, held).states.map((s) => s.key)).toEqual(["IND", "CH*", "SRD", "HLD"]);
+        expect(edits.insertState(SORT, -1, held).states.map((s) => s.key)).toEqual(["HLD", "IND", "CH*", "SRD"]);
+    });
+
+    test("a key minted for a new row: <prefix>-<n>, from the first number given, past the keys rows take", () => {
+        const taken = new Set(["state-4", "state-5"]);
+        expect(edits.mintKey("state", 4, (k) => taken.has(k))).toBe("state-6");
+        expect(edits.mintKey("state", 1, (k) => taken.has(k))).toBe("state-1");
+    });
+
+    test("a state card's fields set on the state the canvas draws under its key; a new key follows into its transitions and the decisions' queues — unless another state shares the old key", () => {
+        expectFlow(edits.setState(SORT, "IND", stateFields({ key: some("INX"), label: some(some("Inducted")) })), edits.editState(SORT, "IND", "INX", "Inducted"));
+        const twice = edits.addState(SORT, "hold", "SRD", "Again");
+        expectFlow(edits.setState(twice, "SRD", stateFields({ key: some("HLD") })), edits.editState(twice, "SRD", "HLD", "Again"));
+        expectFlow(edits.setState(SORT, "GONE", stateFields({ notes: some(some("x")) })), SORT);
+    });
+
+    test("a transition card's fields set on the first transition that goes by the key — its own, or the one its ends and place give it", () => {
+        const observed = { key: none, from: none, to: none, kind: some(some(variant("observed", null))), trigger: none, evidence: none };
+        expectFlow(edits.setLink(SORT, "IND→CH*", observed), { ...SORT, links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!, SORT.links[2]!] });
+        const planned = { ...observed, kind: some(none), trigger: some(some("route")) };
+        expectFlow(edits.setLink(SORT, "CH*→SRD#1", planned), { ...SORT, links: [SORT.links[0]!, { ...SORT.links[1]!, kind: none, trigger: some("route") }, SORT.links[2]!] });
+        expectFlow(edits.setLink(SORT, "GONE", observed), SORT);
+    });
+
+    test("a lane card's fields set on every lane of its key, a new key moving its states; a decision card's on the decision, a new key renaming it on the transitions it governs", () => {
+        expectFlow(edits.setLane(SORT, "sort", { key: none, label: some(some("Sortation")) }), edits.renameLane(SORT, "sort", "Sortation"));
+        expectFlow(edits.setLane(SORT, "sort", { key: some("sorting"), label: none }), edits.rekeyLane(SORT, "sort", "sorting"));
+        const owner = { key: none, label: none, letter: none, owner: some(some("customs-desk")), queue: none, outcomes: none };
+        expectFlow(edits.setDecision(SORT, "route", owner), { ...SORT, triggers: [{ ...SORT.triggers[0]!, owner: some("customs-desk") }] });
+        const rekeyed = edits.setDecision(SORT, "route", { ...owner, owner: none, key: some("routing") });
+        expectFlow(rekeyed, { ...SORT, triggers: [{ ...SORT.triggers[0]!, key: "routing" }], links: [{ ...SORT.links[0]!, trigger: some("routing") }, SORT.links[1]!, SORT.links[2]!] });
     });
 });

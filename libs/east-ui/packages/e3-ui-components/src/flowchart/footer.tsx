@@ -9,8 +9,9 @@
  * name first; then its transitions — narrowed from how many, and by what
  * share, while the host's slice narrows them — and on the right their split,
  * planned · observed · unresolved; where the flowchart edits, the changes
- * waiting on Save in the open flow (`3 pending`); and over a record, when it
- * was last saved.
+ * waiting on Save in the open flow (`3 pending`); over a record, when it was
+ * last saved; and, after a card's ⏎ that is refused (#1249, FB34), why — a
+ * polite live line, so a screen reader hears it too.
  *
  * The counts are of the transitions the flow holds, not the arrows drawn: an
  * in-place transition folds into its state's `↻ n` badge and still counts,
@@ -46,6 +47,8 @@ export interface FlowchartFooterProps {
     readonly pending: number | undefined;
     /** When the record was last saved, as the footer says it; `undefined` over `data`, or a record with no commit. */
     readonly saved: string | undefined;
+    /** Why a card's ⏎ was refused (#1249) — `Drop onto a transition`; `undefined`, nothing to say. */
+    readonly message?: string | undefined;
     /** The flowchart's words: its numbers print in the app's locale. */
     readonly words: FlowchartWords;
 }
@@ -53,10 +56,10 @@ export interface FlowchartFooterProps {
 /**
  * Renders the footer — see the module docs.
  *
- * @param props - The open flow's name, its counts and the record's last save
+ * @param props - The open flow's name, its counts, the record's last save and a refused ⏎'s reason
  * @returns The footer
  */
-export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pending, saved, words }: FlowchartFooterProps) {
+export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pending, saved, message, words }: FlowchartFooterProps) {
     const share = narrowedFrom !== undefined && narrowedFrom > 0 ? 1 - links / narrowedFrom : undefined;
     return (
         <Box css={styles.footer} data-flowchart-footer="">
@@ -74,6 +77,9 @@ export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pen
                     <Box as="span" css={styles.footerNeg}>−{words.percent(share)}</Box>
                 </>
             )}
+            {message !== undefined && <Box as="span">·</Box>}
+            {/* Always there, so a screen reader hears each line it takes. */}
+            <Box as="span" css={styles.footerMessage} data-flowchart-message="" aria-live="polite">{message ?? ""}</Box>
             <Box css={styles.footerSplit}>
                 {words.number(counts.planned)} planned · {words.number(counts.observed)} observed
                 {counts.unresolved > 0 ? ` · ${words.number(counts.unresolved)} unresolved` : ""}

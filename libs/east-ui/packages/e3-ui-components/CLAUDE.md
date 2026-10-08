@@ -22,8 +22,10 @@ the UI store (`open-flow.ts`), as LR · TD is (`orientation.ts`), each flow's
 editing session (`session.ts`) — every canvas gesture one transaction of it,
 each gesture's flow `edits.ts`'s (#1247) — its library pane (`library.tsx`,
 #1248: the tabs `library` lists, each data tab a `Library` of its own rows'
-cards) and its words (`messages.ts`) — builds on the same parts, and keeps its
-slot recipe there too. The segment strip
+cards), its drops (#1249: `drop.ts` plans what a card does where it lands,
+pure; `use-drop.ts` is the drop target, each drop and each card's ⏎ one
+transaction) and its words (`messages.ts`) — builds on the same parts, and
+keeps its slot recipe there too. The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
 toolbars share, are `src/shared/seg.tsx`.
 The time parts the Plan shares with the Calendar are in `src/shared/time/`

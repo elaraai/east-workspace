@@ -35,6 +35,18 @@
  * orientation come from the frame, and a state find state picks comes as a
  * `reveal`, which selects the state and scrolls it into view.
  *
+ * Where a tab of the library drops (#1249, FB30–FB33), the canvas is one drop
+ * cell of the shared drag layer, on the frame's drop target (`use-drop.ts`):
+ * it works out where a drag rests from its own drawing (`drop.ts`'s
+ * `dropAtPoint`) — a lane and the row a state takes there, a state, a
+ * transition, a lane's header, a decision's diamond — and, while the drop
+ * there lands, marks it: the lane takes a wash and a line runs where the state
+ * lands, or the state, the transition — the brand wash — or the diamond takes
+ * the brand. The marks show only while the drag rests over the canvas and the
+ * drop lands (the recipe's); a drag over the canvas raises no hover card, no
+ * dimming and no "+ STATE" ghost. It tells the frame what it selects, for a
+ * card's ⏎ (FB34); a state a drop adds comes back as a `reveal`, selected.
+ *
  * @packageDocumentation
  */
 
@@ -42,29 +54,42 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Box, Portal, Tooltip, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBan, faPlus, faRotateRight, faXmark } from "@fortawesome/free-solid-svg-icons";
-import type { ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import type { UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, getSomeorUndefined, typedInto } from "@elaraai/east-ui-components";
+import {
+    EastChakraComponent, getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload,
+} from "@elaraai/east-ui-components";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelLink } from "./model.js";
 import {
-    computeLayout, previewCursorPath, previewLinkPath,
+    computeLayout, landingSeam, previewCursorPath, previewLinkPath,
     type FlowchartLayout, type LinkRoute,
     BADGE_H, RING_R,
 } from "./layout.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
+import {
+    ON_CANVAS, dropAtPoint, markEqual, markOf, printDropAt, readDropAt,
+    type FlowchartCanvasDrop, type FlowchartDropMark, type FlowchartSelection,
+} from "./drop.js";
 import type { FlowchartOrientation } from "./toolbar.js";
 
 type SelectFn = ((key: string) => unknown) | undefined;
 type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
 
-/** A state find state picked: the canvas selects it and scrolls it into view, once per pick. */
+/** A state find state picked, or a drop added (#1249): the canvas selects it and scrolls it into view, once per pick. */
 export interface FlowchartReveal {
     /** The state's key. */
     readonly key: string;
     /** The pick's number: each pick a new one, so a second pick of one state reveals it again. */
     readonly seq: number;
+    /** `false`: selected where it stands, never scrolled — a state dropped where the pointer is. */
+    readonly scroll?: boolean | undefined;
 }
+
+/** Where a drag rests over the canvas before it says otherwise: the canvas itself. */
+const CANVAS_AT = printDropAt(ON_CANVAS);
+
+const keyEqual = equalFor(StringType);
 
 /**
  * The canvas's gestures (#1247): each one transaction of the open flow's
@@ -106,6 +131,10 @@ export interface FlowchartCanvasViewProps {
     readonly reveal: FlowchartReveal | null;
     /** The gestures, where the flowchart edits; `undefined`, it edits nothing, and selection and hover stay. */
     readonly edit: FlowchartCanvasEdit | undefined;
+    /** The canvas's drop cell, where a tab of the library drops (#1249); `undefined`, it takes no drop. */
+    readonly drop?: FlowchartCanvasDrop | undefined;
+    /** Told each time the canvas's selection changes: what a card's ⏎ drops on (#1249, FB34). */
+    readonly onSelection?: ((selection: FlowchartSelection | null) => void) | undefined;
     /** The flowchart's words: the gestures' names, and its counts in the app's locale. */
     readonly words: FlowchartWords;
     /** The structural storage key. */
@@ -144,7 +173,7 @@ const CLASS_MARKER = { planned: "ink", observed: "info", unresolved: "neg" } as 
 const MONO = "var(--chakra-fonts-mono)";
 
 type Hover = { kind: "state" | "link" | "trigger"; key: string } | null;
-type Selection = { kind: "state" | "link" | "trigger"; key: string } | null;
+type Selection = FlowchartSelection | null;
 
 const HOVER_OPEN_MS = 400;   // spec: 400ms delay
 const HOVER_CLOSE_GRACE_MS = 250;
@@ -237,10 +266,10 @@ function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string;
  * The canvas: one flow, drawn with the canvas's options, filling its frame's
  * main — see the module docs.
  *
- * @param props - The canvas's options, the flow's model, the orientation, the state to reveal, the gestures, the words and the storage key
+ * @param props - The canvas's options, the flow's model, the orientation, the state to reveal, the gestures, the drop cell, the selection's listener, the words and the storage key
  * @returns The canvas's box, which scrolls the flow inside it
  */
-export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, words, storageKey }: FlowchartCanvasViewProps) {
+export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, onSelection, words, storageKey }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
@@ -265,7 +294,15 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
     const [selection, setSelection] = useState<Selection>(null);
     const selectionRef = useRef<Selection>(null);
     selectionRef.current = selection;
+    // The frame is told what is selected: what a card's ⏎ drops on (#1249).
+    useEffect(() => { onSelection?.(selection); }, [selection, onSelection]);
     const [hover, setHover] = useState<Hover>(null);
+    // A drag in flight (#1249): it raises no hover card, no dimming and no "+ STATE" ghost.
+    const dragging = useDragLayerOptional()?.active ?? false;
+    const draggingRef = useRef(dragging);
+    draggingRef.current = dragging;
+    /** What the pointer is over, for the dim ladder — never while a drag is in flight. */
+    const hoverOn = useCallback((next: Hover) => { if (!draggingRef.current) setHover(next); }, []);
 
     // Hover card — dev-defined content (Schematic contract), 400ms open,
     // 250ms grace close, anchored in body coords.
@@ -281,7 +318,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         kind === "state" ? stateHoverFn : kind === "link" ? linkHoverFn : triggerHoverFn,
         [stateHoverFn, linkHoverFn, triggerHoverFn]);
     const scheduleHoverCard = useCallback((kind: "state" | "link" | "trigger", key: string, ax: number, ay: number) => {
-        if (hoverFnFor(kind) === undefined) return;
+        if (hoverFnFor(kind) === undefined || draggingRef.current) return;
         cancelTimers();
         openTimer.current = setTimeout(() => {
             openTimer.current = null;
@@ -344,6 +381,14 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         const t = setTimeout(() => setPulse(null), 1100);
         return () => clearTimeout(t);
     }, [pulse]);
+    // A drag picked up (#1249): the state or transition the pointer rested on
+    // lets go of its dimming and its hover card, and no hover card waits to open.
+    useEffect(() => {
+        if (!dragging) return;
+        cancelTimers();
+        setHover(null);
+        setHoverCard(null);
+    }, [dragging, cancelTimers]);
 
     // ── measure ───────────────────────────────────────────────────────────
     const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -369,6 +414,42 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         [model, size, orientation, legendOn],
     );
 
+    // ── drops (#1249) ─────────────────────────────────────────────────────
+    // The canvas is one drop cell: where a drag rests is worked out from the
+    // drawing as it stands, and marked while the drop there lands.
+    const layoutRef = useRef(layout);
+    layoutRef.current = layout;
+    const modelRef = useRef(model);
+    modelRef.current = model;
+    const wrapRef = useRef<HTMLDivElement | null>(null);
+    const [dropMark, setDropMark] = useState<FlowchartDropMark | undefined>(undefined);
+    // The drag over: nothing stays marked.
+    useEffect(() => { if (!dragging) setDropMark(undefined); }, [dragging]);
+    /** Where a drag rests at a client point, for what it carries: the coordinate its drop's `CellRef` names. */
+    const resolveDrop = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
+        const surface = drop?.surface ?? "";
+        const card = drop?.cardOf(payload);
+        const drawn = layoutRef.current;
+        const wrap = wrapRef.current;
+        if (card === undefined || drawn === null || wrap === null) return { surface, row: CANVAS_AT, slot: "" };
+        const box = wrap.getBoundingClientRect();
+        return { surface, row: printDropAt(dropAtPoint(card.lands, drawn, modelRef.current, { x: clientX - box.left, y: clientY - box.top })), slot: "" };
+    }, [drop]);
+    /** The drag rests where its drop lands: the canvas marks it. */
+    const hoverDrop = useCallback((clientX: number, clientY: number, payload: DragPayload) => {
+        const card = drop?.cardOf(payload);
+        const at = readDropAt(resolveDrop(clientX, clientY, payload).row);
+        const mark = drop === undefined || card === undefined || at === undefined ? undefined : markOf(drop.plan(card, at));
+        setDropMark((was) => (markEqual(was, mark) ? was : mark));
+    }, [drop, resolveDrop]);
+    const dropOptions = useMemo(() => (drop === undefined ? undefined : { ...drop.options, onHover: hoverDrop }), [drop, hoverDrop]);
+    const dropCell = useDropCell(drop === undefined || layout === null ? null : { surface: drop.surface, row: CANVAS_AT, slot: "" },
+        false, drop?.canDrop, resolveDrop, dropOptions);
+    const setWrap = useCallback((el: HTMLDivElement | null) => {
+        wrapRef.current = el;
+        dropCell(el);
+    }, [dropCell]);
+
     // ── dim ladder ────────────────────────────────────────────────────────
     const dim = useMemo(() => computeDim(model, hover), [model, hover]);
     const nodeOpacity = (key: string): number => (!dim.active ? FOCUS : dim.nodes.has(key) ? FOCUS : dim.restLevel);
@@ -385,14 +466,16 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         if (sel.kind === "trigger" && onSelectTriggerFn) dispatchEast("onSelectTrigger", () => onSelectTriggerFn(sel.key));
     }, [onSelectStateFn, onSelectLinkFn, onSelectTriggerFn]);
 
-    // A state find state picked (#1245): selected, as a click selects it, and
-    // scrolled to the middle of the canvas's box — once per pick.
+    // A state find state picked (#1245), or a drop added (#1249): selected, as
+    // a click selects it, and — but for a state dropped where the pointer is —
+    // scrolled to the middle of the canvas's box: once per pick.
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const revealed = useRef(0);
     useEffect(() => {
         if (reveal === null || reveal.seq === revealed.current) return;
         revealed.current = reveal.seq;
         select({ kind: "state", key: reveal.key });
+        if (reveal.scroll === false) return;
         const rect = layout?.nodes.get(reveal.key);
         const box = scrollRef.current;
         if (rect === undefined || box === null) return;
@@ -556,7 +639,8 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
             {layout !== null && !empty && (
                 // Focusable, so a press inside it — a state, a transition — lands its keys here: Del's.
                 <Box ref={scrollRef} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
-                    <Box css={styles.canvasWrap} style={{ width: layout.width, height: layout.height }}>
+                    {/* The canvas's one drop cell, where a tab of the library drops (#1249). */}
+                    <Box ref={setWrap} css={styles.canvasWrap} style={{ width: layout.width, height: layout.height }}>
                         <svg
                             data-flowchart-canvas
                             width={layout.width}
@@ -624,6 +708,13 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                 );
                             })}
 
+                            {/* the brand wash on the transition a card retypes where it
+                                rests (#1249, FB32) — under every line, the recipe's */}
+                            {dropMark?.kind === "transition" && (() => {
+                                const route = layout.routes.find((r) => keyEqual(r.key, dropMark.key));
+                                return route === undefined ? null : <path data-flowchart-dropwash={route.key} d={route.d} />;
+                            })()}
+
                             {/* links — solid, then dashed (dashed renders over solid), selected last */}
                             <g data-flowchart-links>
                                 {orderedRoutes.map(r => {
@@ -651,7 +742,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                                 strokeWidth={12}
                                                 style={{ cursor: "pointer" }}
                                                 onPointerEnter={e => {
-                                                    setHover({ kind: "link", key: r.key });
+                                                    hoverOn({ kind: "link", key: r.key });
                                                     const p = bodyPoint(e);
                                                     scheduleHoverCard("link", r.key, p.x, p.y);
                                                 }}
@@ -678,10 +769,11 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                     <g key={`dia-${r.key}`} style={{ opacity: linkOpacity(r.key), transition: fade(dim.active) }}>
                                         <g
                                             data-flowchart-trigger={trigger.key}
+                                            data-drop-target={dropMark?.kind === "decision" && keyEqual(dropMark.key, trigger.key) ? "" : undefined}
                                             transform={`translate(${r.mid.x},${r.mid.y}) rotate(45)`}
                                             style={{ cursor: "pointer" }}
                                             onPointerEnter={e => {
-                                                setHover({ kind: "trigger", key: trigger.key });
+                                                hoverOn({ kind: "trigger", key: trigger.key });
                                                 const p = bodyPoint(e);
                                                 scheduleHoverCard("trigger", trigger.key, p.x, p.y);
                                             }}
@@ -723,6 +815,16 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
 
                         </svg>
 
+                        {/* the lane a dropped state lands in, or whose header a card
+                            sets (#1249): its wash, under the states, the recipe's */}
+                        {(dropMark?.kind === "lane" || dropMark?.kind === "header") && (() => {
+                            const band = layout.lanes.find((l) => keyEqual(l.key, dropMark.lane));
+                            return band === undefined ? null : (
+                                <Box css={styles.dropLane} data-flowchart-droplane={band.key}
+                                    style={{ left: band.x, top: band.y, width: band.w, height: band.h }} />
+                            );
+                        })()}
+
                         {/* node cards — HTML above the SVG */}
                         {[...layout.nodes.values()].map(rect => {
                             const nm = model.nodesByKey.get(rect.key);
@@ -734,13 +836,14 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                     data-flowchart-node={rect.key}
                                     css={nm.ghost ? styles.ghostNode : styles.node}
                                     data-selected={isSel || undefined}
+                                    data-drop-target={dropMark?.kind === "state" && keyEqual(dropMark.key, rect.key) ? "" : undefined}
                                     style={{
                                         left: rect.x, top: rect.y, width: rect.w, height: rect.h,
                                         opacity: moveDrag?.key === rect.key ? 0.3 : nodeOpacity(rect.key),
                                         transition: fade(dim.active),
                                     }}
                                     onPointerEnter={e => {
-                                        setHover({ kind: "state", key: rect.key });
+                                        hoverOn({ kind: "state", key: rect.key });
                                         const p = bodyPoint(e);
                                         scheduleHoverCard("state", rect.key, p.x, p.y);
                                     }}
@@ -829,7 +932,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                                 cx={rect[side].x} cy={rect[side].y} r={8}
                                                 fill="transparent"
                                                 style={{ pointerEvents: "all", cursor: "crosshair" }}
-                                                onPointerEnter={() => setHover({ kind: "state", key: rect.key })}
+                                                onPointerEnter={() => hoverOn({ kind: "state", key: rect.key })}
                                                 onPointerDown={(e) => beginDraft(rect.key, side, e)}
                                             />
                                         ))}
@@ -914,6 +1017,20 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                             })}
                         </svg>
 
+                        {/* the landing line where a dropped state lands (#1249, FB31): across
+                            the node's footprint, between the state above it and the one it
+                            lands before — its thickness the recipe's */}
+                        {dropMark?.kind === "lane" && (() => {
+                            const band = layout.lanes.find((l) => keyEqual(l.key, dropMark.lane));
+                            if (band === undefined) return null;
+                            const seam = landingSeam(layout, band, dropMark.row);
+                            const td = layout.orientation === "TD";
+                            return (
+                                <Box css={styles.dropSeam} data-flowchart-landing={dropMark.row} data-orientation={layout.orientation}
+                                    style={td ? { left: seam.x, top: seam.y, height: seam.h } : { left: seam.x, top: seam.y, width: seam.w }} />
+                            );
+                        })()}
+
                         {/* each lane's × — Font Awesome's xmark beside its header; off
                             while the lane holds states, its tooltip saying why (FB19) */}
                         {laneGestures !== undefined && layout.lanes.map(lane => {
@@ -965,7 +1082,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                         {/* "+ STATE" ghost — dashed, exact node footprint, one per
                             hovered lane, Font Awesome's plus beside its word; click
                             turns it into the inline editor */}
-                        {laneGestures !== undefined && stateEditor === null && laneHover !== null && moveDrag === null && (() => {
+                        {laneGestures !== undefined && stateEditor === null && laneHover !== null && moveDrag === null && !dragging && (() => {
                             const cell = layout.laneGhosts.get(laneHover);
                             if (!cell) return null;
                             return (

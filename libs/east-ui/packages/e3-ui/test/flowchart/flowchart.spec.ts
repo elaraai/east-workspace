@@ -26,7 +26,8 @@
  * in the order `library` lists it, each data tab's cards from its own rows —
  * over an Array and over a Dict, apart from the flows and from the other tabs
  * — with what each card's drop sets, a tab listed twice refused, naming it,
- * and each data tab's other refusals.
+ * and each data tab's other refusals; and the drops' (#1249): the drop target
+ * the flowchart's library's cards land on, under its name.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -587,11 +588,14 @@ describe("the payload (FB6)", () => {
         assert.ok(equalFor(tabsType)(decodeBeast2For(tabsType)(encodeBeast2For(tabsType)(tabs)), tabs));
     });
 
-    hostTest("a flowchart keeps its frame's panes (#1245), its open flow, its library and LR · TD (#1246) under its name", () => {
-        assert.deepEqual(flowchartKeys(undefined),
-            { frame: "flowchart.frame", flow: "flowchart.flow", library: "flowchart.library", orientation: "flowchart.orientation" });
-        assert.deepEqual(flowchartKeys("depot"),
-            { frame: "flowchart.depot.frame", flow: "flowchart.depot.flow", library: "flowchart.library.depot", orientation: "flowchart.depot.orientation" });
+    hostTest("a flowchart keeps its frame's panes (#1245), its open flow, its library, LR · TD (#1246) and its drop target (#1249) under its name", () => {
+        assert.deepEqual(flowchartKeys(undefined), {
+            frame: "flowchart.frame", flow: "flowchart.flow", library: "flowchart.library", orientation: "flowchart.orientation", surface: "flowchart.surface",
+        });
+        assert.deepEqual(flowchartKeys("depot"), {
+            frame: "flowchart.depot.frame", flow: "flowchart.depot.flow", library: "flowchart.library.depot", orientation: "flowchart.depot.orientation",
+            surface: "flowchart.depot.surface",
+        });
     });
 });
 

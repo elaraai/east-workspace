@@ -52,7 +52,14 @@
  *   starts new ones, and the state and transition templates and the author's
  *   tabs, each a `Library` of its own rows' cards; what the inspector holds is
  *   #1250's. The panes' open tab and collapsed state persist under the
- *   flowchart's `name` (`flowchartKeys(name).frame`).
+ *   flowchart's `name` (`flowchartKeys(name).frame`);
+ * - **the drops** (#1249, `use-drop.ts`): the library's cards land on the
+ *   canvas, the flowchart's drop target — a state template on a lane, a
+ *   transition template on a transition, an author's card on what its drop's
+ *   type names — each one `drop` transaction of the open flow's session, a
+ *   state it adds selected; ⏎ on a card, and on a touch screen a tap on the
+ *   selected card, drops it on the canvas's selection, and where that is
+ *   refused the footer says why.
  *
  * The flowchart fills the box it is given and draws no border: a host gives it
  * a box of its own height.
@@ -60,7 +67,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import type { Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -84,6 +91,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { buildModel, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./model.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartReveal } from "./canvas.js";
+import type { FlowchartSelection } from "./drop.js";
 import * as flowEdits from "./edits.js";
 import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
@@ -94,6 +102,7 @@ import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
 import { useViewerOrientation } from "./orientation.js";
 import { ONE_FLOW, draftedFlow, newFlows, recordFlowEdit, recordNewFlow, useFlowSession, useKeptSessions, type FlowApply } from "./session.js";
 import { useFlowchartToolbarItems } from "./toolbar.js";
+import { useFlowchartDrop } from "./use-drop.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -312,6 +321,26 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
     // Find state over the open flow's states: a pick reveals the state on the canvas.
     const [reveal, setReveal] = useState<FlowchartReveal | null>(null);
     const onPick = useCallback((key: string) => { setReveal((was) => ({ key, seq: (was?.seq ?? 0) + 1 })); }, []);
+
+    // ── The drops (#1249, FB30–FB34): the library's cards, onto the canvas ──
+    // The open flow as its session holds it now — never a render's copy: what a drop plans over.
+    const currentFlow = useCallback((): FlowchartFlowValue | undefined =>
+        (entry === undefined ? undefined : draftedFlow(session, entry) ?? entryHeld), [entry, session, entryHeld]);
+    // A drop's flow, one `drop` transaction of the open flow's session.
+    const recordDrop = useCallback((next: FlowchartFlowValue, label: string): boolean =>
+        edits && entry !== undefined && recordFlowEdit({ session, original }, entry, next, "drop", label), [edits, entry, session, original]);
+    // What the canvas has selected: what a card's ⏎ drops on (FB34).
+    const selected = useRef<FlowchartSelection | null>(null);
+    const onSelection = useCallback((selection: FlowchartSelection | null) => { selected.current = selection; }, []);
+    // The state a drop added, selected (FB31) — scrolled into view for a card's ⏎.
+    const selectState = useCallback((key: string, scroll: boolean) => { setReveal((was) => ({ key, seq: (was?.seq ?? 0) + 1, scroll })); }, []);
+    // Why a card's ⏎ was refused, the footer's line (FB34): until a drop lands, or another flow opens.
+    const [notice, setNotice] = useState<string | undefined>(undefined);
+    useEffect(() => { setNotice(undefined); }, [openName]);
+    const drop = useFlowchartDrop({
+        library: value.library, keys, now: currentFlow, edits, available, record: recordDrop,
+        selection: () => selected.current, select: selectState, notice: setNotice, words,
+    });
     const findable = useMemo(() => data.states.map((s) => ({ key: s.key, label: getSomeorUndefined(s.label) })), [data]);
     const find = useFindState(findable, openName ?? "", onPick);
     // The host's slice over the transitions it builds its flow from (over `data`).
@@ -379,8 +408,9 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
         body: <FlowsTab cards={cards} open={openName} onOpen={openFlow} newFlow={newFlow}
             id={`${keys.library}:flows`} storageKey={`${keys.library}.flows`} styles={styles} words={words} />,
     }), [flows, cards, openName, openFlow, newFlow, keys.library, styles, words]);
-    // The library pane: the tabs `library` lists, each data tab a Library of its own rows' cards (#1248).
-    const start = useFlowchartLibrary({ library: value.library, flows: flowsTab, keys, words });
+    // The library pane: the tabs `library` lists, each data tab a Library of its own rows' cards (#1248),
+    // each card that drops taking its ⏎ (#1249).
+    const start = useFlowchartLibrary({ library: value.library, flows: flowsTab, keys, words, enter: drop.enter });
 
     // The banners: the open flow's session's, then a `flow` the flowchart doesn't hold, as the Sheet names an entry its record doesn't (FB42).
     const banners = !edits && missing === undefined ? undefined : (
@@ -405,14 +435,14 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
                 footer={
                     <FlowchartFooter styles={styles} name={openName} links={flow.links.length}
                         narrowedFrom={total !== undefined && narrowed !== undefined && narrowed < total ? total : undefined}
-                        counts={model.counts} pending={waiting} saved={saved} words={words} />
+                        counts={model.counts} pending={waiting} saved={saved} message={notice} words={words} />
                 }
                 onKeyDown={onKeyDown}
             >
                 {held.many && openName === undefined
                     ? <NoFlows newFlow={newFlow} styles={styles} words={words} />
                     : <FlowchartCanvasView canvas={canvas} model={model} orientation={orientation} reveal={reveal}
-                        edit={canvasEdit} words={words} storageKey={storageKey} />}
+                        edit={canvasEdit} drop={drop.canvas} onSelection={onSelection} words={words} storageKey={storageKey} />}
             </BuilderFrame>
         </Box>
     );

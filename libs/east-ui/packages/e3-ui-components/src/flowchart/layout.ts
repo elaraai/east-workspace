@@ -109,6 +109,46 @@ export interface FlowchartLayout {
     /** The dashed "+ LANE" affordance rect at the tail (full lane height,
      * 14px insets) — drawn where the flowchart edits (#1247). */
     laneTail: { x: number; y: number; w: number; h: number };
+    /** The rows states stand in along the stacking axis — LR's y, TD's x:
+     * where the first row starts, and the pitch between rows. A dropped state
+     * lands in one (#1249). */
+    rows: { start: number; pitch: number };
+}
+
+/**
+ * The cell a state stands in, at a row of a lane's band: the node's footprint
+ * — what a state drawn there, or dropped there (#1249), takes.
+ *
+ * @param layout - The laid-out flow
+ * @param lane - The lane's band
+ * @param row - The row, from the band's first
+ * @returns The cell, in the canvas's px
+ */
+export function rowCell(layout: FlowchartLayout, lane: LaneBand, row: number): { x: number; y: number; w: number; h: number } {
+    const cross = layout.rows.start + row * layout.rows.pitch;
+    return layout.orientation === "TD"
+        ? { x: cross, y: lane.y + lane.h / 2 - NODE_H / 2, w: NODE_W, h: NODE_H }
+        : { x: lane.x + lane.w / 2 - NODE_W / 2, y: cross, w: NODE_W, h: NODE_H };
+}
+
+/**
+ * Where the landing line runs for a state dropped at a row of a lane's band
+ * (#1249): across the node's footprint, in the middle of the gap before that
+ * row — the 16px under the lane's header before the first row, half the gap
+ * between two rows before any other — between the state above it and the one
+ * it lands before. Its thickness is the recipe's.
+ *
+ * @param layout - The laid-out flow
+ * @param lane - The lane's band
+ * @param row - The row the state lands in
+ * @returns The line's start, and its length across the band — `w` in LR, `h` in TD; the other is 0
+ */
+export function landingSeam(layout: FlowchartLayout, lane: LaneBand, row: number): { x: number; y: number; w: number; h: number } {
+    const cell = rowCell(layout, lane, row);
+    const td = layout.orientation === "TD";
+    // The gap before the row, along the stacking axis: under the header, or between two rows.
+    const gap = row === 0 ? layout.rows.start - LANE_HEADER_H : layout.rows.pitch - (td ? NODE_W : NODE_H);
+    return td ? { x: cell.x - gap / 2, y: cell.y, w: 0, h: cell.h } : { x: cell.x, y: cell.y - gap / 2, w: cell.w, h: 0 };
 }
 
 /** Rounds to half-pixels for crisp 1px strokes. */
@@ -532,5 +572,6 @@ export function computeLayout(model: FlowchartModel, opts: LayoutOptions): Flowc
             w: Math.abs(tailB.x - tailA.x),
             h: Math.abs(tailB.y - tailA.y),
         },
+        rows: { start: LANE_HEADER_H + 16, pitch },
     };
 }

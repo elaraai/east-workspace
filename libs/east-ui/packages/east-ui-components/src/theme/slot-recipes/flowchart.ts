@@ -22,11 +22,20 @@
  * header (off, dimmed, while the lane holds states; a 44px target on a coarse
  * pointer, by its halo), "+ LANE" at the band row's tail, its plus over its
  * word, and the "+ STATE" ghost's plus beside its word. The frame's own
- * regions are the `builderFrame` recipe's.
+ * regions are the `builderFrame` recipe's. Where a library card drops on the
+ * canvas (#1249), the canvas is one drop cell whose own marks stand in for
+ * the shared stage frame — the lane it lands in washed in the brand's tint,
+ * dashed, with a brand line where the state lands; the state, the transition
+ * (the brand wash) or the diamond it sets in the brand — each shown only while
+ * the drag rests there and the drop lands; a refusal is the ghost's red
+ * caption, and the not-allowed cursor.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+
+/** Where a drop is taken, and not refused (#1249): the stage the canvas's marks show on. */
+const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
 
 export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
@@ -36,9 +45,10 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
         "laneDelete", "addLane",
         "stateGhost", "stateEditor", "moveClone",
+        "dropLane", "dropSeam",
         "legend", "legendTitle", "legendRow",
         "minimap",
-        "footer", "footerFlow", "footerStrong", "footerNeg", "footerSplit",
+        "footer", "footerFlow", "footerStrong", "footerNeg", "footerMessage", "footerSplit",
         "hoverCard",
         "flowsTab", "flowsList", "flowsFoot", "newFlow", "noFlows",
     ],
@@ -95,8 +105,28 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             overflow: "auto",
             _focus: { outline: "none" },
         },
+        /* The canvas, and its one drop cell (#1249): its own marks stand in for
+         * the shared stage's frame and wash over the whole canvas — most of
+         * which refuses a transition's card — so the stage keeps only its
+         * not-allowed cursor; the ghost's red caption says why. */
         canvasWrap: {
             position: "relative",
+            "&[data-drag-cell][data-drop-valid]::before, &[data-drag-cell][data-drop-active]::before, &[data-drag-cell][data-drop-invalid]::before": { content: "none" },
+            "&[data-drag-cell][data-drop-active], &[data-drag-cell][data-drop-invalid]": { background: "transparent" },
+            "&[data-drag-cell][data-drop-invalid]::after": { content: "none" },
+            /* The transition a card retypes takes the brand wash (FB32): a wide,
+             * soft stroke under its line, as the selection's halo is drawn. */
+            "& [data-flowchart-dropwash]": {
+                display: "none",
+                fill: "none",
+                stroke: "var(--fc-brand)",
+                strokeWidth: "12px",
+                opacity: 0.3,
+                pointerEvents: "none",
+            },
+            [`&${TAKEN} [data-flowchart-dropwash]`]: { display: "inline" },
+            /* The decision a card sets takes the brand: its diamond's fill tinted, its rule the brand's. */
+            [`&${TAKEN} [data-flowchart-trigger][data-drop-target] > rect`]: { fill: "brandTint", strokeWidth: "2px" },
         },
 
         /* ── node cards — 116×40, r6, mono code + muted label ─────────── */
@@ -112,6 +142,14 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "&[data-selected]": {
                 borderWidth: "1.5px",
                 borderColor: "brand.600",
+            },
+            /* The state an author's card sets (#1249, FB33): the brand's tint and rule. */
+            "&[data-drop-target]": {
+                [`${TAKEN} > &`]: {
+                    borderWidth: "1.5px",
+                    borderColor: "brand.solid",
+                    background: "brandTint",
+                },
             },
         },
         ghostNode: {
@@ -272,6 +310,37 @@ export const flowchartSlotRecipe = defineSlotRecipe({
                 color: "fg.muted",
             },
         },
+        /* ── where a dropped card lands (#1249) ─────────────────────────── */
+        /* The lane a state lands in, or whose header a card sets: the band
+         * washed in the brand's tint under the states, a dashed brand rule
+         * inside its edge — the candidate band a moved state's is. */
+        dropLane: {
+            position: "absolute",
+            display: "none",
+            boxSizing: "border-box",
+            pointerEvents: "none",
+            background: "brandTint",
+            outlineWidth: "1.5px",
+            outlineStyle: "dashed",
+            outlineColor: "brand.solid",
+            outlineOffset: "-3px",
+            [`${TAKEN} > &`]: { display: "block" },
+        },
+        /* Where the state lands: a 2px brand line across the node's footprint,
+         * centred on the seam between the states either side of it — level in
+         * LR, upright in TD. Its place and length are the canvas's. */
+        dropSeam: {
+            position: "absolute",
+            display: "none",
+            pointerEvents: "none",
+            zIndex: 2,
+            background: "brand.solid",
+            borderRadius: "full",
+            height: "2px",
+            marginTop: "-1px",
+            "&[data-orientation='TD']": { height: "auto", width: "2px", marginTop: "0", marginLeft: "-1px" },
+            [`${TAKEN} > &`]: { display: "block" },
+        },
         /* Translucent clone following the pointer during a cross-lane drag. */
         moveClone: {
             position: "absolute",
@@ -352,6 +421,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         footerFlow: { color: "fg", fontWeight: "600" },
         footerStrong: { color: "fg", fontWeight: "700" },
         footerNeg: { color: "status.neg", fontWeight: "600" },
+        /* Why a card's ⏎ was refused (#1249): the footer's own ink, cut short before the split. */
+        footerMessage: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },
 
         /* ── hover card — paper · rule-strong · r6, no shadow ─────────── */
