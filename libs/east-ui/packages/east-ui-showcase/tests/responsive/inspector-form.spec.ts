@@ -15,15 +15,17 @@
  * line, and a tag's chip is the design system's 22px. One rhythm: 16px between fields, a nested struct's among them, and
  * 8px inside a field — from its label to its control, from its control to its
  * help line, from a group's head to its first field. Nothing runs past the
- * pane's edge or is cut off; a changed field's tint stays clear of its
- * neighbours and inside the pane, and so does a focus ring.
+ * pane's edge or is cut off, and no word breaks across lines where the pane has
+ * room for it whole; a changed field's tint stays clear of its neighbours and
+ * inside the pane, and so does a focus ring.
  *
  * Read over the Sheet's examples — the machines' upkeep (`sheetUpkeep`, a
  * field of every kind: a machine with every field set, one with its Options
  * empty, a new row with no field given, a field changed, a row's issue), the
  * workshop's line, band, several rows and nothing selected, and a batch's
  * line and band — and over the Plan's print works: one event, several, a
- * press's row and nothing selected. Pinned beside main on a desktop, overlaid
+ * press's row and nothing selected, and the overlaps banner (#1198) over a
+ * press's row with an overlap and one of its jobs. Pinned beside main on a desktop, overlaid
  * on a phone; in both themes. No screenshot is read: boxes and computed
  * styles, polled until the page is at rest.
  *
@@ -33,7 +35,7 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
-import { openExample, rowSel } from "./plan-page";
+import { openExample, rowId, rowSel } from "./plan-page";
 
 const SHEETS = "e3/sheet/sheet";
 const EVENTS = "e3/plan/plan-events";
@@ -58,8 +60,46 @@ const HELP_TYPE = "11px";
 /** The open pane's panel: the end slot's sheet, pinned beside main or floating over it. */
 const PANEL = "[data-orientation][data-side][data-surface]";
 
-/** What the form measures wrong, read in the page — each a line naming the field and what is out of line. */
+/**
+ * Each word in the pane broken across lines though the pane has room for it
+ * whole — a box squeezed narrower than its words, which then stand a letter or
+ * two to a line (the Plan's overlaps lines did, beside their times, #1198). A
+ * word wider than the pane's own width may break: the pane has no line for it.
+ * Evaluated in the page on the pane's slot; an empty list holds.
+ */
+const brokenWords = (slot: Element, panelSel: string): string[] => {
+    const out: string[] = [];
+    const panel = slot.querySelector(panelSel) ?? slot;
+    const room = panel.getBoundingClientRect().width;
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const el = node.parentElement;
+        if (el === null || el.getClientRects().length === 0) continue;
+        const s = getComputedStyle(el);
+        if (s.visibility === "hidden") continue;
+        ctx.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+        for (const word of (node.textContent ?? "").matchAll(/\S+/g)) {
+            const range = document.createRange();
+            range.setStart(node, word.index);
+            range.setEnd(node, word.index + word[0].length);
+            const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+            if (lines.size > 1 && ctx.measureText(word[0]).width < room) {
+                out.push(`"${word[0]}" stands on ${lines.size} lines, in a ${Math.round(el.getBoundingClientRect().width * 10) / 10}px box`);
+            }
+        }
+    }
+    return out;
+};
+
+/** What the form measures wrong, read in the page — each a line naming the field and what is out of line — and every
+ *  word broken where the pane has room for it ({@link brokenWords}). */
 async function formFaults(pane: Locator, coarse: boolean): Promise<string[]> {
+    return [...await formLayoutFaults(pane, coarse), ...await pane.evaluate(brokenWords, PANEL)];
+}
+
+/** What the form's layout measures wrong, read in the page — each a line naming the field and what is out of line. */
+async function formLayoutFaults(pane: Locator, coarse: boolean): Promise<string[]> {
     return pane.evaluate((slot, { coarse, line, touch, between, inside, panelSel, type, tagType, chipHeight, helpType }) => {
         const bad: string[] = [];
         const panel = slot.querySelector(panelSel) ?? slot;
@@ -231,8 +271,14 @@ async function formFaults(pane: Locator, coarse: boolean): Promise<string[]> {
     }, { coarse, line: LINE, touch: TOUCH, between: BETWEEN, inside: INSIDE, panelSel: PANEL, type: TYPE, tagType: TAG_TYPE, chipHeight: CHIP, helpType: HELP_TYPE });
 }
 
-/** What of the pane falls outside it, read in the page — for a pane that shows no form: its counts, facts and hints. */
+/** What of the pane falls outside it, read in the page — for a pane that shows no form: its counts, facts and hints —
+ *  and every word broken where the pane has room for it ({@link brokenWords}). */
 async function paneFaults(pane: Locator): Promise<string[]> {
+    return [...await paneEdgeFaults(pane), ...await pane.evaluate(brokenWords, PANEL)];
+}
+
+/** What of the pane falls outside it, read in the page. */
+async function paneEdgeFaults(pane: Locator): Promise<string[]> {
     return pane.evaluate((slot, panelSel) => {
         const panel = slot.querySelector(panelSel) ?? slot;
         const P = panel.getBoundingClientRect();
@@ -427,6 +473,9 @@ async function openPrintWorks(page: Page, theme: "light" | "dark", phone: boolea
 /** The spring catalogue's run on Press A1, and the press's other runs. */
 const pressA1 = rowSel("presses.span", "Hall A", "a1");
 
+/** Press B2, whose two jobs on the 20th overlap (#1198): the market posters and the loyalty cards. */
+const PRESS_B2 = rowId("presses.span", "Hall B", "b2");
+
 for (const phone of [false, true]) {
     test.describe(`The Plan's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, () => {
         test.skip(({ isMobile }) => isMobile !== phone, phone ? "measured on the phone" : "measured at the desktop width");
@@ -444,6 +493,39 @@ for (const phone of [false, true]) {
                 await select(page, frame, bar, phone);
                 await expect(pane.locator("[data-plan-inspector='event'] [data-field]")).toHaveCount(3);
                 await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+
+            test(`a press's row with an overlap, then one of its jobs: the overlaps banner says each overlap's time and its jobs' names in whole words, every line inside the pane (${theme})`, async ({ page }) => {
+                const { entry, frame, pane } = await openPrintWorks(page, theme, phone);
+                // On a phone the Plan is its narrow list (#570): Press B2's card, in the Rows tab — the list shows its
+                // first rows and a "more rows" button for the rest, tapped until the press's card is drawn.
+                const holder = entry.locator(phone ? `[data-plan-card=${JSON.stringify(PRESS_B2)}]` : `[data-plan-row=${JSON.stringify(PRESS_B2)}]`);
+                if (phone) {
+                    await entry.locator("[data-plan-tab='rows']").tap();
+                    await settled(page);
+                    const more = entry.getByRole("button", { name: /^\d+ more rows?$/ });
+                    for (let i = 0; i < 10 && await holder.count() === 0 && await more.count() > 0; i++) {
+                        await more.first().tap();
+                        await settled(page);
+                    }
+                    await holder.scrollIntoViewIfNeeded();
+                }
+                // The press's row: its pair on the 20th — the overlap's time, and both jobs' names.
+                await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : holder.locator("[role='rowheader']"), phone);
+                await expect(pane.locator("[data-plan-inspector='row'] [data-inspector-overlap]")).toHaveCount(1);
+                expect(await paneFaults(pane)).toEqual([]);
+                // One of its jobs: the job it overlaps — its time, and its name. The loyalty cards, drawn over the market
+                // posters where they overlap, is the one a pointer reaches whole. A phone's pane lies over the list: a tap
+                // on the scrim beside it closes it first.
+                if (phone) {
+                    await frame.locator("[data-scrim]").tap({ position: { x: 8, y: 8 } });
+                    await expect(frame.locator("[data-scrim]")).toBeHidden();
+                    await settled(page);
+                }
+                const job = holder.locator("[data-run]", { hasText: "Loyalty cards" });
+                await select(page, frame, job, phone);
+                await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-overlap]")).toHaveCount(1);
                 expect(await paneFaults(pane)).toEqual([]);
             });
         }
