@@ -17,11 +17,19 @@
  * (`window`). The Calendar takes no notice of them: `build(slot)` is its kind,
  * and `buildPlan(slot)` Plan's.
  *
+ * A kind given `window` (#1199, PB55) is paged on a Plan as a paged canvas
+ * pages its blocks: its rows come a window of resources at a time as the
+ * canvas scrolls, and the key search seeks a resource by its key. Its `rows`
+ * are then never read — not where the Plan draws them, nor in the kind on the
+ * wire, which lists none. A window comes in the resources' key order, so a
+ * group strip or a parent, which gather resources from anywhere in it, are
+ * refused beside one, and the keys are Strings, as the canvas seeks them.
+ *
  * @packageDocumentation
  */
 
 import {
-    BooleanType, DictType, East, Expr, OptionType, StringType, isTypeEqual, none, printType, some,
+    ArrayType, BooleanType, DictType, East, Expr, OptionType, StringType, isTypeEqual, none, printType, some,
     type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { StatusValueType } from "@elaraai/east-ui";
@@ -64,7 +72,13 @@ export interface ScheduleResourcesConfig<K extends EastType, R extends EastType>
     collapsed?: boolean | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>);
     /** Plan: the read-only rows under each resource, in order — `Plan.series.heat`, `table` or `chart` over the resources' rows. */
     measures?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
-    /** Plan: the resources a window at a time — `Data.bindPaged(record)` over the resources' record. */
+    /**
+     * Plan: the resources a window at a time — `Data.bindPaged(record)` over
+     * the resources' record, keyed by String (#1199, PB55): the rows come a
+     * window at a time as the canvas scrolls, the key search seeks a resource
+     * by its key, and `rows` is never read. Refused beside `group` or
+     * `parent`, which gather resources from anywhere in the record.
+     */
     window?: unknown;
 }
 
@@ -87,7 +101,7 @@ export interface ScheduleResourceKind<K extends EastType, R extends EastType> {
     readonly icon: string;
     /** Plan: the read-only series under each resource, in order. */
     readonly measures: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
-    /** Plan: the paged read of the resources; `undefined` when they are read whole. */
+    /** Plan: the paged read of the resources, its rows a window at a time (#1199); `undefined` when they are read whole. */
     readonly window: ExprType<EastType> | undefined;
     /**
      * Plan: the resources as the kind was given them, a `Dict` of `rowType` by
@@ -135,7 +149,8 @@ const MEASURES: readonly string[] = ["heat", "table", "chart"];
  * @returns The kind, for a builder's `resources`
  * @throws {Error} When `rows` is not a `Dict`; a `rollup` that is not a way to roll up; a measure that is not a
  *   `Plan.series.heat`, `table` or `chart` over the resources' rows written in place, that nests, or whose key
- *   another measure has; and a `window` over another collection
+ *   another measure has; and a `window` over another collection, over resources keyed by anything but a String, or
+ *   beside `group` or `parent` (#1199)
  * @example
  * ```tsx
  * import { DictType, East, StringType, StructType, some } from "@elaraai/east";
@@ -219,6 +234,17 @@ export function scheduleResources<K extends EastType, R extends EastType>(
         if (served === undefined || !isTypeEqual(served, collection)) {
             throw new Error(`${where}: \`window\` pages the resources — Data.bindPaged(record) over the resources' record — and this one serves ${served === undefined ? "no collection" : printType(served)}`);
         }
+        // A window comes in the resources' key order (#1199): the canvas seeks a resource by its key as text,
+        // and a group strip or a parent gathers resources from anywhere in the record.
+        if (!isTypeEqual(keyType, StringType)) {
+            throw new Error(`${where}: \`window\` pages the resources and the key search seeks one by its key, as text — key the resources by String, and these are keyed by ${printType(keyType)}`);
+        }
+        for (const prop of ["group", "parent"] as const) {
+            if (config[prop] !== undefined) {
+                throw new Error(`${where}: \`window\` pages the resources a window at a time in their key order, and \`${prop}\` ` +
+                    `gathers resources from anywhere in the record, which a window holds only its share of — read the resources whole, or leave \`${prop}\` out`);
+            }
+        }
     }
     // Plan's accessors, each one East function, called per row.
     const accessor = <T extends EastType>(out: T, fn: ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<T>) | undefined) =>
@@ -287,10 +313,14 @@ export function scheduleResources<K extends EastType, R extends EastType>(
                 icon: config.icon,
                 rollup,
                 measures: measureKeys,
-                rows: (source as unknown as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
-                    const resolve = $.const(planRow);
-                    return resolve(row as never, key as never);
-                }),
+                // A paged kind's rows come a window at a time where the Plan draws them (#1199): none here, so
+                // the kind on the wire never reads them whole.
+                rows: window !== undefined
+                    ? East.value([], ArrayType(PlanResourceRowType))
+                    : (source as unknown as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
+                        const resolve = $.const(planRow);
+                        return resolve(row as never, key as never);
+                    }),
             } as never, PlanResourcesType);
         },
     };

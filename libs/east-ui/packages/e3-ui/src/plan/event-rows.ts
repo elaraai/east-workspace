@@ -34,15 +34,28 @@
  * resource kind draws no rows; a hidden measure no row under each resource. A
  * resource's first row is its own, and stays while its kind shows.
  *
+ * A resource kind with a `window` (#1199, PB55) is PAGED, as a paged canvas
+ * pages its blocks: its rows come a window of resources at a time as the
+ * canvas scrolls, through the payload's `paged` ({@link createEventPaged}),
+ * and the key search seeks a resource by its key. The `blocks` seam keeps its
+ * place among the kinds' blocks with an empty paged block (`fixed: false`,
+ * the one block it serves that is not fixed) and never reads its resources;
+ * the events placed on them are read with the rest, by way of drawing and by
+ * the resource's key (`placed`), and each window of its resources draws the
+ * ones placed on it (`rows`). An event on a paged kind is never on the
+ * Unassigned row: whether the kind has its resource would take every window
+ * to know, so an event naming a resource it has not draws nowhere.
+ *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FunctionType, IntegerType, OptionType, SetType, StringType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, SetType, StringType,
     StructType, none, some, variant,
-    type BlockBuilder, type EastType, type ExprType,
+    type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { IconType, PickStateType, StatusValueType } from "@elaraai/east-ui";
+import { IconType, PickStateType, SeekQueryType, SeekRangeType, StatusValueType } from "@elaraai/east-ui";
+import { buildPagedWindow, resolveRowSource } from "@elaraai/east-ui/internal";
 import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
@@ -77,7 +90,8 @@ export type PlanEventDraftsType = typeof PlanEventDraftsType;
  * hides)` → the canvas's blocks, `none` while a kind's read is in flight. The
  * hidden ids are the library's Series tab's (#1195): `resources.<slot>`,
  * `events.<slot>` and `measures.<key>` stay out, and the rest are not this
- * seam's.
+ * seam's. A paged resource kind's place (#1199) is an empty block that is not
+ * fixed, which the payload's `paged` fills a window at a time.
  */
 export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanBlocksType));
 
@@ -146,6 +160,17 @@ const PlacedListType = ArrayType(PlacedType);
 
 /** The events placed on one way of drawing for each resource of a kind, by the resource key's text. */
 const PlacedByKeyType = DictType(StringType, PlacedListType);
+
+/**
+ * The events placed on a paged resource kind's resources (#1199): by the way
+ * they draw (`span`, `buckets`, `cards`, `marks`), then by the resource key's
+ * text — each event as Plan draws it, its two times and its kind's icon. What
+ * each window of the kind's resources draws on its rows.
+ */
+export const PlanEventPlacedType = DictType(StringType, PlacedByKeyType);
+
+/** Type representing {@link PlanEventPlacedType}. */
+export type PlanEventPlacedType = typeof PlanEventPlacedType;
 
 /**
  * An element's key: its event, as East prints a `Schedule.Types.EventRef`
@@ -265,6 +290,8 @@ type Block = BlockBuilder<EastType>;
  * @param placed - The events placed on its resources, by way of drawing
  * @param events - The event kinds, by slot
  * @param hidden - The ids the viewer hides
+ * @param fixed - Whether its blocks are fixed: the resources whole, served with every window; or a paged kind's
+ *   window of them (#1199), which a paged canvas pages
  * @returns Its blocks
  */
 function resourceBlocks(
@@ -275,6 +302,7 @@ function resourceBlocks(
     placed: ReadonlyMap<PlanDrawLiteral, ExprType<typeof PlacedByKeyType>>,
     events: readonly (readonly [string, AnyEventKind])[],
     hidden: ExprType<SetType<StringType>>,
+    fixed: boolean = true,
 ): ExprType<PlanBlocksType> {
     const where = `Plan: resources.${slot}`;
     const keyType = kind.keyType;
@@ -449,7 +477,7 @@ function resourceBlocks(
         }),
     ];
     if (hiders.length === 0) {
-        return $.let(blocks.map(($2, b) => ({ fixed: true, parent: b.parent, rows: b.rows })), PlanBlocksType);
+        return $.let(blocks.map(($2, b) => ({ fixed, parent: b.parent, rows: b.rows })), PlanBlocksType);
     }
     const dropped = $.let(new Set<string>(), SetType(StringType));
     for (const [series, ids] of hiders) {
@@ -457,7 +485,7 @@ function resourceBlocks(
         $.if(gone, ($2) => { $2(dropped.insert(series)); });
     }
     return $.let(blocks.map(($2, b) => ({
-        fixed: true,
+        fixed,
         parent: b.parent,
         rows: b.rows.filter(($3, row) => dropped.has(row.id.match({
             entry: (_$4, at) => at.series,
@@ -542,11 +570,13 @@ export function createEventBlocks(
         // A kind whose read is in flight leaves the rows to come.
         $.if(ready, ($2) => {
             const items = reads.map((read) => $2.let(read.unwrap("some"), ArrayType(PlanEventItemType)));
-            // Each resource kind's resources, read once.
-            const sources = new Map(resources.map(([slot, kind]) => [slot, $2.let(kind.source) as unknown as ExprType<DictType<EastType, EastType>>]));
+            // Each resource kind's resources, read once — but a paged kind's (#1199), which come a window at a time.
+            const whole = resources.filter(([, kind]) => kind.window === undefined);
+            const sources = new Map(whole.map(([slot, kind]) => [slot, $2.let(kind.source) as unknown as ExprType<DictType<EastType, EastType>>]));
             // The events each way of drawing places on each resource kind, by the resource's key.
-            const placed = new Map(resources.map(([slot]) => [slot, new Map(eventDrawsOf(slot, events).map((draw) =>
+            const placed = new Map(whole.map(([slot]) => [slot, new Map(eventDrawsOf(slot, events).map((draw) =>
                 [draw, $2.let(new Map(), PlacedByKeyType)] as const))]));
+            const paged = new Set(resources.filter(([, kind]) => kind.window !== undefined).map(([slot]) => slot));
             const lost = events.map(() => $2.let([], PlacedListType));
             events.forEach(([, kind], i) => {
                 const icon = $2.const({ prefix: "fas", name: kind.icon, label: none, style: none }, IconType);
@@ -562,6 +592,11 @@ export function createEventBlocks(
                                         some: ($6, ref) => {
                                             // On a resource of a kind it takes, which the kind has.
                                             for (const slot of kind.takes) {
+                                                if (paged.has(slot)) {
+                                                    // A paged kind's own (#1199), drawn by the window its resource is in.
+                                                    $6.if(ref.kind.equal(slot), ($7) => { $7.assign(held, true); });
+                                                    continue;
+                                                }
                                                 const into = placed.get(slot)!.get(kind.draw)!;
                                                 const all = sources.get(slot)! as unknown as ExprType<DictType<StringType, EastType>>;
                                                 $6.if(ref.kind.equal(slot).and(() => all.has(ref.key)), ($7) => {
@@ -583,6 +618,12 @@ export function createEventBlocks(
             });
             const blocks = $2.let([], PlanBlocksType);
             for (const [slot, kind] of resources) {
+                if (paged.has(slot)) {
+                    // A paged kind's place (#1199): the one block that is not fixed, which the payload's
+                    // `paged` fills a window at a time — there whether or not the viewer hides the kind.
+                    $2(blocks.pushLast(East.value({ fixed: false, parent: none, rows: [] }, PlanBlockType)));
+                    continue;
+                }
                 // A hidden resource kind draws no rows; its events stay its own, off the Unassigned row.
                 $2.if(hidden.has(planHideId.resources(slot)).not(), ($3) => {
                     $3(blocks.append(resourceBlocks($3 as unknown as Block, slot, kind, sources.get(slot)!, placed.get(slot)!, events, hidden)));
@@ -593,4 +634,175 @@ export function createEventBlocks(
         });
         return result;
     }) as unknown as ExprType<PlanEventBlocksType>;
+}
+
+// ============================================================================
+// A paged resource kind's rows (#1199)
+// ============================================================================
+
+/**
+ * A paged resource kind's rows (#1199, PB55): its resources a window at a
+ * time, as a paged canvas pages its blocks. The renderer reads `placed` over
+ * the range it draws with the `blocks` seam, and serves the canvas a paged
+ * source whose every window is the event kinds' blocks with this kind's place
+ * filled by `rows` over that window of its resources — so its rows come as
+ * the canvas scrolls, its key search seeks a resource by its key, and its
+ * resources are never read whole.
+ *
+ * @property kind - The paged resource kind's slot
+ * @property id - The identity of the kind's resources' window
+ * @property placed - `(from, to, drafts by kind, the ids the viewer hides)` → the events placed on the kind's resources over `[from, to)`, every kind's drafts in place, by way of drawing and by the resource key's text; `none` while a kind's read is in flight
+ * @property rows - `(offset, limit, placed, the ids the viewer hides)` → the kind's rows for its resources `[offset, offset + limit)` — a whole window of them — with the events given placed on them: one block, not fixed (an empty one while the viewer hides the kind); `none` while the window is in flight
+ * @property total - How many resources the kind has, once known
+ * @property seek - Where a key search lands among the kind's resources: the window's own key search
+ * @property revision - The snapshot of the resources the windows are read at
+ * @property refresh - Moves the resources' window to a snapshot, or to the one it holds now
+ */
+export const PlanEventPagedType = StructType({
+    kind: StringType,
+    id: StringType,
+    placed: FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanEventPlacedType)),
+    rows: FunctionType([IntegerType, IntegerType, PlanEventPlacedType, PickStateType], OptionType(PlanBlocksType)),
+    total: FunctionType([], OptionType(IntegerType)),
+    seek: OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh: FunctionType([OptionType(StringType)], NullType),
+});
+
+/** Type representing {@link PlanEventPagedType}. */
+export type PlanEventPagedType = typeof PlanEventPagedType;
+
+/** A paged source's handle, as the paged rows read it: its identity, size, key search and snapshot. */
+type PagedHandle = ExprType<StructType<{
+    id: StringType;
+    total: FunctionType<[], OptionType<IntegerType>>;
+    seek: OptionType<FunctionType<[typeof SeekQueryType], OptionType<typeof SeekRangeType>>>;
+    revision: FunctionType<[], OptionType<StringType>>;
+    refresh: FunctionType<[OptionType<StringType>], NullType>;
+}>>;
+
+/**
+ * The paged resource kind's rows (see {@link PlanEventPagedType}), when a
+ * resource kind has a `window`.
+ *
+ * @remarks
+ * Made inside the function that assembles the payload, as the `blocks` seam
+ * is, so `built` is the payload's own array of event kinds.
+ *
+ * @param resources - The resource kinds, by slot, in order — at most one of them with a `window` (the Plan refuses more)
+ * @param events - The event kinds, by slot, in order
+ * @param built - The event kinds as the payload holds them, in the same order
+ * @returns The paged rows, or `undefined` when no resource kind has a `window`
+ * @throws {Error} When the kind's `window` is not a paged source of its resources
+ * @internal
+ */
+export function createEventPaged(
+    resources: readonly (readonly [string, AnyResourceKind])[],
+    events: readonly (readonly [string, AnyEventKind])[],
+    built: ExprType<ArrayType<PlanEventKindType>>,
+): ExprType<PlanEventPagedType> | undefined {
+    const at = resources.find(([, kind]) => kind.window !== undefined);
+    if (at === undefined) return undefined;
+    const [slot, kind] = at;
+    const where = `Plan: resources.${slot}`;
+    // The resources a window at a time — each window whole, a piece the source cut short read on to its end.
+    const resolved = resolveRowSource(kind.window, where);
+    if (resolved.kind === "inline") {
+        throw new Error(`${where}: \`window\` pages the resources — Data.bindPaged(record) over the resources' record`);
+    }
+    const window = buildPagedWindow(resolved);
+    const handle = resolved.source as unknown as PagedHandle;
+    const draws = eventDrawsOf(slot, events);
+    // The event kinds placed on it, with their place in `events` — the payload's array of them.
+    const takers = events.flatMap(([s, k], i) => (k.takes.includes(slot) ? [[s, k, i] as const] : []));
+
+    const placed = East.function(
+        [DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanEventPlacedType),
+        ($, from, to, drafts, hiding) => {
+            const result = $.let(none, OptionType(PlanEventPlacedType));
+            const noDrafts = $.const(new Map(), ScheduleDraftsType);
+            const hidden = $.let(hiding.toSet(), SetType(StringType));
+            // Each kind's events over the window, its drafts in place; a hidden kind is not read.
+            const reads = takers.map(([s, , i]) => {
+                const k = $.let(built.get(BigInt(i)));
+                const kindDrafts = $.let(drafts.get(s, () => noDrafts));
+                const read = $.let(some([]), OptionType(ArrayType(PlanEventItemType)));
+                $.if(hidden.has(planHideId.events(s)).not(), ($2) => { $2.assign(read, k.planItems(from, to, kindDrafts)); });
+                return read;
+            });
+            const ready = reads.reduce<ExprType<BooleanType>>(
+                (all, read) => all.and(() => read.hasTag("some")),
+                East.value(true, BooleanType),
+            );
+            $.if(ready, ($2) => {
+                const out = $2.let(new Map(), PlanEventPlacedType);
+                for (const draw of draws) $2(out.insert(draw, East.value(new Map(), PlacedByKeyType)));
+                takers.forEach(([, k], j) => {
+                    const icon = $2.const({ prefix: "fas", name: k.icon, label: none, style: none }, IconType);
+                    const into = $2.let(out.get(k.draw));
+                    $2.for(reads[j]!.unwrap("some"), ($3, item) => {
+                        $3.match(item.start, {
+                            some: ($4, start) => {
+                                $4.match(item.end, {
+                                    some: ($5, end) => {
+                                        $5.match(item.resource, {
+                                            some: ($6, ref) => {
+                                                // On one of this kind's resources, by its key: the window holding it draws it.
+                                                $6.if(ref.kind.equal(slot), ($7) => {
+                                                    $7.if(into.has(ref.key).not(), ($8) => { $8(into.insert(ref.key, East.value([], PlacedListType))); });
+                                                    $7(into.get(ref.key).pushLast(East.value({ item, start, end, icon }, PlacedType)));
+                                                });
+                                            },
+                                        });
+                                    },
+                                });
+                            },
+                        });
+                    });
+                });
+                $2.assign(result, some(out));
+            });
+            return result;
+        });
+
+    const rows = East.function(
+        [IntegerType, IntegerType, PlanEventPlacedType, PickStateType], OptionType(PlanBlocksType),
+        ($, offset, limit, given, hiding) => {
+            const result = $.let(none, OptionType(PlanBlocksType));
+            const hidden = $.let(hiding.toSet(), SetType(StringType));
+            $.if(hidden.has(planHideId.resources(slot)), ($2) => {
+                // A hidden kind draws no rows: its place stands empty in every window.
+                $2.assign(result, some(East.value([{ fixed: false, parent: none, rows: [] }], PlanBlocksType)));
+            }).else(($2) => {
+                const read = $2.const(window);
+                const got = $2.let(read(offset, limit));
+                $2.match(got, {
+                    some: ($3, all) => {
+                        const onIt = new Map(draws.map((draw) =>
+                            [draw, $3.let(given.get(draw, () => East.value(new Map(), PlacedByKeyType)))] as const));
+                        $3.assign(result, some(resourceBlocks($3 as unknown as Block, slot, kind,
+                            all as unknown as ExprType<DictType<EastType, EastType>>, onIt, events, hidden, false)));
+                    },
+                });
+            });
+            return result;
+        });
+
+    // A source that names no snapshot is read at none, and moves nowhere.
+    const revision = resolved.pinned
+        ? handle.revision
+        : East.function([], OptionType(StringType), (_$) => East.value(none, OptionType(StringType)));
+    const refresh = resolved.pinned
+        ? handle.refresh
+        : East.function([OptionType(StringType)], NullType, (_$, _target) => East.value(null, NullType));
+    return East.value({
+        kind: slot,
+        id: handle.id,
+        placed,
+        rows,
+        total: handle.total,
+        seek: handle.seek,
+        revision,
+        refresh,
+    } as SubtypeExprOrValue<PlanEventPagedType>, PlanEventPagedType);
 }

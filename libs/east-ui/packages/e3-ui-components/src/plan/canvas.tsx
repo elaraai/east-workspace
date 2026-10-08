@@ -337,8 +337,9 @@ export function usePlanCanvas({
     // as fixed blocks.
     const lead = usePlanEventBlocks(events, scale, hidden, eventEditing.drafts);
     // The event kinds' rows ahead of the drafted root's own, and its links'
-    // event ends named where the events draw.
-    const shown = usePlanEventRoot(editing.value, editing.data, events !== undefined ? lead : undefined);
+    // event ends named where the events draw — over a paged resource kind's
+    // windows when a kind pages (#1199).
+    const shown = usePlanEventRoot(editing.value, editing.data, events !== undefined ? lead : undefined, events?.paged, hidden);
     const value = shown.value;
     const data = shown.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
@@ -352,6 +353,10 @@ export function usePlanCanvas({
     // So did its event kinds' rows, which lead every window.
     const leadVersion = lead.version;
     useLayoutEffect(() => { if (leadVersion > 0) controller.refreshSource(); }, [controller, leadVersion]);
+    // So did a paged resource kind's windows (#1199): the events placed on its
+    // resources, or the root's own rows each window serves after them.
+    const pagedVersion = shown.version;
+    useLayoutEffect(() => { if (pagedVersion > 0) controller.refreshSource(); }, [controller, pagedVersion]);
     // The source's channels are listened to while the canvas is mounted.
     useEffect(() => controller.connect(), [controller]);
 

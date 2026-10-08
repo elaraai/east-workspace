@@ -402,7 +402,7 @@ accepted and ignored there.
 | `sub`, `value`, `status` | accessors returning `Option`s | Plan | The gutter's sub line, value slot and status dot. |
 | `rollup`, `collapsed` | as `Plan.series.span`'s | Plan | How a parent's bands roll its children's events up, and whether it starts folded. |
 | `measures` | `Plan.series.heat`, `table` or `chart` values over the resource's row type | Plan | Read-only rows under each resource, in order: ordinary series, laid out as `Plan.series.views` lays an entry out today. A series that declares `edit` is refused here. |
-| `window` | `Data.bindPaged` over the resources' record | Plan | Pages the resource rows as today's paged canvas does (§9.11). |
+| `window` | `Data.bindPaged` over the resources' record | Plan | Pages the resource rows as today's paged canvas does (§9.11): the resources keyed by String, with no `group` or `parent`. |
 
 ### 4.3 `<Plan>`'s props
 
@@ -492,6 +492,7 @@ PlanPayloadType = StructType({
     blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType)),
                                         ArrayType(StringType)],
                                        OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192), what the viewer hides left out (#1195)
+    paged:     OptionType(PlanEventPagedType),   // a paged resource kind's rows, a window of its resources at a time (#1199)
     canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),   // the event kinds' drop veto
     settings:  PlanSettingsType,                 // the event kinds' apply mode, and the date brought into view first
     library:   ArrayType(PlanLibraryTabType),    // the library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
@@ -513,6 +514,19 @@ PlanLibraryTabType = VariantType({
             sets: ArrayType(StructType({ path: ArrayType(StringType), value: BlobType })),   // each field the patch sets, as the kind's field write
         })),
     }),
+});
+
+PlanEventPagedType = StructType({                // a paged resource kind's rows (#1199)
+    kind:     StringType,                        // its slot
+    id:       StringType,                        // its window's identity: the dataset it pages
+    placed:   FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, ArrayType(StringType)],
+                           OptionType(PlanEventPlacedType)),   // the events on its resources over the range drawn, by draw and resource key
+    rows:     FunctionType([IntegerType, IntegerType, PlanEventPlacedType, ArrayType(StringType)],
+                           OptionType(Plan.Types.Blocks)),     // a window of its resources, the events placed on them: one block, not fixed
+    total:    FunctionType([], OptionType(IntegerType)),       // its window's size, key search and snapshot
+    seek:     OptionType(FunctionType([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh:  FunctionType([OptionType(StringType)], NullType),
 });
 
 PlanComponent = EastUI.component("Plan", PlanPayloadType, { optional: true });
@@ -1191,6 +1205,67 @@ As built (#1198):
   canvas does: blocks come a window at a time as the canvas scrolls, and the
   key search seeks a resource by its key.
 
+As built (#1199):
+
+- The window reader is the shared layer's (e3-ui `src/schedule/window.ts`),
+  so the Calendar's windowed reads (#1156) take it with their own wiring
+  alone. A kind's `window` reads the days `[from, to)` through its day index:
+  the first day's midnight is sought (a `range` from its `.east` text), and the
+  index's pages are read from the start of the page that row is in, each to
+  the next page's start at the reader's 256 entries, until an entry filed under
+  a day past the window, or the index's end. `backlogWindow` reads every page
+  of its backlog index from its start. An event filed under several days is
+  kept once, by its key.
+- The drafts go over what a window read as over the record whole (#1156): a
+  draft moved into the days draws even when the record holds the event on a
+  day the window never read, one moved out of them leaves, a deleted one
+  leaves and a new one draws. While the search or a page is in flight the
+  read is `none`: the canvas keeps the rows it drew, and the footer its
+  counts. A pan seeks the day it brings in, and the page it reads is the
+  runtime's already when a read before it read that page.
+- The seams that read through the windows: the events over a window (the
+  `blocks`, the footer's counts and overlaps, a row's facts in the
+  inspector) and the backlog (the library's Backlog tab, the footer's
+  backlog).
+- Refused at build: a window that is not an index window of the kind's own
+  record, named by what it serves; a `backlogWindow` on plain times; and a
+  `window` over Option times without a `backlogWindow`, as the backlog would
+  read the record whole. A window that reads the index alone (`join` not
+  given) is refused as it is read, naming `join: true`: the handle's type
+  cannot say.
+- A paged resource kind lists no rows on the wire. Its place among the event
+  kinds' blocks is one block that is not fixed, which the payload's `paged`
+  (§5.2) fills a window of resources at a time: `placed` reads the events on
+  its resources over the range the canvas draws, with the `blocks`, and `rows`
+  draws a window of the resources with those events on them; its size, key
+  search and snapshot are its window's. The canvas pages one wrapper over it,
+  each window the event kinds' blocks with that block filled, then the root's
+  own rows, fixed. New events placed, a new set of what the viewer hides or
+  new rows of the root's are a new revision of the wrapper: its windows are
+  read again, the rows standing in until they land. A window waits in flight
+  until the events are placed. A new revision clears a standing key search,
+  as every new snapshot does, so a pan that places other events on the
+  resources clears it, as one does for paged `data` beside event kinds
+  (#1192). The canvas keeps the one wrapper while the payload's `paged` is
+  the same from one evaluation to the next: handles bound with `$.const`;
+  over handles bound with `$.let` the seams are new each time the Reactive
+  body runs, as every function capturing a variable is, and the canvas takes
+  a new wrapper, its windows read again from what the paged runtime holds.
+- Refused at build: a paged kind keyed by anything but a String, as the key
+  search seeks by text; one given `group` or `parent`, which gather resources
+  from anywhere in the record; two paged kinds; and a paged kind beside a
+  paged `data`. A canvas pages one source.
+- What a paged kind does not do yet, as only a window of its resources is
+  read: an event on a resource the kind does not have draws on no row, where
+  a kind read whole draws it on the Unassigned row; a link's end on one of its
+  rows is not found; the library's backlog cards and the inspector name its
+  resources by their keys; and the bulk edit's resource offers none of them.
+- Still read whole: the editing (#1194) — each kind's session is a keyed
+  source read whole (`useEditHistory`), so the kind's `editing` carries its
+  record's snapshot — and the inspector's event (`planEvent`), read by its
+  key. A `ui()` task preloads every record and dataset its manifest names
+  whole, a `Record.bind`'s included, as it does for a paged Sheet's.
+
 ### 9.12 Showcase and docs (owner: the Plan builder's showcase and docs)
 
 - **PB56.** The print works (§3.3) runs on e3-web in the showcase with its
@@ -1244,6 +1319,9 @@ As built (#1198):
   no repository upgrade step. So do the inspector's flag, each event kind's
   own inspector and its by-key read, and each resource kind's measures' keys
   (#1197).
+- **Windowed reads (#1199).** The payload's `paged`, a paged resource kind's
+  rows, rides a UI task's output, carried by the packages: no stored form
+  changes, and no repository upgrade step.
 - **Review removed (#1260).** The root's `review`, a series' `review` and
   `approval`, a row's `approval` and an event kind's `review` role leave the
   payload, a UI task's output the packages carry: no stored form changes,

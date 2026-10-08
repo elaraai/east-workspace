@@ -27,7 +27,16 @@
  * readiness check; the shared editing session over the record, which commits
  * each Save through its patch mutation (`Record.onApply(record, { keyed:
  * true })`); and its history. A builder's payload is one type whatever the
- * records hold, and the renderer never needs a row type. It builds two ways:
+ * records hold, and the renderer never needs a row type.
+ *
+ * A large record is read a window at a time (#1199, `window.ts`): given
+ * `window`, a paged read of a day index keyed by `Schedule.days`, the kind's
+ * events over a window are the rows the index files under the days in view,
+ * and given `backlogWindow`, a paged read of an index keyed by
+ * `Schedule.unscheduled`, its backlog is the rows that index holds — the
+ * record never read whole by either, the drafts in place over them as over the
+ * whole record. A kind read through its day index whose times are Options
+ * reads its backlog through its backlog index too. It builds two ways:
  * `build(slot)` is the Calendar's kind, which takes no notice of Plan's
  * options, and `buildPlan(slot)` Plan's ({@link PlanEventKindType}), the same
  * kind with how it draws, its roles, and its events as Plan draws them.
@@ -52,6 +61,7 @@ import { Record } from "../bind/record.js";
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { SCHEDULE_DEF } from "./resources.js";
+import { checkIndexWindow, scheduleBacklogWindow, scheduleDayWindow } from "./window.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType,
     ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleStatusCasesFor, ScheduleStatusType,
@@ -246,7 +256,13 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     fields?: FieldHints<R["fields"]>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
-    /** A paged read of a day index over the record (`Data.bindPaged(record, { index, join: true })`), keyed by `Schedule.days`. */
+    /**
+     * A paged read of a day index over the record (`Data.bindPaged(record, {
+     * index, join: true })`), keyed by `Schedule.days`: the kind's events over
+     * a window are the rows the index files under the days in view, and the
+     * record is never read whole for them (#1199). A kind whose times are
+     * Options reads its backlog through `backlogWindow` beside it.
+     */
     window?: unknown;
     /** Plan: the `EventStateType` field whose lifecycle its events wear. Omitted, confirmed. */
     state?: ScheduleStateField<R>;
@@ -291,7 +307,11 @@ export interface ScheduleEventsConfig<K extends EastType, R extends StructType, 
     backlog?: R["fields"][S] extends OptionType<DateTimeType> ? ScheduleBacklog<K, R> : never;
     /** The presets the library lists. */
     templates?: readonly ScheduleTemplate<ScheduleValuesOf<R, S | E | F>>[];
-    /** A paged read of a backlog index over the record, keyed by `Schedule.unscheduled`. */
+    /**
+     * A paged read of a backlog index over the record (`Data.bindPaged(record,
+     * { index, join: true })`), keyed by `Schedule.unscheduled`: the kind's
+     * backlog is the rows the index holds (#1199).
+     */
     backlogWindow?: unknown;
 }
 
@@ -408,26 +428,6 @@ function typeText(type: EastType): string {
     return inner === undefined ? printType(type) : `an Option of ${printType(inner)}`;
 }
 
-/** The window type a day or a backlog index serves over a record, as `Data.bindPaged(record, { index, join })` reads it. */
-function checkWindow(window: unknown, prop: "window" | "backlogWindow", keyType: EastType, rowType: EastType, ik: EastType, where: string): void {
-    const value = East.value(window as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(value as unknown as Expr) as EastType;
-    const page = type.type === "Struct" ? (type.fields as Record<string, EastType>)["page"] : undefined;
-    const served = page !== undefined && page.type === "Function" ? optionOf(page.output) : undefined;
-    const element = served !== undefined && served.type === "Array" ? served.value as EastType : undefined;
-    const fields = element !== undefined && element.type === "Struct" ? element.fields as Record<string, EastType> : undefined;
-    const fits = fields !== undefined
-        && fields["ik"] !== undefined && isTypeEqual(fields["ik"], ik)
-        && fields["key"] !== undefined && isTypeEqual(fields["key"], keyType)
-        && fields["value"] !== undefined
-        && fields["row"] !== undefined && isTypeEqual(fields["row"], OptionType(rowType));
-    if (!fits) {
-        throw new Error(`${where}: \`${prop}\` reads the record through ${prop === "window" ? "a day index keyed by Schedule.days" : "a backlog index keyed by Schedule.unscheduled"} — ` +
-            `Data.bindPaged(record, { index, join: true }), each window an Array of { ik: ${typeText(ik)}, key, value, row: Option<${typeText(rowType)}> } — ` +
-            `and this one serves ${served === undefined ? "no window of entries" : typeText(served)}`);
-    }
-}
-
 /** The ways a kind draws. */
 const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
 
@@ -452,7 +452,9 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  *   an `at` that is not a DateTime field, or given with `start` and `end`; a `resource` field that holds no resource key, an
  *   `of` that is not a slot name for a key field, or whose cases are not the variant's; a `status` that is not a variant;
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
- *   another type; `fields` naming a field the row does not have, or hinting one it cannot; a window over another index;
+ *   another type; `fields` naming a field the row does not have, or hinting one it cannot; a window over another index,
+ *   a `backlogWindow` on plain times, and a `window` over Option times without a `backlogWindow` (#1199) — a window that
+ *   reads no rows (`join` not true) is refused as it is read, naming `join: true`;
  *   a `draw` that is not a way to draw, or draws two ends of an instant; a `state`, `quantity` or `lane` field of
  *   another type; a `review`, which is removed (#1260); an `overlaps` that is neither `"warn"` nor `"allow"`; and an
  *   `inspector` that is not an East function `(row, update) => UIComponentType` over the row
@@ -667,11 +669,19 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         }
     }
 
-    // The windows.
-    if (config.window !== undefined) checkWindow(config.window, "window", keyType, rowType, DateTimeType, where);
+    // The windows (#1199): the days in view through a day index, the backlog through a backlog index.
+    const dayWindow = config.window === undefined ? undefined
+        : checkIndexWindow(config.window, "window", keyType, rowType, DateTimeType, where);
+    let backlogWindow: ExprType<EastType> | undefined;
     if (config.backlogWindow !== undefined) {
         if (!optional) throw new Error(`${where}: \`backlogWindow\` reads the backlog, and a kind whose times are plain DateTime fields has none`);
-        checkWindow(config.backlogWindow, "backlogWindow", keyType, rowType, OptionType(DateTimeType), where);
+        backlogWindow = checkIndexWindow(config.backlogWindow, "backlogWindow", keyType, rowType, OptionType(DateTimeType), where);
+    }
+    // A kind read through its day index never reads its record whole, its backlog included.
+    if (dayWindow !== undefined && optional && backlogWindow === undefined) {
+        throw new Error(`${where}: \`window\` reads the days in view through a day index, so the record is never read whole — ` +
+            "and this kind's times are Options, so it has a backlog: read it through `backlogWindow` beside it, " +
+            "Data.bindPaged(record, { index, join: true }) over an index keyed by Schedule.unscheduled");
     }
 
     // The inspector's form: the fields a gesture does not write, in the hints' order.
@@ -700,9 +710,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             missing: (_$2) => East.value(none, OptionType(rowType)),
             invalid: (_$2) => held,
         }));
-    // Every entry the record holds, with the drafts in place, then the drafted entries it does not hold.
-    const entries = East.function([ScheduleDraftsType], ArrayType(EntryRowType), ($, drafts) => {
-        const held = $.const(readAll());
+    // Every entry held — the record's, or a window's of it — with the drafts in place, then the drafted
+    // entries it does not hold: a draft moved into a window shows, and one moved out of it leaves by its times.
+    // Erased as the record's own read is, so the record whole and a window of it are one type.
+    const HeldType: DictType<EastType, EastType> = DictType(keyType, rowType as EastType);
+    const withDrafts = East.function([HeldType, ScheduleDraftsType], ArrayType(EntryRowType), ($, held, drafts) => {
         const idText = $.const(idOf);
         const parse = $.const(keyOf);
         const draft = $.const(drafted);
@@ -842,44 +854,76 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     };
     collect(rowType, []);
 
+    // The rows a window reads (#1199): the days in view through the day index, and the backlog through
+    // the backlog index — each `none` while its search or a page is in flight. Without them, the record whole.
+    const readDays = dayWindow === undefined ? undefined : scheduleDayWindow(dayWindow, keyType, rowType, where);
+    const readBacklog = backlogWindow === undefined ? undefined : scheduleBacklogWindow(backlogWindow, keyType, rowType, where);
+
     /** An item seam over a window: the events whose items `itemFn` makes that overlap `[from, to)`. */
     const windowOf = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>) =>
         East.function([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(itemType)), ($, from, to, drafts) => {
-            const all = $.const(entries);
+            const inPlace = $.const(withDrafts);
             const item = $.const(itemFn);
-            const out = $.let([], ArrayType(itemType));
-            $.for(all(drafts), ($2, entry) => {
-                // Every item type holds what every view draws, its start and end among them.
-                const one = $2.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
-                $2.match(one.start, {
-                    some: ($3, s) => {
-                        $3.match(one.end, {
-                            some: ($4, e) => {
-                                // Overlapping [from, to): it starts before the window ends, and ends
-                                // after it starts — or, of no length, sits inside it.
-                                $4.if(East.less(s, to).and(() => East.greater(e, from).or(() => East.greaterEqual(s, from))), ($5) => {
-                                    $5(out.pushLast(one as unknown as ExprType<EastType>));
+            const result = $.let(East.value(none, OptionType(ArrayType(itemType))), OptionType(ArrayType(itemType)));
+            let read: ExprType<OptionType<DictType<EastType, EastType>>>;
+            if (readDays === undefined) {
+                read = $.let(East.value(some(readAll()), OptionType(HeldType)));
+            } else {
+                const days = $.const(readDays);
+                read = $.let(days(from, to));
+            }
+            $.match(read, {
+                some: ($2, rows) => {
+                    const out = $2.let([], ArrayType(itemType));
+                    $2.for(inPlace(rows, drafts), ($3, entry) => {
+                        // Every item type holds what every view draws, its start and end among them.
+                        const one = $3.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
+                        $3.match(one.start, {
+                            some: ($4, s) => {
+                                $4.match(one.end, {
+                                    some: ($5, e) => {
+                                        // Overlapping [from, to): it starts before the window ends, and ends
+                                        // after it starts — or, of no length, sits inside it.
+                                        $5.if(East.less(s, to).and(() => East.greater(e, from).or(() => East.greaterEqual(s, from))), ($6) => {
+                                            $6(out.pushLast(one as unknown as ExprType<EastType>));
+                                        });
+                                    },
                                 });
                             },
                         });
-                    },
-                });
+                    });
+                    $2.assign(result, East.value(some(out), OptionType(ArrayType(itemType))));
+                },
             });
-            return East.value(some(out), OptionType(ArrayType(itemType)));
+            return result;
         });
     /** An item seam over the backlog: the rows with no time, as `itemFn` makes them. */
     const backlogOf = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>) =>
         East.function([ScheduleDraftsType], OptionType(ArrayType(itemType)), ($, drafts) => {
-            const out = $.let([], ArrayType(itemType));
+            const result = $.let(East.value(some([]), OptionType(ArrayType(itemType))), OptionType(ArrayType(itemType)));
             if (optional) {
-                const all = $.const(entries);
+                const inPlace = $.const(withDrafts);
                 const item = $.const(itemFn);
-                $.for(all(drafts), ($2, entry) => {
-                    const one = $2.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
-                    $2.if(one.start.hasTag("none"), ($3) => { $3(out.pushLast(one as unknown as ExprType<EastType>)); });
+                let read: ExprType<OptionType<DictType<EastType, EastType>>>;
+                if (readBacklog === undefined) {
+                    read = $.let(East.value(some(readAll()), OptionType(HeldType)));
+                } else {
+                    const backlog = $.const(readBacklog);
+                    read = $.let(backlog());
+                }
+                $.assign(result, East.value(none, OptionType(ArrayType(itemType))));
+                $.match(read, {
+                    some: ($2, rows) => {
+                        const out = $2.let([], ArrayType(itemType));
+                        $2.for(inPlace(rows, drafts), ($3, entry) => {
+                            const one = $3.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
+                            $3.if(one.start.hasTag("none"), ($4) => { $4(out.pushLast(one as unknown as ExprType<EastType>)); });
+                        });
+                        $2.assign(result, East.value(some(out), OptionType(ArrayType(itemType))));
+                    },
                 });
             }
-            return East.value(some(out), OptionType(ArrayType(itemType)));
+            return result;
         });
 
     /** The Calendar's kind, part by part, under its slot — and the function that makes one of its events. */
