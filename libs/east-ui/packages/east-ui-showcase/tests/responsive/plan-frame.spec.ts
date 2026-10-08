@@ -18,14 +18,20 @@
  * is a 44px field. An event in an overlap pair wears a 1.5px warn ring, a
  * confirmed one keeping its own inside it; the toolbar's overlaps chip is the
  * warn chip, a 44px target on a phone by its halo, and its click brings the
- * pair's row into the canvas's view (#1198). Read at the desktop and phone
- * widths, in both themes.
+ * pair's row into the canvas's view (#1198). Over event kinds the history
+ * item (#1194) ends the row — Undo, Redo, Discard and Save, named by the
+ * shared item's words — and is its ladder's last step at every width; the
+ * banners under the row take no room while they have nothing to say; and a
+ * job's field changed in the inspector is saved on the e3 the page runs, a
+ * Plan mounted again showing it. Read at the desktop and phone widths, in
+ * both themes.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-frame`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { editingMessages } from "@elaraai/east-ui-components/testing";
 import { PLAN_EXAMPLES, openExample, rowSel } from "./plan-page";
 import { settled } from "./settle";
 
@@ -125,15 +131,16 @@ test.describe("the Plan's frame (#1193)", () => {
     }
 
     // A Plan with nothing to control draws no toolbar: the frame's DOM test holds
-    // it (`plan-frame.dom.test.tsx`), over the event kinds' Plan with its jobs'
-    // overlap moved apart — every Plan the showcase shows has a control.
-    test("a Plan with a slice has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip alone", async ({ page }) => {
+    // it (`plan-frame.dom.test.tsx`), over a canvas of read-only rows — every
+    // Plan the showcase shows has a control.
+    test("a Plan with a slice has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip and its history item", async ({ page }) => {
         const slice = await openExample(page, "planTargetState");
         expect((await frameFaults(slice)).toolbar).toBe(true);
-        // Press B2's two jobs on the 20th overlap (#1198).
+        // Press B2's two jobs on the 20th overlap (#1198), and the jobs' session is the history item's (#1194).
         const overlapping = await openExample(page, "planEvents", EVENTS);
         expect((await frameFaults(overlapping)).toolbar).toBe(true);
-        await expect(overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar-item]")).toHaveCount(1);
+        expect(await overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar-item]")
+            .evaluateAll((items) => items.map((item) => item.getAttribute("data-toolbar-item")))).toEqual(["overlaps", "history"]);
         await expect(overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]")).toHaveText("1 overlap");
     });
 
@@ -189,11 +196,16 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "swept once, at the desktop project");
 
     // A slice and its segments; editing over a keyed paged source, its key
-    // search in the row — each folding on its own ladder.
-    for (const name of ["planTargetState", "planRowDrop"]) {
+    // search in the row; the print works' event kinds, their overlaps chip and
+    // their history (#1194) — each folding on its own ladder.
+    for (const { name, file } of [
+        { name: "planTargetState", file: PLAN_EXAMPLES },
+        { name: "planRowDrop", file: PLAN_EXAMPLES },
+        { name: "planPrintWorks", file: EVENTS },
+    ]) {
         test(`${name}: one 44px row from 1440px to 360px — nothing past its edge, nothing scrolled — folded as far as its own ladder says, the rail first and the history last, never less at a narrower frame`, async ({ page }) => {
             test.setTimeout(120_000);
-            const entry = await openExample(page, name);
+            const entry = await openExample(page, name, file);
             const box = entry.locator("[data-plan-frame]").first().locator("xpath=..");
             const toolbar = entry.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar]");
             const bad: string[] = [];
@@ -252,6 +264,126 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         await icon.click();
         const input = page.locator("[data-key-search='popover'] input");
         await expect(input).toBeFocused();
+    });
+});
+
+/** The history item's buttons (#1194), by the shared item's words: Undo, Redo, Discard and the commit. */
+const HISTORY_BUTTONS = [editingMessages.undo(), editingMessages.redo(), editingMessages.discard(), editingMessages.apply()];
+
+/**
+ * What is wrong with a Plan's history item and its banners while nothing is
+ * drafted, read in the page — each a line saying what: the item ends the row
+ * and the ladder, each of its buttons is inside the band and the row and off,
+ * and the banners under the row take no room.
+ */
+async function historyFaults(entry: Locator): Promise<string[]> {
+    return entry.evaluate((root, names) => {
+        const bad: string[] = [];
+        const frame = root.querySelector("[data-plan-frame] > [data-builder-frame]");
+        const band = frame?.querySelector(":scope > [data-frame-slot='toolbar']") ?? null;
+        const row = band?.querySelector("[data-toolbar]") ?? null;
+        const history = band?.querySelector("[data-toolbar-item='history']") ?? null;
+        if (frame === null || band === null || row === null) return ["no toolbar"];
+        if (history === null) return ["no history item"];
+        // The row's end: no item drawn past it, and the last step its ladder folds.
+        const end = history.getBoundingClientRect().right;
+        for (const item of row.querySelectorAll("[data-toolbar-item]")) {
+            const r = item.getBoundingClientRect();
+            if (item !== history && r.width > 0 && r.right > end + 0.5) bad.push(`${item.getAttribute("data-toolbar-item")} ends at ${r.right.toFixed(1)}, past the history's ${end.toFixed(1)}`);
+        }
+        const ladder = (row.getAttribute("data-toolbar-ladder") ?? "").split(" ").filter((s) => s !== "");
+        if (!(ladder[ladder.length - 1] ?? "").startsWith("history>")) bad.push(`the ladder's last step is ${ladder[ladder.length - 1] ?? "none"}`);
+        const b = band.getBoundingClientRect();
+        const r = row.getBoundingClientRect();
+        for (const name of names) {
+            const button = history.querySelector<HTMLButtonElement>(`button[aria-label=${JSON.stringify(name)}]`);
+            if (button === null) {
+                bad.push(`no ${name}`);
+                continue;
+            }
+            const t = button.getBoundingClientRect();
+            if (t.top < b.top - 0.5 || t.bottom > b.bottom + 0.5) bad.push(`${name}: ${t.top.toFixed(1)}–${t.bottom.toFixed(1)} outside the band ${b.top.toFixed(1)}–${b.bottom.toFixed(1)}`);
+            if (t.left < r.left - 0.5 || t.right > r.right + 0.5) bad.push(`${name}: ${t.left.toFixed(1)}–${t.right.toFixed(1)} past the row's ${r.left.toFixed(1)}–${r.right.toFixed(1)}`);
+            if (!button.disabled) bad.push(`${name} is on, with nothing drafted`);
+        }
+        // Nothing to say: the banners take no room, and the body sits on the band.
+        const banners = frame.querySelector(":scope > [data-frame-slot='banners']");
+        const tall = banners === null ? 0 : banners.getBoundingClientRect().height;
+        if (tall !== 0) bad.push(`the banners are ${tall}px tall, saying nothing`);
+        const body = frame.querySelector(":scope > [data-frame-slot='body']")!.getBoundingClientRect();
+        if (Math.abs(body.top - b.bottom) > 0.5) bad.push(`the body starts ${(body.top - b.bottom).toFixed(1)}px below the band`);
+        return bad;
+    }, HISTORY_BUTTONS);
+}
+
+/**
+ * Leaves the print works' page for another e3 page and comes back to it, in
+ * the same page — its e3 kept in memory — so the Plan mounts afresh over what
+ * its records hold.
+ */
+async function remount(page: Page, name: string): Promise<Locator> {
+    const away = `${PLAN_EXAMPLES}/planTargetState`;
+    await page.evaluate((h) => { location.hash = `#${h}`; }, away);
+    await expect(page.locator("[data-index]", { has: page.locator(`a[href="#${away}"]`) }).locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
+    const hash = `${EVENTS}/${name}`;
+    await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+test.describe("the Plan's history over its event kinds (#1194)", () => {
+    for (const theme of ["light", "dark"] as const) {
+        test(`planPrintWorks (${theme}): the history item ends the toolbar's one 44px row — Undo, Redo, Discard and Save in the shared item's words, every one inside the row, off with nothing drafted — the ladder's last step; the banners under the row take no room`, async ({ page }) => {
+            const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
+            expect(await historyFaults(entry)).toEqual([]);
+        });
+    }
+});
+
+test.describe("the Plan's Save on e3-web (#1194)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "saved once, at the desktop width");
+
+    test("planPrintWorks: a job's customer changed in the inspector is a draft, the field tinted brand; Save commits it to the jobs record on the e3 the page runs — the draft retires, no banner — and the Plan mounted again shows it", async ({ page }) => {
+        // The inspector pinned open beside main (#1220), in a box wide enough for both panes.
+        const open = async (entry: Locator) => {
+            await sizeTo(page, entry.locator("[data-plan-frame]").first().locator("xpath=.."), 1440);
+            await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+            await settled(page);
+            const frame = entry.locator("[data-builder-frame]").first();
+            return {
+                frame,
+                save: frame.locator(":scope > [data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.apply(), exact: true }),
+                customer: frame.locator(":scope > [data-frame-slot='body'] > [data-frame-slot='end'] [data-inspector-fields='form'] [data-field='customer']"),
+            };
+        };
+        const { frame, save, customer } = await open(await openExample(page, "planPrintWorks", EVENTS));
+        await expect(save).toBeDisabled();
+        await expect(customer.getByRole("textbox")).toHaveValue("Alder & Finch");
+        await customer.getByRole("textbox").fill("Alder & Finch Ltd");
+        await customer.getByRole("textbox").press("Enter");
+        await expect(save).toBeEnabled();
+        await expect.poll(() => customer.evaluate((el) => {
+            const probe = document.createElement("span");
+            probe.style.background = "var(--chakra-colors-brand-tint)";
+            document.body.appendChild(probe);
+            const tint = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return [el.hasAttribute("data-dirty"), getComputedStyle(el).backgroundColor === tint];
+        })).toEqual([true, true]);
+        await save.click();
+        // Confirmed by the record read back: Save off, the field the record's, no banner.
+        await expect(save).toBeDisabled();
+        await expect(customer).not.toHaveAttribute("data-dirty", /.*/);
+        await expect(customer.getByRole("textbox")).toHaveValue("Alder & Finch Ltd");
+        await expect(frame.locator(":scope > [data-frame-slot='banners'] [data-session-banner]")).toHaveCount(0);
+        // Mounted afresh over the record: the job's customer is the one saved.
+        const again = await open(await remount(page, "planPrintWorks"));
+        await expect(again.customer.getByRole("textbox")).toHaveValue("Alder & Finch Ltd");
+        await expect(again.customer).not.toHaveAttribute("data-dirty", /.*/);
+        await expect(again.save).toBeDisabled();
     });
 });
 

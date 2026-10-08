@@ -20,7 +20,7 @@
 
 import { useCallback, useMemo, useRef } from "react";
 import { DateTimeType, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
-import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
+import type { PlanEventDraftsType, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleOverlaps, type ScheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import type { PlanScale } from "../scale.js";
@@ -51,8 +51,12 @@ export interface PlanEventCounts {
 /** One kind's drafts, by entry id, as its seams take them. */
 type KindDrafts = Parameters<PlanEventKindValue["planItems"]>[2];
 
-/** The drafts the kinds are read with: none yet — the event kinds' editing is #1194's. */
+/** Every kind's drafts, by kind then by entry id. */
+type EventDrafts = ValueTypeOf<typeof PlanEventDraftsType>;
+
+/** No drafts: what a kind holds none of. */
 const NO_DRAFTS: KindDrafts = new SortedMap([], compareFor(StringType));
+const NONE_DRAFTED: EventDrafts = new SortedMap([], compareFor(StringType));
 const compareDateTime = compareFor(DateTimeType);
 
 /** A read whose kinds are still in flight: the counts stand as they were. */
@@ -64,13 +68,15 @@ function timeMs(t: PlanScale["window"]["min"]): number | undefined {
 }
 
 /**
- * The event kinds' counts over the window the canvas shows.
+ * The event kinds' counts over the window the canvas shows, every kind's
+ * drafts in place (#1194).
  *
  * @param kinds - The Plan's event kinds; `undefined` or none for a Plan without them
  * @param scale - The shared scale: the window the events are counted over
+ * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold; none for a Plan whose kinds hold none
  * @returns The counts — the last read's while a read is in flight or fails; `undefined` for a Plan without event kinds, or before the first read answers
  */
-export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefined, scale: PlanScale | undefined): PlanEventCounts | undefined {
+export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefined, scale: PlanScale | undefined, drafts: EventDrafts = NONE_DRAFTED): PlanEventCounts | undefined {
     const from = scale !== undefined ? timeMs(scale.window.min) : undefined;
     const to = scale !== undefined ? timeMs(scale.window.max) : undefined;
     const active = kinds !== undefined && kinds.length > 0;
@@ -83,13 +89,14 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
         // Each kind that warns of its overlaps: two of its events are a pair (PB51).
         const warned: (readonly PlanEventItemValue[])[] = [];
         for (const kind of kinds) {
-            const items = kind.planItems(new Date(from), new Date(to), NO_DRAFTS);
+            const drafted = drafts.get(kind.key) ?? NO_DRAFTS;
+            const items = kind.planItems(new Date(from), new Date(to), drafted);
             if (items.type === "none") return READING;
             if (kind.overlaps.type === "warn") warned.push(items.value);
             events += items.value.length;
             for (const item of items.value) minutes += Number(item.minutes);
             if (kind.backlog) {
-                const unscheduled = kind.planUnscheduled(NO_DRAFTS);
+                const unscheduled = kind.planUnscheduled(drafted);
                 if (unscheduled.type === "none") return READING;
                 backlog = (backlog ?? 0) + unscheduled.value.length;
             }
@@ -98,7 +105,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             if (newest !== undefined && (saved === undefined || compareDateTime(newest, saved) > 0)) saved = newest;
         }
         return { events, minutes, backlog, saved, overlaps: scheduleOverlaps(warned) };
-    }, [kinds, from, to]);
+    }, [kinds, from, to, drafts]);
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.
     const held = useRef<PlanEventCounts | undefined>(undefined);

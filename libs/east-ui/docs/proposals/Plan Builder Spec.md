@@ -782,11 +782,12 @@ As built (#1193):
   they sit edge to edge — and their menus, the key search's icon and its box's
   suggestions toggle; a search box is a 44px field, its input filling it. The
   paged Sheet's key search folds as the Plan's does.
-- The banners are the editing session's, for `data`'s session; the event
-  kinds' banners, by kind, come with their editing (#1194).
+- The banners are each session's: `data`'s, then each event kind's, titled
+  with the kind's name (#1194, §9.9).
 - The footer leads with the counts: the event kinds' events in the window and
-  their backlog, the changes pending in `data`'s session, and the newest
-  commit of an event kind's record, as its time today
+  their backlog, the changes pending across the history — `data`'s session's
+  and every event kind's (#1194) — and the newest commit of an event kind's
+  record, as its time today
   or its date and time; then the author's `footer` and the transport line. The
   last counts stay while a read is in flight or has failed.
 - A declared `height` or `maxHeight` is the whole Plan's: the frame's wrapper
@@ -798,7 +799,9 @@ As built (#1193):
   §7, §11): its chip row's items are the toolbar's, its footer is the frame's,
   and the GROUP · RESOURCE segment leaves the toolbar there, since the tabs
   own the grain. Its root is a column in a bounded frame, so its list scrolls
-  inside main (it ran past it).
+  inside main (it ran past it). The list's insets above and below ride inside
+  what it scrolls, so a frame short of room — a phone's footer on two lines —
+  never runs it past main (#1194).
 - There is no Series button; its tests move to the Series tab (#1195). PB25 is
   tested with the first pane (#1195).
 
@@ -977,9 +980,18 @@ with #1194):
   it draws at the bucket. Its overlaps are #1198's.
 - PB41: the window's events, their hours and the backlog, as the footer
   counts them, then three hints.
-- PB42, and PB60's `update`, are #1194's: until the event kinds edit, the
-  form's fields, the bulk edit, Duplicate and Delete,
-  and a kind's own inspector are drawn in one disabled fieldset.
+- PB42, and PB60's `update`, as built (#1194): the form's fields, the bulk
+  edit, Duplicate and Delete, and a kind's own inspector sit in one
+  fieldset, on while every selected kind takes a gesture. Each edit is one
+  transaction of the Plan's history (§9.9): a field of the form, written
+  through the kind's own `write`, and tinted while the drafts hold it
+  otherwise than the record does (a new event's every field); the kind's own
+  inspector's `update`, the edited event whole; Duplicate, a copy of each
+  event under a new key, the copies then selected; Delete; and the bulk edit
+  over every selected event that takes it, across kinds — the state into
+  each kind that reads one, a resource onto each kind placed on its kind,
+  the shift onto each scheduled event. The bulk edit's state and resource
+  show what the selected events share, and Not set where they differ.
 - `inspector` on a Plan with no event kinds is refused at build. A kind's own
   `inspector` is checked when the kind is declared; the Calendar takes no
   notice of it, and nor does a Plan without `inspector`.
@@ -1011,6 +1023,43 @@ with #1194):
   is no verdict to draft.
 - **PB50.** `applyMode: "auto"` commits each ready gesture as it lands, through
   the same protocol; drafts outlive a remount, kept in the UI store per record.
+
+As built (#1194):
+
+- The history across kinds is the shared editing layer's (east-ui-components
+  `src/editing/`): `EditHistory`, one history over several sessions, and
+  `useEditHistory`, a session per keyed source read whole, kept in the UI
+  store as `useEditSession` keeps one, with the history kept per view. The
+  Calendar's editing (#1151) takes the same. Each step is tagged with the
+  sessions its gesture recorded in: a gesture across kinds, as a bulk edit
+  is, is one step, a transaction in each kind's session. A new gesture drops
+  what Redo could replay in every session. A session whose own history goes
+  — discarded, its record moving under no draft, a commit read back with
+  another write's field beside it — leaves the steps.
+- `data`'s session (#880) joins the same history beside the kinds': its
+  gestures are steps of it, and Undo, Redo, Discard and Save are the
+  history's.
+- The gestures go through one recorder (`src/plan/edit/events.ts`): an
+  event's change through its kind's own `write` — a move, a resize or a
+  schedule (`place`), an unschedule (`unplace`, its times none, its resource
+  kept), a drop (`create`), a field — its new row whole, or its deletion. A
+  write the kind refuses leaves its event as it was. The drag (#1196) drives
+  the first five.
+- Every seam reads the drafts: the `blocks`, the footer's counts and the
+  overlaps, and the inspector's events and a row's facts. The library's
+  Backlog tab reads none yet, as no gesture of these moves an event in or out
+  of it.
+- Save is on while every kind's drafts pass their checks and one kind has a
+  change it can send. A kind in conflict, refused or out of date holds no
+  other kind's Save. While a kind's write has no answer, Save is Retry, which
+  resends that kind's request alone.
+- The banners are each kind's (`SessionBanners`' `name`), titled
+  `Print job: Save stopped — 1 conflict with the source`; a conflict's lines
+  name each event by its title. A banner's Retry and Discard act on its kind
+  alone; the history item's Discard drops every kind's drafts.
+- A new event's key is its event's own made unique with `-2`, `-3` for a
+  String key, the first past the largest for an Integer key; a kind keyed
+  by anything else has no Duplicate.
 
 ### 9.10 Overlaps (owner: overlaps)
 

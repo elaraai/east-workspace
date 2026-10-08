@@ -12,9 +12,10 @@
  * as it always has. The inspector shows what is selected — one event, its
  * kind's own inspector in place of its form, several, a row with its
  * measures at the bucket a click on it named, or nothing — its edit controls
- * drawn disabled until the event kinds take edits (#1194). Each Plan is the
- * print works', or a test's own over its records, mounted through the
- * dispatcher under the record runtime a surface installs.
+ * on, in one fieldset, as the event kinds take edits (#1194; what each does
+ * is `plan-builder-editing.dom.test.tsx`'s). Each Plan is the print works', or
+ * a test's own over its records, mounted through the dispatcher under the
+ * record runtime a surface installs.
  */
 
 import { describe, test, expect } from "vitest";
@@ -243,7 +244,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(pane(container).querySelectorAll("li")).toHaveLength(3);
     });
 
-    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its roles read left to their lines — every edit control drawn disabled (PB38)", async () => {
+    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its roles read left to their lines — every edit control on, in one fieldset (PB38, #1194)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         fireEvent.click(job(container, "J-1001"));
@@ -263,15 +264,15 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         const form = pane(container).querySelector("[data-inspector-fields='form']")!;
         expect([...form.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["customer", "stock", "due"]);
         expect(form.querySelector<HTMLInputElement>("[data-field='customer'] input")!.value).toBe("Alder & Finch");
-        // Every edit control in the one disabled fieldset, each button disabled.
-        expect(edits(container).disabled).toBe(true);
+        // Every edit control in the one fieldset, on: the job's kind takes edits (#1194).
+        expect(edits(container).disabled).toBe(false);
         expect(edits(container).contains(form)).toBe(true);
         const actions = [...edits(container).querySelectorAll<HTMLButtonElement>("button[data-inspector-action]")];
         expect(actions.map((b) => b.getAttribute("data-inspector-action"))).toEqual(["duplicate", "delete"]);
-        expect(actions.every((b) => b.disabled)).toBe(true);
+        expect(actions.every((b) => !b.disabled)).toBe(true);
     });
 
-    test("a stop shows its kind's own inspector in place of a form — its title and its kind on a segment, in the disabled fieldset; an instant's one time (PB60)", async () => {
+    test("a stop shows its kind's own inspector in place of a form — its title and its kind on a segment, in the edits' fieldset; an instant's one time (PB60)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         fireEvent.click(stop(container, "S-01"));
@@ -286,10 +287,10 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(own.textContent).toContain("Service");
         expect(own.querySelector<HTMLInputElement>("input[value='plate_change']")!.checked).toBe(true);
         expect(edits(container).contains(own)).toBe(true);
-        expect(edits(container).disabled).toBe(true);
+        expect(edits(container).disabled).toBe(false);
     });
 
-    test("several events: how many, each kind's count, the list in the order they were selected, and the bulk edit — the state, the resource and a shift — drawn disabled (PB39)", async () => {
+    test("several events: how many, each kind's count, the list in the order they were selected, and the bulk edit — the state, the resource and a shift — on (PB39, #1194)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         fireEvent.click(job(container, "J-1001"));
@@ -306,7 +307,8 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect([...bulk.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["state", "resource"]);
         expect([...bulk.querySelectorAll("[data-inspector-shift] button")].map((b) => b.textContent)).toEqual(["−1 d", "−1 h", "+1 h", "+1 d"]);
         expect(edits(container).contains(bulk)).toBe(true);
-        expect([...edits(container).querySelectorAll<HTMLButtonElement>("button[data-inspector-action]")].every((b) => b.disabled)).toBe(true);
+        expect(edits(container).disabled).toBe(false);
+        expect([...edits(container).querySelectorAll<HTMLButtonElement>("button[data-inspector-action]")].every((b) => !b.disabled)).toBe(true);
     });
 
     test("a press: its name, its line and its hall, its events in the window, and its measures at the bucket a click on its plot named (PB40)", async () => {

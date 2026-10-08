@@ -8,7 +8,9 @@
  * collection, over the `Editing` contract of `@elaraai/east-ui`: drafts, one
  * undoable transaction per gesture, and Apply as one checked, idempotent
  * batch. A collection projects its entries (`W`) and supplies its gestures;
- * the session, its React hook and its history bar are the same everywhere.
+ * the session, its React hook and its history bar are the same everywhere. A
+ * builder whose entries live in several sources keeps a session per source
+ * and one history over them (`EditHistory`, `useEditHistory`, #1194).
  *
  * @packageDocumentation
  */
@@ -22,6 +24,14 @@ export {
     type Placement,
     type Origin,
 } from "./session.js";
+export { EditHistory, type EditHistoryPart } from "./history.js";
+export {
+    useEditHistory,
+    type EditHistorySource,
+    type EditHistoryJoined,
+    type EditHistoryState,
+} from "./use-edit-history.js";
+export { historyKeyOf } from "./kept.js";
 export {
     liftDraft,
     normalizeDraft,

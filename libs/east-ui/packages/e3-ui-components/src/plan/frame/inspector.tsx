@@ -27,11 +27,19 @@
  *   what it draws at that bucket;
  * - **nothing** (PB41): the window's counts and three hints.
  *
- * Each event is read through its kind's own seam (`planEvent`), tracked, so a
- * commit to its record reads it again, and an event no longer there is left
- * out. The edit controls — the form's fields, the bulk edit, Duplicate and
- * Delete, and a kind's own inspector — are drawn in one disabled fieldset:
- * the event kinds take their edits with #1194.
+ * Each event is read through its kind's own seam (`planEvent`), its kind's
+ * drafts in place, tracked, so a commit to its record reads it again, and an
+ * event no longer there is left out.
+ *
+ * Its edits (#1194, PB42, PB60) are steps of the Plan's one history, each one
+ * transaction: a field of the kind's form, written through the kind's own
+ * `write`, tinted while the drafts hold it otherwise than the record does; the
+ * kind's own inspector's `update`, the edited event whole; Duplicate, a copy
+ * of each event under a new key, the copies then selected; Delete; and the
+ * bulk edit — the state, the resource, a shift of a day or an hour — over every
+ * event selected that takes it, across kinds. They sit in one fieldset, off
+ * while a selected kind takes no gesture — a write of its with no answer, its
+ * drafts out of date.
  *
  * Styles are the `planInspector` recipe's, the form's `fieldForm`'s and the
  * buttons the shared `button`'s; the pane — its collapse control and its rail
@@ -45,14 +53,16 @@ import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import {
-    BlobType, NullType, OptionType, SortedMap, StringType, VariantType, compareFor, decodeBeast2For, equalFor, fromEastTypeValue,
-    none, parseFor, printFor, some, toEastTypeValue, variant, type StructType,
+    BlobType, NullType, OptionType, SortedMap, StringType, VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue,
+    none, parseFor, printFor, some, toEastTypeValue, variant, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
+import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { ScheduleEventRefType, ScheduleResourceRefType, type planKeys } from "@elaraai/e3-ui/internal";
+import { ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
+import type { PlanEventChange, PlanEventEditing } from "../edit/events.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { stateText } from "../a11y.js";
 import type { PlanSnapshot } from "../controller/index.js";
@@ -83,13 +93,15 @@ type Styles = Record<string, SystemStyleObject>;
 /** The inspector open: the Calendar's 320px (§8), as the Sheet's is. */
 const INSPECTOR_SIZE = "320px";
 
-/** The drafts the kinds are read with: none yet — the event kinds' editing is #1194's. */
+/** Every kind's drafts, by kind then by entry id (#1194). */
+type EventDrafts = ValueTypeOf<typeof PlanEventDraftsType>;
+
+/** No drafts: what a kind holds none of. */
 const NO_DRAFTS: Parameters<PlanEventKindValue["planEvent"]>[1] = new SortedMap([], compareFor(StringType));
+/** No kind holds a draft. */
+const NONE_DRAFTED: EventDrafts = new SortedMap([], compareFor(StringType));
 
-/** The event kinds take their edits with #1194: until then a kind's own inspector's `update` writes nothing. */
-const NO_UPDATE = (_edited: Uint8Array): null => null;
-
-/** No edit reaches a kind yet: the form's edits go nowhere. */
+/** A Plan whose kinds take no edit — none here, as every kind is a record with its patch door — writes nothing. */
 const NO_EDIT = (): void => {};
 
 /** A read whose kinds are still in flight: what the pane shows stands as it was. */
@@ -108,7 +120,27 @@ const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(BlobType);
 const resourceEqual = equalFor(OptionType(ScheduleResourceRefType));
 const parseRef = parseFor(ScheduleEventRefType);
+const printRef = printFor(ScheduleEventRefType);
 const printResource = printFor(ScheduleResourceRefType);
+const parseResource = parseFor(ScheduleResourceRefType);
+const encodeState = encodeBeast2For(EventStateType);
+
+/** A lifecycle state's word, its proposal's flavour spelled out — what the bulk edit chooses among. */
+function stateWordOf(state: ValueTypeOf<typeof EventStateType>): PlanStateWord {
+    return (state.type === "proposed" ? state.value.type : state.type) as PlanStateWord;
+}
+
+/** A lifecycle state by its word: a proposal's flavour inside `proposed`. */
+function stateOfWord(word: PlanStateWord): ValueTypeOf<typeof EventStateType> {
+    return word === "added" || word === "recommended" || word === "removed"
+        ? variant("proposed", variant(word, null))
+        : variant(word, null) as ValueTypeOf<typeof EventStateType>;
+}
+
+/** Whether the selected events' kinds each take a gesture now: what the edits' fieldset is on for. */
+function writableFor(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): boolean {
+    return editing !== undefined && events.length > 0 && events.every((event) => editing.available(event.kind.key));
+}
 
 /** One selected event, read: its element's key, its kind, and the event as Plan draws it, with its row. */
 interface InspectedEvent {
@@ -157,14 +189,16 @@ export interface PlanInspectorProps {
 }
 
 /**
- * The selected events, read through their kinds — tracked, so a commit to a
- * kind's record reads them again; an event no longer there is left out.
+ * The selected events, read through their kinds, their drafts in place —
+ * tracked, so a commit to a kind's record reads them again; an event no
+ * longer there is left out.
  *
  * @param kinds - The event kinds
  * @param elements - The selected events, by their elements' keys
+ * @param drafts - Every kind's drafts (#1194) — the same object while they hold
  * @returns The events, in the order they were selected — the last read's while a read is in flight or has failed
  */
-function useSelectedEvents(kinds: PlanValue["events"], elements: readonly string[]): readonly InspectedEvent[] {
+function useSelectedEvents(kinds: PlanValue["events"], elements: readonly string[], drafts: EventDrafts): readonly InspectedEvent[] {
     const bySlot = useMemo(() => new Map(kinds.map((kind) => [kind.key, kind] as const)), [kinds]);
     const read = useCallback((): readonly InspectedEvent[] => {
         const out: InspectedEvent[] = [];
@@ -172,11 +206,11 @@ function useSelectedEvents(kinds: PlanValue["events"], elements: readonly string
             const ref = parseRef(key);
             if (!ref.success) continue;
             const kind = bySlot.get(ref.value.kind);
-            const got = kind?.planEvent(ref.value.key, NO_DRAFTS);
+            const got = kind?.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS);
             if (kind !== undefined && got !== undefined && got.type === "some") out.push({ key, kind, item: got.value.item, row: got.value.row });
         }
         return out;
-    }, [bySlot, elements]);
+    }, [bySlot, elements, drafts]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<readonly InspectedEvent[]>(NO_EVENTS);
     return useMemo(() => {
@@ -198,7 +232,7 @@ function useSelectedEvents(kinds: PlanValue["events"], elements: readonly string
 export function usePlanInspector({ shown, kinds, resources, chrome, counts, keys, words }: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     const selection = usePlanSelector(shown ? selectSelection : selectNothing, sameSelection);
-    const events = useSelectedEvents(kinds, selection.elements);
+    const events = useSelectedEvents(kinds, selection.elements, chrome?.events?.drafts ?? NONE_DRAFTED);
     // No `inspector`: no pane (#1197).
     if (!shown) return undefined;
     const row = selection.row !== null ? chrome?.inspect.row(selection.row) : undefined;
@@ -348,6 +382,68 @@ function hoursText(minutes: number, w: PlanWords): string {
 }
 
 // ============================================================================
+// The edits (#1194, PB42, PB60)
+// ============================================================================
+
+/** No key a gesture has made yet. */
+const NONE_MINTED: ReadonlySet<string> = new Set();
+
+/** What a new event's form is tinted against: nothing — every field it has is a change. */
+const NEW_EVENT: Readonly<Record<string, unknown>> = {};
+
+/** Whether two field paths are one. */
+function samePath(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((step, i) => stringEqual(step, b[i]!));
+}
+
+/** A gesture's label in the history, over one event or several — canonical English, as every history's labels are. */
+function labelOf(verb: string, events: readonly InspectedEvent[]): string {
+    return events.length === 1 ? `${verb} ${events[0]!.item.title}` : `${verb} ${events.length} events`;
+}
+
+/**
+ * Whether every event can be duplicated: its kind's keys are ones a new key
+ * is made of (String or Integer).
+ */
+function canDuplicate(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): boolean {
+    return editing !== undefined && events.every((event) => editing.mint(event.kind.key, event.item.key, NONE_MINTED) !== undefined);
+}
+
+/**
+ * Duplicate: a copy of each event under a new key, its row as drafted — one
+ * transaction — and the copies then selected, on the row given.
+ *
+ * @param events - The events
+ * @param editing - The event kinds' editing
+ * @param chrome - The canvas's facts: what selects the copies
+ * @param row - The row the copies are selected on: the selection's
+ */
+function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined, row: RowKey | null): void {
+    if (editing === undefined) return;
+    const minted = new Set<string>();
+    const changes: PlanEventChange[] = [];
+    const copies: string[] = [];
+    for (const event of events) {
+        const id = editing.mint(event.kind.key, event.item.key, minted);
+        if (id === undefined) continue;
+        minted.add(id);
+        changes.push({ kind: event.kind.key, id, row: event.row });
+        copies.push(printRef({ kind: event.kind.key, key: id }));
+    }
+    if (editing.record(changes, "insert", labelOf("Duplicate", events))) chrome?.selectEvents(copies, row ?? undefined);
+}
+
+/**
+ * Delete: each event, as one transaction.
+ *
+ * @param events - The events
+ * @param editing - The event kinds' editing
+ */
+function deleteEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): void {
+    editing?.record(events.map((event): PlanEventChange => ({ kind: event.kind.key, id: event.item.key, remove: true })), "remove", labelOf("Delete", events));
+}
+
+// ============================================================================
 // One event (PB38, PB60)
 // ============================================================================
 
@@ -368,12 +464,15 @@ function Fact({ styles, label, value, fact }: { styles: Styles; label: string; v
 }
 
 /** One event: its head, its overlaps, its facts, its fields or its kind's own inspector, and its gestures. */
-function OneEvent({ event, resources, keys, words, styles, counts, chrome }: OneEventProps) {
+function OneEvent({ event, resources, keys, words, styles, counts, chrome, selection }: OneEventProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const { kind } = event;
     const item = event.item;
     const roles = kind.roles;
+    // Its edits (#1194): steps of the Plan's one history, on while its kind takes a gesture.
+    const editing = chrome?.events;
+    const writable = writableFor([event], editing);
     // What it overlaps (#1198, PB53): its kind's events on its resource at once — a line each, which selects it.
     const peers = counts?.overlaps.peers.get(event.key) ?? [];
     const start = getSomeorUndefined(item.start);
@@ -391,17 +490,31 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome }: One
         const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
         return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
     }, [kind.fields, roles]);
+    // What its record holds (PB42): what a drafted field is tinted against — a new event's every field, against nothing.
+    const held = editing?.held(kind.key, item.key) ?? NEW_EVENT;
+    // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
+    const onField = useCallback((path: readonly string[], next: unknown) => {
+        const spec = specs.find((s) => samePath(s.path, path));
+        if (editing === undefined || spec === undefined) return;
+        const value = encodeBeast2For(spec.type)(next as never);
+        editing.record([{ kind: kind.key, id: item.key, gesture: variant("field", { path: [...path], value }) }], "typed", labelOf("Edit", [event]));
+    }, [editing, specs, kind.key, item.key, event]);
+    // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction.
+    const update = useCallback((edited: Uint8Array): null => {
+        editing?.record([{ kind: kind.key, id: item.key, row: edited }], "typed", labelOf("Edit", [event]));
+        return null;
+    }, [editing, kind.key, item.key, event]);
     // The kind's own inspector (PB60): what it returns for the event, in place of the form.
     const author = getSomeorUndefined(kind.inspector);
     const own = useMemo(() => {
         if (author === undefined) return undefined;
         try {
-            return author(row, NO_UPDATE);
+            return author(row, update);
         } catch (err) {
             console.error(`[Plan] ${kind.name}'s own inspector failed; its form shows instead:`, err);
             return undefined;
         }
-    }, [author, row, kind.name]);
+    }, [author, row, kind.name, update]);
 
     return (
         <Box css={styles.root} data-plan-inspector="event">
@@ -446,7 +559,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome }: One
                 {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={stateText(item.state, words)} />}
                 {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} value={quantityText(quantity, words)} />}
             </Box>
-            <chakra.fieldset css={styles.edits} disabled data-inspector-edits="">
+            <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
                 {own !== undefined ? (
                     <Box css={styles.fields} data-inspector-fields="custom">
                         <Box css={styles.custom}>
@@ -455,14 +568,16 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome }: One
                     </Box>
                 ) : specs.length > 0 && (
                     <Box css={styles.fields} data-inspector-fields="form">
-                        <FieldForm specs={specs} value={value} onChange={NO_EDIT} />
+                        <FieldForm specs={specs} value={value} baseline={held} onChange={editing !== undefined ? onField : NO_EDIT} />
                     </Box>
                 )}
                 <Box css={styles.actions} data-inspector-actions="">
-                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="duplicate">
+                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate([event], editing)}
+                        data-inspector-action="duplicate" onClick={() => duplicateEvents([event], editing, chrome, selection.row)}>
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
-                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="delete">
+                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
+                        onClick={() => deleteEvents([event], editing)}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -481,9 +596,12 @@ interface SeveralProps extends BodyProps {
 }
 
 /** Several events: how many, each kind's count, the list, and the bulk edit. */
-function SeveralEvents({ events, kinds, resources, words, styles }: SeveralProps) {
+function SeveralEvents({ events, kinds, resources, words, styles, chrome, selection }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
+    // Its edits (#1194): steps of the Plan's one history, on while every selected kind takes a gesture.
+    const editing = chrome?.events;
+    const writable = writableFor(events, editing);
     // Each kind's count, in the kinds' order.
     const counted = kinds
         .map((kind) => ({ kind, n: events.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
@@ -515,6 +633,60 @@ function SeveralEvents({ events, kinds, resources, words, styles }: SeveralProps
             resource: placed.flatMap((r) => r.rows.map((row): FieldOption => ({ key: printResource({ kind: r.key, key: row.key }), label: row.label }))),
         };
     }, [selectedKinds, resources]);
+    // The form's value: the state, and the resource, every selected event that has one shares — Not set where they differ.
+    const shared = useMemo(() => {
+        const states = events.filter((e) => e.kind.roles.state.type === "some").map((e) => stateWordOf(e.item.state));
+        const refs = events.filter((e) => e.kind.takes.length > 0).map((e) => e.item.resource);
+        const first = refs[0];
+        return {
+            state: states.length > 0 && states.every((word) => stringEqual(word, states[0]!)) ? some(variant(states[0]!, null)) : none,
+            resource: first !== undefined && first.type === "some" && refs.every((ref) => resourceEqual(ref, first)) ? some(printResource(first.value)) : none,
+        };
+    }, [events]);
+    // The bulk edit (PB39): over every selected event that takes it, across kinds, one transaction.
+    const onBulk = useCallback((path: readonly string[], next: unknown) => {
+        if (editing === undefined) return;
+        if (samePath(path, ["state"])) {
+            // A state chosen: written into each event whose kind reads one, at its state field.
+            const chosen = getSomeorUndefined(next as option<ValueTypeOf<typeof STATE_CHOICE>>);
+            if (chosen === undefined) return;
+            const value = encodeState(stateOfWord(chosen.type as PlanStateWord));
+            const changes = events.flatMap((e): PlanEventChange[] => {
+                const field = e.kind.roles.state;
+                return field.type === "some" ? [{ kind: e.kind.key, id: e.item.key, gesture: variant("field", { path: [field.value], value }) }] : [];
+            });
+            editing.record(changes, "typed", labelOf("Set the state of", events));
+            return;
+        }
+        if (samePath(path, ["resource"])) {
+            // A resource chosen, or none: each scheduled event whose kind is placed on its kind, moved onto it, its times kept.
+            const chosen = getSomeorUndefined(next as option<string>);
+            const read = chosen === undefined ? undefined : parseResource(chosen);
+            if (read !== undefined && !read.success) return;
+            const ref = read === undefined ? none : some(read.value);
+            const changes = events.flatMap((e): PlanEventChange[] => {
+                const start = getSomeorUndefined(e.item.start);
+                const end = getSomeorUndefined(e.item.end);
+                if (start === undefined || end === undefined) return [];
+                if (ref.type === "some" && !e.kind.takes.some((slot) => stringEqual(slot, ref.value.kind))) return [];
+                return [{ kind: e.kind.key, id: e.item.key, gesture: variant("place", { start, end, resource: ref }) }];
+            });
+            editing.record(changes, "move", labelOf("Move", events));
+        }
+    }, [editing, events]);
+    // A shift in time (PB39): every scheduled event a day or an hour either way, on its resource, one transaction.
+    const shift = (by: -1 | 1, unit: "day" | "hour") => {
+        if (editing === undefined) return;
+        const ms = by * (unit === "day" ? 86_400_000 : 3_600_000);
+        const changes = events.flatMap((e): PlanEventChange[] => {
+            const start = getSomeorUndefined(e.item.start);
+            const end = getSomeorUndefined(e.item.end);
+            if (start === undefined || end === undefined) return [];
+            const place = { start: new Date(start.getTime() + ms), end: new Date(end.getTime() + ms), resource: e.item.resource };
+            return [{ kind: e.kind.key, id: e.item.key, gesture: variant("place", place) }];
+        });
+        editing.record(changes, "move", labelOf("Shift", events));
+    };
     return (
         <Box css={styles.root} data-plan-inspector="events">
             <Box css={styles.head}>
@@ -538,24 +710,26 @@ function SeveralEvents({ events, kinds, resources, words, styles }: SeveralProps
                     </Box>
                 ))}
             </Box>
-            <chakra.fieldset css={styles.edits} disabled data-inspector-edits="">
+            <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
                 <Box css={styles.bulk} data-inspector-bulk="">
                     <Box css={styles.sectionHead}>{m.inspectorSection({ section: "bulk" })}</Box>
-                    {specs.length > 0 && <FieldForm specs={specs} value={{}} options={options} onChange={NO_EDIT} />}
+                    {specs.length > 0 && <FieldForm specs={specs} value={shared} options={options} onChange={onBulk} />}
                     <Box css={styles.shift} role="group" aria-label={m.inspectorShiftLabel()} data-inspector-shift="">
                         {([[-1, "day"], [-1, "hour"], [1, "hour"], [1, "day"]] as const).map(([by, unit]) => (
-                            <chakra.button key={`${by}${unit}`} type="button" css={button({ variant: "outline", size: "xs" })} disabled
-                                data-inspector-action={`shift:${by}${unit}`}>
+                            <chakra.button key={`${by}${unit}`} type="button" css={button({ variant: "outline", size: "xs" })}
+                                data-inspector-action={`shift:${by}${unit}`} onClick={() => shift(by, unit)}>
                                 {m.inspectorShift({ by, unit })}
                             </chakra.button>
                         ))}
                     </Box>
                 </Box>
                 <Box css={styles.actions} data-inspector-actions="">
-                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="duplicate">
+                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate(events, editing)}
+                        data-inspector-action="duplicate" onClick={() => duplicateEvents(events, editing, chrome, selection.row)}>
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
-                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="delete">
+                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
+                        onClick={() => deleteEvents(events, editing)}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -615,14 +789,16 @@ function timeOf(t: PlanScale["window"]["min"]): Date | undefined {
 
 /**
  * The events in the window a row stands for — a resource's, or an event
- * kind's on no resource — read through the kinds, tracked.
+ * kind's on no resource — read through the kinds, their drafts in place,
+ * tracked.
  *
  * @param target - What the row stands for
  * @param kinds - The event kinds
  * @param scale - The shared scale: its window
+ * @param drafts - Every kind's drafts (#1194) — the same object while they hold
  * @returns The facts; `undefined` for a row that stands for no events, and before the first read answers
  */
-function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale): WindowFacts | undefined {
+function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts): WindowFacts | undefined {
     const from = timeOf(scale.window.min);
     const to = timeOf(scale.window.max);
     const read = useCallback((): WindowFacts | typeof READING | undefined => {
@@ -633,7 +809,7 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
         const quantities: PlanQuantityValue[] = [];
         for (const kind of kinds) {
             if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.resources.key)) : !stringEqual(kind.key, target.event.key)) continue;
-            const items = kind.planItems(from, to, NO_DRAFTS);
+            const items = kind.planItems(from, to, drafts.get(kind.key) ?? NO_DRAFTS);
             if (items.type === "none") return READING;
             for (const item of items.value) {
                 if (on !== undefined ? !resourceEqual(item.resource, on) : item.resource.type !== "none") continue;
@@ -644,7 +820,7 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
             }
         }
         return { events, minutes, quantities };
-    }, [target, kinds, from, to]);
+    }, [target, kinds, from, to, drafts]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<WindowFacts | undefined>(undefined);
     return useMemo(() => {
@@ -673,7 +849,7 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
     const row = inspect.row(rowKey)!;
     const id = row.id.value;
     const target = useMemo(() => targetOf(id.series, id.path, kinds, resources), [id, kinds, resources]);
-    const facts = useWindowFacts(target, kinds, scale);
+    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED);
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
     const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
     const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));

@@ -9,9 +9,10 @@
  * # Read where the canvas draws
  *
  * The rows are read over the scale's window and the periods it lays out
- * beyond each edge (#619), so a pan reveals the events there. The read is a
- * tracked evaluation: the records it reads are listened to, and a commit to
- * one reads the rows again. A read whose kinds are still in flight leaves the
+ * beyond each edge (#619), so a pan reveals the events there, with every
+ * kind's drafts in place (#1194), so a draft draws as Save would leave it. The
+ * read is a tracked evaluation: the records it reads are listened to, and a
+ * commit to one reads the rows again, as a new draft does. A read whose kinds are still in flight leaves the
  * last rows standing; one that throws leaves them too, and says why. The rows
  * move only when they differ, so a write that changes none of them redraws
  * nothing.
@@ -74,7 +75,7 @@ export interface PlanEventLead {
     error: string | undefined;
 }
 
-/** The drafts the rows are read with: none yet — the event kinds' editing is #1194's. */
+/** No drafts: a Plan whose event kinds hold none. */
 const NO_DRAFTS: ValueTypeOf<typeof PlanEventDraftsType> = new SortedMap([], compareFor(StringType));
 /** Nothing hidden: every kind, resource kind and measure draws. */
 const NONE_HIDDEN: readonly string[] = [];
@@ -97,21 +98,26 @@ function emptyBlocks(count: number): readonly PlanWireBlock[] {
 
 /**
  * The event kinds' rows over the range the canvas draws: the scale's window
- * and the periods laid out beyond each edge, what the viewer hides left out.
+ * and the periods laid out beyond each edge, what the viewer hides left out,
+ * every kind's drafts in place (#1194, PB17).
  *
  * @param events - The Plan's event rows, when it has event kinds
  * @param scale - The shared scale — a time scale, beside event kinds
  * @param hidden - The ids the viewer hides in the library's Series tab (#1195)
+ * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold
  * @returns The rows as the canvas draws them now
  */
-export function usePlanEventBlocks(events: PlanEventRows | undefined, scale: PlanScale | undefined, hidden: readonly string[] = NONE_HIDDEN): PlanEventLead {
+export function usePlanEventBlocks(
+    events: PlanEventRows | undefined, scale: PlanScale | undefined, hidden: readonly string[] = NONE_HIDDEN,
+    drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS,
+): PlanEventLead {
     const blocks = events?.blocks;
     const count = events?.count ?? 0;
     const from = scale !== undefined ? timeMs(scale.offset(scale.window.min, -OVERSCAN_BUCKETS)) : undefined;
     const to = scale !== undefined ? timeMs(scale.offset(scale.window.max, OVERSCAN_BUCKETS)) : undefined;
     const read = useCallback(
-        () => (blocks === undefined || from === undefined || to === undefined ? NOT_READ : blocks(new Date(from), new Date(to), NO_DRAFTS, [...hidden])),
-        [blocks, from, to, hidden]);
+        () => (blocks === undefined || from === undefined || to === undefined ? NOT_READ : blocks(new Date(from), new Date(to), drafts, [...hidden])),
+        [blocks, from, to, hidden, drafts]);
     const { result } = useTrackedEvaluation(read);
     const empty = useMemo(() => emptyBlocks(count), [count]);
     // The last rows read, held while a read is in flight or failed: kept by

@@ -211,8 +211,18 @@ export const narrowBase = {
         touchAction: "pan-y",
         // In a bounded frame the list is what scrolls — the header above
         // it stays put (it used to be the whole root that scrolled, and a
-        // flex column with a scrolling root shrank the ruler to 0px).
-        "[data-plan-fill] &": { flex: 1, minHeight: 0, overflowY: "auto" },
+        // flex column with a scrolling root shrank the ruler to 0px). Its
+        // insets above and below — the 16px the tab panel draws over the
+        // ruler, the 14px under the last card — ride inside what it
+        // scrolls, as its first and last children's margins: as padding
+        // they floored its height, and a frame short of room (a phone's
+        // footer on two lines) ran the list past main (#1194).
+        "[data-plan-fill] &": {
+            flex: 1, minHeight: 0, overflowY: "auto",
+            paddingTop: 0, paddingBottom: 0,
+            "& > :first-child": { marginTop: "16px" },
+            "& > :last-child": { marginBottom: "14px" },
+        },
         // A scrolling flex column must not SHRINK its cards to fit (an
         // `overflow: hidden` card has no content floor, so it collapsed
         // to a sliver instead of overflowing) — they keep their size and

@@ -13,13 +13,13 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { ArrayType, DictType, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, toEastTypeValue, variant, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DictType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, toEastTypeValue, variant, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import type { EditingType } from "@elaraai/east-ui/internal";
 import { getStore } from "../platform/state-runtime.js";
-import type { UIStoreInterface } from "../platform/state-store.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
+import { bindingOf, gateOf, keptSession, sessionKeyOf, sourceSessionsOf } from "./kept.js";
 import { EditSession, type EditSessionBinding, type EntryVersion, type Placement } from "./session.js";
 
 /** A collection's editing declaration — the shared session's fields, and whatever else the collection carries. */
@@ -54,11 +54,7 @@ export interface EditSessionOptions<W> {
     ready?: EditSessionBinding<W>["ready"];
 }
 
-/** The views of one source: their sessions by view and schema (their projections may differ), and the one holding the source's request. */
-interface SourceSessions { sessions: Map<string, unknown>; owner: unknown }
-const stores = new WeakMap<UIStoreInterface, Map<string, SourceSessions>>();
 const entryOffsets = new WeakMap<object, Map<string, number>>();
-const sessionKey = printFor(StructType({ view: StringType, entry: EastTypeType, draft: EastTypeType }));
 const stringEqual = equalFor(StringType);
 const printString = printFor(StringType);
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
@@ -84,46 +80,22 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     const keyType = useMemo((): EastType | undefined =>
         editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) : undefined, [editing.keyType]);
     const sourceId = editing.sourceId;
-    const sourceSessions = useMemo(() => {
-        let sources = stores.get(store);
-        if (!sources) { sources = new Map(); stores.set(store, sources); }
-        let record = sources.get(sourceId);
-        if (!record) { record = { sessions: new Map(), owner: undefined }; sources.set(sourceId, record); }
-        return record;
-    }, [store, sourceId]);
-    const binding = useMemo<EditSessionBinding<W>>(() => ({
-        sourceId, entryType, draftType, keyType, ready,
-        idField: editing.idField.type === "some" ? editing.idField.value : undefined,
-        children: editing.children.type === "some" ? editing.children.value : undefined,
-        apply: editing.onApply.type === "some" ? editing.onApply.value.value : undefined,
-        patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
-        refresh: source?.refresh, auto: editing.mode.type === "auto",
-    }), [sourceId, entryType, draftType, keyType, editing, source, ready]);
-    const schemaKey = useMemo(() => sessionKey({ view: storageKey, entry: editing.entryType, draft: editing.draftType }), [storageKey, editing.entryType, editing.draftType]);
-    const session = useMemo(() => {
-        const previous = sourceSessions.sessions.get(schemaKey) as EditSession<W> | undefined;
-        if (previous) return previous;
+    const sourceSessions = useMemo(() => sourceSessionsOf(store, sourceId), [store, sourceId]);
+    const binding = useMemo(() => bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh),
+        [entryType, draftType, keyType, editing, source, ready]);
+    const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
+    const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);
-        sourceSessions.sessions.set(schemaKey, next);
         entryOffsets.set(next, new Map());
         return next;
-        // Binding callbacks change independently; the layout effect below
-        // updates future requests while an unresolved request keeps its closure.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sourceSessions, schemaKey]);
+    }),
+    // Binding callbacks change independently; the layout effect below
+    // updates future requests while an unresolved request keeps its closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sourceSessions, schemaKey]);
     const version = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     useLayoutEffect(() => {
-        const siblingsChanged = () => {
-            for (const sibling of sourceSessions.sessions.values()) if (sibling !== session) (sibling as EditSession<unknown>).availabilityChanged();
-        };
-        session.bind({ ...binding, gate: {
-            available: () => sourceSessions.owner === undefined || sourceSessions.owner === session,
-            acquire: () => { sourceSessions.owner = session; siblingsChanged(); },
-            release: () => {
-                if (sourceSessions.owner === session) sourceSessions.owner = undefined;
-                siblingsChanged();
-            },
-        } });
+        session.bind({ ...binding, gate: gateOf(sourceSessions, session) });
     }, [session, binding, sourceSessions]);
     // Each resident row's place by its id, once per rows: a gesture's entries,
     // a reconcile's reads and the layer look rows up here, never by a scan of
