@@ -178,6 +178,8 @@ export const planWindows = example({
             }));
             return (
                 <Plan
+                    // Named: a page holding it beside another Plan keeps each one's panes, hidden series and library its own.
+                    id="windows"
                     axis={axis}
                     resources={{
                         presses: Schedule.resources(presses, {
