@@ -255,8 +255,9 @@ export interface PlanController {
     placeOf(key: RowKey): PlanRowPlace | undefined;
     /** The key search, for the toolbar (its `find` / `jump` / `clear` are this
      *  controller's). Mount it only where the source declares `seek`; its
-     *  `resetKey` is the seek snapshot's `epoch` (#821). */
-    readonly search: Omit<PlanSearch, "resetKey">;
+     *  `requery` is the seek snapshot's `again` (#821, #1199), and its
+     *  `resetKey` the source's id. */
+    readonly search: Omit<PlanSearch, "resetKey" | "requery">;
     /** The diagnostics chip asked for the first skipped row (#811). */
     seekSkipped(): void;
     /**
@@ -412,8 +413,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let navSeq = 0;
     let announce: PlanAnnouncement | null = null;
     let words: PlanWords = PLAN_WORDS;
-    // The paged source's revision the canvas last showed (#821).
-    let pagingRevision: string | undefined;
+    // The snapshot of the paged source's data the canvas last showed (#821, #1199).
+    let pagingSnapshot: string | undefined;
     // What storage holds — compared before every write, so nothing is written
     // that is already there.
     let persisted = restored;
@@ -463,13 +464,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // What landed, for the live region (#819) — in the same
             // notification too, so a landing is still one commit.
             say(landedText(snapshot.paging.resident, landed.resident, landed.total, words));
-            // The source moved off the snapshot a search was answered in: its
-            // match positions index rows that may have moved (#821). The
-            // first revision a source names is not a move — a search asked
-            // before it waited for it.
-            if (landed.revision !== pagingRevision) {
-                if (pagingRevision !== undefined) seek.reset();
-                pagingRevision = landed.revision;
+            // The source's data moved off the snapshot a search was answered
+            // in: its match positions index rows that may have moved (#821), so
+            // the query standing is asked again there (#1199). A new revision
+            // over the same data — its windows read again, new events placed on
+            // them, new drafts — is no new snapshot, and leaves the search
+            // standing. The first snapshot a source names is not a move — a
+            // search asked before it waited for it.
+            if (landed.dataSnapshot !== pagingSnapshot) {
+                if (pagingSnapshot !== undefined) seek.askAgain();
+                pagingSnapshot = landed.dataSnapshot;
             }
             // A row a `focus` request waits for may have landed (#824).
             serveFocus();
@@ -840,9 +844,12 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (sought !== null) searchRequest = { key: sought.key, row };
     }
 
-    const search: Omit<PlanSearch, "resetKey"> = {
+    const search: Omit<PlanSearch, "resetKey" | "requery"> = {
         keyType: CANVAS_KEY_TYPE,
-        find: (q) => {
+        find: (q, again) => {
+            // The query standing, asked again at a new snapshot (#1199): its
+            // answer indexes that snapshot's rows, and the view stays put.
+            if (again === true) return seek.find(q);
             // A new search takes the viewport back from the skipped-row chip,
             // and the previous one's row, still waiting, is not served.
             batch(() => {

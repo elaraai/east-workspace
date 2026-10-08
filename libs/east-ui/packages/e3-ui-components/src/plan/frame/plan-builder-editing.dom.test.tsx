@@ -219,7 +219,8 @@ describe("every gesture is one transaction (PB43)", () => {
         const editing = () => result.current;
         /** An event as Plan draws it, the drafts in place: when it runs, and where. */
         const where = (kind: string, id: string) => {
-            const read = kinds.get(kind)!.planEvent(id, editing().draftsOf(kind));
+            // Each kind reads its record whole: the range it would look in first (#1199) is its axis's.
+            const read = kinds.get(kind)!.planEvent(id, editing().draftsOf(kind), FIRST, LAST);
             if (read.type === "none") return undefined;
             const item = read.value.item;
             const time = (t: typeof item.start) => (t.type === "some" ? printInstant(t.value) : "-");

@@ -9,7 +9,10 @@
  * fully decoded draft versions at gesture boundaries, each carrying the
  * collection's own projection of the entry (`W` — the Sheet's wire row), and
  * East diff composes the public patches. A pending request owns its frozen
- * bytes and callback until resolved.
+ * bytes and callback until resolved. A Save's conflict at a revision base — a
+ * source read a window at a time — names its entries once the session has read
+ * them at the source's new revision (#1199), so no source reads itself whole to
+ * say which moved.
  *
  * @packageDocumentation
  */
@@ -113,6 +116,21 @@ export interface EditSessionBinding<W> {
 interface Target {
     before: option<unknown>;
     after: option<unknown>;
+}
+
+/**
+ * A Save's conflict at a revision base, while the session names its entries
+ * (#1199): a source read a window at a time cannot say which entries moved
+ * without reading itself whole, so the session reads them, at the revision the
+ * source moves to.
+ */
+interface Conflicted {
+    /** The revision the request was drafted at: its entries are read at another. */
+    readonly revision: string;
+    /** Each entry the request changed: as its edit began, and as the request leaves it. */
+    readonly targets: ReadonlyMap<string, Target>;
+    /** The source's issues: the source's own (`entry` empty), and its words for each entry it may name. */
+    readonly issues: readonly EditIssue[];
 }
 
 interface Submission<W> {
@@ -242,6 +260,8 @@ export class EditSession<W> {
     error: string | undefined;
     /** The source moved under pending drafts. */
     stale = false;
+    /** A Save's conflict at a revision base whose entries the session has still to name (#1199). */
+    private conflicted: Conflicted | undefined;
     /** Why the confirmation read last failed, while it is the error shown (#853). */
     private confirmReason: string | undefined;
     /**
@@ -484,7 +504,7 @@ export class EditSession<W> {
         for (const [id, entry] of after) this.current.set(id, entry);
         this.draftsChanged();
         this.history.splice(this.cursor); this.history.push({ label, before, after }); this.cursor++;
-        this.status = "idle"; this.issues = []; this.error = undefined;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(before, after, origin, label);
         this.changed(); this.maybeAutoApply(origin !== "discard");
         return true;
@@ -495,7 +515,7 @@ export class EditSession<W> {
         const step = this.history[--this.cursor]!;
         for (const [id, entry] of step.before) this.current.set(id, entry);
         this.draftsChanged();
-        this.status = "idle"; this.issues = []; this.error = undefined;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(step.after, step.before, "undo", `Undo ${step.label}`);
         this.changed(); this.maybeAutoApply();
     }
@@ -505,7 +525,7 @@ export class EditSession<W> {
         const step = this.history[this.cursor++]!;
         for (const [id, entry] of step.after) this.current.set(id, entry);
         this.draftsChanged();
-        this.status = "idle"; this.issues = []; this.error = undefined;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(step.before, step.after, "redo", `Redo ${step.label}`);
         this.changed(); this.maybeAutoApply();
     }
@@ -517,7 +537,7 @@ export class EditSession<W> {
         this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
         this.history = []; this.cursor = 0; this.stale = false;
-        this.status = "idle"; this.issues = []; this.error = undefined;
+        this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.changed(); this.maybeAutoApply(false);
     }
     private maybeAutoApply(enabled = true): void {
@@ -559,14 +579,24 @@ export class EditSession<W> {
             this.submission = { release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
-        this.status = "applying"; this.error = undefined; this.changed();
+        this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
         let result: ApplyResult;
         try { result = await request.apply(request.payload.slice()); }
         catch (error) {
             this.status = "unknown"; this.error = error instanceof Error ? error.message : String(error); this.changed(); return;
         }
         if (result.type !== "applied") {
-            this.submission = undefined; request.release?.(); this.status = result.type; this.issues = result.value; this.changed(); return;
+            this.submission = undefined; request.release?.(); this.status = result.type; this.issues = result.value;
+            // At a revision base the source names no entry it would have to
+            // read itself whole for (#1199): the session reads them at the
+            // revision the source moves to (`nameConflicts`), and says the
+            // source's own words for itself meanwhile.
+            if (result.type === "conflict" && request.base.type === "revision") {
+                this.conflicted = { revision: request.base.value, targets: request.targets, issues: result.value };
+                const own = result.value.filter((issue) => issue.entry === "");
+                if (own.length > 0) this.issues = own;
+            }
+            this.changed(); return;
         }
         if (request.base.type === "revision" && result.value.revision.type !== "some") {
             // The session's own text, canonical; the history bar words it (#861).
@@ -641,11 +671,68 @@ export class EditSession<W> {
         }
         this.base = this.cloneBase(base); this.baseline = new Map(request.after);
         this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;
+        this.conflicted = undefined;
         if (!exact) {
             this.baseline.clear(); this.current.clear(); this.history = []; this.cursor = 0;
             this.draftsChanged();
         }
         this.changed(); return true;
+    }
+
+    /**
+     * A Save's conflict at a revision base whose entries the session has still
+     * to name (#1199): the revision its request was drafted at, and the entries
+     * it changed — what the session's source reads, at another revision, for
+     * {@link EditSession.nameConflicts}. `undefined` otherwise.
+     */
+    get naming(): { readonly revision: string; readonly ids: readonly string[] } | undefined {
+        const conflict = this.conflicted;
+        return conflict === undefined || this.status !== "conflict" ? undefined : { revision: conflict.revision, ids: [...conflict.targets.keys()] };
+    }
+
+    /**
+     * Name a Save's conflicting entries at a revision base (#1199). A source
+     * read a window at a time answers a conflict without reading itself whole
+     * — its own issue, and its words for each entry it may name — so once it
+     * reads at a revision other than the one the request was drafted at, each
+     * entry the request changed is read there, and every one its change no
+     * longer applies to is named: a part the change began from no longer holds
+     * (East's own patch apply, as the source checks a write by). Each is named
+     * in the source's words for it, else the session's; the source's own issue
+     * stays only when no entry is named.
+     *
+     * @param base - The base the source is at now
+     * @param read - An entry the request changed, as the source holds it at that base: its value, `none` for one it does not hold, or `undefined` while it is not read
+     * @returns Whether the conflict's entries were named
+     */
+    nameConflicts(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
+        const conflict = this.conflicted;
+        if (conflict === undefined || this.status !== "conflict" || base.type !== "revision" || stringEqual(base.value, conflict.revision)) return false;
+        const named: string[] = [];
+        for (const [id, target] of conflict.targets) {
+            const now = read(id);
+            if (now === undefined) return false;
+            if (!this.applies(now, target)) named.push(id);
+        }
+        this.conflicted = undefined;
+        const said = new Map(conflict.issues.filter((issue) => issue.entry !== "").map((issue) => [issue.entry, issue] as const));
+        const own = conflict.issues.filter((issue) => issue.entry === "");
+        this.issues = named.length > 0
+            ? named.map((id): EditIssue => said.get(id) ?? { entry: id, row: none, field: none, message: SESSION_TEXT.changed })
+            : own.length > 0 ? own : [{ entry: "", row: none, field: none, message: SESSION_TEXT.sourceChanged }];
+        this.changed();
+        return true;
+    }
+
+    /** Whether a request's change of an entry still applies to the entry as the source holds it now. */
+    private applies(now: option<unknown>, target: Target): boolean {
+        try {
+            this.domainApply(now, this.domainDiff(target.before, target.after));
+            return true;
+        } catch (error) {
+            if (error instanceof ConflictError) return false;
+            throw error;
+        }
     }
 
     /** An entry's version as its domain value: `none` for one absent, or one never touched. */

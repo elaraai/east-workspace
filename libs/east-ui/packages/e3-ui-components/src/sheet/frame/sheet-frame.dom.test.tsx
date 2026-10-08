@@ -12,7 +12,10 @@
  * or both — the sheet's items in the frame's one toolbar, a Save's banners
  * — a conflict, a write with no answer and its Retry, the out-of-date notice
  * and its Discard — the footer's last save, a week the record does not hold,
- * and the panes' open tab and collapsed state kept under the sheet's name.
+ * and the panes' open tab and collapsed state kept under the sheet's name. A
+ * record read a window at a time (`sheetPaged`, #1199) names a Save's
+ * conflicting rows with the record never read whole: each row read by its key
+ * at the record's new revision, through a stand-in paging service.
  */
 
 import { test, expect } from "vitest";
@@ -23,7 +26,9 @@ import {
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { formatters, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { initializeRecordApi } from "../../platform/index.js";
+import type { TreePath } from "@elaraai/e3-types";
+import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../../platform/index.js";
+import { countWholeReads, pathText, recordPaging } from "../../platform/record-paging.test-utils.js";
 import { todayUtc } from "../parse/date.js";
 import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
 
@@ -159,6 +164,41 @@ test("a Save's conflict is a banner naming its row and who changed the record la
     await settle();
     expect(banners(container)).toEqual([]);
     expect(container.querySelector('[data-slot="row"] [data-key="task"]')!.textContent).toBe("Panel cutting, walnut");
+});
+
+test("a record read a window at a time names a Save's conflicting row — read by its key at the record's new revision — and never reads the record whole (#1199, SB23)", async () => {
+    const reads = countWholeReads(harness.cache);
+    const memory = reads.serve(harness.memory);
+    initializeRecordApi(memory, harness.cache, WORKSPACE);
+    const path = JOBS.path as TreePath;
+    const paging = recordPaging(harness.cache, reads.raw, [{ path, type: JOBS.type }]);
+    initializePagedApi(paging.api, WORKSPACE);
+    try {
+        const { container, getByRole } = mount(ex.sheetPaged);
+        await settle();
+        expect([...container.querySelectorAll('[data-slot="row"] [data-key="task"]')].slice(0, 4).map((cell) => cell.textContent))
+            .toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish"]);
+        await typeTask(container, 0, "Panel cutting, oak");
+        await typeTask(container, 1, "Edge banding, both edges");
+        // Another write moves the first job just as Save goes; the second it leaves as its edit began.
+        const now = decodeBeast2For(JOBS.type)(reads.raw(WORKSPACE, path)!);
+        const moved = encodeBeast2For(JobsPatch)(diffFor(JOBS.type)(now, withTask(now, "J-0001", "Panel cutting, walnut")));
+        await act(async () => {
+            void memory.mutate(WORKSPACE, JOBS.name, "patch", { args: [moved] });
+            press(getByRole("button", { name: "Save" }));
+        });
+        await settle();
+        expect(banners(container)).toEqual(["conflict", "stale"]);
+        const conflict = slot(container, "banners")!.querySelector('[data-session-banner="conflict"]')!;
+        expect(conflict.textContent).toContain("Save stopped — 1 conflict with the source");
+        expect(conflict.textContent).toContain("J-0001: Changed since this edit began — last changed by memory");
+        expect(conflict.textContent).not.toContain("J-0002");
+        // Each row the Save changed was sought by its key at the record's new revision; the record never whole.
+        expect(paging.requests).toEqual(expect.arrayContaining([`${pathText(path)} seek "J-0001"`, `${pathText(path)} seek "J-0002"`]));
+        expect(reads.paths).not.toContain(pathText(path));
+    } finally {
+        clearPagedApi();
+    }
 });
 
 test("a write with no answer is a banner with Retry, which sends the same request again and commits once (SB23)", async () => {

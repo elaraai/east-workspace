@@ -35,13 +35,17 @@ import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } fro
 /** What a key search reads and drives: a keyed source's `seek`, as its host wires it. */
 export interface KeySearchSource {
     /** Keys the search: when it changes — the source moved to another
-     *  revision, whose rows its matches no longer index — the box starts
-     *  again, empty. */
+     *  revision, whose rows its matches no longer index, for a host that drops
+     *  a query then — the box starts again, empty. */
     resetKey: string;
+    /** Moves when the source moved to another snapshot, for a host that keeps
+     *  a query then (#1199): the box asks the query it holds again, its text
+     *  kept. */
+    requery?: number | undefined;
     /** The key type typed input is parsed against. */
     keyType: EastTypeValue;
-    /** Locates a query. */
-    find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
+    /** Locates a query — `again`, one the box holds asked again as `requery` moved. */
+    find: (query: DatasetKeyQuery, again?: boolean) => Promise<DatasetKeyMatchRange>;
     /** Labels rows `[row, row + limit)` for the box's popup, in row order. */
     listRange: (row: number, limit: number) => Promise<string[]>;
     /** Jumps the host to a match's row. */
@@ -80,7 +84,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
     const active = typed.resetKey === search.resetKey && typed.text !== "";
     const box = (
         <DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find}
-            onListRange={search.listRange} onJump={search.jump} onClear={search.clear}
+            onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery}
             onInputChange={(text) => setTyped({ resetKey: search.resetKey, text })} />
     );
     return {

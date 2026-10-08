@@ -28,6 +28,7 @@ export { EditHistory, type EditHistoryPart } from "./history.js";
 export {
     useEditHistory,
     type EditHistorySource,
+    type EditHistoryPaged,
     type EditHistoryJoined,
     type EditHistoryState,
 } from "./use-edit-history.js";

@@ -138,7 +138,7 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property resources - The resource kinds, in the order `resources` lists them, their rows resolved
  * @property events - The event kinds, in the order `events` lists them, each closed behind its seams
  * @property blocks - The resources' rows over a window, every kind's drafts in place; `none` while the Plan has no event kinds
- * @property paged - A paged resource kind's rows, a window of its resources at a time (#1199); `none` while no resource kind has a `window`
+ * @property paged - A paged resource kind's rows, a window of its resources at a time (#1199); `none` while no resource kind is paged
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property settings - When the event kinds' drafts go, and the date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
@@ -194,7 +194,7 @@ export type PlanRowsItem<K extends PlanAxisKindLiteral = never> = PlanRowsValue<
 export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> extends Omit<PlanConfig<K>, "data" | "canDrop"> {
     /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` or `pick` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone. */
     data?: PlanConfig<K>["data"];
-    /** The resource kinds, by slot — `Schedule.resources(rows, { … })`: the rows events are placed on, in this order. */
+    /** The resource kinds, by slot — `Schedule.resources(rows, { … })`, or a paged read of them: the rows events are placed on, in this order. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /** The event kinds, by slot — `Schedule.events(record, { … })`, each a record of its own: at least one, when given. An event is scheduled in time, so they need a time axis. */
     events?: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>;
@@ -356,7 +356,7 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
  *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
- *   placed on it and no measures; more than one resource kind with a `window`, or one beside a paged `data` (#1199);
+ *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199);
  *   a key the Plan gives its event rows that another series has; and everything the canvas
  *   refuses ({@link createPlanRoot}). An
  *   axis held in a variable, and links whose kinds are not known at build, are refused in the same words as the Plan
@@ -524,8 +524,8 @@ function checkEventRows(
 
 /**
  * What a Plan with a paged resource kind checks (#1199): a canvas pages one
- * source, so one resource kind at most has a `window`, and `data` beside it is
- * read whole.
+ * source, so one resource kind at most is paged, and `data` beside it is read
+ * whole.
  *
  * @param resources - The resource kinds, by slot
  * @param data - The `data` prop, when given
@@ -534,10 +534,10 @@ function checkEventRows(
 function checkPagedKinds(resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[], data: unknown): void {
     const paged = resources.filter(([, kind]) => kind.window !== undefined).map(([slot]) => `resources.${slot}`);
     if (paged.length > 1) {
-        throw new Error(`Plan: ${paged.join(" and ")} each page their rows (\`window\`), and a canvas pages one source — read all but one of them whole`);
+        throw new Error(`Plan: ${paged.join(" and ")} each page their rows (Data.bindPaged), and a canvas pages one source — read all but one of them whole`);
     }
     if (paged.length === 1 && data !== undefined && resolveRowSource(data, "Plan").kind !== "inline") {
-        throw new Error(`Plan: ${paged[0]} pages its rows (\`window\`), and \`data\` is paged too, and a canvas pages one source — bind \`data\` whole, or read the resources whole`);
+        throw new Error(`Plan: ${paged[0]} pages its rows (Data.bindPaged), and \`data\` is paged too, and a canvas pages one source — bind \`data\` whole, or read the resources whole`);
     }
 }
 

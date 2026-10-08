@@ -99,7 +99,11 @@
  * new revision brings them, and the old ones stand in until it lands (#1192 —
  * a Plan's event rows ride its source's windows as fixed blocks, and move with
  * every revision). A `paged` source names no snapshot: its rows are its id's
- * for as long as the canvas holds it.
+ * for as long as the canvas holds it. A source the canvas composes over another
+ * names the snapshot of its data apart from its revision (#1199), and the
+ * snapshot is published beside the revision: a new revision over the same
+ * data reads the windows again and is no new snapshot, which is what a key
+ * search's answer indexes.
  *
  * @packageDocumentation
  */
@@ -207,6 +211,10 @@ export interface PlanPagingSnapshot {
     /** The source's revision — the snapshot of its data these rows are read
      *  from — once it names one (#821). */
     revision: string | undefined;
+    /** The snapshot of the data itself (#1199): the source's own `snapshot()`,
+     *  or its revision when it names none. A revision that moved over the same
+     *  data — windows read again, new rows composed into them — leaves it. */
+    dataSnapshot: string | undefined;
 }
 
 /** No failed windows — one shared list, so an unfailed canvas's memos hold. */
@@ -221,7 +229,7 @@ const NO_BLOCKS: readonly PlanPagedBlock[] = [];
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, blocks: NO_BLOCKS,
     total: undefined, resident: undefined, complete: true, loading: false,
-    failures: NO_FAILURES, sourceError: undefined, revision: undefined,
+    failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
 /** Where a row the body does not hold sits (#823): in one of its block's
@@ -320,10 +328,12 @@ interface ReadOutcome {
     sourceError: string | undefined;
     /** The revision the windows were read at. */
     revision: string | undefined;
+    /** The snapshot of the data they were read from (#1199). */
+    dataSnapshot: string | undefined;
 }
 
 const NOTHING_READ: ReadOutcome = {
-    total: undefined, resident: [], inFlight: [], failed: [], sourceError: undefined, revision: undefined,
+    total: undefined, resident: [], inFlight: [], failed: [], sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
 /** The windows a block draws (#876): `from` to `to`, inclusive; `to < from`
@@ -431,6 +441,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // The revision `cache` holds (#821), and the previous revision's windows,
     // served for a window until this revision's copy lands.
     let revision: string | undefined;
+    // The snapshot of the data the last read was of (#1199), kept through a read that failed.
+    let dataSnapshot: string | undefined;
     let stale: WindowCache | undefined;
     let cache: WindowCache = new Map();
     let failures: WindowFailures = new Map();
@@ -574,6 +586,18 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 sourceError = readFailure(err);
             }
             if (current !== revision) rotate(current);
+            // The snapshot of the data, when the source names it apart from its revision (#1199).
+            let data = current;
+            if (src.snapshot !== undefined && sourceError === undefined) {
+                try {
+                    const own = src.snapshot();
+                    data = own.type === "some" ? own.value : undefined;
+                } catch (err) {
+                    console.error("[Plan] paged source snapshot failed:", err);
+                    sourceError = readFailure(err);
+                }
+            }
+            if (sourceError === undefined) dataSnapshot = data;
             let t: number | undefined;
             try {
                 const read = src.total();
@@ -588,12 +612,12 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             if (!result.stale) stale = undefined;
             return {
                 total: t, resident: result.resident, inFlight: result.inFlight, failed: result.failed, sourceError,
-                revision: current,
+                revision: current, dataSnapshot,
             };
         });
         // `readWindows` catches every window's own failure, so a run that still
         // threw is the source's failure too — chrome, like a throwing `total()`.
-        return out.ok ? out.value : { ...NOTHING_READ, sourceError: readFailure(out.error), revision };
+        return out.ok ? out.value : { ...NOTHING_READ, sourceError: readFailure(out.error), revision, dataSnapshot };
     }
 
     /** Lay the canvas out by the blocks a window says it has (#823): each
@@ -906,11 +930,12 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 : sameFailures(prev.failures, failures) ? prev.failures : failures,
             sourceError: last.sourceError,
             revision: last.revision,
+            dataSnapshot: last.dataSnapshot,
         };
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.blocks !== prev.blocks
             || next.total !== prev.total || next.resident !== prev.resident || next.complete !== prev.complete
             || next.loading !== prev.loading || next.failures !== prev.failures || next.sourceError !== prev.sourceError
-            || next.revision !== prev.revision;
+            || next.revision !== prev.revision || next.dataSnapshot !== prev.dataSnapshot;
         if (!changed) return;
         published += 1;
         snapshot = { ...next, seq: published };

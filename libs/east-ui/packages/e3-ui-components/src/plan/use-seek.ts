@@ -34,13 +34,19 @@ import type { DatasetKeyMatchRange, DatasetKeyQuery } from "@elaraai/east-ui-com
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface PlanSearch {
-    /** Keys the control: it changes when the source moves to another revision,
-     *  whose rows the control's cached match positions no longer index (#821). */
+    /** Keys the control: it changes with the source itself — another
+     *  collection, which a query typed for this one was never asked of. */
     resetKey: string;
+    /** Moves when the source's data moved to another snapshot while a query
+     *  stands (#821, #1199): the control asks the query it holds again there,
+     *  its text kept. Windows read again over the same data move nothing. */
+    requery: number;
     /** The key type the control parses typed input against. */
     keyType: EastTypeValue;
-    /** Locate a query — resolves when the tracked search lands. */
-    find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
+    /** Locate a query — resolves when the tracked search lands. `again`, the
+     *  query the control holds asked again at a new snapshot: the view stays
+     *  where it is. */
+    find: (query: DatasetKeyQuery, again?: boolean) => Promise<DatasetKeyMatchRange>;
     /** Label the popup from the LOADED head of the match run (anchored by the
      *  sought key; empty until the target's windows land). */
     listRange: (row: number, limit: number) => Promise<string[]>;

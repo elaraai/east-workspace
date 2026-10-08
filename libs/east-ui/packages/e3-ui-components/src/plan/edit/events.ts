@@ -29,6 +29,17 @@
  * - **A new event's key** ({@link PlanEventEditing.mint}): a String key is the
  *   event's own, made unique with `-2`, `-3`; an Integer key the first past
  *   the largest; a kind keyed by anything else makes no new event here.
+ * - **A kind read a window at a time** (#1199) is never read whole: its
+ *   session's base is its record's revision, and an event's version before a
+ *   gesture is read where the canvas holds it — among the rows its windows
+ *   hold over the range the canvas reads, which every event it draws is in —
+ *   or by its key ({@link PlanEventEditing.read}); a new event's version is
+ *   absent, read nowhere. Its session reads back a Save's events, and names a
+ *   conflict's, by their keys (`useEditHistory`'s paged source). A new String
+ *   key is made past the keys the drafts and the gesture hold, and the record
+ *   checks it at Save — an insert of a key it holds is a conflict, named; a
+ *   new Integer key past the record's largest, read by its key order and kept
+ *   current, so a gesture makes one at once.
  *
  * @packageDocumentation
  */
@@ -36,14 +47,16 @@
 import { useCallback, useMemo, useRef } from "react";
 import {
     BlobType, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue,
-    isVariant, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf,
+    isVariant, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { PlanEventDraftsType, PlanPayloadType, ScheduleGestureType } from "@elaraai/e3-ui/internal";
 import {
-    historyKeyOf, useEditHistory,
-    type EditHistory, type EditHistoryJoined, type EditHistoryPart, type EditHistorySource, type EditSession, type EntryVersion, type Origin,
+    historyKeyOf, useEditHistory, useTrackedEvaluation,
+    type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
+    type EntryVersion, type Origin,
 } from "@elaraai/east-ui-components";
 import { wholeEntryReadiness } from "@elaraai/east-ui-components/internal";
+import type { PlanEventRange } from "../root/events.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 
 /** One event kind, as the payload carries it. */
@@ -58,14 +71,18 @@ export type PlanKindDraftsValue = Parameters<PlanEventKindValue["planItems"]>[2]
 /** A gesture, as a kind's `write` takes it. */
 export type PlanEventGestureValue = ValueTypeOf<typeof ScheduleGestureType>;
 
+/** One event read by its key, its kind's drafts in place: as Plan draws it, and its row. */
+export type PlanEventReadValue = Extract<ReturnType<PlanEventKindValue["planEvent"]>, { type: "some" }>["value"];
+
 /**
  * One event a gesture changes, and how: through its kind's `write` (a move,
  * a resize, a drop, a schedule or an unschedule, a field edited), its new row
- * whole (an author's `update`, a duplicate), or deleted.
+ * whole (an author's `update`, a duplicate — `created`, an event under a new
+ * key), or deleted.
  */
 export type PlanEventChange =
     | { readonly kind: string; readonly id: string; readonly gesture: PlanEventGestureValue }
-    | { readonly kind: string; readonly id: string; readonly row: Uint8Array }
+    | { readonly kind: string; readonly id: string; readonly row: Uint8Array; readonly created?: true | undefined }
     | { readonly kind: string; readonly id: string; readonly remove: true };
 
 /** One kind's session, as the history holds it, for its banners. */
@@ -109,9 +126,23 @@ export interface PlanEventEditing {
      *
      * @param kind - The kind's slot
      * @param id - The event's key's text
-     * @returns The row, decoded; `undefined` for an event the record does not hold
+     * @returns The row, decoded; `undefined` for an event the record does not hold — and, for a kind read a window at
+     *   a time (#1199), for one its drafts do not hold, which stands as the record holds it
      */
     held(kind: string, id: string): unknown;
+    /**
+     * One event as its kind reads it now, its drafts in place (#1197, #1199):
+     * what a gesture, the inspector and a banner read of it. A kind read a
+     * window at a time looks for it among the rows its windows hold over the
+     * range the canvas reads, then reads it by its key — tracked, inside a
+     * tracked evaluation, so the read lands there.
+     *
+     * @param kind - The kind's slot
+     * @param id - The event's key's text
+     * @returns The event as Plan draws it, and its row; `undefined` for no such event, or one whose read is in flight
+     * @throws {Error} When the kind's read fails
+     */
+    read(kind: string, id: string): PlanEventReadValue | undefined;
     /**
      * A new event's key, as its text: made from an event's key (`J-1001-2`),
      * past every key the record holds, the drafts hold and `minted` holds.
@@ -144,6 +175,8 @@ export interface PlanEventEditingArgs {
     storageKey: string;
     /** Sessions made elsewhere that join the history, ahead of the kinds': `data`'s. */
     joined: readonly EditHistoryJoined<PlanEntryRef>[];
+    /** The range the canvas reads its event kinds' rows over (#1199): a kind read a window at a time holds every event it draws there. */
+    range?: PlanEventRange | undefined;
 }
 
 /** A kind's codecs, read once per kind. */
@@ -164,8 +197,14 @@ const MISSING = variant("missing", null);
 const KEY_ORDER = some(variant("keyOrder", null));
 /** An entry the gesture deletes. */
 const DELETED: EntryVersion<PlanEntryRef> = { draft: undefined, wire: undefined, place: none };
+/** An entry a gesture makes under a new key: absent before it, read nowhere. */
+const ABSENT: EntryVersion<PlanEntryRef> = { draft: undefined, wire: undefined, place: none };
 /** A gesture that writes no existing entry: a template's create. */
 const NO_ENTRY = new Uint8Array(0);
+/** No range: a canvas with no time window reads a windowed kind's events by their keys alone. */
+const NO_RANGE: PlanEventRange = { from: new Date(0), to: new Date(0) };
+/** No kind read a window at a time is keyed by Integer: no largest key is read. */
+const NO_LAST: ReadonlyMap<string, option<option<string>>> = new Map();
 
 const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -200,10 +239,10 @@ function sameDrafts(a: PlanEventDraftsValue, b: PlanEventDraftsValue): boolean {
  * The event kinds' sessions under one history with the joined ones — see the
  * module docs.
  *
- * @param args - The kinds, when their drafts go, the canvas's storage key, and the sessions that join
- * @returns The history, the kinds' sessions and drafts, and how a gesture is recorded
+ * @param args - The kinds, when their drafts go, the canvas's storage key, the sessions that join, and the range the canvas reads
+ * @returns The history, the kinds' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: PlanEventEditingArgs): PlanEventEditing {
+export function usePlanEventEditing({ kinds, applyMode, storageKey, joined, range }: PlanEventEditingArgs): PlanEventEditing {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<PlanEntryRef> | undefined>(undefined);
     const codecs = useMemo(() => kinds.map((kind): KindCodecs => {
@@ -225,8 +264,10 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
             },
         };
     }), [kinds]);
-    // Each kind's source: its closed editing, sent as each gesture lands in auto mode; its author's check over drafted events.
-    const sources = useMemo(() => kinds.map((kind): EditHistorySource<PlanEntryRef> => {
+    // Each kind's source: its closed editing, sent as each gesture lands in auto mode; its author's check over drafted
+    // events; and, for a kind read a window at a time (#1199), its record read by key — its revision the session's base,
+    // and an event read by its key, decoded.
+    const sources = useMemo(() => kinds.map((kind, i): EditHistorySource<PlanEntryRef> => {
         const editing = applyMode === "auto" ? { ...kind.editing, mode: variant("auto", null) } : kind.editing;
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
@@ -235,12 +276,42 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
             encode: encodeBeast2For(entryType) as (value: unknown) => Uint8Array,
             equal: equalFor(entryType) as (a: unknown, b: unknown) => boolean,
         });
-        return { editing, ready };
-    }), [kinds, applyMode, storageKey]);
+        if (kind.entries.type !== "some") return { editing, ready };
+        const seam = kind.entries.value;
+        const decodeRow = codecs[i]!.decodeRow;
+        const paged: EditHistoryPaged = {
+            revision: () => seam.revision(),
+            refresh: (revision) => seam.refresh(revision),
+            entry: (id) => {
+                const read = seam.entry(id);
+                if (read.type !== "some") return none;
+                return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
+            },
+        };
+        return { editing, ready, paged };
+    }), [kinds, codecs, applyMode, storageKey]);
     const state = useEditHistory<PlanEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;
     const { history, keys, version } = state;
     const indexOf = useCallback((kind: string) => kinds.findIndex((k) => stringEqual(k.key, kind)), [kinds]);
+    // The latest range the canvas reads (#1199): where a gesture's event is read.
+    const rangeRef = useRef(range);
+    rangeRef.current = range;
+    // A kind read a window at a time keyed by Integer: its record's largest key, read by its key order and kept current
+    // (tracked), so a gesture makes a new key at once (#1199).
+    const readLast = useCallback(() => {
+        const out = new Map<string, option<option<string>>>();
+        kinds.forEach((kind, i) => {
+            if (kind.entries.type === "some" && codecs[i]!.keys === "integer") out.set(kind.key, kind.entries.value.last());
+        });
+        return out;
+    }, [kinds, codecs]);
+    const { result: lastRead } = useTrackedEvaluation(readLast);
+    const lastKeys = useMemo(() => {
+        if (lastRead.ok) return lastRead.value;
+        console.error("[Plan] an event kind's largest key could not be read:", lastRead.error);
+        return NO_LAST;
+    }, [lastRead]);
     const sessions = useMemo(() => kinds.flatMap((kind, i): PlanKindSession[] => {
         const session = history.session(keys[i]!);
         return session === undefined ? [] : [{ kind: kind.key, key: keys[i]!, session }];
@@ -276,6 +347,27 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
     }, [fresh]);
 
     // ── The gestures ─────────────────────────────────────────────────────────
+    /**
+     * An event's version before any gesture, for a kind read a window at a time (#1199), which its session holds
+     * none of: absent for an event a gesture makes under a new key — a template's create, a duplicate — else the
+     * record's row, read where the canvas holds it (`read`, with no drafts: the session holds none for it).
+     *
+     * @returns The version; `undefined` while its read is in flight, or for an event the record no longer holds
+     */
+    const originalOf = (kind: PlanEventKindValue, change: PlanEventChange): EntryVersion<PlanEntryRef> | undefined => {
+        if (("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true)) return ABSENT;
+        const at = rangeRef.current ?? NO_RANGE;
+        let got: ReturnType<PlanEventKindValue["planEvent"]>;
+        try {
+            got = kind.planEvent(change.id, NO_KIND_DRAFTS, at.from, at.to);
+        } catch (err) {
+            console.error(`[Plan] ${kind.name}'s event ${change.id} could not be read:`, err);
+            return undefined;
+        }
+        if (got.type !== "some") return undefined;
+        const codec = codecs[indexOf(kind.key)]!;
+        return { draft: variant("value", codec.decodeRow(got.value.row)), wire: undefined, place: KEY_ORDER };
+    };
     const api = {
         draftsOf(kind: string): PlanKindDraftsValue {
             return drafts.drafts.get(kind) ?? NO_KIND_DRAFTS;
@@ -287,15 +379,30 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
         held(kind: string, id: string): unknown {
             const i = indexOf(kind);
             if (i < 0) return undefined;
+            // A kind read a window at a time holds no snapshot (#1199): an event its session holds was read before
+            // its first gesture, and one it does not hold stands as the record holds it.
+            if (kinds[i]!.entries.type === "some") {
+                const original = history.session(keys[i]!)?.originals.get(id);
+                return original === undefined ? undefined : rowOf(original);
+            }
             const at = codecs[i]!.keyOf(id);
             return at === undefined ? undefined : state.held(keys[i]!)?.get(at);
+        },
+        read(kind: string, id: string): PlanEventReadValue | undefined {
+            const i = indexOf(kind);
+            if (i < 0) return undefined;
+            const at = rangeRef.current ?? NO_RANGE;
+            const got = kinds[i]!.planEvent(id, drafts.drafts.get(kind) ?? NO_KIND_DRAFTS, at.from, at.to);
+            return got.type === "some" ? got.value : undefined;
         },
         mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined {
             const i = indexOf(kind);
             if (i < 0) return undefined;
             const codec = codecs[i]!;
             const key = keys[i]!;
-            const record = state.held(key);
+            // A kind read a window at a time is never read whole (#1199): the record checks a new key at Save.
+            const windowed = kinds[i]!.entries.type === "some";
+            const record = windowed ? undefined : state.held(key);
             const session = history.session(key);
             const taken = (id: string): boolean => {
                 if (minted.has(id) || session?.entries.has(id) === true) return true;
@@ -312,7 +419,18 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
                 // The first past the largest key the record, the drafts and this gesture hold.
                 let largest = 0n;
                 const consider = (key: bigint) => { if (compareInteger(key, largest) > 0) largest = key; };
-                for (const key of record?.keys() ?? []) consider(key as bigint);
+                if (windowed) {
+                    // The record's largest key, read by its key order — none until that read lands.
+                    const last = lastKeys.get(kind);
+                    if (last === undefined || last.type !== "some") return undefined;
+                    if (last.value.type === "some") {
+                        const read = parseInteger(last.value.value);
+                        if (!read.success) return undefined;
+                        consider(read.value);
+                    }
+                } else {
+                    for (const key of record?.keys() ?? []) consider(key as bigint);
+                }
                 for (const id of [...(session?.entries.keys() ?? []), ...minted]) {
                     const read = parseInteger(id);
                     if (read.success) consider(read.value);
@@ -334,7 +452,9 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
                 let entries = parts.get(key);
                 if (entries === undefined) { entries = new Map(); parts.set(key, entries); }
                 const at = entries.get(change.id);
-                const before = at?.before ?? state.original(key, change.id);
+                const before = at?.before ?? state.original(key, change.id) ?? originalOf(kind, change);
+                // An event of a kind read a window at a time whose read is in flight: the gesture waits for none of it.
+                if (before === undefined) return false;
                 const now = at?.after ?? before;
                 let row: unknown;
                 if ("remove" in change) {
@@ -371,11 +491,12 @@ export function usePlanEventEditing({ kinds, applyMode, storageKey, joined }: Pl
     const draftsOf = useCallback((kind: string) => latest.current.draftsOf(kind), []);
     const available = useCallback((kind: string) => latest.current.available(kind), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
+    const read = useCallback((kind: string, id: string) => latest.current.read(kind, id), []);
     const mint = useCallback((kind: string, from: string, minted: ReadonlySet<string>) => latest.current.mint(kind, from, minted), []);
     const record = useCallback((changes: readonly PlanEventChange[], origin: Origin, label: string) => latest.current.record(changes, origin, label), []);
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, version,
-        draftsOf, available, held, mint, record,
-    }), [history, sessions, drafts, version, draftsOf, available, held, mint, record]);
+        draftsOf, available, held, read, mint, record,
+    }), [history, sessions, drafts, version, draftsOf, available, held, read, mint, record]);
 }

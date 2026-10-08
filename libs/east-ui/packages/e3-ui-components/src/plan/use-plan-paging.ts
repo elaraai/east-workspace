@@ -14,13 +14,24 @@
  * @packageDocumentation
  */
 
+import type { option } from "@elaraai/east";
 import type { PlanBand, PlanRootValue } from "./model.js";
 import { elementsIn, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { PLAN_GEOMETRY } from "./geometry.js";
 
-/** The decoded windowed arm — `paged`, or `pinned` with its revision and
- *  refresh — the derived source at the canvas's blocks (#823). */
-export type PlanPagedSourceValue = WindowedSourceValue<PlanRootValue["rows"]>;
+/**
+ * The decoded windowed arm — `paged`, or `pinned` with its revision and
+ * refresh — the derived source at the canvas's blocks (#823). A source the
+ * canvas composes over another — a paged `data` or a paged resource kind with
+ * the event kinds' rows in every window (#1192, #1199) — names the snapshot of
+ * the data its windows read apart from its revision, which moves too when its
+ * windows are read again over the same data: new events placed on them, new
+ * drafts. A key search's answer indexes the snapshot alone.
+ */
+export type PlanPagedSourceValue = WindowedSourceValue<PlanRootValue["rows"]> & {
+    /** The snapshot of the data its windows read, `none` while it resolves; omitted, its revision is that snapshot. */
+    readonly snapshot?: (() => option<string>) | undefined;
+};
 
 /** Source elements per window — the IR's, since its editing session reads an
  *  entry back from the very window the canvas paged it in (#880). */

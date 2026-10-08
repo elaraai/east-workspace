@@ -27,12 +27,15 @@ import { PrintJob, PrintPress } from "./plan-events.examples.js";
 // §9.11, PB54–PB55): a print works of 2,000 presses and the jobs on them, read a
 // window at a time. The presses are generated where data is made — a task of
 // the dataflow, from their count — and paged on the canvas, 200 to a window,
-// as it scrolls (`Schedule.resources`' `window`); the key search seeks a press
-// by its key. The jobs are a record with two indexes: one on the days each job
-// touches (`Schedule.days`), through which the canvas reads only the days in
-// view, and one on the jobs with no start (`Schedule.unscheduled`), through
-// which its backlog is read (`Schedule.events`' `window` and `backlogWindow`).
-// The customers are made up.
+// as it scrolls (`Schedule.resources` over a paged read of them); the key
+// search seeks a press by its key, and a press is named by its key where an
+// event names it. The jobs are a record with two indexes: one on the days each
+// job touches (`Schedule.days`), through which the canvas reads only the days
+// in view, and one on the jobs with no start (`Schedule.unscheduled`), through
+// which its backlog is read (`Schedule.events`' `window` and `backlogWindow`);
+// one job is read by its key through the record's own entries (`entries`), and
+// every edit is a draft of a session over the record's revision. The customers
+// are made up.
 
 // ============================================================================
 // The presses — generated where data is made
@@ -138,29 +141,31 @@ export const PlanWindowDay = StructType({ day: DateTimeType });
  * seeking a press by its key; and the jobs on them read through the record's
  * day index — only the days in view, a pan reading the days it brings in — and
  * the backlog through the index of jobs with no start, which the library's
- * Backlog tab lists. A job filed under several days draws once. Neither the
- * presses nor the jobs are read whole by the canvas, and Save still commits
- * through the jobs' patch door.
+ * Backlog tab lists. A job filed under several days draws once; one job — the
+ * inspector's, a draft's — is read by its key through the record's own
+ * entries. Neither the presses nor the jobs are ever read whole, and Save
+ * commits through the jobs' patch door, its drafts checked against the
+ * revision they were drafted at.
  */
 export const planWindows = example({
     keywords: [
         "Plan", "Schedule", "Schedule.resources", "Schedule.events", "window", "backlogWindow", "paged", "page",
         "Data.bindPaged", "index", "join", "e3.recordIndex", "Schedule.days", "Schedule.unscheduled", "days in view",
         "backlog", "large record", "key search", "seek", "scroll", "pan", "presses", "jobs", "e3.task", "Slice",
-        "Record.bind", "e3.record", "#1199",
+        "Record.bind", "e3.record", "entries", "by key", "revision", "editing", "Save", "#1199",
     ],
-    description: "A Plan read a window at a time — 2,000 presses paged 200 to a window as the canvas scrolls (`Schedule.resources`' `window`, the key search seeking a press), and the jobs read through the record's day index, only the days in view, with the backlog through its index of jobs with no start (`Schedule.events`' `window` and `backlogWindow`)",
+    description: "A Plan read a window at a time — 2,000 presses paged 200 to a window as the canvas scrolls (`Schedule.resources` over `Data.bindPaged`, the key search seeking a press), and the jobs read through the record's day index, only the days in view, with the backlog through its index of jobs with no start and one job by its key through the record's own entries (`Schedule.events`' `window`, `backlogWindow` and `entries`) — its editing a session over the record's revision, never the record whole",
     fn: East.function([], UIComponentType, (_$) => {
         const cfg = Slice.config(PlanWindowDay, {
             fields: { day: { label: "Day", format: { date: "MMM D" } } },
             rangeFieldId: "day",
         });
         return (<Reactive>{$ => {
-            const presses = $.let(Data.bind(planWindowPresses));
-            const pressPages = $.let(Data.bindPaged(planWindowPresses));
+            const presses = $.let(Data.bindPaged(planWindowPresses));
             const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
             const jobDays = $.let(Data.bindPaged(planWindowJobs, { index: planWindowJobsByDay, join: true }));
             const jobBacklog = $.let(Data.bindPaged(planWindowJobs, { index: planWindowJobsUnscheduled, join: true }));
+            const jobEntries = $.let(Data.bindPaged(planWindowJobs));
             // The four weeks the slice runs over, two in view to start; a pan moves the window a day.
             const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
             const days = $.let(East.Array.generate(28n, PlanWindowDay, (_$2, i) => ({ day: first.addDays(i) })));
@@ -175,9 +180,8 @@ export const planWindows = example({
                 <Plan
                     axis={axis}
                     resources={{
-                        presses: Schedule.resources(presses.read(), {
+                        presses: Schedule.resources(presses, {
                             name: "Presses", icon: "print", label: p => p.name, sub: p => some(p.hall),
-                            window: pressPages,
                         }),
                     }}
                     events={{
@@ -189,6 +193,7 @@ export const planWindows = example({
                             backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
                             window: jobDays,
                             backlogWindow: jobBacklog,
+                            entries: jobEntries,
                         }),
                     }}
                     slice={{ slice, affordances: ["range", "brush"] }}

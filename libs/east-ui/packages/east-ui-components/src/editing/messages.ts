@@ -62,6 +62,10 @@ export interface EditingMessages {
     issueInvalid: (p: { value: string }) => string;
     /** A draft field with no value. */
     issueRequired: () => string;
+    /** An entry a Save's conflict names, which the session read changed, where its source gave no words for it (#1199). */
+    issueChanged: () => string;
+    /** A Save's conflict where the session read no entry changed, and its source said nothing of itself (#1199). */
+    issueSourceChanged: () => string;
     /** The banner over a Save the source found conflicts in — `Save stopped — 2 conflicts with the source`. */
     bannerConflict: (p: { n: number; count: string }) => string;
     /** The banner over a Save the source refused. */
@@ -108,6 +112,8 @@ export const editingMessages: EditingMessages = {
     applyNoRevision: () => "The source saved the batch without its committed revision; recover this request before continuing",
     issueInvalid: ({ value }) => `Invalid input: ${value}`,
     issueRequired: () => "A value is required",
+    issueChanged: () => "Changed since this edit began",
+    issueSourceChanged: () => "The source changed since this edit began",
     bannerConflict: ({ n, count }) => `Save stopped — ${count} ${plural(n, "conflict", "conflicts")} with the source`,
     bannerRejected: () => "The source refused these changes",
     bannerUnknown: () => "No answer from the source — the changes may have been saved",
@@ -134,11 +140,15 @@ export const DRAFT_ISSUE_TEXT = {
 } as const;
 
 /**
- * The editing session's own error text, in its canonical English — what the
- * session holds; the history bar shows it in the surface's words.
+ * The editing session's own text, in its canonical English — its error, which
+ * the history bar shows in the surface's words, and the issues it names a
+ * conflict's entries with where the source gave no words of its own (#1199),
+ * read back where they show as the draft issues are.
  */
 export const SESSION_TEXT = {
     noRevision: editingMessages.applyNoRevision(),
+    changed: editingMessages.issueChanged(),
+    sourceChanged: editingMessages.issueSourceChanged(),
 } as const;
 
 /**

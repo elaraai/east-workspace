@@ -29,7 +29,9 @@
  * the clear button (or emptying the input) drops the query and tells the
  * host to clear its jump highlight. The tree itself never changes shape:
  * matches are a contiguous run of rows in the canonical key order, so
- * jumping + stepping subsumes filtering without a second row space.
+ * jumping + stepping subsumes filtering without a second row space. A host
+ * whose source moves to another snapshot moves `requery`, and the box asks the
+ * query it holds again there, its text kept (#1199).
  *
  * The host owns the data: `onFind` locates a query (server fences or a
  * client-side scan), `onListRange` labels a row window for the popup,
@@ -71,8 +73,10 @@ export interface DatasetKeySearchProps {
     /** The searched collection's Dict key / Set element type. */
     keyType: EastTypeValue;
     /** Locates a query; literals are canonical `.east` text of
-     *  already-validated values. */
-    onFind: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
+     *  already-validated values. `again` is a query the box holds asked again,
+     *  as `requery` moved — the source's new snapshot, which its matches index:
+     *  a host that jumps to a new query's matches leaves the view where it is. */
+    onFind: (query: DatasetKeyQuery, again?: boolean) => Promise<DatasetKeyMatchRange>;
     /** Labels rows `[row, row + limit)` for the popup, in row order. */
     onListRange: (row: number, limit: number) => Promise<string[]>;
     /** Jumps the host tree to a global root row. */
@@ -83,6 +87,13 @@ export interface DatasetKeySearchProps {
     /** Told the input's text as it is edited, and `''` when the clear button
      *  empties it: a host that keeps the search (#1120). */
     onInputChange?: ((text: string) => void) | undefined;
+    /**
+     * Moves when the source moved to another snapshot (#1199): a query the box
+     * holds is asked again (`onFind(query, true)`), its text kept, so its
+     * matches index the new snapshot's rows. A host that would rather drop the
+     * query keys the box afresh instead.
+     */
+    requery?: number | undefined;
 }
 
 /**
@@ -92,7 +103,7 @@ export interface DatasetKeySearchProps {
  * @returns the search combobox with its match count, range navigation and
  *   clear affordance
  */
-export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange }: DatasetKeySearchProps) {
+export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery }: DatasetKeySearchProps) {
     const [range, setRange] = useState<DatasetKeyMatchRange | null>(null);
     const [items, setItems] = useState<{ row: number; label: string }[]>([]);
     /** Position within the range after a jump; -1 before the first jump. */
@@ -102,15 +113,19 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const [resetSeq, setResetSeq] = useState(0);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const findSeqRef = useRef(0);
+    /** The query the box holds — the last one sent — until it is cleared (#1199). */
+    const queryRef = useRef<DatasetKeyQuery | undefined>(undefined);
     useEffect(() => () => clearTimeout(debounceRef.current), []);
     // The match counts, in the app's locale (#850).
     const words = useFormatters();
 
-    const runFind = useCallback((query: DatasetKeyQuery) => {
+    const runFind = useCallback((query: DatasetKeyQuery, again = false) => {
         const seq = ++findSeqRef.current;
+        queryRef.current = query;
         void (async () => {
             try {
-                const result = await onFind(query);
+                // A query asked again says so; a new one is asked as it always was.
+                const result = await (again ? onFind(query, true) : onFind(query));
                 if (seq !== findSeqRef.current) return; // superseded by newer input
                 setRange(result);
                 setActiveIdx(-1);
@@ -132,11 +147,22 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const resetQueryState = useCallback(() => {
         clearTimeout(debounceRef.current);
         findSeqRef.current++;
+        queryRef.current = undefined;
         setRange(null);
         setItems([]);
         setActiveIdx(-1);
         setHint(null);
     }, []);
+
+    // The source moved to another snapshot (#1199): the query the box holds is
+    // asked again there, its text kept — never on the first render.
+    const askedAt = useRef(requery);
+    useEffect(() => {
+        if (askedAt.current === requery) return;
+        askedAt.current = requery;
+        const query = queryRef.current;
+        if (query !== undefined) runFind(query, true);
+    }, [requery, runFind]);
 
     const handleInput = useCallback((text: string) => {
         clearTimeout(debounceRef.current);
@@ -149,6 +175,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         const parsed = parseKeyInput(keyType, text);
         if (parsed.kind === 'hint') {
             findSeqRef.current++;
+            queryRef.current = undefined;
             setRange(null);
             setItems([]);
             setActiveIdx(-1);

@@ -1161,8 +1161,9 @@ snapshot, so a `refresh` after your own write only gets there sooner. A
 pinned read the server refuses because the dataset has moved on (409
 `dataset_hash_mismatch`) rediscovers the current snapshot instead of failing
 its window. How a consumer bridges the move is its own: e3-ui's `<Plan>` and
-`<Sheet>` keep the rows they show until the new snapshot's windows land,
-and clear a standing key search.
+`<Sheet>` keep the rows they show until the new snapshot's windows land; the
+Sheet clears a standing key search, and the Plan asks it again there, its
+text kept.
 
 ## Key Patterns
 
