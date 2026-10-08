@@ -287,6 +287,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     quantities: (p: { parts: readonly string[] }) => string;
     /** The resting chip of a proposed bucket tile. */
     planChip: () => string;
+    /** A bucket cell's `+n` chip (#1267) — `+2`: the cell's tiles it has no room for. */
+    tileMore: (p: { n: number; count: string }) => string;
+    /** The chip's accessible name — `2 more events, Week of Jul 13, 2026, AM`: its cell's bucket and lane in words. */
+    tileMoreLabel: (p: { n: number; count: string; bucket: string; lane: string | undefined }) => string;
 
     // ── Moves (#825) ───────────────────────────────────────────────────────
     /** How a keyboard reader moves an element — the description of every one that moves. */
@@ -624,6 +628,8 @@ export const planMessages: PlanMessages = {
     quantity: ({ value, unit }) => (unit !== undefined && unit !== "" ? `${value} ${unit}` : value),
     quantities: ({ parts }) => parts.join(" · "),
     planChip: () => "plan",
+    tileMore: ({ count }) => `+${count}`,
+    tileMoreLabel: ({ n, count, bucket, lane }) => listed([`${count} more ${plural(n, "event", "events")}`, bucket, lane]),
 
     moveHelp: () =>
         "Press Space to pick it up. The arrow keys then move it — Shift with left or right moves its end, Alt its start — " +

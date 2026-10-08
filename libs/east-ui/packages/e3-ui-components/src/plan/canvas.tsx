@@ -129,7 +129,7 @@ import { usePlanDropTarget } from "./root/drop.js";
 import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement, usePlanOverlayHandlers } from "./root/overlays.js";
 import { PlanGridContext, createRowPositions, type PlanGridContextValue } from "./root/grid.js";
 import {
-    gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
+    PLAN_WALK_SELECTOR, gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
     type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
 } from "./root/keyboard.js";
 import { PlanAnnouncer } from "./root/announce.js";
@@ -1117,7 +1117,8 @@ export function usePlanCanvas({
                 return true;
             }
             case "ArrowLeft": case "ArrowRight": case "Home": case "End": {
-                if (!isElement) return false;
+                // The row's walk: its elements, and a cell's `+n` chip among them (#1267).
+                if (!widget.matches(PLAN_WALK_SELECTOR)) return false;
                 const els = plotElements(item, bodyEl);
                 const i = els.indexOf(widget);
                 if (i < 0) return false;

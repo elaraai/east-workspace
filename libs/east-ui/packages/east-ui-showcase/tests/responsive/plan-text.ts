@@ -9,18 +9,19 @@
  */
 
 /**
- * Each bar, chip, tile or rollup band whose text is partly drawn (#1258, #1264,
- * #1266). A label shows whole, ellipsized after at least one whole letter —
- * what shows of it at least as wide as its first letter and the ellipsis in its
- * own font — or not at all: never a partial glyph. A bar's quantity is drawn
- * whole beside a whole label, or not at all — never cut, and never squeezing
- * the label. An icon is drawn whole or not at all. What an element draws is
- * what lies inside its border, where it clips — and a tile's, what of that lies
- * inside its cell, which clips it too. Measured in a bar under a row or a
- * narrow card, a chip, a tile and a rollup band; a label is the element's
- * `data-plan-label`, or its first span where it has none, and text of the
- * element's own, in no span, can draw no ellipsis: it shows whole or not at
- * all. Evaluated in the page: an empty list holds.
+ * Each bar, chip, tile, rollup band or `+n` chip whose text is partly drawn
+ * (#1258, #1264, #1266, #1267). A label shows whole, ellipsized after at least
+ * one whole letter — what shows of it at least as wide as its first letter and
+ * the ellipsis in its own font — or not at all: never a partial glyph. A bar's
+ * quantity is drawn whole beside a whole label, or not at all — never cut, and
+ * never squeezing the label. An icon is drawn whole or not at all. What an
+ * element draws is what lies inside its border, where it clips — and a tile's,
+ * or a cell's `+n` chip's, what of that lies inside its cell, which clips it
+ * too. Measured in a bar under a row or a narrow card, a chip, a tile, a rollup
+ * band and a `+n` chip; a label is the element's `data-plan-label`, or its
+ * first span where it has none, and text of the element's own, in no span, can
+ * draw no ellipsis: it shows whole or not at all. Evaluated in the page: an
+ * empty list holds.
  */
 export const cutText = (root: Element): string[] => {
     const out: string[] = [];
@@ -31,23 +32,24 @@ export const cutText = (root: Element): string[] => {
         return cs.display !== "none" && cs.visibility !== "hidden" && el.getBoundingClientRect().width > 0.5;
     };
     const holder = "[data-plan-row], [data-plan-card]";
-    const elements = root.querySelectorAll<HTMLElement>(["[data-run]", "[data-chip]", "[data-event]", "[data-plan-band]"]
+    const elements = root.querySelectorAll<HTMLElement>(["[data-run]", "[data-chip]", "[data-event]", "[data-plan-band]", "[data-tile-more]"]
         .map((kind) => `:is(${holder}) ${kind}:not([data-ctx])`).join(", "));
     for (const el of elements) {
         const box = el.getBoundingClientRect();
         const es = getComputedStyle(el);
         const bw = (side: string) => Number.parseFloat(es.getPropertyValue(`border-${side}-width`));
         const b = { left: box.left + bw("left"), right: box.right - bw("right"), top: box.top + bw("top"), bottom: box.bottom - bw("bottom") };
-        // A tile's cell clips it too.
-        const cell = el.hasAttribute("data-event") ? el.closest("[data-plan-cell]") : null;
+        // A tile's cell clips it too, and a `+n` chip's.
+        const cell = el.hasAttribute("data-event") || el.hasAttribute("data-tile-more") ? el.closest("[data-plan-cell]") : null;
         if (cell !== null) {
             const c = cell.getBoundingClientRect();
             [b.left, b.right, b.top, b.bottom] = [Math.max(b.left, c.left), Math.min(b.right, c.right), Math.max(b.top, c.top), Math.min(b.bottom, c.bottom)];
         }
         const row = el.closest(holder)!;
         const kind = (["run", "chip", "event"] as const).find((k) => el.hasAttribute(`data-${k}`));
-        const noun = kind === undefined ? "band" : { run: "bar", chip: "chip", event: "tile" }[kind];
-        const what = kind === undefined ? "rollup band" : `${noun} ${el.getAttribute(`data-${kind}`)}`;
+        const noun = el.hasAttribute("data-tile-more") ? "+n chip" : kind === undefined ? "band" : { run: "bar", chip: "chip", event: "tile" }[kind];
+        const what = el.hasAttribute("data-tile-more") ? `+n chip in cell ${cell?.getAttribute("data-plan-cell") ?? "?"}`
+            : kind === undefined ? "rollup band" : `${noun} ${el.getAttribute(`data-${kind}`)}`;
         const name = `${row.getAttribute("data-plan-row") ?? row.getAttribute("data-plan-card")} ${what}`;
         const spans = [...el.children].filter((c): c is HTMLElement => c.tagName === "SPAN" && !c.hasAttribute("data-plan-icon"));
         const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]") ?? spans[0];

@@ -32,7 +32,9 @@
  * Tab from a row walks its widgets in reading order — its controls, its
  * elements in time order, the author's render — and past the last, out of
  * the canvas. ← / → step between the elements in time order
- * (Home / End to the first / last), and Esc returns to the row.
+ * (Home / End to the first / last), and Esc returns to the row. A bucket
+ * cell's `+n` chip stands in the walk where the tiles it folds would be, and a
+ * folded tile is out of it (#1267).
  *
  * @packageDocumentation
  */
@@ -295,6 +297,10 @@ export function resolveNavIntent(items: readonly PlanNavItem[], intent: PlanNavI
 
 // ── The DOM side: which item a node is in, and a row's widgets ─────────────
 
+/** What a row's walk steps through in time order: its elements, and a bucket
+ *  cell's `+n` chip where the tiles it folds would be (#1267). */
+export const PLAN_WALK_SELECTOR = `${PLAN_ELEMENT_SELECTOR},[data-tile-more]`;
+
 /** Native widgets a row can hold — its controls, Retry, and whatever the
  *  author's render mounts. */
 const WIDGET_SELECTOR = "button, a[href], input, select, textarea, [tabindex]";
@@ -326,7 +332,8 @@ function fracOf(el: Element): number {
 /**
  * A row's elements in time order — the runs, tiles, chips, marks and cells it
  * draws inside the window (overscan marks, clipped out of view, are not
- * reachable).
+ * reachable), and a bucket cell's `+n` chip in place of the tiles it folds
+ * (#1267).
  *
  * @param row - The row element
  * @param body - The canvas body
@@ -334,9 +341,10 @@ function fracOf(el: Element): number {
  */
 export function plotElements(row: HTMLElement, body: HTMLElement): HTMLElement[] {
     const out: HTMLElement[] = [];
-    row.querySelectorAll<HTMLElement>(PLAN_ELEMENT_SELECTOR).forEach((el) => {
-        // An element takes focus (`tabIndex=-1`); a label naming the same mark does not.
-        if (!el.hasAttribute("tabindex") || gridItemOf(el, body) !== row) return;
+    row.querySelectorAll<HTMLElement>(PLAN_WALK_SELECTOR).forEach((el) => {
+        // An element takes focus (`tabIndex=-1`); a label naming the same mark
+        // does not, and nor does a tile folded out of sight.
+        if (!el.hasAttribute("tabindex") || el.hasAttribute("data-folded") || gridItemOf(el, body) !== row) return;
         const f = fracOf(el);
         if (f < 0 || f >= 1) return;
         out.push(el);
@@ -363,7 +371,7 @@ export function rowWidgets(row: HTMLElement, body: HTMLElement): HTMLElement[] {
         const inCell = [...elements].filter((el) => cell.contains(el));
         const others: HTMLElement[] = [];
         cell.querySelectorAll<HTMLElement>(WIDGET_SELECTOR).forEach((el) => {
-            if (elements.has(el) || el.matches(PLAN_ELEMENT_SELECTOR) || gridItemOf(el, body) !== row) return;
+            if (elements.has(el) || el.matches(PLAN_WALK_SELECTOR) || gridItemOf(el, body) !== row) return;
             if ((el as HTMLButtonElement).disabled === true) return;
             // The canvas's own widgets are out of the tab order on purpose;
             // an author's are reachable only when they are tabbable at all.
