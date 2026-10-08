@@ -24,7 +24,11 @@ each gesture's flow `edits.ts`'s (#1247) — its library pane (`library.tsx`,
 #1248: the tabs `library` lists, each data tab a `Library` of its own rows'
 cards), its drops (#1249: `drop.ts` plans what a card does where it lands,
 pure; `use-drop.ts` is the drop target, each drop and each card's ⏎ one
-transaction) and its words (`messages.ts`) — builds on the same parts, and
+transaction), its inspector (#1250: `inspector.tsx`, the end pane on by
+default — Details through `FieldForm`, or a state's or a transition's own,
+and Issues; what is selected, per open flow, `selection.ts`; the open flow's
+issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
+parts, and
 keeps its slot recipe there too. The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
 toolbars share, are `src/shared/seg.tsx`.

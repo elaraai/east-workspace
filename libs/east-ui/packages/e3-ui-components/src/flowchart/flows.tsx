@@ -8,9 +8,10 @@
  * FB14) — every flow the flowchart holds, by name, as a `Library`, as the
  * query builder's Library tab lists the saved queries:
  *
- * - **a card** — the flow's name, and under it its description, or with none
- *   its counts (`4 lanes · 9 states · 11 transitions`); the open flow is
- *   placed; a flow whose drafts are not yet saved carries the Pending chip;
+ * - **a card** — the flow's name — the new one while its drafts rename it
+ *   (#1250) — and under it its description, or with none its counts (`4
+ *   lanes · 9 states · 11 transitions`); the open flow is placed; a flow
+ *   whose drafts are not yet saved carries the Pending chip;
  * - **a click** opens it on the canvas;
  * - the `Library`'s own search, over names and descriptions;
  * - **"+ New flow"** under the cards, where the flowchart edits: the shared
@@ -41,10 +42,12 @@ type Styles = Record<string, SystemStyleObject>;
 
 const nameEqual = equalFor(StringType);
 
-/** A flow's card in the Flows tab: its name, the flow as its drafts stand, and whether it has drafts. */
+/** A flow's card in the Flows tab: its name, the name its drafts give it, the flow as its drafts stand, and whether it has drafts. */
 export interface FlowCard {
-    /** The flow's name. */
+    /** The flow's name: its key, and its session's — what a click on its card opens. */
     readonly name: string;
+    /** The name its card shows: the one its drafts give it — a rename drafted, its new one (#1250) — else its name. */
+    readonly label: string;
     /** The flow, as its drafts stand. */
     readonly flow: FlowchartFlowValue;
     /** Whether its drafts are not yet saved. */
@@ -82,7 +85,7 @@ export function flowItem(card: FlowCard, placed: boolean, words: FlowchartWords)
     });
     return {
         key: card.name,
-        label: card.name,
+        label: card.label,
         sublabel: some(line),
         icon: some(FLOW_ICON),
         status: card.pending ? some({ label: m.flowPending(), tone: variant("info", null), ring: false }) : none,
@@ -95,7 +98,7 @@ export function flowItem(card: FlowCard, placed: boolean, words: FlowchartWords)
         byline: none,
         action: none,
         // The tab's search reads names and descriptions (FB13).
-        search: some(description === undefined ? card.name : `${card.name} ${description}`),
+        search: some(description === undefined ? card.label : `${card.label} ${description}`),
         groups: new Map(),
         facets: new Map(),
         dims: new Map(),

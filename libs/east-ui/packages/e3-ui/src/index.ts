@@ -17,11 +17,11 @@
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
  * - `<Flowchart>` — the state-transition flowchart: states in ordered phase
  *   lanes, H/V-routed transitions, decision triggers and evidence, over a
- *   record of flows or the host's flow, rendered in its frame with its panes
- *   as optional props, with the values, patches, library tabs and types it is
- *   written with on `Flowchart` (`Flowchart.values`, `Flowchart.value`,
- *   `Flowchart.over`, `Flowchart.patch`, `Flowchart.library`,
- *   `Flowchart.Types`).
+ *   record of flows or the host's flow, rendered in its frame — its library
+ *   pane an optional prop, its inspector on by default — with the values,
+ *   patches, library tabs and types it is written with on `Flowchart`
+ *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+ *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`).
  * - `<Diff>` — review pending changes for any combination of bindings.
@@ -163,16 +163,17 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
-// The Flowchart (#1243–#1248): the state-transition flowchart a solution
+// The Flowchart (#1243–#1250): the state-transition flowchart a solution
 // mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
 // transitions, decision triggers and evidence-weighted strokes, over a record
-// of flows or the host's flow, in its frame, its library and inspector panes
-// optional props, every gesture a transaction of its editing session — the
-// values, patches, library tabs and East types it is written with
-// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`, `Flowchart.patch`,
-// `Flowchart.library`, `Flowchart.Types`), and its props.
+// of flows or the host's flow, in its frame, its library pane an optional
+// prop and its inspector on by default, every gesture a transaction of its
+// editing session — the values, patches, library tabs and East types it is
+// written with (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+// `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
+    type FlowchartInspectorOptions, type FlowchartRowInspector,
     type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows,
     type FlowchartFlowsTab, type FlowchartStatesTab, type FlowchartTransitionsTab, type FlowchartAuthorTab,
     type FlowchartCardAccessors, type FlowchartStatesConfig, type FlowchartTransitionsConfig, type FlowchartTabConfig,

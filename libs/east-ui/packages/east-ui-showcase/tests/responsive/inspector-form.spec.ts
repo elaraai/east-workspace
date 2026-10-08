@@ -23,11 +23,15 @@
  * field of every kind: a machine with every field set, one with its Options
  * empty, a new row with no field given, a field changed, a row's issue), the
  * workshop's line, band, several rows and nothing selected, and a batch's
- * line and band — and over the Plan's print works: one event, several, a
+ * line and band — over the Plan's print works: one event, several, a
  * press's row and nothing selected, and the overlaps banner (#1198) over a
- * press's row with an overlap and one of its jobs. Pinned beside main on a desktop, overlaid
- * on a phone; in both themes. No screenshot is read: boxes and computed
- * styles, polled until the page is at rest.
+ * press's row with an overlap and one of its jobs — and over the Flowchart's
+ * depot (#1250): over its record of flows a state, a transition, a decision,
+ * a lane, several states, nothing selected and a flow its drafts delete, and
+ * over its tables, read only, a transition with its evidence, an end no state
+ * stands for and the Issues tab — a chip in its ink. Pinned beside main on a
+ * desktop, overlaid on a phone; in both themes. No screenshot is read: boxes
+ * and computed styles, polled until the page is at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test inspector-form`.
@@ -550,5 +554,193 @@ for (const phone of [false, true]) {
                 expect(await paneFaults(pane)).toEqual([]);
             });
         }
+    });
+}
+
+// ============================================================================
+// The Flowchart's inspector (#1250)
+// ============================================================================
+
+const FLOWCHARTS = "e3/flowchart/flowchart";
+
+/** Open a Flowchart example: on a desktop its box 1440px wide, both panes pinned beside main; on a phone as the page lays it out. */
+async function openFlowchart(page: Page, name: string, theme: "light" | "dark", phone: boolean): Promise<{ box: Locator; pane: Locator }> {
+    const hash = `${FLOWCHARTS}/${name}`;
+    await page.goto(`/?theme=${theme}#${hash}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-builder-frame] [data-flowchart-node]").first()).toBeVisible({ timeout: 20_000 });
+    const box = entry.locator("[data-flowchart-root]").first();
+    if (!phone) await box.evaluate((el) => { (el as HTMLElement).style.width = "1440px"; });
+    await settled(page);
+    return { box, pane: box.locator("[data-builder-frame] [data-frame-slot=end]") };
+}
+
+/** A state on the canvas, by its key. */
+const flowState = (box: Locator, key: string) => box.locator(`[data-flowchart-node="${key}"]`);
+
+/** A transition a state's Details list, by the key it goes by: a click selects it. */
+async function selectListed(page: Page, pane: Locator, key: string): Promise<void> {
+    await pane.locator(`[data-inspector-link="${key}"]`).click();
+    await settled(page);
+}
+
+for (const phone of [false, true]) {
+    test.describe(`The Flowchart's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1250)`, () => {
+        test.skip(({ isMobile }) => isMobile !== phone, phone ? "measured on the phone" : "measured at the desktop width");
+        // Pinned and overlaid alike, in both themes.
+        const themes = ["light", "dark"] as const;
+
+        for (const theme of themes) {
+            test(`a state: its key, label, lane, members with its Clear and notes, on one column and one line; its transitions inside the pane (${theme})`, async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
+                await select(page, box, flowState(box, "CH*"), phone);
+                await expect(pane.locator("[data-flowchart-inspector='state'] [data-field]")).toHaveCount(5);
+                await expect(pane.locator("[data-field='members'] [data-field-clear]")).toBeVisible();
+                await expect(pane.locator("[data-inspector-link]")).toHaveCount(2);
+                await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+                // On a coarse pointer each transition it lists is a 44px tap target.
+                if (phone) {
+                    const heights = await pane.locator("[data-inspector-link]").evaluateAll((links) => links.map((link) => link.getBoundingClientRect().height));
+                    expect(heights.every((h) => h >= TOUCH - 0.5), `${heights.join(", ")}`).toBe(true);
+                }
+            });
+
+            test(`nothing selected: the flow's name and description, its counts, its last save and its hints, inside the pane (${theme})`, async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
+                if (phone) {
+                    await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                    await settled(page);
+                }
+                await expect(pane.locator("[data-flowchart-inspector='flow'] [data-field]")).toHaveCount(2);
+                await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+                // Its counts two to a line: lanes and states, then transitions and decisions.
+                const tops = await pane.locator("[data-inspector-counts] [data-count]").evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().top)));
+                expect([tops.length, tops[0] === tops[1], tops[1]! < tops[2]!, tops[2] === tops[3]]).toEqual([4, true, true, true]);
+            });
+        }
+
+        if (!phone) {
+            for (const theme of ["light", "dark"] as const) {
+                test(`a transition: its ends, its kind and its decision, each a select, and its key, on one column and one line (${theme})`, async ({ page }) => {
+                    const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
+                    await select(page, box, flowState(box, "CH*"), phone);
+                    await selectListed(page, pane, "SCN→CH*#1");
+                    await expect(pane.locator("[data-flowchart-inspector='transition'] [data-field]")).toHaveCount(5);
+                    await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+
+                test(`a decision: its key, label, letter, owner, queue as tags and outcomes, and the transitions it governs (${theme})`, async ({ page }) => {
+                    const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
+                    await select(page, box, box.locator("[data-flowchart-trigger='route']"), phone);
+                    await expect(pane.locator("[data-flowchart-inspector='decision'] [data-field]")).toHaveCount(6);
+                    // The route queues no state yet: Set gives it an empty queue, its tags' box — one transaction.
+                    await pane.locator("[data-field='queue'] [data-field-set]").click();
+                    await settled(page);
+                    await expect(pane.locator("[data-field='queue'] [data-scope=tags-input][data-part=control]")).toBeVisible();
+                    await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+
+                test(`over the host's tables, read only: a transition's fields printed, and its evidence — volume, count, when measured (${theme})`, async ({ page }) => {
+                    const { box, pane } = await openFlowchart(page, "flowchartDepot", theme, phone);
+                    await select(page, box, flowState(box, "CH*"), phone);
+                    await selectListed(page, pane, "l4");
+                    await expect(pane.locator("[data-flowchart-inspector='transition'] [data-field][data-editor='readonly']")).toHaveCount(8);
+                    await expect(pane.locator("[data-inspector-evidence] [data-field]")).toHaveCount(3);
+                    await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+            }
+
+            test("a lane, a click on its header: its key and label, how many states it holds, and why its Delete is off", async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await select(page, box, box.locator("[data-flowchart-lane='sort']"), phone);
+                await expect(pane.locator("[data-flowchart-inspector='lane'] [data-field]")).toHaveCount(2);
+                await expect(pane.locator("[data-inspector-why]")).toBeVisible();
+                await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+
+            test("several states: how many, and the lane every one moves to", async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await select(page, box, flowState(box, "ARV"), phone);
+                await flowState(box, "SCN").click({ modifiers: ["Shift"] });
+                await settled(page);
+                await expect(pane.locator("[data-flowchart-inspector='several'] [data-field]")).toHaveCount(1);
+                await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+
+            test("a field changed in the form is one edit, tinted, the tint clear of its neighbours and inside the pane", async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await select(page, box, flowState(box, "CH*"), phone);
+                const label = pane.locator("[data-field='label'] input");
+                await label.fill("Sort chutes, both halls");
+                await label.press("Enter");
+                await expect(pane.locator("[data-field='label'][data-dirty]")).toHaveCount(1);
+                await expect(pane.locator("[data-inspector-chip]")).toHaveText("Pending");
+                await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+
+            test("a state: every control's focus ring stays inside the pane", async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await select(page, box, flowState(box, "CH*"), phone);
+                expect(await ringFaults(page, pane)).toEqual([]);
+            });
+
+            test("an end no state stands for — the depot's unresolved transition's — says so, its chip in the warning's ink, with its transition, inside the pane", async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartDepot", "light", phone);
+                await select(page, box, flowState(box, "DLV"), phone);
+                await expect(pane.locator("[data-flowchart-inspector='ghost'] [data-inspector-link]")).toHaveCount(1);
+                expect(await pane.locator("[data-inspector-chip]").evaluate((chip) => {
+                    const probe = document.createElement("div");
+                    probe.style.color = "var(--chakra-colors-fg-warning)";
+                    document.body.appendChild(probe);
+                    const warning = getComputedStyle(probe).color;
+                    probe.remove();
+                    return [chip.getAttribute("data-state"), getComputedStyle(chip).color === warning];
+                })).toEqual(["noRow", true]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+
+            test("a flow its drafts delete says so, its chip in the danger's ink, inside the pane", async ({ page }) => {
+                const { pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await pane.locator("[data-flowchart-inspector='flow'] [data-inspector-action='delete']").click();
+                await settled(page);
+                await expect(pane.locator("[data-flowchart-inspector='deleted']")).toBeVisible();
+                expect(await pane.locator("[data-inspector-chip]").evaluate((chip) => {
+                    const probe = document.createElement("div");
+                    probe.style.color = "var(--chakra-colors-fg-danger)";
+                    document.body.appendChild(probe);
+                    const danger = getComputedStyle(probe).color;
+                    probe.remove();
+                    return [chip.getAttribute("data-state"), getComputedStyle(chip).color === danger];
+                })).toEqual(["deleted", true]);
+                expect(await paneFaults(pane)).toEqual([]);
+            });
+        }
+
+        test(`Issues: the depot's unresolved transition, inside the pane${phone ? ", a 44px tap target" : ""}`, async ({ page }) => {
+            const { box, pane } = await openFlowchart(page, "flowchartDepot", "light", phone);
+            if (phone) {
+                await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                await settled(page);
+            }
+            const tab = pane.getByRole("tab", { name: /^Issues/u });
+            if (phone) await tab.tap();
+            else await tab.click();
+            await settled(page);
+            const issue = pane.locator("[data-inspector-issue]");
+            await expect(issue).toHaveCount(1);
+            // On a coarse pointer the issue is a 44px tap target.
+            if (phone) expect(await issue.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(TOUCH - 0.5);
+            expect(await paneFaults(pane)).toEqual([]);
+        });
     });
 }

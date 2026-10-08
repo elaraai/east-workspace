@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Box, Drawer, Meter, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -216,8 +216,8 @@ export const flowchartMinimal = example({
 });
 
 export const flowchartDepot = example({
-    keywords: ["Flowchart", "Flowchart.over", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness"],
-    description: "Parcel-depot flowchart over the host's tables, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, and dev-defined hover cards on states, links AND trigger diamonds",
+    keywords: ["Flowchart", "Flowchart.over", "triggers", "evidence", "slice", "inspector", "Details", "Issues", "read only", "state class", "in-place", "unresolved", "freshness"],
+    description: "Parcel-depot flowchart over the host's tables, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const KindType = Flowchart.Types.Kind;
@@ -264,33 +264,10 @@ export const flowchartDepot = example({
                 searchFieldIds: ["src", "dst"],
             });
             const slice = $.let(Slice.bind([LinkRow], "flowchart-depot", cfg, Slice.state({}), links, none));
-            // Hover content is DEV-DEFINED (the Schematic contract): the
-            // builder receives the hovered key and returns arbitrary UI.
-            const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
-                const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));
-                return (
-                    <VStack gap="1" align="stretch">
-                        <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`${row.src} → ${row.dst}`}</Text>
-                        <Text textStyle="caption" color="fg.muted">{East.str`service ${row.service} · ${row.units.length()} units`}</Text>
-                    </VStack>
-                );
-            }));
-            const stateHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
-                <Text fontFamily="mono" textStyle="body-sm">{East.str`state ${key}`}</Text>
-            )));
             const triggers = $.const([
                 { id: "route", name: "route", who: "sort-planner" },
                 { id: "customs", name: "customs", who: "customs-desk" },
             ]);
-            const triggerHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
-                const row = $.let(triggers.filter(($, t) => East.equal(t.id, key)).get(0n));
-                return (
-                    <VStack gap="1" align="stretch">
-                        <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`decision · ${row.name}`}</Text>
-                        <Text textStyle="caption" color="fg.muted">{East.str`owner · ${row.who}`}</Text>
-                    </VStack>
-                );
-            }));
             return (
                 <Box height="600px">
                     <Flowchart
@@ -309,7 +286,6 @@ export const flowchartDepot = example({
                             triggers,
                             trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
                         })}
-                        linkHover={linkHover} stateHover={stateHover} triggerHover={triggerHover}
                         slice={slice} affordances={["filter", "search"]}
                         freshness={{ label: "evidence-2026.06", date: stamp }}
                     />
@@ -351,101 +327,58 @@ export const flowchartBuilder = example({
 });
 
 /**
- * Inspection depth ladder on ONE canvas (old flowchartHoverCards +
- * flowchartDrawerDetail) — hover for the dev-defined glance card, click for
- * the host-owned Drawer detail. The two never fight: hover is transient and
- * read-only, click commits to the drawer.
+ * The inspector's own Details, by kind (#1250): over the depot's record of
+ * flows, a state's own Details — its key and label, its lane, and a button
+ * that gives it one more member — and a transition's own — its ends, its
+ * kind, and a button that marks it observed — each in place of its kind's
+ * form. Each button's `update` is one transaction of the open flow's session,
+ * which Undo takes back and Save commits. A decision's and a lane's Details
+ * are their forms, and Issues lists the open flow's issues.
  */
 export const flowchartDetail = example({
-    keywords: ["Flowchart", "Flowchart.over", "hover", "stateHover", "linkHover", "triggerHover", "Meter", "card", "glance", "Drawer", "onSelectLink", "onSelectState", "drill", "detail", "click", "open"],
-    description: "Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer",
-    fn: East.function([], UIComponentType, ($) => {
-        const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });
-        const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, parcels: FloatType, n: IntegerType, decision: OptionType(StringType) });
-        const states = $.const([
-            { code: "UNL", name: "Unloading", phase: "intake", util: 68.0 },
-            { code: "IND", name: "Inducting", phase: "sort", util: 87.0 },
-            { code: "SRT", name: "Sorting", phase: "sort", util: 59.0 },
-            { code: "LDG", name: "Loading", phase: "out", util: 41.0 },
-        ], ArrayType(StateRow));
-        const links = $.const([
-            { id: "u-i", src: "UNL", dst: "IND", parcels: 15860.0, n: 352n, decision: some("release") },
-            { id: "i-s", src: "IND", dst: "SRT", parcels: 15730.0, n: 349n, decision: none },
-            { id: "s-l", src: "SRT", dst: "LDG", parcels: 15630.0, n: 347n, decision: none },
-        ], ArrayType(LinkRow));
-        // --- hover glances: dev-defined cards in the standard 400ms shell ---
-        const stateHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
-            const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));
-            return (
-                <VStack gap="2" align="stretch" minWidth="180px">
-                    <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`${row.code} · ${row.name}`}</Text>
-                    <Meter value={row.util} tone="success" label={<Text textStyle="caption" color="fg.muted">util</Text>} />
-                </VStack>
-            );
-        }));
-        const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
-            const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));
-            return (
-                <VStack gap="1" align="stretch">
-                    <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`${row.src} → ${row.dst}`}</Text>
-                    <Text textStyle="caption" color="fg.muted">{East.str`${row.parcels} parcels · ${row.n} cage moves`}</Text>
-                </VStack>
-            );
-        }));
-        const triggerHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
-            <VStack gap="1" align="stretch">
-                <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`decision · ${key}`}</Text>
-                <Text textStyle="caption" color="fg.muted">owner · dock-scheduler</Text>
-            </VStack>
-        )));
-        // --- click-to-drill: the same entities open a host-owned Drawer ---
-        const onSelectLink = $.const(East.function([StringType], NullType, ($, key) => {
-            const row = $.let(links.filter(($, l) => East.equal(l.id, key)).get(0n));
-            $(Drawer.open(East.value({
-                body: [
-                    <VStack gap="3" align="stretch">
-                        <Text textStyle="body-sm">{East.str`${row.parcels} parcels across ${row.n} cage moves.`}</Text>
-                        <Meter value={row.parcels} max={18000.0} tone="success" label={<Text textStyle="caption" color="fg.muted">share of sorter capacity</Text>} />
-                    </VStack>,
-                ],
-                eyebrow: some("Transition"),
-                title: some(East.str`${row.src} → ${row.dst}`),
-                description: some("Selected from the flowchart"),
-                style: none,
-            }, Drawer.Types.OpenInput)));
-        }));
-        const onSelectState = $.const(East.function([StringType], NullType, ($, key) => {
-            const row = $.let(states.filter(($, s) => East.equal(s.code, key)).get(0n));
-            $(Drawer.open(East.value({
-                body: [
+    keywords: ["Flowchart", "inspector", "Details", "own Details", "update", "one transaction", "state", "transition", "Button", "record", "Record.bind", "Issues"],
+    description: "The inspector's own Details by kind, over a record of flows — a state's, whose button gives it one more member, and a transition's, whose button marks it observed — each in place of its form, each button's update one transaction of the open flow's session",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+            // A state's own Details: its key, its label and its lane, and one more member — the edited state goes back through `update`.
+            const state = $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($2, s, update) => {
+                const label = $2.let(s.label.match({ none: () => s.key, some: (_$3, l) => l }));
+                const members = $2.let(s.members.match({ none: () => 1n, some: (_$3, n) => n.add(1n) }));
+                const grow = $2.const(East.function([], NullType, ($3) => {
+                    // East has no struct spread: the state, rebuilt with its new members.
+                    const edited = $3.const({ key: s.key, label: s.label, lane: s.lane, members: some(members), notes: s.notes }, Flowchart.Types.State);
+                    $3(update(edited));
+                }));
+                return (
                     <VStack gap="2" align="stretch">
-                        <Text textStyle="body-sm">{East.str`${row.name} sits in the ${row.phase} phase.`}</Text>
-                        <Text textStyle="caption" color="fg.muted">Open upstream / downstream analyses from here.</Text>
-                    </VStack>,
-                ],
-                eyebrow: some("State"),
-                title: some(East.str`${row.code} · ${row.name}`),
-                description: some("Selected from the flowchart"),
-                style: none,
-            }, Drawer.Types.OpenInput)));
-        }));
-        return (
-            <Box height="500px">
-                <Flowchart
-                    data={Flowchart.over(states, {
-                        state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-                        links,
-                        link: l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
-                            evidence: { volume: some(l.parcels), count: some(l.n), unit: "parcels" } }),
-                        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "out", label: "Outbound" }],
-                        triggers: [{ id: "release", name: "release", who: "dock-scheduler" }],
-                        trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
-                    })}
-                    stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
-                    onSelectLink={onSelectLink} onSelectState={onSelectState}
-                />
-            </Box>
-        );
-    }),
+                        <Text fontFamily="mono" fontWeight="bold">{East.str`${s.key} · ${label}`}</Text>
+                        <Text color="fg.muted">{East.str`In the ${s.lane} lane`}</Text>
+                        <Button variant="outline" onClick={grow}>One more member</Button>
+                    </VStack>
+                );
+            }));
+            // A transition's own Details: its ends and its kind, and a mark of it observed — the edited transition goes back through `update`.
+            const transition = $.const(East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($2, l, update) => {
+                const kind = $2.let(l.kind.match({ none: () => "planned", some: (_$3, k) => k.getTag() }));
+                const observe = $2.const(East.function([], NullType, ($3) => {
+                    const edited = $3.const({ key: l.key, from: l.from, to: l.to, kind: some(variant("observed", null)), trigger: l.trigger, evidence: l.evidence }, Flowchart.Types.Link);
+                    $3(update(edited));
+                }));
+                return (
+                    <VStack gap="2" align="stretch">
+                        <Text fontFamily="mono" fontWeight="bold">{East.str`${l.from} → ${l.to}`}</Text>
+                        <Text color="fg.muted">{East.str`Its kind: ${kind}`}</Text>
+                        <Button variant="outline" onClick={observe}>Mark it observed</Button>
+                    </VStack>
+                );
+            }));
+            return (
+                <Box height="560px">
+                    <Flowchart record={flows} flow="Inbound parcels" name="detail" inspector={{ state, transition }} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });

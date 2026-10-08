@@ -34,6 +34,13 @@
  * template and author's tabs, each card read from the tab's own rows — and
  * makes the library's refusals (#1248).
  *
+ * Its inspector is on by default (#1250, ruled by the user on 2026-10-08):
+ * the end pane, Details and Issues, unless `inspector={false}`; and
+ * `inspector={{ state, transition }}` gives a kind its own Details in place of
+ * its form, each an East function over the row and its writer, wrapped over
+ * bytes as the Sheet's own Details are. The hover cards went with it: each
+ * hover prop is refused, naming the inspector.
+ *
  * @packageDocumentation
  */
 
@@ -60,15 +67,17 @@ import {
     variant,
     type EastType,
     type ExprType,
+    type NullType,
     type SubtypeExprOrValue,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EastUI, Editing } from "@elaraai/east-ui";
+import { EastUI, Editing, type UIComponentType } from "@elaraai/east-ui";
 import { Record as RecordBind, RecordOutcomeType } from "../bind/record.js";
+import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { buildCanvas, FlowchartCanvasType, type FlowchartCanvasOptions, type FlowchartSliceOptions } from "./canvas.js";
 import { FlowchartLibraryTabType, buildLibrary } from "./library.js";
-import { FlowchartFlowType, FlowchartFlowsType } from "./types.js";
+import { FlowchartFlowType, FlowchartFlowsType, FlowchartLinkType, FlowchartStateType } from "./types.js";
 
 // ============================================================================
 // Where the flows come from
@@ -157,6 +166,28 @@ export const FlowchartSourceType = VariantType({
 export type FlowchartSourceType = typeof FlowchartSourceType;
 
 // ============================================================================
+// The inspector
+// ============================================================================
+
+/**
+ * The inspector pane on the wire (#1250, `Flowchart Builder Spec.md` §5.3,
+ * FB35–FB38, FB44, FB45): each kind's own Details, where the author gives them
+ * — a state's, a transition's — in place of that kind's form, as the Sheet's
+ * own Details (SB58) and a Plan event kind's inspector are: the row as bytes,
+ * and the writer that takes the edited row back as bytes.
+ *
+ * @property state - A state's own Details; `none`, its form
+ * @property transition - A transition's own Details; `none`, its form
+ */
+export const FlowchartInspectorType = StructType({
+    state: OptionType(RowInspectorType),
+    transition: OptionType(RowInspectorType),
+});
+
+/** Type representing {@link FlowchartInspectorType}. */
+export type FlowchartInspectorType = typeof FlowchartInspectorType;
+
+// ============================================================================
 // The payload
 // ============================================================================
 
@@ -167,7 +198,7 @@ export type FlowchartSourceType = typeof FlowchartSourceType;
  * @property source - Where the flows come from: a record of flows by name, or the host's flows or flow
  * @property open - Over many flows, the one opened first
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
- * @property inspector - Whether the flowchart has its inspector pane
+ * @property inspector - The inspector pane — on by default — with each kind's own Details the author gives ({@link FlowchartInspectorType}); `none`, no inspector pane (`inspector={false}`)
  * @property readOnly - No gesture edits, no drop lands, the inspector edits nothing
  * @property name - Names the flowchart, when a surface holds two
  */
@@ -176,7 +207,7 @@ export const FlowchartPayloadType = StructType({
     source: FlowchartSourceType,
     open: OptionType(StringType),
     library: ArrayType(FlowchartLibraryTabType),
-    inspector: BooleanType,
+    inspector: OptionType(FlowchartInspectorType),
     readOnly: BooleanType,
     name: OptionType(StringType),
 });
@@ -265,13 +296,40 @@ export interface FlowchartBindHandle<T extends EastType> {
 }
 
 /**
+ * A kind's own Details in the inspector (#1250, FB45): an East function over
+ * the selected row and its writer, returning what Details shows in place of
+ * the kind's form — `update` writes the edited row back as one transaction of
+ * the open flow's editing session, and writes nothing over a flowchart that
+ * edits nothing.
+ *
+ * @typeParam R - The row: `Flowchart.Types.State` or `Flowchart.Types.Link`
+ */
+export type FlowchartRowInspector<R extends StructType> = SubtypeExprOrValue<FunctionType<[R, FunctionType<[R], NullType>], UIComponentType>>;
+
+/**
+ * The inspector's own Details, by kind (#1250, FB45): each given in place of
+ * that kind's form, as the Sheet's own Details (SB58) are.
+ */
+export interface FlowchartInspectorOptions {
+    /** A state's own Details — `East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …)`. */
+    state?: FlowchartRowInspector<FlowchartStateType>;
+    /** A transition's own Details — `East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …)`. */
+    transition?: FlowchartRowInspector<FlowchartLinkType>;
+}
+
+/**
  * What every `<Flowchart>` takes beside its flows: the canvas's options, its
  * inspector, read only and its name.
  */
 export interface FlowchartCommon extends FlowchartCanvasOptions {
-    /** The inspector pane: given, the flowchart has one; left out, none. */
-    inspector?: true;
-    /** No gesture edits, no drop lands, the inspector edits nothing; selection and hover stay. */
+    /**
+     * The inspector pane (#1250): on by default — Details · Issues, Details
+     * showing what is selected through its form, each edit one transaction.
+     * `false` removes it; `{ state, transition }` gives a kind its own
+     * Details in place of its form ({@link FlowchartInspectorOptions}).
+     */
+    inspector?: boolean | FlowchartInspectorOptions;
+    /** No gesture edits, no drop lands, the inspector shows every field and edits none; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Names the flowchart — needed only when one surface holds two. */
     name?: string;
@@ -299,6 +357,60 @@ const SIZES = ["height", "maxHeight"] as const;
 
 /** The callbacks the flowchart took for its edits before each gesture was a transaction of its editing session (#1247, FB24). */
 const EDIT_CALLBACKS = ["linkMode", "onCreateLink", "onDeleteLink", "onAddLane", "onRenameLane", "onDeleteLane", "onAddState", "onEditState", "onMoveState"] as const;
+
+/**
+ * The hover cards the flowchart took before its inspector showed what is
+ * selected (#1250, FB46, ruled by the user on 2026-10-08), each with its
+ * remedy: a state's or a transition's own Details, or a decision's form.
+ */
+const HOVERS = {
+    stateHover: "give a state its own Details with inspector={{ state: East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …) }}",
+    linkHover: "give a transition its own Details with inspector={{ transition: East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …) }}",
+    triggerHover: "a decision's Details are its form — every field, and the transitions it governs",
+} as const;
+
+/**
+ * The refusal of a kind's own Details of another type than its row's.
+ *
+ * @param kind - The kind, as `inspector` names it
+ * @param type - Its row's type, as `Flowchart.Types` names it
+ * @param row - What the function calls its row
+ * @returns The refusal
+ */
+function rowRefusal(kind: "state" | "transition", type: "State" | "Link", row: string): string {
+    return `Flowchart: \`inspector.${kind}\` is a ${kind}'s own Details — an East function over the ${kind} and its writer: East.function([Flowchart.Types.${type}, FunctionType([Flowchart.Types.${type}], NullType)], UIComponentType, ($, ${row}, update) => …)`;
+}
+
+/**
+ * The inspector pane on the wire (#1250, FB44, FB45): on by default, or given
+ * `true`; none for `false`; and each kind's own Details where `{ state,
+ * transition }` gives them, checked against the row's type and wrapped over
+ * bytes, as the Sheet's own Details are.
+ *
+ * @param inspector - The flowchart's `inspector`
+ * @returns The pane, or none
+ * @throws {Error} Naming the prop and the remedy: an `inspector` of another
+ *   kind, a key other than `state` and `transition`, and a function of another
+ *   type than `(Row, (Row) => Null) => UIComponentType`
+ */
+function inspectorOf(inspector: unknown): ExprType<OptionType<FlowchartInspectorType>> {
+    if (inspector === false) return East.value(none, OptionType(FlowchartInspectorType));
+    if (inspector === undefined || inspector === true) {
+        return East.value(some({ state: none, transition: none }), OptionType(FlowchartInspectorType));
+    }
+    if (inspector === null || typeof inspector !== "object" || inspector instanceof Expr || Array.isArray(inspector)) {
+        throw new Error("Flowchart: `inspector` is on by default — inspector={false} removes the pane, and inspector={{ state, transition }} gives a state or a transition its own Details, each an East function over the row and its writer");
+    }
+    const given = inspector as { readonly state?: unknown; readonly transition?: unknown } & Record<string, unknown>;
+    for (const key of Object.keys(given)) {
+        if (key !== "state" && key !== "transition") {
+            throw new Error(`Flowchart: \`inspector\` gives a state or a transition its own Details — { state, transition } — and \`${key}\` is neither: every other kind's Details are its form`);
+        }
+    }
+    const state = given.state === undefined ? none : some(rowInspector(given.state, FlowchartStateType, rowRefusal("state", "State", "state")));
+    const transition = given.transition === undefined ? none : some(rowInspector(given.transition, FlowchartLinkType, rowRefusal("transition", "Link", "link")));
+    return East.value(some({ state, transition }), OptionType(FlowchartInspectorType));
+}
 
 /** The refusal of a record not bound with its patch mutation. */
 const UNBOUND = "Flowchart: `record` is an e3 record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])";
@@ -475,7 +587,11 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  *   `data`'s type; `"brush"` among the affordances; a table or row mapper,
  *   which `Flowchart.over` takes; `height` or `maxHeight`, which the box the
  *   flowchart fills sets; a callback for an edit, or `linkMode`, which the
- *   editing session's gestures replace; and each of the library's refusals
+ *   editing session's gestures replace; a hover card's builder (`stateHover`,
+ *   `linkHover`, `triggerHover`), which the inspector replaces; an `inspector`
+ *   of another kind than a Boolean or `{ state, transition }`, a key other
+ *   than those two, or a kind's own Details of another type than `(Row, (Row)
+ *   => Null) => UIComponentType`; and each of the library's refusals
  *   (`library.ts`'s `buildLibrary`): a tab listed twice, the Flows tab over
  *   one flow, a data tab's rows of neither an Array nor a `Dict<String, T>`,
  *   and a `drop` of another type than its tab's
@@ -496,6 +612,11 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     for (const callback of EDIT_CALLBACKS) {
         if (callback in canvas) {
             throw new Error(`Flowchart: \`${callback}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\``);
+        }
+    }
+    for (const [hover, remedy] of Object.entries(HOVERS)) {
+        if (hover in canvas) {
+            throw new Error(`Flowchart: \`${hover}\` is not a prop — the hover cards went, and the inspector, on by default, shows what is selected: ${remedy}`);
         }
     }
     if (record !== undefined && data !== undefined) {
@@ -522,6 +643,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
         throw new Error("Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart.Types.Flow — leave `flow` out");
     }
     const tabs = buildLibrary(library, arm.many);
+    const pane = inspectorOf(inspector);
     return East.value({
         canvas: buildCanvas(canvas as FlowchartCanvasOptions, {
             ...(slice === undefined ? {} : { slice }),
@@ -530,7 +652,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
         source: arm.source,
         open: flow === undefined ? none : some(flow),
         library: tabs,
-        inspector: inspector === true,
+        inspector: pane,
         readOnly: readOnly ?? false,
         name: name === undefined ? none : some(name),
     } as never, FlowchartPayloadType);

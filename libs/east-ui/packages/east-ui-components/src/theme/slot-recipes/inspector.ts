@@ -4,8 +4,9 @@
  */
 
 /**
- * The inspector's shared parts (#1188, #1197) — what the Sheet's inspector
- * (`sheetInspector`) and the Plan's (`planInspector`) lay out alike: the
+ * The inspector's shared parts (#1188, #1197, #1250) — what the Sheet's
+ * inspector (`sheetInspector`), the Plan's (`planInspector`) and the
+ * Flowchart's (`flowchartInspector`) lay out alike: the
  * body's sections, padded 16px and ruled off one from the next, as Studio's
  * inspector's are; the head of what is selected, its eyebrow, its name and
  * its marks; a draft's chip; a section's head; the fields; the gestures; the

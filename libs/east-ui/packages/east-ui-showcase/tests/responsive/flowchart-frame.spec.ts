@@ -8,14 +8,15 @@
  * Builder Spec.md` §7, §7.1, §8, FB7–FB11), on the parcel depot's flowchart
  * over the host's tables: a borderless `BuilderFrame` filling the box its
  * example gives it — one 44px toolbar row, the canvas filling main, the
- * footer's counts along the foot — and no eyebrow of the canvas's own. The
+ * inspector at main's end (#1250) — on by default, and at the example's width
+ * its 44px rail, the frame too narrow to pin it beside main — the footer's
+ * counts along the foot — and no eyebrow of the canvas's own. The
  * toolbar folds by one ladder, the slice's rail first, then the freshness
  * chip goes, LR · TD folds into its chip and find state into its icon: one
  * row at every width from 1440px to 320px, nothing past its edge, a narrower
  * row never folding less. The canvas scrolls both ways inside main under the
  * viewer's wheel, its lanes running main's whole height, the toolbar and the
- * footer staying put, and a hover card hanging under the pointer however far
- * it has scrolled; over the host's tables with no `onApply` it edits nothing
+ * footer staying put; over the host's tables with no `onApply` it edits nothing
  * — no "+ LANE", no lane's ×, no history item (#1247); find
  * state's query, typed a key at a time, finds a state by its label, and a
  * pick selects it and scrolls it into the canvas's view. In both themes; on a
@@ -88,7 +89,7 @@ test.describe("The Flowchart's frame (#1245)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width; the phone's below");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`a borderless frame filling its box: one 44px toolbar row, the canvas filling main, the footer along the foot, no eyebrow (${theme})`, async ({ page }) => {
+        test(`a borderless frame filling its box: one 44px toolbar row, the canvas filling main, the inspector's rail at its end, the footer along the foot, no eyebrow (${theme})`, async ({ page }) => {
             const root = await openDepot(page, theme);
             await expect.poll(() => root.evaluate((el) => {
                 const round = (n: number) => Math.round(n * 10) / 10;
@@ -125,11 +126,17 @@ test.describe("The Flowchart's frame (#1245)", () => {
                     const b = el.querySelector(sel)!.getBoundingClientRect();
                     return [Math.round(b.left - f.left), Math.round(b.top - f.top), Math.round(b.width), Math.round(b.height)];
                 };
-                return { w: Math.round(f.width), h: Math.round(f.height), toolbar: at("[data-frame-slot='toolbar']"), main: at("[data-frame-slot='main']"), body: at("[data-flowchart-body]"), footer: at("[data-frame-slot='footer']") };
+                return {
+                    w: Math.round(f.width), h: Math.round(f.height), toolbar: at("[data-frame-slot='toolbar']"), main: at("[data-frame-slot='main']"),
+                    body: at("[data-flowchart-body]"), end: at("[data-frame-slot='end']"), footer: at("[data-frame-slot='footer']"),
+                    mode: el.querySelector("[data-frame-slot='end']")!.getAttribute("data-pane-mode"),
+                };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
             expect(read.footer).toEqual([0, read.h - 38, read.w, 38]);
-            expect(read.main).toEqual([0, 44, read.w, read.h - 44 - 38]);
+            // The inspector, on by default (#1250): too narrow a frame to pin it beside main, its 44px rail at main's end.
+            expect([read.mode, read.end]).toEqual(["overlay", [read.w - 44, 44, 44, read.h - 44 - 38]]);
+            expect(read.main).toEqual([0, 44, read.w - 44, read.h - 44 - 38]);
             expect(read.body).toEqual(read.main);
         });
 
@@ -192,41 +199,6 @@ test.describe("The Flowchart's frame (#1245)", () => {
         expect(after.scrolled).toBe(true);
         expect([after.toolbar, after.footer, after.main]).toEqual([before.toolbar, before.footer, before.main]);
         expect(after.page).toBeLessThanOrEqual(1);
-    });
-
-    test("over a scrolled canvas a hover card hangs under the pointer, as it does at rest", async ({ page }) => {
-        const root = await openDepot(page);
-        await sizeTo(page, root, 480, 360);
-        // The canvas scrolled until its lowest state is near the view's top left corner.
-        const key = await root.evaluate((el) => {
-            const scroll = el.querySelector("[data-flowchart-scroll]") as HTMLElement;
-            const canvas = el.querySelector("[data-flowchart-canvas]")!.getBoundingClientRect();
-            const low = [...el.querySelectorAll("[data-flowchart-node]")]
-                .reduce((a, b) => (b.getBoundingClientRect().top > a.getBoundingClientRect().top ? b : a));
-            const r = low.getBoundingClientRect();
-            scroll.scrollTop = r.top - canvas.top - 40;
-            scroll.scrollLeft = r.left - canvas.left - 40;
-            return low.getAttribute("data-flowchart-node")!;
-        });
-        await settled(page);
-        const target = await root.evaluate((el, key) => {
-            const scroll = el.querySelector("[data-flowchart-scroll]") as HTMLElement;
-            const r = el.querySelector(`[data-flowchart-node="${key}"]`)!.getBoundingClientRect();
-            return { scrolled: scroll.scrollTop, x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        }, key);
-        expect(target.scrolled).toBeGreaterThan(0);
-        await page.mouse.move(target.x, target.y);
-        const card = root.locator("[data-flowchart-hovercard]");
-        await expect(card).toBeVisible();
-        const at = await card.evaluate((el) => {
-            const r = el.getBoundingClientRect();
-            const body = el.closest("[data-flowchart-body]")!.getBoundingClientRect();
-            return { top: r.top, left: r.left, bodyLeft: body.left };
-        });
-        // 14px under the pointer, and no further right than 14px past it.
-        expect(Math.abs(at.top - (target.y + 14))).toBeLessThanOrEqual(1);
-        expect(at.left).toBeGreaterThanOrEqual(at.bodyLeft);
-        expect(at.left).toBeLessThanOrEqual(target.x + 15);
     });
 
     test("find state: a query typed a key at a time finds a state by its label, and a pick selects it and scrolls it into the canvas's view", async ({ page }) => {

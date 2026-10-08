@@ -27,10 +27,20 @@
  *   a drafted flow hold Save off, each an issue naming the flow
  *   (`edits.ts`'s `flowReadiness`).
  * - **The snapshot** is the open flow alone, as its source holds it — or no
- *   flow, for a new one — so a commit of another flow never moves this one's
- *   base: its drafts stay its own, and never go out of date for it.
+ *   flow, for a new one — and any other name its session drafts (a rename's
+ *   new name, which the source holds once the rename is saved), so a commit
+ *   of another flow never moves this one's base: its drafts stay its own, and
+ *   never go out of date for it.
  * - **A new flow** ("+ New flow", FB14) is an insert — one lane, nothing else
- *   — recorded in its own session; Save commits it, and Discard drops it.
+ *   — recorded in its own session; Save commits it, and Discard drops it. A
+ *   flow duplicated (#1250) is a new flow of the open flow's content.
+ * - **A rename** (#1250, §5.3) is one transaction of the open flow's session:
+ *   the flow taken from under its name and put under its new one
+ *   ({@link recordFlowRename}), which Save commits as one patch — the flow's
+ *   delete and its insert by name. Until then the flow is open under the name
+ *   its session has, its drafts under the new one ({@link draftedEntry}).
+ *   **A delete** (#1250) is the flow taken from under its name
+ *   ({@link recordFlowDelete}).
  * - **The sessions** a flowchart's flows have had are kept by name, per UI
  *   store, as the sessions themselves are, so the Flows tab marks a flow with
  *   drafts Pending, and lists a new flow not yet saved, whichever flow is
@@ -40,11 +50,11 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { SortedMap, StringType, compareFor, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { BlobType, SortedMap, StringType, compareFor, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing, EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
-    StateRuntime, useEditSession,
+    StateRuntime, useDataStable, useEditSession,
     type BatchReadiness, type EditSession, type EditingValue, type EntryVersion, type Origin, type UIStoreInterface,
 } from "@elaraai/east-ui-components";
 import { flowReadiness } from "./edits.js";
@@ -80,6 +90,7 @@ const encodeFlow = encodeBeast2For(Flowchart.Types.Flow);
 const printName = printFor(StringType);
 const nameOrder = compareFor(StringType);
 const nameEqual = equalFor(StringType);
+const bytesEqual = equalFor(BlobType);
 
 /** An entry the session holds no version of: absent, nowhere. */
 const ABSENT: EntryVersion<FlowRow> = { draft: undefined, wire: undefined, place: none };
@@ -208,17 +219,27 @@ export function useKeptSessions(storageKey: string, key: string): { sessions: Fl
 }
 
 /**
- * A flow as its session's drafts stand.
+ * A flow as its session's drafts stand, under the name they give it (#1250):
+ * its own, or — a rename drafted — its new one.
  *
  * @param session - The flow's session
- * @param name - The flow's name
- * @returns The flow as drafted — as the record holds it, with no drafts — or
- *   `undefined` when the drafts leave none (a new flow discarded), or the
- *   session has not read its base
+ * @param name - The flow's name: its session's
+ * @returns The flow as drafted, and its name — as the record holds it, with
+ *   no drafts; `null` when the drafts leave no flow of it (a delete drafted, a
+ *   new flow discarded); `undefined` while the session has not read its base
  */
-export function draftedFlow(session: EditSession<FlowRow>, name: string): FlowchartFlowValue | undefined {
+export function draftedEntry(session: EditSession<FlowRow>, name: string): FlowRow | null | undefined {
     const flows = session.applied() as FlowsValue | undefined;
-    return flows?.get(name);
+    if (flows === undefined) return undefined;
+    const own = flows.get(name);
+    if (own !== undefined) return { name, flow: own };
+    // A rename drafted: the flow under the other name its session's entries hold.
+    for (const [id, entry] of session.entries) {
+        if (nameEqual(id, name) || entry.draft === undefined) continue;
+        const flow = flows.get(id);
+        if (flow !== undefined) return { name: id, flow };
+    }
+    return null;
 }
 
 /** What the open flow's session needs. */
@@ -227,8 +248,8 @@ export interface FlowSessionOptions {
     readonly key: string;
     /** The open flow's name; `undefined` while no flow is open. */
     readonly name: string | undefined;
-    /** The open flow as the record holds it; `undefined` for a new flow. */
-    readonly held: FlowchartFlowValue | undefined;
+    /** A flow as the source holds it, by its name; `undefined` for a name it holds none of — a new flow's. */
+    readonly heldOf: (name: string) => FlowchartFlowValue | undefined;
     /** The session's Apply through the record; `undefined` where the flowchart does not edit. */
     readonly apply: FlowApply | undefined;
     /** The flowchart's view: its storage key. */
@@ -247,8 +268,8 @@ export interface FlowSessionState {
     readonly available: boolean;
     /** Moves with every change of the session. */
     readonly version: number;
-    /** The open flow as its drafts stand; `undefined` when they leave none, or no flow is open. */
-    readonly drafted: FlowchartFlowValue | undefined;
+    /** The open flow as its drafts stand, under the name they give it ({@link draftedEntry}); `null` when they leave none, `undefined` while no flow is open or its base is unread. */
+    readonly drafted: FlowRow | null | undefined;
     /** A flow's version before its first draft, as the source holds it — absent for one it doesn't. */
     readonly original: (name: string) => EntryVersion<FlowRow>;
 }
@@ -256,16 +277,32 @@ export interface FlowSessionState {
 /**
  * The open flow's editing session — see the module docs.
  *
- * @param options - The open flow, as the record holds it, the session's Apply, the view and the sessions it joins
+ * @param options - The open flow, the flows as the source holds them, the session's Apply, the view and the sessions it joins
  * @returns The session, and what the flowchart reads of it
  */
 export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
-    const { key, name, held, apply, storageKey, sessions, words } = options;
+    const { key, name, heldOf, apply, storageKey, sessions, words } = options;
     const sourceId = name === undefined ? noFlowSourceId(key) : flowSourceId(key, name);
-    // The open flow alone, as the record holds it: a commit of another flow never moves this base.
-    const snapshot = useMemo(() => encodeFlows(new SortedMap(
-        name !== undefined && held !== undefined ? [[name, held]] : [], nameOrder,
-    )), [name, held]);
+    const held = name === undefined ? undefined : heldOf(name);
+    // The sessions move under their version: a rename's new name joins the snapshot as it is drafted.
+    const keptVersion = useSyncExternalStore(sessions.subscribe, sessions.getSnapshot);
+    // The open flow, and every other name its session drafts, as the source holds them: a commit of
+    // another flow never moves this base, and a rename's commit reads back under its new name.
+    const encoded = useMemo(() => {
+        const at = new SortedMap<string, FlowchartFlowValue>([], nameOrder);
+        if (name !== undefined) {
+            const own = sessions.get(name);
+            for (const n of [name, ...(own === undefined ? [] : own.entries.keys())]) {
+                const flow = heldOf(n);
+                if (flow !== undefined) at.set(n, flow);
+            }
+        }
+        return encodeFlows(at);
+        // The kept sessions move under their version.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [name, heldOf, sessions, keptVersion]);
+    // Its bytes held while they hold: a render that moves nothing reads nothing again.
+    const snapshot = useDataStable(encoded, bytesEqual);
     const editing = useMemo((): EditingValue => ({
         sourceId,
         entryType: FLOW_ENTRY,
@@ -291,7 +328,7 @@ export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
         if (name !== undefined) sessions.add(name, edit.session);
     }, [sessions, name, edit.session]);
 
-    const drafted = useMemo(() => (name === undefined ? undefined : draftedFlow(edit.session, name)),
+    const drafted = useMemo(() => (name === undefined ? undefined : draftedEntry(edit.session, name)),
         // A gesture moves the session's version, not its identity.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [edit.session, name, edit.version]);
@@ -340,19 +377,57 @@ export function recordNewFlow(session: EditSession<FlowRow>, name: string, flow:
 }
 
 /**
+ * Renames a flow (#1250, §5.3): one undoable transaction of its session — the
+ * flow taken from under the name its drafts give it, and put, as they leave
+ * it, under its new name — which Save commits as the flow's delete and its
+ * insert by name, one patch.
+ *
+ * @param state - The flow's session, its base read, and its originals
+ * @param from - The name the flow's drafts give it now
+ * @param to - Its new name: one the flowchart holds no flow of
+ * @param flow - The flow, as its drafts leave it
+ * @param label - The transaction's name in the history
+ * @returns Whether it was recorded
+ */
+export function recordFlowRename(state: Pick<FlowSessionState, "session" | "original">, from: string, to: string, flow: FlowchartFlowValue, label: string): boolean {
+    const was = state.session.entries.get(from) ?? state.original(from);
+    const into = state.session.entries.get(to) ?? state.original(to);
+    return state.session.record([
+        { id: from, before: was, after: ABSENT },
+        { id: to, before: into, after: { draft: variant("value", flow), wire: { name: to, flow }, place: some(variant("keyOrder", null)) } },
+    ], "typed", label);
+}
+
+/**
+ * Deletes a flow (#1250, §5.3): one undoable transaction of its session — the
+ * flow taken from under the name its drafts give it — which Save commits as
+ * its delete by name.
+ *
+ * @param state - The flow's session, its base read, and its originals
+ * @param name - The name the flow's drafts give it
+ * @param label - The transaction's name in the history
+ * @returns Whether it was recorded
+ */
+export function recordFlowDelete(state: Pick<FlowSessionState, "session" | "original">, name: string, label: string): boolean {
+    const was = state.session.entries.get(name) ?? state.original(name);
+    return state.session.record([{ id: name, before: was, after: ABSENT }], "remove", label);
+}
+
+/**
  * The flows the sessions hold that the record does not: new flows, not yet
- * applied, as their drafts stand.
+ * applied, as their drafts stand — each under its session's name, with the
+ * name its drafts give it.
  *
  * @param sessions - The sessions the flowchart's flows have had
  * @param holds - Whether the record holds a flow of a name
- * @returns Each new flow, by name
+ * @returns Each new flow, by its session's name
  */
-export function newFlows(sessions: FlowSessions, holds: (name: string) => boolean): Map<string, FlowchartFlowValue> {
-    const out = new Map<string, FlowchartFlowValue>();
+export function newFlows(sessions: FlowSessions, holds: (name: string) => boolean): Map<string, FlowRow> {
+    const out = new Map<string, FlowRow>();
     for (const [name, session] of sessions.all()) {
         if (holds(name) || session.pending === 0) continue;
-        const flow = draftedFlow(session, name);
-        if (flow !== undefined) out.set(name, flow);
+        const drafted = draftedEntry(session, name);
+        if (drafted !== null && drafted !== undefined) out.set(name, drafted);
     }
     return out;
 }

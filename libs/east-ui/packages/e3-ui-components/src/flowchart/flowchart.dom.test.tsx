@@ -99,9 +99,6 @@ const CANVAS: FlowchartCanvasValue = {
     legend: some(true),
     density: none,
     slice: none,
-    stateHover: none,
-    linkHover: none,
-    triggerHover: none,
     onSelectState: none,
     onSelectLink: none,
     onSelectTrigger: none,
@@ -109,9 +106,9 @@ const CANVAS: FlowchartCanvasValue = {
     canConnect: none,
 };
 
-/** A payload over `source`, its canvas the one above. */
+/** A payload over `source`, its canvas the one above, its inspector taken away (`inspector={false}`). */
 function payload(source: FlowchartValue["source"], open: FlowchartValue["open"] = none): FlowchartValue {
-    return { canvas: CANVAS, source, open, library: [], inspector: false, readOnly: false, name: none };
+    return { canvas: CANVAS, source, open, library: [], inspector: none, readOnly: false, name: none };
 }
 
 /** The host's one flow. */
@@ -182,7 +179,7 @@ describe("EastChakraFlowchart", () => {
         expect(footerText(container).replace(/\s+/g, "")).toMatch(/^4links/);
         expect(footerText(container)).toContain("1 planned · 1 observed · 1 unresolved");
         expect(container.querySelector("[data-flowchart-flow]")).toBeNull();
-        // No pane: no library listed, no inspector given.
+        // No pane: no library listed, the inspector taken away.
         expect(frame!.querySelector("[data-frame-slot='start'], [data-frame-slot='end']")).toBeNull();
     });
 
@@ -270,12 +267,13 @@ describe("the frame's panes and footer (#1245)", () => {
         variant("states", { name: some("Steps"), icon: some("box"), cards: [] }),
     ];
 
-    it("a library that lists tabs is the start pane, its tabs in order; an inspector given is the end pane", () => {
-        const { container } = mount({ ...payload(record()), library: LIBRARY, inspector: true });
+    it("a library that lists tabs is the start pane, its tabs in order; the inspector is the end pane", () => {
+        const { container } = mount({ ...payload(record()), library: LIBRARY, inspector: some({ state: none, transition: none }) });
         const start = container.querySelector("[data-frame-slot='start']")!;
         // The Flows tab counts the record's flows (#1246), the templates' tab its cards (#1248).
         expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Flows 2", "Steps 0"]);
-        expect(container.querySelector("[data-frame-slot='end']")!.textContent).toContain("Inspector");
+        // The inspector's tabs (#1250): Details, and Issues with its count.
+        expect([...container.querySelectorAll("[data-frame-slot='end'] [role='tab']")].map((t) => t.textContent)).toEqual(["Details", "Issues 0"]);
     });
 
     it("the panes' collapsed state is kept under the flowchart's name", async () => {

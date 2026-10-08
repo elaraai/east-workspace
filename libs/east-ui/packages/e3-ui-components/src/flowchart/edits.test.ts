@@ -15,7 +15,10 @@
  * off (FB22); the changes waiting on Save counted row by row (FB10); and a
  * library card's (#1249): a state inserted at its place, a card's fields set
  * on a state, a transition, a lane or a decision — `some` setting a field,
- * `none` leaving it — and a key a card sets followed as FB18 has it.
+ * `none` leaving it — and a key a card sets followed as FB18 has it; and the
+ * inspector's (#1250): a row set whole as its form leaves it, by the same
+ * rules, a state duplicated after itself under a key made unique, several
+ * states moved or deleted together, and the flow given a description.
  */
 
 import { describe, expect, test } from "vitest";
@@ -168,7 +171,7 @@ describe("transitions and decisions (FB17, FB20)", () => {
 describe("two of one key, and the changes waiting on Save (FB22, FB10)", () => {
     const message = (d: edits.DuplicateKey): string => `${d.what}:${d.key}`;
 
-    test("two lanes, states, keyed transitions or decisions of one key are each named once; transitions without a key never clash", () => {
+    test("two lanes, states, keyed transitions or decisions of one key are each named once, with the place of the last of the key; transitions without a key never clash", () => {
         expect(edits.duplicateKeys(SORT)).toEqual([]);
         const twice: Flow = {
             ...SORT,
@@ -178,17 +181,17 @@ describe("two of one key, and the changes waiting on Save (FB22, FB10)", () => {
             triggers: [...SORT.triggers, SORT.triggers[0]!],
         };
         expect(edits.duplicateKeys(twice)).toEqual([
-            { what: "lane", key: "induct" },
-            { what: "state", key: "SRD" },
-            { what: "transition", key: "IND→CH*" },
-            { what: "decision", key: "route" },
+            { what: "lane", key: "induct", index: 3 },
+            { what: "state", key: "SRD", index: 4 },
+            { what: "transition", key: "IND→CH*", index: 3 },
+            { what: "decision", key: "route", index: 1 },
         ]);
     });
 
-    test("a drafted flow with two of one key is invalid — an issue on the flow, naming the field — and holds Save off; a clean one is ready", () => {
+    test("a drafted flow with two of one key is invalid — an issue on the flow, naming the field and the row the canvas draws under the key (#1250) — and holds Save off; a clean one is ready", () => {
         const clash = edits.addState(SORT, "hold", "SRD", "");
         const entries = new Map([["Sort", { draft: variant("value", clash) }], ["Returns", { draft: variant("value", SORT) }], ["Gone", { draft: undefined }]]);
-        expect(edits.flowReadiness(entries, message)).toEqual(variant("invalid", [{ entry: "Sort", row: none, field: some("states"), message: "state:SRD" }]));
+        expect(edits.flowReadiness(entries, message)).toEqual(variant("invalid", [{ entry: "Sort", row: some(3n), field: some("states"), message: "state:SRD" }]));
         expect(edits.flowReadiness(new Map([["Sort", { draft: variant("value", SORT) }]]), message)).toEqual(variant("ready", null));
     });
 
@@ -207,10 +210,68 @@ describe("two of one key, and the changes waiting on Save (FB22, FB10)", () => {
 
     test("each gesture is recorded as its own kind of transaction", () => {
         expect(edits.EDIT_ORIGIN).toEqual({
-            addLane: "insert", renameLane: "typed", deleteLane: "remove",
+            addLane: "insert", renameLane: "typed", deleteLane: "remove", editLane: "typed",
             addState: "insert", editState: "typed", moveState: "move", deleteState: "remove",
-            connect: "insert", deleteLink: "remove", deleteDecision: "remove",
+            duplicateState: "insert", moveStates: "move", deleteStates: "remove",
+            connect: "insert", deleteLink: "remove", editTransition: "typed", deleteDecision: "remove", editDecision: "typed",
+            renameFlow: "typed", describeFlow: "typed", duplicateFlow: "insert", deleteFlow: "remove",
         });
+    });
+});
+
+describe("the inspector's edits (#1250, FB36)", () => {
+    const stateEqual = equalFor(Flowchart.Types.State);
+
+    test("a state is found by its key — the one the canvas draws, the last of it — and set whole as the form leaves it: a new key rekeys its transitions and the decisions' queues", () => {
+        expect(edits.stateRow(SORT, "CH*")).toBe(SORT.states[1]);
+        expect(edits.stateRow(SORT, "GONE")).toBeUndefined();
+        const twice = edits.addState(SORT, "hold", "SRD", "Again");
+        expect(edits.stateRow(twice, "SRD")).toBe(twice.states[3]);
+        const inducted = { ...SORT.states[0]!, key: "INX", label: some("Inducted") };
+        expectFlow(edits.setStateRow(SORT, "IND", inducted), edits.editState(SORT, "IND", "INX", "Inducted"));
+        const classed = { ...SORT.states[2]!, members: some(3n), notes: some("By the dock") };
+        expectFlow(edits.setStateRow(SORT, "SRD", classed), { ...SORT, states: [SORT.states[0]!, SORT.states[1]!, classed] });
+    });
+
+    test("a transition is found by the key it goes by, with its place, and set whole: its ends, its kind, its decision and its key", () => {
+        expect(edits.linkRow(SORT, "CH*→SRD#1")).toEqual({ link: SORT.links[1], index: 1 });
+        expect(edits.linkRow(SORT, "GONE")).toBeUndefined();
+        const retyped = { ...SORT.links[1]!, kind: some(variant("planned", null)), trigger: some("route"), key: some("sorted") };
+        expectFlow(edits.setLinkRow(SORT, "CH*→SRD#1", retyped), { ...SORT, links: [SORT.links[0]!, retyped, SORT.links[2]!] });
+        const rewired = { ...SORT.links[0]!, to: "SRD", trigger: none };
+        expectFlow(edits.setLinkRow(SORT, "IND→CH*", rewired), { ...SORT, links: [rewired, SORT.links[1]!, SORT.links[2]!] });
+    });
+
+    test("a decision and a lane are set whole: a decision's new key renames it on the transitions it governs, a lane's moves its states", () => {
+        const routing = { ...SORT.triggers[0]!, key: "routing", queue: some(["SRD"]), outcomes: some("CH* (×14 chutes)") };
+        expectFlow(edits.setDecisionRow(SORT, "route", routing), {
+            ...SORT, triggers: [routing], links: [{ ...SORT.links[0]!, trigger: some("routing") }, SORT.links[1]!, SORT.links[2]!],
+        });
+        expectFlow(edits.setLaneRow(SORT, "sort", { key: "sorting", label: some("Sorting") }),
+            edits.renameLane(edits.rekeyLane(SORT, "sort", "sorting"), "sorting", "Sorting"));
+    });
+
+    test("a state is duplicated right after itself — in its lane, under it — keyed as its key made unique, with none of its transitions", () => {
+        const copy = edits.duplicateState(SORT, "CH*")!;
+        expect(copy.key).toBe("CH*-2");
+        expect(copy.flow.states.map((s) => s.key)).toEqual(["IND", "CH*", "CH*-2", "SRD"]);
+        expect(stateEqual(copy.flow.states[2]!, { ...SORT.states[1]!, key: "CH*-2" })).toBe(true);
+        expect(copy.flow.links).toEqual(SORT.links);
+        expect(edits.duplicateState(copy.flow, "CH*")!.key).toBe("CH*-3");
+        expect(edits.duplicateState(SORT, "GONE")).toBeUndefined();
+    });
+
+    test("several states are moved to a lane, or deleted, together — each with its transitions and from the decisions' queues", () => {
+        expectFlow(edits.moveStates(SORT, ["IND", "SRD"], "hold"), {
+            ...SORT, states: [{ ...SORT.states[0]!, lane: "hold" }, SORT.states[1]!, { ...SORT.states[2]!, lane: "hold" }],
+        });
+        expectFlow(edits.deleteStates(SORT, ["CH*", "IND"]), edits.deleteState(edits.deleteState(SORT, "CH*"), "IND"));
+        expectFlow(edits.deleteStates(SORT, []), SORT);
+    });
+
+    test("the flow is given a description, or has it taken away", () => {
+        expectFlow(edits.describeFlow(SORT, some("From the chutes to the hold")), { ...SORT, description: some("From the chutes to the hold") });
+        expectFlow(edits.describeFlow({ ...SORT, description: some("x") }, none), SORT);
     });
 });
 
