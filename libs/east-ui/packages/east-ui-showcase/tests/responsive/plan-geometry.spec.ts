@@ -32,9 +32,9 @@ import { cutNumbers, cutText, rulerFaults } from "./plan-text";
  *  rows, number and ordinal axes, rows folded to a coarser resolution and a
  *  bound ui state (#824). */
 const EXAMPLES = [
-    "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
+    "planTargetState", "planSpanRows", "planBucketRows", "planMeasures",
     "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planExpand",
-    "planNumberAxis", "planOrdinalAxis", "planFold", "planUiState",
+    "planNumberAxis", "planOrdinalAxis", "planUiState",
 ];
 
 /** Every body item whose rendered height is not the model's. */
@@ -283,7 +283,7 @@ test.describe("Plan geometry (#817)", () => {
     }
 
     test("chart rows hold at rest and expanded", async ({ page }) => {
-        const entry = await openExample(page, "planChartRows");
+        const entry = await openExample(page, "planMeasures");
         const spark = entry.locator(rowSel("spark", "spark"));
         const rest = Number(await spark.getAttribute("data-plan-h"));
         // The expandable spark's gutter is its toggle.
@@ -621,7 +621,7 @@ const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
     ...["planTargetState", "planVariants", "planSpanRows", "planBucketRows", "planCardRows", "planGroupedRows",
         "planSeriesData", "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planUiState",
         "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
-        "planChartRows", "planHeatRows", "planTableRows", "planFold", "planEventRows",
+        "planMeasures", "planEventRows",
     ].map((name) => ({ name, file: PLAN_EXAMPLES })),
     { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
     ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
@@ -884,14 +884,14 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
     });
 
     /** A number in a cell set either side of its own width (#1269): a heat value, a table cell's numerals and a
-     *  segment's label, each in the example that draws them. Narrower than it, the cell draws none of it — wrapped
-     *  off its line, below it, out of sight — and a heat or table cell's hover says it in the canvas's tooltip, a
-     *  table cell's numerals one after another; two pixels wider, it draws whole, on its line. `pad` is the cell's
-     *  padding across. */
+     *  segment's label, each in the measures example, which draws them all. Narrower than it, the cell draws none
+     *  of it — wrapped off its line, below it, out of sight — and a heat or table cell's hover says it in the
+     *  canvas's tooltip, a table cell's numerals one after another; two pixels wider, it draws whole, on its line.
+     *  `pad` is the cell's padding across. */
     const NUMBERS: readonly { name: string; what: string; cell: string; label: string | null; pad: number; tip: boolean }[] = [
-        { name: "planHeatRows", what: "a heat value", cell: "[data-plan-row] [data-cell]:has(> [data-plan-heat-label])", label: ":scope > [data-plan-heat-label]", pad: 0, tip: true },
-        { name: "planTableRows", what: "a table cell's numerals", cell: "[data-plan-row] [data-cell]:has(> [data-table-parts])", label: ":scope > [data-table-parts]", pad: 8, tip: true },
-        { name: "planHeatRows", what: "a segment's label", cell: "[data-plan-row] [data-fill]", label: null, pad: 0, tip: false },
+        { name: "planMeasures", what: "a heat value", cell: "[data-plan-row] [data-cell]:has(> [data-plan-heat-label])", label: ":scope > [data-plan-heat-label]", pad: 0, tip: true },
+        { name: "planMeasures", what: "a table cell's numerals", cell: "[data-plan-row] [data-cell]:has(> [data-table-parts])", label: ":scope > [data-table-parts]", pad: 8, tip: true },
+        { name: "planMeasures", what: "a segment's label", cell: "[data-plan-row] [data-fill]", label: null, pad: 0, tip: false },
     ];
 
     for (const n of NUMBERS) {
@@ -1329,15 +1329,15 @@ test.describe("Plan row controls on touch (#1258)", () => {
 });
 
 /**
- * planFold's resolution is its toolbar's (#1258): a bound slice over the
+ * planMeasures' resolution is its toolbar's (#1258): a bound slice over the
  * weeks it shows declares the `resolution` affordance, so the toolbar's
  * segment switches MONTH and WEEK — nothing outside the Plan chooses it.
  */
-test.describe("planFold's resolution (#1258)", () => {
+test.describe("planMeasures' resolution (#1258)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     test("the toolbar's segment switches MONTH and WEEK, and nothing outside the frame chooses the resolution", async ({ page }) => {
-        const entry = await openExample(page, "planFold");
+        const entry = await openExample(page, "planMeasures");
         const seg = entry.locator("[data-builder-frame] [data-frame-slot='toolbar'] [data-plan-seg='resolution']");
         await expect(seg.getByRole("radio")).toHaveText(["MONTH", "WEEK"]);
         await expect(seg.getByRole("radio", { name: "MONTH" })).toBeChecked();
