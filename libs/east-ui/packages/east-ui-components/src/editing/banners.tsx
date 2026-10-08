@@ -11,7 +11,9 @@
  * issue's place; an Apply the source refused, with its reasons; a write with
  * no answer, with Retry; an Apply whose result could not be read back, with
  * Retry; and drafts the source moved under, with Discard. Each follows the
- * session, and leaves when what it reports does.
+ * session, and leaves when what it reports does. A host whose one history
+ * holds several sessions (`EditHistory`, #1194) draws each session's banners,
+ * each titled with its source's name.
  *
  * @packageDocumentation
  */
@@ -50,6 +52,12 @@ export interface SessionBannersProps<W> {
     where?: ((issue: EditIssue) => string) | undefined;
     /** An issue's text as the collection shows it — its own issues read back in its words; as written by default. */
     issueText?: ((message: string) => string) | undefined;
+    /**
+     * The source's name, for a host whose history holds several (#1194): each
+     * banner's title then names the source it reports on — `Print job: Save
+     * stopped — 1 conflict with the source`. Left out, the titles name none.
+     */
+    name?: string | undefined;
 }
 
 /**
@@ -60,11 +68,13 @@ export interface SessionBannersProps<W> {
  * @param props - The session, the collection's words, its history actions, and how it names an issue
  * @returns The banners that apply now, each wrapped in an element naming its kind (`data-session-banner`)
  */
-export function SessionBanners<W>({ session, words, onAction, where, issueText }: SessionBannersProps<W>) {
+export function SessionBanners<W>({ session, words, onAction, where, issueText, name }: SessionBannersProps<W>) {
     useSyncExternalStore(session.subscribe, session.getSnapshot);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
+    // A banner's title, naming the source it reports on when the host names it.
+    const titled = (title: string) => (name === undefined ? title : m.bannerSource({ source: name, title }));
     const { status, error, stale } = session;
     const issues = (list: readonly EditIssue[]) => {
         const shown = list.slice(0, SHOWN_ISSUES);
@@ -88,28 +98,28 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText }
         <>
             {status === "conflict" && (
                 <Box data-session-banner="conflict">
-                    <BannerView status="warning" title={m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) })}
+                    <BannerView status="warning" title={titled(m.bannerConflict({ n: session.issues.length, count: words.number(session.issues.length) }))}
                         description={issues(session.issues)} />
                 </Box>
             )}
             {status === "rejected" && (
                 <Box data-session-banner="rejected">
-                    <BannerView status="error" title={m.bannerRejected()} description={issues(session.issues)} />
+                    <BannerView status="error" title={titled(m.bannerRejected())} description={issues(session.issues)} />
                 </Box>
             )}
             {status === "unknown" && (
                 <Box data-session-banner="unknown">
-                    <BannerView status="warning" title={m.bannerUnknown()} description={errorText} actions={action(m.retryRequest(), "apply")} />
+                    <BannerView status="warning" title={titled(m.bannerUnknown())} description={errorText} actions={action(m.retryRequest(), "apply")} />
                 </Box>
             )}
             {status === "reconciling" && errorText !== undefined && (
                 <Box data-session-banner="confirm">
-                    <BannerView status="warning" title={m.bannerConfirmFailed()} description={errorText} actions={action(m.retryRefresh(), "refresh")} />
+                    <BannerView status="warning" title={titled(m.bannerConfirmFailed())} description={errorText} actions={action(m.retryRefresh(), "refresh")} />
                 </Box>
             )}
             {stale && (
                 <Box data-session-banner="stale">
-                    <BannerView status="stale" title={m.bannerStale()} actions={action(m.discard(), "discard")} />
+                    <BannerView status="stale" title={titled(m.bannerStale())} actions={action(m.discard(), "discard")} />
                 </Box>
             )}
         </>

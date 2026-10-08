@@ -15,7 +15,10 @@
  * {@link usePlanCanvas}: it hands the frame main, and the facts the frame's
  * toolbar, banners and footer are drawn from (`root/chrome.ts`), so the canvas
  * draws no toolbar and no foot of its own. The event kinds' rows lead the
- * canvas's own, read over the range it draws (#1192, `root/events.ts`).
+ * canvas's own, read over the range it draws (#1192, `root/events.ts`), with
+ * every kind's drafts in place: each kind is a session over its record, under
+ * one history with `data`'s session (#1194, `edit/events.ts`), which the
+ * frame's history item and banners follow.
  *
  * Everything the canvas remembers between renders lives in ONE framework-free
  * controller (#815, `controller/`): the UI state machine, the paged source's
@@ -69,11 +72,11 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor } from "@elaraai/east";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { Plan, ScheduleEventRefType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyShortcut,
-    type EditIssue, type DragEventValue,
+    type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
     parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore,
@@ -94,7 +97,8 @@ import {
     type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import type { RowKey } from "./plan-state.js";
-import { entryOf, usePlanEditing } from "./use-plan-editing.js";
+import { entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
+import { usePlanEventEditing } from "./edit/events.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
@@ -111,7 +115,7 @@ import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root
 import { usePlanWindow } from "./root/window.js";
 import { usePlanEventBlocks, usePlanEventRoot, type PlanEventRows } from "./root/events.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
-import type { PlanCanvasParts } from "./root/chrome.js";
+import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
 import { groupEndsOf, usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
@@ -145,6 +149,17 @@ export type { PlanCanvasParts, PlanChrome } from "./root/chrome.js";
 // closure-only change lets through swaps the callbacks without rebuilding the
 // row model, the scale or the link graph.
 const planRootDataEqual = equalFor(Plan.Types.Root);
+const stringEqual = equalFor(StringType);
+/** An event's element's key: its event, as East prints a `Schedule.Types.EventRef`. */
+const printEventRef = printFor(ScheduleEventRefType);
+
+/** One event kind, as the Plan's payload carries it (#1190). */
+type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
+
+/** No event kinds: a Plan of `data` and `rows` alone. */
+const NO_KINDS: readonly PlanEventKindValue[] = [];
+/** No session joins the history beside the event kinds': a Plan whose `data` does not edit. */
+const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
@@ -195,6 +210,10 @@ export interface PlanCanvasArgs {
     eventKinds?: readonly string[] | undefined;
     /** The library ids of the Plan's own panel tabs whose cards land on its rows (#1259) — its author's tabs'. */
     panel?: readonly string[] | undefined;
+    /** The event kinds themselves (#1194): each edited in a session over its record, under one history with `data`'s. */
+    kinds?: readonly PlanEventKindValue[] | undefined;
+    /** When the event kinds' drafts go (#1194): on Save (`batch`, the default), or as each gesture lands (`auto`). */
+    applyMode?: "batch" | "auto" | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -206,10 +225,10 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, and the panel's tabs whose cards land
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, and the event kinds with when their drafts go
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
-export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel }: PlanCanvasArgs): PlanCanvasParts {
+export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch" }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
@@ -245,14 +264,11 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     useLayoutEffect(() => { controller.setWords(words); }, [controller, words]);
     const paging = useControllerSelector(controller, selectPaging);
 
-    // ── The slice, the scale, and the event kinds' rows (#1192) ───────────
+    // ── The slice and the scale ───────────────────────────────────────────
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
-    // with. The event kinds' rows are read over the range the scale draws,
-    // what the viewer hides left out (#1195), and lead every other row as
-    // fixed blocks.
+    // with.
     const { slice, affordances, scale } = usePlanWindow(hostValue, hostData, words);
-    const lead = usePlanEventBlocks(events, scale, hidden);
 
     // ── The editing session (#880) ────────────────────────────────────────
     // Every dropped card, move and resize is a DRAFT of the entry its row
@@ -271,9 +287,30 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     const sourceRows = useMemo(
         () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : elementRowsOf(paging)),
         [hostData.rows, paging]);
+    // Its gestures are steps of the Plan's one history once it holds the
+    // session beside the event kinds' (#1194): the history is this render's,
+    // read when a gesture lands.
+    const historyRef = useRef<EditHistory<PlanEntryRef> | undefined>(undefined);
     const editing = usePlanEditing({
-        value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf,
+        value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf, history: historyRef,
     });
+
+    // ── The event kinds' editing (#1194) ──────────────────────────────────
+    // A session per event kind over its record, under one history with
+    // `data`'s session: Undo and Redo in gesture order whatever the source,
+    // Discard of every one, Save per source.
+    const joined = useMemo(
+        () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
+        [editing.enabled, editing.historyKey, editing.session]);
+    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined });
+    const history = eventEditing.history;
+    historyRef.current = history;
+
+    // ── The event kinds' rows (#1192) ─────────────────────────────────────
+    // Read over the range the scale draws, what the viewer hides left out
+    // (#1195), every kind's drafts in place (#1194): they lead every other row
+    // as fixed blocks.
+    const lead = usePlanEventBlocks(events, scale, hidden, eventEditing.drafts);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw.
     const shown = usePlanEventRoot(editing.value, editing.data, events !== undefined ? lead : undefined);
@@ -620,12 +657,13 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
         },
     }), [index, derived, scale, words]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
-    // inspector's banner: on the row that draws the first, which the
-    // controller brings into view; none when no row on the canvas draws it.
-    const selectEvents = useCallback((keys: readonly string[]) => {
+    // inspector's banner, a duplicate the inspector made (#1194): on the row
+    // given, else the row that draws the first, which the controller brings
+    // into view; none when no row on the canvas draws it.
+    const selectEvents = useCallback((keys: readonly string[], row?: RowKey) => {
         const first = keys[0];
         if (first === undefined) return;
-        controller.selectEvents(keys, index.rows.find((row) => holdsElement(row, first))?.key ?? null);
+        controller.selectEvents(keys, row ?? index.rows.find((r) => holdsElement(r, first))?.key ?? null);
     }, [index, controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
@@ -644,19 +682,55 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
-    // The history (#880): the frame's history item (#988) and its banners. An
-    // issue takes the reader to its entry's first row on the canvas — one its
-    // entry placed — and a banner names it by that row.
+    // The history (#880, #1194): the frame's history item (#988) over the
+    // Plan's one history — `data`'s session and each event kind's — and each
+    // session's banners. An issue of `data`'s takes the reader to its entry's
+    // first row on the canvas — one its entry placed — and a banner names it
+    // by that row; an event kind's selects its event, and its banner names it
+    // by its title.
     const rowOfIssue = useCallback(
         (issue: EditIssue) => sourceRows.find((r) => entryOf(r.id) === issue.entry), [sourceRows]);
+    const where = useCallback((issue: EditIssue) => rowOfIssue(issue)?.gutter.label ?? issue.entry, [rowOfIssue]);
+    const kindSessions = eventEditing.sessions;
     const onIssue = useCallback((issue: EditIssue) => {
+        const source = history.sourceOf(issue);
+        const kind = source === undefined ? undefined : kindSessions.find((s) => stringEqual(s.key, source));
+        if (kind !== undefined) {
+            if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
+            return;
+        }
         const row = rowOfIssue(issue);
         if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
-    }, [rowOfIssue, controller]);
-    const where = useCallback((issue: EditIssue) => rowOfIssue(issue)?.gutter.label ?? issue.entry, [rowOfIssue]);
-    const historyProps = editing.enabled
-        ? { session: editing.session, words, editing: false, onAction: editing.action, onIssue }
-        : undefined;
+    }, [history, kindSessions, selectEvents, rowOfIssue, controller]);
+    const onHistory = useCallback((action: HistoryAction) => history.act(action), [history]);
+    const edits = editing.enabled || kinds.length > 0;
+    const historyProps = edits ? { session: history, words, editing: false, onAction: onHistory, onIssue } : undefined;
+    // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles.
+    const draftsOf = eventEditing.draftsOf;
+    const sessions = useMemo((): readonly PlanSessionBanner[] => {
+        const actOn = (key: string) => (action: HistoryAction) => history.actOn(key, action);
+        const out: PlanSessionBanner[] = editing.enabled
+            ? [{ key: editing.historyKey, session: editing.session, name: undefined, where, onAction: actOn(editing.historyKey) }]
+            : [];
+        for (const held of kindSessions) {
+            const kind = kinds.find((k) => stringEqual(k.key, held.kind));
+            // Two kinds over one record share its session, and its banners.
+            if (kind === undefined || out.some((s) => stringEqual(s.key, held.key))) continue;
+            out.push({
+                key: held.key, session: held.session, name: kind.name, onAction: actOn(held.key),
+                where: (issue) => {
+                    if (issue.entry === "") return "";
+                    try {
+                        const read = kind.planEvent(issue.entry, draftsOf(kind.key));
+                        return read.type === "some" ? read.value.item.title : issue.entry;
+                    } catch {
+                        return issue.entry;
+                    }
+                },
+            });
+        }
+        return out;
+    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, draftsOf, history]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first — published to
@@ -991,11 +1065,11 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
         if (e.defaultPrevented) return;
         // An element carried by the keyboard takes the keys while it lasts (#825).
         if (editStore.carry !== null && carry.keys(e)) return;
-        // The history keys every collection shares (#988).
-        const historyKey = editing.enabled ? historyShortcut(e) : undefined;
+        // The history keys every collection shares (#988): the Plan's one history's (#1194).
+        const historyKey = edits ? historyShortcut(e) : undefined;
         if (historyKey !== undefined) {
             e.preventDefault();
-            editing.action(historyKey);
+            history.act(historyKey);
             return;
         }
         // An open popover is the ladder's top rung.
@@ -1185,7 +1259,8 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             // for the segment to do there.
             grain: hasRootGroup && !narrow ? grain : undefined,
             transport, search, diagnostics,
-            history: historyProps, where,
+            history: historyProps, sessions, where,
+            events: kinds.length > 0 ? eventEditing : undefined,
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,

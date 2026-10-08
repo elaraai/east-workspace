@@ -15,9 +15,10 @@ import type { ReactNode } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Plan } from "@elaraai/e3-ui/internal";
 import type { Slice } from "@elaraai/east-ui/internal";
-import type { EditIssue, HistoryBarProps } from "@elaraai/east-ui-components";
+import type { EditIssue, EditSession, HistoryAction, HistoryBarProps } from "@elaraai/east-ui-components";
 import type { PlanScale } from "../scale.js";
-import type { PlanGrain } from "../plan-state.js";
+import type { PlanGrain, RowKey } from "../plan-state.js";
+import type { PlanEventEditing } from "../edit/events.js";
 import type { PlanSearch } from "../use-seek.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
@@ -29,6 +30,20 @@ type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 /** One decoded footer item of the author's. */
 export type PlanFooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
+
+/** One session of the Plan's one history, as its banners show it (#1194). */
+export interface PlanSessionBanner {
+    /** Its key in the history. */
+    readonly key: string;
+    /** The session. */
+    readonly session: EditSession<PlanEntryRef>;
+    /** The source its banners name — an event kind's name; `undefined` for `data`'s, which names none. */
+    readonly name: string | undefined;
+    /** Where one of its issues is, in the reader's words: `data`'s row, an event's title. */
+    readonly where: (issue: EditIssue) => string;
+    /** Its banners' actions, on this session alone: Retry sends its request or reads its result again, Discard drops its drafts. */
+    readonly onAction: (action: HistoryAction) => void;
+}
 
 /** The facts the frame's chrome is drawn from, in the canvas's words. */
 export interface PlanChrome {
@@ -54,8 +69,17 @@ export interface PlanChrome {
     search: PlanSearch | undefined;
     /** What the canvas carried on past (#811). */
     diagnostics: PlanDiagnostics;
-    /** The history bar's props, when the root declares editing (#880): its session, words and actions. */
+    /**
+     * The history item's props, when the Plan edits — its root declares
+     * editing (#880), or it has event kinds (#1194): its session the Plan's
+     * one history across `data`'s session and each kind's, its words and its
+     * actions.
+     */
     history: HistoryBarProps<PlanEntryRef> | undefined;
+    /** The sessions the history holds, in order — `data`'s, then each event kind's — each as its banners show it (#1194). */
+    sessions: readonly PlanSessionBanner[];
+    /** The event kinds' editing (#1194): their drafts, and their gestures; `undefined` for a Plan without event kinds. */
+    events: PlanEventEditing | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */
     where: (issue: EditIssue) => string;
     /** The author's footer items, in order. */
@@ -68,11 +92,12 @@ export interface PlanChrome {
     inspect: PlanCanvasInspect;
     /**
      * Selects events from outside the canvas (#1198) — the overlaps chip's
-     * first pair, a peer the inspector's banner names — by their elements'
-     * keys: the selection replaced by them, on the row that draws the first,
-     * which is brought into view.
+     * first pair, a peer the inspector's banner names, a duplicate the
+     * inspector made (#1194) — by their elements' keys: the selection replaced
+     * by them, on the row given, else the row that draws the first, which is
+     * brought into view.
      */
-    selectEvents: (keys: readonly string[]) => void;
+    selectEvents: (keys: readonly string[], row?: RowKey) => void;
     /**
      * Whether a card from the library panel's own tabs has a row to land on
      * (#1259): a row on the canvas whose series makes an item of a dropped

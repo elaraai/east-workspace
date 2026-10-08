@@ -143,7 +143,7 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @param keyType - The source's key type
  * @returns An id's key, or `undefined` for an id that names no key of the type
  */
-function keyReader(keyType: EastType): (id: string) => unknown {
+export function keyReader(keyType: EastType): (id: string) => unknown {
     if (keyType.type === "String") return id => id;
     const parse = parseFor(toEastTypeValue(keyType));
     return (id) => {
@@ -316,6 +316,21 @@ export class EditSession<W> {
     get canUndo(): boolean { return this.writable && this.cursor > 0; }
     /** Redo is available. */
     get canRedo(): boolean { return this.writable && this.cursor < this.history.length; }
+    /**
+     * How many transactions Undo can take back, and how many Redo can replay
+     * (#1194): what a history over several sessions (`EditHistory`) keeps its
+     * order of, and what tells it this session's own history went.
+     */
+    get depth(): { readonly undo: number; readonly redo: number } { return { undo: this.cursor, redo: this.history.length - this.cursor }; }
+    /**
+     * Forget the transactions Redo would replay (#1194): in a history over
+     * several sessions, a gesture recorded in another took their place.
+     */
+    dropRedo(): void {
+        if (this.cursor === this.history.length) return;
+        this.history.splice(this.cursor);
+        this.changed();
+    }
     /** How many entries' drafts differ from their originals. */
     get pending(): number { return this.changes(this.baseline, this.current, true).length; }
     /** The batch's readiness — derived once per change of what it depends on (#859), however often it is read. */

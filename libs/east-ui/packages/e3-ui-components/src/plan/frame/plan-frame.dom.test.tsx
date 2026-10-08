@@ -130,7 +130,7 @@ function renderCanvas(value: PlanRootValue, key: string) {
 // ============================================================================
 
 describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
-    test("main holds the canvas; the footer is the frame's; a Plan with no control has no toolbar, and none of the panes it is not given", async () => {
+    test("main holds the canvas; the footer is the frame's; a Plan of event kinds' toolbar holds the history item alone, and there is none of the panes it is not given", async () => {
         // The jobs with Press B2's overlap on the 20th moved apart: no overlaps chip either (#1198).
         const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
         jobs.set("J-1019", { ...jobs.get("J-1019")!, start: some(at("2026-10-20T13:00:00Z")), end: some(at("2026-10-20T16:00:00Z")) });
@@ -145,14 +145,20 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
         expect(main.querySelector("[data-plan-header] [data-slot='ruler']")).not.toBeNull();
         // The canvas draws no toolbar or footer of its own.
         expect(main.querySelector("[data-toolbar], [data-slot='footer']")).toBeNull();
-        // No slice, no search, no group to fold, no overlaps, no editing: nothing for a toolbar to hold.
-        expect(slot(container, "toolbar")).toBeNull();
+        // No slice, no search, no group to fold, no overlaps: the event kinds' history is all the toolbar holds (#1194).
+        expect([...slot(container, "toolbar")!.querySelectorAll("[data-toolbar-item]")].map((item) => item.getAttribute("data-toolbar-item"))).toEqual(["history"]);
         // No `library`, no `inspector`: no pane (#1195, #1197).
         expect(slot(container, "start")).toBeNull();
         expect(slot(container, "end")).toBeNull();
-        // Nothing to say: no banners.
-        expect(slot(container, "banners")).toBeNull();
+        // Nothing to say: no banner.
+        expect(slot(container, "banners")?.querySelector("[data-session-banner]") ?? null).toBeNull();
         expect(slot(container, "footer")!.querySelector("[data-slot='footer']")).not.toBeNull();
+    });
+
+    test("a Plan with nothing to control — read-only rows, no slice, no group to fold, nothing that edits — has no toolbar and no banners", () => {
+        const { container } = renderCanvas(canvasOf(3), "plan-frame-bare");
+        expect(slot(container, "toolbar")).toBeNull();
+        expect(slot(container, "banners")).toBeNull();
     });
 
     test("a declared height is the whole Plan's: the frame takes it, and the canvas fills main and scrolls its own rows", () => {
@@ -208,8 +214,8 @@ describe("the footer (PB23)", () => {
         expect(count(container, "review")).toBeNull();
         // The records in memory commit at the epoch.
         expect(count(container, "saved")).toBe(`saved ${WORDS.dateTime(new Date(0))}`);
-        // No editing yet for the event kinds (#1194): nothing pending to count.
-        expect(count(container, "pending")).toBeNull();
+        // The event kinds edit (#1194): nothing pending yet.
+        expect(count(container, "pending")).toBe("0 pending");
         // The posters come into the window; the labels are scheduled.
         const next = new Map(COUNTED as unknown as Map<string, Job>);
         next.set("J-3", job("Posters", { start: "2026-10-12T08:00:00Z", end: "2026-10-12T16:00:00Z", press: "a3" }));

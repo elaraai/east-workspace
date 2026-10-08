@@ -16,6 +16,7 @@ import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@c
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
@@ -30,8 +31,8 @@ type Styles = Record<string, Record<string, unknown>>;
  * @typeParam W - The collection's projection of an entry
  */
 export interface HistoryBarProps<W> {
-    /** The editing session. */
-    session: EditSession<W>;
+    /** The editing session — or one history over several (`EditHistory`, #1194), which reads as one session does. */
+    session: EditSession<W> | EditHistory<W>;
     /** The collection's words. */
     words: EditingWords;
     /** An open editor is committed before the requested history action. */

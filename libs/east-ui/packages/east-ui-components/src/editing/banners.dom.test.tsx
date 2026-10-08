@@ -8,7 +8,8 @@
  * session put in its state — a Save's conflicts and its refusal, a write
  * with no answer, a confirmation read that failed, drafts the source moved
  * under — and each leaves when its state does, without the host rendering
- * again.
+ * again. A session one of several in a history (#1194) titles each banner
+ * with its source's name.
  */
 
 import { afterEach, expect, test } from "vitest";
@@ -46,7 +47,7 @@ function drafted(overrides: Partial<EditSessionBinding<string>> = {}): EditSessi
     return session;
 }
 
-function mount(session: EditSession<string>, props: { where?: (issue: EditIssue) => string; issueText?: (message: string) => string } = {}) {
+function mount(session: EditSession<string>, props: { where?: (issue: EditIssue) => string; issueText?: (message: string) => string; name?: string } = {}) {
     const actions: HistoryAction[] = [];
     const view = render(
         <ChakraProvider value={system}>
@@ -128,6 +129,22 @@ test("drafts the source moved under are out of date, with Discard; after a confl
     expect(banner(container, "stale")!.textContent).toContain("The source changed under these drafts");
     fireEvent.click(banner(container, "stale")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["discard"]);
+});
+
+test("a session one of several in a history titles each banner with its source's name, in the collection's words; with none, the titles name nothing", async () => {
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+    await act(() => session.apply());
+    act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
+    const conflict = editingMessages.bannerConflict({ n: 1, count: WORDS.number(1) });
+    const stale = editingMessages.bannerStale();
+    const named = mount(session, { name: "Runs" });
+    expect(kinds(named.container)).toEqual(["conflict", "stale"]);
+    expect(banner(named.container, "conflict")!.textContent!.startsWith(editingMessages.bannerSource({ source: "Runs", title: conflict }))).toBe(true);
+    expect(banner(named.container, "stale")!.textContent!.startsWith(editingMessages.bannerSource({ source: "Runs", title: stale }))).toBe(true);
+    named.unmount();
+    const bare = mount(session);
+    expect([banner(bare.container, "conflict")!.textContent!.startsWith(conflict), banner(bare.container, "stale")!.textContent!.startsWith(stale)])
+        .toEqual([true, true]);
 });
 
 test("a banner leaves when what it reports does, following the session itself", async () => {

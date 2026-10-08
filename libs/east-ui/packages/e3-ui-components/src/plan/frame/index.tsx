@@ -19,11 +19,18 @@
  *   history item, which leaves its error to the banners. A Plan with none
  *   of them has no toolbar. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in
  *   the frame, never while typing;
- * - **the banners** — the editing session's (`SessionBanners`): a Save's
- *   conflict, naming its rows; a refusal, with its reasons; a write with no
- *   answer, with Retry; a Save whose result could not be read back, with
- *   Retry; and the drafts the source moved under, with Discard. Each leaves
- *   when what it reports does;
+ * - **the history** (#1194) — one history across `data`'s editing session
+ *   and each event kind's, a session per kind over its record: the history
+ *   item's Undo and Redo step through the gestures in the order they were
+ *   made whatever their source, its Discard drops every source's drafts, and
+ *   its Save commits each source with a change as its own request;
+ * - **the banners** — each session's (`SessionBanners`), an event kind's
+ *   titled with its name: a Save's conflict, naming its rows or its events and
+ *   who changed the record last; a refusal, with its reasons; a write with no
+ *   answer, with Retry, which resends that source's request; a Save whose
+ *   result could not be read back, with Retry; and the drafts the source moved
+ *   under, with Discard, which drops that source's. Each leaves when what it
+ *   reports does;
  * - **main** — the canvas, unchanged: the horizon brush, the ruler and the
  *   now line, the pinned rows, the rows — or, below 480px of main, the
  *   narrow layout's tabs and cards — the links and the overlays;
@@ -163,15 +170,17 @@ export interface EastChakraPlanProps {
     library?: PlanLibraryTabs | undefined;
     /** Whether the Plan has its inspector pane (#1197) — the payload carries it; left out, no pane. */
     inspector?: boolean | undefined;
+    /** When the event kinds' drafts go (#1194) — the payload's settings carry it: on Save (`batch`, the default), or as each gesture lands. */
+    applyMode?: "batch" | "auto" | undefined;
 }
 
 /**
  * Renders the Plan in its frame — see the module docs.
  *
- * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, and whether it has its inspector
+ * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, and when the event kinds' drafts go
  * @returns The Plan, in its frame
  */
-export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given, inspector }: EastChakraPlanProps) {
+export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given, inspector, applyMode }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => planKeys(id), [id]);
@@ -189,13 +198,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
     const eventKinds = useMemo(() => (kinds ?? NO_KINDS).map((kind) => kind.key), [kinds]);
     // The panel's own tabs whose cards land on the rows (#1259): the author's.
     const panel = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tabLibrary(keys, tab.value)] : [])), [library, keys]);
-    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden, eventKinds, panel });
+    // Each event kind a session over its record, under one history with `data`'s (#1194).
+    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resources ?? NO_RESOURCES} library={library}
             inspector={inspector === true} hidden={hidden} onHidden={onHidden} />,
     )}</>;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
     && (prev.inspector === true) === (next.inspector === true)
+    && (prev.applyMode ?? "batch") === (next.applyMode ?? "batch")
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
     && (prev.resources === next.resources || resourcesEqual(prev.resources ?? NO_RESOURCES, next.resources ?? NO_RESOURCES))
@@ -234,12 +245,14 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
     const start = usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true });
-    const counts = usePlanEventCounts(kinds, chrome?.scale);
+    // Counted with every kind's drafts in place (#1194).
+    const counts = usePlanEventCounts(kinds, chrome?.scale, chrome?.events?.drafts);
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
     const overlaps = kinds.length > 0 ? counts?.overlaps : undefined;
     const items = usePlanToolbarItems(chrome, overlaps);
     const overlapKeys = useOverlapKeys(overlaps);
     const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words });
+    // The Plan's one history (#1194): the history item reads it as one session.
     const history = chrome?.history;
     const session = history?.session;
     const onAction = history?.onAction;
@@ -253,8 +266,16 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     }, [onAction]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
-    const banners = chrome !== undefined && history !== undefined && session !== undefined
-        ? <SessionBanners session={session} words={chrome.words} onAction={history.onAction} where={chrome.where} />
+    // Each session's banners, in the history's order: `data`'s, then each event kind's, named.
+    const banners = chrome !== undefined && history !== undefined && chrome.sessions.length > 0
+        ? (
+            <>
+                {chrome.sessions.map((held) => (
+                    <SessionBanners key={held.key} session={held.session} words={chrome.words} onAction={held.onAction}
+                        where={held.where} name={held.name} />
+                ))}
+            </>
+        )
         : undefined;
     const footer = chrome !== undefined
         ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport}
@@ -302,7 +323,7 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
         (): PlanEventRows | undefined => (value.blocks.type === "some" ? { blocks: value.blocks.value, count: resourceKinds + 1 } : undefined),
         [value.blocks, resourceKinds]);
     return <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
-        resources={value.resources} library={value.library} inspector={value.inspector} />;
+        resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type} />;
 }, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(PlanComponent, EastChakraPlanPayload);

@@ -5,7 +5,9 @@
 
 /**
  * The Plan's and the Sheet's toolbars under a touch pointer (#1221), measured
- * in a real browser on the phone projects, whose pointer is coarse. Each
+ * in a real browser on the phone projects, whose pointer is coarse — the
+ * print works' event kinds' among them, its history item at the row's end
+ * (#1194). Each
  * toolbar is one row inside its 44px band, nothing past the row's edge, and
  * every control in it is a 44px tap target — by its box, or by its halo
  * (`coarseHitArea`, #346), never by growing the row (#1193): a tap 21px above
@@ -34,7 +36,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EXAMPLES } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES } from "./plan-page";
 import { settled } from "./settle";
 
 /** A gesture that brings controls into the row. */
@@ -78,6 +80,7 @@ async function newViewTab(entry: Locator, page: Page, name: string): Promise<voi
 const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Gesture[]; wide?: readonly Gesture[] }> = [
     { name: "planTargetState", hash: `${PLAN_EXAMPLES}/planTargetState` },
     { name: "planRowDrop", hash: `${PLAN_EXAMPLES}/planRowDrop` },
+    { name: "planPrintWorks", hash: `${PLAN_EVENT_EXAMPLES}/planPrintWorks` },
     {
         name: "sheetWorkshop", hash: "e3/sheet/sheet/sheetWorkshop",
         phone: [{

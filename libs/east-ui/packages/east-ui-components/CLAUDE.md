@@ -240,6 +240,17 @@ component, nothing in east-ui.
   segment whose neighbours sit edge to edge takes the halo on the block axis
   alone (`axis: "block"`), and its strip clips nothing that would cut it; a
   search box is a 44px field, its input filling it.
+- **One history over several sessions** (`src/editing/history.ts`, #1194).
+  A builder whose sources each keep their own editing session — the Plan's
+  event kinds, a record each — puts them under one `EditHistory`: each step
+  names the sessions a gesture drafted, so Undo and Redo walk the gestures
+  in the order they were made whatever their source, Discard drops every
+  session's drafts, and Save applies each session that can, a Retry
+  resending only the ones whose answer never came. The history reads as one
+  session does, so the history item and the keys take it as they take a
+  session; each session keeps its own banners (`SessionBanners`' `name`
+  titles them by their source). `useEditHistory` keeps it in the UI store
+  per view, beside each source's kept session.
 
 ## Field form
 
@@ -593,7 +604,9 @@ Two more entries serve the sibling renderer packages, never apps:
 `src/internal.ts` (`@elaraai/east-ui-components/internal`) re-exports the
 renderers' shared building blocks a component made of the same parts needs
 (e3-ui-components' Plan and Sheet, #1177, #1179), and `src/testing.ts` (`/testing`) the
-renderer tests' DOM helpers — React's `act` and the DOM, no test framework.
+renderer tests' DOM helpers — React's `act` and the DOM, no test framework —
+and the editing words (`editingMessages`), which a browser spec names the
+history item's controls by: unlike the package's own entry, it loads in Node.
 
 ## See also
 

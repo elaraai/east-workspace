@@ -25,6 +25,11 @@
  * them carries the Sheet's marks — pending, and incomplete or invalid while a
  * check refuses its entry.
  *
+ * Beside a Plan's event kinds (#1194), the session joins the Plan's one
+ * history (`edit/events.ts`): its gestures are steps of it, in the order they
+ * were made among the kinds', and Undo, Redo, Discard and Save are the
+ * history's.
+ *
  * @packageDocumentation
  */
 
@@ -35,7 +40,7 @@ import {
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
-    useEditSession, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
+    historyKeyOf, useEditSession, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
 import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -65,6 +70,8 @@ export interface PlanEditing {
     enabled: boolean;
     /** The session — the history bar reads it. */
     session: EditSession<PlanEntryRef>;
+    /** The session's key in the Plan's one history, beside its event kinds' (#1194). */
+    historyKey: string;
     /** Whether a gesture can be drafted now: a base observed, the session writable. */
     available: boolean;
     /** The session's version — moves with every change to it. */
@@ -112,6 +119,12 @@ export interface PlanEditingArgs {
     storageKey: string;
     /** A row's name, for a transaction's label — its gutter label. */
     labelOf: (key: RowKey) => string;
+    /**
+     * The Plan's one history (#1194), once it holds this session beside its
+     * event kinds': a gesture is one step of it, and the history actions are
+     * its. Without it — or before it holds the session — the session's own.
+     */
+    history?: { readonly current: EditHistory<PlanEntryRef> | undefined } | undefined;
 }
 
 /** A canvas without editing still runs the hook — against a session nothing ever reaches. */
@@ -231,6 +244,13 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(
         editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready });
     sessionRef.current = session;
+    // The session's key in the Plan's one history (#1194): its source, the view and its schema.
+    const historyKey = useMemo(() => historyKeyOf(storageKey, editing ?? INERT), [storageKey, editing]);
+    /** The Plan's one history, while it holds this session. */
+    const joinedHistory = (): EditHistory<PlanEntryRef> | undefined => {
+        const history = args.history?.current;
+        return history !== undefined && Object.is(history.session(historyKey), session) ? history : undefined;
+    };
 
     // ── The drafted entries ──────────────────────────────────────────────
     // Only the entries a draft changed: an entry undone to the source's own
@@ -389,7 +409,10 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
                 after: { draft: variant("value", codec.decode(out.value)), wire: before.wire, place: before.place },
             });
         });
-        return updates.length > 0 && session.record(updates, origin, label);
+        if (updates.length === 0) return false;
+        // One step of the Plan's one history, once it holds this session (#1194).
+        const history = joinedHistory();
+        return history !== undefined ? history.record([{ key: historyKey, updates }], origin, label) : session.record(updates, origin, label);
     };
     const gestures = {
         drop(event: DragEventValue): boolean {
@@ -421,7 +444,10 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             return record(requests, gesture, request.origin, label);
         },
         action(action: HistoryAction): void {
-            if (action === "apply") void session.apply();
+            // The history's, across every source, once it holds this session (#1194).
+            const history = joinedHistory();
+            if (history !== undefined) history.act(action);
+            else if (action === "apply") void session.apply();
             else if (action === "refresh") session.refresh();
             else session[action]();
         },
@@ -436,6 +462,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     return {
         enabled: editing !== undefined,
         session,
+        historyKey,
         available: editing !== undefined && available,
         version,
         value: shownValue,

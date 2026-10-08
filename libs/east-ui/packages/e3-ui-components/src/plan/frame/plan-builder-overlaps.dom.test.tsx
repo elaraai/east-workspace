@@ -10,15 +10,17 @@
  * a click selects the first, earliest first, and brings it into view — on a
  * phone too; the inspector's banner lists what the selected event overlaps,
  * and a row's view its pairs, a click on one selecting it. Overlaps never
- * block Apply: they raise no issue and no banner of the session's. The print
- * works' jobs overlap once, on Press B2 on the 20th; a test commits others.
+ * block Save: they raise no issue and no banner of the sessions', and a draft
+ * beside them saves (#1194). The print works' jobs overlap once, on Press B2
+ * on the 20th; a test commits others.
  */
 
 import { describe, test, expect, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { East, some, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "../model.js";
@@ -308,12 +310,26 @@ describe("the inspector's overlaps (#1198, PB53, PB40)", () => {
     });
 });
 
-describe("overlaps never block Apply (#1198, PB53)", () => {
-    test("they raise no issue and no banner of the session's: a warning on the canvas alone", async () => {
+describe("overlaps never block Save (#1198, PB53)", () => {
+    test("they raise no issue and no banner of the sessions': a warning on the canvas alone — and a draft beside them saves (#1194)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         expect(chip(container)).not.toBeNull();
-        expect(slot(container, "banners")).toBeNull();
+        expect(slot(container, "banners")!.querySelector("[data-session-banner]")).toBeNull();
         expect(container.querySelector("[role='alert']")).toBeNull();
+        // A draft of one of the pair — its customer, in the inspector's form: Save is on, the overlap no issue of the history's.
+        fireEvent.click(bar(container, B2, "J-1018")!);
+        await settle();
+        const user = userEvent.setup();
+        const input = pane(container).querySelector<HTMLInputElement>("[data-inspector-fields='form'] [data-field='customer'] input")!;
+        await user.clear(input);
+        await user.type(input, "Orchard Street Market Co");
+        await user.keyboard("{Enter}");
+        await settle();
+        const history = slot(container, "toolbar")!.querySelector("[data-slot='history']")!;
+        const save = [...history.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.getAttribute("aria-label") === editingMessages.apply())!;
+        expect(save.disabled).toBe(false);
+        expect(history.querySelector("[data-slot='historyIssues']")!.hasAttribute("data-empty")).toBe(true);
+        expect(chip(container)).not.toBeNull();
     });
 });

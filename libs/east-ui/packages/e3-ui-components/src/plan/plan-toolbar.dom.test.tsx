@@ -109,8 +109,8 @@ const SEARCH: NonNullable<PlanChrome["search"]> = {
     find: async () => ({ found: false, row: 0, count: 0 }), listRange: async () => [], jump: () => {}, clear: () => {},
 };
 
-/** An editing session's history bar props. */
-function historyProps(): HistoryBarProps<PlanEntryRef> {
+/** An editing session's history bar props — over the session itself, as a test sets its state. */
+function historyProps(): HistoryBarProps<PlanEntryRef> & { session: EditSession<PlanEntryRef> } {
     const Run = StructType({ id: StringType, end: IntegerType });
     const session = new EditSession<PlanEntryRef>({
         sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
@@ -141,7 +141,7 @@ function Harness({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverl
         words: PLAN_WORDS, styles, storageKey: "plan.toolbar", scale: WEEKLY,
         slice: undefined, affordances: [], resolutions: [], grain: undefined, transport: undefined, search: undefined,
         diagnostics: { skipped: 0 },
-        history: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.

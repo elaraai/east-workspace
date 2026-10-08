@@ -76,6 +76,8 @@ export interface EditingMessages {
     bannerIssue: (p: { where: string; message: string }) => string;
     /** The issues a banner leaves out — `and 4 more`. */
     bannerMore: (p: { n: number; count: string }) => string;
+    /** A banner's title naming the source it reports on, where a history holds several (#1194) — `Print job: Save stopped — 1 conflict with the source`. */
+    bannerSource: (p: { source: string; title: string }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -113,6 +115,7 @@ export const editingMessages: EditingMessages = {
     bannerStale: () => "The source changed under these drafts — Save is off, and nothing is rebased",
     bannerIssue: ({ where, message }) => (where === "" ? message : `${where}: ${message}`),
     bannerMore: ({ n, count }) => `and ${count} more ${plural(n, "issue", "issues")}`,
+    bannerSource: ({ source, title }) => `${source}: ${title}`,
 };
 
 /** The words an editing surface speaks: a table carrying the editing messages, and its locale's formatters. */
