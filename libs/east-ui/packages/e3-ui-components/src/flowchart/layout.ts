@@ -107,7 +107,7 @@ export interface FlowchartLayout {
      * that lane's last node (nothing shifts on commit). */
     laneGhosts: Map<string, { x: number; y: number; w: number; h: number }>;
     /** The dashed "+ LANE" affordance rect at the tail (full lane height,
-     * 14px insets) — rendered only when the host provides onAddLane. */
+     * 14px insets) — drawn where the flowchart edits (#1247). */
     laneTail: { x: number; y: number; w: number; h: number };
 }
 

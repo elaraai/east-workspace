@@ -31,11 +31,11 @@ export type FlowchartOneFlowLibraryTab = Exclude<FlowchartLibraryTab, { readonly
  * The Flows tab — `Flowchart.library.flows()` (FB13, FB14): every flow the
  * flowchart holds, by name, each card its name and its description — or, with
  * none, its counts — the open flow placed, and a flow whose drafts are not
- * yet applied marked Pending. A click opens a flow on the canvas, and the
+ * yet saved marked Pending. A click opens a flow on the canvas, and the
  * tab's search reads names and descriptions. Where the flowchart edits — a
- * record, and not read only — "+ New flow" names another, refusing a name the
- * flowchart holds, and opens it empty, one lane, as a draft the history item
- * commits or discards.
+ * record, or the host's flows given `onApply`, and not read only — "+ New
+ * flow" names another, refusing a name the flowchart holds, and opens it
+ * empty, one lane, as a draft the history item saves or discards.
  *
  * @remarks
  * Over a record of flows, or the host's flows by name. Over one flow (`data`

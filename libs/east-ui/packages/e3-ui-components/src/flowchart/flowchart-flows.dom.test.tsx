@@ -18,24 +18,19 @@
  * there are no flows by name to list or the flowchart does not edit.
  *
  * The record's tests run the flowchart through its carrier over a record in
- * memory, bound with its patch mutation, as an app binds one — its Apply the
- * payload's, `Record.onApply`'s keyed form — so a commit is a real one.
+ * memory, bound with its patch mutation, as an app binds one — its Save the
+ * payload's, `Record.onApply`'s keyed form — so a commit is a real one
+ * (`flowchart.test-utils.tsx`).
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import {
-    East, PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
-} from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, UIStore, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { UIStore, editingMessages, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { Flowchart, RecordBindHandleType, recordBindPlatformFn } from "@elaraai/e3-ui/internal";
-import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type RecordApi,
-} from "../platform/index.js";
+import { Flowchart } from "@elaraai/e3-ui/internal";
+import { commits, enabled, mountRecord, press, readRecord, recordHarness, settle } from "./flowchart.test-utils.js";
 import { EastChakraFlowchart, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
 import { flowchartMessages } from "./messages.js";
 
@@ -60,7 +55,6 @@ afterEach(() => {
 });
 
 type Flows = ValueTypeOf<typeof Flowchart.Types.Flows>;
-type UIValue = ValueTypeOf<typeof UIComponentType>;
 
 const m = flowchartMessages;
 const flowsEqual = equalFor(Flowchart.Types.Flows);
@@ -80,8 +74,11 @@ const FLOWS: Flows = Flowchart.values({
     },
 });
 
+/** A new flow's one lane's label. */
+const LANE_1 = m.newLane({ n: 1, count: "1" });
+
 /** A new flow, as "+ New flow" starts one: one lane, nothing else. */
-const NIGHT: FlowchartFlowValue = { description: none, lanes: [{ key: "lane-1", label: some(m.newFlowLane()) }], states: [], links: [], triggers: [] };
+const NIGHT: FlowchartFlowValue = { description: none, lanes: [{ key: "lane-1", label: some(LANE_1) }], states: [], links: [], triggers: [] };
 
 /** Every state card the canvas draws, by its key. */
 const stateKeys = (container: HTMLElement): (string | null)[] =>
@@ -101,13 +98,6 @@ function cards(container: HTMLElement) {
     }));
 }
 
-/** Let the store's writes, the sessions, the record's commits and the renders settle. */
-async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 10; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
-}
-
 /** Clicks a flow's card in the Flows tab, as a pointer does. */
 async function openCard(container: HTMLElement, name: string) {
     await act(async () => { fireEvent.click(container.querySelector(`[data-frame-slot='start'] [data-library-item="${name}"]`)!); });
@@ -117,22 +107,6 @@ async function openCard(container: HTMLElement, name: string) {
 /** The Flows tab's name and count, as its tab draws them. */
 const flowsTab = (container: HTMLElement): string | null =>
     container.querySelector("[data-frame-slot='start'] [role='tab']")!.textContent;
-
-/** The frame's toolbar, where the history item is. */
-const toolbar = () => within(document.querySelector("[data-frame-slot='toolbar']") as HTMLElement);
-
-/** Presses one of the history item's buttons, by its words. */
-async function press(name: string) {
-    const button = toolbar().getByRole("button", { name });
-    await act(async () => {
-        fireEvent.mouseDown(button, { button: 0 });
-        fireEvent.click(button);
-    });
-    await settle();
-}
-
-/** Whether one of the history item's buttons is on. */
-const enabled = (name: string) => !(toolbar().getByRole("button", { name }) as HTMLButtonElement).disabled;
 
 /** "+ New flow", from the first of its buttons: opens its popover, and hands back the popover and its name field. */
 async function newFlowPopover(container: HTMLElement) {
@@ -159,8 +133,7 @@ function payload(source: FlowchartValue["source"], options: Partial<Pick<Flowcha
         canvas: {
             orientation: none, freshness: none, minimap: none, legend: some(false), density: none, slice: none,
             stateHover: none, linkHover: none, triggerHover: none, onSelectState: none, onSelectLink: none, onSelectTrigger: none,
-            onTracePath: none, linkMode: none, onCreateLink: none, onDeleteLink: none, canConnect: none,
-            onAddLane: none, onRenameLane: none, onDeleteLane: none, onAddState: none, onEditState: none, onMoveState: none,
+            onTracePath: none, canConnect: none,
         },
         source,
         open: options.open ?? none,
@@ -292,7 +265,7 @@ describe("a `flow` the flowchart doesn't hold (#1246, FB42)", () => {
         );
         await settle();
         expect(banner(container)).toBeNull();
-        expect(laneHeads(container)).toEqual([m.newFlowLane().toUpperCase()]);
+        expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
     });
 });
 
@@ -375,7 +348,7 @@ describe("\"+ New flow\" (#1246, FB14)", () => {
 
 describe("no Flows tab where there are no flows by name (#1246, FB16)", () => {
     test("over one flow — the host's — the canvas shows it, with no library and no new flow", async () => {
-        const { container } = mount(payload(variant("data", variant("flow", { value: FLOWS.get("Returns")!, onApply: none })), { library: [] }));
+        const { container } = mount(payload(variant("data", variant("flow", { value: FLOWS.get("Returns")!, apply: none })), { library: [] }));
         await settle();
         expect(stateKeys(container)).toEqual(["RCV", "INS"]);
         expect(container.querySelector("[data-frame-slot='start']")).toBeNull();
@@ -383,7 +356,7 @@ describe("no Flows tab where there are no flows by name (#1246, FB16)", () => {
     });
 
     test("over the host's flows by name the Flows tab lists them, and a click opens one; read only, it starts no new flow", async () => {
-        const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, onApply: none }))));
+        const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none }))));
         await settle();
         expect(cards(container).map((c) => c.name)).toEqual(["Inbound parcels", "Returns"]);
         await openCard(container, "Returns");
@@ -393,67 +366,6 @@ describe("no Flows tab where there are no flows by name (#1246, FB16)", () => {
     });
 });
 
-// ── The flowchart over a record in memory, through its carrier ─────────────
-
-const WORKSPACE = "flowchart-flows-test";
-const RECORD = "depot_flows";
-const FlowsHandle = RecordBindHandleType(Flowchart.Types.Flows, { patch: [PatchType(Flowchart.Types.Flows)] });
-
-/** The record in memory, and the dataset cache it writes through. */
-interface RecordHarness {
-    readonly memory: RecordApi;
-    readonly cache: ReactiveDatasetCache;
-}
-
-/** The depot's flows as a record in memory, bound with its patch mutation, whose patch door applies each patch with East's own checks. */
-function recordHarness(initial: Flows): RecordHarness {
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    const cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    const applyPatch = applyFor(Flowchart.Types.Flows);
-    const memory = createInMemoryRecordApi(cache, WORKSPACE, [{
-        name: RECORD, stateType: Flowchart.Types.Flows, initial,
-        mutations: [{ name: "patch", argTypes: [PatchType(Flowchart.Types.Flows)], reduce: (state, patch) => applyPatch(state as never, patch as never) }],
-    }]);
-    initializeRecordApi(memory, cache, WORKSPACE);
-    return { memory, cache };
-}
-
-/** The record as it stands — what its patch door last wrote. */
-function readRecord(harness: RecordHarness): Flows {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", RECORD)]);
-    if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(Flowchart.Types.Flows)(bytes);
-}
-
-/** The flowchart over the record, its Flows tab listed, as a surface mounts it. */
-async function mountRecord(): Promise<RenderResult> {
-    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const flows = $.let(recordBindPlatformFn([FlowsHandle], RECORD));
-        return Flowchart({ record: flows as never, library: [Flowchart.library.flows()] });
-    }))), getRegisteredPlatformImplementations()) as () => UIValue;
-    const utils = render(
-        <ChakraProvider value={system}>
-            <EastChakraComponent value={program()} storageKey="flowchart-flows-record" />
-        </ChakraProvider>,
-    );
-    await settle();
-    return utils;
-}
-
 describe("a new flow over a record (#1246, FB14)", () => {
     test("opens empty, one lane, as a draft insert: Pending in the tab, and the history item's commit commits it to the record as one patch", async () => {
         const harness = recordHarness(FLOWS);
@@ -462,7 +374,7 @@ describe("a new flow over a record (#1246, FB14)", () => {
         expect(enabled(editingMessages.apply())).toBe(false);
         await createFlow(container, "Night shift");
         // Open, one lane, nothing else; listed by name, placed and Pending.
-        expect(laneHeads(container)).toEqual([m.newFlowLane().toUpperCase()]);
+        expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
         expect(stateKeys(container)).toEqual([]);
         expect(cards(container)).toEqual([
             { name: "Inbound parcels", line: "From the trailer to the van", placed: false, chip: null },
@@ -477,11 +389,11 @@ describe("a new flow over a record (#1246, FB14)", () => {
         const expected = new SortedMap(FLOWS, compareFor(StringType));
         expected.set("Night shift", NIGHT);
         expect(flowsEqual(readRecord(harness), expected)).toBe(true);
-        expect((await harness.memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+        expect((await commits(harness))).toEqual(["patch", "$init"]);
         // Read back as the commit left it: no longer Pending, nothing to commit.
         expect(cards(container).find((c) => c.name === "Night shift")).toEqual({ name: "Night shift", line: "1 lane · 0 states · 0 transitions", placed: true, chip: null });
         expect(enabled(editingMessages.apply())).toBe(false);
-        expect(laneHeads(container)).toEqual([m.newFlowLane().toUpperCase()]);
+        expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
     }, 30_000);
 
     test("a new flow's name, not yet committed, is refused for another, with the reason", async () => {
@@ -503,7 +415,7 @@ describe("a new flow over a record (#1246, FB14)", () => {
         expect(cards(container).map((c) => c.name)).toEqual(["Inbound parcels", "Returns"]);
         expect(stateKeys(container)).toEqual(["ARV", "SRT"]);
         expect(flowsEqual(readRecord(harness), FLOWS)).toBe(true);
-        expect((await harness.memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["$init"]);
+        expect((await commits(harness))).toEqual(["$init"]);
     }, 30_000);
 });
 
@@ -522,7 +434,7 @@ describe("each flow its own session (#1246, FB15)", () => {
         expect(cards(container).filter((c) => c.chip !== null).map((c) => c.name)).toEqual(["Day shift", "Night shift"]);
         // Back to one: its draft is there, and commits alone.
         await openCard(container, "Night shift");
-        expect(laneHeads(container)).toEqual([m.newFlowLane().toUpperCase()]);
+        expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
         expect(enabled(editingMessages.apply())).toBe(true);
         await press(editingMessages.apply());
         expect([...readRecord(harness).keys()]).toEqual(["Inbound parcels", "Night shift", "Returns"]);
@@ -554,7 +466,7 @@ describe("each flow its own session (#1246, FB15)", () => {
         await act(async () => { fireEvent.click(popover.getByRole("button", { name: m.createFlow() })); });
         await settle();
         expect(main().querySelector("[data-flowchart-no-flows]")).toBeNull();
-        expect(laneHeads(container)).toEqual([m.newFlowLane().toUpperCase()]);
+        expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
         await press(editingMessages.apply());
         expect([...readRecord(harness).keys()]).toEqual(["Night shift"]);
     }, 30_000);

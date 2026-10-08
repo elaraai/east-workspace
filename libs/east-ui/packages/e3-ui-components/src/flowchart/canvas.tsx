@@ -4,16 +4,29 @@
  */
 
 /**
- * The Flowchart's canvas (#1245) — one flow, drawn with the canvas's options,
- * in its frame's main: lane bands, state cards, H/V-routed transitions,
- * decision diamonds, evidence badges, the legend, the minimap and hover
- * cards, with the dim ladder, the selection, ⌥-click tracing and today's
- * authoring gestures. The dimensional contract (node 116×40 r6, 7px handle
- * rings, fixed 6.5px arrowheads butting the rings, dim ladder
+ * The Flowchart's canvas (#1245, #1247) — one flow, drawn with the canvas's
+ * options, in its frame's main: lane bands, state cards, H/V-routed
+ * transitions, decision diamonds, evidence badges, the legend, the minimap and
+ * hover cards, with the dim ladder, the selection, ⌥-click tracing and, where
+ * the flowchart edits, its gestures. The dimensional contract (node 116×40 r6,
+ * 7px handle rings, fixed 6.5px arrowheads butting the rings, dim ladder
  * 1.0 / 0.45 / 0.15, hover 400ms) lives in `layout.ts` and the `flowchart`
  * slot recipe, which stays in east-ui-components' theme. Colours resolve
  * through the recipe's `--fc-*` variables (theme-aware, dark-mode overrides),
  * which the flowchart's root sets.
+ *
+ * The gestures (#1247, FB17–FB20) are the frame's `edit`, each one
+ * transaction of the open flow's editing session; without it the canvas edits
+ * nothing, and selection and hover stay: "+ LANE" at the band row's tail (Font
+ * Awesome's plus); a lane's header renamed in place, and its × (Font
+ * Awesome's xmark) — off while the lane holds states, its tooltip saying why;
+ * the "+ STATE" ghost (Font Awesome's plus) a hovered lane parks under its
+ * last state, which opens the inline editor; a state double-clicked into that
+ * editor, or dragged across lanes; a handle dragged to a state, which
+ * `canConnect` may veto, a drop on the source its in-place transition, a
+ * drop that would repeat a transition pulsing it instead; and Del — in the
+ * canvas, never in a field being typed into — deleting the selected state with
+ * its transitions, transition or decision.
  *
  * The canvas fills main and scrolls both ways inside it: its lanes run the
  * whole of main's height, and a flow larger than main scrolls in its own box,
@@ -26,12 +39,13 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Portal, Tooltip, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
+import { faBan, faPlus, faRotateRight, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, getSomeorUndefined, useFormatters } from "@elaraai/east-ui-components";
+import { EastChakraComponent, getSomeorUndefined, typedInto } from "@elaraai/east-ui-components";
+import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelLink } from "./model.js";
 import {
     computeLayout, previewCursorPath, previewLinkPath,
@@ -52,6 +66,34 @@ export interface FlowchartReveal {
     readonly seq: number;
 }
 
+/**
+ * The canvas's gestures (#1247): each one transaction of the open flow's
+ * editing session, made by the frame. The canvas hands each what it gathered —
+ * keys, labels, lanes — and the frame records the flow it leaves.
+ */
+export interface FlowchartCanvasEdit {
+    /** "+ LANE": a lane at the band row's tail. */
+    readonly addLane: () => void;
+    /** A lane's header renamed. */
+    readonly renameLane: (key: string, label: string) => void;
+    /** A lane's ×: deleted, while it holds no state (FB19). */
+    readonly deleteLane: (key: string) => void;
+    /** The "+ STATE" ghost's editor committed: a state at the end of its lane. */
+    readonly addState: (lane: string, key: string, label: string) => void;
+    /** A state's editor committed: its key — a new one rekeying its transitions (FB18) — and its label. */
+    readonly editState: (key: string, next: string, label: string) => void;
+    /** A state dropped on another lane. */
+    readonly moveState: (key: string, lane: string) => void;
+    /** Del on a selected state: deleted with its transitions. */
+    readonly deleteState: (key: string) => void;
+    /** A handle dragged to a state (FB20); the state itself for an in-place transition. */
+    readonly connect: (from: string, to: string) => void;
+    /** Del on a selected transition. */
+    readonly deleteLink: (key: string) => void;
+    /** Del on a selected decision: cleared from the transitions it governs. */
+    readonly deleteDecision: (key: string) => void;
+}
+
 /** Props of {@link FlowchartCanvasView}. */
 export interface FlowchartCanvasViewProps {
     /** What the canvas draws its flow with. */
@@ -62,8 +104,10 @@ export interface FlowchartCanvasViewProps {
     readonly orientation: FlowchartOrientation;
     /** The state find state picked last, or `null`. */
     readonly reveal: FlowchartReveal | null;
-    /** No gesture edits; selection and hover stay. */
-    readonly readOnly: boolean;
+    /** The gestures, where the flowchart edits; `undefined`, it edits nothing, and selection and hover stay. */
+    readonly edit: FlowchartCanvasEdit | undefined;
+    /** The flowchart's words: the gestures' names, and its counts in the app's locale. */
+    readonly words: FlowchartWords;
     /** The structural storage key. */
     readonly storageKey: string;
 }
@@ -158,6 +202,28 @@ function portColor(attached: ModelLink[], selectedLink: string | null): string {
     return INK;
 }
 
+/** A lane's ×: its box's side, centred on its glyph. */
+const CLOSE_BOX = 14;
+/** A lane header's middle above its baseline: mono 10px caps. */
+const HEAD_MIDDLE = 4;
+
+/**
+ * Where a lane's header stands: its anchor — the band's middle across the top
+ * in LR, its start down the side in TD — its baseline, and the middle of its
+ * ×, past the label's end (mono 10 / ls 2.2 ⇒ ~8.2px a glyph).
+ *
+ * @param layout - The laid-out flow
+ * @param lane - The lane's band
+ * @returns The header's anchor and baseline, whether it runs down the side, and its ×'s middle
+ */
+function laneHead(layout: FlowchartLayout, lane: FlowchartLayout["lanes"][number]): { x: number; y: number; td: boolean; close: number } {
+    const td = layout.orientation === "TD";
+    const x = td ? 12 : lane.cx;
+    const y = td ? lane.y + 24 : 26;
+    const labelW = lane.label.length * 8.2;
+    return { x, y, td, close: (td ? x + labelW + 12 : x + labelW / 2 + 14) + 3.5 };
+}
+
 /** Badge chrome inherits the link class (spec markup: observed = dashed
  * info; selected = solid brand-d border, brand-dd numerals). */
 function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string; dash: string | undefined; text: string } {
@@ -171,47 +237,23 @@ function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string;
  * The canvas: one flow, drawn with the canvas's options, filling its frame's
  * main — see the module docs.
  *
- * @param props - The canvas's options, the flow's model, the orientation, the state to reveal, read only and the storage key
+ * @param props - The canvas's options, the flow's model, the orientation, the state to reveal, the gestures, the words and the storage key
  * @returns The canvas's box, which scrolls the flow inside it
  */
-export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOnly, storageKey }: FlowchartCanvasViewProps) {
+export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, words, storageKey }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
     // The model is the frame's, keyed on the flow's DATA identity (#809): a
     // closure-only change re-renders with the new callbacks but keeps the
     // model — and the routed layout derived from it.
-    // The state badges' counts, in the app's locale (#850).
-    const words = useFormatters();
     const legendOn = getSomeorUndefined(canvas.legend) ?? true;
     const minimapOpt = getSomeorUndefined(canvas.minimap);
-    const linkMode = getSomeorUndefined(canvas.linkMode)?.type;
 
     const onSelectStateFn = useMemo(() => getSomeorUndefined(canvas.onSelectState) as SelectFn, [canvas.onSelectState]);
     const onSelectLinkFn = useMemo(() => getSomeorUndefined(canvas.onSelectLink) as SelectFn, [canvas.onSelectLink]);
     const onSelectTriggerFn = useMemo(() => getSomeorUndefined(canvas.onSelectTrigger) as SelectFn, [canvas.onSelectTrigger]);
     const onTracePathFn = useMemo(() => getSomeorUndefined(canvas.onTracePath) as SelectFn, [canvas.onTracePath]);
-    const onAddLaneFn = useMemo(() => getSomeorUndefined(canvas.onAddLane) as (() => unknown) | undefined, [canvas.onAddLane]);
-    const onRenameLaneFn = useMemo(
-        () => getSomeorUndefined(canvas.onRenameLane) as ((e: { key: string; label: string }) => unknown) | undefined,
-        [canvas.onRenameLane]);
-    const onDeleteLaneFn = useMemo(() => getSomeorUndefined(canvas.onDeleteLane) as SelectFn, [canvas.onDeleteLane]);
-    const onAddStateFn = useMemo(
-        () => getSomeorUndefined(canvas.onAddState) as ((e: { lane: string; key: string; label: string }) => unknown) | undefined,
-        [canvas.onAddState]);
-    const onEditStateFn = useMemo(
-        () => getSomeorUndefined(canvas.onEditState) as ((e: { key: string; code: string; label: string }) => unknown) | undefined,
-        [canvas.onEditState]);
-    const onMoveStateFn = useMemo(
-        () => getSomeorUndefined(canvas.onMoveState) as ((e: { key: string; lane: string }) => unknown) | undefined,
-        [canvas.onMoveState]);
-    const addStateActive = onAddStateFn !== undefined && !readOnly;
-    const editStateActive = onEditStateFn !== undefined && !readOnly;
-    const moveStateActive = onMoveStateFn !== undefined && !readOnly;
-    const onCreateLinkFn = useMemo(
-        () => getSomeorUndefined(canvas.onCreateLink) as ((e: { from: string; to: string }) => unknown) | undefined,
-        [canvas.onCreateLink]);
-    const onDeleteLinkFn = useMemo(() => getSomeorUndefined(canvas.onDeleteLink) as SelectFn, [canvas.onDeleteLink]);
     const canConnectFn = useMemo(
         () => getSomeorUndefined(canvas.canConnect) as ((from: string, to: string) => boolean) | undefined,
         [canvas.canConnect]);
@@ -223,8 +265,6 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
     const [selection, setSelection] = useState<Selection>(null);
     const selectionRef = useRef<Selection>(null);
     selectionRef.current = selection;
-    const readOnlyRef = useRef(false);
-    readOnlyRef.current = readOnly;
     const [hover, setHover] = useState<Hover>(null);
 
     // Hover card — dev-defined content (Schematic contract), 400ms open,
@@ -284,7 +324,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
     // existing link pulses IT; a successful create pulses the new link once
     // its row arrives. Matched by endpoints, auto-cleared.
     const [pulse, setPulse] = useState<{ from: string; to: string; seq: number } | null>(null);
-    // Inline lane-header rename (one object; commit → onRenameLane).
+    // Inline lane-header rename (one object; commit → the session's rename).
     const [laneEdit, setLaneEdit] = useState<{ key: string; label: string } | null>(null);
     // "+ STATE" ghost reveal (spec Flowchart.Lane): one hovered lane at a time.
     const [laneHover, setLaneHover] = useState<string | null>(null);
@@ -362,20 +402,34 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent): void => {
-            if (e.key === "Escape") {
-                // Spec: esc restores everything instantly.
-                setSelection(null);
-                setHover(null);
-                setHoverCard(null);
-                setDraft(null);
-            } else if ((e.key === "Delete" || e.key === "Backspace") && selectionRef.current?.kind === "link" && onDeleteLinkFn && !readOnlyRef.current) {
-                const key = selectionRef.current.key;
-                dispatchEast("onDeleteLink", () => onDeleteLinkFn(key));
-            }
+            if (e.key !== "Escape") return;
+            // Spec: esc restores everything instantly.
+            setSelection(null);
+            setHover(null);
+            setHoverCard(null);
+            setDraft(null);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [onDeleteLinkFn]);
+    }, []);
+
+    // Del deletes the selection (FB17) — heard in the canvas, never in a field
+    // being typed into, which keeps its own Del: a state with its transitions,
+    // a transition, a decision cleared from the transitions it governs.
+    const onCanvasKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
+        if ((e.key !== "Delete" && e.key !== "Backspace") || edit === undefined || typedInto(e.target)) return;
+        const sel = selectionRef.current;
+        if (sel === null) return;
+        e.preventDefault();
+        setSelection(null);
+        setHover(null);
+        setHoverCard(null);
+        switch (sel.kind) {
+            case "state": edit.deleteState(sel.key); return;
+            case "link": edit.deleteLink(sel.key); return;
+            case "trigger": edit.deleteDecision(sel.key); return;
+        }
+    }, [edit]);
 
     const canConnect = useCallback((from: string, to: string): boolean => {
         // from === to is LEGAL: dropping on the source commits an in-place
@@ -402,7 +456,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
     }, []);
 
     const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
-        if (linkMode === undefined || readOnly) return;
+        if (edit === undefined) return;
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
@@ -429,20 +483,19 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                 setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
                 return;
             }
-            if (d.allowed && onCreateLinkFn) {
-                const payload = { from: d.from, to: d.over };
-                dispatchEast("onCreateLink", () => onCreateLinkFn(payload));
+            if (d.allowed) {
+                edit.connect(d.from, d.over);
                 setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
             }
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
-    }, [linkMode, readOnly, svgPoint, layout, model, canConnect, onCreateLinkFn]);
+    }, [edit, svgPoint, layout, model, canConnect]);
 
     /** Node move gesture — begins after a 5px threshold so plain clicks
      * stay selection; candidate lane bands highlight while dragging. */
     const beginMove = useCallback((key: string, e: React.PointerEvent) => {
-        if (!moveStateActive) return;
+        if (edit === undefined) return;
         const startP = svgPoint(e);
         let started = false;
         movedRef.current = false;
@@ -466,14 +519,11 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
             if (!started || d === null || d.overLane === null) return;
             const node = model.nodesByKey.get(key);
             const currentLane = node !== undefined ? model.lanes[node.laneIndex]?.key : undefined;
-            if (d.overLane !== currentLane && onMoveStateFn) {
-                const payload = { key, lane: d.overLane };
-                dispatchEast("onMoveState", () => onMoveStateFn(payload));
-            }
+            if (d.overLane !== currentLane) edit.moveState(key, d.overLane);
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
-    }, [moveStateActive, svgPoint, layout, model, onMoveStateFn, cancelTimers]);
+    }, [edit, svgPoint, layout, model, cancelTimers]);
 
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
@@ -495,12 +545,17 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
 
     // A flow with nothing in it — no lane, no state, no transition — draws
     // nothing; its box stays, measured, for the flow that comes. A flow of
-    // lanes alone, a new one among them (#1246), draws its lanes.
-    const empty = model.blank;
+    // lanes alone, a new one among them (#1246), draws its lanes; and one the
+    // flowchart edits draws its band row, so "+ LANE" can give it its first
+    // lane again (#1247).
+    const empty = model.blank && edit === undefined;
+    // The lanes a gesture may rename, delete or add a state to: the flow's own — never the stand-in band of a flow with none.
+    const laneGestures = edit !== undefined && !model.standIn ? edit : undefined;
     const body = (
         <Box ref={bodyRef} css={styles.body} data-flowchart-body="">
             {layout !== null && !empty && (
-                <Box ref={scrollRef} css={styles.scroll} data-flowchart-scroll="">
+                // Focusable, so a press inside it — a state, a transition — lands its keys here: Del's.
+                <Box ref={scrollRef} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
                     <Box css={styles.canvasWrap} style={{ width: layout.width, height: layout.height }}>
                         <svg
                             data-flowchart-canvas
@@ -527,9 +582,10 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                                 <rect key={lane.key} x={lane.x} y={lane.y} width={lane.w} height={lane.h} fill={LANE_TINT} />
                             ))}
                             {/* band hover trackers — reveal the "+ STATE" ghost */}
-                            {addStateActive && layout.lanes.map(lane => (
+                            {laneGestures !== undefined && layout.lanes.map(lane => (
                                 <rect
                                     key={`bandhit-${lane.key}`}
+                                    data-flowchart-band={lane.key}
                                     x={lane.x} y={lane.y} width={lane.w} height={lane.h}
                                     fill="transparent"
                                     onPointerEnter={() => setLaneHover(lane.key)}
@@ -550,70 +606,23 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                             })()}
                             {/* lane headers — mono 10/600 ls 2.2 ink-4 (inline styles:
                                 presentation attributes lose to the app CSS reset).
-                                Click-to-edit when onRenameLane is provided; × deletes
-                                when onDeleteLane is (both suppressed by readOnly). */}
+                                Click-to-edit where the flowchart edits; each lane's ×
+                                and "+ LANE" are the HTML layer's, below. */}
                             {layout.lanes.map(lane => {
-                                const td = layout.orientation === "TD";
-                                const hx = td ? 12 : lane.cx;
-                                const hy = td ? lane.y + 24 : 26;
-                                const renamable = onRenameLaneFn !== undefined && !readOnly;
-                                const deletable = onDeleteLaneFn !== undefined && !readOnly;
-                                // mono 10 / ls 2.2 ⇒ ~8.2px per glyph — anchors the ×.
-                                const labelW = lane.label.length * 8.2;
-                                const closeX = td ? hx + labelW + 12 : hx + labelW / 2 + 14;
+                                const head = laneHead(layout, lane);
+                                const renamable = laneGestures !== undefined;
                                 return (
-                                    <g key={lane.key}>
-                                        <text x={hx} y={hy} textAnchor={td ? "start" : "middle"}
-                                            style={{
-                                                fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4,
-                                                cursor: renamable ? "text" : undefined,
-                                            }}
-                                            data-flowchart-lane={lane.key}
-                                            onClick={renamable ? () => setLaneEdit({ key: lane.key, label: lane.label }) : undefined}>
-                                            {lane.label.toUpperCase()}
-                                        </text>
-                                        {deletable && (
-                                            <text x={closeX} y={hy} textAnchor="start"
-                                                data-flowchart-lane-delete={lane.key}
-                                                style={{ fontSize: 11, fill: INK_4, cursor: "pointer" }}
-                                                onClick={() => dispatchEast("onDeleteLane", () => onDeleteLaneFn!(lane.key))}>
-                                                ×
-                                            </text>
-                                        )}
-                                    </g>
+                                    <text key={lane.key} x={head.x} y={head.y} textAnchor={head.td ? "start" : "middle"}
+                                        style={{
+                                            fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4,
+                                            cursor: renamable ? "text" : undefined,
+                                        }}
+                                        data-flowchart-lane={lane.key}
+                                        onClick={renamable ? () => setLaneEdit({ key: lane.key, label: lane.label }) : undefined}>
+                                        {lane.label.toUpperCase()}
+                                    </text>
                                 );
                             })}
-                            {/* + LANE tail affordance — only when the host can add lanes */}
-                            {onAddLaneFn !== undefined && !readOnly && (
-                                <g
-                                    data-flowchart-addlane
-                                    style={{ cursor: "pointer" }}
-                                    onClick={() => dispatchEast("onAddLane", () => onAddLaneFn())}
-                                >
-                                    {/* transparent (not none) fill — the whole affordance is clickable */}
-                                    <rect x={layout.laneTail.x} y={layout.laneTail.y} width={layout.laneTail.w} height={layout.laneTail.h}
-                                        rx={6} fill="transparent" stroke={RULE_STRONG} strokeDasharray="4 4" />
-                                    {layout.orientation === "TD"
-                                        ? (
-                                            // Wide short band — "+ LANE" inline on the midline.
-                                            <>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2 - 8} y={layout.laneTail.y + layout.laneTail.h / 2 + 5}
-                                                    textAnchor="end" style={{ fontSize: 14, fill: INK_4 }}>+</text>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + layout.laneTail.h / 2 + 4}
-                                                    textAnchor="start" style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
-                                            </>
-                                        )
-                                        : (
-                                            // Tall narrow column — "+" stacked over "LANE".
-                                            <>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 30} textAnchor="middle"
-                                                    style={{ fontSize: 14, fill: INK_4 }}>+</text>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 52} textAnchor="middle"
-                                                    style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
-                                            </>
-                                        )}
-                                </g>
-                            )}
 
                             {/* links — solid, then dashed (dashed renders over solid), selected last */}
                             <g data-flowchart-links>
@@ -736,12 +745,12 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                                         scheduleHoverCard("state", rect.key, p.x, p.y);
                                     }}
                                     onPointerLeave={() => { setHover(null); scheduleHoverClose(); }}
-                                    onPointerDown={moveStateActive ? (e) => beginMove(rect.key, e) : undefined}
+                                    onPointerDown={edit !== undefined ? (e) => beginMove(rect.key, e) : undefined}
                                     onClick={() => {
                                         if (movedRef.current) { movedRef.current = false; return; }
                                         select({ kind: "state", key: rect.key });
                                     }}
-                                    onDoubleClick={editStateActive && !nm.ghost ? () => {
+                                    onDoubleClick={edit !== undefined && !nm.ghost ? () => {
                                         setStateEditor({ mode: "edit", key: rect.key, code: rect.key, label: nm.label ?? "" });
                                     } : undefined}
                                 >
@@ -752,8 +761,8 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                                             // Folded self-loops have no route to click — the ↻
                                             // badge is their selection surface. Click selects
                                             // (cycling when several fold here) so Del deletes
-                                            // through the normal onDeleteLink channel; hover
-                                            // shows the linkHover card like any routed link.
+                                            // it as it deletes any transition; hover shows the
+                                            // linkHover card like any routed link.
                                             const selIdx = selection?.kind === "link" ? nm.inPlaceKeys.indexOf(selection.key) : -1;
                                             const hoverKey = selIdx >= 0 ? nm.inPlaceKeys[selIdx]! : nm.inPlaceKeys[0]!;
                                             return (
@@ -802,20 +811,21 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                                 const occupied = layout.handles.get(rect.key) ?? [];
                                 const occupiedSides = new Set(occupied.map(h => h.side));
                                 // Unoccupied handles are the EDIT affordance — they only
-                                // reveal on hover/selection when authoring is possible;
+                                // reveal on hover/selection where the flowchart edits;
                                 // occupied rings are anatomy and always render.
-                                const authoring = linkMode !== undefined && !readOnly;
+                                const authoring = edit !== undefined;
                                 const extra = nodeActive && authoring
                                     ? (["left", "right", "top", "bottom"] as const).filter(s => !occupiedSides.has(s))
                                     : [];
 
                                 return (
-                                    <g key={`ports-${rect.key}`} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
+                                    <g key={`ports-${rect.key}`} data-flowchart-ports={rect.key} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
                                         {/* invisible 16×16 hit targets — ANY handle is the
                                             drag-to-connect affordance */}
-                                        {linkMode !== undefined && !readOnly && (["left", "right", "top", "bottom"] as const).map(side => (
+                                        {authoring && (["left", "right", "top", "bottom"] as const).map(side => (
                                             <circle
                                                 key={`hit-${side}`}
+                                                data-flowchart-handle={side}
                                                 cx={rect[side].x} cy={rect[side].y} r={8}
                                                 fill="transparent"
                                                 style={{ pointerEvents: "all", cursor: "crosshair" }}
@@ -904,9 +914,58 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                             })}
                         </svg>
 
+                        {/* each lane's × — Font Awesome's xmark beside its header; off
+                            while the lane holds states, its tooltip saying why (FB19) */}
+                        {laneGestures !== undefined && layout.lanes.map(lane => {
+                            const head = laneHead(layout, lane);
+                            const holds = model.laneStates.get(lane.key) ?? 0;
+                            const name = words.m.deleteLane({ label: lane.label });
+                            return (
+                                <Tooltip.Root key={`lanedelete-${lane.key}`} openDelay={250} positioning={{ placement: "bottom" }}>
+                                    <Tooltip.Trigger asChild>
+                                        <chakra.button
+                                            type="button"
+                                            css={styles.laneDelete}
+                                            data-flowchart-lane-delete={lane.key}
+                                            data-disabled={holds > 0 ? "" : undefined}
+                                            aria-disabled={holds > 0 ? true : undefined}
+                                            aria-label={name}
+                                            style={{ left: head.close - CLOSE_BOX / 2, top: head.y - HEAD_MIDDLE - CLOSE_BOX / 2 }}
+                                            onClick={holds > 0 ? undefined : () => laneGestures.deleteLane(lane.key)}
+                                        >
+                                            <FontAwesomeIcon icon={faXmark} />
+                                        </chakra.button>
+                                    </Tooltip.Trigger>
+                                    <Portal>
+                                        <Tooltip.Positioner>
+                                            <Tooltip.Content>{holds > 0 ? words.m.laneHoldsStates({ n: holds, count: words.number(holds) }) : name}</Tooltip.Content>
+                                        </Tooltip.Positioner>
+                                    </Portal>
+                                </Tooltip.Root>
+                            );
+                        })}
+
+                        {/* "+ LANE" — the band row's tail, full lane height: Font
+                            Awesome's plus over the word, a lane added on a click */}
+                        {edit !== undefined && (
+                            <chakra.button
+                                type="button"
+                                css={styles.addLane}
+                                data-flowchart-addlane=""
+                                data-orientation={layout.orientation}
+                                aria-label={words.m.addLane()}
+                                style={{ left: layout.laneTail.x, top: layout.laneTail.y, width: layout.laneTail.w, height: layout.laneTail.h }}
+                                onClick={() => edit.addLane()}
+                            >
+                                <FontAwesomeIcon icon={faPlus} />
+                                <span>{words.m.laneWord()}</span>
+                            </chakra.button>
+                        )}
+
                         {/* "+ STATE" ghost — dashed, exact node footprint, one per
-                            hovered lane; click turns it into the inline editor */}
-                        {addStateActive && stateEditor === null && laneHover !== null && moveDrag === null && (() => {
+                            hovered lane, Font Awesome's plus beside its word; click
+                            turns it into the inline editor */}
+                        {laneGestures !== undefined && stateEditor === null && laneHover !== null && moveDrag === null && (() => {
                             const cell = layout.laneGhosts.get(laneHover);
                             if (!cell) return null;
                             return (
@@ -917,7 +976,8 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                                     onPointerEnter={() => setLaneHover(laneHover)}
                                     onClick={() => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" })}
                                 >
-                                    + state
+                                    <FontAwesomeIcon icon={faPlus} />
+                                    <span>{words.m.stateWord()}</span>
                                 </Box>
                             );
                         })()}
@@ -933,14 +993,9 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                             const commit = (): void => {
                                 const ed = stateEditor;
                                 setStateEditor(null);
-                                if (ed === null || ed.code.trim() === "") return;
-                                if (ed.mode === "add" && onAddStateFn) {
-                                    const payload = { lane: ed.lane, key: ed.code.trim(), label: ed.label.trim() };
-                                    dispatchEast("onAddState", () => onAddStateFn(payload));
-                                } else if (ed.mode === "edit" && onEditStateFn) {
-                                    const payload = { key: ed.key, code: ed.code.trim(), label: ed.label.trim() };
-                                    dispatchEast("onEditState", () => onEditStateFn(payload));
-                                }
+                                if (ed === null || ed.code.trim() === "" || edit === undefined) return;
+                                if (ed.mode === "add") edit.addState(ed.lane, ed.code.trim(), ed.label.trim());
+                                else edit.editState(ed.key, ed.code.trim(), ed.label.trim());
                             };
                             const keys = (e: React.KeyboardEvent): void => {
                                 if (e.key === "Enter") commit();
@@ -1035,9 +1090,7 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
                             const commit = (): void => {
                                 const next = laneEdit;
                                 setLaneEdit(null);
-                                if (next !== null && next.label.trim() !== "" && onRenameLaneFn) {
-                                    dispatchEast("onRenameLane", () => onRenameLaneFn({ key: next.key, label: next.label.trim() }));
-                                }
+                                if (next !== null && next.label.trim() !== "" && edit !== undefined) edit.renameLane(next.key, next.label.trim());
                             };
                             return (
                                 <input

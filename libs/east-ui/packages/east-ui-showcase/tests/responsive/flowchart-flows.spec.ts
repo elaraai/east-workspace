@@ -4,9 +4,9 @@
  */
 
 /**
- * The Flowchart's Flows tab in its pane, measured in a real browser (#1246,
- * `Flowchart Builder Spec.md` decision 5, §7, §8, FB12–FB15), on the depot's
- * record of flows by name. The tab fills its pane: the cards over the foot,
+ * The Flowchart's Flows tab in its pane, and its editing, measured in a real
+ * browser (#1246, #1247, `Flowchart Builder Spec.md` decision 5, §7, §8,
+ * FB12–FB15, FB17–FB21), on the depot's record of flows by name. The tab fills its pane: the cards over the foot,
  * the foot along the pane's bottom under its rule, "+ New flow" at its end —
  * Font Awesome's solid plus, the brand's mono caps — each card inside the
  * pane with its flow's icon, the open flow's placed, nothing past the pane's
@@ -19,7 +19,15 @@
  * popover — a name the record holds refused there — it opens with its one
  * lane, placed and Pending, and the history item's commit writes it through
  * the record's patch mutation, its Pending going once the record reads it
- * back. Every measurement is polled until it holds, on a page at rest.
+ * back. Where it edits, its gestures' controls are Font Awesome's solid icons
+ * (#1247): each lane's × beside its header in the header's ink, off — faded —
+ * while the lane holds states, and on a phone a 44px tap target by its halo;
+ * "+ LANE"'s plus over its word at the band row's tail; the "+ STATE" ghost's
+ * plus beside its word — no `+` or `×` drawn as text. A gesture there is a
+ * draft of the e3 the page runs: ⌘Z undoes it and ⇧⌘Z redoes it from the
+ * canvas, the footer counts it, and Save commits it through the record's
+ * patch mutation. Every measurement is polled until it holds, on a page at
+ * rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-flows`.
@@ -145,6 +153,83 @@ function expectFlowsTab(read: Awaited<ReturnType<typeof flowsTabOf>>, footHeight
     expect(read.past).toEqual([]);
 }
 
+/**
+ * The canvas's gesture controls as the page lays them out (#1247): each lane's
+ * × — its icon, where it stands against its header, its size and ink, whether
+ * it is off — "+ LANE"'s, and every text node of the canvas's drawing that is
+ * a bare glyph — a `+` or a `×` — where an icon belongs.
+ */
+function gesturesOf(root: Locator) {
+    return root.evaluate((el) => {
+        const round = (n: number) => Math.round(n * 10) / 10;
+        const ink = (token: string) => {
+            const probe = document.createElement("div");
+            probe.style.color = `var(--chakra-colors-${token})`;
+            document.body.appendChild(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+        };
+        const icon = (e: Element) => {
+            const svg = e.querySelector("svg");
+            return svg === null ? null : `${svg.getAttribute("data-prefix")} ${svg.getAttribute("data-icon")}`;
+        };
+        const wrap = el.querySelector("[data-flowchart-canvas]")!.parentElement!;
+        const canvas = wrap.getBoundingClientRect();
+        const lanes = [...el.querySelectorAll("[data-flowchart-lane]")].map((text) => {
+            const key = text.getAttribute("data-flowchart-lane")!;
+            const close = [...el.querySelectorAll("[data-flowchart-lane-delete]")].find((c) => c.getAttribute("data-flowchart-lane-delete") === key)!;
+            const t = text.getBoundingClientRect();
+            const c = close.getBoundingClientRect();
+            const glyph = close.querySelector("svg")!.getBoundingClientRect();
+            const cs = getComputedStyle(close);
+            return {
+                key,
+                icon: icon(close),
+                text: close.textContent,
+                // Past the header's end, its middle the header's.
+                gap: round(c.left - t.right),
+                middle: round((c.top + c.bottom) / 2 - (t.top + t.bottom) / 2),
+                size: [round(c.width), round(c.height), round(glyph.height)],
+                // The glyph centred in its box.
+                centred: Math.abs((glyph.left + glyph.right) / 2 - (c.left + c.right) / 2) <= 0.5 && Math.abs((glyph.top + glyph.bottom) / 2 - (c.top + c.bottom) / 2) <= 0.5,
+                off: close.getAttribute("aria-disabled"),
+                opacity: cs.opacity,
+                color: cs.color,
+            };
+        });
+        const add = el.querySelector("[data-flowchart-addlane]")!;
+        const a = add.getBoundingClientRect();
+        const plus = add.querySelector("svg")!.getBoundingClientRect();
+        const word = add.querySelector("span")!.getBoundingClientRect();
+        const as = getComputedStyle(add);
+        const glyphs: string[] = [];
+        const walker = document.createTreeWalker(el.querySelector("[data-flowchart-canvas]")!, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const text = (walker.currentNode.textContent ?? "").trim();
+            if (/^[+×✕]/u.test(text)) glyphs.push(text);
+        }
+        return {
+            lanes,
+            subtle: ink("fg-subtle"),
+            strong: ink("border-strong"),
+            add: {
+                icon: icon(add),
+                text: add.textContent,
+                label: add.getAttribute("aria-label"),
+                // The band row's tail: past the last lane, inside the canvas.
+                inside: a.left >= canvas.left && a.right <= canvas.right + 0.5 && a.top >= canvas.top && a.bottom <= canvas.bottom + 0.5,
+                // Its plus over its word, both centred across it.
+                stacked: plus.bottom <= word.top + 0.5 && Math.abs((plus.left + plus.right) / 2 - (a.left + a.right) / 2) <= 0.5
+                    && Math.abs((word.left + word.right) / 2 - (a.left + a.right) / 2) <= 0.5,
+                border: [as.borderTopStyle, as.borderTopWidth, as.borderTopColor, as.borderTopLeftRadius],
+                type: [as.fontSize, as.textTransform, as.letterSpacing, as.color],
+            },
+            glyphs,
+        };
+    });
+}
+
 /** What the toolbar says of itself: each item's form, the ladder, how many steps it took, and what runs past its row. */
 function toolbarOf(root: Locator) {
     return root.evaluate((el) => {
@@ -206,6 +291,78 @@ test.describe("The Flowchart's Flows tab (#1246)", () => {
             for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeGreaterThanOrEqual(seen[i - 1]!);
         });
     }
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`where it edits, the canvas's gestures are Font Awesome's solid icons: each lane's × beside its header in its ink, off while it holds states; + LANE's plus over its word; the + STATE ghost's plus beside its word; no glyph drawn as text (${theme})`, async ({ page }) => {
+            const root = await openFlows(page, theme);
+            await sizeTo(page, root, 1200);
+            // Every lane of the inbound flow holds states: each × is off, and faded.
+            const read = await gesturesOf(root);
+            expect(read.lanes.map((l) => l.key)).toEqual(["intake", "sort", "load"]);
+            for (const lane of read.lanes) {
+                expect([lane.icon, lane.text, lane.size, lane.centred, lane.off, lane.opacity, lane.color], lane.key)
+                    .toEqual(["fas xmark", "", [14, 14, 10], true, "true", "0.4", read.subtle]);
+                expect(lane.gap, `${lane.key}: past its header's end`).toBeGreaterThanOrEqual(4);
+                expect(lane.gap, `${lane.key}: beside its header`).toBeLessThanOrEqual(16);
+                expect(Math.abs(lane.middle), `${lane.key}: on its header's middle`).toBeLessThanOrEqual(2);
+            }
+            expect(read.add).toEqual({
+                icon: "fas plus", text: "Lane", label: "Add lane", inside: true, stacked: true,
+                border: ["dashed", "1px", read.strong, "6px"], type: ["9px", "uppercase", "2px", read.subtle],
+            });
+            expect(read.glyphs).toEqual([]);
+            // A lane added: its × is on, in full ink.
+            await root.locator("[data-flowchart-addlane]").click();
+            await expect.poll(async () => (await gesturesOf(root)).lanes.map((l) => [l.key, l.off, l.opacity])).toEqual([
+                ["intake", "true", "0.4"], ["sort", "true", "0.4"], ["load", "true", "0.4"], ["lane-4", null, "1"],
+            ]);
+            // The + STATE ghost, over a hovered lane: its plus beside its word, centred in the state's footprint.
+            await root.locator("[data-flowchart-band='lane-4']").hover();
+            const ghost = root.locator("[data-flowchart-ghoststate='lane-4']");
+            await expect(ghost).toBeVisible();
+            expect(await ghost.evaluate((g) => {
+                const r = g.getBoundingClientRect();
+                const svg = g.querySelector("svg")!;
+                const s = svg.getBoundingClientRect();
+                const w = g.querySelector("span")!.getBoundingClientRect();
+                return {
+                    icon: `${svg.getAttribute("data-prefix")} ${svg.getAttribute("data-icon")}`,
+                    text: g.textContent,
+                    size: [Math.round(r.width), Math.round(r.height)],
+                    beside: s.right <= w.left + 0.5 && Math.abs((s.top + s.bottom) / 2 - (w.top + w.bottom) / 2) <= 1,
+                    centred: Math.abs((s.left + w.right) / 2 - (r.left + r.right) / 2) <= 1,
+                };
+            })).toEqual({ icon: "fas plus", text: "state", size: [116, 40], beside: true, centred: true });
+        });
+    }
+
+    test("a gesture is a draft of the e3 the page runs: ⌘Z undoes it and ⇧⌘Z redoes it from the canvas, the footer counts it, and Save commits it through the record's patch mutation", async ({ page }) => {
+        const root = await openFlows(page);
+        await sizeTo(page, root, 1200);
+        const lanes = () => root.locator("[data-flowchart-lane]").allTextContents();
+        const pending = root.locator("[data-flowchart-pending]");
+        const card = root.locator("[data-frame-slot='start'] [data-library-item='Inbound parcels']");
+        await expect(pending).toHaveText(" · 0 pending");
+        await root.locator("[data-flowchart-addlane]").click();
+        await expect.poll(lanes).toEqual(["INTAKE", "SORT", "LOAD", "LANE 4"]);
+        await expect(pending).toHaveText(" · 1 pending");
+        await expect(card.locator("[data-tone]")).toHaveText("Pending");
+        // The history keys, heard in the canvas: a press on a state focuses it.
+        await root.locator("[data-flowchart-node='ARV']").click();
+        await page.keyboard.press("Control+z");
+        await expect.poll(lanes).toEqual(["INTAKE", "SORT", "LOAD"]);
+        await page.keyboard.press("Control+Shift+z");
+        await expect.poll(lanes).toEqual(["INTAKE", "SORT", "LOAD", "LANE 4"]);
+        // Save, the history item's last button: one patch through the record's patch mutation, read back.
+        const commit = root.locator("[data-toolbar-item='history'] [data-slot='history'] button").last();
+        await expect(commit).toBeEnabled();
+        await commit.click();
+        await expect(pending).toHaveText(" · 0 pending");
+        await expect(card.locator("[data-tone]")).toHaveCount(0);
+        await expect(commit).toBeDisabled();
+        await expect(root.locator("[role='alert']")).toHaveCount(0);
+        await expect.poll(lanes).toEqual(["INTAKE", "SORT", "LOAD", "LANE 4"]);
+    });
 
     test("a new flow named in its popover — a name the record holds refused there — opens with its one lane, placed and Pending, and the history item's commit writes it to the record", async ({ page }) => {
         const root = await openFlows(page);
@@ -277,10 +434,32 @@ test.describe("The Flowchart's Flows tab on a phone (#1246)", () => {
         });
     }
 
-    test("over the record the row holds every item — LR · TD's chip, find state's icon and the history item whole — in its 44px band, nothing past its edge", async ({ page }) => {
-        const root = await openFlows(page);
-        const bar = await toolbarOf(root);
-        expect([bar.band, bar.rows, bar.past, bar.ladder]).toEqual([44, 1, [], LADDER]);
-        expect(bar.state).toBe("seek=1/2;orientation=1/2;history=0/2");
-    });
+    for (const theme of ["light", "dark"] as const) {
+        test(`over the record the row holds every item — LR · TD's chip, find state's icon and the history item whole — in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
+            const root = await openFlows(page, theme);
+            const bar = await toolbarOf(root);
+            expect([bar.band, bar.rows, bar.past, bar.ladder]).toEqual([44, 1, [], LADDER]);
+            expect(bar.state).toBe("seek=1/2;orientation=1/2;history=0/2");
+        });
+
+        test(`each lane's × — Font Awesome's xmark beside its header — is a 44px tap target by its halo, and the drawing holds no glyph as text (${theme})`, async ({ page }) => {
+            const root = await openFlows(page, theme);
+            const read = await gesturesOf(root);
+            expect(read.lanes.map((l) => [l.key, l.icon, l.size])).toEqual([
+                ["intake", "fas xmark", [14, 14, 10]], ["sort", "fas xmark", [14, 14, 10]], ["load", "fas xmark", [14, 14, 10]],
+            ]);
+            expect([read.add.icon, read.glyphs]).toEqual(["fas plus", []]);
+            // A tap 21px above, below or to either side of the first ×'s middle lands on it.
+            const lands = await root.locator("[data-flowchart-lane-delete='intake']").evaluate((close) => {
+                const b = close.getBoundingClientRect();
+                const x = b.left + b.width / 2;
+                const y = b.top + b.height / 2;
+                return ([[x, y - 21], [x, y + 21], [x - 21, y], [x + 21, y]] as const).map(([px, py]) => {
+                    const hit = document.elementFromPoint(px, py);
+                    return hit !== null && close.contains(hit);
+                });
+            });
+            expect(lands).toEqual([true, true, true, true]);
+        });
+    }
 });

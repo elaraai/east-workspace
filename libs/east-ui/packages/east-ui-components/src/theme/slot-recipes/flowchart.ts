@@ -17,8 +17,12 @@
  * holding "+ New flow" — the Library's own foot and add action, its plus a
  * Font Awesome icon, a 44px target on a coarse pointer by its halo, which the
  * foot holds whole — and a flowchart with no flow is the shared empty state,
- * centred in its box. The frame's own regions are the `builderFrame`
- * recipe's.
+ * centred in its box. Where it edits (#1247), its gestures' controls are Font
+ * Awesome's solid icons in the canvas's HTML layer: each lane's × beside its
+ * header (off, dimmed, while the lane holds states; a 44px target on a coarse
+ * pointer, by its halo), "+ LANE" at the band row's tail, its plus over its
+ * word, and the "+ STATE" ghost's plus beside its word. The frame's own
+ * regions are the `builderFrame` recipe's.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -30,6 +34,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "root", "freshnessDot",
         "body", "scroll", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
+        "laneDelete", "addLane",
         "stateGhost", "stateEditor", "moveClone",
         "legend", "legendTitle", "legendRow",
         "minimap",
@@ -82,10 +87,13 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             minHeight: 0,
             position: "relative",
         },
+        /* Focusable, so a press inside it takes its keys (Del, #1247); a
+         * press draws no ring — the selection says what Del deletes. */
         scroll: {
             position: "absolute",
             inset: 0,
             overflow: "auto",
+            _focus: { outline: "none" },
         },
         canvasWrap: {
             position: "relative",
@@ -159,9 +167,61 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             },
         },
 
+        /* ── a lane's × and "+ LANE" (#1247) ─────────────────────────── */
+        /* A lane's ×: Font Awesome's xmark, 14px square beside its header,
+         * in the header's ink; off — faded, never a click — while the lane
+         * holds states, its tooltip saying why. */
+        laneDelete: {
+            position: "absolute",
+            zIndex: 1,
+            boxSizing: "border-box",
+            width: "14px",
+            height: "14px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0",
+            border: "none",
+            background: "transparent",
+            color: "fg.subtle",
+            fontSize: "10px",
+            cursor: "pointer",
+            _hover: { color: "fg.muted" },
+            "&[data-disabled]": { opacity: 0.4, cursor: "not-allowed", _hover: { color: "fg.subtle" } },
+            ...coarseHitArea(),
+        },
+        /* "+ LANE": the band row's tail, full lane height, dashed rule-strong
+         * r6 — Font Awesome's plus over the word in LR's tall column, beside
+         * it on TD's wide band; mono 9px caps, 2px tracking, the header's ink. */
+        addLane: {
+            position: "absolute",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: "8px",
+            paddingTop: "22px",
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            borderColor: "border.strong",
+            borderRadius: "6px",
+            background: "transparent",
+            color: "fg.subtle",
+            fontFamily: "mono",
+            fontSize: "9px",
+            letterSpacing: "2px",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            "& svg": { fontSize: "12px" },
+            _hover: { borderColor: "brand.600", color: "fg.muted" },
+            "&[data-orientation='TD']": { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingTop: "0" },
+        },
+
         /* ── "+ STATE" ghost + inline node editor + move clone ────────── */
         /* The ghost is the placement preview — dashed rule-strong, the
-         * exact node footprint, "+ state" centred (spec Flowchart.Lane). */
+         * exact node footprint, Font Awesome's plus and "state" centred
+         * (spec Flowchart.Lane). */
         stateGhost: {
             position: "absolute",
             boxSizing: "border-box",
@@ -172,6 +232,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            gap: "4px",
             fontFamily: "mono",
             fontSize: "10px",
             fontWeight: "600",

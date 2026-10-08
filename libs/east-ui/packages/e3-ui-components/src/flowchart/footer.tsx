@@ -4,12 +4,13 @@
  */
 
 /**
- * The Flowchart's footer (#1245, `Flowchart Builder Spec.md` §7, FB10) —
- * today's counts, in its frame's footer: over many flows the open flow's
+ * The Flowchart's footer (#1245, #1247, `Flowchart Builder Spec.md` §7, FB10)
+ * — today's counts, in its frame's footer: over many flows the open flow's
  * name first; then its transitions — narrowed from how many, and by what
  * share, while the host's slice narrows them — and on the right their split,
- * planned · observed · unresolved; over a record, when it was last saved. The
- * changes waiting on Apply join them with the editing session (#1247).
+ * planned · observed · unresolved; where the flowchart edits, the changes
+ * waiting on Save in the open flow (`3 pending`); and over a record, when it
+ * was last saved.
  *
  * The counts are of the transitions the flow holds, not the arrows drawn: an
  * in-place transition folds into its state's `↻ n` badge and still counts,
@@ -22,6 +23,7 @@ import { useCallback } from "react";
 import { Box, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, none } from "@elaraai/east";
 import { useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
+import type { FlowchartWords } from "./messages.js";
 import type { FlowchartModel, FlowchartValue } from "./model.js";
 
 type Styles = Record<string, SystemStyleObject>;
@@ -40,10 +42,12 @@ export interface FlowchartFooterProps {
     readonly narrowedFrom: number | undefined;
     /** The transitions' split. */
     readonly counts: FlowchartModel["counts"];
+    /** The changes waiting on Save in the open flow; `undefined` where the flowchart does not edit. */
+    readonly pending: number | undefined;
     /** When the record was last saved, as the footer says it; `undefined` over `data`, or a record with no commit. */
     readonly saved: string | undefined;
-    /** The formatters its numbers print with, in the app's locale. */
-    readonly words: Formatters;
+    /** The flowchart's words: its numbers print in the app's locale. */
+    readonly words: FlowchartWords;
 }
 
 /**
@@ -52,7 +56,7 @@ export interface FlowchartFooterProps {
  * @param props - The open flow's name, its counts and the record's last save
  * @returns The footer
  */
-export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, saved, words }: FlowchartFooterProps) {
+export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pending, saved, words }: FlowchartFooterProps) {
     const share = narrowedFrom !== undefined && narrowedFrom > 0 ? 1 - links / narrowedFrom : undefined;
     return (
         <Box css={styles.footer} data-flowchart-footer="">
@@ -73,6 +77,7 @@ export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, sav
             <Box css={styles.footerSplit}>
                 {words.number(counts.planned)} planned · {words.number(counts.observed)} observed
                 {counts.unresolved > 0 ? ` · ${words.number(counts.unresolved)} unresolved` : ""}
+                {pending !== undefined && <Box as="span" data-flowchart-pending="">{` · ${words.m.footerPending({ n: pending, count: words.number(pending) })}`}</Box>}
                 {saved !== undefined && <Box as="span" data-flowchart-saved="">{` · saved ${saved}`}</Box>}
             </Box>
         </Box>

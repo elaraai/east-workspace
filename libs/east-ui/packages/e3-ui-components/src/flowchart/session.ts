@@ -4,41 +4,51 @@
  */
 
 /**
- * The flows' editing sessions (#1246, `Flowchart Builder Spec.md` decision
- * 10, FB14, FB15) — the shared editing session (`useEditSession`) over a
- * record of flows by name, one session per flow, so each flow keeps its own
- * drafts until they are applied or discarded: opening another keeps the
- * drafts of the one left, and the history item acts on the open flow's.
+ * The flows' editing sessions (#1246, #1247, `Flowchart Builder Spec.md`
+ * decision 10, FB14, FB15, FB17, FB22) — the shared editing session
+ * (`useEditSession`) over flows by name, a record's or the host's, one
+ * session per flow, so each flow keeps its own drafts until they are saved or
+ * discarded: opening another keeps the drafts of the one left, and the history
+ * item acts on the open flow's. Over the host's one flow, the flow is the one
+ * entry of a session of its own ({@link ONE_FLOW}).
  *
  * - **Entries.** A flow is one entry, drafted whole
  *   (`Editing.Types.DraftField(Flowchart.Types.Flow)`), keyed by its name: the
- *   session's batches are keyed, and the payload's `apply` commits them through
- *   the record's patch mutation (`Record.onApply(record, { keyed: true })`),
- *   each a flow's insert, update or delete by name.
- * - **The snapshot** is the open flow alone, as the record holds it — or no
+ *   session's batches are keyed, and the payload's `apply` commits them — over
+ *   a record through its patch mutation (`Record.onApply(record, { keyed: true
+ *   })`), each a flow's insert, update or delete by name; over the host's
+ *   flows as one patch of its value, through its `onApply`.
+ * - **Gestures.** Every gesture on the open flow is one transaction
+ *   ({@link recordFlowEdit}): the flow as the gesture leaves it, recorded over
+ *   the flow as the session last held it — or as the source holds it, before
+ *   its first draft (the session's `original`, read through the editing
+ *   wire's `readEntry`).
+ * - **Readiness.** Two lanes, states, transitions or decisions of one key in
+ *   a drafted flow hold Save off, each an issue naming the flow
+ *   (`edits.ts`'s `flowReadiness`).
+ * - **The snapshot** is the open flow alone, as its source holds it — or no
  *   flow, for a new one — so a commit of another flow never moves this one's
  *   base: its drafts stay its own, and never go out of date for it.
  * - **A new flow** ("+ New flow", FB14) is an insert — one lane, nothing else
- *   — recorded in its own session; the history item's commit commits it, and
- *   Discard drops it.
+ *   — recorded in its own session; Save commits it, and Discard drops it.
  * - **The sessions** a flowchart's flows have had are kept by name, per UI
  *   store, as the sessions themselves are, so the Flows tab marks a flow with
- *   drafts Pending, and lists a new flow not yet applied, whichever flow is
+ *   drafts Pending, and lists a new flow not yet saved, whichever flow is
  *   open, and a remount finds them as they were.
- *
- * The editing gestures over a flow (#1247) record through the same session.
  *
  * @packageDocumentation
  */
 
-import { useLayoutEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { SortedMap, StringType, compareFor, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing, EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
     StateRuntime, useEditSession,
-    type EditSession, type EditingValue, type EntryVersion, type UIStoreInterface,
+    type BatchReadiness, type EditSession, type EditingValue, type EntryVersion, type Origin, type UIStoreInterface,
 } from "@elaraai/east-ui-components";
+import { flowReadiness } from "./edits.js";
+import type { FlowchartWords } from "./messages.js";
 import type { FlowchartFlowValue } from "./model.js";
 
 /** The flows by name, decoded. */
@@ -73,6 +83,13 @@ const nameEqual = equalFor(StringType);
 
 /** An entry the session holds no version of: absent, nowhere. */
 const ABSENT: EntryVersion<FlowRow> = { draft: undefined, wire: undefined, place: none };
+
+/**
+ * The entry the host's one flow is in its session: the session over `data` of
+ * one flow holds that flow under this name, which no Flows tab lists and no
+ * issue places — an issue on it names no flow.
+ */
+export const ONE_FLOW = "";
 
 /** A flow's row's id: its name. */
 const rowName = (row: FlowRow): string => row.name;
@@ -218,6 +235,8 @@ export interface FlowSessionOptions {
     readonly storageKey: string;
     /** The sessions the flowchart's flows have had ({@link useKeptSessions}): the open flow's joins them. */
     readonly sessions: FlowSessions;
+    /** The flowchart's words: an issue's. */
+    readonly words: FlowchartWords;
 }
 
 /** The open flow's session, and what the flowchart reads of it. */
@@ -230,6 +249,8 @@ export interface FlowSessionState {
     readonly version: number;
     /** The open flow as its drafts stand; `undefined` when they leave none, or no flow is open. */
     readonly drafted: FlowchartFlowValue | undefined;
+    /** A flow's version before its first draft, as the source holds it — absent for one it doesn't. */
+    readonly original: (name: string) => EntryVersion<FlowRow>;
 }
 
 /**
@@ -239,7 +260,7 @@ export interface FlowSessionState {
  * @returns The session, and what the flowchart reads of it
  */
 export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
-    const { key, name, held, apply, storageKey, sessions } = options;
+    const { key, name, held, apply, storageKey, sessions, words } = options;
     const sourceId = name === undefined ? noFlowSourceId(key) : flowSourceId(key, name);
     // The open flow alone, as the record holds it: a commit of another flow never moves this base.
     const snapshot = useMemo(() => encodeFlows(new SortedMap(
@@ -260,7 +281,10 @@ export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
     }), [sourceId, snapshot, name, held, apply]);
     const rows = useMemo((): FlowRow[] => (name !== undefined && held !== undefined ? [{ name, flow: held }] : []), [name, held]);
     const positions = useMemo(() => rows.map((_, i) => i), [rows]);
-    const edit = useEditSession<FlowRow>(editing, undefined, rows, positions, storageKey, { idOf: rowName });
+    // Two of one key hold Save off (FB22), each an issue on its flow.
+    const ready = useCallback((entries: ReadonlyMap<string, EntryVersion<FlowRow>>): BatchReadiness =>
+        flowReadiness(entries, (duplicate) => words.m.duplicateKey(duplicate)), [words]);
+    const edit = useEditSession<FlowRow>(editing, undefined, rows, positions, storageKey, { idOf: rowName, ready });
 
     // Each flow's session is kept by its name, for the Flows tab.
     useLayoutEffect(() => {
@@ -271,13 +295,35 @@ export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
         // A gesture moves the session's version, not its identity.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [edit.session, name, edit.version]);
-    return { session: edit.session, available: edit.available, version: edit.version, drafted };
+    return { session: edit.session, available: edit.available, version: edit.version, drafted, original: edit.original };
+}
+
+/**
+ * Records one gesture on a flow (FB17): the flow as the gesture leaves it, over
+ * the flow as the session last held it — or as the source holds it, before its
+ * first draft — one undoable transaction, however many of its rows the
+ * gesture touched.
+ *
+ * @param state - The flow's session, its base read, and its originals
+ * @param name - The flow's name: its entry
+ * @param flow - The flow as the gesture leaves it
+ * @param origin - The gesture, for the history and the patch events
+ * @param label - Its name in the history
+ * @returns Whether it was recorded: the session takes a gesture, and the gesture changed the flow
+ */
+export function recordFlowEdit(state: Pick<FlowSessionState, "session" | "original">, name: string, flow: FlowchartFlowValue, origin: Origin, label: string): boolean {
+    const before = state.session.entries.get(name) ?? state.original(name);
+    return state.session.record([{
+        id: name,
+        before,
+        after: { draft: variant("value", flow), wire: { name, flow }, place: before.place },
+    }], origin, label);
 }
 
 /**
  * Records a new flow in its session (FB14): an insert, under its name, of the
- * flow given — one undoable transaction, which the history item's commit
- * commits and Discard drops.
+ * flow given — one undoable transaction, which Save commits and Discard
+ * drops.
  *
  * @param session - The new flow's session, its base read
  * @param name - The flow's name
