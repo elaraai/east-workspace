@@ -576,17 +576,23 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         expect(stop(c, "S-01")!.hasAttribute("data-draft")).toBe(true);
     }, 30_000);
 
-    test("a tile moves to another press's day — it has no ends to drag", async () => {
+    test("a tile moves to another press's day — it has no ends to drag — and wears the drafted look until Undo", async () => {
         const { container: c } = mount(vetoed, DRAG);
         await settle();
         const y = layOutPlots(c, [A1_TILES, A2_TILES]);
         const tile = c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`)!;
         expect(tile.hasAttribute("data-draggable")).toBe(true);
         expect(tile.querySelector("[data-plan-edge]")).toBeNull();
+        expect(tile.hasAttribute("data-draft")).toBe(false);
         await drop(tile, { x: xAt(2), y: y(A1_TILES) }, { x: xAt(4), y: y(A2_TILES) });
         const moved = c.querySelector<HTMLElement>(`${rowAt(A2_TILES)} ${el("data-event", "stop", "S-01")}`);
         expect(named(moved)).toMatch(/Oct 9, 2026/);
         expect(c.querySelector(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`)).toBeNull();
+        // Its drafts changed it: the tile wears the drafted look, as a bar does.
+        expect(moved!.hasAttribute("data-draft")).toBe(true);
+        await press(historyButton(c, UNDO));
+        const back = c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`);
+        expect(back!.hasAttribute("data-draft")).toBe(false);
     }, 30_000);
 
     test("a tile of a kind with a start and an end moves its event's times by the days crossed — its length kept", async () => {

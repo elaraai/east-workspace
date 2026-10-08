@@ -26,7 +26,8 @@
  *
  * On a row whose series declares a move's fields (#825) a tile moves to
  * another bucket, or another row of its item type; it has one instant, so no
- * end to drag.
+ * end to drag. An event kind's tile moves its event (#1196), and wears the
+ * brand tint in a brand border while its drafts change it (`data-draft`).
  */
 
 import { useMemo, type ReactNode } from "react";
@@ -44,6 +45,7 @@ import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../cont
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
+import { usePlanElementDrafted } from "./element-draft.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
@@ -101,6 +103,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
     const select = usePlanElementSelect(rowKey, ev.key, ref);
     // An event in an overlap pair wears the warn ring (#1198).
     const overlap = usePlanElementOverlap(ev.key);
+    // An event its drafts changed wears the brand tint in a brand border (#1196).
+    const drafted = usePlanElementDrafted(ev.key);
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     // A tile has one instant — its extent is that instant twice.
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
@@ -128,6 +132,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
             data-overlap={overlap ? "" : undefined}
+            data-draft={drafted ? "" : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}
             // Stretch is a style PROP and outranks the recipe: in a strip

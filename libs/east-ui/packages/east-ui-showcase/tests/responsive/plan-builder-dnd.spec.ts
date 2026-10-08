@@ -14,7 +14,8 @@
  *   job at the day under the pointer, selected and drafted, the ghost saying
  *   what lands where; and a bar's end dragged a day on resizes it;
  * - a drafted bar wears the brand tint in a 1.5px brand border (§8), in both
- *   themes;
+ *   themes, and so does a drafted tile: a delivery of the links example
+ *   (`planEventLinks`) dragged a week back;
  * - on a phone the canvas is its narrow layout, where nothing drags, and the
  *   panes open over it from their rails, the library's cards dragging nowhere.
  *
@@ -104,6 +105,31 @@ async function open(page: Page, placement: "overlay" | "pinned", theme: "light" 
     return entry;
 }
 
+/**
+ * An element's fill and its top and left borders, beside the brand's tint, ink
+ * and 1.5px as the page resolves and draws them. Evaluated in the page.
+ */
+function lookOf(el: Element) {
+    const s = getComputedStyle(el);
+    const probe = document.createElement("span");
+    probe.style.background = "var(--chakra-colors-brand-tint)";
+    probe.style.color = "var(--chakra-colors-brand-solid)";
+    probe.style.border = "1.5px solid";
+    document.body.appendChild(probe);
+    const p = getComputedStyle(probe);
+    const want = { tint: p.backgroundColor, brand: p.color, width: p.borderTopWidth };
+    probe.remove();
+    return {
+        draft: el.hasAttribute("data-draft"),
+        fill: s.backgroundColor,
+        border: [s.borderTopWidth, s.borderTopStyle, s.borderTopColor, s.borderLeftWidth, s.borderLeftStyle, s.borderLeftColor],
+        want,
+    };
+}
+
+/** The links example's dispatch bay: its tiles, the deliveries. */
+const BAY = rowSel("bays.buckets", "bay");
+
 /** Press a node and carry it past the drag's 4px threshold — the drag is in flight. */
 async function pickUp(page: Page, node: Locator): Promise<{ x: number; y: number }> {
     const at = await centre(node);
@@ -171,23 +197,7 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
             const entry = await open(page, "pinned", theme);
             const bar = entry.locator(`${A1} [data-run]`, { hasText: "Spring catalogue" });
             // The bar's fill and border, and the brand's tint, ink and 1.5px as this page resolves and draws them.
-            const look = () => bar.evaluate((el) => {
-                const s = getComputedStyle(el);
-                const probe = document.createElement("span");
-                probe.style.background = "var(--chakra-colors-brand-tint)";
-                probe.style.color = "var(--chakra-colors-brand-solid)";
-                probe.style.border = "1.5px solid";
-                document.body.appendChild(probe);
-                const p = getComputedStyle(probe);
-                const want = { tint: p.backgroundColor, brand: p.color, width: p.borderTopWidth };
-                probe.remove();
-                return {
-                    draft: el.hasAttribute("data-draft"),
-                    fill: s.backgroundColor,
-                    border: [s.borderTopWidth, s.borderTopStyle, s.borderTopColor, s.borderLeftWidth, s.borderLeftStyle, s.borderLeftColor],
-                    want,
-                };
-            });
+            const look = () => bar.evaluate(lookOf);
             // At rest an actual job wears its lifecycle's own look.
             const rest = await look();
             expect(rest.draft).toBe(false);
@@ -199,6 +209,38 @@ test.describe("the Plan builder's drag and drop (#1196)", () => {
             await customer.fill("Alder & Finch Ltd");
             await customer.press("Enter");
             await expect(bar).toHaveAttribute("data-draft", "");
+            const drafted = await look();
+            const { tint, brand, width } = drafted.want;
+            expect({ fill: drafted.fill, border: drafted.border }).toEqual({ fill: tint, border: [width, "solid", brand, width, "solid", brand] });
+        });
+
+        test(`planEventLinks (${theme}): a tile its drafts changed wears the same look — a delivery dragged a week back`, async ({ page }) => {
+            const entry = await openExample(page, "planEventLinks", EVENTS, theme);
+            const plot = entry.locator(`${BAY} [data-plan-plot]`);
+            // The posters' delivery, in the third week's cell, and its look at rest — the dispatch bay's row is below
+            // the bounded canvas's view at rest, so it is scrolled into it, and the pointer lands on the tile.
+            const posters = entry.locator(`${BAY} [data-event*='D-02']`);
+            await expect(posters).toHaveAttribute("data-plan-frac", "0.5000");
+            await posters.scrollIntoViewIfNeeded();
+            await settled(page);
+            expect(await posters.evaluate((el) => {
+                const r = el.getBoundingClientRect();
+                return el.contains(document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2));
+            })).toBe(true);
+            const look = () => posters.evaluate(lookOf);
+            const rest = await look();
+            expect(rest.draft).toBe(false);
+            expect(rest.fill).not.toBe(rest.want.tint);
+            // A week back, into the second week's cell: a draft of its kind's.
+            const from = await centre(posters);
+            const week = (await boxOf(plot)).width / 4;
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            await page.mouse.move(from.x - week, from.y, { steps: 8 });
+            await expect(plot).toHaveAttribute("data-drop-active", "");
+            await page.mouse.up();
+            await expect(posters).toHaveAttribute("data-plan-frac", "0.2500");
+            await expect(posters).toHaveAttribute("data-draft", "");
             const drafted = await look();
             const { tint, brand, width } = drafted.want;
             expect({ fill: drafted.fill, border: drafted.border }).toEqual({ fill: tint, border: [width, "solid", brand, width, "solid", brand] });
