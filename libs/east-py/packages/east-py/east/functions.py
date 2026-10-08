@@ -359,10 +359,42 @@ def encode_function_manifest(manifest: Any) -> bytes:
 
 
 def decode_function_manifest(data: bytes) -> EastStruct:
-    """Decode a function manifest written by either language."""
+    """Decode a function manifest written by either language.
+
+    Raises:
+        ValueError: For a manifest an earlier release wrote — its functions
+            carry no source map — naming the fix: re-export it. Any other
+            blob fails as beast2 refuses it.
+    """
     from east.serialization.beast2 import decode_beast2_with_header_for
 
-    return decode_beast2_with_header_for(FunctionManifestType)(data)
+    try:
+        return decode_beast2_with_header_for(FunctionManifestType)(data)
+    except Exception as err:
+        if _is_earlier_manifest(data):
+            raise ValueError(
+                "decode_function_manifest: this function manifest was written by an earlier release, "
+                "whose functions carry no source map — re-export it with this release "
+                "(east-py export-functions, east-node export-functions or East.export_functions)") from err
+        raise
+
+
+def _is_earlier_manifest(data: bytes) -> bool:
+    """Whether a blob's header names an earlier release's manifest: its
+    ``functions`` hold an ``ir`` and no ``source_map``."""
+    from east.serialization.beast2 import read_beast2_type
+
+    try:
+        root = read_beast2_type(data)
+    except ValueError:
+        return False
+    if root.type != "Struct":
+        return False
+    functions = next((f["type"] for f in root.value if f["name"] == "functions"), None)
+    if functions is None or functions.type != "Array" or functions.value.type != "Struct":
+        return False
+    names = {f["name"] for f in functions.value.value}
+    return "ir" in names and "source_map" not in names
 
 
 # ── import ───────────────────────────────────────────────────────────────────
