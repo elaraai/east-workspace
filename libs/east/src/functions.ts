@@ -31,7 +31,7 @@ import { IRType, LocationType, type IR, type FunctionIR, type AsyncFunctionIR, t
 import { walkIR, literalValueOf } from "./walker.js";
 import { variant, some, none, isVariant } from "./containers/variant.js";
 import { printTypeValue } from "./compile.js";
-import { encodeBeast2For, decodeBeast2For } from "./serialization/beast2/index.js";
+import { encodeBeast2For, decodeBeast2For, readBeast2Type } from "./serialization/beast2/index.js";
 import { Expr } from "./expr/expr.js";
 import type { CallableFunctionExpr } from "./expr/function.js";
 import type { CallableAsyncFunctionExpr } from "./expr/asyncfunction.js";
@@ -318,9 +318,44 @@ export function encodeFunctionManifest(manifest: FunctionManifest): Uint8Array {
   return codec().encode(manifest);
 }
 
-/** Decodes a function manifest written by either language. */
+/**
+ * Decodes a function manifest written by either language.
+ *
+ * @param data - The manifest's beast2 bytes
+ * @returns The manifest value
+ * @throws {Error} For a manifest an earlier release wrote — its functions
+ *   carry no source map — naming the fix: re-export it. Any other blob fails
+ *   as beast2 refuses it.
+ */
 export function decodeFunctionManifest(data: Uint8Array): FunctionManifest {
-  return codec().decode(data);
+  try {
+    return codec().decode(data);
+  } catch (err) {
+    if (isEarlierManifest(data)) {
+      throw new Error(
+        "decodeFunctionManifest: this function manifest was written by an earlier release, whose functions carry " +
+        "no source map — re-export it with this release (east-py export-functions, east-node export-functions or " +
+        "East.exportFunctions)");
+    }
+    throw err;
+  }
+}
+
+/** Whether a blob's header names an earlier release's manifest: its `functions` hold an `ir` and no `source_map`. */
+function isEarlierManifest(data: Uint8Array): boolean {
+  let root: EastTypeValue;
+  try {
+    root = readBeast2Type(data);
+  } catch {
+    return false;
+  }
+  if (root.type !== "Struct") return false;
+  const functions = root.value.find(f => f.name === "functions")?.type as EastTypeValue | undefined;
+  if (functions === undefined || functions.type !== "Array") return false;
+  const element = functions.value as EastTypeValue;
+  if (element.type !== "Struct") return false;
+  const names = element.value.map(f => f.name);
+  return names.includes("ir") && !names.includes("source_map");
 }
 
 // ── import ──────────────────────────────────────────────────────────────────

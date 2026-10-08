@@ -15,6 +15,7 @@ import {
   East, EastIR, EastError, some, none, equalFor,
   ArrayType, FloatType, FunctionType, IntegerType, NullType, StringType, StructType,
   FunctionManifestType, IMPORT_PLATFORM, toSource, walkIR,
+  EastTypeType, FunctionExportType, IRType, PlatformDependencyType, encodeBeast2For,
 } from "./index.js";
 
 const Row = StructType({ qty: IntegerType, price: FloatType });
@@ -54,6 +55,17 @@ describe("functions: export", () => {
     const back = East.decodeFunctionManifest(East.encodeFunctionManifest(manifest));
     assert.ok(equalFor(FunctionManifestType)(back, manifest));
     assert.deepEqual(back.functions[1]!.platforms[0]!.provider, none);
+  });
+
+  test("an earlier release's manifest is refused, naming the fix", () => {
+    // Written before functions carried a source map.
+    const EarlierExport = StructType({ ir: IRType, name: StringType, platforms: ArrayType(PlatformDependencyType), type: EastTypeType });
+    const Earlier = StructType({ functions: ArrayType(EarlierExport), package: StringType, version: StringType });
+    const data = encodeBeast2For(Earlier)({ functions: [], package: "old", version: "1.0.0" });
+    assert.throws(() => East.decodeFunctionManifest(data), /written by an earlier release.*re-export it/);
+    // a blob of another type is refused as beast2 refuses it
+    const other = encodeBeast2For(ArrayType(FunctionExportType))([]);
+    assert.throws(() => East.decodeFunctionManifest(other), /cannot decode/);
   });
 
   test("a closure and an unlinked importer are refused", () => {

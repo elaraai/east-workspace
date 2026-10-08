@@ -281,7 +281,9 @@ function the IR calls, with the signature the IR emits and the package that
 refuses to export a dependency no package provides). Only closed values
 export: a closure over an enclosing body, a python `.bind` result (no IR of
 its own), or a function that itself holds an unresolved import is refused —
-exports do not chain (v1).
+exports do not chain (v1). A manifest an earlier release wrote, whose
+functions carry no `source_map`, is refused by both decoders, which say to
+re-export it with this release.
 
 An **unresolved import** is a `Platform` node named `east.importFunction`
 whose two arguments are the package and function names — no new IR node

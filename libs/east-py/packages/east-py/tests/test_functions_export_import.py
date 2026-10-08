@@ -73,6 +73,29 @@ class TestExport:
         assert equal_for(FunctionManifestType)(back, manifest)
         assert list(back["functions"])[1]["platforms"][0]["provider"] == none
 
+    def test_an_earlier_releases_manifest_is_refused_naming_the_fix(self):
+        """A manifest written before functions carried a source map does not
+        decode under this release's type: the refusal says so and names the
+        fix, rather than printing two manifest types."""
+        from east.functions import FunctionExportType, PlatformDependencyType
+        from east.serialization.beast2 import encode_beast2_v5_for
+        from east.types.type_of_type import EastTypeType, IRType
+        from east.types.values import EastArray
+
+        earlier_export = StructType([
+            ("ir", IRType), ("name", StringType),
+            ("platforms", ArrayType(PlatformDependencyType)), ("type", EastTypeType)])
+        earlier = StructType([
+            ("functions", ArrayType(earlier_export)), ("package", StringType), ("version", StringType)])
+        data = encode_beast2_v5_for(earlier)(
+            EastStruct({"functions": EastArray(earlier_export, []), "package": "old", "version": "1.0.0"}))
+        with pytest.raises(ValueError, match="written by an earlier release.*re-export it"):
+            East.decode_function_manifest(data)
+        # a blob of another type is refused as beast2 refuses it
+        other = encode_beast2_v5_for(ArrayType(FunctionExportType))(EastArray(FunctionExportType, []))
+        with pytest.raises(Exception, match="cannot decode"):
+            East.decode_function_manifest(other)
+
     def test_each_function_carries_the_locations_its_ir_names(self):
         """#1271: a function exports with a source map of its own, holding
         exactly the stacks its IR names, so the frames of an error or a
