@@ -6,11 +6,11 @@
 /**
  * The flowchart's canvas (#1244, `Flowchart Builder Spec.md` §5.2): what it
  * draws with besides its flow — orientation, the freshness chip, the legend
- * and the minimap, density, the hover cards, the selection callbacks, the
- * connect veto and the bound slice. The payload carries one whole, as its
- * `canvas`. The flowchart fills the box it is given (#1245): it takes no
- * height of its own. Its gestures are its editing session's (#1247): it takes
- * no callback for an edit.
+ * and the minimap, density, the selection callbacks, the connect veto and the
+ * bound slice. The payload carries one whole, as its `canvas`. The flowchart
+ * fills the box it is given (#1245): it takes no height of its own. Its
+ * gestures are its editing session's (#1247): it takes no callback for an
+ * edit. It has no hover cards (#1250): the inspector shows what is selected.
  *
  * @packageDocumentation
  */
@@ -32,7 +32,7 @@ import {
     StructType,
 } from "@elaraai/east";
 
-import { DensityType, UIComponentType, type DensityLiteral } from "@elaraai/east-ui";
+import { DensityType, type DensityLiteral } from "@elaraai/east-ui";
 import { SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
 
@@ -52,9 +52,6 @@ export const FlowchartCanvasType: StructType<{
     legend: OptionType<BooleanType>,
     density: OptionType<DensityType>,
     slice: OptionType<SliceChromeType>,
-    stateHover: OptionType<FunctionType<[StringType], UIComponentType>>,
-    linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
-    triggerHover: OptionType<FunctionType<[StringType], UIComponentType>>,
     onSelectState: OptionType<FunctionType<[StringType], NullType>>,
     onSelectLink: OptionType<FunctionType<[StringType], NullType>>,
     onSelectTrigger: OptionType<FunctionType<[StringType], NullType>>,
@@ -67,9 +64,6 @@ export const FlowchartCanvasType: StructType<{
     legend: OptionType(BooleanType),
     density: OptionType(DensityType),
     slice: OptionType(SliceChromeType),
-    stateHover: OptionType(FunctionType([StringType], UIComponentType)),
-    linkHover: OptionType(FunctionType([StringType], UIComponentType)),
-    triggerHover: OptionType(FunctionType([StringType], UIComponentType)),
     onSelectState: OptionType(FunctionType([StringType], NullType)),
     onSelectLink: OptionType(FunctionType([StringType], NullType)),
     onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
@@ -111,12 +105,14 @@ export interface FlowchartFreshnessInput {
  * The host is told of the selection (`onSelectState`, `onSelectLink`,
  * `onSelectTrigger`) and of a traced path (`onTracePath`), and `canConnect`
  * vetoes a pair before a connection snaps. Every edit is the flowchart's own
- * (#1247): "+ LANE", a lane's header renamed and its ×, the "+ STATE" ghost,
- * a state double-clicked into its editor or dragged across lanes, a handle
- * dragged to connect, and Del on the selection — each one transaction of its
- * editing session, which Save commits through the record's patch mutation, or
- * the host's `onApply` over `data`. Hover cards, the selection and the
- * pointer-highlight grammar are built in.
+ * (#1247): "+ LANE", a lane's header double-clicked into its rename and its
+ * ×, the "+ STATE" ghost, a state double-clicked into its editor or dragged
+ * across lanes, a handle dragged to connect, and Del on the selection — each
+ * one transaction of its editing session, which Save commits through the
+ * record's patch mutation, or the host's `onApply` over `data`. The selection
+ * — a state, a transition, a decision, a lane by its header (#1250), or
+ * several states — and the pointer-highlight grammar are built in, and the
+ * inspector shows what is selected: the flowchart takes no hover card.
  */
 export interface FlowchartCanvasOptions {
     /** Initial orientation — "LR" (default) | "TD"; the toolbar's LR · TD segment toggles it (view state, never a chip). */
@@ -130,12 +126,6 @@ export interface FlowchartCanvasOptions {
     /** Optional density. */
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
 
-    /** Optional hover-card content builder for STATES — receives the hovered state's key and returns arbitrary UI, evaluated lazily on hover; absent ⇒ no state hover card. */
-    stateHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
-    /** Optional hover-card content builder for LINKS — receives the hovered link's key; absent ⇒ no link hover card. */
-    linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
-    /** Optional hover-card content builder for TRIGGERS — receives the hovered trigger's key; absent ⇒ no trigger hover card. */
-    triggerHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
     /** Optional state-click callback (node key). */
     onSelectState?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
     /** Optional link-click callback (link key). */
@@ -204,9 +194,6 @@ export function buildCanvas(options: FlowchartCanvasOptions, slice: FlowchartSli
             ? some(typeof options.density === "string" ? East.value(variant(options.density, null), DensityType) : options.density)
             : none,
         slice: sliceChromeValue ? some(sliceChromeValue) : none,
-        stateHover: options.stateHover !== undefined ? some(East.value(options.stateHover, FunctionType([StringType], UIComponentType))) : none,
-        linkHover: options.linkHover !== undefined ? some(East.value(options.linkHover, FunctionType([StringType], UIComponentType))) : none,
-        triggerHover: options.triggerHover !== undefined ? some(East.value(options.triggerHover, FunctionType([StringType], UIComponentType))) : none,
         onSelectState: options.onSelectState !== undefined ? some(options.onSelectState) : none,
         onSelectLink: options.onSelectLink !== undefined ? some(options.onSelectLink) : none,
         onSelectTrigger: options.onSelectTrigger !== undefined ? some(options.onSelectTrigger) : none,

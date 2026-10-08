@@ -31,6 +31,11 @@
  *   transition, a lane or a decision: a state's new key rekeying its
  *   transitions' ends and the decisions' queues and a lane's moving its states
  *   (FB18), as a decision's renames it on the transitions it governs.
+ * - **The inspector** (#1250, FB36) sets a state's, a transition's, a
+ *   decision's or a lane's row whole — its fields as the form left them, by
+ *   the same rules a card's patch is set by; duplicates a state after itself
+ *   under a key made unique; moves or deletes several states together; and
+ *   gives the flow a description.
  *
  * @packageDocumentation
  */
@@ -53,24 +58,40 @@ export type FlowchartLanePatch = ValueTypeOf<typeof Flowchart.Types.LaneCard>["s
 /** A decision card's fields, decoded. */
 export type FlowchartDecisionPatch = ValueTypeOf<typeof Flowchart.Types.DecisionCard>["sets"];
 
-/** The gestures a flowchart edits its open flow with, each one transaction (FB17). */
+/**
+ * The gestures a flowchart edits its open flow with, each one transaction
+ * (FB17): the canvas's (#1247), and the inspector's (#1250) — a row's fields,
+ * a state duplicated, several states moved or deleted, and the flow renamed,
+ * described, duplicated or deleted.
+ */
 export type FlowchartEdit =
-    | "addLane" | "renameLane" | "deleteLane"
-    | "addState" | "editState" | "moveState" | "deleteState"
-    | "connect" | "deleteLink" | "deleteDecision";
+    | "addLane" | "renameLane" | "deleteLane" | "editLane"
+    | "addState" | "editState" | "moveState" | "deleteState" | "duplicateState" | "moveStates" | "deleteStates"
+    | "connect" | "deleteLink" | "editTransition" | "deleteDecision" | "editDecision"
+    | "renameFlow" | "describeFlow" | "duplicateFlow" | "deleteFlow";
 
 /** The gesture each edit is recorded as, in the session's history and its patch events. */
 export const EDIT_ORIGIN: { readonly [E in FlowchartEdit]: Origin } = {
     addLane: "insert",
     renameLane: "typed",
     deleteLane: "remove",
+    editLane: "typed",
     addState: "insert",
     editState: "typed",
     moveState: "move",
     deleteState: "remove",
+    duplicateState: "insert",
+    moveStates: "move",
+    deleteStates: "remove",
     connect: "insert",
     deleteLink: "remove",
+    editTransition: "typed",
     deleteDecision: "remove",
+    editDecision: "typed",
+    renameFlow: "typed",
+    describeFlow: "typed",
+    duplicateFlow: "insert",
+    deleteFlow: "remove",
 };
 
 /** What a flow keys by: its lanes, states, transitions and decisions. */
@@ -204,6 +225,20 @@ export function setLane(flow: FlowchartFlowValue, key: string, patch: FlowchartL
 }
 
 /**
+ * Sets a lane's row whole, as the inspector's form leaves it (#1250, FB36) —
+ * every lane of its key, as a rename names them — a new key moving its
+ * states with it (FB18).
+ *
+ * @param flow - The open flow
+ * @param key - The lane's key
+ * @param next - The lane as the form leaves it
+ * @returns The flow
+ */
+export function setLaneRow(flow: FlowchartFlowValue, key: string, next: FlowchartLaneValue): FlowchartFlowValue {
+    return setLane(flow, key, { key: some(next.key), label: some(next.label) });
+}
+
+/**
  * How many states a lane holds: the states naming its key.
  *
  * @param flow - The open flow
@@ -334,6 +369,75 @@ export function setState(flow: FlowchartFlowValue, key: string, patch: Flowchart
 }
 
 /**
+ * The state a gesture names by its key (#1250): the one the canvas draws
+ * under it, the last of that key.
+ *
+ * @param flow - The open flow
+ * @param key - The state's key
+ * @returns The state, or `undefined` for a key no state takes — an unresolved transition's end
+ */
+export function stateRow(flow: FlowchartFlowValue, key: string): FlowchartStateValue | undefined {
+    const { at } = drawnState(flow, key);
+    return at < 0 ? undefined : flow.states[at];
+}
+
+/**
+ * Sets a state's row whole, as the inspector's form or its author's own
+ * Details leave it (#1250, FB36): the one the canvas draws under its key, a
+ * new key rekeying its transitions' ends and the decisions' queues (FB18).
+ *
+ * @param flow - The open flow
+ * @param key - The state's key
+ * @param next - The state as the form leaves it
+ * @returns The flow
+ */
+export function setStateRow(flow: FlowchartFlowValue, key: string, next: FlowchartStateValue): FlowchartFlowValue {
+    return setState(flow, key, { key: some(next.key), label: some(next.label), lane: some(next.lane), members: some(next.members), notes: some(next.notes) });
+}
+
+/**
+ * Duplicates a state (#1250, §5.3): a copy of it right after it among the
+ * flow's states — in its lane, under it — keyed as its key made unique
+ * (`SRT-2`), with none of its transitions.
+ *
+ * @param flow - The open flow
+ * @param key - The state's key: the one the canvas draws under it
+ * @returns The flow, and the copy's key; `undefined` for a key no state takes
+ */
+export function duplicateState(flow: FlowchartFlowValue, key: string): { flow: FlowchartFlowValue; key: string } | undefined {
+    const { at } = drawnState(flow, key);
+    if (at < 0) return undefined;
+    const state = flow.states[at]!;
+    const copy = uniqueKey(state.key, (k) => flow.states.some((s) => keyEqual(s.key, k)));
+    return { flow: insertState(flow, at + 1, { ...state, key: copy }), key: copy };
+}
+
+/**
+ * Moves several states to a lane (#1250, §5.3): each the one the canvas draws
+ * under its key.
+ *
+ * @param flow - The open flow
+ * @param keys - The states' keys
+ * @param lane - The lane's key
+ * @returns The flow
+ */
+export function moveStates(flow: FlowchartFlowValue, keys: readonly string[], lane: string): FlowchartFlowValue {
+    return keys.reduce((at, key) => moveState(at, key, lane), flow);
+}
+
+/**
+ * Deletes several states (#1250, §5.3): each with its transitions, and from
+ * the decisions' queues, as Del deletes one.
+ *
+ * @param flow - The open flow
+ * @param keys - The states' keys
+ * @returns The flow
+ */
+export function deleteStates(flow: FlowchartFlowValue, keys: readonly string[]): FlowchartFlowValue {
+    return keys.reduce((at, key) => deleteState(at, key), flow);
+}
+
+/**
  * Moves a state to another lane.
  *
  * @param flow - The open flow
@@ -415,6 +519,35 @@ export function setLink(flow: FlowchartFlowValue, key: string, patch: FlowchartL
 }
 
 /**
+ * The transition a gesture names by the key it goes by (#1250): the first
+ * that goes by it, and its place among the flow's transitions — what the key
+ * it goes by after an edit is made from.
+ *
+ * @param flow - The open flow
+ * @param key - The key it goes by
+ * @returns The transition and its place, or `undefined` for a key none goes by
+ */
+export function linkRow(flow: FlowchartFlowValue, key: string): { link: FlowchartLinkValue; index: number } | undefined {
+    const index = flow.links.findIndex((l, i) => keyEqual(linkKeyOf(l, i), key));
+    return index < 0 ? undefined : { link: flow.links[index]!, index };
+}
+
+/**
+ * Sets a transition's row whole, as the inspector's form or its author's own
+ * Details leave it (#1250, FB36): the first that goes by the key.
+ *
+ * @param flow - The open flow
+ * @param key - The key the transition goes by
+ * @param next - The transition as the form leaves it
+ * @returns The flow
+ */
+export function setLinkRow(flow: FlowchartFlowValue, key: string, next: FlowchartLinkValue): FlowchartFlowValue {
+    return setLink(flow, key, {
+        key: some(next.key), from: some(next.from), to: some(next.to), kind: some(next.kind), trigger: some(next.trigger), evidence: some(next.evidence),
+    });
+}
+
+/**
  * Deletes a decision, cleared from the transitions it governs.
  *
  * @param flow - The open flow
@@ -445,6 +578,34 @@ export function setDecision(flow: FlowchartFlowValue, key: string, patch: Flowch
     return { ...flow, triggers, links: flow.links.map((l) => (l.trigger.type === "some" && keyEqual(l.trigger.value, key) ? { ...l, trigger: some(next) } : l)) };
 }
 
+/**
+ * Sets a decision's row whole, as the inspector's form leaves it (#1250,
+ * FB36) — every decision of its key — a new key renaming it on the
+ * transitions it governs.
+ *
+ * @param flow - The open flow
+ * @param key - The decision's key
+ * @param next - The decision as the form leaves it
+ * @returns The flow
+ */
+export function setDecisionRow(flow: FlowchartFlowValue, key: string, next: FlowchartTriggerValue): FlowchartFlowValue {
+    return setDecision(flow, key, {
+        key: some(next.key), label: some(next.label), letter: some(next.letter), owner: some(next.owner), queue: some(next.queue), outcomes: some(next.outcomes),
+    });
+}
+
+/**
+ * Gives the flow a description, or takes it away (#1250, §5.3): the line its
+ * card in the Flows tab shows.
+ *
+ * @param flow - The open flow
+ * @param description - Its description; `none`, none
+ * @returns The flow
+ */
+export function describeFlow(flow: FlowchartFlowValue, description: option<string>): FlowchartFlowValue {
+    return { ...flow, description };
+}
+
 // ── What holds Save off, and what waits on it ───────────────────────────────
 
 /** Two rows of one kind under one key. */
@@ -453,35 +614,43 @@ export interface DuplicateKey {
     readonly what: FlowKeyKind;
     /** The key they share. */
     readonly key: string;
+    /** The place, in its kind's rows, of the last row of the key — the one the canvas draws under it: what an issue's row names (#1250). */
+    readonly index: number;
 }
 
 /** The flow's field each kind of row is in: an issue's field. */
-const FIELD: { readonly [K in FlowKeyKind]: string } = { lane: "lanes", state: "states", transition: "links", decision: "triggers" };
+export const FIELD: { readonly [K in FlowKeyKind]: string } = { lane: "lanes", state: "states", transition: "links", decision: "triggers" };
 
 /**
  * Every key two rows of one kind share — lanes, states, decisions, and the
  * transitions that carry a key of their own (one without a key never clashes)
- * — in the flow's order.
+ * — in the flow's order, each with the place of its last row.
  *
  * @param flow - The flow
  * @returns Each shared key, once
  */
 export function duplicateKeys(flow: FlowchartFlowValue): DuplicateKey[] {
     const out: DuplicateKey[] = [];
-    const scan = (what: FlowKeyKind, keys: readonly string[]): void => {
+    const scan = (what: FlowKeyKind, keys: readonly (string | undefined)[]): void => {
         const seen = new Set<string>();
-        const twice = new Set<string>();
-        for (const key of keys) {
-            if (seen.has(key) && !twice.has(key)) {
-                twice.add(key);
-                out.push({ what, key });
+        const counted = new Set<string>();
+        // Each shared key in the order its second row comes, and the place of its last.
+        const twice: string[] = [];
+        const last = new Map<string, number>();
+        keys.forEach((key, i) => {
+            if (key === undefined) return;
+            if (seen.has(key) && !counted.has(key)) {
+                counted.add(key);
+                twice.push(key);
             }
             seen.add(key);
-        }
+            last.set(key, i);
+        });
+        for (const key of twice) out.push({ what, key, index: last.get(key)! });
     };
     scan("lane", flow.lanes.map((l) => l.key));
     scan("state", flow.states.map((s) => s.key));
-    scan("transition", flow.links.flatMap((l) => (l.key.type === "some" ? [l.key.value] : [])));
+    scan("transition", flow.links.map((l) => (l.key.type === "some" ? l.key.value : undefined)));
     scan("decision", flow.triggers.map((t) => t.key));
     return out;
 }
@@ -491,8 +660,10 @@ type FlowDraft = ValueTypeOf<ReturnType<typeof EditingDraftFieldType<typeof Flow
 
 /**
  * The session's readiness over its flows' drafts (FB22): two rows of one kind
- * under one key hold Save off — an invalid issue on the flow, naming the field
- * and the key — as the Issues tab lists them for the open flow (FB37).
+ * under one key hold Save off — an invalid issue on the flow, naming the
+ * field, the place of the row the canvas draws under the key (#1250: what a
+ * click on the issue selects) and the key — as the Issues tab lists them for
+ * the open flow (FB37).
  *
  * @param entries - The session's entries, as they stand
  * @param message - An issue's words
@@ -504,7 +675,7 @@ export function flowReadiness(entries: ReadonlyMap<string, { draft: unknown }>, 
         const draft = entry.draft as FlowDraft | undefined;
         if (draft?.type !== "value") continue;
         for (const duplicate of duplicateKeys(draft.value)) {
-            issues.push({ entry: id, row: none, field: some(FIELD[duplicate.what]), message: message(duplicate) });
+            issues.push({ entry: id, row: some(BigInt(duplicate.index)), field: some(FIELD[duplicate.what]), message: message(duplicate) });
         }
     }
     return issues.length === 0 ? variant("ready", null) : variant("invalid", issues);

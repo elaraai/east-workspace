@@ -6,13 +6,15 @@
  *
  * The flowchart's editing (#1247, `Flowchart Builder Spec.md` §9.6,
  * FB17–FB24): every gesture on the canvas one transaction of the open flow's
- * editing session — "+ LANE", a lane's header renamed, its × (off while the
- * lane holds states, its tooltip saying why), the "+ STATE" ghost, a state
+ * editing session — "+ LANE", a lane's header double-clicked into its rename
+ * (a click selects the lane, the user ruled on 2026-10-08), its × (off while
+ * the lane holds states, its tooltip saying why), the "+ STATE" ghost, a state
  * double-clicked into its editor (a new key rekeying its transitions and the
  * decisions' queues), a state dragged across lanes, a handle dragged to a
  * state (the `canConnect` veto, the in-place drop and a repeat holding as
- * before), and Del on the selected state, transition or decision, never in a
- * field being typed into — each undone, redone and discarded by the history
+ * before), and Del on the selection — a state, several states, a transition, a
+ * decision, or a lane while it holds no state (#1250) — never in a field
+ * being typed into — each undone, redone and discarded by the history
  * item and by ⌘Z, ⇧⌘Z and ⌘Y from anywhere in the frame but a field; two of
  * one key holding Save off, the history item counting the issue; the footer
  * counting the changes waiting on Save; Save's outcomes — a conflict and a
@@ -149,13 +151,13 @@ function payload(source: FlowchartValue["source"], canConnect?: (from: string, t
     return {
         canvas: {
             orientation: none, freshness: none, minimap: none, legend: some(false), density: none, slice: none,
-            stateHover: none, linkHover: none, triggerHover: none, onSelectState: none, onSelectLink: none, onSelectTrigger: none,
+            onSelectState: none, onSelectLink: none, onSelectTrigger: none,
             onTracePath: none, canConnect: canConnect === undefined ? none : some(canConnect),
         },
         source,
         open: some("Sort"),
         library: [],
-        inspector: false,
+        inspector: none,
         readOnly: false,
         name: none,
     };
@@ -210,8 +212,9 @@ async function addLane(c: HTMLElement): Promise<void> {
     await gesture(() => { fireEvent.click(c.querySelector("[data-flowchart-addlane]")!); });
 }
 
+/** A lane's header double-clicked into its rename (#1250, the user's ruling, 2026-10-08), a label typed, and ⏎. */
 async function renameLane(c: HTMLElement, key: string, label: string): Promise<void> {
-    await gesture(() => { fireEvent.click(c.querySelector(`[data-flowchart-lane="${key}"]`)!); });
+    await gesture(() => { fireEvent.doubleClick(c.querySelector(`[data-flowchart-lane="${key}"]`)!); });
     const input = c.querySelector("[data-flowchart-lane-edit]") as HTMLInputElement;
     await gesture(() => { fireEvent.change(input, { target: { value: label } }); });
     await gesture(() => { fireEvent.keyDown(input, { key: "Enter" }); });
@@ -286,9 +289,13 @@ describe("every gesture is one transaction of the open flow's session (FB17)", (
         await expectSaved(sent, edits.addLane(SORT, laneLabel).flow, m.editLabel({ edit: "addLane" }));
     });
 
-    test("a lane's header is renamed in place: ⏎ commits it", async () => {
+    test("a lane's header double-clicked is renamed in place, ⏎ committing it — a click selects the lane, and renames nothing (#1250)", async () => {
         const { source, sent } = captured(() => FLOWS);
         const { container } = await mount(payload(source));
+        // A click selects the lane: no rename opens.
+        await gesture(() => { fireEvent.click(container.querySelector("[data-flowchart-lane='sort']")!); });
+        expect(container.querySelector("[data-flowchart-lane-edit]")).toBeNull();
+        expect(container.querySelector("[data-flowchart-lane-selected]")!.getAttribute("data-flowchart-lane-selected")).toBe("sort");
         await renameLane(container, "sort", "Sortation");
         expect(laneHeads(container)).toEqual(["INDUCT", "SORTATION", "HOLD"]);
         await expectSaved(sent, edits.renameLane(SORT, "sort", "Sortation"), m.editLabel({ edit: "renameLane" }));
@@ -323,8 +330,11 @@ describe("every gesture is one transaction of the open flow's session (FB17)", (
         await gesture(() => { fireEvent.click(container.querySelector("[data-flowchart-lane-delete='intake']")!); });
         expect(container.querySelector("[data-flowchart-canvas]")).not.toBeNull();
         expect(container.querySelectorAll("[data-flowchart-lane-delete], [data-flowchart-band]")).toHaveLength(0);
-        await gesture(() => { fireEvent.click(container.querySelector("[data-flowchart-lane]")!); });
+        await gesture(() => { fireEvent.doubleClick(container.querySelector("[data-flowchart-lane]")!); });
         expect(container.querySelector("[data-flowchart-lane-edit]")).toBeNull();
+        // Nor is it a lane a click selects (#1250).
+        await gesture(() => { fireEvent.click(container.querySelector("[data-flowchart-lane]")!); });
+        expect(container.querySelector("[data-flowchart-lane-selected], [data-flowchart-lane-head]")).toBeNull();
         await addLane(container);
         expect(laneHeads(container)).toEqual([laneLabel(1).toUpperCase()]);
     });
@@ -357,13 +367,34 @@ describe("every gesture is one transaction of the open flow's session (FB17)", (
         await expectSaved(sent, edits.deleteDecision(edits.deleteLink(SORT, "CH*→SRD#1"), "route"), m.editLabel({ edit: "deleteDecision" }));
     });
 
+    test("Del deletes a selected lane while it holds no state, leaving one that holds states selected, and several states shift-clicked together, one transaction (#1250)", async () => {
+        const { source, sent } = captured(() => FLOWS);
+        const { container } = await mount(payload(source));
+        const laneSelected = () => container.querySelector("[data-flowchart-lane-selected]")?.getAttribute("data-flowchart-lane-selected") ?? null;
+        // A lane holding states: Del leaves it, selected.
+        await selectAndPress(container, container.querySelector("[data-flowchart-lane='sort']")!, "Delete");
+        expect([laneHeads(container), laneSelected()]).toEqual([["INDUCT", "SORT", "HOLD"], "sort"]);
+        // The empty lane: deleted, and nothing selected.
+        await selectAndPress(container, container.querySelector("[data-flowchart-lane='hold']")!, "Delete");
+        expect([laneHeads(container), laneSelected()]).toEqual([["INDUCT", "SORT"], null]);
+        // Two states, the second shift-clicked in: both deleted, one transaction.
+        await gesture(() => { fireEvent.click(node(container, "IND")); });
+        await gesture(() => { fireEvent.click(node(container, "SRD"), { shiftKey: true }); });
+        await gesture(() => { fireEvent.keyDown(canvasBox(container), { key: "Delete" }); });
+        expect(stateKeys(container)).toEqual(["CH*"]);
+        await press(UNDO);
+        expect(stateKeys(container)).toEqual(["IND", "CH*", "SRD"]);
+        await press(REDO);
+        await expectSaved(sent, edits.deleteStates(edits.deleteLane(SORT, "hold")!, ["IND", "SRD"]), m.editLabel({ edit: "deleteStates" }));
+    });
+
     test("Del is the canvas's alone: pressed in a field — find state's, a lane's header being renamed — it deletes nothing", async () => {
         const { source } = captured(() => FLOWS);
         const { container } = await mount(payload(source));
         await gesture(() => { fireEvent.click(container.querySelector("[data-flowchart-link='IND→CH*']")!); });
         const find = container.querySelector("[data-toolbar-item='seek'] input")!;
         await gesture(() => { fireEvent.keyDown(find, { key: "Backspace" }); });
-        await gesture(() => { fireEvent.click(container.querySelector("[data-flowchart-lane='sort']")!); });
+        await gesture(() => { fireEvent.doubleClick(container.querySelector("[data-flowchart-lane='sort']")!); });
         await gesture(() => { fireEvent.keyDown(container.querySelector("[data-flowchart-lane-edit]")!, { key: "Delete" }); });
         // Both still drawn — the selected one last, on top.
         expect(linkKeys(container)).toEqual(["CH*→SRD#1", "IND→CH*"]);

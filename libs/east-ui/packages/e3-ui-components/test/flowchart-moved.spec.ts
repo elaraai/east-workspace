@@ -6,11 +6,11 @@
 /**
  * The Flowchart moved to e3 (#1243): its IR is e3-ui's (`src/flowchart/`) and
  * its renderer this package's (`src/flowchart/`), and east-ui and
- * east-ui-components keep nothing of it — only its slot recipe, which stays in
- * the theme. This reads every declaration file east-ui and east-ui-components
- * build — what they publish — and finds no name the Flowchart's own modules
- * export, no name of the Flowchart's but its recipe's, and no `Flowchart` arm
- * in `UIComponentType`.
+ * east-ui-components keep nothing of it — only its slot recipes, the canvas's
+ * and the inspector's (#1250), which stay in the theme. This reads every
+ * declaration file east-ui and east-ui-components build — what they publish —
+ * and finds no name the Flowchart's own modules export, no name of the
+ * Flowchart's but its recipes', and no `Flowchart` arm in `UIComponentType`.
  */
 
 import assert from 'node:assert/strict';
@@ -25,8 +25,11 @@ const FLOWCHART_NAMES = new Set([
     ...files(join(PACKAGES, 'e3-ui-components/src/flowchart'), (name) => /\.tsx?$/u.test(name) && !/\.(test|spec)\.|test-utils/u.test(name)),
 ].flatMap((path) => [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /flowchart/iu.test(name))));
 
-/** What the theme keeps of the Flowchart: its slot recipe. */
-const RECIPE = 'flowchartSlotRecipe';
+/** What the theme keeps of the Flowchart: its slot recipes, by the file each is declared in — the canvas's, and its inspector's (#1250). */
+const RECIPES = [
+    'east-ui-components/dist/theme/slot-recipes/flowchart.d.ts: flowchartSlotRecipe',
+    'east-ui-components/dist/theme/slot-recipes/flowchartInspector.d.ts: flowchartInspectorSlotRecipe',
+];
 
 test('what the Flowchart exports is read whole — its IR\'s names and its renderer\'s', () => {
     for (const name of ['Flowchart', 'FlowchartPayloadType', 'FlowchartCanvasType', 'FlowchartComponent', 'FlowchartTag', 'FlowchartTypes',
@@ -50,12 +53,12 @@ for (const pkg of ['east-ui', 'east-ui-components']) {
     });
 }
 
-test('east-ui and east-ui-components export nothing of the Flowchart but its slot recipe (#1243)', () => {
+test('east-ui and east-ui-components export nothing of the Flowchart but its slot recipes (#1243, #1250)', () => {
     const named = (pkg: string): string[] => declarations(pkg).flatMap((path) =>
         [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /flowchart/iu.test(name)).map((name) => `${relative(PACKAGES, path)}: ${name}`));
     assert.deepEqual(named('east-ui'), []);
-    // The recipe is the theme's, beside every other component's — and only it.
-    assert.deepEqual(named('east-ui-components'), [`east-ui-components/dist/theme/slot-recipes/flowchart.d.ts: ${RECIPE}`]);
+    // The recipes are the theme's, beside every other component's — and only they.
+    assert.deepEqual(named('east-ui-components').sort(), [...RECIPES].sort());
 });
 
 test('east-ui\'s UIComponentType has no Flowchart arm (#1243)', () => {

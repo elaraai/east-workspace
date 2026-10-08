@@ -22,7 +22,7 @@ toolbar and its items, the editing session and its history item, the
 | File | What it is |
 |---|---|
 | `Flowchart Builder Spec.md` | This design. |
-| `Flowchart Spec.html`, `Flowchart Spec.png` | The canvas itself, unchanged in grammar: lanes, state cards, H/V transitions, decision diamonds, evidence badges, the legend, the minimap, hover cards. Its words and data move to the parcel depot (decision 9). |
+| `Flowchart Spec.html`, `Flowchart Spec.png` | The canvas itself, unchanged in grammar: lanes, state cards, H/V transitions, decision diamonds, evidence badges, the legend, the minimap. Its hover cards go: the inspector shows what is selected (decision 15). Its words and data move to the parcel depot (decision 9). |
 | `Sheet Builder Spec.md`, `Plan Builder Spec.md` | The builders this follows, part for part: the frame, the toolbar, the session, the library's tabs, the inspector's form, drag and drop. |
 | `Query Editor Spec.md` | The library tab of a record's documents, one open at a time, and `NamePopover` for a new one. |
 
@@ -35,9 +35,10 @@ screenshot.
 
 - **What.** `<Flowchart>` is the flowchart in its frame: lanes, states,
   transitions planned and observed, decision triggers, evidence-weighted
-  strokes, the ↻ in-place badge, unresolved ghosts, hover cards, the legend and
-  the minimap, as the east-ui `<Flowchart>` had them. Around it go a library
-  and an inspector, each an optional prop, and drag and drop.
+  strokes, the ↻ in-place badge, unresolved ghosts, the legend and the
+  minimap, as the east-ui `<Flowchart>` had them. Around it go a library, an
+  optional prop, an inspector, on by default, which replaces the hover cards
+  (decision 15), and drag and drop.
 - **Where.** The Flowchart moves to e3 whole. Its wire types, factories, JSX
   tag, examples and skill text go to e3-ui (`libs/east-ui/packages/e3-ui/src/flowchart/`),
   on one carrier, `Flowchart`. Its React renderer, with its DOM tests, goes to
@@ -54,19 +55,21 @@ screenshot.
 - **Draws.** `BuilderFrame`: one toolbar (find state, LR · TD, the slice's rail
   over host data, the history item with Save); the library in the start pane,
   the tabs `library` lists, none when it lists none; the open flow's canvas in
-  main; the inspector (Details · Issues) in the end pane when given
-  `inspector`; the footer's counts.
+  main; the inspector (Details · Issues) in the end pane, on by default and
+  gone for `inspector={false}`; the footer's counts.
 - **Built in.** Undo, redo and discard; Save as one checked commit through the
   record's patch mutation; every canvas gesture as one transaction (a state
   added, edited, moved or deleted; a transition connected, retyped or deleted;
   a lane added, renamed or deleted; a decision edited); drag and drop (a state
   template onto a lane, a transition template onto a transition); the
-  inspector's form for every state, transition, decision and lane. The app wires
-  none of it.
+  inspector's form for every state, transition, decision and lane, several
+  states and the open flow. The app wires none of it.
 - **Keeps.** Everything today's flowchart draws, and its pointer grammar: the
-  dim ladder, hover cards, selection, ⌥-click trace, drag-to-connect from any
-  handle, the `canConnect` veto, the duplicate pulse, cross-lane moves, the
-  "+ STATE" ghost and the inline editor, "+ LANE", LR · TD.
+  dim ladder, selection, ⌥-click trace, drag-to-connect from any handle, the
+  `canConnect` veto, the duplicate pulse, cross-lane moves, the "+ STATE" ghost
+  and the inline editor, "+ LANE", LR · TD. Its hover cards go (decision 15),
+  and a lane's header selects the lane, a double-click renaming it (decision
+  16).
 
 ## 2. Decisions
 
@@ -77,9 +80,11 @@ screenshot.
    parts, exported through `/internal`. As the Sheet's and the Plan's did
    (#1177, #1179).
 2. **One Flowchart, always in its frame**, as `<Sheet>` and `<Plan>` are
-   (#1216, #1191): its library and inspector are optional props, no prop no
-   pane. A flowchart with neither is its toolbar, its canvas and its footer. It
-   fills the box it is given and scrolls its own canvas.
+   (#1216, #1191): its library is an optional prop, no prop no pane, and its
+   inspector is on by default, `inspector={false}` taking it away (decision
+   15). A flowchart with no library and `inspector={false}` is its toolbar, its
+   canvas and its footer. It fills the box it is given and scrolls its own
+   canvas.
 3. **The flows are a record's** (ruled 2026-10-07, "One flow per record
    entry"), and a record always holds `Flowchart.Types.Flows`,
    `Dict<String, Flow>` by name. The user ruled it on 2026-10-07 ("Drop the
@@ -137,6 +142,20 @@ screenshot.
     viewer state, its library's drag-source id and its drop target.
 14. **No new hi-fi mock**: the canvas follows `Flowchart Spec.html` (re-themed,
     decision 9), and the frame, library and inspector the Sheet's.
+15. **The inspector is on by default, and the hover cards go** (ruled by the
+    user on 2026-10-08): every flowchart has the end pane unless
+    `inspector={false}`, as the frame's auto pane — pinned with room, overlaid
+    without. A state's or a transition's fields show as the shared form, and an
+    author's own function overrides it per kind,
+    `inspector={{ state, transition }}`, as the Sheet's own Details (SB58) and
+    a Plan event kind's `inspector` do: `update` writes the edited row back as
+    one transaction. `stateHover`, `linkHover` and `triggerHover` are removed,
+    refused at build with the inspector named as the remedy: the inspector is
+    where details live.
+16. **A lane is selected by its header** (the user, 2026-10-08: "a click on a
+    lane's header selects the lane, and a double-click renames it in place, as
+    a state's double-click opens its editor"). The inspector shows the lane
+    selected, and ⏎ on a lane's card drops onto it (FB34).
 
 ## 2a. Example data idiom
 
@@ -218,8 +237,8 @@ That is a working editor over the record's one flow, which the canvas opens as
 the first by name: "+ LANE", the "+ STATE" ghost, drag to connect,
 double-click to edit, drag across lanes, Del to delete. Every gesture is a
 draft the history item undoes, and Save commits the drafts as one patch
-through `handoverPatch`. It lists no `library` and is given no `inspector`, so
-it has neither pane: the toolbar, the canvas and the footer. A lone flow the
+through `handoverPatch`. It lists no `library`, so it has no library pane; its
+inspector, on by default, shows what is selected (§5.3). A lone flow the
 host holds instead — an `e3.input` of `Flowchart.Types.Flow`, its value written
 with `Flowchart.value` — is `data`, bound with `Data.bind`: read only unless the
 host gives `onApply`.
@@ -228,8 +247,8 @@ host gives `onApply`.
 
 ```tsx
 // depot.tsx
-import { East, StringType, some, variant } from "@elaraai/east";
-import { Reactive, Text, UIComponentType } from "@elaraai/east-ui";
+import { East, some, variant } from "@elaraai/east";
+import { Reactive, UIComponentType } from "@elaraai/east-ui";
 import { Data, Flowchart, Record, ui } from "@elaraai/e3-ui";
 import * as d from "./records.js";
 
@@ -260,8 +279,6 @@ export const depot = ui("depot_flows", [], East.function([], UIComponentType, _$
                         }),
                     }),
                 ]}
-                inspector
-                stateHover={East.function([StringType], UIComponentType, (_$, key) => <Text>{key}</Text>)}
                 name="depot"
             />
         );
@@ -271,7 +288,9 @@ export const depot = ui("depot_flows", [], East.function([], UIComponentType, _$
 
 The Flows tab lists "Inbound parcels", "Returns" and every other flow in the
 record; a click opens one on the canvas, keeping each flow's drafts. "+ New
-flow" asks for a name and opens an empty flow, which Save inserts.
+flow" asks for a name and opens an empty flow, which Save inserts. The
+inspector, on by default, shows what is selected — or, with nothing selected,
+the open flow — through its form (§5.3).
 
 ### 3.4 A flow from the host's tables
 
@@ -312,19 +331,20 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 | `onApply` | `(patch) => Editing.Types.ApplyResult`, async | Over `data`, the host's commit: one patch of the value, as a record's would be — over flows by name, the open flow's insert, update or delete by name, never the whole value replaced. Its answer is Save's. |
 | `flow` | String | Over many flows, the one opened first. A flow opened later, from the Flows tab, takes its place. Refused over one flow (`data` of `Flowchart.Types.Flow`). |
 | `library` | `Flowchart.library.*` calls | The library's tabs, in order (§4.2); left out, or `[]`, no library pane. |
-| `inspector` | `true` | The inspector pane (§9.9); left out, no inspector pane. |
+| `inspector` | `true`, `false`, or `{ state?, transition? }` | The inspector pane (§9.9), on by default: left out, or `true`, it shows; `false` takes it away. `{ state, transition }` gives a state or a transition the author's own Details in place of its form, each an East function over the row and its writer, `($, row, update) => UIComponentType`, `update` writing the edited row back as one transaction (FB45). |
 | `orientation`, `minimap`, `legend`, `density`, `freshness` | as today's | Unchanged. LR · TD is the viewer's, kept under `name`. |
-| `stateHover`, `linkHover`, `triggerHover` | as today's | Unchanged: dev-defined hover cards by key. |
 | `onSelectState`, `onSelectLink`, `onSelectTrigger`, `onTracePath` | as today's | Unchanged: told after the canvas selects. |
 | `canConnect` | as today's | Unchanged: vetoes a pair before the draft snaps. |
 | `slice`, `affordances` | as today's | Over `data` only (§3.4); its rail is toolbar items. |
-| `readOnly` | Boolean | No gesture edits, no drop lands, the inspector shows and edits nothing, the history item is gone. Selection and hover stay. |
+| `readOnly` | Boolean | No gesture edits, no drop lands, the inspector shows every field and edits none (FB38), the history item is gone. Selection and hover stay. |
 | `name` | string | Names the flowchart when a surface holds two (decision 13). |
 
 `linkMode`, `onCreateLink`, `onDeleteLink`, `onAddLane`, `onRenameLane`,
 `onDeleteLane`, `onAddState`, `onEditState`, `onMoveState`, `height` and
 `maxHeight` go (§11): the tag's props type none of them, and each is refused at
-build, naming the remedy (§4.4).
+build, naming the remedy (§4.4). So do `stateHover`, `linkHover` and
+`triggerHover` (decision 15, FB46): the inspector, on by default, shows what is
+selected, and each is refused at build naming it.
 
 ### 4.2 `Flowchart.library`: the library's tabs
 
@@ -383,6 +403,12 @@ Each names the prop and the remedy:
 - a callback today's flowchart took for an edit, or `linkMode` (§4.1, FB24):
   every gesture is a transaction of the editing session, which Save commits —
   through the record's patch mutation, or over `data` the host's `onApply`;
+- a hover card's prop, `stateHover`, `linkHover` or `triggerHover` (FB46): the
+  remedy names the inspector, and for a state's or a transition's
+  `inspector={{ state, transition }}`; an `inspector` that is neither a
+  Boolean nor `{ state, transition }`, or names another key — every other
+  kind's Details are its form — and a kind's own Details that are not an East
+  function over that kind's row and its writer, returning UI (FB45);
 - a record of one flow, `Flowchart.Types.Flow` (decision 3): a record holds
   flows by name, so the remedy is a record of flows with one entry, or the
   flow as `data`;
@@ -432,7 +458,7 @@ parts reuses the parts' interface types.
 
 ```ts
 FlowchartPayloadType = StructType({
-    canvas:    FlowchartCanvasType,                    // today's root, less the tables and the callbacks that go: the drawing options, hover, selection, canConnect, slice
+    canvas:    FlowchartCanvasType,                    // today's root, less the tables, the callbacks and the hover cards that go: the drawing options, selection, canConnect, slice
     source:    VariantType({                           // where the flows come from
         record: StructType({ read, history, commit: StructType({ patch }), apply }),   //   a record of flows by name, bound with its patch: Record.bind's handle, and `apply`, its session's Save — Record.onApply(record, { keyed: true }) over the batch (#1246)
         data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked, and `apply`, its session's Save through the host's onApply (#1247)
@@ -442,7 +468,7 @@ FlowchartPayloadType = StructType({
     }),
     open:      OptionType(StringType),                 // the flow opened first, over many
     library:   ArrayType(FlowchartLibraryTabType),     // the tabs, in order; none, no pane
-    inspector: BooleanType,                            // the end pane
+    inspector: OptionType(FlowchartInspectorType),     // the end pane, on by default; none for inspector={false}
     readOnly:  BooleanType,
     name:      OptionType(StringType),
 });
@@ -455,6 +481,12 @@ FlowchartLibraryTabType = VariantType({
         none: ArrayType(Card), state: ArrayType(StateCard), transition: ArrayType(TransitionCard), lane: ArrayType(LaneCard), decision: ArrayType(DecisionCard),
     }) }),
 });
+
+FlowchartInspectorType = StructType({                  // each kind's own Details, where the author gives them (FB45)
+    state:      OptionType(RowInspectorType),          //   none: the state's form
+    transition: OptionType(RowInspectorType),          //   none: the transition's form
+});
+RowInspectorType = FunctionType([BlobType, FunctionType([BlobType], NullType)], UIComponentType);   // the row as bytes, and its writer, as the Sheet's own Details cross
 
 FlowchartComponent = EastUI.component("Flowchart", FlowchartPayloadType, { optional: true });
 ```
@@ -470,12 +502,22 @@ the record handle crosses as the query builder's `QueriesHandleType` does.
 | A state | `key` (text: a new key rekeys its transitions and the decisions' queues, one transaction), `label`, `lane` (a select over the flow's lanes), `members` (a number, Set and Clear), `notes`. Its transitions in and out, each a link that selects it. Duplicate, Delete. |
 | A transition | `from` and `to` (selects over the flow's states), `kind` (Planned · Observed), `trigger` (a select over the flow's decisions, and none), `key`. Its evidence read only: volume and unit, count, when measured. Delete. |
 | A decision (a diamond) | `key`, `label`, `letter`, `owner`, `queue` (tags over the flow's states), `outcomes`. The transitions it governs, each a link. Delete (cleared from those transitions). |
-| A lane (its header) | `key` (a new key moves its states with it), `label`. Its states' count. Delete, while it holds no state. |
-| Several | Their count; move the states to a lane; delete them. |
-| Nothing | Over many flows, the open flow: its name (a new name renames the flow, one transaction), `description`, Duplicate, Delete. Its counts (lanes, states, transitions planned · observed · unresolved, decisions), the last save and who made it, and three hints. |
+| An end no state stands for (an unresolved transition's) | That it has no state row, and its transitions, each a link. Delete takes them away. |
+| A lane (a click on its header) | `key` (a new key moves its states with it), `label`. Its states' count. Delete, while it holds no state, saying why. |
+| Several (a shift-click puts a state in, or takes it out) | Their count; move the states to a lane; delete them. |
+| Nothing | Over many flows, the open flow: its name (a new name renames the flow, one transaction), `description`, Duplicate, Delete; over one, its `description`. Its counts (lanes, states, transitions planned · observed · unresolved, decisions), over a record the last save and who made it, and three hints. A flow its drafts delete says so. |
+
+A lane is selected by its header, as the user ruled on 2026-10-08: "a click on
+a lane's header selects the lane, and a double-click renames it in place, as a
+state's double-click opens its editor."
 
 Each field is `FieldForm`'s (#1147, #1220): the shared `Field` around the shared
-input its East type takes.
+input its East type takes. A field the drafts changed is tinted against the
+record, and the head's chip says Pending, or New for a row the record holds
+none of. A key or a name left empty, or a name the flowchart holds, is refused,
+the footer saying why. A state's or a transition's own Details, the author's
+(`inspector={{ state, transition }}`), show in place of its form (FB45); read
+only, every field is printed (FB38).
 
 ## 6. What moves
 
@@ -510,8 +552,8 @@ input its East type takes.
 | Toolbar | Every control the flowchart has, as items of the shared `Toolbar` (§7.1). Today's eyebrow becomes these items. |
 | Banners | A Save's conflict and refusal; the record changing under pending drafts; a write whose outcome is unknown; a `flow` the record doesn't hold. |
 | Start pane "Library" | The tabs `library` lists (§9.7); none, no pane. |
-| Main | The open flow's canvas, as today: lanes, states, transitions, diamonds, badges, the legend and the minimap over it, hover cards. Over many flows with none open — an empty record — the shared empty state and "+ New flow". |
-| End pane "Inspector" | Details · Issues (§9.9) when given `inspector`; none, no pane. |
+| Main | The open flow's canvas, as today: lanes, states, transitions, diamonds, badges, the legend and the minimap over it. Over many flows with none open — an empty record — the shared empty state and "+ New flow"; a flow its drafts delete, the shared empty state saying so. |
+| End pane "Inspector" | Details · Issues (§9.9), on by default; `inspector={false}`, no pane. |
 | Footer | Today's counts, prefixed by the open flow's name over many, with the pending changes and, over a record, the last save (`saved 14:02`). |
 
 The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
@@ -534,8 +576,10 @@ target by its box or by its halo (`coarseHitArea`), never by growing the row.
 
 ## 8. Anatomy
 
-- **The canvas** is `Flowchart Spec.html`'s, unchanged: cards 116×40 r6, 7px
-  rings, 12px arrowheads, the dim ladder, the 400ms hover card.
+- **The canvas** is `Flowchart Spec.html`'s, unchanged but for its hover
+  cards, which go: cards 116×40 r6, 7px rings, 12px arrowheads, the dim
+  ladder. A lane its header selects wears a 1.5px brand outline, a decision
+  selected the brand's tint.
 - **The frame, the panes, the library's cards and the inspector** are the
   Sheet's (`Sheet Builder Spec.md` §8): the library 272px and the inspector
   320px open, 44px as rails; each tab a `Library`, its search band 44px; cards
@@ -553,7 +597,8 @@ target by its box or by its halo (`coarseHitArea`), never by growing the row.
   no `drop`.
 - **The inspector**: as the Sheet's, its head naming what is selected in mono
   caps (`STATE · SRT`, `TRANSITION · SRT → LDD`, `DECISION · R`, `LANE ·
-  SORT`).
+  SORT`), each text on a line of its own; collapsed, its rail shows its icon,
+  the issue count and what is selected.
 
 ## 9. Behaviour
 
@@ -596,8 +641,8 @@ has a test there. Today's canvas behaviour keeps holding.
 
 - **FB7.** The flowchart is a `BuilderFrame` wherever it is used: toolbar,
   banners, the library as its start pane when `library` lists tabs, main, the
-  inspector as its end pane when given `inspector`, the footer. It fills its
-  parent and draws no border.
+  inspector as its end pane — on by default, none for `inspector={false}` —
+  the footer. It fills its parent and draws no border.
 - **FB8.** The toolbar is one row of the shared `Toolbar`, its items in §7.1's
   order; the canvas draws no eyebrow of its own.
 - **FB9.** Under width pressure the rail folds first, then the freshness chip,
@@ -608,7 +653,7 @@ has a test there. Today's canvas behaviour keeps holding.
   many flows, with the pending changes and, over a record, the last save. The
   pending changes (`3 pending`), where the flowchart edits, count each lane,
   state, transition and decision the open flow's drafts add, change or remove,
-  and its description when it changes.
+  its description when it changes, and its name when the drafts rename it.
 - **FB11.** The panes are `BuilderFrame`'s, their open tab and collapsed state
   kept under `name`; the canvas scrolls both ways inside main.
 
@@ -650,13 +695,18 @@ has a test there. Today's canvas behaviour keeps holding.
   edited (the inline editor, the inspector), moved across lanes, deleted (Del,
   the inspector) with its transitions; a transition connected, retyped (a
   template drop, the inspector) or deleted; a lane added, renamed, deleted; a
-  decision edited or deleted; a bulk edit; a flow renamed or its description
-  edited. Del deletes what the canvas has selected — a state with its
-  transitions (and from the decisions' queues), a transition, or a decision,
-  cleared from the transitions it governs — heard in the canvas, never in a
-  field being typed into. A gesture names a state by its key, and acts on the
-  state the canvas draws under it, the last of that key: while two share a key,
-  the transitions and queues naming it stay with the other. "+ LANE" adds a
+  decision edited or deleted; a bulk edit; a flow renamed, described,
+  duplicated or deleted. A lane is selected by its header, as the user ruled
+  on 2026-10-08: "a click on a lane's header selects the lane, and a
+  double-click renames it in place, as a state's double-click opens its
+  editor" — the rename one transaction, and nothing in read only. Del deletes
+  what the canvas has selected — a state with its transitions (and from the
+  decisions' queues), several states, a transition, a decision, cleared from
+  the transitions it governs, or a lane that holds no state — heard in the
+  canvas, never in a field being typed into. A gesture names a state by its
+  key, and acts on the state the canvas draws under it, the last of that key:
+  while two share a key, the transitions and queues naming it stay with the
+  other. "+ LANE" adds a
   lane keyed `lane-<n>` and labelled `Lane <n>`, `n` the first number past the
   lanes' count no lane's key takes, as a new flow's one lane is `lane-1`. A
   flow whose last lane is deleted keeps its band row, so "+ LANE" gives it a
@@ -727,9 +777,11 @@ has a test there. Today's canvas behaviour keeps holding.
   transition, a lane's header, a decision's diamond — and sets its fields;
   refused elsewhere, naming where it lands.
 - **FB34.** ⏎ on a card does what a drop on the selection would: a state card
-  adds a state after the selected state in its lane (in the first lane with
-  nothing selected); a transition card retypes the selected transition; an
-  author's card sets its fields on what is selected, when its type fits. Where
+  adds a state after the selected state in its lane, at the end of a selected
+  lane (in the first lane with nothing selected); a transition card retypes
+  the selected transition; an author's card sets its fields on what is
+  selected, when its type fits — a lane's card on the lane its header
+  selected (decision 16). Where
   it would be refused, the footer says why. On a touch screen a tap on a
   selected card does the same, so no edit needs a precise drag.
 
@@ -746,6 +798,16 @@ has a test there. Today's canvas behaviour keeps holding.
   what it names. Two of one key blocks Save; the rest are warnings.
 - **FB38.** Over read-only data or with `readOnly`, Details shows every field
   and edits none.
+- **FB44.** The inspector is on by default (decision 15): every flowchart has
+  the end pane — no prop, or `inspector` — as the frame's auto pane, pinned
+  with room and overlaid without; `inspector={false}` takes it away.
+- **FB45.** `inspector={{ state, transition }}` gives a state or a transition
+  the author's own Details in place of its form: an East function over the row
+  and its writer, `update` writing the edited row back as one transaction of
+  the open flow's session; read only, it writes nothing. Every other kind's
+  Details are its form.
+- **FB46.** The hover cards go: `stateHover`, `linkHover` and `triggerHover`
+  are refused at build, the inspector named as the remedy.
 
 ### 9.10 Showcase and docs (owner: the showcase and docs)
 
@@ -779,6 +841,8 @@ has a test there. Today's canvas behaviour keeps holding.
 | A callback per edit (`onAddState`, `onCreateLink`, …) and `linkMode` | The session, Save through the record, or the host's `onApply` | A host no longer hears each gesture; it commits once. A `connect`-only canvas that reports but never adds is `data` with `onApply`. |
 | Deleting a lane with states, which then fell into the last lane | Refused until its states are moved | No state moves without the planner moving it. |
 | Click-to-drill into a host's `Drawer` | The inspector; `onSelect*` still tells the host | Nothing is lost. |
+| Hover cards by key (`stateHover`, `linkHover`, `triggerHover`) | The inspector, on by default; a state's or a transition's own Details (`inspector={{ state, transition }}`) | A card under the pointer goes: what is selected shows in the pane, its fields editable (decision 15). |
+| A click on a lane's header renames it | A click selects the lane; a double-click renames it in place | The inspector shows a lane, and ⏎ on a lane's card drops onto it (decision 16). |
 | One flowchart | Many flows in a record, one open | New. |
 | No library, no inspector | Flows, state and transition templates from bound data, the author's tabs; Details · Issues | New. |
 
@@ -802,7 +866,7 @@ has a test there. Today's canvas behaviour keeps holding.
 7. Editing, undo and Save (FB17–FB24, #1247).
 8. The library: state and transition templates, the author's tabs (FB25–FB29, #1248).
 9. Drag and drop (FB30–FB34, #1249).
-10. The inspector (FB35–FB38, #1250).
+10. The inspector (FB35–FB38, FB44–FB46, #1250).
 11. The showcase on e3-web, the examples, the skill (FB39–FB41, #1251).
 
 The frame, the Flows tab, the editing, the library and the inspector are pushed

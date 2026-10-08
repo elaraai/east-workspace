@@ -11,8 +11,12 @@
  * bands, node cards, H/V links), scrolling both ways in its own box; and the
  * 38px derived-count footer in the frame's footer, its rule its own. Node
  * cards are 116×40 r6
- * with a mono 12/700 code line and a 10.5px muted label; the hover-card SHELL
- * is paper / rule-strong / r6, with no shadow (its body is dev-defined UI).
+ * with a mono 12/700 code line and a 10.5px muted label. It has no hover card
+ * (#1250): the inspector (`flowchartInspector`) shows what is selected. The
+ * selection (#1250) is marked here: a selected state's card and ↻ badge in
+ * the brand's rule, a selected decision's diamond in the brand's tint and a
+ * heavier rule, and a selected lane — a click on its header — ringed inside
+ * its band, the ring under the states and the transitions' hit paths.
  * The Flows tab (#1246) is the shared `library` recipe's cards over a foot
  * holding "+ New flow" — the Library's own foot and add action, its plus a
  * Font Awesome icon, a 44px target on a coarse pointer by its halo, which the
@@ -43,13 +47,12 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "root", "freshnessDot",
         "body", "scroll", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
-        "laneDelete", "addLane",
+        "laneDelete", "addLane", "laneSelected",
         "stateGhost", "stateEditor", "moveClone",
         "dropLane", "dropSeam",
         "legend", "legendTitle", "legendRow",
         "minimap",
         "footer", "footerFlow", "footerStrong", "footerNeg", "footerMessage", "footerSplit",
-        "hoverCard",
         "flowsTab", "flowsList", "flowsFoot", "newFlow", "noFlows",
     ],
     base: {
@@ -127,6 +130,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             [`&${TAKEN} [data-flowchart-dropwash]`]: { display: "inline" },
             /* The decision a card sets takes the brand: its diamond's fill tinted, its rule the brand's. */
             [`&${TAKEN} [data-flowchart-trigger][data-drop-target] > rect`]: { fill: "brandTint", strokeWidth: "2px" },
+            /* The decision selected (#1250): its diamond's fill tinted, its rule heavier — the inspector shows it. */
+            "& [data-flowchart-trigger][data-selected] > rect": { fill: "brandTint", strokeWidth: "2.4px" },
         },
 
         /* ── node cards — 116×40, r6, mono code + muted label ─────────── */
@@ -254,6 +259,18 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "& svg": { fontSize: "12px" },
             _hover: { borderColor: "brand.600", color: "fg.muted" },
             "&[data-orientation='TD']": { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingTop: "0" },
+        },
+        /* The lane selected (#1250) — a click on its header: its band ringed
+         * in the brand's rule just inside its edge, solid where a drop's lane
+         * is dashed, and no wash; under the states, and never a pointer's. */
+        laneSelected: {
+            position: "absolute",
+            boxSizing: "border-box",
+            pointerEvents: "none",
+            outlineWidth: "1.5px",
+            outlineStyle: "solid",
+            outlineColor: "brand.solid",
+            outlineOffset: "-2px",
         },
 
         /* ── "+ STATE" ghost + inline node editor + move clone ────────── */
@@ -424,23 +441,6 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         /* Why a card's ⏎ was refused (#1249): the footer's own ink, cut short before the split. */
         footerMessage: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },
-
-        /* ── hover card — paper · rule-strong · r6, no shadow ─────────── */
-        /* Hover-card SHELL — paper · rule-strong · r6 (the design system
-         * shadows nothing but the focus ring); the BODY is dev-defined UI
-         * (stateHover / linkHover / triggerHover builders). */
-        hoverCard: {
-            position: "absolute",
-            zIndex: 10,
-            minWidth: "180px",
-            maxWidth: "320px",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "6px",
-            padding: "10px 12px",
-            pointerEvents: "auto",
-        },
 
         /* ── the Flows tab — its cards, and "+ New flow" under them (#1246) ── */
         /* The tab's body: the cards filling the pane, the foot under them. */

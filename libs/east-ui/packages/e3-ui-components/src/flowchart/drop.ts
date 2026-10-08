@@ -29,9 +29,11 @@
  *   in red — anywhere but what the card lands on, and over a flowchart that
  *   edits nothing.
  * - **⏎ on a card** ({@link enterAt}): a drop on the canvas's selection
- *   (FB34) — a state template after the selected state, in its lane, or at the
- *   end of the first lane with no state selected; any other card on what is
- *   selected, when that is what it lands on.
+ *   (FB34) — a state template after the selected state, in its lane, at the
+ *   end of the selected lane (#1250), or at the end of the first lane with
+ *   neither selected; any other card on what is selected, when that is what
+ *   it lands on — a lane's card on the lane a click on its header selected
+ *   (#1250).
  * - **Its words** ({@link dropCaption}, {@link dropName}, {@link dropRefusal},
  *   {@link dropLabel}) and **its marks** ({@link markOf}): the lane it lands
  *   in and the row, or what it sets its fields on.
@@ -49,6 +51,7 @@ import {
 import { NODE_H, NODE_W, type FlowchartLayout, type Pt, type RouteSeg } from "./layout.js";
 import type { FlowchartDropPlaceWord, FlowchartDropRefusalWord, FlowchartDropWhatWord, FlowchartLandsWord, FlowchartMessages } from "./messages.js";
 import type { FlowchartFlowValue, FlowchartLaneValue, FlowchartModel, FlowchartStateValue, FlowchartValue } from "./model.js";
+import type { FlowchartSelection } from "./selection.js";
 
 const keyEqual = equalFor(StringType);
 
@@ -461,21 +464,14 @@ export function dropFlow(flow: FlowchartFlowValue, plan: FlowchartDropPlan): Flo
 
 // ── ⏎ on a card ───────────────────────────────────────────────────────────
 
-/** What the canvas has selected: a state, a transition or a decision, by its key. */
-export interface FlowchartSelection {
-    /** What it is. */
-    readonly kind: "state" | "link" | "trigger";
-    /** Its key: a transition's the one it goes by. */
-    readonly key: string;
-}
-
 /**
  * Where ⏎ on a card drops it (FB34): on the canvas's selection. A state
  * template lands after the selected state, in the lane the canvas draws it
- * in — with no state selected, at the end of the first lane; any other card
- * on the selected state, transition or decision when it lands on that; a
- * lane's card on no selection the canvas makes. A selection the flow no
- * longer holds is none.
+ * in; with a lane selected (#1250), at the end of that lane; with neither, at
+ * the end of the first lane. Any other card lands on the selected state,
+ * transition, decision or lane when it lands on that — a lane's card on the
+ * lane a click on its header selected (#1250). Several states selected are
+ * none of these, and a selection the flow no longer holds is none.
  *
  * @param lands - What the card lands on
  * @param selection - What the canvas has selected
@@ -484,7 +480,8 @@ export interface FlowchartSelection {
  */
 export function enterAt(lands: FlowchartLands, selection: FlowchartSelection | null, flow: FlowchartFlowValue | undefined): FlowchartDropAt {
     if (flow === undefined) return ON_CANVAS;
-    const picked = (kind: FlowchartSelection["kind"]): string | undefined => (selection !== null && selection.kind === kind ? selection.key : undefined);
+    const picked = (kind: "state" | "link" | "trigger" | "lane"): string | undefined =>
+        (selection !== null && selection.kind !== "states" && selection.kind === kind ? selection.key : undefined);
     switch (lands) {
         case "lane": {
             const lanes = drawnLanes(flow);
@@ -499,10 +496,12 @@ export function enterAt(lands: FlowchartLands, selection: FlowchartSelection | n
                 const row = flow.states.slice(0, at).filter((s) => lanes.of(s) === lanes.of(state)).length + 1;
                 return variant("lane", { lane: lane.key, row: BigInt(row) });
             }
-            const first = flow.lanes[0];
-            if (first === undefined) return ON_CANVAS;
-            const li = lanes.lane(first.key);
-            return variant("lane", { lane: first.key, row: BigInt(flow.states.filter((s) => lanes.of(s) === li).length) });
+            // The selected lane, or else the first: at its end.
+            const chosen = picked("lane");
+            const target = (chosen === undefined ? undefined : flow.lanes.find((l) => keyEqual(l.key, chosen))) ?? flow.lanes[0];
+            if (target === undefined) return ON_CANVAS;
+            const li = lanes.lane(target.key);
+            return variant("lane", { lane: target.key, row: BigInt(flow.states.filter((s) => lanes.of(s) === li).length) });
         }
         case "state": {
             const key = picked("state");
@@ -516,7 +515,10 @@ export function enterAt(lands: FlowchartLands, selection: FlowchartSelection | n
             const key = picked("trigger");
             return key !== undefined && flow.triggers.some((t) => keyEqual(t.key, key)) ? variant("decision", key) : ON_CANVAS;
         }
-        case "header": return ON_CANVAS;
+        case "header": {
+            const key = picked("lane");
+            return key !== undefined && flow.lanes.some((l) => keyEqual(l.key, key)) ? variant("header", key) : ON_CANVAS;
+        }
     }
 }
 

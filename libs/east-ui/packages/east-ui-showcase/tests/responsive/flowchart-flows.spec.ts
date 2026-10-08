@@ -12,8 +12,9 @@
  * pane with its flow's icon, the open flow's placed, nothing past the pane's
  * edge and no border of the tab's own. At the desktop width the pane is
  * pinned open beside the canvas; on a phone it opens from its rail — which
- * counts the flows — over main, and there "+ New flow" is a 44px tap target
- * by its halo, whole inside the foot. In both themes. Over the record the toolbar ends with the history
+ * counts the flows — over main, as wide as the frame leaves it beside the
+ * inspector's rail (#1250) and the scrim's strip, and there "+ New flow" is a
+ * 44px tap target by its halo, whole inside the foot. In both themes. Over the record the toolbar ends with the history
  * item, which folds last: one row at every width from 1440px to 300px. And a
  * new flow made in the tab is committed to the e3 the page runs: named in its
  * popover — a name the record holds refused there — it opens with its one
@@ -26,7 +27,10 @@
  * plus beside its word — no `+` or `×` drawn as text. A gesture there is a
  * draft of the e3 the page runs: ⌘Z undoes it and ⇧⌘Z redoes it from the
  * canvas, the footer counts it, and Save commits it through the record's
- * patch mutation. The library's other tabs (#1248), on the depot's flows with
+ * patch mutation. A click on a lane's header selects the lane (#1250), its band
+ * ringed 1.5px in the brand inside its edge, and a double-click renames it in
+ * place; a decision selected takes the brand's tint, its rule 2.4px. The
+ * library's other tabs (#1248), on the depot's flows with
  * its library: the tabs `library` lists — the Flows tab, the step types, the
  * transition types and the author's owners — in its order with their counts,
  * folded to fit the pane's row, every tab on the row or in its `+n` menu and
@@ -49,6 +53,17 @@ const LADDER = "orientation>1 seek>1 history>1";
 
 /** The library pane's width open (§8). */
 const PANE = 272;
+/** On a phone, what the frame keeps beside the pane open over main: the inspector's rail on the other side (#1250) and the scrim's strip. */
+const RAIL = 44;
+const SCRIM = 48;
+
+/** The library pane's width open over main on a phone: its own, or what the frame leaves it beside the inspector's rail and the scrim. */
+function phonePane(root: Locator): Promise<number> {
+    return root.evaluate((el, [pane, rail, scrim]) => {
+        const frame = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
+        return Math.min(pane!, Math.round((frame.width - rail! - scrim!) * 10) / 10);
+    }, [PANE, RAIL, SCRIM]);
+}
 
 /** Open the depot's flows, at rest, and return the flowchart's root: the box its frame fills. */
 async function openFlows(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
@@ -342,6 +357,65 @@ test.describe("The Flowchart's Flows tab (#1246)", () => {
         });
     }
 
+    for (const theme of ["light", "dark"] as const) {
+        test(`a click on a lane's header selects the lane — its band ringed 1.5px in the brand, inside its edge — and a double-click renames it in place; a decision selected takes the brand's tint, its rule 2.4px (#1250) (${theme})`, async ({ page }) => {
+            const root = await openFlows(page, theme);
+            await sizeTo(page, root, 1200);
+            await root.locator("[data-flowchart-lane='sort']").click();
+            await expect(root.locator("[data-flowchart-lane-selected='sort']")).toBeVisible();
+            const ring = await root.evaluate((el) => {
+                const round = (n: number) => Math.round(n * 10) / 10;
+                // The brand's ink, and a 1.5px rule as this screen draws it: a width snaps to its device pixels.
+                const probe = document.createElement("div");
+                probe.style.color = "var(--chakra-colors-brand-solid)";
+                probe.style.outline = "1.5px solid";
+                document.body.appendChild(probe);
+                const brand = getComputedStyle(probe).color;
+                const rule = getComputedStyle(probe).outlineWidth;
+                probe.remove();
+                const mark = el.querySelector("[data-flowchart-lane-selected='sort']")!;
+                const s = getComputedStyle(mark);
+                const r = mark.getBoundingClientRect();
+                // The lane's band: its header's strip runs its width, from its edge.
+                const head = el.querySelector("[data-flowchart-lane-head='sort'] > rect")!.getBoundingClientRect();
+                const canvas = el.querySelector("[data-flowchart-canvas]")!.getBoundingClientRect();
+                return {
+                    outline: [s.outlineWidth, s.outlineStyle, s.outlineColor, s.outlineOffset],
+                    brand,
+                    rule,
+                    pointer: s.pointerEvents,
+                    // Its band: the header's left and width, top to the canvas's foot.
+                    band: [r.left - head.left, r.top - head.top, r.width - head.width, r.bottom - canvas.bottom].map(round),
+                };
+            });
+            expect(ring.outline).toEqual([ring.rule, "solid", ring.brand, "-2px"]);
+            expect([ring.pointer, ring.band]).toEqual(["none", [0, 0, 0, 0]]);
+            // The inspector shows the lane.
+            await expect(root.locator("[data-frame-slot='end'] [data-flowchart-inspector='lane']")).toBeVisible();
+            // A double-click renames it in place, one draft.
+            await root.locator("[data-flowchart-lane='sort']").dblclick();
+            const edit = root.locator("[data-flowchart-lane-edit]");
+            await expect(edit).toBeFocused();
+            await edit.fill("Sorting");
+            await edit.press("Enter");
+            await expect.poll(() => root.locator("[data-flowchart-lane]").allTextContents()).toEqual(["INTAKE", "SORTING", "LOAD"]);
+            await expect(root.locator("[data-flowchart-pending]")).toHaveText(" · 1 pending");
+            // A decision selected: its diamond in the brand's tint, its rule 2.4px.
+            await root.locator("[data-flowchart-trigger='route']").click();
+            await expect(root.locator("[data-flowchart-trigger='route']")).toHaveAttribute("data-selected", "");
+            const diamond = await root.locator("[data-flowchart-trigger='route'] > rect").evaluate((rect) => {
+                const probe = document.createElement("div");
+                probe.style.color = "var(--chakra-colors-brand-tint)";
+                document.body.appendChild(probe);
+                const tint = getComputedStyle(probe).color;
+                probe.remove();
+                const s = getComputedStyle(rect);
+                return { tinted: s.fill === tint, rule: s.strokeWidth };
+            });
+            expect(diamond).toEqual({ tinted: true, rule: "2.4px" });
+        });
+    }
+
     test("a gesture is a draft of the e3 the page runs: ⌘Z undoes it and ⇧⌘Z redoes it from the canvas, the footer counts it, and Save commits it through the record's patch mutation", async ({ page }) => {
         const root = await openFlows(page);
         await sizeTo(page, root, 1200);
@@ -423,7 +497,9 @@ test.describe("The Flowchart's Flows tab on a phone (#1246)", () => {
                 .evaluate((rail) => [...rail.children].map((part) => part.textContent))).toEqual(["", "2", "Library"]);
             await root.getByRole("button", { name: "Expand Library" }).click();
             await settled(page);
-            await expect.poll(async () => { const read = await flowsTabOf(root); return [read.mode, read.sheet]; }).toEqual(["overlay", PANE]);
+            const pane = await phonePane(root);
+            expect(pane, "the phone's frame leaves the pane less than its own width").toBeLessThan(PANE);
+            await expect.poll(async () => { const read = await flowsTabOf(root); return [read.mode, read.sheet]; }).toEqual(["overlay", pane]);
             // On a coarse pointer the foot is as tall as the button's halo and its rule.
             expectFlowsTab(await flowsTabOf(root), 45);
             // A tap 21px above or below its middle, or 2px inside either end, lands on it.
@@ -613,7 +689,8 @@ test.describe("The Flowchart's library on a phone (#1248)", () => {
                 .evaluate((rail) => [...rail.children].map((part) => part.textContent))).toEqual(["", "2", "Library"]);
             await root.getByRole("button", { name: "Expand Library" }).click();
             await settled(page);
-            await expect.poll(async () => (await libraryOf(root)).mode).toBe("overlay");
+            const pane = await phonePane(root);
+            await expect.poll(async () => { const read = await libraryOf(root); return [read.mode, read.sheet]; }).toEqual(["overlay", pane]);
             await expectEveryTab(page, root);
         });
     }

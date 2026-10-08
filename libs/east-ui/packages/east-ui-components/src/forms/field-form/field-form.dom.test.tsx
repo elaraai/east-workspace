@@ -12,8 +12,8 @@
  * host dropping it; a choice an edit at once; an Option's Set and Clear; a
  * checklist's items; the tint of a changed field; read-only, every value
  * printed. And (#1188) a field with no value yet, a date's precision, and a
- * control the host draws itself. Every value handed back is asserted with
- * East's `equalFor`.
+ * control the host draws itself; and (#1250) a text's control titled with its
+ * whole text. Every value handed back is asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -511,6 +511,41 @@ describe("FieldForm — one column: each field's control on its line, an Option'
         const site = screen.getByRole("group", { name: "Site" });
         expect(site.children[0]!.textContent).toBe("Site");
         expect([...site.children[1]!.querySelectorAll("[data-field]")].map((f) => f.getAttribute("data-field"))).toEqual(["site.room", "site.floor"]);
+    });
+});
+
+describe("FieldForm — a text longer than its box (#1250)", () => {
+    /** The title of a field's control: the whole text its box holds, where the box may cut it short. */
+    const titleOf = (field: (key: string) => HTMLElement, key: string) => field(key).querySelector("[data-field-line] > :first-child")!.getAttribute("title");
+
+    test("a text's control carries its whole text as its title, the title following each edit; an empty text, a number and a choice none", async () => {
+        const { field } = mount();
+        expect(titleOf(field, "task")).toBe("Hang doors");
+        expect(titleOf(field, "site.room")).toBe("Workshop");
+        for (const key of ["note", "crew", "status", "bench", "finishes"]) expect(titleOf(field, key), key).toBeNull();
+        const user = userEvent.setup();
+        const input = within(field("task")).getByRole("textbox");
+        await user.clear(input);
+        await user.type(input, "Hang the doors, then fit their frames and hinges{Enter}");
+        await settle();
+        expect(titleOf(field, "task")).toBe("Hang the doors, then fit their frames and hinges");
+    });
+
+    test("a value printed carries its words as its title, read only and in a read-only field alike; the host's own control none", () => {
+        const { field } = mount({ readOnly: true });
+        const words = formatters(LOCALE);
+        expect(["task", "crew", "due", "status", "bench", "stock"].map((key) => titleOf(field, key)))
+            .toEqual(["Hang doors", "4", words.dateTime(JOB.due), "Planned", "Bench 2", printFor(DictType(StringType, IntegerType))(JOB.stock)]);
+        cleanup();
+        const own = render(
+            <ChakraProvider value={system}><I18nProvider locale={LOCALE}>
+                <FieldForm specs={SPECS} value={JOB} options={BENCHES} onChange={() => {}}
+                    renderControl={(spec) => (spec.path[0] === "steps" ? <span>2 steps</span> : undefined)} />
+            </I18nProvider></ChakraProvider>,
+        );
+        const ownField = (key: string) => own.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        expect(titleOf(ownField, "steps")).toBeNull();
+        expect(titleOf(ownField, "stock")).toBe(printFor(DictType(StringType, IntegerType))(JOB.stock));
     });
 });
 

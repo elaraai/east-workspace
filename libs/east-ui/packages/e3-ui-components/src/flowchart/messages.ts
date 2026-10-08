@@ -4,14 +4,17 @@
  */
 
 /**
- * The Flowchart's words (#1246–#1249) — its Flows tab's, its "+ New flow"
+ * The Flowchart's words (#1246–#1250) — its Flows tab's, its "+ New flow"
  * popover's, its empty state's and its banner's; its gestures' — "+ LANE", a
  * lane's ×, the "+ STATE" ghost, each gesture's name in the history, the
  * issue two of one key raise — its footer's changes waiting on Save, its
  * library pane's — the pane's name, a template tab's name when its author
  * gives none, each data tab's empty state, its search's noun and its grouping
- * — and its drops' (#1249): where a card lands, what it sets its fields on,
- * why it is refused, and a drop's name in the history — beside the editing
+ * — its drops' (#1249): where a card lands, what it sets its fields on, why
+ * it is refused, and a drop's name in the history — and its inspector's
+ * (#1250): the pane and its tabs, what it shows in its head and on its rail,
+ * each field's label and help line, its sections, chips, gestures, counts and
+ * hints, why an edit is refused, and each issue's words — beside the editing
  * session's own (`EditingMessages`), which its history item and banners
  * speak, as the Sheet's and the query builder's tables carry them. A host
  * translates the flowchart where it translates the session.
@@ -22,6 +25,7 @@
 import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
 import type { FlowKeyKind, FlowchartEdit } from "./edits.js";
+import type { FlowchartIssueWord } from "./issues.js";
 
 /** A count as a message takes it: the number, for its plural, and the number as the locale prints it. */
 export interface FlowchartCount {
@@ -53,6 +57,33 @@ export type FlowchartDropWhatWord =
 export type FlowchartDropRefusalWord =
     | { readonly why: "onto"; readonly lands: FlowchartLandsWord }
     | { readonly why: "readOnly" | "busy" | "noFlow" };
+
+/** What the inspector shows (#1250): in its head, on its rail, and where an issue is. */
+export type FlowchartInspectWord =
+    | { readonly what: "state"; readonly key: string }
+    | { readonly what: "transition"; readonly from: string; readonly to: string }
+    | { readonly what: "decision"; readonly letter: string }
+    | { readonly what: "lane"; readonly label: string }
+    | { readonly what: "states"; readonly n: number; readonly count: string }
+    | { readonly what: "flow" };
+
+/** A field the inspector's form shows (#1250), by its name: a state's, a transition's, a decision's, a lane's, the flow's, a transition's evidence's, and the several states' lane. */
+export type FlowchartFieldWord =
+    | "key" | "label" | "lane" | "members" | "notes"
+    | "from" | "to" | "kind" | "trigger"
+    | "letter" | "owner" | "queue" | "outcomes"
+    | "name" | "description"
+    | "volume" | "count" | "measured"
+    | "moveTo";
+
+/** A field's line under it (#1250): what a new key, a new name, or a change of it does. */
+export type FlowchartHelpWord = "stateKey" | "laneKey" | "decisionKey" | "linkKey" | "flowName" | "moveTo";
+
+/** Why an inspector's edit is refused (#1250), in the footer: a key or a name left empty, or a name the flowchart holds already. */
+export type FlowchartRefusedWord =
+    | { readonly why: "emptyKey"; readonly what: FlowKeyKind }
+    | { readonly why: "emptyName" }
+    | { readonly why: "nameTaken"; readonly name: string };
 
 /** The Flowchart's message table: its own words, and the editing session's. */
 export interface FlowchartMessages extends EditingMessages {
@@ -130,6 +161,52 @@ export interface FlowchartMessages extends EditingMessages {
     dropCanvas: () => string;
     /** A drop's name in the history, and its Save's (#1249) — `Drop Held on Sort, after CH*`. */
     dropLabel: (p: { card: string; onto: string }) => string;
+    /** The inspector pane's name: its rail's label and its toggle's words (#1250). */
+    inspectorPane: () => string;
+    /** The inspector's tabs (FB35): `Details`, `Issues`. */
+    inspectorTab: (p: { tab: "details" | "issues" }) => string;
+    /** What the inspector shows, in its head and on its rail — `State · SRT`, `Transition · SRT → LDD`, `Decision · R`, `Lane · Sort`, `3 states`, `Flow`. */
+    inspectorWhat: (p: FlowchartInspectWord) => string;
+    /** A field's label in the inspector's form — `Key`, `Lane`, `Decision`. */
+    inspectorField: (p: { field: FlowchartFieldWord }) => string;
+    /** A field's line under it — `A new key moves its states with it.` */
+    inspectorHelp: (p: { help: FlowchartHelpWord }) => string;
+    /** A transition's kind, in its select: `Planned`, `Observed`. */
+    kindLabel: (p: { kind: "planned" | "observed" }) => string;
+    /** A transition's decision when it has none, first in its select. */
+    noDecision: () => string;
+    /** A section's head in Details — `Transitions · 3`, `Evidence`. */
+    inspectorSection: (p: { section: "transitions" | "governs" | "evidence"; n: number; count: string }) => string;
+    /** A transition's line under its ends in a list — `observed · route`, `unresolved`. */
+    inspectorLinkKind: (p: { kind: "planned" | "observed" | "unresolved"; decision: string | undefined }) => string;
+    /** A row's chip in its head: drafted since the record held it, new, a flow drafted as deleted, a state no row stands for. */
+    inspectorChip: (p: { state: "pending" | "new" | "deleted" | "noRow" }) => string;
+    /** A gesture's button in Details — `Duplicate`, `Delete`. */
+    inspectorAction: (p: { action: "duplicate" | "delete" }) => string;
+    /** How many states a lane holds — `Holds 3 states`. */
+    inspectorLaneStates: (p: { n: number; count: string }) => string;
+    /** A state no row of the flow stands for — `Named by 2 transitions, and the flow has no state of this key`. */
+    inspectorNoRow: (p: { n: number; count: string }) => string;
+    /** What one of the open flow's counts counts — `Lanes`, `States`, `Transitions`, `Decisions`. */
+    inspectorCount: (p: { what: "lanes" | "states" | "transitions" | "decisions"; n: number }) => string;
+    /** The open flow's transitions, split — `8 planned · 2 observed · 1 unresolved`; the counts printed in the app's locale. */
+    inspectorSplit: (p: { planned: string; observed: string; unresolved: string }) => string;
+    /** A record's last save, and who made it — `Saved 14:02 by planner`; `Not saved yet` with none. */
+    inspectorSaved: (p: { when: string | undefined; by: string | undefined }) => string;
+    /** One of the three hints nothing selected shows. */
+    inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
+    /** The Issues tab with none: its title, and the line under it. */
+    inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
+    /** An issue of the open flow (FB37) — `SCN → GONE names GONE, which the flow has no state of`. */
+    issueText: (p: FlowchartIssueWord) => string;
+    /** Details with no flow open: its title, and the line under it. */
+    inspectorNoFlow: (p: { part: "title" | "hint" }) => string;
+    /** A flow drafted as deleted, in main and in Details: its title — `Returns is deleted` — and the line under it. */
+    flowDeleted: (p: { part: "title" | "hint"; name: string }) => string;
+    /** A duplicated flow's name — `Inbound parcels copy`, `Inbound parcels copy 2`. */
+    flowCopy: (p: { name: string; n: number }) => string;
+    /** Why an inspector's edit was refused, in the footer — `A state needs a key`, `Returns is already a flow here`. */
+    inspectorRefused: (p: FlowchartRefusedWord) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -142,14 +219,54 @@ const EDIT_LABELS: { readonly [E in FlowchartEdit]: string } = {
     addLane: "Add lane",
     renameLane: "Rename lane",
     deleteLane: "Delete lane",
+    editLane: "Edit lane",
     addState: "Add state",
     editState: "Edit state",
     moveState: "Move state",
     deleteState: "Delete state",
+    duplicateState: "Duplicate state",
+    moveStates: "Move states",
+    deleteStates: "Delete states",
     connect: "Connect states",
     deleteLink: "Delete transition",
+    editTransition: "Edit transition",
     deleteDecision: "Delete decision",
+    editDecision: "Edit decision",
+    renameFlow: "Rename flow",
+    describeFlow: "Describe flow",
+    duplicateFlow: "Duplicate flow",
+    deleteFlow: "Delete flow",
 };
+
+/** Each field's label in the inspector's form. */
+const FIELDS: { readonly [F in FlowchartFieldWord]: string } = {
+    key: "Key", label: "Label", lane: "Lane", members: "Members", notes: "Notes",
+    from: "From", to: "To", kind: "Kind", trigger: "Decision",
+    letter: "Letter", owner: "Owner", queue: "Queue", outcomes: "Outcomes",
+    name: "Name", description: "Description",
+    volume: "Volume", count: "Count", measured: "Measured",
+    moveTo: "Move to lane",
+};
+
+/** Each field's line under it. */
+const HELPS: { readonly [H in FlowchartHelpWord]: string } = {
+    stateKey: "A new key renames it on its transitions and the decisions' queues.",
+    laneKey: "A new key moves its states with it.",
+    decisionKey: "A new key renames it on the transitions it governs.",
+    linkKey: "Left empty, it goes by its ends.",
+    flowName: "A new name renames the flow when it is saved.",
+    moveTo: "Every state selected moves to the lane.",
+};
+
+/** The three hints nothing selected shows. */
+const HINTS = {
+    1: "Click a state, a transition, a decision or a lane's header to see its details here.",
+    2: "Shift-click states to select several, and move or delete them together.",
+    3: "Double-click a state or a lane's header to rename it where it stands.",
+} as const;
+
+/** What a row of each kind is called, one of them. */
+const ROW: { readonly [K in FlowKeyKind]: string } = { lane: "lane", state: "state", transition: "transition", decision: "decision" };
 
 /** What each kind of row is called, many of them. */
 const ROWS: { readonly [K in FlowKeyKind]: string } = { lane: "lanes", state: "states", transition: "transitions", decision: "decisions" };
@@ -215,6 +332,51 @@ export const flowchartMessages: FlowchartMessages = {
     dropRefused: (p) => (p.why === "onto" ? `Drop onto ${LANDS[p.lands]}` : REFUSED[p.why]),
     dropCanvas: () => "the canvas",
     dropLabel: ({ card, onto }) => `Drop ${card} on ${onto}`,
+    inspectorPane: () => "Inspector",
+    inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
+    inspectorWhat: (p) => {
+        switch (p.what) {
+            case "state": return `State · ${p.key}`;
+            case "transition": return `Transition · ${p.from} → ${p.to}`;
+            case "decision": return `Decision · ${p.letter}`;
+            case "lane": return `Lane · ${p.label}`;
+            case "states": return `${p.count} ${plural(p.n, "state", "states")}`;
+            case "flow": return "Flow";
+        }
+    },
+    inspectorField: ({ field }) => FIELDS[field],
+    inspectorHelp: ({ help }) => HELPS[help],
+    kindLabel: ({ kind }) => (kind === "planned" ? "Planned" : "Observed"),
+    noDecision: () => "No decision",
+    inspectorSection: ({ section, count }) => (section === "evidence" ? "Evidence"
+        : section === "transitions" ? `Transitions · ${count}` : `Transitions it governs · ${count}`),
+    inspectorLinkKind: ({ kind, decision }) => (decision === undefined ? kind : `${kind} · ${decision}`),
+    inspectorChip: ({ state }) => ({ pending: "Pending", new: "New", deleted: "Deleted", noRow: "No state row" })[state],
+    inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
+    inspectorLaneStates: ({ n, count }) => (n === 0 ? "Holds no state" : `Holds ${count} ${plural(n, "state", "states")}`),
+    inspectorNoRow: ({ n, count }) => `Named by ${count} ${plural(n, "transition", "transitions")}, and the flow has no state of this key`,
+    inspectorCount: ({ what, n }) => ({
+        lanes: plural(n, "Lane", "Lanes"), states: plural(n, "State", "States"),
+        transitions: plural(n, "Transition", "Transitions"), decisions: plural(n, "Decision", "Decisions"),
+    })[what],
+    inspectorSplit: ({ planned, observed, unresolved }) => `${planned} planned · ${observed} observed · ${unresolved} unresolved`,
+    inspectorSaved: ({ when, by }) => (when === undefined ? "Not saved yet" : by === undefined ? `Saved ${when}` : `Saved ${when} by ${by}`),
+    inspectorHint: ({ n }) => HINTS[n],
+    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every transition, state and decision of the flow resolves."),
+    issueText: (p) => {
+        switch (p.issue) {
+            case "duplicate": return `Two ${ROWS[p.what]} are keyed ${quoted(p.key)}`;
+            case "lane": return `${p.state} names the lane ${p.lane}, which the flow has none of`;
+            case "end": return `${p.from} → ${p.to} names ${p.missing.join(" and ")}, which the flow has no state of`;
+            case "queue": return `${p.decision}'s queue names ${p.state}, which the flow has no state of`;
+            case "save": return p.message;
+        }
+    },
+    inspectorNoFlow: ({ part }) => (part === "title" ? "No flow is open" : "Open a flow in the Flows tab, or start one."),
+    flowDeleted: ({ part, name }) => (part === "title" ? `${name} is deleted` : "Save removes it; Undo brings it back."),
+    flowCopy: ({ name, n }) => (n === 1 ? `${name} copy` : `${name} copy ${n}`),
+    inspectorRefused: (p) => (p.why === "emptyKey" ? `A ${ROW[p.what]} needs a key`
+        : p.why === "emptyName" ? "A flow needs a name" : `${p.name} is already a flow here`),
 };
 
 /** The words a flowchart speaks: its message table, and its locale's formatters. */

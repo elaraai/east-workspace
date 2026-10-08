@@ -33,11 +33,12 @@ import { useDragTarget, type DragEventValue, type DragPayload, type DragTargetCo
 import type { flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
     cardOf, dropCaption, dropFlow, dropHostOf, dropLabel, dropName, dropRefusal, enterAt, planDrop, readDropAt,
-    type FlowchartCanvasDrop, type FlowchartDropAt, type FlowchartDropCard, type FlowchartDropPlan, type FlowchartSelection,
+    type FlowchartCanvasDrop, type FlowchartDropAt, type FlowchartDropCard, type FlowchartDropPlan,
 } from "./drop.js";
 import { flowchartLibraryId, flowchartTabKey } from "./library.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartFlowValue, FlowchartValue } from "./model.js";
+import type { FlowchartSelection } from "./selection.js";
 
 /** The names a flowchart keeps its viewer's state under. */
 type FlowchartKeys = ReturnType<typeof flowchartKeys>;

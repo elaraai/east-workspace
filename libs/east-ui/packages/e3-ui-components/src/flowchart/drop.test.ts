@@ -299,11 +299,15 @@ describe("a drop is refused, in its words (FB31–FB33)", () => {
 // ============================================================================
 
 describe("⏎ on a card is a drop on the canvas's selection (FB34)", () => {
-    test("a state card: after the selected state, in its lane; with no state selected, at the end of the first lane", () => {
+    test("a state card: after the selected state, in its lane; with a lane selected, at the end of that lane (#1250); with neither, at the end of the first lane", () => {
         expect(atText(enterAt("lane", { kind: "state", key: "ARV" }, INBOUND))).toBe(atText(lane("intake", 1)));
         expect(atText(enterAt("lane", { kind: "state", key: "SCN" }, INBOUND))).toBe(atText(lane("intake", 2)));
         expect(atText(enterAt("lane", { kind: "state", key: "CH*" }, INBOUND))).toBe(atText(lane("sort", 1)));
-        for (const selection of [null, { kind: "link", key: "CH*→LDD#2" }, { kind: "state", key: "GONE" }] as const) {
+        expect(atText(enterAt("lane", { kind: "lane", key: "sort" }, INBOUND))).toBe(atText(lane("sort", 1)));
+        expect(atText(enterAt("lane", { kind: "lane", key: "hold" }, INBOUND))).toBe(atText(lane("hold", 0)));
+        // Several states selected are none of these, as are a lane the flow no longer has and a transition.
+        for (const selection of [null, { kind: "link", key: "CH*→LDD#2" }, { kind: "state", key: "GONE" }, { kind: "lane", key: "gone" },
+            { kind: "states", keys: ["ARV", "CH*"] }] as const) {
             expect(atText(enterAt("lane", selection, INBOUND))).toBe(atText(lane("intake", 2)));
         }
         // A state naming no lane the flow has is drawn in the last: after it there.
@@ -314,7 +318,13 @@ describe("⏎ on a card is a drop on the canvas's selection (FB34)", () => {
         expect(atText(enterAt("lane", null, undefined))).toBe(atText(ON_CANVAS));
     });
 
-    test("any other card on the selected state, transition or decision when that is what it lands on; a lane's card on no selection the canvas makes", () => {
+    test("any other card on the selected state, transition, decision or lane when that is what it lands on — a lane's card on the lane a click on its header selected (#1250)", () => {
+        expect(atText(enterAt("header", { kind: "lane", key: "sort" }, INBOUND))).toBe(atText(at("header", "sort")));
+        expect(atText(enterAt("header", { kind: "lane", key: "gone" }, INBOUND))).toBe(atText(ON_CANVAS));
+        expect(atText(enterAt("state", { kind: "states", keys: ["ARV", "CH*"] }, INBOUND))).toBe(atText(ON_CANVAS));
+        expect(atText(enterAt("state", { kind: "lane", key: "sort" }, INBOUND))).toBe(atText(ON_CANVAS));
+        expect(dropRefusal(planDrop(SORTATION, enterAt("header", { kind: "state", key: "CH*" }, INBOUND), EDITS), m)).toBe("Drop onto a lane's header");
+        expect(flowEqual(after(planDrop(SORTATION, enterAt("header", { kind: "lane", key: "sort" }, INBOUND), EDITS)), edits.renameLane(INBOUND, "sort", "Sortation"))).toBe(true);
         expect(atText(enterAt("transition", { kind: "link", key: "CH*→LDD#2" }, INBOUND))).toBe(atText(at("transition", "CH*→LDD#2")));
         expect(atText(enterAt("transition", { kind: "state", key: "CH*" }, INBOUND))).toBe(atText(ON_CANVAS));
         expect(atText(enterAt("transition", { kind: "link", key: "GONE" }, INBOUND))).toBe(atText(ON_CANVAS));
