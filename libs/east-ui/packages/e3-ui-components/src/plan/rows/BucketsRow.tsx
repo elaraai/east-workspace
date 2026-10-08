@@ -24,13 +24,18 @@
  * off it what has no room there. A hidden or ellipsized label is said by its
  * hover, in the canvas's tooltip.
  *
+ * A cell with more tiles than it has room for shows the tiles that fit, each
+ * drawn whole, and a `+n` chip whose menu lists the rest (#1267,
+ * `BucketCell.tsx`): a folded tile is out of the row's walk, which reaches the
+ * chip in its place.
+ *
  * On a row whose series declares a move's fields (#825) a tile moves to
  * another bucket, or another row of its item type; it has one instant, so no
  * end to drag. An event kind's tile moves its event (#1196), and wears the
  * brand tint in a brand border while its drafts change it (`data-draft`).
  */
 
-import { useMemo, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -45,7 +50,8 @@ import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../cont
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { usePlanElementDrafted } from "./element-draft.js";
+import { PlanDraftedContext, usePlanElementDrafted } from "./element-draft.js";
+import { BucketCell, type BucketCellTile } from "./BucketCell.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
@@ -86,7 +92,7 @@ export interface BucketsRowProps {
 }
 
 /** One event chip — the `.chk` / `.pchip` resting looks + labelled tiles. */
-function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
+function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded }: {
     ev: BucketEventValue; styles: Styles; rowKey: string; rowId: PlanRowId; ctx?: boolean | undefined;
     /** The bucket the tile renders in — its place in the row's time order (#819). */
     bucket: PlanBucket;
@@ -94,6 +100,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
     lane: string | undefined;
     /** How it moves (#825). */
     move: PlanRowMove | undefined;
+    /** Folded into its cell's `+n` (#1267): out of sight, and out of the row's walk. */
+    folded: boolean;
 }) {
     const system = useChakraContext();
     const scale = usePlanScale();
@@ -133,6 +141,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
+            data-folded={folded ? "" : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}
             // Stretch is a style PROP and outranks the recipe: in a strip
@@ -168,6 +177,9 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
 export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
+    // The events a draft changed: a drafted tile's border sizes it, so its cell measures again (#1267).
+    const drafted = useContext(PlanDraftedContext);
     const lanes = kind.lanes;
     const laneCount = Math.max(1, lanes.length);
     // Lane key → index; absent/unknown lane ⇒ the full-cell mixed grammar.
@@ -250,34 +262,47 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
 
     const renderCell = (b: PlanBucket, li: number | undefined, events: BucketEventValue[], span: number = 1) => {
         const bi = b.index;
+        const cellKey = `${bi}:${li ?? "full"}`;
         const marker = worstMarker(li !== undefined ? cellMarkers.get(`${bi}:${li}`) ?? [] : bucketMarkers(bi));
         const lane = li !== undefined ? lanes[li] : undefined;
         const caption = lane !== undefined && lane.label.type === "some" ? lane.label.value : undefined;
-        const cell = (
-            <Box css={styles.cell}
-                data-plan-cell={`${bi}:${li ?? "full"}`}
-                data-over={marker !== undefined ? marker.status.type : undefined}
-                {...cellX(b)}
-                {...laneY(li ?? 0, li === undefined ? laneCount : span)}
-                onClick={() => dispatch({ t: "row.select", key: rowKey })}
-            >
-                {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
-                {/* The tiles, in the room the caption leaves them: a tile's floor is that room's (#1266). */}
-                <Box css={styles.cellTiles} data-plan-cell-tiles="">
-                    {events.map((ev) => (
-                        <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} rowId={rowId} ctx={ctx}
-                            bucket={b} lane={laneCaption(ev.lane)} move={move} />
-                    ))}
-                </Box>
-                {marker !== undefined && (
-                    <Box css={styles.markerIcon} data-status={marker.status.type}
-                        data-marker={`${bi}:${li ?? "full"}`} role="img" aria-label={marker.message}>
-                        <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
-                    </Box>
-                )}
+        // Each tile drawn folded or not, and named for the chip's menu as a reader hears it (#819).
+        const tiles = events.map((ev): BucketCellTile => {
+            const tileLane = laneCaption(ev.lane);
+            return {
+                key: ev.key,
+                name: tileName(ev, b, tileLane, scale, words),
+                draw: (folded) => (
+                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} rowId={rowId} ctx={ctx}
+                        bucket={b} lane={tileLane} move={move} folded={folded} />
+                ),
+            };
+        });
+        // What sizes the tiles: each one's key, label, icon and state, and whether a draft changed it.
+        const signature = events.map((ev) => [
+            ev.key, ev.label.type === "some" ? ev.label.value : "", ev.icon.type === "some" ? ev.icon.value.name : "",
+            runStateKey(ev.state), drafted.has(ev.key) ? "draft" : "",
+        ].join("\u0000")).join("\u0001");
+        return (
+            <Box as="span" key={`c${cellKey}`} display="contents">
+                <BucketCell styles={styles} rowKey={rowKey} cellKey={cellKey}
+                    place={{ ...cellX(b), ...laneY(li ?? 0, li === undefined ? laneCount : span) }}
+                    over={marker !== undefined ? marker.status.type : undefined}
+                    caption={caption !== undefined && ctx !== true ? <Box css={styles.laneLabel}>{caption}</Box> : null}
+                    tiles={tiles}
+                    marker={marker !== undefined ? (
+                        <Box css={styles.markerIcon} data-status={marker.status.type}
+                            data-marker={cellKey} role="img" aria-label={marker.message}>
+                            <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
+                        </Box>
+                    ) : null}
+                    // A context strip's tiles are marks with no text: they never fold.
+                    folds={events.length > 1 && ctx !== true}
+                    frac={b.x0} bucket={scale.bucketText(b)} lane={caption} words={words}
+                    onClick={() => dispatch({ t: "row.select", key: rowKey })}
+                    signature={signature} />
             </Box>
         );
-        return <Box as="span" key={`c${bi}:${li ?? "full"}`} display="contents">{cell}</Box>;
     };
 
     // ── Occupied-only mounting (#616) ─────────────────────────────────────

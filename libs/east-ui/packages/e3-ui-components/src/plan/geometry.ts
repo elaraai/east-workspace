@@ -106,6 +106,9 @@ export interface PlanGeometry {
     chipMinWidth: number;
     /** The narrowest a bucket cell draws, its padding inside it. */
     cellMinWidth: number;
+    /** A tile's floor (#1266): the narrowest it draws where its cell has the
+     *  room, and what a folding cell keeps beside its `+n` chip (#1267). */
+    tileMinWidth: number;
     /** A milestone's dot, across and down. */
     markDotWidth: number;
     /** A decision's diamond, each side before it turns 45° — its corners then
@@ -134,7 +137,7 @@ const DEFAULT: PlanGeometry = {
     markTriangle: 9,
     // A bar's padding is 7 each side and its look's dashed ring 1.5 (17); a
     // chip's 9 and 1.5 (21); a cell's 6 each side (12).
-    barMinWidth: 18, chipMinWidth: 22, cellMinWidth: 12,
+    barMinWidth: 18, chipMinWidth: 22, cellMinWidth: 12, tileMinWidth: 20,
     markDotWidth: 10, markDiamondWidth: 11, markTriangleWidth: 10, markIconWidth: 12,
 };
 

@@ -14,17 +14,18 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { coarseHitArea } from "../../../style/hit-area.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellPart",
+    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellPart",
 ] as const;
 
-/** Their base styles. */
-export const cellsBase = {
+/** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
+export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
     // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
     heatCell: {
         position: "absolute",
@@ -178,6 +179,9 @@ export const cellsBase = {
         gap: "5px",
         flex: "1 1 0%",
         minWidth: 0,
+        // Holding a `+n` chip on a coarse pointer, it is a layer of its own,
+        // where the chip's tap halo lies beneath the tiles (#1267).
+        "&:has(> [data-tile-more])": { _coarse: { isolation: "isolate" } },
     },
     // The tile chip inside a cell — the `.chk` / `.pchip` looks on the
     // lifecycle axis: confirmed/actual = the solid ink ✓ chip; proposals
@@ -198,7 +202,8 @@ export const cellsBase = {
         alignItems: "center",
         justifyContent: "center",
         height: "var(--plan-tile-h)",
-        minWidth: "min(20px, 100%)",
+        // Its floor, the geometry's (`--plan-tile-min-w`), which a folding cell keeps too (#1267).
+        minWidth: "min(var(--plan-tile-min-w, 20px), 100%)",
         flex: "0 1 auto",
         borderRadius: "3px",
         fontFamily: "mono",
@@ -246,6 +251,10 @@ export const cellsBase = {
         },
         // A tile that moves (#825) is picked up where it sits.
         "&[data-draggable]": { cursor: "grab" },
+        // A cell measuring its fold draws every tile whole, at its own width
+        // (#1267); a tile it folds is out of the cell, counted in its `+n`.
+        "[data-tile-measure] > &": { flexShrink: 0 },
+        "&[data-folded]": { display: "none" },
         // ── R1 GEOMETRY SHRINKS — the bucket case ──
         // A tile is already quantised to its cell; collapsing keeps the
         // cell and flattens the tile inside it. `minWidth` has to go with
@@ -278,6 +287,50 @@ export const cellsBase = {
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
     },
+    // A cell's `+n` chip (#1267): the tiles it has no room for, counted — a
+    // button whose anchored menu lists them. On a tile's metrics (mono 9.5px,
+    // its height and radius), in the muted ink on paper; it never shrinks, so
+    // a tile squeezed beside it gives the room — but in a cell narrower than
+    // the chip (`data-cramped`) it shrinks to the room and draws no count, its
+    // name still saying what it holds. The stand-in a cell measures beside its
+    // tiles is never seen.
+    //
+    // On a coarse pointer its tap target is its cell, less the tiles in it
+    // (#346's halo, held to the cell): the halo lies beneath the tiles in their
+    // box's layer, so a tile beside the chip keeps its own taps, and the cell
+    // clips it, so it never reaches another cell's tiles. It takes the box's
+    // empty room, the cell's padding and its caption.
+    tileMore: {
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flex: "none",
+        height: "var(--plan-tile-h)",
+        boxSizing: "border-box",
+        padding: "0 4px",
+        borderRadius: "3px",
+        background: "bg.surface",
+        color: "fg.muted",
+        fontFamily: "mono",
+        fontSize: "9.5px",
+        fontWeight: "semibold",
+        whiteSpace: "nowrap",
+        cursor: "pointer",
+        _hover: { color: "fg" },
+        // Cramped, it is the cell's one part: it fills the room.
+        "&[data-cramped]": {
+            flex: "1 1 0%",
+            minWidth: 0,
+            padding: 0,
+            "& > [data-tile-more-count]": { display: "none" },
+        },
+        "&[data-tile-more-measure]": { visibility: "hidden" },
+        ...coarseHitArea(),
+        // The halo (its `::before`, drawn on a coarse pointer alone) beneath the tiles.
+        "&::before": { zIndex: -1 },
+        ...planElementFocus,
+    },
     // The per-cell lane caption (`.bl`) — printed at each cell's left.
     laneLabel: {
         fontFamily: "mono",
@@ -304,6 +357,9 @@ export const cellsBase = {
         "&[data-status='info']":    { color: "{colors.status.info}" },
         "&[data-status='success']": { color: "{colors.status.pos}" },
         "&[data-status='neutral']": { color: "fg.subtle" },
+        // Its message is a hover's tooltip, which a coarse pointer has none of:
+        // there it takes no tap from the `+n` chip's halo, which its cell is (#1267).
+        "[data-plan-cell]:has(> [data-plan-cell-tiles] > [data-tile-more]) > &": { _coarse: { pointerEvents: "none" } },
     },
     // ── Cards chips (K6) — the Roster `.shift` chip, verbatim: 5px
     //    radius, brand tint + 1px brand ring, mono 10/500, text left ──
@@ -454,4 +510,4 @@ export const cellsBase = {
         "&[data-tone='muted']": { color: "fg.subtle" },
         "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
     },
-} satisfies Record<(typeof cellsSlots)[number], SystemStyleObject>;
+};
