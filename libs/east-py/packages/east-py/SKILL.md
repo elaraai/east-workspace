@@ -100,8 +100,8 @@ a body lifts to a literal; `East.value(v, T)` / `b.const(v)` lift anything else
 (TS `East.value` / `$.const`); an East COLLECTION an `East.function` body closes
 over is snapshot into the IR (`.bind(table)` it as a trailing parameter to keep it
 live). The other way, an artifact is a plain callable on values, every eager
-method accepts one (a VALUE takes no block), and one referenced inside another
-body splices in — see [Python values vs East expressions](#python-values-vs-east-expressions).
+method accepts one (a VALUE takes no block), and one called inside another body
+is a call of its inline Function node — see [Python values vs East expressions](#python-values-vs-east-expressions).
 
 ## Decision Tree: What Do You Need?
 
@@ -172,7 +172,8 @@ Task → What do you need?
     │   shows how a hot call ran                                       → "Python values vs East expressions", "Performance"
     │
     └─ D. Run a program from the shell → east-py run (IR + input files → a result) · exec (a unit: the runner protocol e3
-        speaks) · convert (a beast2 value → East text) · version                                  → "The east-py CLI"
+        speaks) · convert (a beast2 value → East text) · version · where its time goes: --profile / EAST_PROFILE=1
+                                                                                                  → "The east-py CLI"
 ```
 
 ## Type System Summary
@@ -301,12 +302,16 @@ Each call in detail:
 | `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; the IR is analyzed against `platform` first (`east.ir.analyze`, the TS `analyzeIR`): a signature mismatch or a missing implementation is an `EastError` naming the call — unless the declaration is `optional=True`, which compiles to a stub that raises at the call (TS parity) |
 
 A **pure** artifact needs no compile step: it is already a native callable,
-`.bind(*values)` pre-binds trailing parameters by reference, and referencing it
-inside another body splices it into that build — in ITS OWN frame, so a body
-that appends statements (`b.let`, `b.if_`) becomes a `Block` where it is
-spliced, and an artifact used as an `East.if_else` arm evaluates only when that
-arm is taken. An effect-only artifact whose value the caller DISCARDS is
-therefore the build's "evaluated and thrown away" error — spell it
+`.bind(*values)` pre-binds trailing parameters by reference, and calling it
+inside another body is a `Call` of its inline `Function` node — TypeScript's
+shape — so it runs in ITS OWN frame: a `b.return_` returns from it, an
+artifact used as an `East.if_else` arm evaluates only when that arm is taken,
+an error inside it names its own lines, and a profile lists it as an entry of
+its own, placed where it was written and where it was called. (One called with
+arguments narrower than its parameters — a column projection's narrowed rows —
+re-runs its source in its own frame and splices in instead, as does one whose
+build hoisted constants.) An artifact that mutates or raises, called and
+DISCARDED, is the build's "evaluated and thrown away" error — spell it
 `b.do(push(xs))` / `East.block(push(xs), result)`, as with any mutation. An
 artifact that calls platform functions stays first-class (composable,
 serializable) but raises until `East.compile` pairs it with implementations.
@@ -447,7 +452,8 @@ Every namespace carries the East standard library — TypeScript's
 `print_compact`; the TS misspelling `printCommaSeperated` stays
 `print_comma_seperated`, with `print_comma_separated` as a python twin). Each is
 an `East.function` built on first use: on plain values it runs natively, inside a
-body it splices in like any artifact:
+body it is a call of its inline Function node like any artifact — as
+TypeScript's is:
 
 ```python
 @East.function([IntegerType, FloatType, DateTimeType], StringType)
@@ -580,8 +586,8 @@ East.jq({"orders": orders, "limit": 1000.0},
   datetimes bake in — the same value per element either way); East types and
   values (`east_null` included); the `East` namespace, `East.if_else` included;
   the `struct`/`variant`/`some`/`none` constructors (dual-mode: they build IR
-  when handed expression fields); **East.function artifacts** (dual-mode: they
-  re-run their source at any nesting depth); **compiled East function values**
+  when handed expression fields); **East.function artifacts** (dual-mode: a
+  call of their inline Function node at any nesting depth); **compiled East function values**
   (`.bind` results, `compile_from_*` functions — a CALL on one lowers to a native
   IR `Call`); and, two wrapper levels deep — enough for helper lambdas that
   compose a callback — other python functions that pass the same rules.
@@ -971,8 +977,9 @@ way, and an eager callback slot takes exactly two kinds of function:
    entirely in east-c, and the output type comes from its own signature (no
    `out=`, no sampling; an `out=` or declared type that contradicts it raises
    `EastTypeError` at the call). An artifact is **dual-mode**: on values it runs
-   natively, and inside another body it re-runs its source in its own frame and
-   splices in (`East.function([Row], FloatType, lambda b, r: amount(r) * 1.1)`).
+   natively, and inside another body it is a call of its inline Function node
+   (`East.function([Row], FloatType, lambda b, r: amount(r) * 1.1)`), whose
+   field reads still narrow a column projection.
    A compiled value (a `.bind` result) cannot re-run a body, so a body that CALLS
    one lowers to an IR `Call`: the callee rides as a hidden bound parameter, and
    loop, body and callee all run in east-c. `FunctionType` PARAMETERS are
@@ -1571,6 +1578,7 @@ authoring tools:
 
 ```bash
 east-py run prog.beast2 -p east-py-std -i a.beast2 -i b.json -o out.beast2   # -v: timings, peak memory
+east-py run prog.beast2 -p east-py-std --profile   # time per East and platform function
 east-py exec unit.beast2                        # one unit: the runner protocol e3 speaks
 east-py convert value.beast2                    # a beast2 value as East text (-o value.east to write it)
 east-py transpile prog.beast2 -o prog.py        # IR → a python module that rebuilds it
@@ -1581,8 +1589,8 @@ east-py version -p east-py-std                  # the runner's version, and each
 
 | Command | Does |
 |---|---|
-| `run <ir> [-p PACKAGE]… [-i FILE]… [-o FILE] [--decode lazy\|whole] [-v]` | Compiles an IR file (`.beast2`, `.beast`, `.east` or `.json`) and calls it with one `-i` file per parameter, in order, each decoded by its extension to the parameter's type and FROZEN (a task input is immutable). An indexed beast2 collection input opens lazily, whatever it weighs — mapped, one segment decoded at a time, and decoded whole, once, when an operation the pager cannot serve first needs it — and a manifest file opens as the collection it names; `--decode whole` (east-c's and east-node's flag too) decodes every input before the program runs instead. `-o` writes the result in its extension's format (a collection as canonical indexed beast2); without it the result prints as East text. `-v` adds timings, peak memory and how each input was read: a lazy input's segment reads, or the resident memory a whole decode added |
-| `exec <unit> [-v]` | The runner protocol: one unit file says what to run — a program over its inputs, read as its `decode` says (as `run --decode`), or a merge of an output's parts — and where; the output is written by its kind and a result recorded. Exit 0 when it succeeded, 1 when it failed (the message and locations also go to stderr), 2 when the unit cannot be read or the result written. Relative paths in the unit are relative to its directory |
+| `run <ir> [-p PACKAGE]… [-i FILE]… [-o FILE] [--decode lazy\|whole] [-v] [--profile]` | Compiles an IR file (`.beast2`, `.beast`, `.east` or `.json`) and calls it with one `-i` file per parameter, in order, each decoded by its extension to the parameter's type and FROZEN (a task input is immutable). An indexed beast2 collection input opens lazily, whatever it weighs — mapped, one segment decoded at a time, and decoded whole, once, when an operation the pager cannot serve first needs it — and a manifest file opens as the collection it names; `--decode whole` (east-c's and east-node's flag too) decodes every input before the program runs instead. `-o` writes the result in its extension's format (a collection as canonical indexed beast2); without it the result prints as East text. `-v` adds timings, peak memory and how each input was read: a lazy input's segment reads, or the resident memory a whole decode added |
+| `exec <unit> [-v] [--profile]` | The runner protocol: one unit file says what to run — a program over its inputs, read as its `decode` says (as `run --decode`), or a merge of an output's parts — and where; the output is written by its kind and a result recorded. Exit 0 when it succeeded, 1 when it failed (the message and locations also go to stderr), 2 when the unit cannot be read or the result written. Relative paths in the unit are relative to its directory |
 | `convert <file> [-o FILE.east] [-v]` | Decodes a beast2 value (its header names the type) and prints it as East text, or writes it to a `.east` file |
 | `transpile <ir> [-o FILE] [--name NAME] [-p PACKAGE]…` | IR as a python module rebuilding it (`--name` binds it, default `main`; each `-p` prints its calls as that package's own functions) — [IR ↔ python](#ir--python-east-py-transpile-and-the-east-c-ir-toolbox) |
 | `export-functions <module> -o FILE [-p PACKAGE]… [--name NAME] [--package-version V] [--only NAME]…` | A module's (a dotted name, or a `.py` path) `east_functions` as a function manifest; every platform call must be provided by a `-p` package; `--name` defaults to the module's top-level name, the version to the installed distribution's (else `0.0.0`); `--only` exports just those — [Cross-language functions](#cross-language-functions-east-py-export-functions-and-eastimport_function) |
@@ -1596,6 +1604,18 @@ exporting a top-level `platform` list; a project's own module is loaded the same
 way (see [Project-owned platform module](#project-owned-platform-module-calling-your-python-from-e3)).
 `run` and `exec` take `--exit-with-parent`: exit once stdin reaches end of file,
 for a parent that holds a stdin pipe it never writes to.
+
+**Profiling.** `run` and `exec` take `--profile`, east-c's profiler and report:
+after the work (and after a failure's error), every East function and platform
+function it called, by self time, with its calls, its total time and where it
+is — the `file:line:column` it was written at and, for a helper called inside
+another body, where it was called. A platform function (torch, a solver) is an
+entry of its own, so its time is not its caller's. `EAST_PROFILE=1` profiles
+without the flag — e3 hands its environment to the runner, so a task's report
+lands in its log (`e3 task logs`) — and `EAST_PROFILE_INTERVAL=N` prints the
+profile so far every N seconds while the work runs. A python function linked
+into a TypeScript task carries its locations through the manifest, so the
+report names its python lines.
 
 ## Key Patterns
 

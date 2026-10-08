@@ -5,8 +5,9 @@
 """Cross-language East functions (#628): export, import, link.
 
 A function authored in one host language is exported as pure IR — its
-``Function`` node, the declared ``FunctionType`` and the platform functions
-it calls — in a **function manifest** (``FunctionManifestType``, one beast2
+``Function`` node, the declared ``FunctionType``, the platform functions it
+calls and the source map its locations index — in a **function manifest**
+(``FunctionManifestType``, one beast2
 value per package). Code in the other language refers to it with
 ``East.import_function(package, name, type)``: a typed, callable function
 expression whose IR is a ``Platform`` node named :data:`IMPORT_PLATFORM`
@@ -25,9 +26,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from east.ir.builders import ir_block, ir_let, ir_platform, ir_value, ir_variable
+from east.ir.builders import ir_block, ir_let, ir_platform, ir_value, ir_variable, location_stack
 from east.types.construct import none, some
-from east.types.type_of_type import EastTypeType, IRType
+from east.types.type_of_type import EastTypeType, IRType, LocationType
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -72,11 +73,15 @@ PlatformDependencyType = StructType([
     ("type_parameters", ArrayType(EastTypeType)),
 ])
 
-#: One exported function: its IR, declared type, and platform dependencies.
+#: One exported function: its IR, declared type, platform dependencies, and
+#: the source map its IR's loc_ids index — every location stack the IR names,
+#: entry 0 the empty one — so its frames name the exporter's source wherever
+#: it is linked.
 FunctionExportType = StructType([
     ("ir", IRType),
     ("name", StringType),
     ("platforms", ArrayType(PlatformDependencyType)),
+    ("source_map", ArrayType(ArrayType(LocationType))),
     ("type", EastTypeType),
 ])
 
@@ -226,8 +231,11 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
     an unresolved import — link before exporting; exports do not chain. A
     build's OWN hoisted constants — the ``Block[Let…, Function]`` a captured
     lookup table or a stdlib format string produces — are exported with the
-    function and close over nothing (#669). The exported IR carries no
-    location ids (a manifest has no source map).
+    function and close over nothing (#669). Each function carries the
+    locations its IR names, renumbered into a source map of its own, so the
+    frames of an error or a profile name its python source wherever it is
+    linked (#1271); a bare IR value, which carries no map, exports without
+    locations.
 
     Args:
         package: The exporting package's name (what importers name).
@@ -246,7 +254,8 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
         manifest = East.export_functions("maths", "1.0.0", {"double": double})
         Path("maths.functions.beast2").write_bytes(East.encode_function_manifest(manifest))
     """
-    from east.expression.finalize import _free_vars
+    from east.expression.finalize import _arrayify_tree, _free_vars, _rehome_ir
+    from east.expression.location import SourceMap
 
     if not package:
         raise ValueError("export_functions: the package name is empty")
@@ -256,6 +265,7 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
             ir = function_ir(functions[name])
         except TypeError as e:
             raise TypeError(f"export_functions: {name}: {e}") from None
+        source_map = getattr(functions[name], "_east_source_map", None)
         root = _root_function(ir, f"export_functions: {name}")
         # Closed means the exported IR BINDS every name it reads. A build's
         # own hoisted constants sit in Lets above the function and travel
@@ -275,10 +285,15 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
             raise ValueError(
                 f"export_functions: {name} holds {imports} unresolved import(s) — link it "
                 "(link_imports) before exporting; exports do not chain")
+        # Only the stacks this function names, in a map of its own: the
+        # build's map may hold its siblings' too.
+        own = SourceMap()
         exports.append(EastStruct({
-            "ir": _strip_locations(ir),
+            "ir": _arrayify_tree(_rehome_ir(ir, source_map, own)),
             "name": name,
             "platforms": platform_dependencies(ir, providers),
+            "source_map": EastArray(ArrayType(LocationType),
+                                    [location_stack(*stack) for stack in own.entries()]),
             "type": root.value["type"],
         }))
     return EastStruct({
@@ -320,30 +335,6 @@ def _rename_hoisted_constants(ir: Any, package: str, name: str) -> Any:
         return EastVariant("Variable", EastStruct(fields))
 
     return _rebuild(ir, replace)
-
-
-def _strip_locations(node: Any) -> Any:
-    """The IR with every ``loc_id`` zeroed: a manifest carries no source map,
-    so the exporter's location ids would only collide with the importer's —
-    an embedded function reports no location instead."""
-    if is_east_variant(node):
-        payload = node.value
-        if not is_east_struct(payload):
-            return node
-        fields = {}
-        for name, child in payload.items():
-            if name == "loc_id":
-                fields[name] = 0
-            elif name in ("type", "type_parameters"):
-                fields[name] = child
-            else:
-                fields[name] = _strip_locations(child)
-        return EastVariant(node.type, EastStruct(fields))
-    if is_east_struct(node):
-        return EastStruct({name: _strip_locations(child) for name, child in node.items()})
-    if is_east_array(node):
-        return EastArray(node.element_type, [_strip_locations(child) for child in node])
-    return node
 
 
 def _count_imports(ir: Any) -> int:
@@ -434,7 +425,9 @@ def link_imports(fn_or_ir: Any, manifests: list) -> tuple[Any, list[dict[str, An
     becomes a ``Let``-bound constant at the top of the importing function's
     body; a use inside a nested function captures it, so the nested
     functions' ``captures`` are extended. The result is self-contained IR
-    with no import left.
+    with no import left. It is a bare IR value, which carries no source map,
+    so the embedded functions carry no locations (TypeScript's
+    ``linkImports``, whose result carries the importer's map, keeps them).
 
     Args:
         fn_or_ir: An ``East.function`` artifact, expression, or IR value.
@@ -444,6 +437,7 @@ def link_imports(fn_or_ir: Any, manifests: list) -> tuple[Any, list[dict[str, An
         ``(ir, imports)`` — the linked IR and, per import resolved in
         first-use order, ``{"package", "name", "type", "platforms"}``.
     """
+    from east.expression.finalize import _arrayify_tree, _rehome_ir
     from east.types.types import is_type_equal
 
     ir = function_ir(fn_or_ir)
@@ -537,7 +531,10 @@ def link_imports(fn_or_ir: Any, manifests: list) -> tuple[Any, list[dict[str, An
         return _rebuild(node, replace)
 
     body = rebuild(root.value["body"], [])
-    lets = [ir_let(NullType, b["variable"], b["export"]["ir"]) for b in bindings.values()]
+    # The embedded IR's loc_ids index its export's map, which no map here
+    # can hold: they are dropped.
+    lets = [ir_let(NullType, b["variable"], _arrayify_tree(_rehome_ir(b["export"]["ir"], None, None)))
+            for b in bindings.values()]
     statements = [*lets, *(list(body.value["statements"]) if body.type == "Block" else [body])]
     linked_body = ir_block(statements[-1].value["type"], statements, loc_id=body.value["loc_id"])
     fields = dict(root.value.items())

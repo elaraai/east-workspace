@@ -70,9 +70,8 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   closure-free function called where it stands (the `Call` of a
   Function literal a TypeScript artifact leaves at its call) hoists to a
   `_fN` constant in TypeScript and is called by name, as the source called
-  it — python prints it inline, `East.function(…)(x)`, because a python
-  artifact called inside another body splices its body into the caller
-  (#470) rather than emitting a `Call`. The source is written as a **layout
+  it — python prints it inline, `East.function(…)(x)`, which builds the
+  same `Call` a python artifact called inside another body does. The source is written as a **layout
   document** (`codegen/doc.ts`, `east/codegen/doc.py`: Wadler's algebra as
   prettier and black realise it — text, line breaks, indentation, groups)
   and rendered once, top down: a group prints on one line when its
@@ -135,7 +134,7 @@ python), so the mapping is one table.
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
 | `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | the host literal `{…}` / `variant(c, v)` / `[…]` / `new Set([…])` / `new Map([…])` (`new Map()` when empty — `new Map([])` is a `Map<unknown, unknown>` to the compiler; an empty set stays `new Set([])`, a `Set<never>`; a Float-keyed set or map holding -0.0 is `new SortedSet([…], compareFor(FloatType))` / `new SortedMap([…], compareFor(FloatType))`, since JavaScript's own fold -0 into 0) / `ref(v)` / `new Float64Array([…])` / `matrix(…)`, an Option case `some(v)` / `none` (`none` over the null literal only; any other payload is `variant("none", v)`) — bare in a position the surface types (`xs.concat([1n, 2n])`, `f({ a: 1n })`, a `$.return`, a declared output) and, in a callback's return (its type is inferred from the value), bare when the literal types itself — a struct, a non-empty collection of such — and `East.value(…, T)` otherwise (`none`, `[]`, a `variant`, a `some`) | the python literal `{…}` / `[…]` / `some(v)` / `none` / `variant(c, v)` (`none` over the null literal only, as in TypeScript), bare in a typed position (an assignment, a `b.return_`, a declared return, a call argument) and, in a method's argument or a callback's return, bare when the value lifts on its own — a struct of scalars and expressions; a python list or dict has no element type without a hint — else `East.value(…, T)` / the `East.new_*` constructor (a set always) |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |
-| `Call` / `CallAsync` | `f(args)`; a closure-free Function literal called where it stands hoists to `const _fN = East.function(…)` and is called `_fN(args)` | `f(args)`; a Function literal called where it stands stays inline, `East.function(…)(args)` (an artifact call splices, #470) |
+| `Call` / `CallAsync` | `f(args)`; a closure-free Function literal called where it stands hoists to `const _fN = East.function(…)` and is called `_fN(args)` | `f(args)`; a Function literal called where it stands stays inline, `East.function(…)(args)` (the `Call` an artifact call builds) |
 | expression `IfElse` (one predicate per node) | `p.ifElse($ => a, $ => b)` — more branches nest in the else arm | `East.if_else(…)` |
 | expression `Match` | `v.match({ case: ($, x) => e })`; the match `unwrap` lowers to — one arm returns its variable, every other errors `Variant does not have case <it>` — prints `v.unwrap()` / `v.unwrap("case")` | `v.match({…})`; the `unwrap` match `v.unwrap()` / `v.unwrap('case')` |
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
@@ -268,11 +267,14 @@ run time. Three pieces, name for name in both languages:
 |---|---|---|
 | Export a package's functions as a **manifest** | `East.exportFunctions(pkg, version, { name: fn }, { providers })` → `East.encodeFunctionManifest` · CLI `east-node export-functions <module.js> -o <file> [-p <platform-package>…] [--only <name>…]` (reads the module's `eastFunctions`; `--only` narrows it to the named functions) | `East.export_functions(pkg, version, {"name": fn}, providers)` → `East.encode_function_manifest` · CLI `east-py export-functions <module> -o <file> [-p <platform-package>…] [--only <name>]…` (reads the module's `east_functions`; `--only` narrows it) |
 | Refer to an exported function | `East.importFunction(pkg, name, FunctionType([...], Out))` — a callable function expression | `East.import_function(pkg, name, FunctionType([...], Out))` |
-| Resolve the references | `East.linkImports(fn, manifests)` → `{ ir, imports }` — what `e3.export(pkg, out, { functions })` runs on every task, function and mutation | `East.link_imports(fn, manifests)` → `(ir, imports)` |
+| Resolve the references | `East.linkImports(fn, manifests)` → `{ ir, imports, sourceMap }` — what `e3.export(pkg, out, { functions })` runs on every task, function and mutation | `East.link_imports(fn, manifests)` → `(ir, imports)` |
 
 The **manifest** (`FunctionManifestType`, fields declared alphabetically in
 both languages so the wire layout cannot depend on declaration order) holds,
-per function: its IR (loc_ids zeroed — a manifest has no source map), its
+per function: its IR; its `source_map`, the location stacks the IR's loc_ids
+index — exactly those it names, entry 0 the empty one — so an error or a
+profile names the exporter's source wherever the function is linked (a bare
+IR value, which carries no map, exports with none); its
 declared `FunctionType`, and its **platform dependencies** — every platform
 function the IR calls, with the signature the IR emits and the package that
 *provides* it (the exporter records the provider from its `-p` packages, and
@@ -293,7 +295,10 @@ printers spell it back as `East.importFunction(...)` / `East.import_function(...
 inside a nested function captures the binding, so the nested functions'
 `captures` lists grow. The result is self-contained IR — the same on every
 runner — and the resolved imports' platform dependencies are returned for
-the caller to validate. `e3.export` validates them against the owning
+the caller to validate. TypeScript's result also carries the source map its
+loc_ids index: a copy of the importer's, every embedded function's stacks
+added after its own, which `e3.export` writes with the program; python's
+result is a bare IR value, so the functions it embeds carry no locations. `e3.export` validates them against the owning
 task's runner: the provider must be listed by name or through its stock
 family (`east-py-std` ≡ `@elaraai/east-node-std` ≡ `east-c-std`;
 `east-py-io` ≡ `@elaraai/east-node-io` — the compliance suites pin that a

@@ -18,19 +18,35 @@ static __thread const EastSourceMap *g_current_source_map = NULL;
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-    size_t entry;      /* index into g_prof_entries */
+    size_t entry;      /* index into g_prof_entries, SIZE_MAX for an entry
+                          that could not be made (its time still counts
+                          against the frame below) */
     uint64_t t_enter;  /* CLOCK_MONOTONIC nanoseconds at entry */
-    uint64_t child_ns; /* time spent in East functions called from here */
+    uint64_t child_ns; /* time spent in functions called from here */
 } ProfFrame;
 
 static _Thread_local bool g_prof_on = false;
 static _Thread_local EastProfileEntry *g_prof_entries = NULL;
 static _Thread_local size_t g_prof_len = 0, g_prof_cap = 0;
-/* Open-addressing index: body pointer -> entry index + 1 (0 = empty). */
+/* Open-addressing index: key pointer -> entry index + 1 (0 = empty). */
 static _Thread_local size_t *g_prof_index = NULL;
 static _Thread_local size_t g_prof_mask = 0;
 static _Thread_local ProfFrame *g_prof_stack = NULL;
 static _Thread_local size_t g_prof_depth = 0, g_prof_stack_cap = 0;
+/* Entries the stack had no room for: their exits pop nothing. */
+static _Thread_local size_t g_prof_unstacked = 0;
+/* The profiler's copies of the platform functions' names, each a platform
+ * entry's key, with the hash the IR carries for it. */
+typedef struct {
+    size_t hash;
+    char *name;
+} ProfPlatform;
+static _Thread_local ProfPlatform *g_prof_platforms = NULL;
+static _Thread_local size_t g_prof_platforms_len = 0, g_prof_platforms_cap = 0;
+/* When the profiler was armed, and the report printed while it runs: every
+ * g_prof_interval_ns, the next one due at g_prof_next_ns (0 when none is). */
+static _Thread_local uint64_t g_prof_started_ns = 0;
+static _Thread_local uint64_t g_prof_interval_ns = 0, g_prof_next_ns = 0;
 
 static uint64_t prof_now(void)
 {
@@ -48,23 +64,42 @@ static inline size_t prof_hash(const void *p)
     return (size_t)x;
 }
 
-static void prof_index_insert(const IRNode *body, size_t entry)
+static void prof_index_insert(const void *key, size_t entry)
 {
-    size_t i = prof_hash(body) & g_prof_mask;
+    size_t i = prof_hash(key) & g_prof_mask;
     while (g_prof_index[i])
         i = (i + 1) & g_prof_mask;
     g_prof_index[i] = entry + 1;
 }
 
-/* The entry for a function body, created on first sight. SIZE_MAX on
+/* "file:line:column" of a loc_id resolved through `map`, malloc'd, or NULL
+ * when the map cannot place it. Resolved once, when the entry is made: the
+ * map need not outlive the function that carries it. */
+static char *prof_site(const EastSourceMap *map, int64_t loc_id)
+{
+    size_t count = 0;
+    const EastLocation *locs = east_source_map_resolve(map, loc_id, &count);
+    if (!locs || count == 0 || !locs[0].filename) return NULL;
+    int len = snprintf(NULL, 0, "%s:%lld:%lld", locs[0].filename, (long long)locs[0].line,
+                       (long long)locs[0].column);
+    char *site = len < 0 ? NULL : malloc((size_t)len + 1);
+    if (site)
+        snprintf(site, (size_t)len + 1, "%s:%lld:%lld", locs[0].filename, (long long)locs[0].line,
+                 (long long)locs[0].column);
+    return site;
+}
+
+/* The entry for a key, made on first sight: a function's body, its site
+ * resolved through `map`, or a platform function's interned name. SIZE_MAX on
  * allocation failure. */
-static size_t prof_entry_for(const IRNode *body, const char *name, int64_t loc_id)
+static size_t prof_entry_for(const void *key, const char *name, bool platform, int64_t loc_id,
+                             const EastSourceMap *map)
 {
     if (g_prof_index) {
-        size_t i = prof_hash(body) & g_prof_mask;
+        size_t i = prof_hash(key) & g_prof_mask;
         while (g_prof_index[i]) {
             size_t e = g_prof_index[i] - 1;
-            if (g_prof_entries[e].body == body) return e;
+            if (g_prof_entries[e].key == key) return e;
             i = (i + 1) & g_prof_mask;
         }
     }
@@ -80,54 +115,121 @@ static size_t prof_entry_for(const IRNode *body, const char *name, int64_t loc_i
         g_prof_index = calloc(g_prof_mask + 1, sizeof(size_t));
         if (!g_prof_index) return SIZE_MAX;
         for (size_t e = 0; e < g_prof_len; e++)
-            prof_index_insert(g_prof_entries[e].body, e);
+            prof_index_insert(g_prof_entries[e].key, e);
     }
     size_t e = g_prof_len++;
     g_prof_entries[e] = (EastProfileEntry){
-        .body = body,
-        .name = name ? strdup(name) : NULL,
+        .key = key,
+        /* A platform entry's name is its key, which the profiler owns. */
+        .name = platform ? name : name ? strdup(name) : NULL,
+        .platform = platform,
         .loc_id = loc_id,
         .call_loc_id = 0,
+        .site = prof_site(map, loc_id),
+        .call_site = NULL,
         .calls = 0,
         .total_ns = 0,
         .self_ns = 0,
     };
-    prof_index_insert(body, e);
+    prof_index_insert(key, e);
     return e;
 }
 
-static inline void prof_enter(const IRNode *body, const char *name, int64_t loc_id,
-                              int64_t call_loc_id)
+static void prof_interval_due(uint64_t now);
+
+/* A call begins: its entry, the first call's site resolved through the map
+ * current at the call, and a frame on the stack. */
+static void prof_push(const void *key, const char *name, bool platform, int64_t loc_id,
+                      const EastSourceMap *map, int64_t call_loc_id)
 {
-    if (!g_prof_on) return;
-    size_t e = prof_entry_for(body, name, loc_id);
-    if (e == SIZE_MAX) return;
-    if (!g_prof_entries[e].call_loc_id) g_prof_entries[e].call_loc_id = call_loc_id;
+    size_t e = prof_entry_for(key, name, platform, loc_id, map);
+    if (e != SIZE_MAX && !g_prof_entries[e].call_loc_id && call_loc_id > 0) {
+        g_prof_entries[e].call_loc_id = call_loc_id;
+        g_prof_entries[e].call_site = prof_site(g_current_source_map, call_loc_id);
+    }
     if (g_prof_depth == g_prof_stack_cap) {
         size_t cap = g_prof_stack_cap ? g_prof_stack_cap * 2 : 64;
         ProfFrame *grown = realloc(g_prof_stack, cap * sizeof(ProfFrame));
-        if (!grown) return;
+        if (!grown) {
+            g_prof_unstacked++;
+            return;
+        }
         g_prof_stack = grown;
         g_prof_stack_cap = cap;
     }
-    g_prof_stack[g_prof_depth++] = (ProfFrame){.entry = e, .t_enter = prof_now(), .child_ns = 0};
+    uint64_t now = prof_now();
+    g_prof_stack[g_prof_depth++] = (ProfFrame){.entry = e, .t_enter = now, .child_ns = 0};
+    if (g_prof_next_ns) prof_interval_due(now);
+}
+
+static inline void prof_enter(const IRNode *body, const char *name, int64_t loc_id,
+                              const EastSourceMap *map, int64_t call_loc_id)
+{
+    if (g_prof_on) prof_push(body, name, false, loc_id, map, call_loc_id);
+}
+
+/* A platform function's key: the profiler's copy of its name, made on first
+ * sight. NULL on allocation failure. */
+static const char *prof_platform_key(const char *name, size_t hash)
+{
+    for (size_t i = 0; i < g_prof_platforms_len; i++)
+        if (g_prof_platforms[i].hash == hash && strcmp(g_prof_platforms[i].name, name) == 0)
+            return g_prof_platforms[i].name;
+    if (g_prof_platforms_len == g_prof_platforms_cap) {
+        size_t cap = g_prof_platforms_cap ? g_prof_platforms_cap * 2 : 16;
+        ProfPlatform *grown = realloc(g_prof_platforms, cap * sizeof(ProfPlatform));
+        if (!grown) return NULL;
+        g_prof_platforms = grown;
+        g_prof_platforms_cap = cap;
+    }
+    char *copy = strdup(name);
+    if (!copy) return NULL;
+    g_prof_platforms[g_prof_platforms_len++] = (ProfPlatform){.hash = hash, .name = copy};
+    return copy;
+}
+
+/* A platform call begins: one entry per platform function, placed by the
+ * first Platform node that called it. */
+static void prof_enter_platform(const IRNode *node)
+{
+    const char *key = prof_platform_key(node->data.platform.name, node->data.platform.name_hash);
+    /* Without a key it still takes a frame, so its exit pops its own. */
+    prof_push(key ? (const void *)key : (const void *)node, key ? key : node->data.platform.name,
+              key != NULL, 0, NULL, node->loc_id);
 }
 
 static inline void prof_exit(void)
 {
-    if (!g_prof_on || g_prof_depth == 0) return;
+    if (!g_prof_on) return;
+    if (g_prof_unstacked > 0) {
+        g_prof_unstacked--;
+        return;
+    }
+    if (g_prof_depth == 0) return;
     ProfFrame *f = &g_prof_stack[--g_prof_depth];
-    uint64_t elapsed = prof_now() - f->t_enter;
-    EastProfileEntry *e = &g_prof_entries[f->entry];
-    e->calls++;
-    e->total_ns += elapsed;
-    e->self_ns += elapsed > f->child_ns ? elapsed - f->child_ns : 0;
+    uint64_t now = prof_now();
+    uint64_t elapsed = now - f->t_enter;
+    if (f->entry != SIZE_MAX) {
+        EastProfileEntry *e = &g_prof_entries[f->entry];
+        e->calls++;
+        e->total_ns += elapsed;
+        e->self_ns += elapsed > f->child_ns ? elapsed - f->child_ns : 0;
+    }
     if (g_prof_depth > 0) g_prof_stack[g_prof_depth - 1].child_ns += elapsed;
+    if (g_prof_next_ns) prof_interval_due(now);
+}
+
+/* A loop's back-edge: the report printed while the profiler runs is due here
+ * too, so a long loop that calls no function still says how it is going. */
+static inline void prof_tick(void)
+{
+    if (g_prof_on && g_prof_next_ns) prof_interval_due(prof_now());
 }
 
 void east_profile_enable(bool on)
 {
     g_prof_on = on;
+    if (on && !g_prof_started_ns) g_prof_started_ns = prof_now();
 }
 
 bool east_profile_enabled(void)
@@ -150,6 +252,22 @@ EastProfileEntry *east_profile_report(size_t *count_out)
     EastProfileEntry *out = malloc(g_prof_len * sizeof(EastProfileEntry));
     if (!out) return NULL;
     memcpy(out, g_prof_entries, g_prof_len * sizeof(EastProfileEntry));
+    /* The calls under way, innermost first: each counts as a call with its
+     * time so far, its self time what it has not spent in the frame above
+     * it or in the calls it finished. */
+    uint64_t now = prof_now(), above = 0;
+    for (size_t i = g_prof_depth; i-- > 0;) {
+        const ProfFrame *f = &g_prof_stack[i];
+        uint64_t elapsed = now - f->t_enter;
+        if (f->entry != SIZE_MAX) {
+            EastProfileEntry *e = &out[f->entry];
+            uint64_t spent = f->child_ns + above;
+            e->calls++;
+            e->total_ns += elapsed;
+            e->self_ns += elapsed > spent ? elapsed - spent : 0;
+        }
+        above = elapsed;
+    }
     qsort(out, g_prof_len, sizeof(EastProfileEntry), prof_by_self_desc);
     if (count_out) *count_out = g_prof_len;
     return out;
@@ -157,17 +275,103 @@ EastProfileEntry *east_profile_report(size_t *count_out)
 
 void east_profile_reset(void)
 {
-    for (size_t e = 0; e < g_prof_len; e++)
-        free((char *)g_prof_entries[e].name);
+    for (size_t e = 0; e < g_prof_len; e++) {
+        if (!g_prof_entries[e].platform) free((char *)g_prof_entries[e].name);
+        free((char *)g_prof_entries[e].site);
+        free((char *)g_prof_entries[e].call_site);
+    }
+    for (size_t i = 0; i < g_prof_platforms_len; i++)
+        free(g_prof_platforms[i].name);
     free(g_prof_entries);
     free(g_prof_index);
     free(g_prof_stack);
+    free(g_prof_platforms);
     g_prof_entries = NULL;
     g_prof_index = NULL;
     g_prof_stack = NULL;
+    g_prof_platforms = NULL;
     g_prof_len = g_prof_cap = 0;
     g_prof_mask = 0;
     g_prof_depth = g_prof_stack_cap = 0;
+    g_prof_unstacked = 0;
+    g_prof_platforms_len = g_prof_platforms_cap = 0;
+    g_prof_started_ns = 0;
+    g_prof_interval_ns = g_prof_next_ns = 0;
+}
+
+/* The report shows this many entries; the rest are counted in its heading. */
+#define PROF_SHOWN 20
+
+void east_profile_print(FILE *out)
+{
+    size_t n = 0;
+    EastProfileEntry *entries = east_profile_report(&n);
+    const char *top = n > PROF_SHOWN ? "top 20 of " : "";
+    const char *plural = n == 1 ? "" : "s";
+    if (g_prof_depth > 0) {
+        double ran = g_prof_started_ns ? (double)(prof_now() - g_prof_started_ns) / 1e9 : 0.0;
+        fprintf(out, "\nProfile after %.1f s, still running (self time, %s%zu function%s):\n", ran,
+                top, n, plural);
+    } else {
+        fprintf(out, "\nProfile (self time, %s%zu function%s):\n", top, n, plural);
+    }
+    size_t shown = n > PROF_SHOWN ? PROF_SHOWN : n;
+    for (size_t i = 0; i < shown; i++) {
+        const EastProfileEntry *e = &entries[i];
+        /* A function is placed by its definition and, when it differs, the
+         * first call that reached it — the builder stamps a helper it inlines
+         * at a call site with the caller's location, so the call site is what
+         * tells the helpers apart. A platform function has only its call. */
+        const char *defined = e->platform ? "platform function" : e->site ? e->site : "-";
+        bool called = e->call_site && (e->platform || !e->site || strcmp(e->site, e->call_site) != 0);
+        fprintf(out, "  %-16s %10llu calls %9.3f s self %9.3f s total  %s%s%s\n",
+                e->name ? e->name : "<anon>", (unsigned long long)e->calls,
+                (double)e->self_ns / 1e9, (double)e->total_ns / 1e9, defined,
+                called ? "  called at " : "", called ? e->call_site : "");
+    }
+    free(entries);
+    fflush(out);
+}
+
+/* The report printed while the profiler runs, when one is due. */
+static void prof_interval_due(uint64_t now)
+{
+    if (now < g_prof_next_ns) return;
+    east_profile_print(stderr);
+    g_prof_next_ns = prof_now() + g_prof_interval_ns;
+}
+
+bool east_profile_start(bool on)
+{
+    const char *env = getenv(EAST_PROFILE_ENV);
+    if (!on && !(env && env[0] && strcmp(env, "0") != 0)) return false;
+    east_profile_reset();
+    east_profile_enable(true);
+    const char *interval = getenv(EAST_PROFILE_INTERVAL_ENV);
+    if (interval && interval[0]) {
+        char *end = NULL;
+        double seconds = strtod(interval, &end);
+        /* Up to about 30 years, so the nanoseconds fit; NaN fails the test. */
+        if (end == interval || *end != '\0' || !(seconds > 0 && seconds < 1e9)) {
+            fprintf(stderr,
+                    "Warning: %s takes a number of seconds greater than 0, not %s — the profile is "
+                    "printed when the work ends\n",
+                    EAST_PROFILE_INTERVAL_ENV, interval);
+        } else {
+            g_prof_interval_ns = (uint64_t)(seconds * 1e9);
+            if (g_prof_interval_ns == 0) g_prof_interval_ns = 1;
+            g_prof_next_ns = g_prof_started_ns + g_prof_interval_ns;
+        }
+    }
+    return true;
+}
+
+void east_profile_finish(FILE *out)
+{
+    if (!g_prof_started_ns) return;
+    east_profile_enable(false);
+    east_profile_print(out);
+    east_profile_reset();
 }
 
 /* Lazy IR compilation: convert source_ir EastValue → IRNode body on first use */
@@ -798,6 +1002,7 @@ static PagedLoopStep paged_loop_step(EvalResult *body_res, const char *loop_labe
     }
     east_value_release(body_res->value);
     east_gc_maybe_collect_young(); /* safe point: loop back-edge */
+    prof_tick();
     return PAGED_LOOP_NEXT;
 }
 
@@ -1128,6 +1333,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
+            prof_tick();
         }
 
         return eval_ok(east_null());
@@ -1202,6 +1408,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
+            prof_tick();
         }
         if (iter_env) frame_release(iter_env);
         arr->iter_lock--;
@@ -1274,6 +1481,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
+            prof_tick();
         }
         if (iter_env) frame_release(iter_env);
         set->iter_lock--;
@@ -1348,6 +1556,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
+            prof_tick();
         }
         if (iter_env) frame_release(iter_env);
         dict->iter_lock--;
@@ -1472,7 +1681,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 bind_var(call_env, i, fnode->data.function.params[i].name, args[i]);
 
             prof_enter(fnode->data.function.body, fnode->data.function.name, fnode->loc_id,
-                       node->loc_id);
+                       g_current_source_map, node->loc_id);
             EvalResult body_res = eval_ir(fnode->data.function.body, call_env, platform, builtins);
             prof_exit();
 
@@ -1599,7 +1808,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         /* Evaluate body */
-        prof_enter(cfn->ir, cfn->name, cfn->loc_id, node->loc_id);
+        prof_enter(cfn->ir, cfn->name, cfn->loc_id,
+                   cfn->source_map ? cfn->source_map : g_current_source_map, node->loc_id);
         EvalResult body_res = eval_ir(cfn->ir, call_env, cfn->platform, cfn->builtins);
         prof_exit();
 
@@ -1705,7 +1915,11 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 input_types[i] = node->data.platform.args[i]->type;
         }
 
+        /* The time inside a platform function is its own entry's, not the
+         * calling function's. */
+        if (g_prof_on) prof_enter_platform(node);
         EvalResult result = pfn(args, nargs, input_types, nargs, node->type);
+        prof_exit();
         if (heap_args) free(input_types);
 
         for (size_t i = 0; i < nargs; i++)
@@ -2591,7 +2805,7 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
         bind_var(call_env, i, fn->param_names[i], args[i]);
     }
 
-    prof_enter(fn->ir, fn->name, fn->loc_id, 0);
+    prof_enter(fn->ir, fn->name, fn->loc_id, g_current_source_map, 0);
     EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
     prof_exit();
     frame_release(call_env);

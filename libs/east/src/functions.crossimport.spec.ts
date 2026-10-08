@@ -46,6 +46,15 @@ describe("cross-language import: python-authored functions in TypeScript", () =>
     assert.equal(run([{ qty: 2n, price: 1.5 }, { qty: 3n, price: 2.0 }], "hi"), "hi!hi! 9.0 6.0");
   });
 
+  test("the linked program's map names the python source of the functions it embeds", () => {
+    const greet = East.importFunction("crosslang_py", "greet", FunctionType([StringType, IntegerType], StringType));
+    const user = East.function([StringType], StringType, ($, name) => greet(name, 2n));
+    const { sourceMap } = East.linkImports(user, [manifest]);
+    assert.ok(sourceMap !== null);
+    const files = new Set(sourceMap.entries().flatMap(stack => stack.map(l => l.filename)));
+    assert.ok([...files].some(f => f.endsWith("crosslang_functions.py")), [...files].join(", "));
+  });
+
   test("a wrong declared type is refused with both types named", () => {
     const score = East.importFunction("crosslang_py", "score", FunctionType([Row], IntegerType));
     const user = East.function([Row], IntegerType, ($, r) => score(r));

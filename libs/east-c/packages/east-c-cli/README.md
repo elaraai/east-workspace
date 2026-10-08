@@ -104,14 +104,27 @@ gone.
 
 ```bash
 east-c run task.beast2 -i rows.beast2 --profile
+east-c exec unit.beast2 --profile
+EAST_PROFILE=1 EAST_PROFILE_INTERVAL=300 east-c exec unit.beast2
 ```
 
-prints every East function the run called, by self time, with its call
-count, its total time, and where it is: the name of the Let it was bound to
-when the IR has one, its definition site, and — when that differs — the
-site of the first call that reached it, which is what tells apart helpers
-the TypeScript builder inlined at their call sites. Off, profiling costs
-one branch per call.
+prints, after the work (and after a failure's error), every East function
+and platform function it called, by self time, with its call count, its
+total time, and where it is: the name of the Let it was bound to when the
+IR has one, its definition site, and — when that differs — the site of the
+first call that reached it, which is what tells apart helpers a builder
+lowered to calls at their call sites. A platform function is an entry of
+its own, named after it and placed by the call that reached it, so the time
+spent inside it is not its caller's self time.
+
+`EAST_PROFILE` set to anything but `0` profiles without the flag, which is
+how a task run by e3 is profiled: e3 hands its environment to the runner,
+and the report lands in the task's log. `EAST_PROFILE_INTERVAL=N` (seconds)
+also prints the profile so far every N seconds while the work runs, a call
+still under way counted with its time so far; an interval that is not a
+number of seconds is said and ignored. east-py's runner prints the same
+report (the profiler is libeast-c's). Off, profiling costs one branch per
+call.
 
 The `ir` toolbox (issue #627) works on IR files without running them:
 

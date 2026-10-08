@@ -330,7 +330,11 @@ bool east_beast2_projection_is_identity(Beast2Projection *pr)
  * binds `l` to the element mask of `lines`, so the items narrow to what the
  * inner body reads of `l` (an item used whole marks only the items whole),
  * and `r.lines.size()` narrows them to nothing — an empty struct that is
- * parsed and hopped. The observability contract (an inferred optimisation
+ * parsed and hopped. It follows a call of an inline Function node — a helper
+ * the builder lowered to a call (#1271) — the same way: `helper(r.lines)`
+ * binds the helper's parameter to the mask of `lines`, so what the helper
+ * reads narrows the row as the same reads spliced inline would. The
+ * observability contract (an inferred optimisation
  * must be visible when it stops applying) is the pair of thread-local
  * counters surfaced through eager_stats().
  */
@@ -501,7 +505,8 @@ static bool walk_all(IRNode **nodes, size_t n, const MaskTarget *targets)
     return true;
 }
 
-/* An iteration (or a size) of a target-rooted chain: the mask node for the
+/* An iteration (or a size) of a target-rooted chain — a target itself, as a
+ * helper's parameter bound to a field is, included: the mask node for the
  * chain, with its element mask created. Returns 1 with *elem set, 0 when
  * `expr` is not such a chain or the chain is already whole (nothing to
  * narrow; *walk_expr says whether the caller must still walk it), -1 to
@@ -511,7 +516,7 @@ static int chain_elem(const IRNode *expr, const MaskTarget *targets, PagedMask *
 {
     *elem = NULL;
     *walk_expr = true;
-    if (expr->kind != IR_GET_FIELD) return 0;
+    if (expr->kind != IR_GET_FIELD && expr->kind != IR_VARIABLE) return 0;
     const MaskTarget *t;
     const char *path[PAGED_MASK_MAX_PATH];
     size_t depth;
@@ -526,6 +531,50 @@ static int chain_elem(const IRNode *expr, const MaskTarget *targets, PagedMask *
     if (!m) return 0; /* already whole */
     *elem = mask_elem(m);
     return *elem ? 1 : -1;
+}
+
+/* The most arguments an inline call binds as targets; a wider call's
+ * arguments are walked where they are. */
+#define PAGED_MASK_MAX_ARGS 16
+
+/* A call of an inline Function node: each argument that is a target-rooted
+ * chain binds the parameter it lands in to that chain's mask, so the
+ * callee's reads of the parameter are the caller's reads of the chain — the
+ * binding hides a live target of the same name, as the parameter does; any
+ * other argument is walked where it is, and the parameter it lands in
+ * shadowing a live target declines, as any binder does. */
+static bool paged_mask_inline_call(const IRNode *node, const IRNode *callee,
+                                   const MaskTarget *targets)
+{
+    size_t n = node->data.call.num_args;
+    MaskTarget bound[PAGED_MASK_MAX_ARGS];
+    size_t k = 0;
+    const MaskTarget *inner = targets;
+    /* A chain already whole: the parameter's reads narrow nothing there. */
+    PagedMask whole = {0};
+    whole.whole = true;
+    for (size_t i = 0; i < n; i++) {
+        const IRNode *arg = node->data.call.args[i];
+        const MaskTarget *t = NULL;
+        const char *path[PAGED_MASK_MAX_PATH];
+        size_t depth = 0;
+        const IRNode *root = NULL;
+        int r = arg->kind == IR_VARIABLE || arg->kind == IR_GET_FIELD
+                    ? chain_root(arg, targets, &t, path, &depth, &root)
+                    : 0;
+        if (r < 0) return false;
+        if (r == 0) {
+            if (shadows_target(targets, callee->data.function.params[i].name)) return false;
+            if (!paged_mask_walk(arg, targets)) return false;
+            continue;
+        }
+        bool oom = false;
+        PagedMask *m = mask_node_at(t->mask, path, depth, &oom);
+        if (oom) return false;
+        bound[k] = (MaskTarget){callee->data.function.params[i].name, m ? m : &whole, false, inner};
+        inner = &bound[k++];
+    }
+    return paged_mask_walk(callee->data.function.body, inner);
 }
 
 /* Walk `node` collecting the masks of `targets`. Returns false when the
@@ -639,9 +688,15 @@ static bool paged_mask_walk(const IRNode *node, const MaskTarget *targets)
         return paged_mask_walk(node->data.function.body, targets);
 
     case IR_CALL:
-    case IR_CALL_ASYNC:
+    case IR_CALL_ASYNC: {
+        const IRNode *callee = node->data.call.func;
+        if (callee && (callee->kind == IR_FUNCTION || callee->kind == IR_ASYNC_FUNCTION) &&
+            node->data.call.num_args == callee->data.function.num_params &&
+            node->data.call.num_args <= PAGED_MASK_MAX_ARGS)
+            return paged_mask_inline_call(node, callee, targets);
         if (!paged_mask_walk(node->data.call.func, targets)) return false;
         return walk_all(node->data.call.args, node->data.call.num_args, targets);
+    }
 
     case IR_PLATFORM:
         return walk_all(node->data.platform.args, node->data.platform.num_args, targets);

@@ -103,6 +103,19 @@ static IRNode *assign(const char *name, IRNode *value)
     ir_node_release(value);
     return n;
 }
+/* (fn(param) { body })(arg): a helper the builder lowered to a call of its
+ * inline Function node. */
+static IRNode *call_inline(const char *param, IRNode *body, IRNode *arg)
+{
+    IRVariable params[1] = {{(char *)param, false, false, 0}};
+    IRNode *fn = ir_function(&east_null_type, NULL, 0, params, 1, body);
+    ir_node_release(body);
+    IRNode *args[1] = {arg};
+    IRNode *n = ir_call(&east_null_type, fn, args, 1);
+    ir_node_release(fn);
+    ir_node_release(arg);
+    return n;
+}
 
 /* The narrowed row type for `body` iterating `r` over rows_t, or NULL when
  * the projection declines. */
@@ -194,6 +207,53 @@ static void test_inference(void)
     ir_node_release(h);
 }
 
+/* A helper lowered to a call of its inline Function node (#1271) narrows the
+ * row by what it reads of its parameter, as the same reads inline would. */
+static void test_inline_calls(void)
+{
+    bool declined;
+
+    /* let x = (fn(r) { let a = r.f1 })(r)   ==>  { f1 } — the parameter
+     * takes the row's name, as authored names often do, and stands for it */
+    IRNode *a = let("x", call_inline("r", let("a", field(var("r"), "f1")), var("r")));
+    EastType *got = narrowed_row(a, "row helper", &declined);
+    CHECK(!declined && got && east_type_equal(got, struct1("f1", &east_float_type)),
+          "row helper: the row narrows to what the helper reads of its parameter");
+    ir_node_release(a);
+
+    /* for l in r.lines: let x = (fn(it) { let p = it.price })(l)  ==>  { lines: Array<{ price }> } */
+    IRNode *b = for_array("l", field(var("r"), "lines"),
+                          let("x", call_inline("it", let("p", field(var("it"), "price")), var("l"))));
+    got = narrowed_row(b, "item helper", &declined);
+    CHECK(!declined && got &&
+              east_type_equal(got, struct1("lines", east_array_type(struct1("price", &east_float_type)))),
+          "item helper: an inner loop's items narrow through a helper it calls");
+    ir_node_release(b);
+
+    /* let x = (fn(items) { let n = items.size() })(r.lines)  ==>  { lines: Array<{}> } */
+    IRNode *c = let("x", call_inline("items", let("n", size_of("ArraySize", var("items"))),
+                                     field(var("r"), "lines")));
+    got = narrowed_row(c, "chain helper", &declined);
+    CHECK(!declined && got &&
+              east_type_equal(got, struct1("lines", east_array_type(east_struct_type(NULL, NULL, 0)))),
+          "chain helper: a helper sizing a field's array narrows its items to nothing");
+    ir_node_release(c);
+
+    /* let x = (fn(row) { let y = row })(r)   ==>  declined (the row escapes in the helper) */
+    IRNode *d = let("x", call_inline("row", let("y", var("row")), var("r")));
+    got = narrowed_row(d, "helper escape", &declined);
+    CHECK(declined, "helper escape: the row used whole inside a helper must decline");
+    ir_node_release(d);
+
+    /* let x = (fn(r) { let y = r })(r.lines.size())   ==>  declined: a parameter
+     * taking a live variable's name for anything but a chain of it shadows it */
+    IRNode *e = let("x", call_inline("r", let("y", var("r")),
+                                     size_of("ArraySize", field(var("r"), "lines"))));
+    got = narrowed_row(e, "helper shadow", &declined);
+    CHECK(declined, "helper shadow: a parameter shadowing a live variable must decline");
+    ir_node_release(e);
+}
+
 /* A two-row paged blob, decoded whole and through the inner-read plan: the
  * fields the body reads must agree, and the projected items hold only them. */
 static void test_decode_agrees(void)
@@ -274,6 +334,7 @@ int main(void)
     build_types();
 
     test_inference();
+    test_inline_calls();
     test_decode_agrees();
 
     east_type_registry_clear();

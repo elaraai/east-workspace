@@ -147,6 +147,40 @@ def test_precompiled_functions_infer_from_their_ir(array_path):
         assert after["beast2_segments_projected"] > before["beast2_segments_projected"]
 
 
+def test_a_helper_a_callback_calls_still_projects(array_path):
+    """#1271: a built function called inside a callback lowers to a call of
+    its inline Function node, and the mask follows the element into it — so
+    the scan still decodes only the fields the helper reads, in the eager
+    compute family and in a compiled body's paged loop alike."""
+    from pathlib import Path
+
+    from east.runtime._compiler_eastc import open_paged_value
+
+    meta_t = StructType([("code", StringType), ("flag", IntegerType)])
+    qty_of = East.function([ROW], IntegerType, lambda _b, r: r.qty * 2)
+    code_of = East.function([meta_t], StringType, lambda _b, m: m.code)
+    with open_beast2_file(array_path, AT) as f:
+        table = f.load()
+        got, counted = _delta(lambda: list(f.map(lambda _b, r: qty_of(r) + 1)))
+        assert got == [i * 14 + 1 for i in range(500)]
+        assert counted["beast2_segments_projected"] > 0, counted
+        assert counted["beast2_segments_whole"] == 0, counted
+        got, counted = _delta(lambda: list(f.map(lambda _b, r: code_of(r.meta))))
+        assert got == list(table.map(lambda _b, r: r["meta"]["code"]))
+        assert counted["beast2_segments_projected"] > 0, counted
+
+    total = East.function([AT], IntegerType, lambda _b, rows: East.for_(
+        rows, 0, lambda _b, acc, el: acc + qty_of(el)))
+    lazy = open_paged_value(total._eastc_handle._input_types[0], Path(array_path).read_bytes(),
+                            frozen=True)
+    before = eager_stats()
+    assert total(lazy) == sum(i * 14 for i in range(500))
+    after = eager_stats()
+    assert after["beast2_paged_loop_segments_projected"] > \
+        before["beast2_paged_loop_segments_projected"]
+    assert after["beast2_paged_loop_segments_whole"] == before["beast2_paged_loop_segments_whole"]
+
+
 def test_bound_functions_decline_with_the_function_reason(array_path):
     side = EastDict(IntegerType, IntegerType, {i: i for i in range(500)})
     look = East.function([ROW, DictType(IntegerType, IntegerType)], IntegerType,

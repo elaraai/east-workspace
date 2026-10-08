@@ -225,6 +225,43 @@ const fixtures = {
     fetch: false,
     result: 'platform_call_result.beast2',
   }),
+
+  // ---- Profiling (#1271) -----------------------------------------------
+
+  // A helper called 3 times, each call logging through east-node-std's
+  // `console_log`: the platform function is a profile entry of its own,
+  // placed by the call that reached it, beside the helper's.
+  'profile_platform.beast2': (() => {
+    const consoleLog = East.platform('console_log', [StringType], NullType);
+    const step = East.function([IntegerType], IntegerType, ($, x) => {
+      $(consoleLog('step'));
+      return x.add(1n);
+    });
+    return encodeEastIR(
+      East.function([], IntegerType, ($) => {
+        const acc = $.let(0n);
+        $.for(East.Array.range(0n, 3n), ($, _i) => {
+          $.assign(acc, step(acc));
+        });
+        return acc;
+      }).toIR(),
+    );
+  })(),
+
+  // The helper program run as a unit, for `exec --profile`. Its paths are
+  // relative, so the unit runs wherever it is copied beside the program.
+  'profile_unit.beast2': encodeBeast2For(UnitType)({
+    work: variant('run', {
+      program: 'profile_calls.beast2',
+      inputs: [],
+      output: variant('value', 'profile_output.beast2'),
+      decode: variant('lazy', null),
+    }),
+    platforms: [],
+    threads: 1n,
+    fetch: false,
+    result: 'profile_result.beast2',
+  }),
 };
 
 for (const dir of targets) {

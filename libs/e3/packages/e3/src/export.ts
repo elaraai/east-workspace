@@ -122,11 +122,13 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     ? undefined
     : (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e }));
   const link = <B extends EastIR<any, any> | AsyncEastIR<any, any>>(bundle: B, owner: string, runner: Runner | undefined): B => {
-    const { ir, imports } = linkImports(bundle, manifests.forOwner(runner));
+    const { ir, imports, sourceMap } = linkImports(bundle, manifests.forOwner(runner));
     if (imports.length === 0) return bundle;
     checkImportPlatforms(imports, runner, owner);
     const linked = (bundle instanceof EastIR ? new EastIR<any, any>(ir as any) : new AsyncEastIR<any, any>(ir as any)) as B;
-    linked.source_map = bundle.source_map;
+    // The importer's map with the embedded functions' locations added, so a
+    // task's error trace and profile name the exporter's source (#1271).
+    linked.source_map = sourceMap;
     return linked;
   };
 

@@ -7,8 +7,9 @@
  * Cross-language East functions (#628): export, import, link.
  *
  * A function authored in one host language is exported as pure IR — its
- * `Function` node, the declared `FunctionType`, and the platform functions
- * it calls — in a **function manifest** (`FunctionManifestType`, one beast2
+ * `Function` node, the declared `FunctionType`, the platform functions it
+ * calls, and the source map its locations index — in a **function
+ * manifest** (`FunctionManifestType`, one beast2
  * value per package). Code in the other language refers to it with
  * `East.importFunction(package, name, type)`: a typed, callable function
  * expression whose IR is a `Platform` node named {@link IMPORT_PLATFORM}
@@ -26,15 +27,15 @@
 
 import { ArrayType, BooleanType, NullType, OptionType, StringType, StructType, type EastType, type FunctionType, type AsyncFunctionType, type ValueTypeOf } from "./types.js";
 import { EastTypeType, isTypeValueEqual, toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
-import { IRType, type IR, type FunctionIR, type AsyncFunctionIR, type PlatformIR, type VariableIR } from "./ir.js";
+import { IRType, LocationType, type IR, type FunctionIR, type AsyncFunctionIR, type PlatformIR, type VariableIR } from "./ir.js";
 import { walkIR, literalValueOf } from "./walker.js";
-import { variant, some, none } from "./containers/variant.js";
+import { variant, some, none, isVariant } from "./containers/variant.js";
 import { printTypeValue } from "./compile.js";
 import { encodeBeast2For, decodeBeast2For } from "./serialization/beast2/index.js";
 import { Expr } from "./expr/expr.js";
 import type { CallableFunctionExpr } from "./expr/function.js";
 import type { CallableAsyncFunctionExpr } from "./expr/asyncfunction.js";
-import { get_location_id } from "./location.js";
+import { get_location_id, SourceMap, type Location } from "./location.js";
 
 /** The platform name an unresolved `East.importFunction` carries in IR. */
 export const IMPORT_PLATFORM = "east.importFunction";
@@ -57,11 +58,17 @@ export const PlatformDependencyType = StructType({
   type_parameters: ArrayType(EastTypeType),
 });
 
-/** One exported function: its IR, declared type, and platform dependencies. */
+/**
+ * One exported function: its IR, declared type, platform dependencies, and
+ * the source map its IR's loc_ids index — every location stack the IR names,
+ * entry 0 the empty one — so its frames name the exporter's source wherever
+ * it is linked.
+ */
 export const FunctionExportType = StructType({
   ir: IRType,
   name: StringType,
   platforms: ArrayType(PlatformDependencyType),
+  source_map: ArrayType(ArrayType(LocationType)),
   type: EastTypeType,
 });
 
@@ -94,6 +101,13 @@ export interface Linked {
   ir: IR;
   /** The imports that were resolved, in first-use order. */
   imports: LinkedImport[];
+  /**
+   * The source map the linked IR's loc_ids index: the importer's, with the
+   * embedded functions' locations added, so an error or a profile names the
+   * exporter's source. Null when the importer carried no map, in which case
+   * the embedded functions carry no locations.
+   */
+  sourceMap: SourceMap | null;
 }
 
 // ── the IR behind a function ────────────────────────────────────────────────
@@ -107,17 +121,23 @@ export interface Linked {
  * @throws {TypeError} For anything else
  */
 export function functionIR(fnOrIr: unknown): IR {
+  return functionBundle(fnOrIr).ir;
+}
+
+/** The IR behind a function and the source map its loc_ids index (null for a bare IR value). */
+function functionBundle(fnOrIr: unknown): { ir: IR; sourceMap: SourceMap | null } {
   if (fnOrIr instanceof Expr) {
     const toIR = (fnOrIr as any).toIR;
     if (typeof toIR !== "function") throw new TypeError("expected a function expression, not a plain expression");
-    return toIR.call(fnOrIr).ir as IR;
+    const bundle = toIR.call(fnOrIr);
+    return { ir: bundle.ir as IR, sourceMap: bundle.source_map ?? null };
   }
   const v = fnOrIr as any;
   if (v !== null && typeof v === "object" && v.ir !== undefined && typeof v.ir.type === "string") {
-    return v.ir as IR; // an EastIR / AsyncEastIR
+    return { ir: v.ir as IR, sourceMap: v.source_map ?? null }; // an EastIR / AsyncEastIR
   }
   if (v !== null && typeof v === "object" && typeof v.type === "string" && "value" in v) {
-    return v as IR;
+    return { ir: v as IR, sourceMap: null };
   }
   throw new TypeError("expected an East.function result, an EastIR, or an IR value");
 }
@@ -184,8 +204,11 @@ export interface ExportFunctionsOptions {
  *
  * Every function exports as a closed value: a function with captures (a
  * closure over the enclosing body) is rejected, as is one that itself holds
- * an unresolved import — link before exporting; v1 does not chain. The
- * exported IR carries no location ids (a manifest has no source map).
+ * an unresolved import — link before exporting; v1 does not chain. Each
+ * function carries the locations its IR names, renumbered into a source map
+ * of its own, so the frames of an error or a profile name its source
+ * wherever it is linked; a bare IR value, which carries no map, exports
+ * without locations.
  *
  * @param pkg - The exporting package's name (what importers name)
  * @param version - Its version
@@ -205,7 +228,7 @@ export function exportFunctions(pkg: string, version: string, functions: Record<
   if (!pkg) throw new Error("exportFunctions: the package name is empty");
   const exports: FunctionExport[] = [];
   for (const name of Object.keys(functions).sort()) {
-    const ir = functionIR(functions[name]);
+    const { ir, sourceMap } = functionBundle(functions[name]);
     const root = rootFunction(ir, `exportFunctions: ${name}`);
     const captures = (root.value.captures as VariableIR[]).map(v => v.value.name);
     if (captures.length > 0) {
@@ -218,10 +241,14 @@ export function exportFunctions(pkg: string, version: string, functions: Record<
     if (imports > 0) {
       throw new Error(`exportFunctions: ${name} holds ${imports} unresolved import(s) — link it (linkImports) before exporting; exports do not chain`);
     }
+    // Only the stacks this function names, in a map of its own: the build's
+    // map may hold its siblings' too.
+    const own = new SourceMap();
     exports.push({
-      ir: stripLocations(ir),
+      ir: remapLocations(ir, sourceMap?.entries() ?? [], own),
       name,
       platforms: platformDependencies(ir, options.providers ?? {}),
+      source_map: own.entries().map(stack => [...stack]),
       type: root.value.type,
     });
   }
@@ -229,13 +256,47 @@ export function exportFunctions(pkg: string, version: string, functions: Record<
 }
 
 /**
- * The IR with every `loc_id` zeroed. A manifest carries no source map, so
- * the exporter's location ids would only collide with the importer's; an
- * embedded function reports no location instead.
+ * The IR with every `loc_id` — each node's, each loop label's, each
+ * variable's — naming its stack in `from` re-interned into `to`; an id
+ * `from` cannot place becomes 0. Nodes are rebuilt once each, so a node the
+ * IR shares (a parameter its body reads) stays shared.
+ *
+ * @param ir - The IR whose loc_ids index `from`
+ * @param from - The stacks the IR's loc_ids index, entry 0 the empty one
+ * @param to - The map the result's loc_ids index
+ * @returns The IR, its loc_ids indexing `to`
  */
-function stripLocations(ir: IR): IR {
-  const stripped = mapChildren(ir, stripLocations);
-  return variant(stripped.type, { ...stripped.value, loc_id: 0n }) as IR;
+function remapLocations(ir: IR, from: readonly (readonly Location[])[], to: SourceMap): IR {
+  const done = new Map<object, unknown>();
+  const loc = (id: bigint): bigint => {
+    const stack = id > 0n ? from[Number(id)] : undefined;
+    return stack === undefined ? 0n : to.intern_stack([...stack]);
+  };
+  // A struct inside a node — a label, a case, a field, an entry — holds
+  // child nodes and, for a label, a loc_id of its own.
+  const child = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(child);
+    if (isVariant(item)) return node(item as IR);
+    if (item === null || typeof item !== "object") return item;
+    const out: Record<string, unknown> = {};
+    for (const [key, sub] of Object.entries(item)) out[key] = key === "loc_id" ? loc(sub as bigint) : child(sub);
+    return out;
+  };
+  const node = (n: IR): IR => {
+    const hit = done.get(n);
+    if (hit !== undefined) return hit as IR;
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(n.value as Record<string, unknown>)) {
+      // Types hold no locations, and a Value node's value is data.
+      if (key === "loc_id") out[key] = loc(item as bigint);
+      else if (key === "type" || key === "type_parameters" || (n.type === "Value" && key === "value")) out[key] = item;
+      else out[key] = child(item);
+    }
+    const result = variant(n.type, out) as IR;
+    done.set(n, result);
+    return result;
+  };
+  return node(ir);
 }
 
 // The codec is built on first use, not at import: building a beast2 codec
@@ -328,15 +389,17 @@ function importTarget(node: PlatformIR): { pkg: string; name: string } {
  * import (and, for a type mismatch, both types). The exported IR becomes a
  * `Let`-bound constant at the top of the importing function's body; a use
  * inside a nested function captures it, so the nested functions' `captures`
- * are extended. The result is self-contained IR with no import left.
+ * are extended. The result is self-contained IR with no import left. The
+ * embedded functions keep their locations: their stacks join a copy of the
+ * importer's source map, which the result carries.
  *
  * @param fnOrIr - A function expression, its `toIR()`, or an IR value
  * @param manifests - The exporting packages' manifests
- * @returns The linked IR and the imports it resolved (with their platform dependencies)
+ * @returns The linked IR, the imports it resolved (with their platform dependencies) and the source map its loc_ids index
  * @throws {Error} For an unresolvable import or a type mismatch
  */
 export function linkImports(fnOrIr: unknown, manifests: FunctionManifest[]): Linked {
-  const ir = functionIR(fnOrIr);
+  const { ir, sourceMap: importerMap } = functionBundle(fnOrIr);
   const byPackage = new Map<string, FunctionManifest>();
   for (const m of manifests) byPackage.set(m.package, m);
 
@@ -365,7 +428,16 @@ export function linkImports(fnOrIr: unknown, manifests: FunctionManifest[]): Lin
   };
   const root = rootFunction(ir, "linkImports");
   scan(root.value.body, 0);
-  if (targets.size === 0) return { ir, imports: [] };
+  if (targets.size === 0) return { ir, imports: [], sourceMap: importerMap };
+
+  // The importer's stacks keep their ids — each is distinct, so interning
+  // them in order numbers them as they were — and every embedded function's
+  // join after them. An importer with no map has no ids to keep apart from.
+  let sourceMap: SourceMap | null = null;
+  if (importerMap !== null) {
+    sourceMap = new SourceMap();
+    for (const stack of importerMap.entries()) sourceMap.intern_stack([...stack]);
+  }
 
   // Resolve each against its manifest: present, named, and typed exactly.
   const bindings = new Map<string, { variable: VariableIR; export: FunctionExport }>();
@@ -423,7 +495,7 @@ export function linkImports(fnOrIr: unknown, manifests: FunctionManifest[]): Lin
     type: toEastTypeValue(NullType),
     loc_id: 0n,
     variable: b.variable,
-    value: b.export.ir,
+    value: remapLocations(b.export.ir as IR, sourceMap === null ? [] : b.export.source_map, sourceMap ?? new SourceMap()),
   }) as IR);
   const statements = body.type === "Block" ? [...lets, ...(body.value.statements as IR[])] : [...lets, body];
   const linkedBody: IR = variant("Block", {
@@ -437,7 +509,7 @@ export function linkImports(fnOrIr: unknown, manifests: FunctionManifest[]): Lin
     const outer = ir.value.statements as IR[];
     linked = variant("Block", { ...ir.value, statements: [...outer.slice(0, -1), linkedRoot] }) as IR;
   }
-  return { ir: linked, imports };
+  return { ir: linked, imports, sourceMap };
 }
 
 /** A name as an identifier fragment. */

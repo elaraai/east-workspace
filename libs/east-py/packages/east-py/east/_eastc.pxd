@@ -17,6 +17,7 @@ platform bridge module.
 
 from libc.stddef cimport size_t
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint32_t, uint64_t
+from libc.stdio cimport FILE
 
 
 # ─── stdbool.h ────────────────────────────────────────────────
@@ -739,6 +740,12 @@ cdef extern from "east/compiler.h":
     void east_get_thread_context(PlatformRegistry **out_p, BuiltinRegistry **out_b)
     void east_set_source_map(const EastSourceMap *sm)
     const EastSourceMap *east_get_source_map()
+    # The per-function profiler, thread-local: a runner arms it for its work
+    # (--profile, EAST_PROFILE) and prints its report after.
+    void east_profile_enable(bint on)
+    bint east_profile_enabled()
+    bint east_profile_start(bint on)
+    void east_profile_finish(FILE *out)
 
 
 # ─── east.h ──────────────────────────────────────────────────────────────

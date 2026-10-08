@@ -34,6 +34,7 @@ from east.expression.lift import (
     _clear_registries,
     _effect_frames,
     _lift,
+    _note_effect,
     _pop_effects,
     _push_effects,
     _push_registries,
@@ -48,7 +49,7 @@ from east.expression.location import (
     source_map_scope,
 )
 from east.expression.nodes import _builtin, _var
-from east.types.types import EastType, is_type_equal
+from east.types.types import EastType, is_subtype, is_type_equal
 
 #: Whether the build currently on the stack is an ``East.asyncFunction`` —
 #: what lets a platform declaration handle reject an async call spelled
@@ -375,37 +376,47 @@ class _PlatformFunction:
         )
 
 
-def _returns(ir: Any) -> bool:
-    """Whether a built function's body holds a ``Return`` node."""
-    from east.expression.finalize import _node_children
+def _effectful(artifact: Any) -> bool:
+    """Whether a built function mutates or raises: a call of it whose value
+    is thrown away loses that, which the build must name (#565). Read once
+    per artifact."""
+    hit = getattr(artifact, "_east_effectful", None)
+    if hit is None:
+        from east.expression.finalize import _node_children
+        from east.expression.nodes import _MUTATING_BUILTINS
 
-    stack = [ir]
-    while stack:
-        node = stack.pop()
-        kind = getattr(node, "type", None)
-        if kind == "Return":
-            return True
-        if kind is not None:
-            stack.extend(_node_children(node))
-    return False
+        hit = False
+        stack = [artifact._east_ir]
+        while stack and not hit:
+            node = stack.pop()
+            kind = getattr(node, "type", None)
+            if kind == "Error" or (kind == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS):
+                hit = True
+            elif kind is not None:
+                stack.extend(_node_children(node))
+        artifact._east_effectful = hit
+    return hit
 
 
 def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
-    """An artifact called with expression proxies INSIDE another body: its
-    source body re-runs in its OWN statement frame, and the expression that
-    frame assembles to splices into the surrounding build (#470).
+    """An artifact called with expression proxies INSIDE another body: it
+    embeds as its inline Function node and the call lowers to a ``Call`` —
+    the TypeScript shape (#1271). The body runs in a frame of its own, so a
+    ``b.return_`` returns from it, a profile lists it as an entry of its own,
+    placed by its definition and by the call, and an error inside it names
+    both.
 
-    The frame is the whole point (#670): a statement the body appends —
-    ``b.let``, ``b.const``, ``b.if_`` — belongs to the spliced expression,
-    not to the caller's block. Run in the caller's frame it would land
-    ABOVE the expression that consumes it, so a body used as an
-    ``East.if_else`` arm evaluated even when the arm was not taken. Every
-    other expression form that runs a body (``East.let``, ``try_catch``,
-    ``.match``) opens its own frame for the same reason; this one did not.
-
-    A body that ``b.return_``s cannot be spliced — the return would leave
-    the CALLER — so it embeds as the inline Function node and the call
-    lowers to a ``Call`` (the TypeScript shape)."""
+    An artifact that cannot embed — one whose build hoisted constants above
+    its Function node (their ``Let``s belong to its own build), one that
+    calls compiled function values through hidden trailing parameters, or
+    one called with arguments its declared parameters do not take (a column
+    projection re-runs it against the narrow struct it decodes) — re-runs
+    its source body in its OWN statement frame instead, and the expression
+    that frame assembles splices into the surrounding build (#470). The
+    frame is the whole point there (#670): a statement the body
+    appends — ``b.let``, ``b.const``, ``b.if_`` — belongs to the spliced
+    expression, not to the caller's block, or a body used as an
+    ``East.if_else`` arm would evaluate even when the arm was not taken."""
     from east.expression.lift import _lift_artifact
     from east.expression.statements import (
         _call_function_body,
@@ -422,10 +433,19 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     declared = getattr(artifact, "_east_param_types", None)
     if declared is not None and len(args) > len(declared):
         args = tuple(args[: len(declared)])
-    if _returns(artifact._east_ir):
+    fits = declared is not None and len(args) == len(declared) and all(
+        not isinstance(a, Expression) or is_subtype(a.east_type, t)
+        for a, t in zip(args, declared, strict=True))
+    if fits and not getattr(artifact, "_east_fn_binds", ()):
         embedded = _lift_artifact(artifact)
         if embedded is not None:
-            return embedded(*args)
+            call = embedded(*args)
+            if _effectful(artifact):
+                # Its mutations and errors are the call's: a call thrown away
+                # is the build's to name, as the spliced body's were.
+                name = getattr(artifact, "__name__", "")
+                _note_effect(call.ir, name if name.isidentifier() else "call")
+            return call
     if not _frames:
         raise ExpressionError("an East.function was called with expression arguments outside a build")
     frame = _open_frame(_frames[-1].return_type)

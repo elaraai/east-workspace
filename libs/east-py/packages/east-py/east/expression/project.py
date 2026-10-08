@@ -75,8 +75,48 @@ class _Escaped(Exception):
 
 
 def _collect_mask(body: Any, target: str) -> Any:
-    """The mask for parameter ``target`` over ``body``, or ``WHOLE_MASK``."""
+    """The mask for parameter ``target`` over ``body``, or ``WHOLE_MASK``.
+
+    A call of an inline Function node — a built function called inside the
+    body, which lowers to one (#1271) — is followed: an argument that is a
+    ``GetField`` chain rooted at the target hands the callee's mask of its
+    parameter to that chain, so what a helper reads narrows the element as
+    the same reads written inline would (east-c's paged-loop walk does the
+    same)."""
     mask: dict = {}
+
+    def chain(node: Any) -> tuple | None:
+        """The path of a ``GetField`` chain rooted at the target (empty for
+        the target itself), or None for any other expression."""
+        path: list[str] = []
+        cur = node
+        while getattr(cur, "type", None) == "GetField":
+            path.append(cur.value["field"])
+            cur = cur.value["struct"]
+        if getattr(cur, "type", None) == "Variable" and cur.value["name"] == target:
+            return tuple(reversed(path))
+        return None
+
+    def graft(path: tuple, sub: Any) -> None:
+        """Merge ``sub``, a callee's mask of the parameter the chain at
+        ``path`` is passed to, into the mask at ``path``."""
+        if not path:
+            if sub is WHOLE_MASK:
+                raise _Escaped
+            for name, inner in sub.items():
+                mask[name] = merge_masks(mask[name], inner) if name in mask else inner
+            return
+        node = mask
+        for name in path[:-1]:
+            nxt = node.get(name)
+            if nxt is WHOLE_MASK:
+                return
+            if nxt is None:
+                nxt = {}
+                node[name] = nxt
+            node = nxt
+        last = path[-1]
+        node[last] = merge_masks(node[last], sub) if last in node else sub
 
     def walk(node: Any) -> None:
         kind = getattr(node, "type", None)
@@ -110,6 +150,22 @@ def _collect_mask(body: Any, target: str) -> Any:
                 raise _Escaped
             walk(payload["value"])
             return
+        if kind == "Call" and getattr(payload["function"], "type", None) == "Function":
+            callee = payload["function"].value
+            params = list(callee["parameters"])
+            args = list(payload["arguments"])
+            if len(params) == len(args):
+                for param, arg in zip(params, args, strict=True):
+                    path = chain(arg)
+                    if path is None:
+                        walk(arg)
+                    else:
+                        graft(path, _collect_mask(callee["body"], param.value["name"]))
+                # What the callee reads of the target itself, through a
+                # capture — unless a parameter of the same name hides it.
+                if not any(p.value["name"] == target for p in params):
+                    walk(callee["body"])
+                return
         if kind == "Function":
             # Captures/parameters are declarations; the body's USES decide
             # the mask. A parameter shadowing the target hides it — escape

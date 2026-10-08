@@ -18,6 +18,11 @@ _EXIT_WITH_PARENT_HELP = (
     "Exit with status 1 once stdin reaches end of file — for a parent that holds a stdin "
     "pipe it never writes to, and takes the runner down with it"
 )
+_PROFILE_HELP = (
+    "Print every East function and platform function called, by self time, with its call "
+    "count and source location. EAST_PROFILE=1 does the same without the flag, and "
+    "EAST_PROFILE_INTERVAL=N prints the profile so far every N seconds while it runs"
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -128,6 +133,7 @@ def create_parser() -> argparse.ArgumentParser:
         dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
     )
+    run_parser.add_argument("--profile", action="store_true", help=_PROFILE_HELP)
 
     # exec command: the runner protocol
     exec_parser = subparsers.add_parser(
@@ -148,6 +154,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--exit-with-parent", action="store_true", dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
     )
+    exec_parser.add_argument("--profile", action="store_true", help=_PROFILE_HELP)
 
     # convert command
     convert_parser = subparsers.add_parser(
@@ -278,6 +285,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             output_file=args.output,
             verbose=args.verbose,
             whole=args.decode == "whole",
+            profile=args.profile,
         )
 
         return 0
@@ -292,6 +300,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
             print(f"Error: {e}", file=sys.stderr)
             traceback.print_exc()
+        # The profile of a program that failed follows its error, as east-c's
+        # does; nothing when none was taken.
+        from east.runtime._compiler_eastc import profile_finish
+
+        profile_finish()
         return 1
 
 
@@ -300,21 +313,26 @@ def cmd_exec(args: argparse.Namespace) -> int:
     its output written and its result recorded where it says; the exit status
     is 0 for an ok outcome and 1 for a failure, whose message and locations
     also go to stderr. A unit that cannot be read, or a result that cannot be
-    written, leaves no result: exit 2."""
+    written, leaves no result: exit 2. The profile (``--profile``,
+    ``EAST_PROFILE``) follows the outcome, and the verbose account of where
+    the time went comes last, in east-c's order."""
+    from east.runtime._compiler_eastc import profile_finish
+
     _start_lifeline(args)
     try:
-        result = execute_unit(args.unit, args.verbose)
+        result = execute_unit(args.unit, args.verbose, args.profile)
     except (ValueError, OSError) as e:
         print(f"Error: exec {args.unit}: {e}", file=sys.stderr)
+        profile_finish()
         return 2
-    if args.verbose:
-        print_result(result["timings"], result["peak_bytes"])
     if not result["ok"]:
         lines = [f"Error: {result['message']}"]
         lines.extend(f"  at {filename}:{line}:{column}" for filename, line, column in result["locations"])
         print("\n".join(lines), file=sys.stderr)
-        return 1
-    return 0
+    profile_finish()
+    if args.verbose:
+        print_result(result["timings"], result["peak_bytes"])
+    return 0 if result["ok"] else 1
 
 
 def cmd_convert(args: argparse.Namespace) -> int:

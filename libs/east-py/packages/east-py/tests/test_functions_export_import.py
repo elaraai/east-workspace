@@ -73,6 +73,34 @@ class TestExport:
         assert equal_for(FunctionManifestType)(back, manifest)
         assert list(back["functions"])[1]["platforms"][0]["provider"] == none
 
+    def test_each_function_carries_the_locations_its_ir_names(self):
+        """#1271: a function exports with a source map of its own, holding
+        exactly the stacks its IR names, so the frames of an error or a
+        profile name its python source wherever TypeScript's linker embeds
+        it. A bare IR value carries no map and exports without locations."""
+        from east.functions import _walk
+        from east.types.values.guards import is_east_struct
+
+        manifest = East.export_functions("pricing", "1.0.0", {"score": score, "double": double})
+        for f in manifest["functions"]:
+            stacks = list(f["source_map"])
+            assert list(stacks[0]) == []
+            named: set[int] = set()
+
+            def visit(node, named=named):
+                # every IR node; a Value node's literal is a variant too
+                fields = dict(node.value.items()) if is_east_struct(node.value) else {}
+                if fields.get("loc_id"):
+                    named.add(fields["loc_id"])
+
+            _walk(f["ir"], visit)
+            assert named, f"{f['name']} names no location"
+            assert len(stacks) == len(named) + 1
+            for loc_id in named:
+                assert stacks[loc_id][0]["filename"].endswith("test_functions_export_import.py")
+        bare = East.export_functions("p", "1", {"double": function_ir(double)})
+        assert [list(s) for s in bare["functions"][0]["source_map"]] == [[]]
+
     def test_a_build_hoisted_constant_is_not_a_capture(self):
         """#669: a build hoists a constant — a stdlib format-token table, an
         empty typed vector — into a ``Let`` above the ``Function`` and lists

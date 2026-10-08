@@ -32,6 +32,8 @@ import { runnerProvides, type Runner } from './runner.js';
 import { importedFunctions, importedPackages, pythonProviders, nodeProviders, findEastNode, resolveFunctionManifests } from './functions-resolve.js';
 
 const log = East.platform('log', [StringType], NullType);
+// The line `double` is written on, which its embedded IR's locations name.
+const doubleLine = BigInt(/:(\d+):\d+\)?$/.exec(new Error().stack!.split('\n')[1]!)![1]!) + 1n;
 const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
 const shout = East.function([StringType], NullType, ($, s) => { $(log(s.upperCase())); });
 const manifest = East.exportFunctions('pricing', '1.0.0', { double, shout }, { providers: { log: 'east-py-std' } });
@@ -101,6 +103,28 @@ describe('export_ links East.importFunction references (#628)', () => {
     const bundle = programOf(entries, 'use_double');
     assert.strictEqual(countImports(bundle.ir), 0);
     assert.strictEqual(bundle.compile([])('hello'), 11n);
+  });
+
+  it("the task's program carries the embedded functions' locations, so its errors and profile name their source (#1271)", async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
+    const use = task('use_double', [greeting], East.function([StringType], IntegerType, ($, s) => dbl(s.length())));
+    const zipPath = path.join(tempDir, 'importer-locations.zip');
+    await export_(package_('importer', '1.0.0', use), zipPath, { functions: [manifest] });
+    const bundle = programOf(await readZip(zipPath), 'use_double');
+    // every location the embedded `double` names is where it was written
+    let embedded: unknown;
+    walkIR(bundle.ir as any, (node) => {
+      if (node.type === 'Let' && node.value.variable.value.name.startsWith('_import0_pricing_double')) embedded = node.value.value;
+    });
+    assert.ok(embedded !== undefined, 'the import is embedded as a Let');
+    const named: bigint[] = [];
+    walkIR(embedded as any, (node) => { if (node.value.loc_id > 0n) named.push(node.value.loc_id); });
+    assert.ok(named.length > 0);
+    for (const id of named) {
+      const [frame] = bundle.source_map!.resolve(id);
+      assert.match(frame!.filename, /functions-link\.spec\.[jt]s$/);
+      assert.strictEqual(frame!.line, doubleLine);
+    }
   });
 
   it('reads manifests from files and accepts a platform dependency the runner provides through its stock family', async () => {
@@ -241,6 +265,9 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       const bundle = programOf(await readZip(zipPath), 'use_triple');
       assert.strictEqual(countImports(bundle.ir), 0);
       assert.strictEqual(bundle.compile([])(4n), 13n);
+      // the python function's locations ride into the program (#1271)
+      const files = bundle.source_map!.entries().flatMap((stack) => stack.map((l) => l.filename));
+      assert.ok(files.some((f) => f.endsWith('src/pricing/__init__.py')), files.join(', '));
     });
 
   it('an explicit manifest wins for its package, and no export runs for it',

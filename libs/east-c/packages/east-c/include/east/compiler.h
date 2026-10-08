@@ -9,6 +9,8 @@
 #include "types.h"
 #include "values.h"
 
+#include <stdio.h>
+
 /* Forward-declare source map (defined in type_of_type.h) */
 typedef struct EastSourceMap EastSourceMap;
 
@@ -54,26 +56,39 @@ struct EastCompiledFn {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Per-function profiler (east-c run --profile)                       */
+/*  Per-function profiler (a runner's --profile, EAST_PROFILE)         */
 /* ------------------------------------------------------------------ */
 
-/* One profiled function: every closure evaluated from one Function node
- * shares its body, which is the entry's identity. Counts and nanoseconds
- * accumulate across calls; `self` excludes time spent in East functions
- * called from the body. `name` borrows the profiler's own copy and is
- * valid until east_profile_reset. */
+/* One profiled function. Every closure evaluated from one Function node
+ * shares its body, which is the entry's identity; every call of one platform
+ * function, wherever it is called, is one entry named after it, so the time
+ * spent inside it is not its caller's. Counts and nanoseconds accumulate
+ * across calls; `self` excludes time spent in the East and platform functions
+ * called from the body. A report taken while a call is under way counts it as
+ * a call, and its time so far. The strings borrow the profiler's own copies
+ * and are valid until east_profile_reset. */
 typedef struct {
-    const IRNode *body;
-    const char *name;
-    int64_t loc_id;      /* the Function node's site */
-    int64_t call_loc_id; /* the first Call node that invoked it (0 when only
-                            a host called it) — what places a helper the
-                            builder inlined at its call site and stamped with
-                            the caller's location */
+    const void *key;     /* the body, or the profiler's copy of the platform
+                            function's name */
+    const char *name;    /* the Let it was bound to, the platform function's
+                            name, or NULL */
+    bool platform;       /* a platform function */
+    int64_t loc_id;      /* the Function node's site (0 for a platform function) */
+    int64_t call_loc_id; /* the first Call or Platform node that invoked it (0
+                            when only a host called it) — what places a helper
+                            the builder inlined at its call site and stamped
+                            with the caller's location */
+    const char *site;      /* loc_id as "file:line:column", resolved through the
+                              source map its function carries, or NULL */
+    const char *call_site; /* call_loc_id likewise, through its caller's map */
     uint64_t calls;
     uint64_t total_ns;
     uint64_t self_ns;
 } EastProfileEntry;
+
+/* The environment variables a runner's profile reads (east_profile_start). */
+#define EAST_PROFILE_ENV "EAST_PROFILE"
+#define EAST_PROFILE_INTERVAL_ENV "EAST_PROFILE_INTERVAL"
 
 /* Arm or disarm the profiler on this thread. Off, a call costs one branch. */
 void east_profile_enable(bool on);
@@ -81,8 +96,23 @@ bool east_profile_enabled(void);
 /* The entries so far, sorted by self time descending, in a malloc'd array
  * the caller frees (NULL when nothing was profiled). */
 EastProfileEntry *east_profile_report(size_t *count_out);
-/* Drop every entry and the profiler's copies of their names. */
+/* Drop every entry and the profiler's copies of their strings. */
 void east_profile_reset(void);
+/* Print the report so far to `out`: the top entries by self time, each with
+ * its calls, self and total time and where it is. Taken while the profiler's
+ * outermost call is under way, it says how long it has run. */
+void east_profile_print(FILE *out);
+/* Arm the profiler on this thread for a runner's work: when `on` (its
+ * --profile) or when EAST_PROFILE is set to anything but "" or "0". With
+ * EAST_PROFILE_INTERVAL=N, a number of seconds greater than 0, the report so
+ * far is printed to stderr every N seconds while the work runs; an interval
+ * that is not one is said on stderr and ignored. Returns whether it armed. */
+bool east_profile_start(bool on);
+/* A runner's epilogue after east_profile_start armed the profiler: disarm
+ * it, print the report to `out` and drop it. Nothing when the profiler was
+ * not armed, or this already ran — so a runner's success and failure paths
+ * may both call it. */
+void east_profile_finish(FILE *out);
 
 // Top-level API
 EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins);
