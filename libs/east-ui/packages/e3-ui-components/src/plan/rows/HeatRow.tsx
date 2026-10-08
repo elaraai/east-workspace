@@ -150,8 +150,10 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                             left={box.left} width={box.width}
                             onClick={clickCell(c.at)}
                         >
+                            {/* Its number: drawn whole, or — wider than the cell — off its line, out of sight, and said
+                                by the cell's hover (#1269). */}
                             <Box as="span" css={styles.heatLabel} data-level={level} data-ctx={ctxAttr} data-plan-heat-label
-                                aria-hidden={element ? undefined : "true"}>
+                                data-plan-label="" aria-hidden={element ? undefined : "true"}>
                                 {v === undefined ? "–" : label}
                             </Box>
                             {cellWords(box.bucket, words)}

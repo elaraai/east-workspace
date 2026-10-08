@@ -21,8 +21,20 @@ import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSel
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellPart",
+    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart",
 ] as const;
+
+/**
+ * A cell that draws a number whole or not at all (#1269): a wrapping row whose
+ * first line a strut holds at the cell's height, so a number wider than the
+ * line wraps below it, out of sight in the cell's clip — never cut, never
+ * ellipsized. The cell's hover then says it.
+ */
+const wholeOrNone = {
+    flexWrap: "wrap",
+    alignContent: "flex-start",
+    "&::before": { content: '""', height: "100%" },
+} satisfies SystemStyleObject;
 
 /** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
 export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
@@ -37,6 +49,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
+        // Its value whole, or not drawn (#1269).
+        ...wholeOrNone,
         zIndex: 2,
         // No-data: 45° hatch + the em-dash (content set by the renderer).
         "&[data-nodata]": {
@@ -76,6 +90,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         fontSize: "10.5px",
         fontWeight: "semibold",
         fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
         "&[data-level='0'], &[data-level='1'], &[data-level='2']": { color: "fg" },
         "&[data-level='3'], &[data-level='4']": { color: "bg.surface" },
         // No data: the em-dash on the hatch, in the label ink.
@@ -118,6 +133,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         color: "bg.surface",
         overflow: "hidden",
         whiteSpace: "nowrap",
+        // Its label whole, or not drawn (#1269).
+        ...wholeOrNone,
         // The fill names its meaning (the Matrix `.segbar` vocabulary on
         // tokens, #949): slack is the 45° hatch and free the faint wash, both
         // light enough that their label prints in the muted ink.
@@ -447,11 +464,17 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     //    column as the ruler's ticks and the heat values are (#949); the
     //    renderer sets left/width per bucket; footer = bold ink, header =
     //    caption-styled numerals ──
+    // A table cell: its bucket's column, the row's height, its numerals centred
+    // in it together (`tableCellGroup`) — whole, or wrapped off its line and
+    // out of sight where the column is narrower than they are (#1269).
     tableCellText: {
         position: "absolute",
-        top: "50%",
-        transform: "translateY(-50%)",
-        textAlign: "center",
+        top: 0,
+        bottom: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        ...wholeOrNone,
         padding: "0 4px",
         boxSizing: "border-box",
         overflow: "hidden",
@@ -461,36 +484,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         color: "fg.muted",
         whiteSpace: "nowrap",
         zIndex: 2,
-        // Multi-series part layouts — side by side, or stacked lines.
-        "&[data-split='horizontal']": {
-            display: "flex",
-            justifyContent: "center",
-            gap: "6px",
-        },
-        "&[data-split='vertical']": {
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "1px",
-            lineHeight: "var(--plan-table-line-h)",
-        },
         // A 356px card body gives a bucket ~25px. The desktop's 10px
         // right inset and 10.5px numerals were sized for 54px columns —
         // a three-digit numeral clipped its first digit — so a card cell
         // keeps a 2px inset at 9.5px (§10: density relaxes, the vocabulary
-        // does not), and two numerals side by side overlap there, so the
-        // narrow layout stacks a horizontal split the way `vertical`
-        // does; the row's `split` is a DESKTOP layout choice and the
-        // mobile answer is one column.
+        // does not); its parts' layout is the group's, below.
         "[data-plan-narrow] &": {
             padding: "0 2px",
             fontSize: "9.5px",
-            "&[data-split='horizontal']": {
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "1px",
-                lineHeight: "var(--plan-table-line-h)",
-            },
         },
         "[data-emphasis='footer'] &": { fontWeight: "semibold", color: "fg.default" },
         "[data-emphasis='header'] &": {
@@ -505,6 +506,24 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // One value position inside a table cell — tone derives per cell
     // (neg / em-dash) or from the SERIES' declaration; `strong` is the
     // series' weight emphasis.
+    // A table cell's numerals, together: one line, or one line per series on a
+    // vertical split — side by side, or stacked lines. Two numerals side by
+    // side overlap in a card's ~25px bucket, so the narrow layout stacks a
+    // horizontal split the way `vertical` does; the row's `split` is a DESKTOP
+    // layout choice and the mobile answer is one column.
+    tableCellGroup: {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flex: "none",
+        whiteSpace: "nowrap",
+        "[data-split='horizontal'] > &": { gap: "6px" },
+        "[data-split='vertical'] > &, [data-plan-narrow] [data-split='horizontal'] > &": {
+            flexDirection: "column",
+            gap: "1px",
+            lineHeight: "var(--plan-table-line-h)",
+        },
+    },
     tableCellPart: {
         "&[data-tone='neg']":   { color: "{colors.status.neg}" },
         "&[data-tone='muted']": { color: "fg.subtle" },

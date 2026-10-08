@@ -16,8 +16,9 @@
 import { describe, it, test, expect } from 'vitest';
 import { variant } from "@elaraai/east";
 import { chipAnchor } from "./shell/Ruler.js";
+import { startsPeriod } from "./shell/use-ruler-fit.js";
 import { MAX_BUCKETS, timeScale } from "../shared/time/scale.js";
-import { effectiveResolution, planScale, type PlanResolution } from './scale';
+import { effectiveResolution, planScale, type PlanResolution, type PlanScale } from './scale';
 import { timeInstant, type PlanInstantValue } from "./instant.js";
 import { planMessages, type PlanMessages } from "./messages.js";
 import { timeAt as t, utcAt } from "./plan.test-utils.js";
@@ -325,5 +326,25 @@ describe("ruler chip anchoring", () => {
         // The thresholds are one-ish column wide on a 12-column ruler.
         expect(chipAnchor(0.9)).toBe("-50%");
         expect(chipAnchor(0.1)).toBe("-50%");
+    });
+});
+
+describe("ruler period starts (#1269)", () => {
+    /** The buckets whose labels always draw, by index. */
+    const starts = (scale: PlanScale) => scale.buckets.flatMap((b, i) => (startsPeriod(scale, b) ? [i] : []));
+
+    test("a week's Monday under days, a month's first week under weeks, January under months and quarters, midnight under hours", () => {
+        // From Sunday 29 March: Mondays 30 March and 6 April.
+        expect(starts(time("2026-03-29T00:00:00", "2026-04-13T00:00:00", "day"))).toEqual([1, 8]);
+        // Weeks from Monday 29 June: those of 6 July, 3 August and 7 September.
+        expect(starts(time("2026-06-29T00:00:00", "2026-09-21T00:00:00", "week"))).toEqual([1, 5, 10]);
+        expect(starts(time("2025-10-01T00:00:00", "2026-04-01T00:00:00", "month"))).toEqual([3]);
+        expect(starts(time("2025-07-01T00:00:00", "2027-01-01T00:00:00", "quarter"))).toEqual([2]);
+        expect(starts(time("2026-03-30T18:00:00", "2026-03-31T06:00:00", "hour"))).toEqual([6]);
+    });
+
+    test("a number or an ordinal axis has no periods", () => {
+        expect(starts(planScale({ kind: "number", window: { min: 0, max: 8 }, step: 1 })!)).toEqual([]);
+        expect(starts(planScale({ kind: "ordinal", values: ["PREPRESS", "PLATES", "PRINT"] })!)).toEqual([]);
     });
 });

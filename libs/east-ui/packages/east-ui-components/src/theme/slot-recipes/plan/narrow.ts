@@ -93,9 +93,12 @@ export const narrowBase = {
         alignItems: "stretch",
     },
     // One bucket: its separator on the right edge (every bucket has one,
-    // labelled or not), its label centred over it when it carries one —
-    // wider than the cell at day resolution, so it may overflow into the
-    // unlabelled neighbours on purpose.
+    // labelled or not), its label centred over it, whole, on the ruler's
+    // paper (`rulerLabel`, the desktop ruler's) — wider than the cell at day
+    // resolution, so it may run into the neighbours beside it, which draw
+    // none: where the columns are narrower than their labels the ruler draws
+    // every k-th (#1269, `data-thinned` on the rest), and the first and the
+    // last sit against the track's ends (`data-align`).
     narrowRulerTick: {
         position: "relative",
         display: "flex",
@@ -111,6 +114,9 @@ export const narrowBase = {
         borderRightWidth: "1px",
         borderRightColor: "border.subtle",
         "&:last-of-type": { borderRightWidth: 0 },
+        "&[data-align='start']": { justifyContent: "flex-start" },
+        "&[data-align='end']": { justifyContent: "flex-end" },
+        "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },
         // A 28px band has no lane for the NOW chip, and a chip laid over
         // the labels hides the two it straddles. The now BUCKET's label
         // wears the brand instead — the line beneath it says the rest.

@@ -102,3 +102,123 @@ export const cutText = (root: Element): string[] => {
     }
     return out;
 };
+
+/**
+ * Each number a cell draws partly, and each mark's icon drawn outside its mark
+ * (#1269). A heat value, a table numeral and a segment's label are drawn whole
+ * or not at all — never cut, never ellipsized: what shows of one is what of
+ * its glyphs — across, its text's advance; down, its ink — lies inside every
+ * box around it that clips, up to its row, its card or — on a phone — its
+ * group's card. Its ink, not its text's box: a line height under the font's
+ * own leaves that box taller than the glyphs, so a number wrapped off its
+ * cell's line can reach back into the cell with nothing drawn there. An event
+ * mark's icon lies whole inside its mark. Context strips draw no numbers.
+ * Evaluated in the page: an empty list holds.
+ */
+export const cutNumbers = (root: Element): string[] => {
+    const out: string[] = [];
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    const holder = "[data-plan-row], [data-plan-card], [data-plan-group], [data-plan-groupcard]";
+    const numbers = root.querySelectorAll(["[data-plan-heat-label]", "[data-plan-bucket][data-cell] [data-table-parts] > span", "[data-plan-bucket] > [data-fill]"]
+        .map((sel) => `:is(${holder}) ${sel}:not([data-ctx])`).join(", "));
+    for (const el of numbers) {
+        const top = el.closest(holder);
+        if (top === null || top.hasAttribute("data-ctx") || el.closest("[data-ctx]") !== null) continue;
+        // What clips it: every box between it and its row or card whose overflow is not visible.
+        let clip = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
+        for (let at: Element | null = el; at !== null && at !== top; at = at.parentElement) {
+            const s = getComputedStyle(at);
+            if (s.overflowX === "visible" && s.overflowY === "visible") continue;
+            const b = at.getBoundingClientRect();
+            clip = { left: Math.max(clip.left, b.left), right: Math.min(clip.right, b.right), top: Math.max(clip.top, b.top), bottom: Math.min(clip.bottom, b.bottom) };
+        }
+        const where = top.getAttribute("data-plan-row") ?? top.getAttribute("data-plan-card") ?? top.getAttribute("data-plan-group")
+            ?? `group card ${top.getAttribute("data-plan-groupcard")}`;
+        const bucket = el.closest("[data-plan-bucket]")?.getAttribute("data-plan-bucket") ?? "?";
+        for (const node of el.childNodes) {
+            const text = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? "").trim() : "";
+            const cs = getComputedStyle(el);
+            if (text === "" || cs.visibility === "hidden") continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const r = range.getBoundingClientRect();
+            // Its ink: the text's box is the font's ascent and descent about the baseline, its glyphs their own.
+            ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+            if (!ctx.font.includes(cs.fontSize)) { out.push(`${where} bucket ${bucket}: its number's font (${ctx.font}) cannot be measured`); continue; }
+            const m = ctx.measureText(text);
+            const baseline = r.top + m.fontBoundingBoxAscent;
+            const ink = { top: baseline - m.actualBoundingBoxAscent, bottom: baseline + m.actualBoundingBoxDescent };
+            const across = Math.min(r.right, clip.right) - Math.max(r.left, clip.left);
+            const down = Math.min(ink.bottom, clip.bottom) - Math.max(ink.top, clip.top);
+            if (across <= 0.5 || down <= 0.5) continue;
+            if (r.left < clip.left - 0.5 || r.right > clip.right + 0.5 || ink.top < clip.top - 0.5 || ink.bottom > clip.bottom + 0.5) {
+                out.push(`${where} bucket ${bucket}: its number "${text}" is cut — ${across.toFixed(1)}×${down.toFixed(1)}px of ${r.width.toFixed(1)}×${(ink.bottom - ink.top).toFixed(1)}px shows`);
+            }
+        }
+    }
+    for (const mark of root.querySelectorAll(`:is(${holder}) [data-mark]:not([data-ctx])`)) {
+        const m = mark.getBoundingClientRect();
+        for (const icon of mark.querySelectorAll("svg")) {
+            const r = icon.getBoundingClientRect();
+            if (r.width <= 0.5) continue;
+            if (r.left < m.left - 0.5 || r.right > m.right + 0.5 || r.top < m.top - 0.5 || r.bottom > m.bottom + 0.5) {
+                out.push(`mark ${mark.getAttribute("data-mark")}: its icon ${r.width.toFixed(1)}×${r.height.toFixed(1)} runs out of its ${m.width.toFixed(1)}×${m.height.toFixed(1)} mark`);
+            }
+        }
+    }
+    return out;
+};
+
+/**
+ * What a ruler draws of its labels wrongly (#1269) — the desktop ruler's and
+ * the narrow layout's: a label cut by whatever clips it between its tick and
+ * its ruler; two labels nearer than 4px, which with a bucket line between them
+ * read apart; and a period's first column (`data-period-start`) whose label is
+ * not drawn, or the narrow ruler's now bucket's (`data-now`), though it crowds
+ * no period's first column drawn and is no wider than what clips it. Where the
+ * columns are narrower than their labels the ruler draws every k-th label,
+ * whole. Evaluated in the page: an empty list holds.
+ */
+export const rulerFaults = (root: Element): string[] => {
+    const out: string[] = [];
+    const RULER_GAP = 4;
+    for (const ruler of root.querySelectorAll("[data-slot='ruler'], [data-slot='narrowRuler']")) {
+        const shown: { text: string; left: number; right: number; start: boolean }[] = [];
+        const hidden: { text: string; left: number; right: number; room: number; now: boolean }[] = [];
+        for (const tick of ruler.querySelectorAll<HTMLElement>("[data-slot='rulerTick'], [data-slot='narrowRulerTick']")) {
+            const label = tick.querySelector<HTMLElement>("[data-tick-label]") ?? tick;
+            const text = (label.textContent ?? "").trim();
+            if (text === "" || tick.getClientRects().length === 0) continue;
+            // Where it lies, drawn or not: a hidden label keeps its place.
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const r = range.getBoundingClientRect();
+            // What clips it: every box from its tick up to its ruler whose overflow is not visible.
+            let [left, right] = [-Infinity, Infinity];
+            for (let at: Element | null = tick; at !== null; at = at === ruler ? null : at.parentElement) {
+                if (getComputedStyle(at).overflowX === "visible") continue;
+                const b = at.getBoundingClientRect();
+                [left, right] = [Math.max(left, b.left), Math.min(right, b.right)];
+            }
+            const s = getComputedStyle(label);
+            if (s.display === "none" || s.visibility === "hidden") {
+                const now = tick.hasAttribute("data-now");
+                if (tick.hasAttribute("data-period-start") || now) hidden.push({ text, left: r.left, right: r.right, room: right - left, now });
+                continue;
+            }
+            if (r.left < left - 0.5 || r.right > right + 0.5) out.push(`"${text}" is cut — ${(Math.min(r.right, right) - Math.max(r.left, left)).toFixed(1)}px of ${r.width.toFixed(1)}px shows`);
+            shown.push({ text, left: Math.max(r.left, left), right: Math.min(r.right, right), start: tick.hasAttribute("data-period-start") });
+        }
+        for (let i = 1; i < shown.length; i++) {
+            const gap = shown[i]!.left - shown[i - 1]!.right;
+            if (gap < RULER_GAP - 0.5) out.push(`"${shown[i - 1]!.text}" and "${shown[i]!.text}" ${gap.toFixed(1)}px apart`);
+        }
+        // A period's first column, or the now bucket, gives way only to a period's first column it would crowd.
+        for (const h of hidden) {
+            const crowds = shown.some((d) => d.start && h.left < d.right + RULER_GAP + 0.5 && d.left < h.right + RULER_GAP + 0.5);
+            if (crowds || h.right - h.left > h.room + 0.5) continue;
+            out.push(h.now ? `the now bucket's "${h.text}" is not drawn, and crowds no period's first column` : `"${h.text}" starts a period, and is not drawn`);
+        }
+    }
+    return out;
+};
