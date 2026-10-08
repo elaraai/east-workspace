@@ -46,6 +46,10 @@ export interface EastChakraPaginationProps {
  * A run of pages the strip leaves out is Chakra's icon button, as Chakra
  * draws it, holding Font Awesome's ellipsis (#1263) at the size Chakra's icon
  * took there (the `iconButtonMark` recipe).
+ *
+ * Below 360px of room the page strip is a `page / total` readout (#351). The
+ * room is the root's width, which the `pagination` recipe makes as wide as
+ * the container leaves it whatever the pagination draws (#1268).
  */
 export const EastChakraPagination = memo(function EastChakraPagination({ value, storageKey: _storageKey }: EastChakraPaginationProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
@@ -71,7 +75,10 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
     const ellipsisMark = useRecipe({ key: "iconButtonMark" })({ size: "md" });
 
     // Compact containers (#351): the page-number strip collapses to a
-    // "page / total" readout between prev/next.
+    // "page / total" readout between prev/next. The width read is the
+    // root's — the room the container gives it, whichever form it draws —
+    // never the bar's, which is as wide as its form and would hold the form
+    // it has (#1268). Chakra types the root's ref as a div's; it draws a nav.
     const rootRef = useRef<HTMLDivElement | null>(null);
     const compact = useContainerBelow(rootRef, 360);
     const totalPages = Math.max(1, Math.ceil(count / Math.max(1, pageSize)));
@@ -100,13 +107,14 @@ export const EastChakraPagination = memo(function EastChakraPagination({ value, 
 
     return (
         <ChakraPagination.Root
+            ref={rootRef}
             count={count}
             pageSize={pageSize}
             page={irPage + 1}
             siblingCount={siblings !== undefined ? Number(siblings) : undefined}
             onPageChange={handleChange}
         >
-            <Box ref={rootRef} css={styles.root}>
+            <Box css={styles.bar}>
                 <ChakraPagination.PrevTrigger asChild>
                     <Box as="button" aria-label="Previous page" css={{ ...styles.prevTrigger, ...triggerOverride }}>
                         <FontAwesomeIcon icon={faChevronLeft} />

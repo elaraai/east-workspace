@@ -1174,3 +1174,157 @@ test.describe("Visual invariants — the palette", () => {
         });
     }
 });
+
+/**
+ * Where a catalog Pagination's parts sit, in CSS px from the content box of
+ * the element that holds it — the room it is given — and what it draws
+ * between prev and next.
+ */
+interface PagerRead {
+    /** The holder's content-box width: the room. */
+    room: number;
+    /** The root (its `nav`): its x and its width. */
+    root: [number, number];
+    /** The bar — prev, the strip or the readout, next: its x and y. */
+    bar: [number, number];
+    /** How far the bar's centre sits from the room's, across. */
+    barOffCentre: number;
+    /** Prev's and next's boxes: x, y, width, height. */
+    prev: [number, number, number, number];
+    next: [number, number, number, number];
+    /** What it draws between them: the page strip (its items and ellipses), or the readout and its text. */
+    form: "strip" | "readout" | "neither";
+    readout: string | null;
+    /** The space after prev and before next, and the bar's gap they should each be. */
+    spaces: [number, number];
+    gap: number;
+    /** How far any part's centre sits from the bar's, up or down. */
+    offLine: number;
+}
+
+/** A Pagination example's entry in the catalog, at rest, its pagination drawn. */
+async function openPagination(page: Page, name: string, theme: "light" | "dark"): Promise<Locator> {
+    const route = `collections/pagination/${name}`;
+    await page.goto(`/?theme=${theme}#${route}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("nav[data-scope='pagination']")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+/** Reads a catalog Pagination ({@link PagerRead}). */
+async function readPager(entry: Locator): Promise<PagerRead> {
+    return entry.evaluate((root): PagerRead => {
+        const r = (n: number) => Math.round(n * 100) / 100;
+        const px = (v: string) => Number.parseFloat(v);
+        const nav = root.querySelector("nav[data-scope='pagination']")!;
+        const holder = nav.parentElement!;
+        const hs = getComputedStyle(holder);
+        const h = holder.getBoundingClientRect();
+        const left = h.left + px(hs.borderLeftWidth) + px(hs.paddingLeft);
+        const top = h.top + px(hs.borderTopWidth) + px(hs.paddingTop);
+        const room = holder.clientWidth - px(hs.paddingLeft) - px(hs.paddingRight);
+        const bar = nav.firstElementChild!;
+        const b = bar.getBoundingClientRect();
+        const prev = nav.querySelector("[data-part='prev-trigger']")!.getBoundingClientRect();
+        const next = nav.querySelector("[data-part='next-trigger']")!.getBoundingClientRect();
+        const strip = [...nav.querySelectorAll("[data-part='item'], [data-part='ellipsis']")].map((el) => el.getBoundingClientRect());
+        const readout = nav.querySelector("[aria-live='polite']");
+        const between = readout !== null ? [readout.getBoundingClientRect()] : strip;
+        const start = Math.min(...between.map((p) => p.left));
+        const end = Math.max(...between.map((p) => p.right));
+        const centre = (p: DOMRect) => p.top + p.height / 2;
+        const box = (p: DOMRect): [number, number, number, number] => [r(p.left - left), r(p.top - top), r(p.width), r(p.height)];
+        return {
+            room: r(room),
+            root: [r(nav.getBoundingClientRect().left - left), r(nav.getBoundingClientRect().width)],
+            bar: [r(b.left - left), r(b.top - top)],
+            barOffCentre: r(b.left + b.width / 2 - (left + room / 2)),
+            prev: box(prev),
+            next: box(next),
+            form: readout !== null ? (strip.length > 0 ? "neither" : "readout") : (strip.length > 0 ? "strip" : "neither"),
+            readout: readout?.textContent ?? null,
+            spaces: [r(start - prev.right), r(next.left - end)],
+            gap: px(getComputedStyle(bar).columnGap),
+            offLine: r(Math.max(...[prev, ...between, next].map((p) => Math.abs(centre(p) - centre(b))))),
+        };
+    });
+}
+
+/** Sets what holds an example's pagination: each style given — its width, its display, its justification — `""` giving back its own. */
+async function holdIn(page: Page, entry: Locator, style: { width?: string; display?: string; justifyContent?: string }): Promise<void> {
+    await entry.evaluate((root, s) => {
+        const holder = root.querySelector("nav[data-scope='pagination']")!.parentElement as HTMLElement;
+        if (s.width !== undefined) holder.style.width = s.width;
+        if (s.display !== undefined) holder.style.display = s.display;
+        if (s.justifyContent !== undefined) holder.style.justifyContent = s.justifyContent;
+    }, style);
+    await settled(page);
+}
+
+test.describe("Visual invariants — the Pagination", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`paginationBasic (${theme}): its form follows the room it is given, never what it draws — at the desktop width the page strip, in a container narrowed under 360px the readout, widened again the strip; prev and next keep their places, the bar where the root sat (#1268)`, async ({ page }) => {
+            const entry = await openPagination(page, "paginationBasic", theme);
+            /** Every place a part keeps, whatever the form: the root across the room, the bar at its start, the parts on one line, 4px apart as the root's were. */
+            const placed = (read: PagerRead) => ({ root: read.root, bar: read.bar, prev: read.prev.slice(0, 2), spaces: read.spaces, offLine: read.offLine <= 0.5 });
+            const wide = await readPager(entry);
+            expect(wide.room, "the room at the desktop width").toBeGreaterThanOrEqual(360);
+            expect({ form: wide.form, readout: wide.readout }).toEqual({ form: "strip", readout: null });
+            expect(placed(wide)).toEqual({ root: [0, wide.room], bar: [0, 0], prev: [0, 0], spaces: [4, 4], offLine: true });
+
+            await holdIn(page, entry, { width: "320px" });
+            const narrow = await readPager(entry);
+            expect(narrow.room, "the room narrowed").toBeLessThan(360);
+            expect({ form: narrow.form, readout: narrow.readout }).toEqual({ form: "readout", readout: "1 / 25" });
+            expect(placed(narrow)).toEqual({ root: [0, narrow.room], bar: [0, 0], prev: [0, 0], spaces: [4, 4], offLine: true });
+            expect(narrow.prev, "prev keeps its place").toEqual(wide.prev);
+
+            await holdIn(page, entry, { width: "" });
+            expect(await readPager(entry), "widened again: as it was").toEqual(wide);
+        });
+
+        test(`paginationVariants (${theme}): in the configurator's stage — a flex box that centres it — its root takes the stage's room and its bar sits centred, where the stage centred the root; a strip wider than 360px never holds the root open, so a stage narrowed under 360px draws the readout, as a grid's track does (#1268)`, async ({ page }) => {
+            const entry = await openPagination(page, "paginationVariants", theme);
+            /** The root across the stage's room, the bar centred in it, the parts on one line, 4px apart. */
+            const placed = (read: PagerRead) => ({ root: read.root, centred: Math.abs(read.barOffCentre) <= 0.5, spaces: read.spaces, offLine: read.offLine <= 0.5 });
+            const rest = await readPager(entry);
+            expect(rest.room, "the stage's room").toBeLessThan(360);
+            expect({ form: rest.form, readout: rest.readout }).toEqual({ form: "readout", readout: "6 / 50" });
+            expect(placed(rest)).toEqual({ root: [0, rest.room], centred: true, spaces: [4, 4], offLine: true });
+
+            // Four siblings either side of the page: a strip wider than 360px.
+            const more = entry.locator("[data-scope='number-input'][data-part='increment-trigger']").first();
+            for (let i = 0; i < 3; i++) await more.click();
+            await holdIn(page, entry, { width: "640px" });
+            const wide = await readPager(entry);
+            expect(wide.room, "the stage widened").toBeGreaterThanOrEqual(360);
+            expect(wide.form).toBe("strip");
+            expect(wide.next[0] + wide.next[2] - wide.prev[0], "the strip, prev to next").toBeGreaterThan(360);
+            expect(placed(wide)).toEqual({ root: [0, wide.room], centred: true, spaces: [4, 4], offLine: true });
+
+            await holdIn(page, entry, { width: "320px" });
+            const narrow = await readPager(entry);
+            expect(narrow.room, "the stage narrowed").toBeLessThan(360);
+            expect({ form: narrow.form, readout: narrow.readout }).toEqual({ form: "readout", readout: "6 / 50" });
+            expect(placed(narrow)).toEqual({ root: [0, narrow.room], centred: true, spaces: [4, 4], offLine: true });
+
+            // A grid's track is as narrow as its item lets it be: there, too, the strip drawn never holds the root open.
+            await holdIn(page, entry, { width: "640px", display: "grid", justifyContent: "normal" });
+            const track = await readPager(entry);
+            expect({ form: track.form, root: track.root }, "in a grid, widened").toEqual({ form: "strip", root: [0, track.room] });
+            await holdIn(page, entry, { width: "320px" });
+            const tight = await readPager(entry);
+            expect({ form: tight.form, readout: tight.readout, root: tight.root }, "in a grid, narrowed")
+                .toEqual({ form: "readout", readout: "6 / 50", root: [0, tight.room] });
+
+            await holdIn(page, entry, { width: "", display: "", justifyContent: "" });
+            const back = await readPager(entry);
+            expect({ room: back.room, form: back.form }).toEqual({ room: rest.room, form: "readout" });
+        });
+    }
+});
