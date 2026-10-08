@@ -621,7 +621,7 @@ const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
     ...["planTargetState", "planVariants", "planSpanRows", "planBucketRows", "planCardRows", "planGroupedRows",
         "planSeriesData", "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planUiState",
         "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
-        "planChartRows", "planHeatRows", "planTableRows", "planFold", "planEventRows",
+        "planMeasures", "planEventRows",
     ].map((name) => ({ name, file: PLAN_EXAMPLES })),
     { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
     ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),

@@ -73,25 +73,28 @@ const RULED = [
 const BARE_KINDS = ["span", "events", "table", "cards"];
 
 /**
- * The ruler's scan line and a bare body row's, across the plot and the
- * gutter's edge — 3px above each band's bottom rule, clear of every label and
- * mark.
+ * The ruler's scan line or a bare body row's, across the plot and the
+ * gutter's edge — 3px above its band's bottom rule, clear of every label and
+ * mark — brought into view first, as far as it needs: a pixel row is read off
+ * the screen, and a tall Plan's first bare row can lie below it. The two read
+ * one after the other, the plot's columns where they are whatever the scroll.
  */
-async function scanLines(entry: Locator): Promise<{ ruler: Box; row: Box } | undefined> {
-    return entry.evaluate((root, kinds) => {
+async function scanLine(entry: Locator, line: "ruler" | "row"): Promise<Box | undefined> {
+    return entry.evaluate((root, { kinds, line }) => {
         const body = root.querySelector("[data-plan-body]")!;
         const ruler = body.querySelector("[data-slot='ruler']")!;
-        const track = ruler.children[1]!.getBoundingClientRect();
         const rowEl = kinds.map((k) => body.querySelector(`[data-plan-row][data-plan-kind='${k}']`)).find((el) => el !== null);
         if (rowEl === undefined || rowEl === null) return undefined;
+        (line === "ruler" ? ruler : rowEl).scrollIntoView({ block: "nearest" });
+        const track = ruler.children[1]!.getBoundingClientRect();
         const plot = rowEl.querySelector("[data-plan-plot]")!.getBoundingClientRect();
-        const r = ruler.getBoundingClientRect();
-        const row = rowEl.getBoundingClientRect();
         // From just inside the gutter, so the gutter's edge is read too.
         const x = plot.left - 3;
         const width = plot.right - x;
-        return { ruler: { x, y: r.bottom - 3, width }, row: { x: Math.max(x, track.left - 3), y: row.bottom - 3, width } };
-    }, BARE_KINDS);
+        return line === "ruler"
+            ? { x, y: ruler.getBoundingClientRect().bottom - 3, width }
+            : { x: Math.max(x, track.left - 3), y: rowEl.getBoundingClientRect().bottom - 3, width };
+    }, { kinds: BARE_KINDS, line });
 }
 
 /**
@@ -296,10 +299,15 @@ async function violations(entry: Locator): Promise<string[]> {
             if (last === undefined) return;
             // A member's first mark — its caret when it is a parent itself, else
             // its name — starts where the group's label text does: one level
-            // of indent is the caret and its gap, so a tree steps in by it.
+            // of indent is the caret and its gap, so a tree steps in by it. A
+            // caret turned to say its row is folded is read by its slot: its
+            // centre, which the turn keeps, less half its laid-out width.
             const first = rows[gi + 1]!;
             const gl = g.querySelector("[data-plan-gutter='label']")?.getBoundingClientRect().left;
-            const ml = first.querySelector("[data-plan-gutter='name']")?.firstElementChild?.getBoundingClientRect().left;
+            const mark = first.querySelector("[data-plan-gutter='name'] > :first-child");
+            const mr = mark?.getBoundingClientRect();
+            const ml = !(mark instanceof HTMLElement) || mr === undefined ? undefined
+                : cs(mark).transform === "none" ? mr.left : (mr.left + mr.right) / 2 - mark.offsetWidth / 2;
             if (gl !== undefined && ml !== undefined && Math.abs(gl - ml) > 0.5) bad.push(`group "${name(g)}": member starts at ${ml.toFixed(1)}, label at ${gl.toFixed(1)}`);
             // The group's end is marked — when its last member and what follows are both mounted.
             if (j < rows.length && cs(last).borderBottomColor !== T.strong) bad.push(`group "${name(g)}": its last member has no closing rule`);
@@ -330,9 +338,13 @@ test.describe("Visual invariants — the Plan", () => {
         for (const name of RULED) {
             test(`${name} (${theme}): the ruler's lines are the rows' lines — every bucket edge, the now line and the gutter's edge on the same pixels`, async ({ page }) => {
                 const entry = await openExample(page, name, PLAN_EXAMPLES, theme);
-                const at = await scanLines(entry);
-                test.skip(at === undefined, "no bare row to read against");
-                const read = { ruler: await paintedLines(page, at!.ruler), row: await paintedLines(page, at!.row) };
+                const ruler = await scanLine(entry, "ruler");
+                test.skip(ruler === undefined, "no bare row to read against");
+                await settled(page);
+                const rulerLines = await paintedLines(page, ruler!);
+                const row = await scanLine(entry, "row");
+                await settled(page);
+                const read = { ruler: rulerLines, row: await paintedLines(page, row!) };
                 // Something was read: a canvas's plot has at least its gutter edge.
                 expect(read.row.length, "the row's lines").toBeGreaterThan(0);
                 expect(read.ruler).toEqual(read.row);
