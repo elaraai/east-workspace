@@ -25,7 +25,8 @@
  *      the file whole, and a sanitizer build's shadow memory dominates RSS;
  *   3. what a lazy read came to — an operation the pager cannot serve decodes
  *      the input whole and says what that came to, and reads that decode
- *      segments again, beyond the segments the pager keeps, say so;
+ *      segments again, beyond the segments the pager keeps, say so; with
+ *      --profile the decodes are the input's own entry, a call each;
  *   4. manifests — a manifest-rooted input, as e3 stages one, pages over its
  *      directory's segment files: one segment decoded for a keyed read, the
  *      input weighed by its segments rather than the manifest's own file;
@@ -263,6 +264,20 @@ static bool reports_decoded_whole(const char *err, bool in_mb)
     return says_resident(err, "input 0: decoded whole — ", in_mb);
 }
 
+/* Whether the profile in `err` lists input 0's decodes as an entry of its own
+ * with `calls` calls, placed by the read in the fixture that made them. */
+static bool profiles_input_decodes(const char *err, unsigned long calls)
+{
+    const char *entry = strstr(err, "\n  input 0 ");
+    unsigned long listed = 0;
+    if (!entry || sscanf(entry + 1, " input 0 %lu calls", &listed) != 1 || listed != calls)
+        return false;
+    const char *eol = strchr(entry + 1, '\n');
+    const char *read_at = strstr(entry, "segment decodes  read at ");
+    return read_at && (!eol || read_at < eol) && strstr(read_at, "generate_fixtures.mjs:") &&
+           (!eol || strstr(read_at, "generate_fixtures.mjs:") < eol);
+}
+
 static void test_paged_residency(const char *bin, const char *fixtures, const char *table)
 {
     /* The same keyed read twice, each its own process: lazily (the file
@@ -355,6 +370,15 @@ static void test_paged_account(const char *bin, const char *fixtures, const char
               "the hydrate does not say what the whole decode came to:\n%s", err);
         free(err);
     }
+    /* Profiled, the whole decode is one call of the input's own entry. */
+    snprintf(cmd, sizeof(cmd), "\"%s\" run \"%s/paged_hydrate.beast2\" -i \"%s\" --profile", bin,
+             fixtures, table);
+    rc = run_cli(cmd, "account_out.txt", "account_err.txt");
+    CHECK(rc == 0, "hydrate --profile: expected exit 0, got %d", rc);
+    err = read_text("account_err.txt");
+    CHECK(err && profiles_input_decodes(err, 1),
+          "the whole decode is not one call of the input's entry:\n%s", err ? err : "(none)");
+    free(err);
 
     /* Keys 0 and 159000 in turn, 200 reads, over a pager keeping one
      * segment: each read decodes its segment again. */
@@ -384,6 +408,19 @@ static void test_paged_account(const char *bin, const char *fixtures, const char
               err);
         free(err);
     }
+    /* Profiled, the decodes are the input's own entry, named as the account
+     * names it — a call for each — and not the reading function's time. */
+    snprintf(cmd, sizeof(cmd),
+             ONE_SEGMENT_ENV "\"%s\" run \"%s/paged_scatter.beast2\" -i \"%s\" --profile", bin,
+             fixtures, table);
+    rc = run_cli(cmd, "account_out.txt", "account_err.txt");
+    CHECK(rc == 0, "scatter --profile: expected exit 0, got %d", rc);
+    check_file_contains("account_out.txt", "200");
+    err = read_text("account_err.txt");
+    CHECK(err && profiles_input_decodes(err, 200),
+          "the scattered reads' decodes are not the input's entry of 200 calls:\n%s",
+          err ? err : "(none)");
+    free(err);
     snprintf(cmd, sizeof(cmd),
              ONE_SEGMENT_ENV "\"%s\" run \"%s/paged_scatter.beast2\" -i \"%s\" --decode whole -v",
              bin, fixtures, table);

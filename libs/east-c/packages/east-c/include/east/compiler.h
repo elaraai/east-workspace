@@ -62,22 +62,30 @@ struct EastCompiledFn {
 /* One profiled function. Every closure evaluated from one Function node
  * shares its body, which is the entry's identity; every call of one platform
  * function, wherever it is called, is one entry named after it, so the time
- * spent inside it is not its caller's. Counts and nanoseconds accumulate
+ * spent inside it is not its caller's. A lazily read collection's segment
+ * decodes are one entry too, named after the collection, so the time keyed
+ * reads at random or a repeated scan spend decoding is not the reading
+ * function's either; each decode is a call. Counts and nanoseconds accumulate
  * across calls; `self` excludes time spent in the East and platform functions
- * called from the body. A report taken while a call is under way counts it as
- * a call, and its time so far. The strings borrow the profiler's own copies
- * and are valid until east_profile_reset. */
+ * called from the body, and in the decodes its reads made, which its total
+ * keeps.
+ * A report taken while a call is under way counts it as a call, and its time
+ * so far. The strings borrow the profiler's own copies and are valid until
+ * east_profile_reset. */
 typedef struct {
     const void *key;       /* the body, or the profiler's copy of the platform
-                              function's name */
+                              function's name or the collection's label */
     const char *name;      /* the Let it was bound to, the platform function's
-                              name, or NULL */
+                              name, the collection's label, or NULL */
     bool platform;         /* a platform function */
-    int64_t loc_id;        /* the Function node's site (0 for a platform function) */
-    int64_t call_loc_id;   /* the first Call or Platform node that invoked it (0
-                              when only a host called it) — what places a helper
-                              the builder inlined at its call site and stamped
-                              with the caller's location */
+    bool paged;            /* a lazily read collection's segment decodes */
+    int64_t loc_id;        /* the Function node's site (0 for a platform function
+                              or a collection) */
+    int64_t call_loc_id;   /* the first Call or Platform node that invoked it, or
+                              the first node whose read decoded (0 when only a
+                              host called it) — what places a helper the
+                              builder inlined at its call site and stamped with
+                              the caller's location */
     const char *site;      /* loc_id as "file:line:column", resolved through the
                               source map its function carries, or NULL */
     const char *call_site; /* call_loc_id likewise, through its caller's map */
@@ -113,6 +121,13 @@ bool east_profile_start(bool on);
  * not armed, or this already ran — so a runner's success and failure paths
  * may both call it. */
 void east_profile_finish(FILE *out);
+/* A lazily read collection's decode of a segment, or of the whole collection,
+ * begins and ends: the pager brackets each with these, so the decode is a call
+ * of the entry named `label` (a runner names its inputs "input N", as its -v
+ * account does; NULL is "paged collection"), placed by the first node whose
+ * read decoded. Off, each costs one branch. */
+void east_profile_paged_enter(const char *label);
+void east_profile_paged_exit(void);
 
 // Top-level API
 EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins);

@@ -43,6 +43,18 @@ typedef struct {
 } ProfPlatform;
 static _Thread_local ProfPlatform *g_prof_platforms = NULL;
 static _Thread_local size_t g_prof_platforms_len = 0, g_prof_platforms_cap = 0;
+/* The profiler's copies of the lazily read collections' labels, each a
+ * collection's entry's key. */
+static _Thread_local char **g_prof_paged = NULL;
+static _Thread_local size_t g_prof_paged_len = 0, g_prof_paged_cap = 0;
+/* The node whose read the pager's decodes serve, by its loc_id: set by the
+ * evaluator around each read of a paged value, 0 outside one. */
+static _Thread_local int64_t g_prof_read_loc = 0;
+/* What a collection no runner named is called. */
+#define PROF_PAGED_UNNAMED "paged collection"
+/* What an entry times: a function's body, a platform function, or a
+ * collection's decodes. */
+typedef enum { PROF_FUNCTION, PROF_PLATFORM, PROF_PAGED } ProfKind;
 /* When the profiler was armed, and the report printed while it runs: every
  * g_prof_interval_ns, the next one due at g_prof_next_ns (0 when none is). */
 static _Thread_local uint64_t g_prof_started_ns = 0;
@@ -90,9 +102,9 @@ static char *prof_site(const EastSourceMap *map, int64_t loc_id)
 }
 
 /* The entry for a key, made on first sight: a function's body, its site
- * resolved through `map`, or a platform function's interned name. SIZE_MAX on
- * allocation failure. */
-static size_t prof_entry_for(const void *key, const char *name, bool platform, int64_t loc_id,
+ * resolved through `map`, a platform function's interned name, or a
+ * collection's key. SIZE_MAX on allocation failure. */
+static size_t prof_entry_for(const void *key, const char *name, ProfKind kind, int64_t loc_id,
                              const EastSourceMap *map)
 {
     if (g_prof_index) {
@@ -120,11 +132,13 @@ static size_t prof_entry_for(const void *key, const char *name, bool platform, i
     size_t e = g_prof_len++;
     g_prof_entries[e] = (EastProfileEntry){
         .key = key,
-        /* A platform entry's name is its key, which the profiler owns. */
-        .name = platform ? name
-                : name   ? strdup(name)
-                         : NULL,
-        .platform = platform,
+        /* A platform function's or a collection's name is the profiler's own
+         * copy, its key's. */
+        .name = kind != PROF_FUNCTION ? name
+                : name                ? strdup(name)
+                                      : NULL,
+        .platform = kind == PROF_PLATFORM,
+        .paged = kind == PROF_PAGED,
         .loc_id = loc_id,
         .call_loc_id = 0,
         .site = prof_site(map, loc_id),
@@ -141,10 +155,10 @@ static void prof_interval_due(uint64_t now);
 
 /* A call begins: its entry, the first call's site resolved through the map
  * current at the call, and a frame on the stack. */
-static void prof_push(const void *key, const char *name, bool platform, int64_t loc_id,
+static void prof_push(const void *key, const char *name, ProfKind kind, int64_t loc_id,
                       const EastSourceMap *map, int64_t call_loc_id)
 {
-    size_t e = prof_entry_for(key, name, platform, loc_id, map);
+    size_t e = prof_entry_for(key, name, kind, loc_id, map);
     if (e != SIZE_MAX && !g_prof_entries[e].call_loc_id && call_loc_id > 0) {
         g_prof_entries[e].call_loc_id = call_loc_id;
         g_prof_entries[e].call_site = prof_site(g_current_source_map, call_loc_id);
@@ -167,7 +181,7 @@ static void prof_push(const void *key, const char *name, bool platform, int64_t 
 static inline void prof_enter(const IRNode *body, const char *name, int64_t loc_id,
                               const EastSourceMap *map, int64_t call_loc_id)
 {
-    if (g_prof_on) prof_push(body, name, false, loc_id, map, call_loc_id);
+    if (g_prof_on) prof_push(body, name, PROF_FUNCTION, loc_id, map, call_loc_id);
 }
 
 /* A platform function's key: the profiler's copy of its name, made on first
@@ -197,7 +211,44 @@ static void prof_enter_platform(const IRNode *node)
     const char *key = prof_platform_key(node->data.platform.name, node->data.platform.name_hash);
     /* Without a key it still takes a frame, so its exit pops its own. */
     prof_push(key ? (const void *)key : (const void *)node, key ? key : node->data.platform.name,
-              key != NULL, 0, NULL, node->loc_id);
+              key ? PROF_PLATFORM : PROF_FUNCTION, 0, NULL, node->loc_id);
+}
+
+/* A collection's key: the profiler's copy of its label, made on first sight.
+ * NULL on allocation failure. */
+static const char *prof_paged_key(const char *label)
+{
+    for (size_t i = 0; i < g_prof_paged_len; i++)
+        if (strcmp(g_prof_paged[i], label) == 0) return g_prof_paged[i];
+    if (g_prof_paged_len == g_prof_paged_cap) {
+        size_t cap = g_prof_paged_cap ? g_prof_paged_cap * 2 : 8;
+        char **grown = realloc(g_prof_paged, cap * sizeof(char *));
+        if (!grown) return NULL;
+        g_prof_paged = grown;
+        g_prof_paged_cap = cap;
+    }
+    char *copy = strdup(label);
+    if (!copy) return NULL;
+    g_prof_paged[g_prof_paged_len++] = copy;
+    return copy;
+}
+
+void east_profile_paged_enter(const char *label)
+{
+    if (!g_prof_on) return;
+    const char *key = prof_paged_key(label ? label : PROF_PAGED_UNNAMED);
+    /* Without a key it still takes a frame, so its exit pops its own. */
+    prof_push(key ? (const void *)key : (const void *)&g_prof_read_loc,
+              key ? key : PROF_PAGED_UNNAMED, PROF_PAGED, 0, NULL, g_prof_read_loc);
+}
+
+/* The node a paged read is made by, for the decodes it makes until the
+ * caller puts back what this returns. */
+static inline int64_t prof_read_at(const IRNode *node)
+{
+    int64_t outer = g_prof_read_loc;
+    g_prof_read_loc = node ? node->loc_id : 0;
+    return outer;
 }
 
 static inline void prof_exit(void)
@@ -219,6 +270,11 @@ static inline void prof_exit(void)
     }
     if (g_prof_depth > 0) g_prof_stack[g_prof_depth - 1].child_ns += elapsed;
     if (g_prof_next_ns) prof_interval_due(now);
+}
+
+void east_profile_paged_exit(void)
+{
+    prof_exit();
 }
 
 /* A loop's back-edge: the report printed while the profiler runs is due here
@@ -278,25 +334,31 @@ EastProfileEntry *east_profile_report(size_t *count_out)
 void east_profile_reset(void)
 {
     for (size_t e = 0; e < g_prof_len; e++) {
-        if (!g_prof_entries[e].platform) free((char *)g_prof_entries[e].name);
+        if (!g_prof_entries[e].platform && !g_prof_entries[e].paged)
+            free((char *)g_prof_entries[e].name);
         free((char *)g_prof_entries[e].site);
         free((char *)g_prof_entries[e].call_site);
     }
     for (size_t i = 0; i < g_prof_platforms_len; i++)
         free(g_prof_platforms[i].name);
+    for (size_t i = 0; i < g_prof_paged_len; i++)
+        free(g_prof_paged[i]);
     free(g_prof_entries);
     free(g_prof_index);
     free(g_prof_stack);
     free(g_prof_platforms);
+    free(g_prof_paged);
     g_prof_entries = NULL;
     g_prof_index = NULL;
     g_prof_stack = NULL;
     g_prof_platforms = NULL;
+    g_prof_paged = NULL;
     g_prof_len = g_prof_cap = 0;
     g_prof_mask = 0;
     g_prof_depth = g_prof_stack_cap = 0;
     g_prof_unstacked = 0;
     g_prof_platforms_len = g_prof_platforms_cap = 0;
+    g_prof_paged_len = g_prof_paged_cap = 0;
     g_prof_started_ns = 0;
     g_prof_interval_ns = g_prof_next_ns = 0;
 }
@@ -323,14 +385,21 @@ void east_profile_print(FILE *out)
         /* A function is placed by its definition and, when it differs, the
          * first call that reached it — the builder stamps a helper it inlines
          * at a call site with the caller's location, so the call site is what
-         * tells the helpers apart. A platform function has only its call. */
-        const char *defined = e->platform ? "platform function" : e->site ? e->site : "-";
-        bool called =
-            e->call_site && (e->platform || !e->site || strcmp(e->site, e->call_site) != 0);
+         * tells the helpers apart. A platform function has only its call, and
+         * a collection's decodes the first read that made them. */
+        const char *defined = e->platform ? "platform function"
+                              : e->paged  ? "segment decodes"
+                              : e->site   ? e->site
+                                          : "-";
+        bool called = e->call_site &&
+                      (e->platform || e->paged || !e->site || strcmp(e->site, e->call_site) != 0);
         fprintf(out, "  %-16s %10llu calls %9.3f s self %9.3f s total  %s%s%s\n",
                 e->name ? e->name : "<anon>", (unsigned long long)e->calls,
                 (double)e->self_ns / 1e9, (double)e->total_ns / 1e9, defined,
-                called ? "  called at " : "", called ? e->call_site : "");
+                !called    ? ""
+                : e->paged ? "  read at "
+                           : "  called at ",
+                called ? e->call_site : "");
     }
     free(entries);
     fflush(out);
@@ -937,10 +1006,13 @@ bool east_builtin_serves_paged(const char *name)
 }
 
 /* Replace an owned paged argument with an owned reference to its hydrated
- * collection. Returns false when hydration fails (error posted). */
-static bool hydrate_owned_arg(EastValue **slot)
+ * collection, the whole decode `node`'s read. Returns false when hydration
+ * fails (error posted). */
+static bool hydrate_owned_arg(EastValue **slot, const IRNode *node)
 {
+    int64_t outer_read = prof_read_at(node);
     EastValue *h = east_paged_hydrated(*slot);
+    g_prof_read_loc = outer_read;
     if (!h) return false;
     east_value_retain(h);
     east_value_release(*slot);
@@ -1047,6 +1119,8 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
 
     for (size_t s = 0; s < seg_count; s++) {
         EastValue *seg = NULL;
+        /* The segment's decode is the loop's read, not its body's. */
+        int64_t outer_read = prof_read_at(node);
         if (proj) {
             seg = disjoint ? east_beast2_pages_segment_disjoint_projected(pages, s, proj)
                            : east_beast2_pages_segment_projected(pages, s, proj);
@@ -1060,6 +1134,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             seg = disjoint ? east_beast2_pages_segment_disjoint(pages, s)
                            : east_beast2_pages_segment(pages, s);
         }
+        g_prof_read_loc = outer_read;
         if (!seg) {
             if (proj) east_beast2_projection_free(proj);
             paged_iter_unlock(subject);
@@ -1352,7 +1427,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             return eval_for_paged(node, env, platform, builtins, arr, node->data.for_array.body,
                                   node->data.for_array.label.name, false, paged_bind_array);
         }
-        if (arr->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&arr)) {
+        if (arr->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&arr, node)) {
             east_value_release(arr);
             return paged_error(node);
         }
@@ -1431,7 +1506,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             return eval_for_paged(node, env, platform, builtins, set, node->data.for_set.body,
                                   node->data.for_set.label.name, true, paged_bind_set);
         }
-        if (set->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&set)) {
+        if (set->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&set, node)) {
             east_value_release(set);
             return paged_error(node);
         }
@@ -1504,7 +1579,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             return eval_for_paged(node, env, platform, builtins, dict, node->data.for_dict.body,
                                   node->data.for_dict.label.name, true, paged_bind_dict);
         }
-        if (dict->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&dict)) {
+        if (dict->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&dict, node)) {
             east_value_release(dict);
             return paged_error(node);
         }
@@ -1746,7 +1821,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                  * exactly like the builtin and platform trampolines. */
                 for (size_t i = 0; i < nargs; i++) {
                     if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
-                        !hydrate_owned_arg(&args[i])) {
+                        !hydrate_owned_arg(&args[i], node)) {
                         for (size_t j = 0; j < nargs; j++)
                             east_value_release(args[j]);
                         if (heap_args) free(args);
@@ -1896,7 +1971,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
         if (any_paged && !platform_registry_serves_paged(platform, node->data.platform.name)) {
             for (size_t i = 0; i < nargs; i++) {
-                if (args[i] && args[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&args[i])) {
+                if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
+                    !hydrate_owned_arg(&args[i], node)) {
                     for (size_t j = 0; j < nargs; j++)
                         east_value_release(args[j]);
                     if (heap_args) free(args);
@@ -1967,11 +2043,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         /* Paged args reach only the pager-served builtins; every other
-         * builtin sees the hydrated collection (issue #505). */
+         * builtin sees the hydrated collection (issue #505). Either way the
+         * decodes are this node's read. */
+        bool paged_read = false;
         for (size_t i = 0; i < nargs; i++) {
-            if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
-                !east_builtin_serves_paged(node->data.builtin.name) &&
-                !hydrate_owned_arg(&args[i])) {
+            if (!args[i] || args[i]->kind != EAST_VAL_PAGED) continue;
+            paged_read = true;
+            if (!east_builtin_serves_paged(node->data.builtin.name) &&
+                !hydrate_owned_arg(&args[i], node)) {
                 for (size_t j = 0; j < nargs; j++)
                     east_value_release(args[j]);
                 if (heap_args) free(args);
@@ -1992,7 +2071,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             return eval_error_at_owned(strdup(buf), node);
         }
 
+        int64_t outer_read = paged_read ? prof_read_at(node) : 0;
         EastValue *result = bfn(args, nargs);
+        if (paged_read) g_prof_read_loc = outer_read;
 
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
@@ -2155,7 +2236,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
             /* Containers hold eager values only — a paged wrapper nested in
              * a container would reach the type-driven encoders (#505). */
-            if (item_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&item_res.value)) {
+            if (item_res.value->kind == EAST_VAL_PAGED &&
+                !hydrate_owned_arg(&item_res.value, node)) {
                 east_value_release(item_res.value);
                 east_value_release(arr);
                 return paged_error(node);
@@ -2184,7 +2266,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 east_value_release(set);
                 return item_res;
             }
-            if (item_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&item_res.value)) {
+            if (item_res.value->kind == EAST_VAL_PAGED &&
+                !hydrate_owned_arg(&item_res.value, node)) {
                 east_value_release(item_res.value);
                 east_value_release(set);
                 return paged_error(node);
@@ -2220,8 +2303,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 east_value_release(dict);
                 return v_res;
             }
-            if ((k_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&k_res.value)) ||
-                (v_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&v_res.value))) {
+            if ((k_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&k_res.value, node)) ||
+                (v_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&v_res.value, node))) {
                 east_value_release(k_res.value);
                 east_value_release(v_res.value);
                 east_value_release(dict);
@@ -2240,7 +2323,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.new_ref.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        if (val_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&val_res.value)) {
+        if (val_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&val_res.value, node)) {
             east_value_release(val_res.value);
             return paged_error(node);
         }
@@ -2349,7 +2432,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 return fv_res;
             }
             vals[i] = fv_res.value;
-            if (vals[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&vals[i])) {
+            if (vals[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&vals[i], node)) {
                 for (size_t j = 0; j <= i; j++)
                     east_value_release(vals[j]);
                 free(names);
@@ -2418,7 +2501,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.variant.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        if (val_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&val_res.value)) {
+        if (val_res.value->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&val_res.value, node)) {
             east_value_release(val_res.value);
             return paged_error(node);
         }

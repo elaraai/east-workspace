@@ -115,7 +115,13 @@ IR has one, its definition site, and — when that differs — the site of the
 first call that reached it, which is what tells apart helpers a builder
 lowered to calls at their call sites. A platform function is an entry of
 its own, named after it and placed by the call that reached it, so the time
-spent inside it is not its caller's self time.
+spent inside it is not its caller's self time. So is a lazily read input's
+decoding: each segment its reads decode, and its whole decode when an
+operation the pager cannot serve needs one, is a call of one entry named
+after the input as `-v` names it (`input 1`), placed by the first read that
+decoded. Keyed reads at random beyond the segments the pager keeps
+(`EAST_PAGED_CACHE_BYTES`), or a scan repeated, show there; the reading
+function's total time keeps those decodes, and its self time does not.
 
 `EAST_PROFILE` set to anything but `0` profiles without the flag, which is
 how a task run by e3 is profiled: e3 hands its environment to the runner,

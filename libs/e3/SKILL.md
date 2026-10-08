@@ -577,9 +577,13 @@ runners profile each unit — the runners inherit e3's environment — and the
 task's log (`e3 task logs`) then ends with every East function and platform
 function it called, by self time, with its calls and where it was written and
 called: the python lines of a function `East.importFunction` linked in
-included. `EAST_PROFILE_INTERVAL=300` adds the profile so far every five
-minutes while a long task runs. east-node does not profile. Like `-v` it
-changes no hash: add `--force` for a cached task.
+included. Each input read lazily is an entry too, named as `-v` names it
+(`input 1`): the time its reads spent decoding segments, a call each — keyed
+reads at random beyond the segments the runner keeps, or a scan repeated,
+which `-v`'s account counts — and not the reading function's own time.
+`EAST_PROFILE_INTERVAL=300` adds the profile so far every five minutes while a
+long task runs. east-node does not profile. Like `-v` it changes no hash: add
+`--force` for a cached task.
 **`E3_SCRATCH_DIR`** moves a local run's per-execution scratch directories
 (default `<repo>/tmp/scratch`, on the object store's disk; on tmpfs, outputs sit
 in memory until stored).

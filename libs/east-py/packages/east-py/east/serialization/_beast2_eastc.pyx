@@ -1640,6 +1640,16 @@ def _paged_hydrated_bytes(uintptr_t ptr):
     return kb * 1024
 
 
+def _paged_set_label(uintptr_t ptr, str label):
+    """Name a lazily opened input for east-c's profiler, which times its
+    segment decodes as an entry of that name — ``input N``, as the runners'
+    verbose account names it. Nothing when ``ptr`` is not a paged value."""
+    if ptr == 0:
+        return
+    cdef bytes c_label = label.encode("utf-8")
+    _eastc.east_paged_set_label(<_eastc.EastValue*>ptr, <const char*>c_label)
+
+
 def _beast2_read_type(object data):
     """The type schema embedded in a beast2-full blob (v4 or v5), as the
     python type descriptor. Parses only the header — no value decodes."""

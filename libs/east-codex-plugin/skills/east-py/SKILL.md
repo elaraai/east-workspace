@@ -1614,7 +1614,10 @@ after the work (and after a failure's error), every East function and platform
 function it called, by self time, with its calls, its total time and where it
 is — the `file:line:column` it was written at and, for a helper called inside
 another body, where it was called. A platform function (torch, a solver) is an
-entry of its own, so its time is not its caller's. `EAST_PROFILE=1` profiles
+entry of its own, so its time is not its caller's, and so is each input read
+lazily, named as `-v` names it (`input 1`): the segments its reads decode, a
+call each — keyed reads at random beyond the segments the runner keeps, or a
+scan repeated, show there, not in the reading function's self time. `EAST_PROFILE=1` profiles
 without the flag — e3 hands its environment to the runner, so a task's report
 lands in its log (`e3 task logs`) — and `EAST_PROFILE_INTERVAL=N` prints the
 profile so far every N seconds while the work runs. A python function linked
