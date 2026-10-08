@@ -18,7 +18,10 @@
  * - content scrolled under a still pointer is read again — the row under the
  *   pointer is the one the drag rests over, never the one that scrolled away;
  * - a cell that refuses a card wears Font Awesome's ban, never a text glyph
- *   (#1261).
+ *   (#1261);
+ * - a card dropped on a bucket row makes a tile no wider than its week's
+ *   cell, which draws nothing of its text cut, and its hover says what it
+ *   hides (#1266).
  *
  * And its runs move (#825): by the mouse, a run along its press and then its
  * end, each a draft the footer's journal names; by touch, a touch held on a
@@ -37,10 +40,13 @@ import { test, expect, type Locator, type Page } from "playwright/test";
 import { faBan } from "@fortawesome/free-solid-svg-icons";
 import { settled } from "./settle";
 import { openExample, rowId, rowSel } from "./plan-page";
+import { cutText } from "./plan-text";
 
 /** A press of Hall 3's — below the fold — and the first press, above it. */
 const P12 = rowSel("gpress", "hall3", "H3-P12");
 const P03 = rowSel("press", "p03");
+/** Van 1: a bucket row, which takes a delivery card as a tile in the week the pointer names. */
+const VAN1 = rowSel("van", "van1");
 
 /** The library panel: the frame's start pane. */
 const panelOf = (entry: Locator) => entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='start']");
@@ -257,6 +263,55 @@ test.describe("Plan drag and drop (#608, #1259)", () => {
             await expect(pallet).not.toHaveAttribute("data-dragging", "");
             await page.mouse.up();
         });
+    }
+
+    for (const width of [1280, 1024] as const) {
+        for (const theme of ["light", "dark"] as const) {
+            test(`planRowDrop at ${width}px (${theme}): a van card dropped on an empty week of Van 1 makes a proposal tile inside its week's cell — its grip whole, its "plan" hidden or cut to a letter and the ellipsis, and said on hover — and no bar, chip, tile or band draws a partial glyph (#1266)`, async ({ page }) => {
+                await page.setViewportSize({ width, height: 800 });
+                const entry = await open(page, theme, "Van 3");
+                const row = entry.locator(VAN1);
+                const plot = await boxOf(row.locator("[data-plan-plot]"));
+                await pickUp(page, cardIn(entry, "Van 3"));
+                // W33, the seventh of the window's twelve weeks, where Van 1 has nothing.
+                await page.mouse.move(plot.x + (plot.width * 6.5) / 12, plot.y + plot.height / 2, { steps: 8 });
+                await expect(row.locator("[data-drag-cell]")).toHaveAttribute("data-drop-active", "");
+                await page.mouse.up();
+                const tile = row.locator('[data-event="drop-dlv-van-1"]');
+                await expect(tile).toHaveCount(1);
+                await expect(entry.locator("[data-builder-frame] > [data-frame-slot='footer']")).toContainText("LAST GESTURE · drop · Drop dlv-van on Van 1");
+                // The library back over main, where it was: closed, so nothing covers the tile.
+                const pane = panelOf(entry);
+                if (await pane.getAttribute("data-pane-mode") === "overlay") {
+                    await entry.locator("[data-builder-frame]").first().getByRole("button", { name: "Collapse Library" }).click();
+                    await expect(pane).toHaveAttribute("data-collapsed", "");
+                }
+                await settled(page);
+                const drawn = () => tile.evaluate((el) => {
+                    const b = el.getBoundingClientRect();
+                    const cs = getComputedStyle(el);
+                    const c = el.closest("[data-plan-cell]")!.getBoundingClientRect();
+                    // On the tile's line, inside its border, where it clips: what has no room there lies below it.
+                    const [top, bottom] = [b.top + Number.parseFloat(cs.borderTopWidth), b.bottom - Number.parseFloat(cs.borderBottomWidth)];
+                    const on = (part: Element | null) => {
+                        if (part === null) return null;
+                        const r = part.getBoundingClientRect();
+                        return getComputedStyle(part).display !== "none" && r.top < bottom - 0.5 && r.bottom > top + 0.5;
+                    };
+                    const word = el.querySelector<HTMLElement>(":scope > [data-plan-label]");
+                    return {
+                        inCell: b.left >= c.left - 0.5 && b.right <= c.right + 0.5 && b.top >= c.top - 0.5 && b.bottom <= c.bottom + 0.5,
+                        grip: on(el.querySelector(":scope > [data-plan-icon]")),
+                        // Its word whole on its line — which a week's cell has no room for here.
+                        wordWhole: word !== null && on(word) === true && word.scrollWidth <= word.clientWidth,
+                    };
+                });
+                await expect.poll(drawn).toEqual({ inCell: true, grip: true, wordWhole: false });
+                await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+                await tile.hover();
+                await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("plan");
+            });
+        }
     }
 });
 

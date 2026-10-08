@@ -17,6 +17,13 @@
  * A tile is a button named by its label, bucket, lane and state (#819) — the
  * ✓ and dashed `plan` chips say their state only by look.
  *
+ * A tile is never wider than the room its cell leaves it — the cell's, less
+ * its lane caption: the tiles sit in a box of their own beside it — and draws
+ * its icon and its label — a labelled tile's, or a resting proposal's `plan` —
+ * each whole or not at all (#1266): the recipe lays them on one line and moves
+ * off it what has no room there. A hidden or ellipsized label is said by its
+ * hover, in the canvas's tooltip.
+ *
  * On a row whose series declares a move's fields (#825) a tile moves to
  * another bucket, or another row of its item type; it has one instant, so no
  * end to drag.
@@ -138,11 +145,16 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
-            {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
-            {label !== undefined ? <Box as="span" css={styles.tileLabel}>{label}</Box>
+            {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} data-plan-icon="" />}
+            {label !== undefined ? <Box as="span" css={styles.tileLabel} data-plan-label="">{label}</Box>
                 : icon !== undefined ? null
-                : stateKey === "prop" ? (<><FontAwesomeIcon icon={faGripVertical} />{words.m.planChip()}</>)
-                : <FontAwesomeIcon icon={faCheck} />}
+                : stateKey === "prop" ? (
+                    <>
+                        <FontAwesomeIcon icon={faGripVertical} data-plan-icon="" />
+                        <Box as="span" css={styles.tileLabel} data-plan-label="">{words.m.planChip()}</Box>
+                    </>
+                )
+                : <FontAwesomeIcon icon={faCheck} data-plan-icon="" />}
         </Box>
     );
 }
@@ -245,10 +257,13 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
                 onClick={() => dispatch({ t: "row.select", key: rowKey })}
             >
                 {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
-                {events.map((ev) => (
-                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} rowId={rowId} ctx={ctx}
-                        bucket={b} lane={laneCaption(ev.lane)} move={move} />
-                ))}
+                {/* The tiles, in the room the caption leaves them: a tile's floor is that room's (#1266). */}
+                <Box css={styles.cellTiles} data-plan-cell-tiles="">
+                    {events.map((ev) => (
+                        <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} rowId={rowId} ctx={ctx}
+                            bucket={b} lane={laneCaption(ev.lane)} move={move} />
+                    ))}
+                </Box>
                 {marker !== undefined && (
                     <Box css={styles.markerIcon} data-status={marker.status.type}
                         data-marker={`${bi}:${li ?? "full"}`} role="img" aria-label={marker.message}>

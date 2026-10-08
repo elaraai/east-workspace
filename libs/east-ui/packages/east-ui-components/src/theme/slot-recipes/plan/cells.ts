@@ -19,7 +19,7 @@ import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focu
 
 /** The slots this part styles. */
 export const cellsSlots = [
-    "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell",
+    "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
     "tile", "tileLabel", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellPart",
 ] as const;
 
@@ -167,18 +167,39 @@ export const cellsBase = {
         "&[data-over='success']": { boxShadow: "inset 0 0 0 1.5px {colors.status.pos}" },
         "&[data-over='neutral']": { boxShadow: "inset 0 0 0 1.5px {colors.fg.subtle}" },
     },
+    // A cell's tiles, in the room its lane caption leaves them (#1266): a
+    // tile's 20px floor, and how far it shrinks, are this box's, so a tile in
+    // a captioned lane never runs past its cell. As tall as the cell, so a
+    // tile stretched on the block axis fills its lane.
+    cellTiles: {
+        display: "flex",
+        alignItems: "center",
+        alignSelf: "stretch",
+        gap: "5px",
+        flex: "1 1 0%",
+        minWidth: 0,
+    },
     // The tile chip inside a cell — the `.chk` / `.pchip` looks on the
     // lifecycle axis: confirmed/actual = the solid ink ✓ chip; proposals
     // = the paper-bg brand-dashed italic chip (grip glyph on the resting
     // `plan` form); removed / estimated / rejected extend the §4.3 table.
+    //
+    // A tile is never wider than its cell (#1266): it shrinks to the room
+    // the cell leaves it, its 20px floor where the cell has that. Its parts
+    // sit on ONE line of its own height, which the strut before them holds,
+    // and a part with no room on that line wraps below it, where the tile
+    // clips it whole: its icon goes once the tile is narrower inside than
+    // the icon, its label once it would show less than a letter and the
+    // ellipsis, and a label never shows without the icon before it. A
+    // tile's width is its content's, so no size query could choose this.
     tile: {
         display: "inline-flex",
+        flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "center",
-        gap: "4px",
         height: "var(--plan-tile-h)",
-        minWidth: "20px",
-        flex: "none",
+        minWidth: "min(20px, 100%)",
+        flex: "0 1 auto",
         borderRadius: "3px",
         fontFamily: "mono",
         fontSize: "9.5px",
@@ -187,7 +208,14 @@ export const cellsBase = {
         whiteSpace: "nowrap",
         boxSizing: "border-box",
         padding: "0 5px",
-        "& svg": { fontSize: "8px" },
+        // The strut: the line's height, and no width.
+        "&::before": { content: '""', height: "100%" },
+        // Its parts 4px apart — a margin, which the strut, being no element,
+        // never takes, where a gap would follow it.
+        "& > * + *": { marginInlineStart: "4px" },
+        // Each icon at its own width (#1263), never Font Awesome's 1.25em
+        // cell: the room a tile has is its parts'.
+        "& svg": { fontSize: "8px", "--fa-width": "auto" },
         // The lifecycle axis (§4.3), shared (`states.ts`). A tile at rest is
         // the ONE committed fill (#949) ✓ chip; confirmed rests on paper in a
         // solid brand ring, as a bar does; its other states take a tighter
@@ -225,7 +253,7 @@ export const cellsBase = {
             minWidth: 0,
             color: "transparent",
             padding: 0,
-            gap: 0,
+            "& > * + *": { marginInlineStart: 0 },
             borderRadius: "1px",
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
@@ -233,11 +261,17 @@ export const cellsBase = {
         ...planElementSelected,
         ...planElementFocus,
     },
-    // A labelled tile's text — its own flex item, so a label wider than
-    // the tile (a stretched tile in a 356px lane cell) ellipsizes instead
-    // of the centred text clipping on both sides ("MIXED" read "IXE").
+    // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
+    // proposal's `plan`. Its own flex item, so a label wider than the tile
+    // ellipsizes instead of the centred text clipping on both sides ("MIXED"
+    // read "IXE"). It takes the room its line leaves, from a letter and the
+    // ellipsis — 2ch in the tile's mono face — up to its whole text; with
+    // less, it wraps off the line, out of sight (#1266), and its hover says it
+    // in the canvas's tooltip.
     tileLabel: {
+        flex: "1 1 2ch",
         minWidth: 0,
+        maxWidth: "max-content",
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",

@@ -456,12 +456,13 @@ describe("one overlay layer (#816)", () => {
 });
 
 /**
- * A label drawn cut is one hover away (#1264). jsdom computes no layout and no
- * container query, so each test draws the label's state itself: hidden — the
- * recipe's `display: none` below a letter and the ellipsis — or ellipsized, its
- * text wider than its box.
+ * A label drawn cut is one hover away (#1264, #1266). jsdom computes no layout
+ * and no container query, so each test draws the label's state itself: hidden
+ * — the recipe's `display: none` below a letter and the ellipsis, or, in a
+ * tile, the label moved off the tile's line below it — or ellipsized, its text
+ * wider than its box.
  */
-describe("a cut label says itself in the tooltip (#1264)", () => {
+describe("a cut label says itself in the tooltip (#1264, #1266)", () => {
     const tooltip = () => document.querySelector('[data-plan-overlay="tooltip"]');
     /** Draws a label hidden, as the recipe's container query does below a letter and the ellipsis. */
     const hide = (label: HTMLElement) => { label.style.display = "none"; };
@@ -469,6 +470,15 @@ describe("a cut label says itself in the tooltip (#1264)", () => {
     const ellipsize = (label: HTMLElement) => {
         Object.defineProperty(label, "scrollWidth", { configurable: true, get: () => 120 });
         Object.defineProperty(label, "clientWidth", { configurable: true, get: () => 20 });
+    };
+    /** Draws a proposal's label moved off its 18px line, below it — as the recipe moves a label with no room there: the
+     *  next line starts at the inside of the tile's border, the 1px of its dashed ring above the tile's bottom. */
+    const offLine = (tile: HTMLElement) => {
+        const rect = (top: number, height: number) =>
+            ({ left: 0, right: 20, width: 20, top, bottom: top + height, height, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+        tile.style.borderBottom = "1px dashed";
+        vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(rect(0, 18));
+        vi.spyOn(tile.querySelector<HTMLElement>("[data-plan-label]")!, "getBoundingClientRect").mockReturnValue(rect(17, 11));
     };
     /** Long enough for both delays (150ms) to pass, and the layer to render. */
     const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 250)); });
@@ -531,5 +541,34 @@ describe("a cut label says itself in the tooltip (#1264)", () => {
         ellipsize(caption);
         await user.hover(band);
         await waitFor(() => expect(tooltip()?.textContent).toBe(caption.textContent));
+    });
+
+    test("a tile's label says itself the same way (#1266) — a labelled tile's ellipsized, a proposal's `plan` moved off its line; a label whole on its line says nothing", async () => {
+        const tile = (key: string, at: number, label: string | undefined, state: unknown) => ({
+            key, at: t(week(at)), lane: none, label: label !== undefined ? some(label) : none, icon: none, state,
+            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
+        });
+        const { container } = renderPlan(planRoot([planRow("van", variant("buckets", {
+            lanes: [], markers: [],
+            events: [
+                tile("e1", 1, "PROOF", variant("estimated", null)),
+                tile("e2", 3, undefined, variant("proposed", variant("recommended", null))),
+                tile("e3", 5, "S-A", variant("confirmed", null)),
+            ],
+        }))]), "plan-1266-tile");
+        const tileOf = (key: string) => container.querySelector<HTMLElement>(`[data-event="${key}"]`)!;
+        ellipsize(tileOf("e1").querySelector<HTMLElement>("[data-plan-label]")!);
+        offLine(tileOf("e2"));
+        const user = userEvent.setup();
+        for (const [key, text] of [["e1", "PROOF"], ["e2", "plan"]] as const) {
+            await user.hover(tileOf(key));
+            await waitFor(() => expect(tooltip()?.textContent, key).toBe(text));
+            await user.unhover(tileOf(key));
+            await waitFor(() => expect(tooltip(), key).toBeNull());
+        }
+        // Whole on its line: its hover says nothing.
+        await user.hover(tileOf("e3"));
+        await settle();
+        expect(tooltip()).toBeNull();
     });
 });
