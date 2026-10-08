@@ -363,13 +363,13 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
-// The Flowchart (#1243–#1247): `<Flowchart>` with its namespace, the payload
+// The Flowchart (#1243–#1248): `<Flowchart>` with its namespace, the payload
 // the renderer takes through the `Flowchart` carrier — its canvas, its source
 // of flows with the editing session's Save over a record or the host's flows,
-// and its library's wire — its shared keys, its library's tabs, and the types
-// a flowchart is written with. `Flowchart` here is the internal namespace —
-// the public one, `Flowchart.Payload`, `Flowchart.Component` and the payload's
-// types.
+// and its library's wire, each data tab's cards read from its own rows — its
+// shared keys, its library's tabs, and the types a flowchart is written with.
+// `Flowchart` here is the internal namespace — the public one,
+// `Flowchart.Payload`, `Flowchart.Component` and the payload's types.
 export {
     FlowchartInternal as Flowchart,
     FlowchartTag,
@@ -382,9 +382,21 @@ export {
     FlowchartSessionApplyType,
     FlowchartLibraryFactories,
     libraryFlows,
+    libraryStates,
+    libraryTransitions,
+    libraryTab,
     type FlowchartLibrary,
     type FlowchartLibraryTab,
     type FlowchartOneFlowLibraryTab,
+    type FlowchartLibraryRows,
+    type FlowchartFlowsTab,
+    type FlowchartStatesTab,
+    type FlowchartTransitionsTab,
+    type FlowchartAuthorTab,
+    type FlowchartCardAccessors,
+    type FlowchartStatesConfig,
+    type FlowchartTransitionsConfig,
+    type FlowchartTabConfig,
     FlowchartFlowsApplyType,
     FlowchartFlowApplyType,
     FlowchartHistoryType,
