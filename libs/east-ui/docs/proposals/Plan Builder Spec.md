@@ -993,11 +993,12 @@ As built (#1196):
   (`PlanChrome.patchKinds`); in the narrow layout, nothing.
 - The library's Backlog tab reads every kind's drafts, as the footer counts
   them: a card scheduled leaves it, an event unscheduled joins it at once.
-- §8's drafted look: a bar, a chip or a mark of an event its drafts changed
-  carries `data-draft`, and the `plan` recipe draws it (`planElementDrafted`,
-  `slot-recipes/plan/focus.ts`): the brand tint in a 1.5px brand border in its
-  lifecycle look's place, under the rings — a mark the tint's ring round its
-  glyph. A tile has none yet: its renderer, `rows/BucketsRow.tsx`, is #1266's.
+- §8's drafted look: a bar, a tile, a chip or a mark of an event its drafts
+  changed carries `data-draft`, and the `plan` recipe draws it
+  (`planElementDrafted`, `slot-recipes/plan/focus.ts`): the brand tint in a
+  1.5px brand border in its lifecycle look's place, under the rings — a mark
+  the tint's ring round its glyph. A tile's border sits inside its box, so
+  its parts keep to what is left of its room (#1266).
 
 ### 9.8 The inspector (owner: the inspector)
 

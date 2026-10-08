@@ -227,6 +227,8 @@ export const cellsBase = {
             prop: { background: "{colors.brandTint}", "& svg": { opacity: 0.8 } },
             propRemoved: { background: "bg.surface", color: "fg.muted" },
         }),
+        // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
+        ...planElementDrafted,
         "&[data-tone='warning']": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
         "&[data-tone='danger']":  { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
         "&[data-tone='success']": { boxShadow: "0 0 0 1.5px {colors.status.pos}" },
