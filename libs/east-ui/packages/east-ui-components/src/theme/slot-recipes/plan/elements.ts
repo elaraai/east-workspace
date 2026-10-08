@@ -404,17 +404,21 @@ export const elementsBase = {
     // K7 icon swap — hosts choose the glyph, never the geometry: the icon
     // fits the canvas's square icon box (`--plan-mark-icon-w`), whatever its
     // own proportions, so a link meets the box's edges (#1258);
-    // kind-coloured: brand default, warn for exceptions.
+    // kind-coloured: brand default, warn for exceptions. Font Awesome's own
+    // rule sizes its svg — 1em tall, `--fa-width` wide — and outranks a
+    // recipe's, so the box's font is its size and the width 1em: the glyph
+    // fits the square whole (#1269; it drew 18×16 in 12px).
     markIcon: {
         position: "absolute",
         top: "50%",
         transform: "translate(-50%, -50%)",
         width: "var(--plan-mark-icon-w)",
         height: "var(--plan-mark-icon-w)",
+        fontSize: "var(--plan-mark-icon-w)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        "& svg": { width: "100%", height: "100%" },
+        "& svg": { width: "100%", height: "100%", "--fa-width": "1em" },
         lineHeight: 1,
         color: "{colors.brand.solid}",
         zIndex: 3,

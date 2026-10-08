@@ -17,7 +17,9 @@
  * cell names its bucket instant (`data-cell`), so the canvas's one overlay
  * layer opens the root's popover and hover card for it (#816). It is a button
  * named by its bucket and the numerals it prints (#819) — the em-dash of a
- * missing value said as words.
+ * missing value said as words. Its numerals are drawn together, whole, or not
+ * at all where the cell is narrower than they are, its hover then saying them
+ * (#1269).
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
@@ -130,12 +132,16 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                             onElementClick?.(variant("cell", { row: rowId, at: b.start }) as PlanElementRefValue);
                         }}
                     >
-                        {printed.map(({ text, tone, strong }, i) => (
-                            <Box key={i} as="span" css={styles.tableCellPart}
-                                data-tone={tone} data-strong={strong ? "" : undefined}>
-                                {text}
-                            </Box>
-                        ))}
+                        {/* Its numerals, together: drawn whole, or — wider than the cell — off its line, out of
+                            sight, and said by the cell's hover (#1269); never some of them. */}
+                        <Box as="span" css={styles.tableCellGroup} data-table-parts="" data-plan-label="">
+                            {printed.map(({ text, tone, strong }, i) => (
+                                <Box key={i} as="span" css={styles.tableCellPart}
+                                    data-tone={tone} data-strong={strong ? "" : undefined}>
+                                    {text}
+                                </Box>
+                            ))}
+                        </Box>
                     </Box>
                 );
             })}

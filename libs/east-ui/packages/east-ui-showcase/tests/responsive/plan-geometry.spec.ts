@@ -26,7 +26,7 @@
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, openExample, rowId, rowSel } from "./plan-page";
-import { cutText } from "./plan-text";
+import { cutNumbers, cutText, rulerFaults } from "./plan-text";
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes, rows folded to a coarser resolution and a
@@ -614,41 +614,140 @@ test.describe("Plan links focus (#818, #1258)", () => {
     });
 });
 
+/** Every Plan example that draws bars, chips, tiles or rollup bands, and the narrow layout's tab its rows' cards are
+ *  under where it lands on another: planNarrow lands on its groups' heat strips, which draw no text. */
+const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
+    ...["planTargetState", "planVariants", "planSpanRows", "planBucketRows", "planCardRows", "planGroupedRows",
+        "planSeriesData", "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planUiState",
+        "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
+    ].map((name) => ({ name, file: PLAN_EXAMPLES })),
+    { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
+    ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
+];
+
+/** One frame of a ruler as it painted: its track's width, and the labels it drew, by index. */
+interface RulerPainted { width: number; sig: string }
+
+/** What the ruler paint checks keep in the page ({@link startRulerPaint}). */
+interface RulerPaintWindow {
+    __rulerPainted: RulerPainted[];
+    __rulerPaintStop: () => void;
+}
+
 /**
- * An element's text (#1258, #1264, #1266): no bar, chip, tile or rollup band
- * in a Plan example draws a partial glyph — its label whole, ellipsized after a
- * whole letter, or hidden; a bar's quantity whole beside a whole label or not
- * drawn; an icon whole or not drawn — at the desktop's width and a laptop's, in
- * both themes. A label too narrow to show is one hover away, in the canvas's
- * tooltip.
+ * Samples what a ruler paints, until {@link stopRulerPaint}: every frame as it
+ * paints, as {@link startCellPaint} samples a cell — read after the ruler's own
+ * observer has answered the frame's width. Each sample is the track's width and
+ * the labels drawn, by index.
  */
-test.describe("Plan element text (#1258, #1264, #1266)", () => {
+async function startRulerPaint(ruler: Locator): Promise<void> {
+    await ruler.evaluate((el) => {
+        const w = window as unknown as RulerPaintWindow;
+        const ticks = [...el.querySelectorAll("[data-slot='rulerTick']")];
+        const track = ticks[0]!.parentElement!;
+        const sig = () => ticks.flatMap((t, i) => (getComputedStyle(t.querySelector("[data-tick-label]")!).visibility === "hidden" ? [] : [i])).join(" ");
+        const strip = document.body.appendChild(document.createElement("div"));
+        strip.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 0; pointer-events: none;";
+        w.__rulerPainted = [];
+        const observer = new ResizeObserver(() => {
+            w.__rulerPainted.push({ width: Math.round(track.getBoundingClientRect().width * 100) / 100, sig: sig() });
+        });
+        observer.observe(strip);
+        let frame = requestAnimationFrame(function tick() {
+            strip.style.width = strip.style.width === "1px" ? "2px" : "1px";
+            frame = requestAnimationFrame(tick);
+        });
+        w.__rulerPaintStop = () => {
+            cancelAnimationFrame(frame);
+            observer.disconnect();
+            strip.remove();
+        };
+    });
+}
+
+/** Stops {@link startRulerPaint}, returning what it sampled. */
+async function stopRulerPaint(ruler: Locator): Promise<RulerPainted[]> {
+    return ruler.evaluate(() => {
+        const w = window as unknown as RulerPaintWindow;
+        w.__rulerPaintStop();
+        return w.__rulerPainted;
+    });
+}
+
+/**
+ * An element's text (#1258, #1264, #1266, #1269): no bar, chip, tile or rollup
+ * band in a Plan example draws a partial glyph — its label whole, ellipsized
+ * after a whole letter, or hidden; a bar's quantity whole beside a whole label
+ * or not drawn; an icon whole or not drawn — no cell draws part of a number,
+ * every mark's icon lies inside it, and the ruler draws its labels whole and
+ * apart, every period's start among them: at a wide desktop's width, the
+ * desktop's and a laptop's, in both themes, and the print works with its
+ * inspector pinned. A label or a number too narrow to show is one hover away,
+ * in the canvas's tooltip.
+ */
+test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
 
-    /** Every Plan example that draws bars, chips, tiles or rollup bands, and the narrow layout's tab its rows' cards
-     *  are under where it lands on another: planNarrow lands on its groups' heat strips, which draw no text. */
-    const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
-        ...["planTargetState", "planVariants", "planSpanRows", "planBucketRows", "planCardRows", "planGroupedRows",
-            "planSeriesData", "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planUiState",
-            "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
-        ].map((name) => ({ name, file: PLAN_EXAMPLES })),
-        { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
-        ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
-    ];
-
     for (const { name, file, tab } of TEXT_EXAMPLES) {
-        for (const width of [1280, 1024]) {
+        for (const width of [1440, 1280, 1024]) {
             for (const theme of ["light", "dark"] as const) {
-                test(`${name} at ${width}px (${theme}): no bar, chip, tile or rollup band draws a partial glyph — its label whole, ellipsized after a whole letter, or hidden; a bar's quantity whole beside a whole label or not drawn; an icon whole or not drawn`, async ({ page }) => {
+                test(`${name} at ${width}px (${theme}): no bar, chip, tile or rollup band draws a partial glyph — its label whole, ellipsized after a whole letter, or hidden; a bar's quantity whole beside a whole label or not drawn; an icon whole or not drawn; no number in a cell cut, every mark's icon inside it; the ruler's labels whole and apart, every period's start labelled (#1269)`, async ({ page }) => {
                     await page.setViewportSize({ width, height: 800 });
                     const entry = await openExample(page, name, file, theme);
                     if (tab !== undefined) await entry.locator(`[data-plan-narrow] [data-plan-tab=${JSON.stringify(tab)}]`).click();
                     await expect.poll(() => entry.locator("[data-run], [data-chip], [data-event], [data-plan-band]").count()).toBeGreaterThan(0);
                     await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+                    await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
+                    await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
                 });
             }
         }
     }
+
+    for (const width of [1440, 1280]) {
+        for (const theme of ["light", "dark"] as const) {
+            test(`planPrintWorks at ${width}px (${theme}), a job selected and the inspector pinned beside main, as the user saw it (#1269): the ruler's labels whole and apart, every period's start labelled; no number in a cell cut, every mark's icon inside it`, async ({ page }) => {
+                await page.setViewportSize({ width, height: 900 });
+                const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
+                // A box as wide as the window: both panes pinned beside main where it keeps its 480px, main the narrower for them.
+                await entry.locator("[data-plan-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
+                await settled(page);
+                await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+                await settled(page);
+                await expect(entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='end'] [data-plan-inspector='event']")).toBeVisible();
+                await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
+                await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
+                await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+            });
+        }
+    }
+
+    test("planPrintWorks: its ruler never paints labels it does not rest on — its frame narrowed 3px at a time from 1440px to 1000px, every frame at one width draws the labels that width rests on, across the widths its labels thin at (#1269)", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
+        const host = entry.locator("[data-plan-frame]").first().locator("xpath=..");
+        const ruler = entry.locator("[data-slot='ruler']").first();
+        await startRulerPaint(ruler);
+        await host.evaluate(async (el: HTMLElement) => {
+            const frames = (n: number) => new Promise<void>((resolve) => {
+                const step = (k: number) => { if (k === 0) resolve(); else requestAnimationFrame(() => step(k - 1)); };
+                step(n);
+            });
+            for (let width = 1440; width >= 1000; width -= 3) {
+                el.style.width = `${width}px`;
+                await frames(3);
+            }
+        });
+        const painted = await stopRulerPaint(ruler);
+        expect(painted.length, "the frames sampled").toBeGreaterThan(300);
+        // Every frame at one width drew the same labels — what that width rests on, never the width before it's.
+        const drawn = new Map<number, Set<string>>();
+        for (const p of painted) drawn.set(p.width, (drawn.get(p.width) ?? new Set<string>()).add(p.sig));
+        expect([...drawn].filter(([, sigs]) => sigs.size > 1).map(([width, sigs]) => `at ${width}px: ${[...sigs].map((sig) => `"${sig}"`).join(" then ")}`)).toEqual([]);
+        // The sweep crossed widths its labels thin at.
+        expect(new Set(painted.map((p) => p.sig)).size, "the label sets the sweep drew").toBeGreaterThan(1);
+        await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
+    });
 
     /** Each element set either side of a width its text turns at (#1264) — the examples draw few such widths. In
      *  the mono faces a letter and the ellipsis take 2ch: 11.4px at a band's 9.5px, which has no padding, and 12px
@@ -779,6 +878,90 @@ test.describe("Plan element text (#1258, #1264, #1266)", () => {
             await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveCount(0);
         }
     });
+
+    /** A number in a cell set either side of its own width (#1269): a heat value, a table cell's numerals and a
+     *  segment's label, each in the example that draws them. Narrower than it, the cell draws none of it — wrapped
+     *  off its line, below it, out of sight — and a heat or table cell's hover says it in the canvas's tooltip, a
+     *  table cell's numerals one after another; two pixels wider, it draws whole, on its line. `pad` is the cell's
+     *  padding across. */
+    const NUMBERS: readonly { name: string; what: string; cell: string; label: string | null; pad: number; tip: boolean }[] = [
+        { name: "planHeatRows", what: "a heat value", cell: "[data-plan-row] [data-cell]:has(> [data-plan-heat-label])", label: ":scope > [data-plan-heat-label]", pad: 0, tip: true },
+        { name: "planTableRows", what: "a table cell's numerals", cell: "[data-plan-row] [data-cell]:has(> [data-table-parts])", label: ":scope > [data-table-parts]", pad: 8, tip: true },
+        { name: "planHeatRows", what: "a segment's label", cell: "[data-plan-row] [data-fill]", label: null, pad: 0, tip: false },
+    ];
+
+    for (const n of NUMBERS) {
+        test(`${n.name}: ${n.what} in a cell two pixels narrower than it draws none of it${n.tip ? ", its hover saying it," : ""} and two pixels wider draws it whole (#1269)`, async ({ page }) => {
+            const entry = await openExample(page, n.name);
+            const cell = entry.locator(n.cell).filter({ hasText: /\d/ }).first();
+            await expect(cell).toHaveCount(1);
+            /** The cell's number: its text's whole width, its words, and whether it lies on the cell's line, inside it. */
+            const read = () => cell.evaluate((el, label) => {
+                const holder = label === null ? el : el.querySelector(label)!;
+                const range = document.createRange();
+                range.selectNodeContents(holder);
+                const r = range.getBoundingClientRect();
+                const c = el.getBoundingClientRect();
+                const parts = [...holder.children].map((p) => (p.textContent ?? "").trim()).filter((t) => t !== "");
+                return {
+                    width: r.width,
+                    words: parts.length > 0 ? parts.join(" · ") : (holder.textContent ?? "").trim(),
+                    onLine: r.top < c.bottom - 0.5,
+                    inside: r.left >= c.left - 0.5 && r.right <= c.right + 0.5 && r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5,
+                };
+            }, n.label);
+            const whole = await read();
+            const setWidth = (px: number) => cell.evaluate((el: HTMLElement, w) => {
+                el.style.setProperty("width", `${w}px`, "important");
+                el.style.setProperty("min-width", "0", "important");
+                el.style.setProperty("flex", "none", "important");
+            }, px);
+            await setWidth(whole.width + n.pad - 2);
+            await expect.poll(async () => (await read()).onLine, "a number narrower than its cell's line wraps off it").toBe(false);
+            await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
+            if (n.tip) {
+                await cell.hover();
+                await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText(whole.words);
+                await page.mouse.move(0, 0);
+            }
+            await setWidth(whole.width + n.pad + 2);
+            await expect.poll(async () => { const at = await read(); return { onLine: at.onLine, inside: at.inside }; }).toEqual({ onLine: true, inside: true });
+            await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
+        });
+    }
+});
+
+/**
+ * An element's text on a phone (#1269): each tab of every Plan example's narrow
+ * layout — its group strips, its rows' cards, its measures — draws no partial
+ * glyph in a card and cuts no number in a strip's or a card's cell, every
+ * mark's icon inside it, and its ruler draws its labels whole and apart, every
+ * period's start among them, in both themes.
+ */
+test.describe("Plan element text on a phone (#1269)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch projects");
+
+    for (const { name, file } of TEXT_EXAMPLES) {
+        for (const theme of ["light", "dark"] as const) {
+            test(`${name} on a phone (${theme}): each tab of its narrow layout draws no partial glyph and cuts no number in a cell, every mark's icon inside it; its ruler's labels whole and apart, every period's start labelled`, async ({ page }) => {
+                const entry = await openExample(page, name, file, theme);
+                const strips = entry.locator("[data-plan-narrow] [data-slot='narrowTabs']");
+                await expect.poll(() => strips.count(), "a narrow layout").toBeGreaterThan(0);
+                for (let k = 0; k < await strips.count(); k++) {
+                    const tabs = await strips.nth(k).locator("[data-plan-tab]").evaluateAll((els) => els.map((el) => el.getAttribute("data-plan-tab")!));
+                    for (const tab of tabs) {
+                        await strips.nth(k).locator(`[data-plan-tab=${JSON.stringify(tab)}]`).tap();
+                        await settled(page);
+                        // The tab's list opens on its ruler, which the sweep reads.
+                        await expect(strips.nth(k).locator("xpath=..").locator("[data-slot='narrowList'] > [data-slot='narrowRuler']"), tab).toBeVisible();
+                        await expect.poll(() => entry.evaluate(cutText), tab).toEqual([]);
+                        await expect.poll(() => entry.evaluate(cutNumbers), tab).toEqual([]);
+                        await expect.poll(() => entry.evaluate(rulerFaults), tab).toEqual([]);
+                    }
+                }
+            });
+        }
+    }
 });
 
 // ── A bucket cell's `+n` (#1267) ──

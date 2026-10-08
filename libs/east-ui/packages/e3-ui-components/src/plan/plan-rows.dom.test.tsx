@@ -495,7 +495,8 @@ describe("Plan table rows (§4·K5)", () => {
         ]));
         const cell = container.querySelector(`${rowSel("lot")} [data-split="horizontal"]`)!;
         expect(cell).toBeTruthy();
-        const parts = cell.querySelectorAll("span");
+        // Its numerals, together in one group (#1269).
+        const parts = cell.querySelectorAll("[data-table-parts] > span");
         expect(parts).toHaveLength(2);
         // Series order holds; part 0 wears the strong declaration.
         expect(parts[0]!.textContent).toBe("96");

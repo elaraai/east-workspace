@@ -30,8 +30,9 @@
  *   (#1258) shows its `aria-label` as a tooltip — a ribbon opens no hover
  *   card: its caption is what hovering it says;
  * - hovering a bar, a chip, a tile or a rollup band whose label is hidden (too
- *   narrow for a letter and the ellipsis) or ellipsized shows the whole label
- *   as a tooltip (#1264, #1266) — read from what the page draws as the hover
+ *   narrow for a letter and the ellipsis) or ellipsized, or a heat or table
+ *   cell whose number its column has no room for, shows the whole label as a
+ *   tooltip (#1264, #1266, #1269) — read from what the page draws as the hover
  *   lands — and a hover card open on the element says more, so the tooltip
  *   gives way to it.
  *
@@ -67,9 +68,9 @@ export const PLAN_LINK_SELECTOR = "[data-link-key]";
 export const PLAN_TIP_SELECTOR =
     "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label]";
 /** The elements whose label (`data-plan-label`) a tooltip says while it is
- *  hidden or ellipsized: a bar, a chip and a rollup band (#1264), and a tile
- *  (#1266). */
-export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-event],[data-plan-band]";
+ *  hidden or ellipsized: a bar, a chip and a rollup band (#1264), a tile
+ *  (#1266), and a heat or table cell's number (#1269). */
+export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-event],[data-plan-band],[data-cell]";
 
 /** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
 const OPEN_DELAY_MS = 150;
@@ -164,17 +165,19 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
 }
 
 /**
- * The tooltip an element's label makes (#1264, #1266): its whole text, while
- * the page draws it hidden — too narrow for a letter and the ellipsis: not
- * displayed, or, in a tile, moved off the tile's line below it — or
- * ellipsized; read as the hover lands.
+ * The tooltip an element's label makes (#1264, #1266, #1269): its whole text,
+ * while the page draws it hidden — too narrow for a letter and the ellipsis:
+ * not displayed, or, in a tile or a cell, moved off its line below it — or
+ * ellipsized; read as the hover lands. A table cell's numerals are its label
+ * together, said one after another.
  *
- * @param el - A bar, a chip, a tile or a rollup band ({@link PLAN_LABELLED_SELECTOR})
+ * @param el - A bar, a chip, a tile, a rollup band or a cell ({@link PLAN_LABELLED_SELECTOR})
  * @returns Its identity and its label's text, or `undefined` while the label shows whole
  */
 function labelTipOf(el: Element): { key: string; text: string } | undefined {
     const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]");
-    const text = label?.textContent?.trim() ?? "";
+    const parts = label === null ? [] : [...label.children].map((part) => (part.textContent ?? "").trim()).filter((t) => t !== "");
+    const text = parts.length > 0 ? parts.join(" · ") : label?.textContent?.trim() ?? "";
     if (label === null || text === "") return undefined;
     // A label moved off its element's line lies wholly below it — below the
     // inside of its border, where the element clips.
@@ -185,9 +188,10 @@ function labelTipOf(el: Element): { key: string; text: string } | undefined {
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
     if (row === null || row === undefined) return undefined;
-    // A band has no key of its own: its place among its row's bands names it.
+    // A band has no key of its own: its place among its row's bands names it. A cell, its instant.
+    const cell = el.getAttribute("data-cell");
     const id = el.getAttribute("data-run") ?? el.getAttribute("data-chip") ?? el.getAttribute("data-event")
-        ?? `band${[...(el.parentElement?.querySelectorAll(":scope > [data-plan-band]") ?? [])].indexOf(el)}`;
+        ?? (cell !== null ? `cell${cell}` : `band${[...(el.parentElement?.querySelectorAll(":scope > [data-plan-band]") ?? [])].indexOf(el)}`);
     return { key: `${row}|label|${id}`, text };
 }
 
