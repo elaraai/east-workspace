@@ -608,48 +608,6 @@ static void unit_function_free(UnitFunction *function)
 /*  Commands                                                           */
 /* ------------------------------------------------------------------ */
 
-/* "file:line:column" for a loc_id, or "-" when the map cannot place it. */
-static const char *profile_site(const EastSourceMap *sm, int64_t loc_id, char *buf, size_t cap)
-{
-    size_t count = 0;
-    const EastLocation *locs = loc_id > 0 ? east_source_map_resolve(sm, loc_id, &count) : NULL;
-    if (locs && count > 0 && locs[0].filename)
-        snprintf(buf, cap, "%s:%lld:%lld", locs[0].filename, (long long)locs[0].line,
-                 (long long)locs[0].column);
-    else
-        snprintf(buf, cap, "-");
-    return buf;
-}
-
-/* The --profile epilogue: every East function called, by self time. A
- * function is named after the Let it was bound to when the IR has one, and
- * placed by its Function node's site plus, when it differs, the site of the
- * first call that reached it — the builder stamps a helper it inlines at a
- * call site with the caller's location, so the call site is what tells the
- * helpers apart. */
-static void print_profile(const EastSourceMap *sm)
-{
-    size_t n = 0;
-    EastProfileEntry *entries = east_profile_report(&n);
-    fprintf(stderr, "\nProfile (self time, %s%zu function%s):\n", n > 20 ? "top 20 of " : "", n,
-            n == 1 ? "" : "s");
-    size_t shown = n > 20 ? 20 : n;
-    for (size_t i = 0; i < shown; i++) {
-        const EastProfileEntry *e = &entries[i];
-        char defined[512], called[512], where[1100];
-        profile_site(sm, e->loc_id, defined, sizeof(defined));
-        profile_site(sm, e->call_loc_id, called, sizeof(called));
-        if (e->call_loc_id > 0 && strcmp(defined, called) != 0)
-            snprintf(where, sizeof(where), "%s  called at %s", defined, called);
-        else
-            snprintf(where, sizeof(where), "%s", defined);
-        fprintf(stderr, "  %-16s %10llu calls %9.3f s self %9.3f s total  %s\n",
-                e->name ? e->name : "<anon>", (unsigned long long)e->calls,
-                (double)e->self_ns / 1e9, (double)e->total_ns / 1e9, where);
-    }
-    free(entries);
-}
-
 /* Loads a program: the IR file's function node, and in *map_out the source map
  * its locations resolve through (or NULL), the caller's. NULL with a message
  * on stderr when the file does not hold a function. */
@@ -895,10 +853,10 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         fn->source_map = decoded_source_map;
     }
 
-    /* Execute */
+    /* Execute, profiled when --profile or EAST_PROFILE says to */
     clock_gettime(CLOCK_MONOTONIC, &t2);
 
-    east_profile_enable(profile);
+    bool profiling = east_profile_start(profile);
     EvalResult result = east_call(fn, args, num_args);
     east_profile_enable(false);
     clock_gettime(CLOCK_MONOTONIC, &t3);
@@ -953,12 +911,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             report_input_reads(i, args[i]);
     }
 
-    /* The profile resolves its sites through the map the compiled function
-     * owns, so it prints before the cleanup below. */
-    if (profile) {
-        print_profile(fn->source_map);
-        east_profile_reset();
-    }
+    if (profiling) east_profile_finish(stderr);
 
     /* Cleanup */
     if (result.value) east_value_release(result.value);
@@ -1332,8 +1285,10 @@ static EvalResult exec_intake(const EastUnit *unit, ExecClock *clock)
 /* `exec <unit>`: the unit's work done, its output written and its result
  * recorded where it says. Exits 0 for an ok outcome and 1 for a failure, whose
  * message and locations also go to stderr; a unit that cannot be read, or a
- * result that cannot be written, leaves no result and exits 2. */
-static int cmd_exec(const char *unit_path, bool verbose)
+ * result that cannot be written, leaves no result and exits 2. With `profile`,
+ * or EAST_PROFILE set, the work is profiled and its report printed on stderr
+ * after the outcome. */
+static int cmd_exec(const char *unit_path, bool verbose, bool profile)
 {
     east_type_of_type_init();
     EastUnit *unit = east_unit_read(unit_path);
@@ -1355,9 +1310,11 @@ static int cmd_exec(const char *unit_path, bool verbose)
     ExecClock clock;
     memset(&clock, 0, sizeof(clock));
     clock_gettime(CLOCK_MONOTONIC, &clock.mark);
+    bool profiling = east_profile_start(profile);
     EvalResult outcome = unit->intake  ? exec_intake(unit, &clock)
                          : unit->merge ? exec_merge(unit, &clock)
                                        : exec_run(unit, &clock, verbose);
+    east_profile_enable(false);
 
     bool ok = outcome.status != EVAL_ERROR;
     size_t num_locations = ok ? 0 : outcome.num_locations;
@@ -1396,6 +1353,7 @@ static int cmd_exec(const char *unit_path, bool verbose)
             fprintf(stderr, "  at %s:%ld:%ld\n", locations[i].filename, (long)locations[i].line,
                     (long)locations[i].column);
     }
+    if (profiling) east_profile_finish(stderr);
     if (verbose) {
         fprintf(stderr, "\nTiming:\n");
         fprintf(stderr, "  Load:     %8.1f ms\n", clock.load);
@@ -1730,7 +1688,7 @@ static void print_usage(const char *prog)
             "Usage:\n"
             "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [--decode lazy|whole]\n"
             "      [-v] [--profile]\n"
-            "  %s exec <unit> [-v]\n"
+            "  %s exec <unit> [-v] [--profile]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s ir normalize <ir_file> [-o FILE]\n"
             "  %s ir diff <ir_file_a> <ir_file_b> [--raw]\n"
@@ -1769,8 +1727,14 @@ static void print_usage(const char *prog)
             "      --exit-with-parent  Exit with status 1 once stdin reaches end of file —\n"
             "                          for a parent that holds a stdin pipe it never writes\n"
             "                          to, and takes the runner down with it (any command)\n"
-            "      --profile           Print every East function called, by self time,\n"
-            "                          with its call count and source location\n"
+            "      --profile           Print every East function and platform function\n"
+            "                          called, by self time, with its call count and\n"
+            "                          source location (run and exec)\n"
+            "\n"
+            "Environment:\n"
+            "  EAST_PROFILE=1            Profile as --profile does, without the flag\n"
+            "  EAST_PROFILE_INTERVAL=N   While profiling, print the profile so far every\n"
+            "                            N seconds\n"
             "\n"
             "Supported formats: .json, .beast2, .beast, .east\n",
             prog, prog, prog, prog, prog, prog, prog);
@@ -1871,6 +1835,8 @@ static int cli_main(void *arg)
         for (int i = 2; i < argc; i++) {
             if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
                 verbose = true;
+            } else if (strcmp(argv[i], "--profile") == 0) {
+                profile = true;
             } else if (argv[i][0] != '-' && !unit_path) {
                 unit_path = argv[i];
             } else {
@@ -1884,7 +1850,7 @@ static int cli_main(void *arg)
             print_usage(argv[0]);
             return 2;
         }
-        return cmd_exec(unit_path, verbose);
+        return cmd_exec(unit_path, verbose, profile);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;

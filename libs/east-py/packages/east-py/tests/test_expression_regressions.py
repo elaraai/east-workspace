@@ -461,17 +461,42 @@ class TestSplicedBodyStaysInItsArm:
                                                                           parse_one(el), -1)))
         assert list(mapped(["nope", "also nope"])) == [-1, -1]
 
-    def test_a_pure_spliced_body_is_unchanged(self):
-        # the overwhelming majority: no statements, so the splice returns the
-        # very expression it built and the IR is what it always was
+    def test_a_called_function_is_a_call_of_its_inline_function(self):
+        # #1271: the TypeScript shape — the callee runs in a frame of its own,
+        # so a profile lists it and an error inside it names it — whose IR is
+        # the nested East.function called in place, and whose answer is the
+        # body's
         @East.function([IntegerType], IntegerType)
         def twice(b, x):
             return x * 2
 
         composed = East.function([IntegerType], IntegerType, lambda b, x: twice(x) + 1)
         assert composed(20) == 41
-        inline = East.function([IntegerType], IntegerType, lambda b, x: (x * 2) + 1)
-        assert diff_ir(composed._east_ir, inline._east_ir) is None
+        nested = East.function(
+            [IntegerType], IntegerType,
+            lambda b, x: East.function([IntegerType], IntegerType, lambda b, y: y * 2)(x) + 1)
+        assert diff_ir(composed._east_ir, nested._east_ir) is None
+
+    def test_a_mutating_call_thrown_away_is_refused(self):
+        # a call's mutations are its own: a bare `push(xs)` line would drop
+        # them, so the build names it, as it named the spliced body's (#565)
+        @East.function([ArrayType(IntegerType)], NullType)
+        def push(b, xs):
+            b.do(xs.push_last(1))
+
+        def dropped(b, xs):
+            push(xs)
+            return xs.size()
+
+        with pytest.raises(ExpressionError, match=r"\.push\(\) was evaluated and thrown away"):
+            East.function([ArrayType(IntegerType)], IntegerType, dropped)
+
+        def kept(b, xs):
+            b.do(push(xs))
+            return xs.size()
+
+        assert East.function([ArrayType(IntegerType)], IntegerType, kept)(
+            EastArray(IntegerType, [5])) == 2
 
 
 # ── a coerced value lifts under the type it was coerced TO (#671) ───────────

@@ -15,6 +15,7 @@ east-c via east_register_all_builtins — no Python builtins are used.
 from cpython.ref cimport PyObject, Py_INCREF, Py_XDECREF
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
+from libc.stdio cimport stderr
 from libc.stdlib cimport malloc, calloc, free
 from libc.string cimport memcpy, strdup
 
@@ -58,6 +59,28 @@ def exit_with_parent():
     the body computes, and one blocked in ``sys.stdin.buffer.read`` holds the
     reader's lock and aborts interpreter shutdown."""
     _eastc.east_exit_with_parent()
+
+
+def profile_start(bint on):
+    """Arm east-c's profiler for a runner's work (#1271): when ``on`` (the
+    runner's ``--profile``) or when ``EAST_PROFILE`` is set to anything but
+    ``""`` or ``"0"``. With ``EAST_PROFILE_INTERVAL=N`` the report so far is
+    printed on stderr every N seconds while the work runs. The profiler is
+    east-c's, on the thread east-c evaluates on — this one — so the two
+    runners time, name and print a program alike. Returns whether it armed.
+    """
+    return _eastc.east_profile_start(on)
+
+
+def profile_finish():
+    """The runner's epilogue after :func:`profile_start` armed the profiler:
+    disarm it and print its report on stderr. Nothing when it was not armed or
+    has already been printed, so a success path and a failure path may both
+    call it."""
+    import sys
+
+    sys.stderr.flush()
+    _eastc.east_profile_finish(stderr)
 
 
 # ─── Eager-path observability ─────────────────────────────────────────────
@@ -1576,7 +1599,14 @@ cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir
             raise EastError(msg, [])
         raise RuntimeError("east_compile returned NULL")
 
+    # Unwrapping evaluates the Function node into its closure: a compile, not
+    # a call of the program, so a profile armed around a run never lists it.
+    cdef bint profiling = _eastc.east_profile_enabled()
+    if profiling:
+        _eastc.east_profile_enable(False)
     cdef _eastc.EvalResult unwrap_result = _eastc.east_call(wrapper, NULL, 0)
+    if profiling:
+        _eastc.east_profile_enable(True)
     if unwrap_result.status != _eastc.EVAL_OK and unwrap_result.status != _eastc.EVAL_RETURN:
         msg = "Failed to unwrap compiled function"
         if unwrap_result.error_message != NULL:

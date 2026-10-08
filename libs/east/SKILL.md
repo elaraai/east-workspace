@@ -387,9 +387,15 @@ keeps its source map, so errors name your lines — or `fn.toIR().toJSON()`.
 ```bash
 east-node run prog.beast2 -p @elaraai/east-node-std -i a.beast2 -i b.beast2 -o out.beast2   # -v: timing and peak memory
 east-c    run prog.beast2 -p east-c-std -i a.beast2 -o out.beast2 [--profile]             # native; --profile: time per function
-east-py   run prog.beast2 -p east-py-std -i a.beast2 -o out.beast2                        # python (the east-py skill)
+east-py   run prog.beast2 -p east-py-std -i a.beast2 -o out.beast2 [--profile]            # python (the east-py skill)
 ```
 
+- `--profile` (east-c and east-py, `run` and `exec`) prints every East
+  function and platform function the work called, by self time, with its
+  calls and where it is defined and called. `EAST_PROFILE=1` profiles without
+  the flag — e3 hands its environment to the runners, so a task's report
+  lands in its log — and `EAST_PROFILE_INTERVAL=N` prints the profile so far
+  every N seconds while the work runs.
 - Each `-i` is one argument, in parameter order, and each `-p` loads one
   platform package (east-node needs at least one); `-o` writes the result,
   else it is printed. IR and values may be `.beast2`, `.beast`, `.east` or
@@ -540,6 +546,9 @@ writeFileSync("maths.functions.beast2", East.encodeFunctionManifest(East.exportF
   build error naming both. Unlinked, the reference is a `Platform` node named
   `east.importFunction`, so compiling it without linking fails loudly.
 - Only closed values export: no captures, and no unresolved imports of their own.
+- A manifest carries each function's source map: `linkImports` adds its
+  locations to the importer's map, which it returns as `sourceMap`, so an
+  error or a profile names the exporter's source — the python line included.
 - The imported function's platform calls must be provided by the consuming
   runner (stock families count across runtimes: `east-py-std` ≡
   `@elaraai/east-node-std` ≡ `east-c-std`). See `docs/conventions/EAST_CODEGEN.md`.

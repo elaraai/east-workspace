@@ -193,7 +193,8 @@ const shout = e3.task('shout', [greet.output],
   (`@platform_function`) skills.
 - **An East function written in python, or in another node package**:
   `East.importFunction(pkg, name, FunctionType(...))` in the body. `e3.export`
-  resolves it and embeds its IR, so the task is pure IR on any runner. A uv
+  resolves it and embeds its IR, so the task is pure IR on any runner, its
+  locations kept so an error or a profile names the function's own lines. A uv
   workspace member is found by name in `uv.lock`, and its root module's
   `east_functions` dict is exported with `east-py export-functions` (from the
   project's `.venv`, else `EAST_PY` or PATH); an npm member is found by its
@@ -570,6 +571,15 @@ on every runtime, how each input was read — opened lazily, and what reading it
 came to, or decoded whole, and the resident memory that added — and a timing
 and peak-memory block. It never changes hashes or caching (add `--force` to see
 it for a cached task), and works against a server.
+**Where a task's time goes.** `EAST_PROFILE=1` in the environment of a local
+`e3 dataflow run` (or `run`, `call`, `mutate`) has the east-c and east-py
+runners profile each unit — the runners inherit e3's environment — and the
+task's log (`e3 task logs`) then ends with every East function and platform
+function it called, by self time, with its calls and where it was written and
+called: the python lines of a function `East.importFunction` linked in
+included. `EAST_PROFILE_INTERVAL=300` adds the profile so far every five
+minutes while a long task runs. east-node does not profile. Like `-v` it
+changes no hash: add `--force` for a cached task.
 **`E3_SCRATCH_DIR`** moves a local run's per-execution scratch directories
 (default `<repo>/tmp/scratch`, on the object store's disk; on tmpfs, outputs sit
 in memory until stored).

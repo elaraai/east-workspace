@@ -230,7 +230,7 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], whole: bool,
     return inputs, lazy_inputs
 
 
-def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
+def execute_unit(unit_path: Path, verbose: bool = False, profile: bool = False) -> dict[str, Any]:
     """Execute a unit — ``east-py exec``: do its work, write its output, and
     record its result where the unit says.
 
@@ -242,7 +242,10 @@ def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
     With ``verbose``, a run unit prints the account of each input ``run -v``
     prints — its file and what it weighs, whether it opened lazily or was
     decoded whole, and what reading it came to — on stderr, which is what
-    reaches a task's log.
+    reaches a task's log. With ``profile``, or ``EAST_PROFILE`` set, the work
+    is profiled by east-c's profiler, whose report
+    ``east.runtime._compiler_eastc.profile_finish`` prints: ``exec`` prints it
+    after the outcome, as east-c's does.
 
     Returns the result: ``ok``, a failure's ``message`` and ``locations``
     (``(filename, line, column)``, innermost first), ``peak_bytes`` and
@@ -252,6 +255,7 @@ def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
         ValueError: If the file does not hold a unit.
         OSError: If the result cannot be written.
     """
+    from east.runtime._compiler_eastc import profile_start
     from east.serialization._beast2_eastc import (
         _FETCH_SEGMENTS_ENV,
         _peak_bytes,
@@ -280,6 +284,7 @@ def execute_unit(unit_path: Path, verbose: bool = False) -> dict[str, Any]:
         mark = now
 
     result: dict[str, Any]
+    profile_start(profile)
     try:
         platform_fns: list[PlatformFunction] = []
         for package in unit["platforms"]:
@@ -442,11 +447,15 @@ def run_program(
     output_file: Path | None = None,
     verbose: bool = False,
     whole: bool = False,
+    profile: bool = False,
 ) -> object:
     """Run an East IR program: its result written to ``output_file`` in the
     format its extension names, or printed as East text. Each collection input
     opens lazily unless ``whole`` says to decode every input before the
-    program runs (``--decode whole``)."""
+    program runs (``--decode whole``). With ``profile``, or ``EAST_PROFILE``
+    set, the program is profiled and the report printed on stderr after the
+    output; a program that fails leaves its report for the caller to print
+    after the error (``profile_finish``), as east-c's ``run`` orders them."""
     t0 = perf_counter()
 
     # Compile directly from raw data — no Python IR round-trip, single file read
@@ -493,9 +502,10 @@ def run_program(
 
     t2 = perf_counter()
 
-    # Execute via east-c
-    from east.runtime._compiler_eastc import _eastc_call
+    # Execute via east-c, profiled when --profile or EAST_PROFILE says to
+    from east.runtime._compiler_eastc import _eastc_call, profile_finish, profile_start
 
+    profile_start(profile)
     result = _eastc_call(handle._compiled, handle._input_types, handle._output_type, tuple(inputs))
 
     t3 = perf_counter()
@@ -510,6 +520,9 @@ def run_program(
         print(print_east(result, output_type))
 
     t4 = perf_counter()
+
+    sys.stdout.flush()
+    profile_finish()
 
     if verbose:
         from east.serialization._beast2_eastc import _peak_bytes

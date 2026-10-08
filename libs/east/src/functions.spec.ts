@@ -12,7 +12,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  East, EastIR, some, none, equalFor,
+  East, EastIR, EastError, some, none, equalFor,
   ArrayType, FloatType, FunctionType, IntegerType, NullType, StringType, StructType,
   FunctionManifestType, IMPORT_PLATFORM, toSource, walkIR,
 } from "./index.js";
@@ -22,6 +22,9 @@ const score = East.function([Row], FloatType, ($, r) => r.qty.toFloat().multiply
 const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
 const log = East.platform("log", [StringType], NullType);
 const shout = East.function([StringType], NullType, ($, s) => { $(log(s.upperCase())); });
+// The line `pick` is written on, which an error inside it names wherever it is linked.
+const pickLine = BigInt(/:(\d+):\d+\)?$/.exec(new Error().stack!.split("\n")[1]!)![1]!) + 1n;
+const pick = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, xs, i) => xs.get(i));
 
 function countImports(ir: unknown): number {
   let n = 0;
@@ -64,6 +67,23 @@ describe("functions: export", () => {
     const imported = East.importFunction("pricing", "double", FunctionType([IntegerType], IntegerType));
     const user = East.function([IntegerType], IntegerType, ($, x) => imported(x));
     assert.throws(() => East.exportFunctions("p", "1", { user }), /unresolved import/);
+  });
+
+  test("each function carries the locations its IR names, in a source map of its own", () => {
+    const manifest = East.exportFunctions("pricing", "1.0.0", { score, double });
+    for (const f of manifest.functions) {
+      assert.deepEqual(f.source_map[0], []);
+      const named = new Set<bigint>();
+      walkIR(f.ir as any, node => { if (node.value.loc_id > 0n) named.add(node.value.loc_id); });
+      assert.ok(named.size > 0, `${f.name} names no location`);
+      // every stack but the empty one is one the IR names, and each is here
+      assert.equal(f.source_map.length, named.size + 1);
+      for (const id of named) assert.match(f.source_map[Number(id)]![0]!.filename, /functions\.spec\.[jt]s$/);
+    }
+    // a bare IR value carries no map, so it exports with no locations
+    const bare = East.exportFunctions("p", "1", { double: double.toIR().ir });
+    assert.deepEqual(bare.functions[0]!.source_map, [[]]);
+    walkIR(bare.functions[0]!.ir as any, node => assert.equal(node.value.loc_id, 0n));
   });
 });
 
@@ -126,9 +146,38 @@ describe("functions: import and link", () => {
 
   test("a function without imports links to itself", () => {
     const bundle = double.toIR();
-    const { ir, imports } = East.linkImports(bundle, [manifest]);
+    const { ir, imports, sourceMap } = East.linkImports(bundle, [manifest]);
     assert.deepEqual(imports, []);
     assert.equal(ir, bundle.ir);
+    assert.equal(sourceMap, bundle.source_map);
+  });
+
+  test("linking adds the embedded functions' locations to the importer's map, whose own keep their ids", () => {
+    const imported = East.importFunction("pricing", "double", FunctionType([IntegerType], IntegerType));
+    const user = East.function([IntegerType], IntegerType, ($, x) => imported(x).add(1n));
+    const bundle = user.toIR();
+    const { sourceMap } = East.linkImports(bundle, [manifest]);
+    assert.ok(sourceMap !== null && bundle.source_map !== null);
+    bundle.source_map.entries().forEach((stack, id) => assert.deepEqual(sourceMap.resolve(BigInt(id)), stack));
+    assert.ok(sourceMap.size > bundle.source_map.size);
+    // an IR value carries no map: the embedded functions carry no locations
+    assert.equal(East.linkImports(bundle.ir, [manifest]).sourceMap, null);
+  });
+
+  test("an error inside an embedded function names the exporter's source", () => {
+    const lists = East.exportFunctions("lists", "1.0.0", { pick });
+    const imported = East.importFunction("lists", "pick", FunctionType([ArrayType(IntegerType), IntegerType], IntegerType));
+    const user = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => imported(xs, 5n));
+    const { ir, sourceMap } = East.linkImports(user, [East.decodeFunctionManifest(East.encodeFunctionManifest(lists))]);
+    const linked = new EastIR(ir as any);
+    linked.source_map = sourceMap;
+    const run = linked.compile([]);
+    assert.throws(() => run([1n]), (e: unknown) => {
+      assert.ok(e instanceof EastError);
+      assert.match(e.location[0]!.filename, /functions\.spec\.[jt]s$/);
+      assert.equal(e.location[0]!.line, pickLine);
+      return true;
+    });
   });
 
   test("the import prints as East.importFunction and the printed module rebuilds it", () => {

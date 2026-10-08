@@ -106,6 +106,25 @@ pipe's file-object lock, so any other use of stdin in the runner — a
 `sys.stdin.isatty()` in a platform package, say — would wait until the
 parent is gone.
 
+### Profiling
+
+With `--profile` (`run` and `exec`) the runner prints, after the work and
+after a failure's error, every East function and platform function it called,
+by self time, with its call count, its total time and where it is — the
+`file:line:column` it was written at and, for a helper called inside another
+body, where it was called. A platform function (a model, a solver) is an entry
+of its own, so the time inside it is not its caller's. The profiler is
+east-c's, so the report is the one `east-c run --profile` prints.
+
+`EAST_PROFILE=1` profiles without the flag — e3 hands its environment to the
+runner, so a task's report lands in its log — and `EAST_PROFILE_INTERVAL=N`
+prints the profile so far every N seconds while the work runs.
+
+```bash
+east-py run task.beast2 -p east-py-std -i rows.beast2 --profile
+EAST_PROFILE=1 EAST_PROFILE_INTERVAL=300 east-py exec unit.beast2
+```
+
 ### Version and Platform Info
 
 ```bash
