@@ -30,8 +30,11 @@
  * map then calls, a Dict's key the second argument and an Array's index,
  * printed, in its place; a key that repeats keeps its first card. A card
  * crosses the closed payload as the fields its drop sets, typed by the row it
- * lands on — a flow's rows are the flowchart's own types. What a flowchart
- * takes dropped is #1249's.
+ * lands on — a flow's rows are the flowchart's own types. Dropped on the
+ * canvas (#1249), a state template adds a state where it lands on a lane, a
+ * transition template retypes the transition it lands on, and an author's card
+ * sets its fields on what its drop's type names; ⏎ on a card drops it on the
+ * canvas's selection.
  *
  * @packageDocumentation
  */

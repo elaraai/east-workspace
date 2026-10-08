@@ -4,15 +4,17 @@
  */
 
 /**
- * The Flowchart's words (#1246–#1248) — its Flows tab's, its "+ New flow"
+ * The Flowchart's words (#1246–#1249) — its Flows tab's, its "+ New flow"
  * popover's, its empty state's and its banner's; its gestures' — "+ LANE", a
  * lane's ×, the "+ STATE" ghost, each gesture's name in the history, the
- * issue two of one key raise — its footer's changes waiting on Save, and its
+ * issue two of one key raise — its footer's changes waiting on Save, its
  * library pane's — the pane's name, a template tab's name when its author
  * gives none, each data tab's empty state, its search's noun and its grouping
- * — beside the editing session's own (`EditingMessages`), which its history
- * item and banners speak, as the Sheet's and the query builder's tables carry
- * them. A host translates the flowchart where it translates the session.
+ * — and its drops' (#1249): where a card lands, what it sets its fields on,
+ * why it is refused, and a drop's name in the history — beside the editing
+ * session's own (`EditingMessages`), which its history item and banners
+ * speak, as the Sheet's and the query builder's tables carry them. A host
+ * translates the flowchart where it translates the session.
  *
  * @packageDocumentation
  */
@@ -31,6 +33,26 @@ export interface FlowchartCount {
 
 /** A tab of the library pane that reads rows of its own (#1248): the state templates, the transition templates, or one of the author's. */
 export type FlowchartLibraryTabWord = "states" | "transitions" | "tab";
+
+/** What a library card lands on (#1249): a state template a lane; a transition template a transition; an author's card a state, a transition, a lane's header or a decision's diamond, as its drop's type names. */
+export type FlowchartLandsWord = "lane" | "state" | "transition" | "header" | "decision";
+
+/** Where a dropped state lands in its lane (#1249): after the state above it, at the start of a lane holding states, or in a lane holding none. */
+export type FlowchartDropPlaceWord =
+    | { readonly place: "after"; readonly lane: string; readonly after: string }
+    | { readonly place: "start" | "in"; readonly lane: string };
+
+/** What a dropped card sets its fields on, as its words name it (#1249): a state by its key, a transition by its ends, a lane by its name, a decision by its label. */
+export type FlowchartDropWhatWord =
+    | { readonly what: "state"; readonly key: string }
+    | { readonly what: "transition"; readonly from: string; readonly to: string }
+    | { readonly what: "header"; readonly lane: string }
+    | { readonly what: "decision"; readonly label: string };
+
+/** Why a drop is refused (#1249): not onto what the card lands on; a flowchart that edits nothing; a session taking no gesture now; no flow open. */
+export type FlowchartDropRefusalWord =
+    | { readonly why: "onto"; readonly lands: FlowchartLandsWord }
+    | { readonly why: "readOnly" | "busy" | "noFlow" };
 
 /** The Flowchart's message table: its own words, and the editing session's. */
 export interface FlowchartMessages extends EditingMessages {
@@ -94,6 +116,20 @@ export interface FlowchartMessages extends EditingMessages {
      * `Gone isn't a flow here — showing Inbound parcels`.
      */
     flowMissing: (p: { name: string; shown: string | undefined }) => string;
+    /** Where a dropped state lands, as the ghost says it (#1249, FB31) — `after CH* in Sort`, `at the start of Sort`, `in Load`. */
+    dropPlace: (p: FlowchartDropPlaceWord) => string;
+    /** The same place, as a screen reader hears where a drag rests — `Sort, after CH*`. */
+    dropPlaceName: (p: FlowchartDropPlaceWord) => string;
+    /** What a dropped card sets its fields on, named (#1249, FB32, FB33) — `CH*`, `CH* → LDD`, `lane Sort`, `decision route`. */
+    dropWhat: (p: FlowchartDropWhatWord) => string;
+    /** What the ghost says over what a card sets its fields on — `onto CH* → LDD`. */
+    dropOnto: (p: { what: string }) => string;
+    /** Why a drop is refused where it rests — red on the ghost — and, for a card's ⏎, in the footer (#1249, FB31–FB34) — `Drop onto a transition`. */
+    dropRefused: (p: FlowchartDropRefusalWord) => string;
+    /** The canvas, as a screen reader hears it where a drop is refused. */
+    dropCanvas: () => string;
+    /** A drop's name in the history, and its Save's (#1249) — `Drop Held on Sort, after CH*`. */
+    dropLabel: (p: { card: string; onto: string }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -117,6 +153,16 @@ const EDIT_LABELS: { readonly [E in FlowchartEdit]: string } = {
 
 /** What each kind of row is called, many of them. */
 const ROWS: { readonly [K in FlowKeyKind]: string } = { lane: "lanes", state: "states", transition: "transitions", decision: "decisions" };
+
+/** What a card lands on, as a refusal names it. */
+const LANDS: { readonly [L in FlowchartLandsWord]: string } = { lane: "a lane", state: "a state", transition: "a transition", header: "a lane's header", decision: "a decision" };
+
+/** Why a drop is refused where the card would land somewhere it can. */
+const REFUSED: { readonly [W in Exclude<FlowchartDropRefusalWord["why"], "onto">]: string } = {
+    readOnly: "The flowchart is read only",
+    busy: "The flow takes no edit now",
+    noFlow: "No flow is open",
+};
 
 /** The English table. */
 export const flowchartMessages: FlowchartMessages = {
@@ -154,7 +200,21 @@ export const flowchartMessages: FlowchartMessages = {
             : `${name} lists nothing yet.`),
     libraryNoun: ({ tab, n }) => (tab === "tab" ? plural(n, "card", "cards") : plural(n, "template", "templates")),
     libraryGroupBy: () => "Group",
-    flowMissing:({ name, shown }) => (shown === undefined ? `${name} isn't a flow here` : `${name} isn't a flow here — showing ${shown}`),
+    flowMissing: ({ name, shown }) => (shown === undefined ? `${name} isn't a flow here` : `${name} isn't a flow here — showing ${shown}`),
+    dropPlace: (p) => (p.place === "after" ? `after ${p.after} in ${p.lane}` : p.place === "start" ? `at the start of ${p.lane}` : `in ${p.lane}`),
+    dropPlaceName: (p) => (p.place === "after" ? `${p.lane}, after ${p.after}` : p.place === "start" ? `the start of ${p.lane}` : p.lane),
+    dropWhat: (p) => {
+        switch (p.what) {
+            case "state": return p.key;
+            case "transition": return `${p.from} → ${p.to}`;
+            case "header": return `lane ${p.lane}`;
+            case "decision": return `decision ${p.label}`;
+        }
+    },
+    dropOnto: ({ what }) => `onto ${what}`,
+    dropRefused: (p) => (p.why === "onto" ? `Drop onto ${LANDS[p.lands]}` : REFUSED[p.why]),
+    dropCanvas: () => "the canvas",
+    dropLabel: ({ card, onto }) => `Drop ${card} on ${onto}`,
 };
 
 /** The words a flowchart speaks: its message table, and its locale's formatters. */

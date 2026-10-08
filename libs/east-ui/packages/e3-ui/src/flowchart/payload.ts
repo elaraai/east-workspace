@@ -199,7 +199,8 @@ export const FlowchartComponent = EastUI.component("Flowchart", FlowchartPayload
 /**
  * The names a flowchart keeps its viewer's state under, by its `name`: its
  * frame's panes — their open tab and collapsed state (#1245) — the flow open
- * in it, its library's id, and LR · TD (#1246).
+ * in it, its library's id, LR · TD (#1246), and its drop target, where its
+ * library's cards land (#1249).
  *
  * @remarks
  * As the Plan's `planKeys` and the Sheet's `sheetKeys`: two flowcharts on one
@@ -219,6 +220,8 @@ export function flowchartKeys(name: string | undefined): {
     library: string;
     /** LR · TD's UI store key: the orientation the viewer picked, so a remount keeps it (FB43). */
     orientation: string;
+    /** The flowchart's drop target (#1249): the surface its canvas takes its library's cards on. */
+    surface: string;
 } {
     const suffix = name === undefined ? "" : `.${name}`;
     return {
@@ -226,6 +229,7 @@ export function flowchartKeys(name: string | undefined): {
         flow: `flowchart${suffix}.flow`,
         library: `flowchart.library${suffix}`,
         orientation: `flowchart${suffix}.orientation`,
+        surface: `flowchart${suffix}.surface`,
     };
 }
 
