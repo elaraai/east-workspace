@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, example, none, some } from "@elaraai/east";
-import { State, UIComponentType } from "@elaraai/east-ui";
+import { State, UIComponentType, type NavSectionInput } from "@elaraai/east-ui";
 import { Configurator, HStack, NavList, SegmentGroup, Switch, VStack, Text, Reactive } from "@elaraai/east-ui";
 
 // ============================================================================
@@ -60,7 +60,7 @@ export const navListVariants = example({
     keywords: ["NavList", "section", "label", "grouped", "icon", "FontAwesome", "surface", "shell", "background", "app-shell", "sidebar", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "Reactive", "State", "onSelect", "interactive"],
     description: "NavList configurator — a structure-preset axis plus icons and shell-surface switches driving one live nav list; the aside routes onSelect through State and reads it back",
     fn: East.function([], UIComponentType, (_$) => {
-        const NAV_LIST_FLAT_SECTIONS = [
+        const NAV_LIST_FLAT_SECTIONS: NavSectionInput[] = [
             {
                 items: [
                     { key: "dashboard", label: "Dashboard", active: true },
@@ -69,7 +69,7 @@ export const navListVariants = example({
                 ],
             },
         ];
-        const NAV_LIST_FLAT_ICON_SECTIONS = [
+        const NAV_LIST_FLAT_ICON_SECTIONS: NavSectionInput[] = [
             {
                 items: [
                     { key: "dashboard", label: "Dashboard", icon: { prefix: "fas", name: "gauge" }, active: true },
@@ -78,7 +78,7 @@ export const navListVariants = example({
                 ],
             },
         ];
-        const NAV_LIST_GROUPED_SECTIONS = [
+        const NAV_LIST_GROUPED_SECTIONS: NavSectionInput[] = [
             {
                 label: "Account",
                 items: [
@@ -102,7 +102,7 @@ export const navListVariants = example({
                 ],
             },
         ];
-        const NAV_LIST_GROUPED_ICON_SECTIONS = [
+        const NAV_LIST_GROUPED_ICON_SECTIONS: NavSectionInput[] = [
             {
                 label: "Account",
                 items: [

@@ -21,7 +21,7 @@ import {
 
 import { DensityType, SizeType } from "../../style.js";
 import type { DensityLiteral, SizeLiteral } from "../../style.js";
-import { IconType } from "../icon/types.js";
+import { IconType, refuseNonSolid } from "../icon/types.js";
 import { TickFormatType } from "../../format/types.js";
 
 // ============================================================================
@@ -123,8 +123,10 @@ export type StatIndicatorLiteral = StatDirectionLiteral;
  * optional sentiment + icon. Exposed on the namespace as `Stat.Indicator`.
  *
  * @param direction - Direction literal (`"up"` / `"down"` / `"flat"`)
- * @param options - Optional `sentiment` literal + explicit `icon`
+ * @param options - Optional `sentiment` literal + explicit `icon` (a Font Awesome solid icon)
  * @returns An East expression of type `StatIndicatorType`
+ * @throws When `icon` is a value of another set than Font Awesome's solid —
+ *   East UI draws the solid set only (#1263)
  *
  * @remarks
  * Prefer the string-shorthand form on `Stat.Root`'s `indicator` option
@@ -152,6 +154,7 @@ export function StatIndicator(
         icon?: SubtypeExprOrValue<IconType>;
     },
 ): ExprType<StatIndicatorType> {
+    refuseNonSolid("Stat.Indicator icon", options?.icon);
     const directionExpr = East.value(variant(direction, null), StatDirectionType);
     const sentimentExpr = options?.sentiment !== undefined
         ? some(East.value(variant(options.sentiment, null), StatSentimentType))

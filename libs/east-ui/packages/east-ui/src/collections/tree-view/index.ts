@@ -21,7 +21,7 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+import type { IconName } from "@fortawesome/fontawesome-common-types";
 
 import {
     TreeViewVariantType,
@@ -36,7 +36,9 @@ import {
     IconSizeType,
     IconVariantType,
     IconStyleType,
+    refuseNonSolid,
     type IconStyle,
+    type SolidIconPrefix,
 } from "../../display/icon/types.js";
 import { ColorSchemeType } from "../../style.js";
 
@@ -200,16 +202,18 @@ export type TreeViewRootType = typeof TreeViewRootType;
  *
  * @remarks
  * Extends {@link IconStyle} so styling properties are at the top level
- * of the object.
+ * of the object. A Font Awesome solid icon: East UI draws no other set
+ * (#1263), and another prefix is refused at build.
  */
 export interface TreeNodeIndicator extends IconStyle {
-    /** Font Awesome icon prefix (e.g., "fas", "far", "fab"). */
-    prefix: IconPrefix;
+    /** Font Awesome icon prefix: `"fas"`, the solid set. */
+    prefix: SolidIconPrefix;
     /** Font Awesome icon name (e.g., "folder", "file", "file-code"). */
     name: IconName;
 }
 
-function buildIndicatorValue(indicator?: TreeNodeIndicator) {
+function buildIndicatorValue(where: string, indicator?: TreeNodeIndicator) {
+    refuseNonSolid(where, indicator);
     if (!indicator) return none;
     const hasStyle = !!(indicator.size || indicator.variant || indicator.color || indicator.colorPalette);
 
@@ -259,8 +263,9 @@ function buildIndicatorValue(indicator?: TreeNodeIndicator) {
  *
  * @param value - Unique identifier for the node
  * @param label - Display text for the node
- * @param indicator - Optional indicator icon with prefix, name, and styling
+ * @param indicator - Optional indicator icon with prefix, name, and styling — a Font Awesome solid icon
  * @returns An East expression representing the tree item
+ * @throws When `indicator` is not a Font Awesome solid icon — East UI draws the solid set only (#1263)
  *
  * @example
  * ```ts
@@ -269,7 +274,7 @@ function buildIndicatorValue(indicator?: TreeNodeIndicator) {
  *
  * const example = East.function([], UIComponentType, $ => {
  *     return TreeView.Root([
- *         TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
+ *         TreeView.Item("readme", "README.md", { prefix: "fas", name: "file" }),
  *         TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
  *     ]);
  * });
@@ -283,7 +288,7 @@ function createTreeItem(
     return East.value(variant("Item", {
         value: value,
         label: label,
-        indicator: buildIndicatorValue(indicator),
+        indicator: buildIndicatorValue("TreeView.Item", indicator),
     }), TreeNodeType);
 }
 
@@ -293,9 +298,10 @@ function createTreeItem(
  * @param value - Unique identifier for the node
  * @param label - Display text for the node
  * @param children - Array of child nodes
- * @param indicator - Optional indicator icon with prefix, name, and styling
+ * @param indicator - Optional indicator icon with prefix, name, and styling — a Font Awesome solid icon
  * @param disabled - Whether the branch is disabled
  * @returns An East expression representing the tree branch
+ * @throws When `indicator` is not a Font Awesome solid icon — East UI draws the solid set only (#1263)
  *
  * @example
  * ```ts
@@ -324,7 +330,7 @@ function createTreeBranch(
     return East.value(variant("Branch", {
         value: value,
         label: label,
-        indicator: buildIndicatorValue(indicator),
+        indicator: buildIndicatorValue("TreeView.Branch", indicator),
         children: children,
         disabled: disabled !== undefined ? some(disabled) : none,
     }), TreeNodeType);
@@ -500,8 +506,9 @@ export const TreeView: TreeViewNamespace = {
      *
      * @param value - Unique identifier for the node
      * @param label - Display text for the node
-     * @param indicator - Optional indicator icon with prefix, name, and styling
+     * @param indicator - Optional indicator icon with prefix, name, and styling — a Font Awesome solid icon
      * @returns An East expression representing the tree item
+     * @throws When `indicator` is not a Font Awesome solid icon — East UI draws the solid set only (#1263)
      *
      * @example
      * ```ts
@@ -510,7 +517,7 @@ export const TreeView: TreeViewNamespace = {
      *
      * const example = East.function([], UIComponentType, $ => {
      *     return TreeView.Root([
-     *         TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
+     *         TreeView.Item("readme", "README.md", { prefix: "fas", name: "file" }),
      *         TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
      *     ]);
      * });
@@ -523,9 +530,10 @@ export const TreeView: TreeViewNamespace = {
      * @param value - Unique identifier for the node
      * @param label - Display text for the node
      * @param children - Array of child nodes
-     * @param indicator - Optional indicator icon with prefix, name, and styling
+     * @param indicator - Optional indicator icon with prefix, name, and styling — a Font Awesome solid icon
      * @param disabled - Whether the branch is disabled
      * @returns An East expression representing the tree branch
+     * @throws When `indicator` is not a Font Awesome solid icon — East UI draws the solid set only (#1263)
      *
      * @example
      * ```ts

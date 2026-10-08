@@ -16,7 +16,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType, OrientationType } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid, type SolidIconPrefix } from "../../display/icon/types.js";
 import { Text } from "../../typography/text/index.js";
 import {
     EmptyStateStyleType,
@@ -85,7 +85,7 @@ export interface EmptyStateOptions extends EmptyStateStyle {
     /** Title (string coerced to `Text.Root` or a UIComponent) — required. */
     title: EmptyStateInput;
     /** Optional leading Font Awesome solid icon, `{ prefix: "fas", name: "inbox" }` — the empty state's one mark, above the title. */
-    icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+    icon?: { prefix: SolidIconPrefix; name: string } | SubtypeExprOrValue<IconType>;
     /** Optional description (rich or string) */
     description?: EmptyStateInput;
     /** Optional trailing action(s) (rich; typically a Button or HStack) */
@@ -100,7 +100,7 @@ export interface EmptyStateOptions extends EmptyStateStyle {
  *   `actions` / visual style fields
  * @returns An East expression representing the EmptyState component
  * @throws When `glyph` is given — removed in #1263: an empty state's mark is
- *   a Font Awesome solid icon, its `icon`
+ *   a Font Awesome solid icon, its `icon` — and when `icon` is another set's
  *
  * @example
  * ```ts
@@ -127,6 +127,7 @@ function createEmptyStateRoot(
             "EmptyState: `glyph` is removed (#1263) — an empty state's mark is a Font Awesome solid icon: " +
             "give `icon` instead, as `{ prefix: \"fas\", name: \"<icon>\" }`");
     }
+    refuseNonSolid("EmptyState icon", options.icon);
     const { title, icon, description, actions, ...visual } = options;
 
     const titleExpr: ExprType<UIComponentType> = typeof title === "string"

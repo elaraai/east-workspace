@@ -24,7 +24,13 @@
  * a number input's steppers 9px in their 19 × 12 trigger, a close button's
  * xmark 20px in its 40 × 32 button. A tag's close, which Chakra's icon left
  * empty, is an xmark at 0.8em, its own width; a tree branch, which drew no
- * chevron, draws Font Awesome's, which turns down as the branch opens.
+ * chevron, draws Font Awesome's, which turns down as the branch opens. An
+ * avatar with no name draws Font Awesome's person in the square Chakra's own
+ * icon took.
+ *
+ * And the Ontology editor's Feather icons are Font Awesome's, each in the
+ * square the Feather icon took, in both themes: a node's 18px, the table's
+ * 11 to 14px, the search box's 14px.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test fa-icons --project desktop`.
@@ -561,6 +567,20 @@ test.describe("a Chakra part's icon is Font Awesome's, in the box Chakra's own t
             expect([closes.length, unlike(closes, "xmark", [24, 24], [14, 14])], "the note's close not a 14px xmark in its 24px button").toEqual([1, []]);
         });
 
+        test(`an avatar with no name draws Font Awesome's person 14.4px square — 1.2 × its fallback's 12px, as Chakra's icon was — centred in its 22px avatar (${theme})`, async ({ page }) => {
+            const row = await openExample(page, "display/avatar/avatarBasic", theme);
+            const avatars = await partIcons(page, row, "[class*='avatar__root']");
+            // Three named, drawing their initials; the fourth with no name.
+            expect(avatars.map((a) => a.icon)).toEqual([null, null, null, "user"]);
+            expect(unlike(avatars.slice(3), "user", [22, 22], [14.4, 14.4]), "the person not 14.4px in its 22px avatar").toEqual([]);
+            const offset = await page.locator(row).evaluate((root) => {
+                const avatar = [...root.querySelectorAll("[class*='avatar__root']")].at(-1)!.getBoundingClientRect();
+                const person = root.querySelector("[class*='avatar__root'] svg[data-icon='user']")!.getBoundingClientRect();
+                return [person.left - avatar.left, person.top - avatar.top].map((n) => Math.round(n * 100) / 100);
+            });
+            expect(offset.every((n) => near(n, 3.8)), `the person at ${offset.join(", ")} in its avatar, not 3.8, 3.8`).toBe(true);
+        });
+
         test(`the ontology node drawer's type picker draws a 16px chevron in its 16 × 36 indicator (${theme})`, async ({ page }) => {
             test.setTimeout(120_000);
             const row = await openExample(page, "e3/ontology/ontology/supplyChainOntology", theme);
@@ -578,6 +598,97 @@ test.describe("a Chakra part's icon is Font Awesome's, in the box Chakra's own t
             await settled(page);
             const pickers = await partIcons(page, "", "[class*='native-select__indicator']");
             expect([pickers.length, unlike(pickers, "chevron-down", [16, 36], [16, 16])], "the type picker's chevron not 16px in its 16 × 36 indicator").toEqual([1, []]);
+        });
+    }
+});
+
+/** Each of the Ontology editor's marks under a root: its icon, the square it takes (as laid out, before any zoom), and the box Font Awesome draws in it. */
+function ontologyMarks(page: Page, root: string): Promise<Array<{ icon: string | null; square: number; svg: readonly [number, number] }>> {
+    return page.evaluate((root) => [...document.querySelector(root)!.querySelectorAll<HTMLElement>("[data-ontology-mark]")].map((mark) => {
+        const svg = mark.querySelector("svg[data-prefix='fas']");
+        const cs = svg === null ? undefined : getComputedStyle(svg);
+        return {
+            icon: svg?.getAttribute("data-icon") ?? null,
+            square: mark.offsetWidth === mark.offsetHeight ? mark.offsetWidth : -1,
+            svg: cs === undefined ? [0, 0] as const : [Number.parseFloat(cs.width), Number.parseFloat(cs.height)] as const,
+        };
+    }), root);
+}
+
+/** Every svg under a root that is neither Font Awesome's solid icon nor React Flow's own drawing — its edges, background, minimap and controls — nor the showcase's code disclosures'. */
+function foreignSvgs(page: Page, root: string): Promise<string[]> {
+    return page.evaluate((root) => [...document.querySelector(root)!.querySelectorAll("svg")]
+        .filter((svg) => svg.getAttribute("data-prefix") !== "fas" && svg.closest(".react-flow__edges, .react-flow__background, .react-flow__minimap, .react-flow__controls, .react-flow__edgelabel-renderer") === null
+            && svg.closest("button[aria-expanded]") === null)
+        .map((svg) => `<svg viewBox="${svg.getAttribute("viewBox") ?? ""}">`), root);
+}
+
+test.describe("the Ontology editor's icons are Font Awesome's, in the square the Feather icon took (#1263)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`the graph: each node's kind 18px square; the view switch's 11px; the search box's 14px, and its clear (${theme})`, async ({ page }) => {
+            test.setTimeout(120_000);
+            const row = await openExample(page, "e3/ontology/ontology/supplyChainOntology", theme);
+            await expect(page.locator(row).locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
+            await settled(page);
+            // Each node's kind, as its tag reads, and the mark it draws.
+            const nodes = await page.locator(row).evaluate((root) => [...root.querySelectorAll(".react-flow__node")].map((node) => {
+                const mark = node.querySelector<HTMLElement>("[data-ontology-mark]");
+                const svg = mark?.querySelector("svg[data-prefix='fas']");
+                const cs = svg === null || svg === undefined ? undefined : getComputedStyle(svg);
+                // The name, then the kind's tag.
+                const kind = (node.querySelectorAll("p")[1]?.textContent ?? "").trim();
+                return [kind, svg?.getAttribute("data-icon") ?? null, mark?.offsetWidth ?? 0, mark?.offsetHeight ?? 0, cs === undefined ? 0 : Number.parseFloat(cs.width), cs === undefined ? 0 : Number.parseFloat(cs.height)] as const;
+            }));
+            /** Each kind's icon: Font Awesome's solid icon nearest the Feather icon it replaced. */
+            const KIND_ICON: Readonly<Record<string, string>> = {
+                objective: "bullseye", kpi: "chart-simple", decision: "circle-check", process: "gear", resource: "box", agent: "user",
+                data: "database", policy: "shield", document: "file-lines", computation: "microchip", group: "folder",
+            };
+            expect(nodes.length, "the nodes").toBeGreaterThan(0);
+            expect(nodes.filter(([kind, icon, w, h, sw, sh]) => !(icon === KIND_ICON[kind] && w === 18 && h === 18 && near(sw, 18) && near(sh, 18))), "a node's mark not its kind's 18px icon").toEqual([]);
+            const marks = await ontologyMarks(page, row);
+            expect(marks.filter((m) => m.square !== 18).map((m) => [m.icon, m.square, m.svg]), "the view switch and the search box").toEqual([
+                ["share-nodes", 11, [11, 11]], ["list", 11, [11, 11]], ["magnifying-glass", 14, [14, 14]],
+            ]);
+            await page.locator(row).getByPlaceholder("Search nodes…").fill("cash");
+            await settled(page);
+            expect((await ontologyMarks(page, row)).filter((m) => m.icon === "xmark").map((m) => [m.square, m.svg]), "the search box's clear").toEqual([[14, [14, 14]]]);
+            // Where the Feather icons sat in the 26px box: the search's centre 15px in from its left, the clear's from its
+            // right, each 12.75px down.
+            const centres = await page.locator(row).getByPlaceholder("Search nodes…").evaluate((input, root) => {
+                const box = input.getBoundingClientRect();
+                const centre = (icon: string) => {
+                    const r = document.querySelector(root)!.querySelector(`[data-ontology-mark='${icon}'] svg`)!.getBoundingClientRect();
+                    return [(r.left + r.right) / 2, (r.top + r.bottom) / 2];
+                };
+                const [sx, sy] = centre("magnifying-glass");
+                const [cx, cy] = centre("xmark");
+                return [box.height, sx! - box.left, sy! - box.top, box.right - cx!, cy! - box.top].map((n) => Math.round(n * 100) / 100);
+            }, row);
+            expect(centres).toEqual([26, 15, 12.75, 15, 12.75]);
+            expect(await foreignSvgs(page, row), "an icon not Font Awesome's").toEqual([]);
+        });
+
+        test(`the table: the warnings' banner 12 and 11px, a group's chevron 14px and its warning count 12px, a row's cycle 11px, chevron 12px and warning 13px, its flow detail's heads 11px (${theme})`, async ({ page }) => {
+            test.setTimeout(120_000);
+            const row = await openExample(page, "e3/ontology/ontology/ontologyTableCycleView", theme);
+            await expect(page.locator(row).getByText("Open properties →").first()).toBeAttached({ timeout: 30_000 });
+            await settled(page);
+            const marks = (await ontologyMarks(page, row)).map((m) => [m.icon, m.square, m.svg[0], m.svg[1]]);
+            const square = (icon: string, n: number) => [icon, n, n, n];
+            /** A cycle member's row: its badge and chevron, its flow detail's heads. */
+            const member = [square("arrows-rotate", 11), square("chevron-down", 12), square("arrow-up", 11), square("arrow-down", 11), square("arrows-rotate", 11)];
+            expect(marks).toEqual([
+                square("share-nodes", 11), square("list", 11),
+                square("triangle-exclamation", 12), square("chevron-down", 11),
+                square("chevron-down", 14),
+                ...member, ...member, ...member,
+                square("chevron-down", 14), square("triangle-exclamation", 12),
+                square("chevron-down", 12), square("triangle-exclamation", 13), square("arrow-up", 11), square("arrow-down", 11), square("triangle-exclamation", 11),
+            ]);
+            expect(await foreignSvgs(page, row), "an icon not Font Awesome's").toEqual([]);
         });
     }
 });

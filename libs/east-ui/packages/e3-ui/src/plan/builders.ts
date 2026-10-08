@@ -48,9 +48,11 @@ import {
     ColorSchemeType,
     MatrixFillType,
     TickFormatType,
+    refuseNonSolid,
     resolveTag,
     type ColorSchemeLiteral,
     type MatrixFillLiteral,
+    type SolidIconPrefix,
 } from "@elaraai/east-ui/internal";
 import {
     PlanAxisType,
@@ -157,17 +159,26 @@ export function resolveFold(fold: PlanFoldInput | undefined, fallback: PlanFoldL
 
 /**
  * An icon input — a bare Font Awesome solid name (`"rocket"`), a
- * `{ prefix, name }` pair, or an `IconType` expression (the Banner envelope
- * precedent). The mounting context pins size and colour; hosts choose the
- * glyph, never the geometry.
+ * `{ prefix: "fas", name }` pair, or an `IconType` expression (the Banner
+ * envelope precedent). East UI draws Font Awesome's solid set only (#1263).
+ * The mounting context pins size and colour; hosts choose the glyph, never
+ * the geometry.
  */
-export type PlanIconInput = IconName | { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+export type PlanIconInput = IconName | { prefix: SolidIconPrefix; name: string } | SubtypeExprOrValue<IconType>;
 
-/** Resolve a {@link PlanIconInput} into an `IconType` value. */
-export function resolveIcon(icon: PlanIconInput): SubtypeExprOrValue<IconType> {
+/**
+ * Resolve a {@link PlanIconInput} into an `IconType` value.
+ *
+ * @param icon - The icon
+ * @param where - What takes it, as a refusal names it (`Plan.run icon`, …)
+ * @returns The icon as an `IconType` value or expression
+ * @throws {Error} When an icon given by value is not of Font Awesome's solid set (#1263)
+ */
+export function resolveIcon(icon: PlanIconInput, where = "Plan icon"): SubtypeExprOrValue<IconType> {
     if (typeof icon === "string") {
         return East.value({ prefix: "fas", name: icon, label: none, style: none }, IconType);
     }
+    refuseNonSolid(where, icon);
     if (typeof (icon as { prefix?: unknown }).prefix === "string") {
         return East.value({
             prefix: (icon as { prefix: string }).prefix,
@@ -509,7 +520,7 @@ export function createRun<S extends PlanInstantInput, E extends PlanInstantInput
         state:     resolvePlanEventState(input.state),
         status:    input.status !== undefined ? some(resolveTag(input.status, StatusValueType)) : none,
         moved:     input.moved !== undefined ? some(typeof input.moved === "number" ? BigInt(input.moved) : input.moved) : none,
-        icon:      input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
+        icon:      input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.run icon")) : none,
     }, PlanRunType) as PlanRunExpr<PlanKindOf<S | E>>;
 }
 
@@ -642,7 +653,7 @@ export function createBucketEvent<A extends PlanInstantInput>(input: PlanBucketE
         at:           resolveInstant(input.at, "event at"),
         lane:         input.lane !== undefined ? some(input.lane) : none,
         label:        input.label !== undefined ? some(input.label) : none,
-        icon:         input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
+        icon:         input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.event icon")) : none,
         state:        resolvePlanEventState(input.state),
         tone:         input.tone !== undefined ? some(resolveTag(input.tone, StatusValueType)) : none,
         color:        input.color !== undefined ? some(input.color) : none,
@@ -946,7 +957,7 @@ export function createChip<F extends PlanInstantInput, T extends PlanInstantInpu
         to:      resolveInstant(input.to, "chip to"),
         label:   input.label,
         state:   resolvePlanEventState(input.state),
-        icon:    input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
+        icon:    input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.chip icon")) : none,
     }, PlanChipType) as PlanChipExpr<PlanKindOf<F | T>>;
 }
 
@@ -985,7 +996,7 @@ export function createEventMark<A extends PlanInstantInput>(input: PlanEventMark
         key:     input.key,
         at:      resolveInstant(input.at, "mark at"),
         kind:    typeof input.kind === "string" ? East.value(variant(input.kind, null), PlanEventMarkKindType) : input.kind,
-        icon:    input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
+        icon:    input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.mark icon")) : none,
         label:   input.label !== undefined ? some(input.label) : none,
     }, PlanEventMarkType) as PlanEventMarkExpr<PlanKindOf<A>>;
 }

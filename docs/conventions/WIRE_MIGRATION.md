@@ -105,3 +105,12 @@ Each wire changed under this rule, with the kind it is.
   does not decode under the other: packages are re-exported, and the dataflow
   computes each UI task's output again under the new type. A UI task's output
   is not stored state, so no repository upgrade step ships with it.
+- **east-ui's `IconType` style `variant` keeps only `solid` (#1263)** —
+  package-borne. East UI draws Font Awesome's solid set only: an icon's
+  `prefix` stays a String, which a factory refuses at build when it is not
+  `"fas"`, naming the icon, and `IconVariantType` loses its `brands`, `light`,
+  `regular` and `thin` cases. `solid` moves from the fourth case to the first,
+  so an icon's style that names its variant under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. As with the EmptyState's glyph, no
+  repository upgrade step ships with it.

@@ -84,6 +84,11 @@ re-listing each member's description:
   Explicit escape hatches over the palette / variant defaults; take semantic
   tokens (`fg.muted`, `bg.subtle`) or CSS colours.
 
+Every icon is a Font Awesome **solid** icon (#1263): an icon prop takes
+`{ prefix: "fas", name: "…" }`, or the bare solid name where it says so. East
+UI draws no other set — a factory refuses another prefix at build, naming the
+icon.
+
 ```
 Task → Which tag?
 │
@@ -313,13 +318,13 @@ Task → Which tag?
 │   │       ├─ variant (optional) — solid | subtle | outline | ghost | plain
 │   │       ├─ colorPalette / size (optional) — hue + size token
 │   │       ├─ onClick (optional) — East.function([], NullType) handler
-│   │       ├─ startIcon / endIcon (optional) — leading / trailing icon ({ prefix, name })
+│   │       ├─ startIcon / endIcon (optional) — leading / trailing icon ({ prefix: "fas", name })
 │   │       ├─ loading / loadingText / loadingIcon (optional) — spinner state + swapped label/icon
 │   │       ├─ disabled (optional) — blocks interaction
 │   │       └─ hoverBackground + COLOR overrides (optional) — palette escape hatches
 │   ├─ <IconButton> — icon-only button
 │   │   └─ Props:
-│   │       ├─ prefix / name (required) — Font Awesome icon ("fas", "chevron-right")
+│   │       ├─ prefix / name (required) — Font Awesome solid icon ("fas", "chevron-right")
 │   │       ├─ label (required) — accessible aria-label
 │   │       ├─ variant / colorPalette / size (optional) — as Button
 │   │       ├─ onClick / loading / loadingIcon / disabled (optional) — as Button
@@ -510,7 +515,7 @@ Task → Which tag?
 │   │   │   ├─ size / variant / animateContent / label (optional) — chrome
 │   │   │   └─ itemColor / itemHoverBackground / selectedBackground / selectedColor / caretColor / connectorColor (optional)
 │   │   └─ Factories:
-│   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = FA icon + style)
+│   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = a Font Awesome solid icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
 │   ├─ <Plan> — the planning canvas (ONE shared time | number | ordinal axis over heterogeneous rows: event kinds over records, rows laid out by a series list over data, and read-only rows) is e3-ui's (#1177, #1191): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows or the host's, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
@@ -786,10 +791,10 @@ Task → Which tag?
 │   │       ├─ Image.url(u) — hosted image
 │   │       ├─ Image.dataUri(s) — self-contained base64
 │   │       └─ Image.blob(bytes, format) — raw BlobType bytes → revocable object URL
-│   ├─ <Icon> — FontAwesome icon
+│   ├─ <Icon> — a Font Awesome solid icon (East UI draws no other set, #1263)
 │   │   └─ Props:
-│   │       ├─ prefix / name (required) — FA icon identity
-│   │       ├─ variant (optional) — solid | regular | light | thin | brands
+│   │       ├─ prefix / name (required) — the icon: "fas", the solid set, and its name; another prefix is refused at build, naming the icon
+│   │       ├─ variant (optional) — solid, the one set
 │   │       ├─ size (optional) — xs…2xl; label (optional) — accessible name
 │   │       └─ colorPalette / borderRadius + BOX bag + COLOR overrides (optional)
 │   ├─ <Kbd> — keyboard-shortcut chip (⌘ K)
@@ -970,7 +975,7 @@ Task → Which tag?
 │   │   │   ├─ nav (required) — the binding from Navigation.bind, bound in the enclosing <Reactive>
 │   │   │   └─ pages (required) — one body per route: { route: ($, payload, nav) => <…/> }; renders ONLY the active route (leaf-only) and remounts on change; the nav handle fixes the route types
 │   │   └─ Factories:
-│   │       ├─ Navigation.config({ route: { value: T, label, icon?, section?, badge? } }) — typed registry (config.Route variant type, config.Page.<route>(payload) constructors); icon `{ prefix, name }` / section / badge drive the <App> rail row (single source of truth)
+│   │       ├─ Navigation.config({ route: { value: T, label, icon?, section?, badge? } }) — typed registry (config.Route variant type, config.Page.<route>(payload) constructors); icon `{ prefix: "fas", name }` / section / badge drive the <App> rail row (single source of truth)
 │   │       └─ Navigation.bind(config, key, [config.Page.home()]) — reactive path-stack handle { path, current, depth, canPop, pop, go.<route>(payload), navigateTo([…]) } — go/navigateTo are typed per route (the Record.bind pattern); pair <Breadcrumb>/<NavList> on the same key to drive/derive chrome from nav.path()
 │   ├─ <Route nav={nav} routes={{…}}> — <Pages> generalized to any slot (#333)
 │   │   └─ Props:

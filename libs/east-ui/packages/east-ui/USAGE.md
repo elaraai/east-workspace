@@ -1002,20 +1002,22 @@ const example = East.function([], UIComponentType, $ => {
 
 ### Icon
 
-Font Awesome icon component with typesafe prefix and name.
+A Font Awesome solid icon, its name typesafe. East UI draws Font Awesome's
+solid set only (#1263): `prefix` is `"fas"`, and another prefix is refused at
+build, naming the icon.
 
 ```typescript
 import { East } from "@elaraai/east";
 import { Icon, UIComponentType } from "@elaraai/east-ui";
 
 const example = East.function([], UIComponentType, $ => {
-    return Icon.Root("fas", "check", { size: "lg", color: "green.500" });
+    return Icon.Root({ prefix: "fas", name: "check", size: "lg", color: "fg.success" });
 });
 ```
 
 | Signature | Description | Example |
 |-----------|-------------|---------|
-| `Icon.Root(prefix: IconPrefix, name: IconName, style?: IconStyle): ExprType<UIComponentType>` | Create icon | `Icon.Root("fas", "search")` |
+| `Icon.Root(options: IconStyle): ExprType<UIComponentType>` | Create icon | `Icon.Root({ prefix: "fas", name: "magnifying-glass" })` |
 | `Icon.Types.Icon` | East StructType for Icon component | `Icon.Types.Icon` |
 | `Icon.Types.Size` | East VariantType for icon size | `Icon.Types.Size` |
 
@@ -1023,6 +1025,8 @@ const example = East.function([], UIComponentType, $ => {
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `prefix` | `"fas"` | Font Awesome's solid set — the one East UI draws |
+| `name` | `IconName` | The icon's Font Awesome name |
 | `size` | `SubtypeExprOrValue<IconSizeType> \| IconSizeLiteral` | "xs", "sm", "md", "lg", "xl", "2xl" |
 | `color` | `SubtypeExprOrValue<StringType>` | Icon color (CSS or Chakra token) |
 | `colorPalette` | `SubtypeExprOrValue<ColorSchemeType> \| ColorSchemeLiteral` | Color scheme |
@@ -1031,9 +1035,7 @@ const example = East.function([], UIComponentType, $ => {
 
 | Prefix | Description |
 |--------|-------------|
-| `fas` | Solid icons (filled) |
-| `far` | Regular icons (outlined) |
-| `fab` | Brand icons (logos) |
+| `fas` | Solid icons — the one set East UI draws; another prefix is refused at build (#1263) |
 
 ---
 

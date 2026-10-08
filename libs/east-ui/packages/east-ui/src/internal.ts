@@ -93,6 +93,9 @@ export type {
     NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesInput, RouteInput,
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
+// East UI draws Font Awesome's solid set only (#1263): the one prefix an icon
+// takes, and the build-time refusal of another, which e3-ui's builders share.
+export { SOLID_PREFIX, refuseNonSolid, type SolidIconPrefix } from "./display/icon/solid.js";
 export { Card } from "./container/index.js";
 export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
 // The chart layer builders' TS faces and the spec vocabulary a composite
