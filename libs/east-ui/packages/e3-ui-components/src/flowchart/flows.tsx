@@ -10,7 +10,7 @@
  *
  * - **a card** — the flow's name, and under it its description, or with none
  *   its counts (`4 lanes · 9 states · 11 transitions`); the open flow is
- *   placed; a flow whose drafts are not yet applied carries the Pending chip;
+ *   placed; a flow whose drafts are not yet saved carries the Pending chip;
  * - **a click** opens it on the canvas;
  * - the `Library`'s own search, over names and descriptions;
  * - **"+ New flow"** under the cards, where the flowchart edits: the shared
@@ -19,8 +19,8 @@
  * - **no flow at all** — the shared empty state saying so (FB28), with no
  *   button and no foot: main's empty state carries "+ New flow" (§7).
  *
- * `NoFlows` is that empty state: the tab's, and main's over a record with no
- * flow (`Flowchart Builder Spec.md` §7), which alone carries "+ New flow".
+ * `NoFlows` is that empty state: the tab's, and main's over flows by name with
+ * none (`Flowchart Builder Spec.md` §7), which alone carries "+ New flow".
  * Every icon is Font Awesome's solid set; every style is the `flowchart`
  * recipe's or the shared parts'.
  *
@@ -47,13 +47,13 @@ export interface FlowCard {
     readonly name: string;
     /** The flow, as its drafts stand. */
     readonly flow: FlowchartFlowValue;
-    /** Whether its drafts are not yet applied. */
+    /** Whether its drafts are not yet saved. */
     readonly pending: boolean;
 }
 
 /** What "+ New flow" needs: the names the flowchart holds, and what a new name does. */
 export interface NewFlowProps {
-    /** Every name the flowchart holds: its flows, and its new flows not yet applied. */
+    /** Every name the flowchart holds: its flows, and its new flows not yet saved. */
     readonly taken: ReadonlySet<string>;
     /** Starts a flow of a new name. */
     readonly onCreate: (name: string) => void;
@@ -141,8 +141,8 @@ export function NewFlow({ taken, onCreate, styles, words }: NewFlowProps & { rea
 
 /**
  * The flowchart with no flow: the shared empty state — the Flows tab's, which
- * only says so (FB28), and main's over a record of no flow, with "+ New flow"
- * in it where the flowchart edits (§7).
+ * only says so (FB28), and main's over flows by name with none, with "+ New
+ * flow" in it where the flowchart edits (§7).
  *
  * @param props - "+ New flow", given to main's where the flowchart edits; the recipe's styles and the words
  * @returns The empty state

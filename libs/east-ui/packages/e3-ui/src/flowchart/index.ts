@@ -4,14 +4,15 @@
  */
 
 /**
- * The Flowchart (#1243, #1244, #1245, #1246): the state-transition flowchart,
- * e3-ui's as the Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes
- * its flows from an e3 record of flows by name, or from the host — flows by
- * name, or one flow — and returns its payload through the `Flowchart`
- * carrier, which e3-ui-components' renderer draws in its builder frame.
+ * The Flowchart (#1243–#1247): the state-transition flowchart, e3-ui's as the
+ * Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows from
+ * an e3 record of flows by name, or from the host — flows by name, or one
+ * flow — and returns its payload through the `Flowchart` carrier, which
+ * e3-ui-components' renderer draws in its builder frame and edits through its
+ * editing session.
  *
- * - `types.ts` — the flow, the record of flows, and the row, closed-set and
- *   event types (`Flowchart.Types.*`).
+ * - `types.ts` — the flow, the record of flows, and the row and closed-set
+ *   types (`Flowchart.Types.*`).
  * - `values.ts` — `Flowchart.value` and `Flowchart.values`, a record's value
  *   written as literals and checked when the package builds.
  * - `over.ts` — `Flowchart.over`, one flow from an app's own tables.
@@ -51,16 +52,10 @@ import {
     FlowchartFlowType,
     FlowchartFlowsType,
     FlowchartFreshnessType,
-    FlowchartLaneRenameEventType,
     FlowchartLaneType,
-    FlowchartLinkCreateEventType,
     FlowchartLinkKindType,
-    FlowchartLinkModeType,
     FlowchartLinkType,
     FlowchartOrientationType,
-    FlowchartStateAddEventType,
-    FlowchartStateEditEventType,
-    FlowchartStateMoveEventType,
     FlowchartStateType,
     FlowchartTriggerType,
 } from "./types.js";
@@ -74,7 +69,6 @@ export {
     type FlowchartSliceOptions,
     type FlowchartFreshnessInput,
     type FlowchartOrientationLiteral,
-    type FlowchartLinkModeLiteral,
 } from "./canvas.js";
 export {
     flowchartOver,
@@ -150,20 +144,8 @@ export interface FlowchartTypes {
     Kind: typeof FlowchartLinkKindType;
     /** Canvas orientation — LR | TD ({@link FlowchartOrientationType}). */
     Orientation: typeof FlowchartOrientationType;
-    /** Link-authoring mode — draw | connect ({@link FlowchartLinkModeType}). */
-    LinkMode: typeof FlowchartLinkModeType;
     /** The toolbar's freshness chip ({@link FlowchartFreshnessType}). */
     Freshness: typeof FlowchartFreshnessType;
-    /** Link-creation event ({@link FlowchartLinkCreateEventType}). */
-    LinkCreateEvent: typeof FlowchartLinkCreateEventType;
-    /** Lane-rename event ({@link FlowchartLaneRenameEventType}). */
-    LaneRenameEvent: typeof FlowchartLaneRenameEventType;
-    /** State-add event ({@link FlowchartStateAddEventType}). */
-    StateAddEvent: typeof FlowchartStateAddEventType;
-    /** State-edit event ({@link FlowchartStateEditEventType}). */
-    StateEditEvent: typeof FlowchartStateEditEventType;
-    /** State-move event ({@link FlowchartStateMoveEventType}). */
-    StateMoveEvent: typeof FlowchartStateMoveEventType;
     /** `Patch(R)` — a patch over one of a flow's rows, every field an `Option` ({@link FlowchartPatchTypeFor}). */
     Patch: typeof FlowchartPatchTypeFor;
 }
@@ -179,13 +161,7 @@ const TYPES: FlowchartTypes = {
     Evidence: FlowchartEvidenceType,
     Kind: FlowchartLinkKindType,
     Orientation: FlowchartOrientationType,
-    LinkMode: FlowchartLinkModeType,
     Freshness: FlowchartFreshnessType,
-    LinkCreateEvent: FlowchartLinkCreateEventType,
-    LaneRenameEvent: FlowchartLaneRenameEventType,
-    StateAddEvent: FlowchartStateAddEventType,
-    StateEditEvent: FlowchartStateEditEventType,
-    StateMoveEvent: FlowchartStateMoveEventType,
     Patch: FlowchartPatchTypeFor,
 };
 
@@ -237,9 +213,21 @@ const MEMBERS = {
  *   (`Flowchart.library.flows()`), which lists every flow by name — kept in
  *   the UI store under its `name`, so a remount opens it again; a `flow` it
  *   doesn't hold is named in a banner above main. LR · TD is the viewer's
- *   too, kept under its `name`. Over a record, "+ New flow" names a new flow,
- *   opened empty with one lane; each flow keeps its own drafts until the
- *   history item commits or discards them.
+ *   too, kept under its `name`. Where it edits, "+ New flow" names a new
+ *   flow, opened empty with one lane; each flow keeps its own drafts until
+ *   the history item saves or discards them.
+ * - **Its edits** are its editing session's (#1247): over a record, and over
+ *   `data` given `onApply`, every gesture — "+ LANE", a lane's header renamed
+ *   or its × (off while the lane holds states), the "+ STATE" ghost, a state
+ *   double-clicked into its editor (a new key rekeys its transitions and the
+ *   decisions' queues) or dragged across lanes, a handle dragged to another
+ *   state, Del on the selected state, transition or decision — is one
+ *   transaction the history item undoes and redoes (⌘Z, ⇧⌘Z or ⌘Y anywhere
+ *   in the frame but a field being typed into), and Save sends the open
+ *   flow's drafts as one commit: through the record's patch mutation, or as
+ *   one patch of `data`'s value to the host's `onApply`. Two lanes, states,
+ *   transitions or decisions of one key hold Save off. The footer counts the
+ *   changes waiting on Save.
  * - **Its flows** are an e3 record's (`record`): `Flowchart.Types.Flows`,
  *   flows by name, bound with its patch mutation, the canvas showing `flow`,
  *   else the first by name. A record always holds flows by name (ruled
@@ -252,21 +240,20 @@ const MEMBERS = {
  * - **A dataset's value** is written as literals with `Flowchart.values`
  *   (flows by name) or `Flowchart.value` (one flow), checked when the package
  *   builds.
- * - **Interaction** is opt-in per channel: selection (`onSelectState`,
- *   `onSelectLink`, `onSelectTrigger`), path tracing (`onTracePath`), link
- *   authoring (`linkMode`, `onCreateLink`, `onDeleteLink`, `canConnect`) and
- *   lane and state editing (`onAddLane`, `onRenameLane`, `onDeleteLane`,
- *   `onAddState`, `onEditState`, `onMoveState`).
+ * - **The host hears** the selection (`onSelectState`, `onSelectLink`,
+ *   `onSelectTrigger`) and a traced path (`onTracePath`), and vetoes a
+ *   connection with `canConnect`.
  * - **Refused when the surface is built**, each naming the prop and the
  *   remedy: flows from both `record` and `data`, or neither; `onApply`,
  *   `slice` or `affordances` over a record; `flow` over one flow; a record of
  *   one flow, or of another type, or not bound with its patch mutation;
  *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
- *   it fills sets; a library that lists a tab twice, or the Flows tab over
- *   one flow.
+ *   it fills sets; a callback for an edit (`onAddState`, `onCreateLink`, …)
+ *   or `linkMode`, which the session's gestures replace; a library that lists
+ *   a tab twice, or the Flows tab over one flow.
  *
- * The closed-set fields in data (`kind`, `orientation`, `linkMode`) are typed
- * variant values, `Flowchart.Types.*`.
+ * The closed-set fields in data (`kind`, `orientation`) are typed variant
+ * values, `Flowchart.Types.*`.
  *
  * @example
  * ```tsx
@@ -343,7 +330,7 @@ export interface FlowchartInternalNamespace extends FlowchartNamespace {
         Data: typeof FlowchartDataType;
         /** A record of flows, bound ({@link FlowchartFlowsHandleType}). */
         FlowsHandle: typeof FlowchartFlowsHandleType;
-        /** The editing session's Apply over a record of flows ({@link FlowchartSessionApplyType}). */
+        /** The editing session's Save, over a record or the host's flows ({@link FlowchartSessionApplyType}). */
         SessionApply: typeof FlowchartSessionApplyType;
         /** One tab of the library ({@link FlowchartLibraryTabType}). */
         LibraryTab: typeof FlowchartLibraryTabType;

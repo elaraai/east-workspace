@@ -52,11 +52,11 @@ screenshot.
   flows by name or one flow, the value's type picking the arm, read only unless
   the host gives `onApply`.
 - **Draws.** `BuilderFrame`: one toolbar (find state, LR · TD, the slice's rail
-  over host data, the history item with Apply); the library in the start pane,
+  over host data, the history item with Save); the library in the start pane,
   the tabs `library` lists, none when it lists none; the open flow's canvas in
   main; the inspector (Details · Issues) in the end pane when given
   `inspector`; the footer's counts.
-- **Built in.** Undo, redo and discard; Apply as one checked commit through the
+- **Built in.** Undo, redo and discard; Save as one checked commit through the
   record's patch mutation; every canvas gesture as one transaction (a state
   added, edited, moved or deleted; a transition connected, retyped or deleted;
   a lane added, renamed or deleted; a decision edited); drag and drop (a state
@@ -92,7 +92,7 @@ screenshot.
    machinery (`isTypeEqual`) and the tag's overloads — never a second prop (the
    user, 2026-10-07: "we could always make the type be Dict<FlowchartType> |
    FlowchartType … you could do type inference"). Many flows are the usual case
-   (the user: "its rare that … there would ever be a single flowchart"). Apply
+   (the user: "its rare that … there would ever be a single flowchart"). Save
    is one commit of the open flow, so a state and the transitions that point at
    it always commit together.
 4. **The record holds the Flowchart's own types**, as the query builder's record
@@ -125,8 +125,8 @@ screenshot.
    docs, the mock and its PNG alike. Nothing names a client or a client's trade.
 10. **The session is the shared `Editing` session**, its rows the flows by name:
     every gesture is one transaction over the open flow, the history item undoes,
-    redoes, discards and applies, and Apply commits through `Record.onApply`.
-    Each flow keeps its own drafts until applied or discarded, as each of a
+    redoes, discards and saves, and Save commits through `Record.onApply`.
+    Each flow keeps its own drafts until saved or discarded, as each of a
     Sheet's entries does.
 11. **The inspector's form is `Fields`** (#1147), as the Sheet's and the Plan's
     are, over the Flowchart's own types: a state's, a transition's, a decision's
@@ -217,7 +217,7 @@ export const handoverUi = ui("handover", [], East.function([], UIComponentType, 
 That is a working editor over the record's one flow, which the canvas opens as
 the first by name: "+ LANE", the "+ STATE" ghost, drag to connect,
 double-click to edit, drag across lanes, Del to delete. Every gesture is a
-draft the history item undoes, and Apply commits the drafts as one patch
+draft the history item undoes, and Save commits the drafts as one patch
 through `handoverPatch`. It lists no `library` and is given no `inspector`, so
 it has neither pane: the toolbar, the canvas and the footer. A lone flow the
 host holds instead — an `e3.input` of `Flowchart.Types.Flow`, its value written
@@ -271,7 +271,7 @@ export const depot = ui("depot_flows", [], East.function([], UIComponentType, _$
 
 The Flows tab lists "Inbound parcels", "Returns" and every other flow in the
 record; a click opens one on the canvas, keeping each flow's drafts. "+ New
-flow" asks for a name and opens an empty flow, which Apply inserts.
+flow" asks for a name and opens an empty flow, which Save inserts.
 
 ### 3.4 A flow from the host's tables
 
@@ -298,7 +298,7 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 |---|---|---|
 | Takes | `Record.bind(rec, [patch])`, `rec` of `Flowchart.Types.Flows` only (a lone flow is its one entry) | a value, an expression or a bind handle of `Flowchart.Types.Flows` or `Flowchart.Types.Flow`, the value's type picking the arm |
 | Many flows | The Flows tab lists them; `flow` opens one first | Over flows by name the same, read from the value; one flow has no Flows tab |
-| Edits | The session; Apply through the record's patch mutation | Read only; with `onApply`, the session and the host's commit |
+| Edits | The session; Save through the record's patch mutation | Read only; with `onApply`, the session and the host's commit |
 | A slice | No | `slice` narrows what the host builds (`Flowchart.over` over `Slice.rows`) |
 
 ## 4. The options
@@ -307,9 +307,9 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 
 | Prop | Takes | What it does |
 |---|---|---|
-| `record` | `Record.bind(rec, [e3.mutation.patch(rec)])` | The flows the canvas shows and Apply commits to. `rec`'s type is `Flowchart.Types.Flows`, flows by name; a lone flow is a record of one entry, and a record of one flow is refused (§4.4). A flowchart takes `record` or `data`, never both. |
+| `record` | `Record.bind(rec, [e3.mutation.patch(rec)])` | The flows the canvas shows and Save commits to. `rec`'s type is `Flowchart.Types.Flows`, flows by name; a lone flow is a record of one entry, and a record of one flow is refused (§4.4). A flowchart takes `record` or `data`, never both. |
 | `data` | `Flowchart.Types.Flows` or `Flowchart.Types.Flow`: a value, an expression or a bind handle | The host's flows by name or one flow, the value's type picking the arm: read only, unless `onApply` is given. |
-| `onApply` | `(patch) => Editing.Types.ApplyResult`, async | Over `data`, the host's commit: one patch of the value, as a record's would be. |
+| `onApply` | `(patch) => Editing.Types.ApplyResult`, async | Over `data`, the host's commit: one patch of the value, as a record's would be — over flows by name, the open flow's insert, update or delete by name, never the whole value replaced. Its answer is Save's. |
 | `flow` | String | Over many flows, the one opened first. A flow opened later, from the Flows tab, takes its place. Refused over one flow (`data` of `Flowchart.Types.Flow`). |
 | `library` | `Flowchart.library.*` calls | The library's tabs, in order (§4.2); left out, or `[]`, no library pane. |
 | `inspector` | `true` | The inspector pane (§9.9); left out, no inspector pane. |
@@ -323,7 +323,8 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 
 `linkMode`, `onCreateLink`, `onDeleteLink`, `onAddLane`, `onRenameLane`,
 `onDeleteLane`, `onAddState`, `onEditState`, `onMoveState`, `height` and
-`maxHeight` go (§11).
+`maxHeight` go (§11): the tag's props type none of them, and each is refused at
+build, naming the remedy (§4.4).
 
 ### 4.2 `Flowchart.library`: the library's tabs
 
@@ -374,6 +375,9 @@ Each names the prop and the remedy:
 - both `record` and `data`, or neither; `onApply` over a record; `flow` over
   one flow (`data` of `Flowchart.Types.Flow`); `slice` or `affordances` over a
   record;
+- a callback today's flowchart took for an edit, or `linkMode` (§4.1, FB24):
+  every gesture is a transaction of the editing session, which Save commits —
+  through the record's patch mutation, or over `data` the host's `onApply`;
 - a record of one flow, `Flowchart.Types.Flow` (decision 3): a record holds
   flows by name, so the remedy is a record of flows with one entry, or the
   flow as `data`;
@@ -423,10 +427,10 @@ parts reuses the parts' interface types.
 FlowchartPayloadType = StructType({
     canvas:    FlowchartCanvasType,                    // today's root, less the tables and the callbacks that go: the drawing options, hover, selection, canConnect, slice
     source:    VariantType({                           // where the flows come from
-        record: StructType({ read, history, commit: StructType({ patch }), apply }),   //   a record of flows by name, bound with its patch: Record.bind's handle, and `apply`, its session's commit — Record.onApply(record, { keyed: true }) over the batch (#1246)
-        data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked
-            flows: StructType({ value: Flowchart.Types.Flows, onApply: OptionType(…) }),
-            flow:  StructType({ value: Flowchart.Types.Flow,  onApply: OptionType(…) }),
+        record: StructType({ read, history, commit: StructType({ patch }), apply }),   //   a record of flows by name, bound with its patch: Record.bind's handle, and `apply`, its session's Save — Record.onApply(record, { keyed: true }) over the batch (#1246)
+        data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked, and `apply`, its session's Save through the host's onApply (#1247)
+            flows: StructType({ value: Flowchart.Types.Flows, apply: OptionType(FlowchartSessionApplyType) }),   //   the batch as one patch of the flows, by name
+            flow:  StructType({ value: Flowchart.Types.Flow,  apply: OptionType(FlowchartSessionApplyType) }),   //   the batch's one change as the flow's own patch
         }),
     }),
     open:      OptionType(StringType),                 // the flow opened first, over many
@@ -477,9 +481,9 @@ input its East type takes.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ⌕ find state   LR | TD   scans-2026.09 ●            Filter Search   2 issues ↶ ↷ ✕ Apply │
+│ ⌕ find state   LR | TD   scans-2026.09 ●             Filter Search   2 issues ↶ ↷ ✕ Save │
 ├──────────────────────────────────────────────────────────────────────────────────────────┤
-│ banners: an Apply's conflict or refusal · the record changed under your drafts            │
+│ banners: a Save's conflict or refusal · the record changed under your drafts              │
 ├──────────────┬──────────────────────────────────────────────────────────┬────────────────┤
 │ LIBRARY      │  INTAKE        SORT            LOAD            + LANE    │ INSPECTOR      │
 │ Flows        │  ┌─────┐       ┌──────┐◇R     ┌─────┐                   │ Details·Issues │
@@ -495,7 +499,7 @@ input its East type takes.
 | Region | Holds |
 |---|---|
 | Toolbar | Every control the flowchart has, as items of the shared `Toolbar` (§7.1). Today's eyebrow becomes these items. |
-| Banners | An Apply's conflict and refusal; the record changing under pending drafts; a write whose outcome is unknown; a `flow` the record doesn't hold. |
+| Banners | A Save's conflict and refusal; the record changing under pending drafts; a write whose outcome is unknown; a `flow` the record doesn't hold. |
 | Start pane "Library" | The tabs `library` lists (§9.7); none, no pane. |
 | Main | The open flow's canvas, as today: lanes, states, transitions, diamonds, badges, the legend and the minimap over it, hover cards. Over many flows with none open — an empty record — the shared empty state and "+ New flow". |
 | End pane "Inspector" | Details · Issues (§9.9) when given `inspector`; none, no pane. |
@@ -514,7 +518,7 @@ flowchart fills its parent and draws no border. Every style is a slot recipe's.
 | LR · TD | start | Folds to one chip naming the orientation, a menu of both |
 | The freshness chip | start | Goes |
 | The slice's rail, over `data` with `slice` | end | Folds first, through `useSliceToolbarItems` |
-| The history item: status · issues · Undo · Redo · Discard · Apply | end | Folds last, to its buttons; gone over read-only data |
+| The history item: status · issues · Undo · Redo · Discard · Save | end | Folds last, to its buttons; gone over read-only data |
 
 On a touch screen every control in the row keeps its size and is a 44px tap
 target by its box or by its halo (`coarseHitArea`), never by growing the row.
@@ -589,7 +593,10 @@ has a test there. Today's canvas behaviour keeps holding.
   item wraps, scrolls or moves to a second row; on a phone and on a touch screen
   the row holds every item, each a 44px target by its box or its halo.
 - **FB10.** The footer is today's counts, prefixed by the open flow's name over
-  many flows, with the pending changes and, over a record, the last save.
+  many flows, with the pending changes and, over a record, the last save. The
+  pending changes (`3 pending`), where the flowchart edits, count each lane,
+  state, transition and decision the open flow's drafts add, change or remove,
+  and its description when it changes.
 - **FB11.** The panes are `BuilderFrame`'s, their open tab and collapsed state
   kept under `name`; the canvas scrolls both ways inside main.
 
@@ -605,9 +612,9 @@ has a test there. Today's canvas behaviour keeps holding.
   descriptions.
 - **FB14.** "+ New flow" opens a `NamePopover` anchored to it; a name the record
   holds is refused there with the reason; a new name opens an empty flow, one
-  lane, as a draft insert that Apply commits and Discard drops.
+  lane, as a draft insert that Save commits and Discard drops.
 - **FB15.** Each flow keeps its own session: opening another keeps the drafts of
-  the one left, and the history item, Apply and Discard act on the open flow.
+  the one left, and the history item, Save and Discard act on the open flow.
 - **FB16.** Over one flow — `data` of `Flowchart.Types.Flow` — there is no
   Flows tab (`flows()` is refused), and the canvas shows the flow. A record's
   lone flow is its one entry, which the Flows tab lists.
@@ -624,7 +631,7 @@ has a test there. Today's canvas behaviour keeps holding.
   `orientation` is the first value, shown until the viewer picks; a pick then
   holds against it.
 
-### 9.6 Editing, undo and Apply (owner: the editing)
+### 9.6 Editing, undo and Save (owner: the editing)
 
 - **FB17.** Every gesture is one transaction of the shared `Editing` session
   over the open flow: a state added (the "+ STATE" ghost, a template drop),
@@ -632,31 +639,49 @@ has a test there. Today's canvas behaviour keeps holding.
   the inspector) with its transitions; a transition connected, retyped (a
   template drop, the inspector) or deleted; a lane added, renamed, deleted; a
   decision edited or deleted; a bulk edit; a flow renamed or its description
-  edited.
+  edited. Del deletes what the canvas has selected — a state with its
+  transitions (and from the decisions' queues), a transition, or a decision,
+  cleared from the transitions it governs — heard in the canvas, never in a
+  field being typed into. A gesture names a state by its key, and acts on the
+  state the canvas draws under it, the last of that key: while two share a key,
+  the transitions and queues naming it stay with the other. "+ LANE" adds a
+  lane keyed `lane-<n>` and labelled `Lane <n>`, `n` the first number past the
+  lanes' count no lane's key takes, as a new flow's one lane is `lane-1`. A
+  flow whose last lane is deleted keeps its band row, so "+ LANE" gives it a
+  lane again. Each gesture's controls are Font Awesome's solid icons: a lane's
+  × (`xmark`) beside its header, "+ LANE"'s plus over its word, the "+ STATE"
+  ghost's plus beside its word.
 - **FB18.** A state's new key rekeys its transitions' ends and the decisions'
-  queues in the same transaction; a lane's new key moves its states with it.
+  queues in the same transaction — the transitions keep their own keys; a
+  lane's new key moves its states with it.
 - **FB19.** A lane holding states can't be deleted: its × and the inspector's
-  Delete are off, saying why (`Move its 3 states first`).
+  Delete are off, saying why (`Move its 3 states first`) — the ×'s tooltip.
 - **FB20.** Connecting makes a transition of the default type — planned, no
-  decision, no evidence — keyed `<from>→<to>`, made unique; the `canConnect`
-  veto, the in-place drop and the duplicate pulse hold as today.
+  decision, no evidence — keyed `<from>→<to>`, made unique (`-2`, `-3`, …);
+  the `canConnect` veto, the in-place drop and the duplicate pulse hold as
+  today.
 - **FB21.** The history item shows the session's status, the issue count, Undo,
-  Redo, Discard and Apply. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the
+  Redo, Discard and Save. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the
   frame, never while typing in an input: a field being typed into keeps its own
   undo.
-- **FB22.** Apply is on when the open flow has a change and no blocking issue
-  (two of one key). It sends one commit: over a record,
+- **FB22.** Save is on when the open flow has a change and no blocking issue
+  (two lanes, states, keyed transitions or decisions of one key, each an issue
+  on the flow). It sends one commit: over a record,
   `Record.onApply(record, { keyed: true })` with the open flow's insert, update
   or delete by name; over `data`, one flow or many, one patch of the value
-  through the host's `onApply`. Apply over one flow exists only through
-  `data`'s `onApply`: a record always holds flows by name (decision 3).
+  through the host's `onApply` — over flows by name the open flow's insert,
+  update or delete by name, never the whole value replaced; over one flow, the
+  flow's own patch. Save over one flow exists only through `data`'s `onApply`:
+  a record always holds flows by name (decision 3).
 - **FB23.** A conflict or a refusal keeps every draft and shows its banner; a
-  write with no answer turns Apply into Retry, which resends the same request.
+  write with no answer turns Save into Retry, which resends the same request.
   After a commit the drafts retire once the flow reads back as the commit left
-  it; the record changing under pending drafts makes the session out of date,
+  it — over `data`, once the host's value holds what its `onApply` was handed;
+  the record changing under pending drafts makes the session out of date,
   with Discard in its banner.
 - **FB24.** Each callback today's flowchart took for an edit is gone; the
-  gestures are the session's (§11).
+  gestures are the session's (§11). The tag's props type none of them, and
+  each, with `linkMode`, is refused at build naming the remedy (§4.4).
 
 ### 9.7 The library pane (owner: the library)
 
@@ -705,21 +730,21 @@ has a test there. Today's canvas behaviour keeps holding.
   against the record.
 - **FB37.** Issues lists every issue of the open flow: a transition naming a
   missing state, a state naming a missing lane, two of one key, a decision's
-  queue naming a missing state, an Apply's conflict or refusal. A click selects
-  what it names. Two of one key blocks Apply; the rest are warnings.
+  queue naming a missing state, a Save's conflict or refusal. A click selects
+  what it names. Two of one key blocks Save; the rest are warnings.
 - **FB38.** Over read-only data or with `readOnly`, Details shows every field
   and edits none.
 
 ### 9.10 Showcase and docs (owner: the showcase and docs)
 
 - **FB39.** The depot's flows (§3.3) run on e3-web in the showcase with the
-  record and the templates seeded, and Apply commits to the record.
+  record and the templates seeded, and Save commits to the record.
 - **FB40.** The examples are few and full (`EXAMPLES_AUTHORING.md` §8): between
   them every pane combination (none, a library, an inspector, both), one flow
   and many, `data` with a slice, and every canvas feature.
 - **FB41.** Responsive specs measure the frame, the toolbar's fold order at
   desktop and phone widths, both themes, the panes, a state and a transition
-  dropped, a move, and Apply; the e3-ui skill documents `<Flowchart>` with
+  dropped, a move, and Save; the e3-ui skill documents `<Flowchart>` with
   tested examples, and the plugin indexes are regenerated.
 
 ## 10. Drag and drop, as a table
@@ -739,7 +764,7 @@ has a test there. Today's canvas behaviour keeps holding.
 | A flowchart with its own eyebrow and footer | In its frame: the eyebrow's controls are the toolbar's items, the footer the frame's | A component has one toolbar. Nothing is lost. |
 | `height`, `maxHeight` | The flowchart fills the box it is given | A host gives it a box of its own height. |
 | Four tables and mappers as the component's props | A record of flows, or `data` built by `Flowchart.over` with the same mappers | The mappers are kept; an app's tables reach the canvas through one `Flow`. |
-| A callback per edit (`onAddState`, `onCreateLink`, …) and `linkMode` | The session, Apply through the record, or the host's `onApply` | A host no longer hears each gesture; it commits once. A `connect`-only canvas that reports but never adds is `data` with `onApply`. |
+| A callback per edit (`onAddState`, `onCreateLink`, …) and `linkMode` | The session, Save through the record, or the host's `onApply` | A host no longer hears each gesture; it commits once. A `connect`-only canvas that reports but never adds is `data` with `onApply`. |
 | Deleting a lane with states, which then fell into the last lane | Refused until its states are moved | No state moves without the planner moving it. |
 | Click-to-drill into a host's `Drawer` | The inspector; `onSelect*` still tells the host | Nothing is lost. |
 | One flowchart | Many flows in a record, one open | New. |
@@ -762,7 +787,7 @@ has a test there. Today's canvas behaviour keeps holding.
 4. The flow types and the payload (FB4–FB6, #1244).
 5. The frame and the toolbar (FB7–FB11, #1245).
 6. The flows and the Flows tab (FB12–FB16, FB42, FB43, #1246).
-7. Editing, undo and Apply (FB17–FB24, #1247).
+7. Editing, undo and Save (FB17–FB24, #1247).
 8. The library: state and transition templates, the author's tabs (FB25–FB29, #1248).
 9. Drag and drop (FB30–FB34, #1249).
 10. The inspector (FB35–FB38, #1250).

@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Box, Drawer, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Drawer, Meter, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -40,6 +40,22 @@ export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flo
     },
 }));
 export const depotFlowsPatch = e3.mutation.patch(depotFlows);
+
+// A record of one flow, edited on the canvas: a lone flow is a record of flows
+// with one entry, bound with its patch mutation.
+export const collectionFlows = e3.record("flowchart_collection_flows", Flowchart.Types.Flows, Flowchart.values({
+    "Collections": {
+        description: "From the booking to the depot's door",
+        lanes: [{ key: "book", label: "Book" }, { key: "van", label: "Van" }, { key: "depot", label: "Depot" }],
+        states: [
+            { key: "BKD", label: "Booked", lane: "book" },
+            { key: "CLD", label: "Collected", lane: "van" },
+            { key: "RCV", label: "Received", lane: "depot" },
+        ],
+        links: [{ key: "BKD→CLD", from: "BKD", to: "CLD" }, { key: "CLD→RCV", from: "CLD", to: "RCV" }],
+    },
+}));
+export const collectionFlowsPatch = e3.mutation.patch(collectionFlows);
 
 // One flow, for an app that has only one: the host's, read only.
 export const handoverFlow = e3.input("flowchart_handover", Flowchart.Types.Flow, variant("value", Flowchart.value({
@@ -124,8 +140,8 @@ export const flowchartMinimal = example({
 });
 
 export const flowchartDepot = example({
-    keywords: ["Flowchart", "Flowchart.over", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness", "onAddLane"],
-    description: "Parcel-depot flowchart over the host's tables — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, dev-defined hover cards on states, links AND trigger diamonds, and the + LANE affordance",
+    keywords: ["Flowchart", "Flowchart.over", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness"],
+    description: "Parcel-depot flowchart over the host's tables, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, and dev-defined hover cards on states, links AND trigger diamonds",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const KindType = Flowchart.Types.Kind;
@@ -199,7 +215,6 @@ export const flowchartDepot = example({
                     </VStack>
                 );
             }));
-            const onAddLane = $.const(East.function([], NullType, (_$) => null));
             return (
                 <Box height="600px">
                     <Flowchart
@@ -219,7 +234,6 @@ export const flowchartDepot = example({
                             trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
                         })}
                         linkHover={linkHover} stateHover={stateHover} triggerHover={triggerHover}
-                        onAddLane={onAddLane}
                         slice={slice} affordances={["filter", "search"]}
                         freshness={{ label: "evidence-2026.06", date: stamp }}
                     />
@@ -231,100 +245,28 @@ export const flowchartDepot = example({
 });
 
 /**
- * The connect-mode authoring session (old flowchartConnect) folds in here —
- * the canConnect veto, header click-to-rename and × lane removal join the
- * builder's State-bound editing loop; `linkMode="connect"` + drag any handle
- * is the one link-authoring grammar.
+ * The flowchart as an editor (#1247): a record of one flow, every gesture on
+ * the canvas a draft of its editing session — "+ LANE", a lane's header
+ * renamed and its ×, the "+ STATE" ghost, a state double-clicked into its
+ * editor or dragged across lanes, a handle dragged to another state, Del on
+ * the selection — which the history item undoes, redoes and discards, and
+ * Save commits as one patch through the record's patch mutation. `canConnect`
+ * keeps every transition out of the booking: a draft never snaps onto BKD
+ * from another state.
  */
 export const flowchartBuilder = example({
-    keywords: ["Flowchart", "Flowchart.over", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onRenameLane", "onDeleteLane", "onCreateLink", "onDeleteLink", "canConnect", "connect", "linkMode", "authoring", "interactive", "edit", "phases", "ghost"],
-    description: "Interactive builder — one flow over State-bound lanes, states and links: + LANE, + STATE ghosts, double-click edit, cross-lane drag, handle-drag linking with Del delete and an intake-only canConnect veto",
+    keywords: ["Flowchart", "record", "Record.bind", "editing", "builder", "Save", "undo", "redo", "history", "+ LANE", "+ STATE", "connect", "canConnect", "Del", "rename", "move", "authoring", "interactive", "edit"],
+    description: "A record of one flow edited on the canvas — + LANE, lane rename and ×, the + STATE ghost, double-click edit, cross-lane drag, handle-drag connecting and Del — each gesture a draft the history item undoes, and Save one commit through the record's patch mutation; a canConnect veto keeps transitions out of the booking",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const LaneRow = StructType({ key: StringType, label: StringType });
-            const StateRow = StructType({ code: StringType, name: StringType, phase: StringType });
-            const LinkRow = StructType({ src: StringType, dst: StringType });
-            const lanes = $.let(State.bind([ArrayType(LaneRow)], "flowchart.builder.lanes", [
-                { key: "p1", label: "Phase 1" }, { key: "p2", label: "Phase 2" },
-            ]));
-            const states = $.let(State.bind([ArrayType(StateRow)], "flowchart.builder.states", [
-                { code: "S1", name: "State 1", phase: "p1" },
-                { code: "S2", name: "State 2", phase: "p2" },
-            ]));
-            const links = $.let(State.bind([ArrayType(LinkRow)], "flowchart.builder.links", [
-                { src: "S1", dst: "S2" },
-            ]));
-            const addLane = $.const(East.function([], NullType, ($) => {
-                const next = $.let(lanes.read());
-                const n = $.let(next.length().add(1n));
-                $(next.append([{ key: East.str`p${n}`, label: East.str`Phase ${n}` }]));
-                $(lanes.write(next));
-            }));
-            const renameLane = $.const(East.function([Flowchart.Types.LaneRenameEvent], NullType, ($, e) => {
-                $(lanes.write(lanes.read().map(($, l) =>
-                    East.equal(l.key, e.key).ifElse(
-                        () => ({ key: l.key, label: e.label }),
-                        () => l,
-                    ))));
-            }));
-            const deleteLane = $.const(East.function([StringType], NullType, ($, key) => {
-                // Host-owned cascade: drop the lane row only — states in it
-                // fall into the LAST lane (they stay visible).
-                $(lanes.write(lanes.read().filter(($, l) => East.equal(l.key, key).not())));
-            }));
-            const addState = $.const(East.function([Flowchart.Types.StateAddEvent], NullType, ($, e) => {
-                const next = $.let(states.read());
-                $(next.append([{ code: e.key, name: e.label, phase: e.lane }]));
-                $(states.write(next));
-            }));
-            const editState = $.const(East.function([Flowchart.Types.StateEditEvent], NullType, ($, e) => {
-                $(states.write(states.read().map(($, s) =>
-                    East.equal(s.code, e.key).ifElse(
-                        () => ({ code: e.code, name: e.label, phase: s.phase }),
-                        () => s,
-                    ))));
-                // Rekey link endpoints so edges follow the renamed state.
-                $(links.write(links.read().map(($, l) => ({
-                    src: East.equal(l.src, e.key).ifElse(() => e.code, () => l.src),
-                    dst: East.equal(l.dst, e.key).ifElse(() => e.code, () => l.dst),
-                }))));
-            }));
-            const moveState = $.const(East.function([Flowchart.Types.StateMoveEvent], NullType, ($, e) => {
-                $(states.write(states.read().map(($, s) =>
-                    East.equal(s.code, e.key).ifElse(
-                        () => ({ code: s.code, name: s.name, phase: e.lane }),
-                        () => s,
-                    ))));
-            }));
-            const onCreate = $.const(East.function([Flowchart.Types.LinkCreateEvent], NullType, ($, e) => {
-                const next = $.let(links.read());
-                $(next.append([{ src: e.from, dst: e.to }]));
-                $(links.write(next));
-            }));
-            const onDelete = $.const(East.function([StringType], NullType, ($, key) => {
-                $(links.write(links.read().filter(($, l) =>
-                    East.equal(East.str`${l.src}→${l.dst}`, key).not())));
-            }));
-            // Connection validator (the no-snap veto stage): S1 is the intake —
-            // authored links never point INTO it, so a connect draft simply
-            // refuses to snap onto S1 as a target. Self-drop stays allowed
-            // (↻ in-place), which is why the veto is target-only rather than
-            // the from ≠ to rule.
+            const flows = $.let(Record.bind(collectionFlows, [collectionFlowsPatch]));
+            // The connection veto: nothing comes back to the booking, though a
+            // drop on BKD from BKD is its in-place transition.
             const canConnect = $.const(East.function([StringType, StringType], BooleanType,
-                (_$, _from, to) => East.equal(to, "S1").not()));
+                (_$, from, to) => East.equal(to, "BKD").not().or(() => East.equal(from, to))));
             return (
                 <Box height="420px">
-                    <Flowchart
-                        data={Flowchart.over(states.read(), {
-                            state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-                            links: links.read(), link: l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst }),
-                            lanes: lanes.read(), lane: r => ({ key: r.key, label: r.label }),
-                        })}
-                        linkMode="connect"
-                        onAddLane={addLane} onRenameLane={renameLane} onDeleteLane={deleteLane}
-                        onAddState={addState} onEditState={editState} onMoveState={moveState}
-                        onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
-                    />
+                    <Flowchart record={flows} canConnect={canConnect} />
                 </Box>
             );
         }}</Reactive>

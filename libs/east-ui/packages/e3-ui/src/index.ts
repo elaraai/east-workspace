@@ -163,18 +163,19 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
-// The Flowchart (#1243, #1244, #1245, #1246): the state-transition flowchart a
-// solution mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
+// The Flowchart (#1243–#1247): the state-transition flowchart a solution
+// mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
 // transitions, decision triggers and evidence-weighted strokes, over a record
 // of flows or the host's flow, in its frame, its library and inspector panes
-// optional props — the values, patches, library tabs and East types it is
-// written with (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
-// `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
+// optional props, every gesture a transaction of its editing session — the
+// values, patches, library tabs and East types it is written with
+// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`, `Flowchart.patch`,
+// `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
     type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab,
     type FlowchartCanvasOptions, type FlowchartSliceOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
-    type FlowchartLinkModeLiteral, type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
+    type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
     type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,
     type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
     type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
