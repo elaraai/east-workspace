@@ -29,6 +29,7 @@ import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { useFormatters } from "../../format/index.js";
 import { EastChakraComponent } from "../../component";
 import { EmptyStateView } from "../../feedback/empty-state/index.js";
+import { AvatarFallback } from "../../display/avatar/index.js";
 
 const libraryEqual = equivalentFor(Library.Types.Library);
 
@@ -410,7 +411,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                         <Box css={styles.galleryByline}>
                             {avatar !== undefined && (
                                 <ChakraAvatar.Root size="2xs">
-                                    <ChakraAvatar.Fallback name={avatar} />
+                                    <AvatarFallback name={avatar} />
                                 </ChakraAvatar.Root>
                             )}
                             {byline !== undefined && <Box as="span" css={styles.galleryBylineText}>{byline}</Box>}

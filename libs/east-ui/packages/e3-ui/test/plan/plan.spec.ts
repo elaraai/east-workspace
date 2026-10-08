@@ -666,6 +666,33 @@ describeEast("Plan", (test) => {
         $(Assert.equal(Plan.run({ key: "n", start: W27, end: W28, label: "N", state: "actual" }).quantity.hasTag("none"), true));
     });
 
+    test("an element's icon is a Font Awesome solid icon — another set is refused at build, naming the builder (#1263)", $ => {
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        const refused = (where: string) => `${where}: \`far bookmark\` is not a Font Awesome solid icon (#1263) — East UI draws solid icons only: ` +
+            "use a solid one, as `{ prefix: \"fas\", name: \"bookmark\" }`";
+        // A `{ prefix, name }` pair, which the types hold to "fas" — and an
+        // Icon value, whose prefix they leave a string: the refusal holds both.
+        const pair = { prefix: "far", name: "bookmark" } as never;
+        const value = { prefix: "far", name: "bookmark", label: none, style: none };
+        $(Assert.equal(East.value(refusal(() => Plan.run({ key: "r", start: W27, end: W28, label: "R", state: "actual", icon: pair }))), refused("Plan.run icon")));
+        $(Assert.equal(East.value(refusal(() => Plan.event({ key: "e", at: W27, state: "confirmed", icon: value }))), refused("Plan.event icon")));
+        $(Assert.equal(East.value(refusal(() => Plan.chip({ key: "c", from: W27, to: W28, label: "C", state: "confirmed", icon: pair }))), refused("Plan.chip icon")));
+        $(Assert.equal(East.value(refusal(() => Plan.mark({ key: "m", at: W27, kind: "milestone", icon: value }))), refused("Plan.mark icon")));
+        // A series' card icon is refused as a Plan's icon.
+        const Row = StructType({ v: FloatType });
+        $(Assert.equal(East.value(refusal(() => Plan.series.events(Row, { key: "marks", title: "Marks", icon: pair, label: (_r, k) => k, marks: _r => [] }))),
+            refused("Plan icon")));
+        // A solid pair, a solid Icon value and a bare name build as they did.
+        const chip = $.let(Plan.chip({ key: "c", from: W27, to: W28, label: "C", state: "confirmed", icon: { prefix: "fas", name: "bookmark" } }));
+        $(Assert.equal(chip.icon.unwrap("some").prefix, "fas"));
+        $(Assert.equal(chip.icon.unwrap("some").name, "bookmark"));
+        const mark = $.let(Plan.mark({ key: "m", at: W27, kind: "milestone", icon: { prefix: "fas", name: "flag", label: none, style: none } }));
+        $(Assert.equal(mark.icon.unwrap("some").name, "flag"));
+        $(Assert.equal(Plan.event({ key: "e", at: W27, state: "confirmed", icon: "truck" }).icon.unwrap("some").prefix, "fas"));
+    });
+
     // =========================================================================
     // Composition — the kind factories' row streams (hand-built rows)
     // =========================================================================

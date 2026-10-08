@@ -59,6 +59,7 @@ import { separatorRecipe } from "./recipes/separator.js";
 import { skeletonRecipe } from "./recipes/skeleton.js";
 import { chipRecipe } from "./recipes/chip.js";
 import { iconButtonMarkRecipe } from "./recipes/icon-button-mark.js";
+import { ontologyMarkRecipe } from "./recipes/ontology-mark.js";
 
 import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tabsSlotRecipe } from "./slot-recipes/tabs.js";
@@ -192,6 +193,7 @@ const config = defineConfig({
             skeleton:   skeletonRecipe,
             chip:       chipRecipe,
             iconButtonMark: iconButtonMarkRecipe,
+            ontologyMark: ontologyMarkRecipe,
             /* Touch floor (#348) merged onto Chakra's default textarea
              * recipe — sub-16px focused fields make iOS Safari zoom. */
             textarea:   defineRecipe({

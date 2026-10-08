@@ -15,7 +15,7 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { IconType } from "../../display/icon/types.js";
+import { IconType, type SolidIconPrefix } from "../../display/icon/types.js";
 
 // ============================================================================
 // NavItem
@@ -54,8 +54,8 @@ export interface NavItemInput {
     key: SubtypeExprOrValue<StringType>;
     /** Display text. */
     label: SubtypeExprOrValue<StringType>;
-    /** Optional leading icon (Font Awesome prefix + name). */
-    icon?: { prefix: string; name: string };
+    /** Optional leading icon: a Font Awesome solid icon, `{ prefix: "fas", name }` — East UI draws no other (#1263). */
+    icon?: { prefix: SolidIconPrefix; name: string };
     /** Optional trailing badge text. */
     badge?: SubtypeExprOrValue<StringType>;
     /** Whether this item is currently active. */

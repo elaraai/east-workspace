@@ -19,7 +19,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid } from "../../display/icon/types.js";
 import { Text } from "../../typography/text/index.js";
 import {
     ToggleStyleType,
@@ -97,6 +97,8 @@ type ToggleLabelInput =
  * @param options - A single flat options bag; `pressed` is required, plus
  *   optional `icon` / `disabled` / `onChange` / visual fields.
  * @returns An East expression representing the Toggle component
+ * @throws When `icon` is not a Font Awesome solid icon — East UI draws the
+ *   solid set only (#1263)
  *
  * @remarks
  * The renderer emits `aria-pressed={pressed}` and `data-pressed={pressed}` so
@@ -130,6 +132,7 @@ function createToggle(
         ? Text.Root(label)
         : label as ExprType<UIComponentType>;
 
+    refuseNonSolid("Toggle icon", options.icon);
     const { pressed, icon, disabled, onChange, ...visual } = options;
 
     const iconValue = icon
@@ -194,6 +197,8 @@ export const Toggle = {
      * @param options - A single flat options bag; `pressed` is required, plus
      *   optional `icon` / `disabled` / `onChange` / visual fields.
      * @returns An East expression representing the Toggle component
+     * @throws When `icon` is not a Font Awesome solid icon — East UI draws
+     *   the solid set only (#1263)
      *
      * @remarks
      * Emits `aria-pressed` and `data-pressed` on the rendered button. See

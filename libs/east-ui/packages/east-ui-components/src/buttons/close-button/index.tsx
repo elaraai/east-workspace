@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback } from "react";
-import { CloseButton as ChakraCloseButton, useRecipe, type CloseButtonProps } from "@chakra-ui/react";
+import { CloseButton as ChakraCloseButton, useRecipe, type CloseButtonProps, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
@@ -24,6 +24,12 @@ export type EastChakraCloseButtonProps = {
     value: CloseButtonValue;
 } & Omit<CloseButtonProps, "onClick" | "children" | "aria-label" | "value">;
 
+/** The props a caller forwards, beside the value: each the same object, or the same primitive, as last time. */
+function sameForwarded(prev: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
+    const keys = Object.keys(prev);
+    return keys.length === Object.keys(next).length && keys.every((key) => Object.is(prev[key], next[key]));
+}
+
 /**
  * Renders an East UI CloseButton using Chakra v3's `<CloseButton>`.
  *
@@ -32,9 +38,10 @@ export type EastChakraCloseButtonProps = {
  * behaviour come from main; visual presentation comes from `value.style`.
  * Its mark is Font Awesome's xmark, never Chakra's own icon (#1263), at
  * the size Chakra's icon took in a button of its size (the `iconButtonMark`
- * recipe).
+ * recipe). A caller's own `css` comes after the mark's, so it wins where
+ * both set a style; a change to any forwarded prop renders the button again.
  */
-export const EastChakraCloseButton = memo(function EastChakraCloseButton({ value, ...rest }: EastChakraCloseButtonProps) {
+export const EastChakraCloseButton = memo(function EastChakraCloseButton({ value, css, ...rest }: EastChakraCloseButtonProps) {
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const disabled = useMemo(() => getSomeorUndefined(value.disabled), [value.disabled]);
@@ -65,10 +72,12 @@ export const EastChakraCloseButton = memo(function EastChakraCloseButton({ value
     }, [style, disabled, label]);
 
     const mark = useRecipe({ key: "iconButtonMark" })({ size: props.size ?? rest.size ?? "md" });
+    // The mark's size first, then the caller's own css — a list of them, or one.
+    const styles = useMemo(() => [mark, ...(css === undefined ? [] : Array.isArray(css) ? (css as SystemStyleObject[]) : [css as SystemStyleObject])], [mark, css]);
 
     return (
-        <ChakraCloseButton {...rest} {...props} css={mark} onClick={onClickFn ? handleClick : undefined}>
+        <ChakraCloseButton {...rest} {...props} css={styles} onClick={onClickFn ? handleClick : undefined}>
             <FontAwesomeIcon icon={faXmark} />
         </ChakraCloseButton>
     );
-}, (prev, next) => closeButtonEqual(prev.value, next.value));
+}, ({ value: prevValue, ...prev }, { value: nextValue, ...next }) => closeButtonEqual(prevValue, nextValue) && sameForwarded(prev, next));

@@ -19,7 +19,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid, type SolidIconPrefix } from "../../display/icon/types.js";
 import { Text } from "../../typography/text/index.js";
 import {
     BannerStatusType,
@@ -129,8 +129,8 @@ export interface BannerOptions extends BannerStyle {
     description?: BannerInput;
     /** Optional trailing action(s) */
     actions?: BannerInput;
-    /** Explicit icon override (skips paired default) */
-    icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+    /** Explicit icon override (skips paired default): a Font Awesome solid icon — East UI draws no other (#1263) */
+    icon?: { prefix: SolidIconPrefix; name: string } | SubtypeExprOrValue<IconType>;
     /** Whether to show a close button */
     dismissible?: SubtypeExprOrValue<BooleanType>;
     /** Whether to show the paired icon (default true) */
@@ -146,6 +146,8 @@ export interface BannerOptions extends BannerStyle {
  * @param options - Required `status` + `title`, optional rich description /
  *   actions / dismissible / visual style fields
  * @returns An East expression representing the Banner component
+ * @throws When `icon` is not a Font Awesome solid icon — East UI draws the
+ *   solid set only (#1263)
  *
  * @example
  * ```ts
@@ -165,6 +167,7 @@ export interface BannerOptions extends BannerStyle {
 function createBannerRoot(
     options: BannerOptions,
 ): ExprType<UIComponentType> {
+    refuseNonSolid("Banner icon", options.icon);
     const { status, title, description, actions, icon, dismissible, showIcon, onDismiss, ...visual } = options;
 
     const statusValue = typeof status === "string"
