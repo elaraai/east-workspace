@@ -22,7 +22,10 @@
  * An author's tab reads its rows as `Schedule.resources` does: a `Dict<K, R>`,
  * usually a record's `read()`, its accessors `(row, key) => …` reified once
  * into a describe function the map then calls, each card keyed by its row's
- * key as text. Its `drop` returns what a card dropped on an event sets:
+ * key as text. Its cards drag onto the rows of `data` whose series makes an
+ * item of a dropped card (`edit.create`, #1259), as a Library's card beside
+ * the Plan does — the Plan takes its own panel's cards with no `id` or
+ * `sources`. Its `drop` returns what a card dropped on an event sets:
  * `Schedule.patch` over one event kind's row type, whose type names that kind.
  * The patch crosses the closed payload as that kind's field writes — each
  * field it sets, its path and its value as bytes — which a drop writes through
@@ -233,8 +236,11 @@ export function librarySeries(): PlanLibraryTab {
 /**
  * A tab of the author's own cards — `Plan.library.tab(rows, { … })` (PB62):
  * one card per row, its label and meta, grouped by its `group`, searched by
- * its key, label and meta. Given a `drop`, each card drags (#1196), and a card
- * dropped on an event sets the fields the patch sets.
+ * its key, label and meta. Each card drags onto the rows of `data` whose
+ * series makes an item of it (`edit.create`, #1259) — the drop's `from.key`
+ * its row's key as text, so `canDrop` and `create` read it as a Library card's
+ * — and, given a `drop`, onto an event (#1196), setting the fields the patch
+ * sets.
  *
  * @typeParam K - The rows' key type
  * @typeParam R - Their row type

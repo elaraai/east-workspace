@@ -33,11 +33,11 @@ import { settled } from "./settle";
 const EVENTS = "e3/plan/plan-events";
 
 /** Plans of every source and chrome, each by its examples file and the panes
- *  it is given: a slice; editing over a keyed paged source; event kinds, with
- *  and without a library; the narrow layout's box. */
+ *  it is given: a slice; editing over a keyed paged source, its palette the
+ *  library; event kinds, with and without a library; the narrow layout's box. */
 const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly string[] }> = [
     { name: "planTargetState", file: PLAN_EXAMPLES },
-    { name: "planEditing", file: PLAN_EXAMPLES },
+    { name: "planRowDrop", file: PLAN_EXAMPLES, panes: ["start"] },
     { name: "planEvents", file: EVENTS },
     { name: "planPrintWorks", file: EVENTS, panes: ["start", "end"] },
     { name: "planLibrary", file: EVENTS, panes: ["start"] },
@@ -190,7 +190,7 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
 
     // A slice and its segments; editing over a keyed paged source, its key
     // search in the row — each folding on its own ladder.
-    for (const name of ["planTargetState", "planEditing"]) {
+    for (const name of ["planTargetState", "planRowDrop"]) {
         test(`${name}: one 44px row from 1440px to 360px — nothing past its edge, nothing scrolled — folded as far as its own ladder says, the rail first and the history last, never less at a narrower frame`, async ({ page }) => {
             test.setTimeout(120_000);
             const entry = await openExample(page, name);
@@ -239,8 +239,8 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         });
     }
 
-    test("planEditing, at 360px: no review in the row — the key search an icon that opens its box in a popover with the focus in it, the history beside it", async ({ page }) => {
-        const entry = await openExample(page, "planEditing");
+    test("planRowDrop, at 360px: no review in the row — the key search an icon that opens its box in a popover with the focus in it, the history beside it", async ({ page }) => {
+        const entry = await openExample(page, "planRowDrop");
         const box = entry.locator("[data-plan-frame]").first().locator("xpath=..");
         await sizeTo(page, box, 360);
         const toolbar = entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']");

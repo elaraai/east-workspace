@@ -398,9 +398,9 @@ history bar or the keyboard, and applied as one checked batch.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `review={{ onApprove, onReject }}` | name the entry's `ApprovalStateType` field on the reviewed series — `review: { verdict: "approval" }` — and give the root `editing`. Approve / Reject draft the entry with the field set, and the row shows the field as its approval | `planReview`, `planEditing` |
+| `review={{ onApprove, onReject }}` | name the entry's `ApprovalStateType` field on the reviewed series — `review: { verdict: "approval" }` — and give the root `editing`. Approve / Reject draft the entry with the field set, and the row shows the field as its approval | `planReview` |
 | `review={{ onApproveAll, onRejectAll }}` | nothing more: Approve all / Reject all is one gesture over every row the canvas holds that takes a verdict — on a paged canvas the loaded rows, and the foot says how many | `planReview` |
-| `onDrag={fn(DragEvent)}` | `edit: { items, create }` on each series a card may land on (span / buckets / cards / events): `items` names the entry's `Array` field, and `create` builds the item from the `Plan.Types.Drop`, the entry and its key. `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop`, `planEditing` |
+| `onDrag={fn(DragEvent)}` | `edit: { items, create }` on each series a card may land on (span / buckets / cards / events): `items` names the entry's `Array` field, and `create` builds the item from the `Plan.Types.Drop`, the entry and its key. `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop` |
 | a callback writing the verdict or the dropped item into `State` | `editing={{ onUpdate: handle.write }}` with `data={handle}` — the inline adapter applies each batch over the handle's latest `Dict` — or `onApply` for a host transaction | `planReview`, `planRowDrop` |
 | `approval: r => some(r.approval)` feeding the buttons of a verdict the canvas takes | `review: { verdict: "approval" }`; `approval` stays for a verdict the canvas only shows. Giving both fails the build | `planReview` |
 
@@ -546,7 +546,8 @@ Plan.series.span(Press, {
 - **Discard.** Discard drops every draft and clears the history, as on the
   Sheet; it is not itself undone.
 - **No `id` needed.** The canvas's own elements move whether or not the root
-  declares an `id`; a Library's card still lands only on a canvas that does.
+  declares an `id`; a Library's card beside the Plan still lands only on a
+  canvas that does (its own library panel's cards need none, #1259).
 - **Narrow layout.** The card layout takes no moves. Drops and verdicts are
   unchanged.
 
@@ -592,7 +593,7 @@ case stays so a journal of earlier patch events still reads.
 | a series' `review` and `approval` | leave them out; a row's `status` still shows its dot |
 | a hand-built row's `approval` | leave it out |
 | `Schedule.events(record, { review })` | leave it out; the inspector edits the field through the kind's `fields`, like any other |
-| the `planReview` example | `planEditing`: every change a draft, saved together |
+| the `planReview` example | `planRowDrop`: every change a draft, saved together |
 
 Each is refused at build, naming the removal.
 
@@ -606,6 +607,26 @@ Each is refused at build, naming the removal.
 - The history item's commit reads Save (`EditingMessages.apply`), as it does
   in every builder: the Plan, the Sheet, the SnapGrid's editing canvas and the
   query builder.
+
+## The library panel is the palette (#1259)
+
+An author's tab (`Plan.library.tab`) is a palette: its cards drag onto the
+rows of `data` whose series makes an item of a card (`edit.create`), by the
+pointer or carried from the keyboard, as a `<Library>`'s card beside the Plan
+does. The drop is the same `add` — `from.library` the tab's
+(`plan.library:tab:<name>`, or `plan.library.<id>:tab:<name>` under an `id`)
+and `from.key` the card's row key as text — so `canDrop` and `create` read it
+unchanged. The Plan takes
+its own panel's cards with no `id` or `sources`; a Library beside it still
+reaches it by both. A tab's cards drag while a row of the canvas takes one,
+outside the narrow layout, which draws no row to drop on. The wire does not
+change.
+
+| Before | Now | Example |
+|---|---|---|
+| a `<Library>` above the Plan, its cards reaching it by `id` and `sources` | `library={[Plan.library.tab(cards, { name, label, meta?, group? })]}` — the Plan's own panel | `planRowDrop` |
+| the `planEditing` example | `planRowDrop`: the panel's cards, moves and resizes, a hall's presses drafting the hall, `ready` and the gesture journal in the footer | `planRowDrop` |
+| the `planEventRefs` example | `planEventLinks`: links between events, beside a read-only table over a dataset | `planEventLinks` |
 
 ## Paged data is bound-only (#849)
 
@@ -803,13 +824,13 @@ gutter-imposing stack container any more.
 |---|---|
 | `ganttBasic` | `planSeriesData`, `planSpanRows` |
 | `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planSpanRows` (lifecycle flavours), `planFill` (fill + 200-row stress), `planTargetState` |
-| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Save commits it); `planEditing` (runs move and resize, #825) |
+| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft, and runs move and resize, #825; Save commits them) |
 | `ganttReview` | none: review is removed (#1260) |
 | `ganttLibraryDnd` | `planRowDrop` |
 | `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |
 | `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
 | `plannerReview` | none: review is removed (#1260) |
-| `plannerLibraryDnd` (add + veto + review loop) | `planEditing` (drops, moves and resizes in one session), `planRowDrop` |
+| `plannerLibraryDnd` (add + veto + review loop) | `planRowDrop` (drops from the Plan's library panel, moves and resizes in one session) |
 | `plannerSpan` | `planSpanRows` |
 | `plannerFill` | `planFill` |
 | `alignedStackAll` | `planTargetState` (all kinds, one axis), `planChartRows` (chart compositions) |

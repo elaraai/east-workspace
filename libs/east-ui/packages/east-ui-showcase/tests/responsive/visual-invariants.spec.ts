@@ -64,7 +64,7 @@ async function paintedLines(page: Page, at: Box): Promise<number[]> {
 const RULED = [
     "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
     "planFold", "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
-    "planLibraryDnd", "planRowDrop", "planFill", "planEditing", "planUiState", "planExpand",
+    "planLibraryDnd", "planRowDrop", "planFill", "planUiState", "planExpand",
     "planNumberAxis", "planOrdinalAxis",
 ];
 
@@ -732,15 +732,17 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * host's own range: the Plan's wide layout holds down to 850px (below it the
  * showcase's column is under its narrow breakpoint), its resolution folding
  * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box;
- * a Plan with editing over a keyed paged source (#1193) folds its key search
- * into its icon, through the narrow layout, its history last. The SnapGrid editor and Studio's
+ * a Plan with editing over a keyed paged source, its palette its library
+ * (#1193, #1259), is swept through its narrow layout, which its library's rail
+ * brings on at 800px: there its grain segment goes, and the items that stay
+ * fold no less than they did wider, its history last. The SnapGrid editor and Studio's
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
  * (#1229).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
-    { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planEditing`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
     { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
@@ -979,7 +981,7 @@ test.describe("Visual invariants — toolbars", () => {
             const up = [...host.widths].reverse();
             // Down, up, and across — each width reached from both sides and from far away.
             const order = [...down, ...up, down[down.length - 1]!, down[0]!, down[Math.floor(down.length / 2)]!];
-            const folds: { row: number; folds: number }[] = [];
+            const folds: { row: number; state: ToolbarState }[] = [];
             for (const width of order) {
                 await startPainting(entry);
                 await page.setViewportSize({ width, height: 900 });
@@ -1009,10 +1011,10 @@ test.describe("Visual invariants — toolbars", () => {
                 const wrong = [...new Set(painted.filter((p) => Math.abs(p.row - read.row) <= 0.5 && p.sig !== sig).map((p) => p.sig))];
                 if (wrong.length > 0) bad.add(`at ${width}px: painted ${wrong.map((s) => `"${s.slice(0, 60)}"`).join(", ")} before resting on "${sig.slice(0, 60)}"`);
                 if (read.clipped.length > 0) bad.add(`at ${width}px: clipped at the row's edge — ${read.clipped.join(", ")}`);
-                folds.push({ row: read.row, folds: read.folds });
                 // What it folded is a prefix of its ladder: each item at the form
                 // the ladder's first `folds` steps put it.
                 const state = parseState(read.state);
+                folds.push({ row: read.row, state });
                 const ladder = parseLadder(read.ladder);
                 const prefix = ladder.slice(0, read.folds);
                 for (const [key, { form }] of state) {
@@ -1035,12 +1037,18 @@ test.describe("Visual invariants — toolbars", () => {
                     });
                 }
             }
-            // Monotone: a narrower row never folds less than a wider one.
+            // Monotone, item by item: a narrower row never shows an item less
+            // folded than a wider row does, nor an item the wider row has not —
+            // a Plan's narrow layout draws fewer items, never more (#1259). Over
+            // one set of items, this is its fold count never falling.
             const sorted = [...folds].sort((a, b) => b.row - a.row);
             sorted.forEach((f, i) => {
                 const wider = sorted[i - 1];
-                if (wider !== undefined && wider.row > f.row + 0.5 && f.folds < wider.folds) {
-                    bad.add(`a ${f.row.toFixed(0)}px row folds ${f.folds} steps, fewer than the ${wider.row.toFixed(0)}px row's ${wider.folds}`);
+                if (wider === undefined || wider.row <= f.row + 0.5) return;
+                for (const [key, { form }] of f.state) {
+                    const was = wider.state.get(key);
+                    if (was === undefined) bad.add(`a ${f.row.toFixed(0)}px row draws ${key}, which the ${wider.row.toFixed(0)}px row does not`);
+                    else if (form < was.form) bad.add(`a ${f.row.toFixed(0)}px row has ${key} at form ${form}, less folded than the ${wider.row.toFixed(0)}px row's ${was.form}`);
                 }
             });
             expect([...bad]).toEqual([]);

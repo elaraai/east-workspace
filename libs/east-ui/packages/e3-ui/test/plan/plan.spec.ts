@@ -56,7 +56,6 @@ describeEast("Plan", (test) => {
         planLibraryDnd: ex.planLibraryDnd,
         planRowDrop: ex.planRowDrop,
         planFill: ex.planFill,
-        planEditing: ex.planEditing,
         planUiState: ex.planUiState,
         // Was never wired — the example shipped without ever being executed.
         planExpand: ex.planExpand,

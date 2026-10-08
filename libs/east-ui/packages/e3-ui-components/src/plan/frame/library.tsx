@@ -33,11 +33,14 @@
  *   pane is a rail with the backlog's count, or the first tab's when the
  *   library lists no Backlog tab (PB26).
  *
- * Templates, backlog events, and the cards of an author's tab with a `drop`,
- * are drag sources from the libraries `${planKeys(id).library}:events`,
- * `…:backlog` and `…:tab:<its name>`: a template's or an event's card keyed by
- * its kind and key as East prints a `Schedule.Types.EventRef`, an author's by
- * its row's key as text. What the Plan takes dropped is #1196's.
+ * Templates, backlog events, and the cards of an author's tab — with a `drop`,
+ * or while a row of the canvas takes a card — are drag sources from the
+ * libraries `${planKeys(id).library}:events`, `…:backlog` and `…:tab:<its
+ * name>`: a template's or an event's card keyed by its kind and key as East
+ * prints a `Schedule.Types.EventRef`, an author's by its row's key as text. An
+ * author's card lands on a row whose series makes an item of a card (#1259),
+ * as a Library's card beside the Plan does, by the pointer or the keyboard;
+ * what the event kinds take dropped is #1196's.
  *
  * @packageDocumentation
  */
@@ -118,6 +121,8 @@ export interface PlanLibraryProps {
     now: Date;
     /** The Plan's words. */
     words: PlanWords;
+    /** Whether a row of the canvas takes a card from an author's tab (#1259): its cards drag then. */
+    takesCards: boolean;
 }
 
 /** A card with nothing but its face: no media, byline, action, facets or secondary facts. */
@@ -224,10 +229,10 @@ function seriesPickOf(
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, and the words
+ * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, and whether a row takes an author's card
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
-export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words }: PlanLibraryProps): BuilderFrameDock | undefined {
+export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards }: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     const noun = useCallback((tab: PlanLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: PlanLibraryTabWord, name: string) => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
@@ -349,6 +354,8 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
         [seriesLines, pick, keys.series, hidden, onHidden]);
 
     // ── An author's tabs: their cards, a click selecting one (PB62) ──────
+    // A tab's cards drag when it has a `drop`, or while a row of the canvas
+    // takes a card (#1259).
     // The card each tab's click selected, by the tab's key.
     const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map());
     const onAuthorCard = useCallback((tabKey: string, key: string) => {
@@ -377,7 +384,7 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
                     icon: icon === undefined ? none : some(icon),
                     status: none,
                     trailing: none,
-                    draggable: tab.drop.type === "some",
+                    draggable: tab.drop.type === "some" || takesCards,
                     filtered: false,
                     placed: chosen !== undefined && stringEqual(chosen, c.key),
                     search: some([c.key, c.label, meta ?? ""].join(" · ")),
@@ -388,7 +395,7 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
             noun: noun("tab"),
             onCardClick: some((key: string) => { onAuthorCard(tabKey, key); return null; }),
         })];
-    })), [authorTabs, picked, keys, m, noun, onAuthorCard]);
+    })), [authorTabs, picked, keys, m, noun, onAuthorCard, takesCards]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (PB61).

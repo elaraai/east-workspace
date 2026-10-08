@@ -77,7 +77,7 @@ async function newViewTab(entry: Locator, page: Page, name: string): Promise<voi
  */
 const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Gesture[]; wide?: readonly Gesture[] }> = [
     { name: "planTargetState", hash: `${PLAN_EXAMPLES}/planTargetState` },
-    { name: "planEditing", hash: `${PLAN_EXAMPLES}/planEditing` },
+    { name: "planRowDrop", hash: `${PLAN_EXAMPLES}/planRowDrop` },
     {
         name: "sheetWorkshop", hash: "e3/sheet/sheet/sheetWorkshop",
         phone: [{
