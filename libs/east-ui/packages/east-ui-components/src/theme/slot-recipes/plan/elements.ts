@@ -16,7 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
-import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
@@ -75,6 +75,8 @@ export const elementsBase = {
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "transparent", color: "fg.muted" },
         }),
+        // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
+        ...planElementDrafted,
         // over-dwell / flagged — the warn ring rides any state.
         "&[data-stuck]": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
         // An event in an overlap pair (#1198) — the same warn ring; a
@@ -216,6 +218,8 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
+        // An event's decision mark its drafts changed (#1196): the tint's ring round its own.
+        "&[data-draft]": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_DRAFT_HALO}` },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
@@ -358,6 +362,8 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "5px", height: "5px"},
+        // An event its drafts changed (#1196): the tint's ring, round the dot.
+        "&[data-draft]": { boxShadow: PLAN_DRAFT_HALO },
         // An event in an overlap pair (#1198): the warn ring, round the dot.
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         ...grab,
@@ -365,7 +371,8 @@ export const elementsBase = {
         ...planElementFocus,
     },
     // An exception's triangle draws no overlap ring: it is the warn mark
-    // already, and a ring round a border-drawn triangle is its square box.
+    // already, and a ring round a border-drawn triangle is its square box —
+    // nor a drafted one's (#1196), for the same box.
     exceptionTri: {
         position: "absolute",
         width: 0,
@@ -419,8 +426,10 @@ export const elementsBase = {
         // (see `EventsRow`) and this element never mounts collapsed. The
         // rule stays as a backstop for any path that does mount one.
         "&[data-ctx]": { display: "none" },
-        // An event's mark wears its kind's icon (#1192): in an overlap pair
-        // (#1198), the warn ring round it.
+        // An event's mark wears its kind's icon (#1192): its drafts changed
+        // (#1196), the tint's ring round it; in an overlap pair (#1198), the
+        // warn ring.
+        "&[data-draft]": { boxShadow: PLAN_DRAFT_HALO },
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         ...grab,
         ...planElementSelected,

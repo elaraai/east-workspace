@@ -607,20 +607,21 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
         .map((kind) => ({ kind, n: events.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
         .filter(({ n }) => n > 0);
     const selectedKinds = counted.map(({ kind }) => kind);
-    // The bulk edit's state and resource, as the form draws a choice and a reference.
+    // The bulk edit's state and resource, as the form draws a choice and a reference: each an
+    // Option — Not set where the events differ — its spec's type the Option, as the form reads one.
     const specs = useMemo((): FieldSpecValue[] => {
         const out: FieldSpecValue[] = [];
         if (selectedKinds.some((kind) => kind.roles.state.type === "some")) {
             out.push({
                 path: ["state"], label: m.inspectorFact({ fact: "state" }), help: none, group: none,
-                type: toEastTypeValue(STATE_CHOICE), optional: true,
+                type: toEastTypeValue(OptionType(STATE_CHOICE)), optional: true,
                 editor: variant("select", STATES.map((state) => ({ case: state, label: m.state({ state }) }))),
             });
         }
         if (selectedKinds.some((kind) => kind.takes.length > 0)) {
             out.push({
                 path: ["resource"], label: m.inspectorFact({ fact: "resource" }), help: none, group: none,
-                type: toEastTypeValue(StringType), optional: true, editor: variant("reference", { of: "resource" }),
+                type: toEastTypeValue(OptionType(StringType)), optional: true, editor: variant("reference", { of: "resource" }),
             });
         }
         return out;

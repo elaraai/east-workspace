@@ -295,14 +295,39 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     movePickedUp: (p: { item: string; target: string; span: string }) => string;
     /** Where a carried element would land now. */
     moveOver: (p: { item: string; target: string; span: string }) => string;
-    /** Where the canvas's `canDrop` refuses a carried element. */
-    moveRefused: (p: { item: string; target: string; span: string }) => string;
+    /** Where the canvas's `canDrop` refuses a carried element — and why, when the event kinds' drag says (#1196). */
+    moveRefused: (p: { item: string; target: string; span: string; reason?: string | undefined }) => string;
     /** A carried element dropped. */
     moveDropped: (p: { item: string; target: string; span: string }) => string;
     /** A carried element whose move could not be written — nothing changed. */
     moveFailed: (p: { item: string }) => string;
     /** A carry cancelled — the element stays where it was. */
     moveCancelled: (p: { item: string }) => string;
+
+    // ── The event kinds' drag and drop (#1196) ─────────────────────────────
+    /**
+     * What the ghost says a drop does — `Brochure run · Press A1 · Mon, Oct 12,
+     * 2026`: what lands (a template's name, an event's title, or `3 events`),
+     * where (a resource's name, or `Unassigned`), and the day it starts, its
+     * time after it when it has one (`· 06:00`).
+     */
+    dropCaption: (p: { what: string; where: string; day: string; time: string | undefined }) => string;
+    /** Why an event can't land on a row: its kind is placed on other resource kinds — `Needs presses`, their names lowercased; none, on no resource. */
+    dropNeeds: (p: { resources: readonly string[] }) => string;
+    /** Why an event can't change now: its kind's record is not read yet, or a Save of it is under way — `kind` its name. */
+    dropBusy: (p: { kind: string }) => string;
+    /** Why a drop the kind's own write refuses can't land. */
+    dropRefused: () => string;
+    /** An author's card over an event of its patch's kind — `Harbour Arts Society → Spring catalogue`. */
+    dropCardOnEvent: (p: { card: string; event: string }) => string;
+    /** An author's card anywhere but an event — `Drop a customer onto an event`: `fields` the fields its patch sets. */
+    dropCardNeedsEvent: (p: { fields: readonly string[] }) => string;
+    /** An author's card over an event of another kind — `Stops take no customer`: `kind` that kind's name, `fields` the fields the patch sets. */
+    dropKindTakesNo: (p: { kind: string; fields: readonly string[] }) => string;
+    /** An event over the Backlog tab, which unschedules it — `Spring catalogue → Backlog`. */
+    dropUnschedule: (p: { what: string }) => string;
+    /** An event over the Backlog tab whose kind has no backlog — its times are no Options: `Stops have no backlog`. */
+    dropNoBacklog: (p: { kind: string }) => string;
 
     // ── The narrow layout (§10) ────────────────────────────────────────────
     /** The Groups tab. */
@@ -450,6 +475,25 @@ const FOCUS_TAG: Record<PlanFocusTagWord, string> = {
 const listed = (parts: ReadonlyArray<string | undefined>): string =>
     parts.filter((p): p is string => p !== undefined && p !== "").join(", ");
 
+/** Words joined as English reads a list — `a`, `a or b`, `a, b or c` (`and` in place of `or` when asked). */
+const joined = (words: readonly string[], last: "or" | "and"): string =>
+    words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} ${last} ${words[words.length - 1]}`;
+
+/** The fields a card's patch sets, as a noun — `customer`, `customer and stock` (an underscore a space); a patch that sets none, `card`. */
+const fieldNoun = (fields: readonly string[]): string =>
+    fields.length === 0 ? "card" : joined(fields.map((f) => f.replace(/_/g, " ")), "and");
+
+/** A noun with its article — `a customer`, `an address`. */
+const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+
+/** A kind's name in the plural, as English makes one — `Stop` → `Stops`, `Delivery` → `Deliveries`; a name that ends in `s` stays. */
+const pluralName = (name: string): string => {
+    if (/s$/i.test(name)) return name;
+    if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
+    if (/(x|z|ch|sh)$/i.test(name)) return `${name}es`;
+    return `${name}s`;
+};
+
 /**
  * The Plan's English messages — the default table.
  */
@@ -586,10 +630,20 @@ export const planMessages: PlanMessages = {
         "Space drops it, and Escape cancels.",
     movePickedUp: ({ item, target, span }) => `Picked up ${item}: ${target}, ${span}`,
     moveOver: ({ item, target, span }) => `${item}: ${target}, ${span}`,
-    moveRefused: ({ item, target, span }) => `${item} cannot be dropped on ${target}, ${span}`,
+    moveRefused: ({ item, target, span, reason }) => `${item} cannot be dropped on ${target}, ${span}${reason !== undefined && reason !== "" ? ` — ${reason}` : ""}`,
     moveDropped: ({ item, target, span }) => `Dropped ${item} on ${target}, ${span}`,
     moveFailed: ({ item }) => `${item} could not be moved`,
     moveCancelled: ({ item }) => `${item} was not moved`,
+
+    dropCaption: ({ what, where, day, time }) => `${what} · ${where} · ${time === undefined ? day : `${day} · ${time}`}`,
+    dropNeeds: ({ resources }) => (resources.length === 0 ? "Goes on no resource" : `Needs ${joined(resources, "or")}`),
+    dropBusy: ({ kind }) => `${kind} can't change now`,
+    dropRefused: () => "Can't go here",
+    dropCardOnEvent: ({ card, event }) => `${card} → ${event}`,
+    dropCardNeedsEvent: ({ fields }) => `Drop ${withArticle(fieldNoun(fields))} onto an event`,
+    dropKindTakesNo: ({ kind, fields }) => `${pluralName(kind)} take no ${fieldNoun(fields)}`,
+    dropUnschedule: ({ what }) => `${what} → Backlog`,
+    dropNoBacklog: ({ kind }) => `${pluralName(kind)} have no backlog`,
 
     tabGroups: () => "Groups",
     tabRows: () => "Rows",

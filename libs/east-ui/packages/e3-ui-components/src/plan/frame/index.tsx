@@ -45,7 +45,9 @@
  *   event overlaps. They never block Save;
  * - **the panes** — the library in the start pane when the Plan's `library`
  *   lists a tab (#1195, `library.tsx`) — an author's tab's cards dragging onto
- *   the rows that take a card (#1259) — and the inspector in the end pane when
+ *   the rows that take a card (#1259) or onto an event of their patch's kind,
+ *   the templates and the backlog's events onto the event kinds' rows, and an
+ *   event back onto the Backlog tab (#1196) — and the inspector in the end pane when
  *   it is given `inspector` — what is selected on the canvas (#1197,
  *   `inspector.tsx`): optional props, no prop, no pane. Their open tab and
  *   collapsed state persist under the Plan's `id` (`planKeys(id).frame`,
@@ -68,7 +70,7 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
     BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
@@ -126,6 +128,17 @@ const NO_LIBRARY: PlanLibraryTabs = [];
 const libraryEqual = equalFor(PlanPayloadType.fields.library);
 /** Whether two lists of resource kinds name the same resources. */
 const resourcesEqual = equalFor(PlanPayloadType.fields.resources);
+/** Whether two drop vetoes are one: by their IR and what they capture (#809). */
+const canDropEquivalent = equivalentFor(PlanPayloadType.fields.canDrop);
+
+/** The event kinds' drop veto, when the payload has one. */
+type PlanEventCanDrop = PlanValue["canDrop"];
+
+/** No veto: every drop the event kinds take lands. */
+const NO_VETO: PlanEventCanDrop = none;
+
+/** No event kind has an event on the canvas. */
+const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
 
 /** Whether two event-rows props read the same rows. */
 function sameEventRows(a: PlanEventRows | undefined, b: PlanEventRows | undefined): boolean {
@@ -172,15 +185,17 @@ export interface EastChakraPlanProps {
     inspector?: boolean | undefined;
     /** When the event kinds' drafts go (#1194) — the payload's settings carry it: on Save (`batch`, the default), or as each gesture lands. */
     applyMode?: "batch" | "auto" | undefined;
+    /** The event kinds' drop veto (#1196) — the payload carries it: where a drop would put an event, to the refusal's message. */
+    canDrop?: PlanEventCanDrop | undefined;
 }
 
 /**
  * Renders the Plan in its frame — see the module docs.
  *
- * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, and when the event kinds' drafts go
+ * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, when the event kinds' drafts go, and their drop veto
  * @returns The Plan, in its frame
  */
-export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given, inspector, applyMode }: EastChakraPlanProps) {
+export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => planKeys(id), [id]);
@@ -198,8 +213,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
     const eventKinds = useMemo(() => (kinds ?? NO_KINDS).map((kind) => kind.key), [kinds]);
     // The panel's own tabs whose cards land on the rows (#1259): the author's.
     const panel = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tabLibrary(keys, tab.value)] : [])), [library, keys]);
-    // Each event kind a session over its record, under one history with `data`'s (#1194).
-    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode });
+    // Each event kind a session over its record, under one history with `data`'s (#1194), its drags on the canvas (#1196).
+    const veto = useMemo(() => getSomeorUndefined(canDrop ?? NO_VETO), [canDrop]);
+    const canvas = usePlanCanvas({
+        value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode,
+        resources: resources ?? NO_RESOURCES, tabs: library, canDrop: veto,
+    });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resources ?? NO_RESOURCES} library={library}
             inspector={inspector === true} hidden={hidden} onHidden={onHidden} />,
@@ -207,6 +226,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
     && (prev.inspector === true) === (next.inspector === true)
     && (prev.applyMode ?? "batch") === (next.applyMode ?? "batch")
+    && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
     && (prev.resources === next.resources || resourcesEqual(prev.resources ?? NO_RESOURCES, next.resources ?? NO_RESOURCES))
@@ -244,7 +264,10 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const [mounted] = useState(() => new Date());
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
-    const start = usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true });
+    const start = usePlanLibrary({
+        library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
+        drafts: chrome?.events?.drafts, takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
+    });
     // Counted with every kind's drafts in place (#1194).
     const counts = usePlanEventCounts(kinds, chrome?.scale, chrome?.events?.drafts);
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
@@ -323,7 +346,8 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
         (): PlanEventRows | undefined => (value.blocks.type === "some" ? { blocks: value.blocks.value, count: resourceKinds + 1 } : undefined),
         [value.blocks, resourceKinds]);
     return <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
-        resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type} />;
+        resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
+        canDrop={value.canDrop} />;
 }, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(PlanComponent, EastChakraPlanPayload);

@@ -22,25 +22,38 @@
  * a canvas that cannot act on it. `canDrop` still vets every drop — at the
  * pointer, and once more before it is delivered — before it becomes a draft.
  *
+ * Beside a Plan's event kinds (#1196) the canvas takes their drags too: the
+ * Events and Backlog tabs' cards and an author's tab's cards with a `drop`, a
+ * card dropped on an event kind's row; the kinds' elements moved and resized
+ * on their rows; and an element returned to the Backlog tab, which the
+ * surface names as the one library its elements return to — with no trash
+ * zone, since nothing of the canvas's is thrown away by a drag. The event
+ * kinds judge each and say why not on the ghost (`edit/event-drag.ts`).
+ *
  * @packageDocumentation
  */
 
 import { useId, useMemo } from "react";
-import { getSomeorUndefined, useDragTarget, type DragEventValue } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, useDragTarget, type DragEventValue, type DragMeta, type DragTargetConfig } from "@elaraai/east-ui-components";
 import { useIRCanDrop, type CanDropFn } from "@elaraai/east-ui-components/internal";
+import type { PlanEventDrop } from "../edit/event-drag.js";
 import type { PlanRootValue } from "../model.js";
 import type { PlanRowDrop } from "../rows/RowShell.js";
 
+/** No library: `data`'s rows take no card. */
+const NO_LIBRARIES: readonly string[] = [];
+
 /**
- * Register the canvas as a drop target while its editing session takes a
- * gesture — named by its `id`, or by a surface of its own when it declares
- * none.
+ * Register the canvas as a drop target while `data`'s editing session or its
+ * event kinds take a gesture — named by its `id`, or by a surface of its own
+ * when it declares none.
  *
  * @param value - The latest root (its `id`, `canDrop`)
  * @param sources - The library ids beside the Plan accepted for `add` drags (data-stable)
  * @param panel - The library ids of the Plan's own panel tabs whose cards land on its rows (data-stable)
- * @param onDrop - Where a completed drag goes — a card's drop, an element's move or resize (stable)
- * @param enabled - Whether the editing session takes a gesture now
+ * @param onDrop - Where a completed drag goes — a card's drop, an element's move or resize, an element's return — answering whether it was taken (stable)
+ * @param data - Whether `data`'s editing session takes a gesture now
+ * @param events - The event kinds' drag and drop (#1196), for a Plan of event kinds
  * @returns The per-row drop registration every droppable row shares, or
  *   `undefined` when the canvas is not a target
  */
@@ -48,18 +61,26 @@ export function usePlanDropTarget(
     value: PlanRootValue,
     sources: readonly string[],
     panel: readonly string[],
-    onDrop: (event: DragEventValue) => void,
-    enabled: boolean,
+    onDrop: (event: DragEventValue, meta?: DragMeta) => boolean,
+    data: boolean,
+    events?: PlanEventDrop,
 ): PlanRowDrop | undefined {
     const own = useId();
+    const enabled = data || events !== undefined;
     const declared = enabled ? getSomeorUndefined(value.id) : undefined;
     const id = enabled ? declared ?? `plan-canvas${own}` : undefined;
-    // The libraries whose cards land: the panel's own tabs, always (#1259); a
-    // Library beside the Plan, by the canvas's declared id alone.
+    // The libraries whose cards land on `data`'s rows, while its session takes
+    // them: the panel's own tabs, always (#1259); a Library beside the Plan, by
+    // the canvas's declared id alone.
+    const dataLibraries = useMemo(
+        () => (!data ? NO_LIBRARIES : declared !== undefined ? [...panel, ...sources] : [...panel]),
+        [data, declared, panel, sources]);
+    // Every library whose cards the canvas takes: `data`'s, and the event kinds' (#1196).
     const accepted = useMemo(
-        () => (declared !== undefined ? [...panel, ...sources] : [...panel]),
-        [declared, panel, sources]);
-    const cards = accepted.length > 0;
+        () => [...new Set([...dataLibraries, ...(events?.libraries ?? NO_LIBRARIES)])],
+        [dataLibraries, events]);
+    const cards = dataLibraries.length > 0;
+    const libraries = useMemo(() => new Set(dataLibraries), [dataLibraries]);
     const canDropFn = useMemo(
         () => getSomeorUndefined(value.canDrop) as CanDropFn | undefined,
         [value.canDrop],
@@ -67,19 +88,28 @@ export function usePlanDropTarget(
     // The canvas's veto — the verdict-caching bridge every target shares, so
     // a drag resting over a bucket asks the predicate once, not per move.
     const veto = useIRCanDrop(canDropFn);
-    const targetConfig = useMemo(() => (id !== undefined ? {
+    const targetConfig = useMemo((): DragTargetConfig | null => (id !== undefined ? {
         id,
         sources: accepted,
         // A card lands (`add`); the canvas's own elements move and resize on
         // it (#825) — each row says which it takes (`RowShell`'s `accepts`).
-        kinds: { add: cards, move: true, resize: true },
+        // An event kind's element returns to the Backlog tab (#1196), and to
+        // nowhere else: no trash zone shows.
+        kinds: { add: accepted.length > 0, move: true, resize: true, remove: events !== undefined, trash: false },
+        ...(events !== undefined ? {
+            returns: {
+                libraries: [events.backlog],
+                canDrop: (event: DragEventValue, library: string) => events.returning(event, library).allowed,
+                caption: (event: DragEventValue, library: string) => events.returning(event, library).caption,
+            },
+        } : {}),
         onDrag: onDrop,
-    } : null), [id, accepted, cards, onDrop]);
+    } : null), [id, accepted, events, onDrop]);
     useDragTarget(targetConfig);
     // One registration shared by every droppable row — the per-row part of
     // the coordinate is the row itself, which `RowShell` already knows.
     return useMemo<PlanRowDrop | undefined>(
-        () => (id !== undefined ? { surface: id, cards, canDrop: veto } : undefined),
-        [id, cards, veto],
+        () => (id !== undefined ? { surface: id, cards, libraries, data, canDrop: veto, events } : undefined),
+        [id, cards, libraries, data, veto, events],
     );
 }

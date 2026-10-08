@@ -19,7 +19,10 @@
  * Where it would land draws as the target row's landing band, the element
  * itself dims, and each step is said in the carry's live region: the row and
  * the span, or that the canvas's `canDrop` refuses it there — asked of the
- * very event the drop would deliver, as the pointer's drag is.
+ * very event the drop would deliver, as the pointer's drag is. An event kind's
+ * element (#1196) is judged by the event kinds' drag instead, which says why
+ * it refuses, as its ghost does; the steps it is carried are the units its
+ * event's times move by, and a selection's with it.
  *
  * The carry is the canvas's, not the drag layer's keyboard sensor's (#608):
  * the layer's arrows move a resting point between cells, which cannot say
@@ -55,6 +58,20 @@ export interface PlanMoveRequest {
     origin: "move" | "resize";
     /** Its name, for the transaction's label. */
     label: string;
+    /** The element as it was picked up (#1196): an event kind's moves its event, and a selection with it. */
+    element?: PlanMovable | undefined;
+    /** The units it moved by — the buckets crossed, or the keyboard's steps (#1196). */
+    units?: number | undefined;
+    /** Whether `units` are Shift's finer ones. */
+    fine?: boolean | undefined;
+}
+
+/** A landing judged by the event kinds' drag (#1196): whether it is taken, and why not. */
+export interface PlanCarryVerdict {
+    /** Whether it lands. */
+    readonly allowed: boolean;
+    /** Why it does not — what its ghost says, in red. */
+    readonly reason: string | undefined;
 }
 
 /** What a gesture did — moved the element, or only one of its ends. */
@@ -147,8 +164,13 @@ export interface PlanCarryDeps {
     veto: DropVeto | undefined;
     /** The rows as the canvas draws them — ↑ / ↓ walk them. */
     rows: readonly VisibleRow[];
-    /** Whether a row takes a moved element of this item type. */
-    takes: (row: PlanRowValue, items: string) => boolean;
+    /** Whether a row takes the moved element: one of its item type, or an event kind's on a resource its kind takes (#1196). */
+    takes: (row: PlanRowValue, movable: PlanMovable) => boolean;
+    /**
+     * The event kinds' verdict over an event kind's element landing (#1196);
+     * `undefined` for an element of `data`'s, which `veto` vets.
+     */
+    judge?: ((movable: PlanMovable, to: PlanProposal) => PlanCarryVerdict | undefined) | undefined;
     /** A row's name. */
     labelOf: (rowKey: RowKey) => string;
     /** Write a move as one gesture — whether it was drafted. */
@@ -181,15 +203,18 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
 
     /** Where the carried element lands now — said, and asked of the veto. */
     const rest = useCallback((carry: PlanCarry, to: PlanProposal, picked: boolean) => {
-        const { store, scale, surface, veto, words, labelOf, rows } = latest.current;
+        const { store, scale, surface, veto, judge, words, labelOf, rows } = latest.current;
         if (scale === undefined || surface === undefined) return;
         // Another row already drawing the element's key cannot take it (#825).
         const target = to.rowKey === carry.movable.rowKey ? undefined : rows.find((v) => v.row.key === to.rowKey)?.row;
+        // An event kind's element is the event kinds' to judge (#1196), and they say why not.
+        const judged = unmoved(carry.movable, to) ? undefined : judge?.(carry.movable, to);
         const refused = (target !== undefined && holdsKey(target, carry.movable.key))
-            || (veto !== undefined && !unmoved(carry.movable, to) && !veto(candidateOf(surface, scale, carry.movable, to)));
+            || (judged !== undefined ? !judged.allowed
+                : veto !== undefined && !unmoved(carry.movable, to) && !veto(candidateOf(surface, scale, carry.movable, to)));
         store.setCarry({ movable: carry.movable, to, refused });
         const p = { item: carry.movable.label, target: labelOf(to.rowKey), span: spanWords(scale, carry.movable, to.span, words) };
-        store.say(picked ? words.m.movePickedUp(p) : refused ? words.m.moveRefused(p) : words.m.moveOver(p));
+        store.say(picked ? words.m.movePickedUp(p) : refused ? words.m.moveRefused({ ...p, reason: judged?.reason }) : words.m.moveOver(p));
     }, []);
 
     const end = useCallback((carry: PlanCarry, dropped: boolean, refocus = true) => {
@@ -204,6 +229,7 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
         const written = move({
             key: movable.key, from: movable.rowKey, to: to.rowKey, span: to.span,
             origin: originOf(movable, to).kind, label: movable.label,
+            element: movable, units: to.units, fine: to.fine,
         });
         if (!written) {
             store.say(words.m.moveFailed({ item: movable.label }));
@@ -239,7 +265,10 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
                 const mode = e.shiftKey ? "end" : e.altKey ? "start" : "move";
                 // A tile or a mark has one instant: no end to move.
                 if (mode !== "move" && !carry.movable.resize) return true;
-                rest(carry, { rowKey: carry.to.rowKey, span: stepSpan(scale, carry.to.span, mode, e.key === "ArrowRight" ? 1 : -1) }, false);
+                const step = e.key === "ArrowRight" ? 1 : -1;
+                // A step of the whole element is a unit its event's times move by (#1196); an end's is not.
+                const units = mode === "move" ? (carry.to.units ?? 0) + step : carry.to.units;
+                rest(carry, { rowKey: carry.to.rowKey, span: stepSpan(scale, carry.to.span, mode, step), units, fine: false }, false);
                 return true;
             }
             case "ArrowUp": case "ArrowDown": {
@@ -248,8 +277,8 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
                 const at = rows.findIndex((v) => v.row.key === carry.to.rowKey);
                 for (let i = at + dir; at >= 0 && i >= 0 && i < rows.length; i += dir) {
                     const row = rows[i]!.row;
-                    if (!takes(row, carry.movable.items)) continue;
-                    rest(carry, { rowKey: row.key, span: carry.to.span }, false);
+                    if (!takes(row, carry.movable)) continue;
+                    rest(carry, { rowKey: row.key, span: carry.to.span, units: carry.to.units, fine: carry.to.fine }, false);
                     reveal(row.key);
                     break;
                 }

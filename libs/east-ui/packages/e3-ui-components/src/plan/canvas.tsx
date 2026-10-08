@@ -18,7 +18,9 @@
  * canvas's own, read over the range it draws (#1192, `root/events.ts`), with
  * every kind's drafts in place: each kind is a session over its record, under
  * one history with `data`'s session (#1194, `edit/events.ts`), which the
- * frame's history item and banners follow.
+ * frame's history item and banners follow. The event kinds' cards and elements
+ * drag onto their rows, and an element back to the Backlog tab (#1196,
+ * `edit/event-drag.ts`); an element its drafts changed wears the drafted look.
  *
  * Everything the canvas remembers between renders lives in ONE framework-free
  * controller (#815, `controller/`): the UI state machine, the paged source's
@@ -73,10 +75,10 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
-import { Plan, ScheduleEventRefType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyShortcut,
-    type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type HistoryAction,
+    type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
     parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore,
@@ -99,6 +101,7 @@ import {
 import type { RowKey } from "./plan-state.js";
 import { entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { usePlanEventEditing } from "./edit/events.js";
+import { drawnKinds, usePlanEventDrag, type PlanEventCanDropFn } from "./edit/event-drag.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
@@ -134,9 +137,10 @@ import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
-import { originOf, unmoved, usePlanCarry } from "./edit/use-carry.js";
+import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
+import { PlanDraftedContext } from "./rows/element-draft.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -156,10 +160,22 @@ const printEventRef = printFor(ScheduleEventRefType);
 /** One event kind, as the Plan's payload carries it (#1190). */
 type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
 
+/** One resource kind, as the Plan's payload carries it (#1190). */
+type PlanResourceKindValue = ValueTypeOf<typeof PlanPayloadType>["resources"][number];
+
+/** One of the library's tabs, as the Plan's payload carries it (#1195). */
+type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number];
+
 /** No event kinds: a Plan of `data` and `rows` alone. */
 const NO_KINDS: readonly PlanEventKindValue[] = [];
 /** No session joins the history beside the event kinds': a Plan whose `data` does not edit. */
 const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
+/** No resource kinds: a Plan of `data` and `rows` alone. */
+const NO_RESOURCES: readonly PlanResourceKindValue[] = [];
+/** No library tabs. */
+const NO_TABS: readonly PlanLibraryTabValue[] = [];
+/** No event kind has an event on the canvas. */
+const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
@@ -214,6 +230,12 @@ export interface PlanCanvasArgs {
     kinds?: readonly PlanEventKindValue[] | undefined;
     /** When the event kinds' drafts go (#1194): on Save (`batch`, the default), or as each gesture lands (`auto`). */
     applyMode?: "batch" | "auto" | undefined;
+    /** The resource kinds (#1196): what the event kinds' rows stand for, by name. */
+    resources?: readonly PlanResourceKindValue[] | undefined;
+    /** The library's tabs (#1196): the author's tabs' cards, which land on an event of their patch's kind. */
+    tabs?: readonly PlanLibraryTabValue[] | undefined;
+    /** The Plan's drop veto over an event kind's drop (#1196): `Schedule.Types.Candidate` to its refusal's message. */
+    canDrop?: PlanEventCanDropFn | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -225,10 +247,13 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, and the event kinds with when their drafts go
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds with when their drafts go, the resource kinds, the library's tabs, and the event kinds' drop veto
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
-export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch" }: PlanCanvasArgs): PlanCanvasParts {
+export function usePlanCanvas({
+    value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch",
+    resources = NO_RESOURCES, tabs = NO_TABS, canDrop,
+}: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
@@ -521,22 +546,43 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     // (`edit/store.ts`). The drag layer is told whether the gesture was
     // drafted: a drop the row's write refused, or a move back to where it
     // began, is announced as not dropped.
+    //
+    // Beside event kinds (#1196) the canvas takes their drags too, each one
+    // step of the Plan's one history through their recorder: a card on an
+    // event kind's row — a template, a backlog event, an author's card on an
+    // event — an event's element moved or resized, and an element returned to
+    // the Backlog tab (`edit/event-drag.ts`).
     const [editStore] = useState(() => new PlanEditStore());
     const { drop: draftDrop, move: draftMove } = editing;
-    const onDrag = useCallback((event: DragEventValue): boolean => {
-        if (event.type === "add") return draftDrop(event);
+    const keys = useMemo(() => planKeys(getSomeorUndefined(hostData.id)), [hostData.id]);
+    const eventDrag = usePlanEventDrag({
+        kinds, resources, tabs, keys, editing: eventEditing, canDrop, scale, words, store: editStore,
+        rowOf: (key) => indexRef.current?.byKey.get(key),
+        selected: () => controller.getSnapshot().store.ui.elements,
+        select: (selected, row) => controller.selectEvents(selected, row ?? null),
+    });
+    const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): boolean => {
+        if (event.type === "add") {
+            // A card on an event kind's row is the event kinds'; on `data`'s, its session's.
+            const row = indexRef.current?.byKey.get(event.value.into.row);
+            if (eventDrag !== undefined && row !== undefined && eventDrag.target(row) !== undefined) return eventDrag.dropCard(event);
+            return draftDrop(event);
+        }
+        // An element returned to the Backlog tab: unscheduled (#1196).
+        if (event.type === "remove") return eventDrag !== undefined && meta?.library !== undefined && eventDrag.returnElement(event, meta.library);
         if (event.type !== "move" && event.type !== "resize") return false;
         const { grab, proposal } = editStore;
         editStore.disarm();
         const row = event.type === "move" ? event.value.to.row : event.value.event.row;
         if (grab === null || proposal === null || proposal.rowKey !== row || unmoved(grab.movable, proposal)) return false;
-        return draftMove({
+        const request: PlanMoveRequest = {
             key: grab.movable.key, from: grab.movable.rowKey, to: proposal.rowKey, span: proposal.span,
             origin: event.type === "resize" ? "resize" : originOf(grab.movable, proposal).kind,
-            label: grab.movable.label,
-        });
-    }, [draftDrop, draftMove, editStore]);
-    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available);
+            label: grab.movable.label, element: grab.movable, units: proposal.units, fine: proposal.fine,
+        };
+        return eventDrag !== undefined && eventDrag.isEvent(grab.movable) ? eventDrag.moveElement(request) : draftMove(request);
+    }, [draftDrop, draftMove, editStore, eventDrag]);
+    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available, eventDrag);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
@@ -817,9 +863,24 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
         () => !narrow && rowDrop?.cards === true && index.rows.some((row) => row.edits.drop
             && DROPPABLE_KINDS.has(row.kind.type) && !derived.diagnostics.has(row.key)),
         [narrow, rowDrop, index, derived]);
+    // Whether the event kinds' cards have a row to land on (#1196): an event
+    // kind's row the canvas draws, outside the narrow layout. The Events and
+    // Backlog tabs' cards drag only then.
+    const takesEvents = useMemo(
+        () => !narrow && rowDrop?.events !== undefined && index.rows.some((row) => DROPPABLE_KINDS.has(row.kind.type)
+            && !derived.diagnostics.has(row.key) && rowDrop.events!.target(row) !== undefined),
+        [narrow, rowDrop, index, derived]);
+    // The event kinds with an event drawn on the canvas (#1196): an author's
+    // card whose patch lands on one of them drags while one is there.
+    const patchKinds = useMemo(
+        () => (narrow || rowDrop?.events === undefined ? NO_KINDS_DRAWN : drawnKinds(index.rows, rowDrop.events)),
+        [narrow, rowDrop, index]);
     const editCtx = useMemo<PlanEditContextValue | null>(() => (scale !== undefined
-        ? { store: editStore, surface: moveSurface, helpId, styles, words, scale }
-        : null), [editStore, moveSurface, helpId, styles, words, scale]);
+        ? {
+            store: editStore, surface: moveSurface, helpId, styles, words, scale,
+            dataMoves: rowDrop?.data === true, eventMove: rowDrop?.events?.rowMove,
+        }
+        : null), [editStore, moveSurface, helpId, styles, words, scale, rowDrop]);
     /** Focus an element where it is now — else its row. */
     const focusElement = useCallback((rowKey: string, key: string) => {
         const bodyEl = focusBodyRef.current;
@@ -833,12 +894,27 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
         else controller.focusItem(rowItemKey(rowKey), "auto");
     }, [controller]);
     // The keyboard's move: Space on an element picks it up (`edit/use-carry.ts`).
+    // An event kind's element is carried onto the rows of the resource kinds
+    // its kind is placed on, and judged by the event kinds (#1196).
     const carry = usePlanCarry({
         store: editStore, scale, words, surface: moveSurface, veto: rowDrop?.canDrop, rows: visible,
-        takes: (row, items) => DROPPABLE_KINDS.has(row.kind.type) && row.edits.move.type === "some"
-            && row.edits.move.value.items === items && !derived.diagnostics.has(row.key),
-        labelOf,
-        move: draftMove,
+        takes: (row, movable) => DROPPABLE_KINDS.has(row.kind.type) && !derived.diagnostics.has(row.key) && (eventDrag?.isEvent(movable) === true
+            ? eventDrag.drawsKind(row, movable)
+            : row.edits.move.type === "some" && row.edits.move.value.items === movable.items),
+        judge: (movable, to) => {
+            if (eventDrag === undefined || !eventDrag.isEvent(movable)) return undefined;
+            const row = index.byKey.get(to.rowKey);
+            const verdict = row !== undefined ? eventDrag.element(row, movable, to) : undefined;
+            return { allowed: verdict?.allowed === true, reason: verdict?.allowed === false ? verdict.caption : undefined };
+        },
+        // An event kind's row by the resource it stands for: a way of drawing after its first is labelled with its kinds.
+        labelOf: (key) => {
+            const row = index.byKey.get(key);
+            return (row !== undefined ? eventDrag?.where(row) : undefined) ?? labelOf(key);
+        },
+        move: (request) => (eventDrag !== undefined && request.element !== undefined && eventDrag.isEvent(request.element)
+            ? eventDrag.moveElement(request)
+            : draftMove(request)),
         reveal: (key) => controller.focusItem(rowItemKey(key), "auto"),
         focus: focusElement,
     });
@@ -849,6 +925,14 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     });
 
     // ── What the frame's parts read ──────────────────────────────────────
+    // The events a kind's drafts changed (#1196), by their elements' keys: each
+    // element of one wears the drafted look. The same set while the drafts hold.
+    const eventDrafts = eventEditing.drafts;
+    const drafted = useMemo(() => {
+        const out = new Set<string>();
+        for (const [kind, byId] of eventDrafts) for (const id of byId.keys()) out.add(printEventRef({ kind, key: id }));
+        return out;
+    }, [eventDrafts]);
     // The canvas's contexts and its declared density wrap everything the
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
@@ -863,11 +947,13 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
+            <PlanDraftedContext.Provider value={drafted}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
                 {children}
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
+            </PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
             </PlanCursorContext.Provider>
@@ -1267,6 +1353,8 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             inspect,
             selectEvents,
             takesCards,
+            takesEvents,
+            patchKinds,
         },
     };
 }
