@@ -537,6 +537,11 @@ const ON_THE_1ST_AND_2ND = new SortedSet([new Date("2026-10-01T00:00:00Z"), new 
 const SEP_30_TO_OCT_2 = new SortedSet([
     new Date("2026-09-30T00:00:00Z"), new Date("2026-10-01T00:00:00Z"), new Date("2026-10-02T00:00:00Z"),
 ], compareFor(DateTimeType));
+const MONDAY_TO_SUNDAY = new SortedSet([
+    new Date("2026-10-05T00:00:00Z"), new Date("2026-10-06T00:00:00Z"), new Date("2026-10-07T00:00:00Z"), new Date("2026-10-08T00:00:00Z"),
+    new Date("2026-10-09T00:00:00Z"), new Date("2026-10-10T00:00:00Z"), new Date("2026-10-11T00:00:00Z"),
+], compareFor(DateTimeType));
+const MONDAY_TO_MONDAY = new SortedSet([...MONDAY_TO_SUNDAY, new Date("2026-10-12T00:00:00Z")], compareFor(DateTimeType));
 const DUE_ON_THE_2ND = new SortedSet([some(new Date("2026-10-02T00:00:00Z"))], compareFor(OptionType(DateTimeType)));
 const DUE_NEVER = new SortedSet([none], compareFor(OptionType(DateTimeType)));
 const FILED_NOWHERE = new SortedSet<ValueTypeOf<OptionType<DateTimeType>>>([], compareFor(OptionType(DateTimeType)));
@@ -550,6 +555,12 @@ describeEast("Schedule.days and Schedule.unscheduled — the keys a record index
         $(Assert.equal(days(new Date("2026-09-30T12:00:00Z"), new Date("2026-10-02T12:00:00Z")), SEP_30_TO_OCT_2));
         // An event of no length touches its start's day.
         $(Assert.equal(days(new Date("2026-10-01T09:00:00Z"), new Date("2026-10-01T09:00:00Z")), ON_THE_1ST));
+    });
+
+    test("a week: Monday's midnight to the next Monday's touches seven days, and run on past it, eight (#1199)", $ => {
+        const days = $.const(Schedule.days);
+        $(Assert.equal(days(new Date("2026-10-05T00:00:00Z"), new Date("2026-10-12T00:00:00Z")), MONDAY_TO_SUNDAY));
+        $(Assert.equal(days(new Date("2026-10-05T06:00:00Z"), new Date("2026-10-12T06:00:00Z")), MONDAY_TO_MONDAY));
     });
 
     test("a backlog index files an unscheduled row by its due date, and a scheduled row nowhere", $ => {

@@ -24,7 +24,8 @@
  * The Plan is an interface. Its payload holds the canvas whole
  * ({@link PlanRootType}) beside the event kinds and resources as Plan takes
  * them (`PlanEventKindType`, `PlanResourcesType`, #1190), the resources' rows
- * over a window (`blocks`, #1192), the event kinds' drop veto, the settings,
+ * over a window (`blocks`, #1192) and a paged resource kind's a window of its
+ * resources at a time (`paged`, #1199), the event kinds' drop veto, the settings,
  * the library's tabs and whether it has an inspector. The `Plan` renderer in
  * `@elaraai/e3-ui-components` draws it.
  *
@@ -55,6 +56,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { CanDropFnType, EastUI, type UIElement } from "@elaraai/east-ui";
+import { resolveRowSource } from "@elaraai/east-ui/internal";
 import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../schedule/types.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
@@ -65,10 +67,10 @@ import { axisKindOf, linkEventKinds } from "./builders.js";
 import { buildPlanRoot, type PlanConfig } from "./root.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
 import { planSeriesKeys } from "./series.js";
-import { PlanEventBlocksType, createEventBlocks, eventDrawsOf } from "./event-rows.js";
+import { PlanEventBlocksType, PlanEventPagedType, createEventBlocks, createEventPaged, eventDrawsOf } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
 
-export { PlanEventBlocksType, PlanEventDraftsType } from "./event-rows.js";
+export { PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType } from "./event-rows.js";
 
 // ============================================================================
 // The Plan's shared keys
@@ -136,6 +138,7 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property resources - The resource kinds, in the order `resources` lists them, their rows resolved
  * @property events - The event kinds, in the order `events` lists them, each closed behind its seams
  * @property blocks - The resources' rows over a window, every kind's drafts in place; `none` while the Plan has no event kinds
+ * @property paged - A paged resource kind's rows, a window of its resources at a time (#1199); `none` while no resource kind has a `window`
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property settings - When the event kinds' drafts go, and the date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
@@ -146,6 +149,7 @@ export const PlanPayloadType = StructType({
     resources: ArrayType(PlanResourcesType),
     events: ArrayType(PlanEventKindType),
     blocks: OptionType(PlanEventBlocksType),
+    paged: OptionType(PlanEventPagedType),
     canDrop: OptionType(PlanEventCanDropType),
     settings: PlanSettingsType,
     library: ArrayType(PlanLibraryTabType),
@@ -352,7 +356,8 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
  *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
- *   placed on it and no measures; a key the Plan gives its event rows that another series has; and everything the canvas
+ *   placed on it and no measures; more than one resource kind with a `window`, or one beside a paged `data` (#1199);
+ *   a key the Plan gives its event rows that another series has; and everything the canvas
  *   refuses ({@link createPlanRoot}). An
  *   axis held in a variable, and links whose kinds are not known at build, are refused in the same words as the Plan
  *   is evaluated
@@ -427,28 +432,33 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     const picked = canvas.pick !== undefined;
     if (events === undefined) {
         const tabs = buildLibrary(library, { resources: [], events: [], rows, picked });
-        return East.value({ plan, resources: [], events: [], blocks: none, canDrop: veto, settings, library: tabs, inspector: false } as never, PlanPayloadType);
+        return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, settings, library: tabs, inspector: false } as never, PlanPayloadType);
     }
     const resourceKinds = Object.entries(resources ?? {});
     const eventKinds = Object.entries(events);
+    checkPagedKinds(resourceKinds, canvas.data);
     checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
     const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked });
     // The payload is assembled in one function, so each kind is built once:
     // the `blocks` seam made inside it captures the very array of event kinds
-    // the payload holds (#1192).
+    // the payload holds (#1192), and so do a paged kind's rows (#1199).
     const assemble = East.function(
         [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType, ArrayType(PlanLibraryTabType)],
         PlanPayloadType,
-        (_$, root, kinds, built, canDropFn, chosen, listed) => East.value({
-            plan: root,
-            resources: kinds,
-            events: built,
-            blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
-            canDrop: canDropFn,
-            settings: chosen,
-            library: listed,
-            inspector: inspected,
-        } as never, PlanPayloadType),
+        (_$, root, kinds, built, canDropFn, chosen, listed) => {
+            const paged = createEventPaged(resourceKinds, eventKinds, built);
+            return East.value({
+                plan: root,
+                resources: kinds,
+                events: built,
+                blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
+                paged: paged === undefined ? none : some(paged),
+                canDrop: canDropFn,
+                settings: chosen,
+                library: listed,
+                inspector: inspected,
+            } as never, PlanPayloadType);
+        },
     );
     return assemble(
         plan,
@@ -510,6 +520,25 @@ function checkEventRows(
     (rows ?? []).forEach((item, i) => {
         for (const key of overSeriesKeys(item) ?? []) claim(key, `rows[${i}] (Plan.over)`);
     });
+}
+
+/**
+ * What a Plan with a paged resource kind checks (#1199): a canvas pages one
+ * source, so one resource kind at most has a `window`, and `data` beside it is
+ * read whole.
+ *
+ * @param resources - The resource kinds, by slot
+ * @param data - The `data` prop, when given
+ * @throws {Error} Naming the paged kinds, or the paged kind and `data`
+ */
+function checkPagedKinds(resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[], data: unknown): void {
+    const paged = resources.filter(([, kind]) => kind.window !== undefined).map(([slot]) => `resources.${slot}`);
+    if (paged.length > 1) {
+        throw new Error(`Plan: ${paged.join(" and ")} each page their rows (\`window\`), and a canvas pages one source — read all but one of them whole`);
+    }
+    if (paged.length === 1 && data !== undefined && resolveRowSource(data, "Plan").kind !== "inline") {
+        throw new Error(`Plan: ${paged[0]} pages its rows (\`window\`), and \`data\` is paged too, and a canvas pages one source — bind \`data\` whole, or read the resources whole`);
+    }
 }
 
 // ============================================================================

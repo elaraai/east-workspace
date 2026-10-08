@@ -71,7 +71,7 @@
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
-import { Plan, PlanComponent, PlanEventBlocksType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
+import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
     BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
@@ -110,6 +110,8 @@ type Styles = Record<string, Record<string, unknown>>;
 const planRootEqual = equivalentFor(Plan.Types.Root);
 /** Whether two event-rows seams read the same rows: their functions by their IR and what they capture (#809). */
 const eventBlocksEquivalent = equivalentFor(PlanEventBlocksType);
+/** Whether two paged kinds' seams read the same rows (#1199), likewise. */
+const eventPagedEquivalent = equivalentFor(PlanEventPagedType);
 /** Whether two lists of event kinds read the same records, their seams compared by their IR and what they capture. */
 const eventKindsEquivalent = equivalentFor(PlanPayloadType.fields.events);
 /** The payload's equivalence: its data, and its functions by their IR and what they capture (#809). */
@@ -140,10 +142,13 @@ const NO_VETO: PlanEventCanDrop = none;
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
 
-/** Whether two event-rows props read the same rows. */
+/** Whether two event-rows props read the same rows — a paged kind's included (#1199). */
 function sameEventRows(a: PlanEventRows | undefined, b: PlanEventRows | undefined): boolean {
     if (a === undefined || b === undefined) return a === b;
-    return a.count === b.count && eventBlocksEquivalent(a.blocks, b.blocks);
+    return a.count === b.count && eventBlocksEquivalent(a.blocks, b.blocks)
+        && (a.paged === undefined || b.paged === undefined
+            ? a.paged === undefined && b.paged === undefined
+            : eventPagedEquivalent(a.paged, b.paged));
 }
 
 /** No event in an overlap pair. */
@@ -333,9 +338,10 @@ export interface EastChakraPlanPayloadProps {
 /**
  * Renders a Plan's payload (#1191): its canvas, `plan`, in its frame
  * ({@link EastChakraPlan}), with its event kinds' rows ahead of the canvas's
- * own (#1192) — one block per resource kind, then the Unassigned rows' — its
- * event kinds counted in the footer, its library in the start pane (#1195),
- * and its inspector in the end pane (#1197).
+ * own (#1192) — one block per resource kind, then the Unassigned rows', and a
+ * paged kind's a window of its resources at a time (#1199) — its event kinds
+ * counted in the footer, its library in the start pane (#1195), and its
+ * inspector in the end pane (#1197).
  *
  * @param props - The payload and its storage key
  * @returns The Plan, in its frame
@@ -343,8 +349,10 @@ export interface EastChakraPlanPayloadProps {
 export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value, storageKey }: EastChakraPlanPayloadProps) {
     const resourceKinds = value.resources.length;
     const events = useMemo(
-        (): PlanEventRows | undefined => (value.blocks.type === "some" ? { blocks: value.blocks.value, count: resourceKinds + 1 } : undefined),
-        [value.blocks, resourceKinds]);
+        (): PlanEventRows | undefined => (value.blocks.type === "some"
+            ? { blocks: value.blocks.value, count: resourceKinds + 1, paged: getSomeorUndefined(value.paged) }
+            : undefined),
+        [value.blocks, value.paged, resourceKinds]);
     return <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
         resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
         canDrop={value.canDrop} />;
