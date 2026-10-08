@@ -520,13 +520,13 @@ export const planLibrary = example({
 });
 
 // ============================================================================
-// planEventRefs — links between events, and rows over a dataset
+// planEventLinks — every way a link draws, and rows over a dataset
 // ============================================================================
 
 /** A paper stock: its name, and its level in thousands of sheets, a reading a week from 5 October. */
 export const PrintStock = StructType({ name: StringType, weekly: ArrayType(FloatType) });
 
-/** Four jobs: the covers and the sleeves on Press B3, and the handbooks and the boxes they go into on Press A1. */
+/** Four jobs on the print works' presses — the covers and the sleeves on Press B3, and the handbooks and the boxes they go into on Press A1 — which the Plan's specs read as a second kind of job. */
 export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), new Map([
     ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
     ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
@@ -543,79 +543,6 @@ export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, Pr
     ["coated", { name: "Coated", weekly: [520.0, 410.0, 460.0, 380.0] }],
     ["uncoated", { name: "Uncoated", weekly: [300.0, 260.0, 280.0, 240.0] }],
 ])));
-
-/**
- * Links between events, and rows over a dataset (`Plan Builder Spec.md` §4.3,
- * PB9, PB10): the covers go into the handbooks and the sleeves onto the boxes,
- * each link's ends named by event (`Plan.eventRef`) — a link draws between
- * bars wherever they are drawn, so it names the event, never its row. Beside
- * the presses, the paper in stock is a table over a dataset (`Plan.over`),
- * read only: a Plan's edits go through its event kinds.
- */
-export const planEventRefs = example({
-    keywords: [
-        "Plan", "links", "Plan.link", "Plan.eventRef", "event", "ends", "quantity", "ribbon", "rows", "Plan.over",
-        "dataset", "read only", "table", "Plan.series.table", "Plan.tableCells", "stock", "Schedule", "Data.bind",
-        "Record.bind", "e3.record", "e3.input", "#1191",
-    ],
-    description: "Links between events and rows over a dataset — the covers and the sleeves linked to the jobs they go into (`Plan.eventRef`), and the paper in stock as a read-only table beside the presses (`Plan.over`)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const presses = $.let(Record.bind(planPrintPresses, []));
-            const jobs = $.let(Record.bind(planLinkJobs, [planLinkJobsPatch]));
-            const stock = $.let(Data.bind(planLinkStock));
-            // The window's first Monday: each stock reading runs from it, a week apiece.
-            const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
-            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
-            const axis = $.let(Plan.axis({
-                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
-                resolution: "week",
-            }));
-            return (
-                <Plan
-                    axis={axis}
-                    resources={{
-                        presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall }),
-                    }}
-                    events={{
-                        job: Schedule.events(jobs, {
-                            name: "Print job", icon: "file-lines",
-                            title: "title", start: "start", end: "end",
-                            resource: { field: "press", of: "presses" },
-                            state: "state", quantity: { field: "sheets", unit: "sheets" },
-                        }),
-                    }}
-                    rows={[
-                        Plan.over(stock, [
-                            Plan.series.table(PrintStock, {
-                                key: "stock", title: "Paper stock", label: s => s.name,
-                                cells: s => Plan.tableCells(weekly(s.weekly)),
-                                format: Format.Number({ maximumFractionDigits: 0n }),
-                            }),
-                        ]),
-                    ]}
-                    links={[
-                        Plan.link({
-                            key: "covers", from: Plan.eventRef("job", "J-2001"), to: Plan.eventRef("job", "J-2002"),
-                            quantity: Plan.quantity(12000.0, { unit: "covers" }),
-                        }),
-                        Plan.link({
-                            key: "sleeves", from: Plan.eventRef("job", "J-2003"), to: Plan.eventRef("job", "J-2004"),
-                            quantity: Plan.quantity(18000.0, { unit: "sleeves" }),
-                        }),
-                    ]}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
-// planEventLinks — every way a link draws
-// ============================================================================
 
 /** A work centre a job passes through on its way out: the platesetter, the bindery's folder and binder, the dispatch bay. */
 export const PrintCentre = StructType({ name: StringType });
@@ -745,15 +672,20 @@ export const planLinkDeliveriesPatch = e3.mutation.patch(planLinkDeliveries);
  * the view's edge in a stub pointing at it, and one between rows past both
  * edges crosses the view as a band. The now line and the row controls draw
  * over the links.
+ *
+ * Below the event kinds' rows, the paper in stock is a table over a dataset
+ * (`Plan.over`), a reading a week, read only: a Plan's edits go through its
+ * event kinds.
  */
 export const planEventLinks = example({
     keywords: [
         "Plan", "links", "Plan.link", "Plan.eventRef", "event", "ends", "quantity", "weight", "ribbon", "route", "S", "loopback",
         "feed", "runoff", "drop", "slot", "stub", "band", "out of view", "bounded", "height", "caption", "mark", "chip",
         "tile", "bucket", "cards", "marks", "Schedule", "Schedule.events", "Schedule.resources", "Record.bind", "e3.record",
-        "#1191", "#1258",
+        "rows", "Plan.over", "dataset", "read only", "table", "Plan.series.table", "Plan.tableCells", "stock", "Data.bind",
+        "e3.input", "#1191", "#1258",
     ],
-    description: "Every way a link draws — S's up and down, loopbacks, a feed and the runoff on one press, a drop onto a start at the window's edge, slots past the window, stubs and a band out of view, links into a mark, chips and a tile, weighted by quantity — between event kinds (`Plan.eventRef`) on a bounded canvas",
+    description: "Every way a link draws — S's up and down, loopbacks, a feed and the runoff on one press, a drop onto a start at the window's edge, slots past the window, stubs and a band out of view, links into a mark, chips and a tile, weighted by quantity — between event kinds (`Plan.eventRef`) on a bounded canvas, with the paper in stock as a read-only table over a dataset (`Plan.over`)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const setters = $.let(Record.bind(planLinkSetters, []));
@@ -764,6 +696,12 @@ export const planEventLinks = example({
             const jobs = $.let(Record.bind(planLinkCaseJobs, [planLinkCaseJobsPatch]));
             const bindings = $.let(Record.bind(planLinkBindings, [planLinkBindingsPatch]));
             const deliveries = $.let(Record.bind(planLinkDeliveries, [planLinkDeliveriesPatch]));
+            const stock = $.let(Data.bind(planLinkStock));
+            // The window's first Monday: each stock reading runs from it, a week apiece.
+            const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
+            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
+            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
+                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "week", now: new Date("2026-10-14T09:00:00Z"),
@@ -800,6 +738,16 @@ export const planEventLinks = example({
                             resource: { field: "bay", of: "bays" },
                         }),
                     }}
+                    // The paper in stock: a table over a dataset, read only.
+                    rows={[
+                        Plan.over(stock, [
+                            Plan.series.table(PrintStock, {
+                                key: "stock", title: "Paper stock", label: s => s.name,
+                                cells: s => Plan.tableCells(weekly(s.weekly)),
+                                format: Format.Number({ maximumFractionDigits: 0n }),
+                            }),
+                        ]),
+                    ]}
                     // Each quantity in thousands of sheets, its third of the family's largest setting the link's
                     // weight; the plates' link carries none.
                     links={[

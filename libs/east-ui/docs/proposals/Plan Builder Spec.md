@@ -423,7 +423,7 @@ As built (#1191). A prop keeps one meaning: the first design's `view` and
 | `canDrop` | `Fn(DragEvent) → Boolean`, or `Fn(Schedule.Types.Candidate) → Option<String>` | The drop veto, its arm read from its type: over a card or an element dragged onto `data`'s rows, or over an event kind's drop, its message on the ghost, as the Calendar's. A candidate's veto with no event kinds is refused. |
 | `library` | `Plan.library.*` calls (§4.4) | The start pane's tabs, in order (#1195): left out, or `[]`, no pane. |
 | `inspector` | `true` | The end pane: what is selected (§9.8, #1197). `false`, or left out, no pane; refused on a Plan with no event kinds. |
-| `id` | string | Names the Plan when a surface holds two: its viewer state's storage key (the panes' state and the series it hides among it), its library's drag-source id and its drop target. |
+| `id` | string | Names the Plan when a surface holds two: its viewer state's storage key (the panes' state and the series it hides among it), its library's drag-source id and its drop target. A `<Library>` beside the Plan reaches it by its `id` and `sources`; its own panel's cards need neither (#1259). |
 
 ### 4.4 `Plan.library`: the library's tabs
 
@@ -435,7 +435,7 @@ order, each a `Plan.library.*` call returning the one tab type.
 | `Plan.library.events()` | Every event kind's templates, under the kind's name and then the template's `group`. |
 | `Plan.library.backlog()` | Every event kind's unscheduled events, by when they are due. |
 | `Plan.library.series()` | What the canvas shows that a viewer can hide, each with an eye: each resource kind and its measures, the event kinds, `data`'s series when they are picked (`pick`), and the Plan's `rows`. |
-| `Plan.library.tab(rows, { name, icon?, label, meta?, group?, drop? })` | A card per row of a `Dict<K, R>`, read as `Schedule.resources` reads its rows, with accessors `(row, key)`: `label` (`String`), `meta` (`Option<String>`) and `group` (`String`). `drop` returns what a card dropped on an event sets: `Schedule.patch(R, { … })` over an event kind's row type, beside `Schedule.field` and built as `Sheet.patch` is (`Schedule.Types.Patch(R)`, every field an `Option`, the fields left out `none`). The patch's type picks the kind whose events take the drop (#1196). |
+| `Plan.library.tab(rows, { name, icon?, label, meta?, group?, drop? })` | A card per row of a `Dict<K, R>`, read as `Schedule.resources` reads its rows, with accessors `(row, key)`: `label` (`String`), `meta` (`Option<String>`) and `group` (`String`). `drop` returns what a card dropped on an event sets: `Schedule.patch(R, { … })` over an event kind's row type, beside `Schedule.field` and built as `Sheet.patch` is (`Schedule.Types.Patch(R)`, every field an `Option`, the fields left out `none`). The patch's type picks the kind whose events take the drop (#1196). Its cards drag onto the rows of `data` whose series makes an item of a card (`edit.create`, #1259) — the same `add` a `<Library>`'s card makes, so `canDrop` and `create` read it unchanged — and the Plan takes them with no `id` or `sources`. |
 
 Templates stay code, declared with their kind. Refused at build, naming the
 tab: a tab listed twice (an author's by its name); the Events or Backlog tab
@@ -824,10 +824,18 @@ As built (#1193):
   start pane. A tab listed twice is refused at build, naming it.
 - **PB62.** `Plan.library.tab(rows, { name, icon, label, meta?, group?, drop? })`
   lists one card per row, as the Sheet's does (SB60): its label and meta,
-  grouped by `group`, searched by key, label and meta, each a drag source
-  (#1196). `drop`'s patch is checked at build: its type is one event kind's
-  row type, or the build fails naming the tab, as it does for a type two
-  kinds share.
+  grouped by `group`, searched by key, label and meta, each a drag source —
+  onto `data`'s rows (PB64), and with `drop` onto an event (#1196). `drop`'s
+  patch is checked at build: its type is one event kind's row type, or the
+  build fails naming the tab, as it does for a type two kinds share.
+- **PB64.** An author's tab's cards drag onto the rows of `data` whose series
+  declares `edit.create`, by the pointer or carried from the keyboard, as a
+  `<Library>`'s card beside the Plan does (#1259): the drop is the same `add`,
+  `from.library` the tab's and `from.key` the card's row key as text, so
+  `canDrop` vets it and `create` builds the item unchanged. The Plan takes its
+  own panel's cards with no `id` or `sources`. A tab's cards drag while a row
+  of the canvas takes one; a Plan with none, or in its narrow layout, which
+  draws no row to drop on, drags nothing from its panel.
 
 As built (#1195):
 
@@ -865,9 +873,9 @@ As built (#1195):
   `Plan.over` series' rows by their keys, its nested series' with them. On a
   touch screen the panel's search is a 44px field.
 - An author's tab: as the Sheet's — a click selects a card, and a click on
-  the selected card lets it go. Its cards drag only when the tab has a
-  `drop`, from the library `planKeys(id).library` + `:tab:<name>`, each keyed
-  by its row's key as text. The templates and the backlog's events drag from
+  the selected card lets it go. Its cards drag when the tab has a `drop`, or
+  while a row of the canvas takes a card (#1259), from the library
+  `planKeys(id).library` + `:tab:<name>`, each keyed by its row's key as text. The templates and the backlog's events drag from
   `…:events` and `…:backlog`, each card keyed by its kind and key as East
   prints a `Schedule.Types.EventRef`. A drop's patch crosses the closed
   payload as the kind's field writes — each field it sets, its path and its
@@ -875,6 +883,19 @@ As built (#1195):
   own `write`.
 - The empty Events tab says `No templates`; an empty Series tab, which only
   a pick of no series can make, `No series`.
+
+As built (#1259):
+
+- The canvas's drop target (`root/drop.ts`) takes the author's tabs' library
+  ids as its sources whether or not the Plan declares an `id`, beside the
+  `sources` of a Library its `id` names. The canvas tells the frame whether a
+  row takes a card — one of the kinds that holds discrete objects, its series
+  making an item of a card, placed, outside the narrow layout — and the
+  library lets an author's tab's cards drag by it.
+- planRowDrop is the palette's example: the cards in a `Plan.library.tab`,
+  runs moving and resizing, a hall's presses drafting the hall, `ready` and
+  the gesture journal in the footer. No Plan example draws a `<Library>` or a
+  `<Dock>` beside its Plan.
 
 ### 9.7 Drag and drop (owner: drag and drop)
 
@@ -1076,7 +1097,7 @@ As built (#1198):
 | The canvas's own toolbar and review foot | The frame's one toolbar | A component has one toolbar. Nothing is lost. |
 | Review: the decision column, Approve all and Reject all, a verdict on each element | Gone (#1260) | The changes are drafts the session saves together, so a verdict on them asked twice. What is lost: a sign-off per row, which an app keeps as a field of its own record, edited like any other. |
 | The Series button and its popover | The Series tab | The pane holds it. A Plan with no library has no series to hide. |
-| Cards reaching a Plan from a separate `<Library>` through `id`, `sources` and `edit.create` | The Events tab's templates | Data, declared with their kind. `data`'s series keep today's wiring. |
+| Cards reaching a Plan from a separate `<Library>` through `id`, `sources` and `edit.create` | The Events tab's templates, and an author's tab's cards onto `data`'s rows (#1259) | Data, declared with their kind. `data`'s series take the panel's cards through `edit.create`, with no `id` or `sources`; a `<Library>` beside the Plan still reaches them by both. |
 | Items inside each entry's array (`edit.items`) | Events as rows of their own records | `data`'s series keep in-entry editing. |
 | Number and ordinal axes | A time axis, with event kinds | Events' times are `DateTime`s; a Plan of `data` and `rows` keeps the others. |
 | The narrow layout's chip row and footer | The frame's toolbar items and footer | One toolbar and one footer. The tabs and cards stay in main below 480px, the panes overlaying them on their rails (#1193). Nothing is lost. |

@@ -33,7 +33,6 @@ describeEast("Plan of event kinds — the examples (#1191)", (test) => {
     Assert.examples(test, {
         planEvents: ex.planEvents,
         planPrintWorks: ex.planPrintWorks,
-        planEventRefs: ex.planEventRefs,
         planEventLinks: ex.planEventLinks,
         planLibrary: ex.planLibrary,
     });

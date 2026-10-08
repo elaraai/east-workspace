@@ -181,8 +181,8 @@ export interface PlanBindHandle {
  * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
- * @property id - DnD target identity (omit ⇒ the canvas is no drop target)
- * @property sources - Library ids accepted for `add` drags
+ * @property id - DnD target identity — what a Library beside the Plan reaches it by
+ * @property sources - The ids of the Libraries beside the Plan whose cards it takes; its own library panel's need none
  * @property canDrop - IR-level drop veto (the ⊘ stage) — consulted before a drop becomes a draft
  * @property onSelect - Row click (selection)
  * @property onElementClick - A click on any element — run, tile, mark, chip, cell or link ribbon — by its ref (#824)
@@ -280,13 +280,15 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
         /** Right-align the item. */
         end?: boolean;
     }[];
-    /** DnD target identity — names the Plan in drag-grammar cell refs, which is how a Library's cards reach it:
-     *  omit it and no card lands. A card lands only on a row whose series declares `edit.create` (where it
-     *  lands and how it becomes an item). The canvas's own elements move whether or not it has an `id` —
-     *  where their series declares a move's fields (`edit.key` and `start` / `end`, or `at`, #825). Each is a
-     *  draft of the root's `editing` session. */
+    /** DnD target identity — names the Plan in drag-grammar cell refs, which is how a Library beside the Plan
+     *  reaches it: its cards land only on a Plan with an `id` whose `sources` lists it. The Plan's own library
+     *  panel needs neither — an author's tab's cards land without them (#1259). A card lands only on a row whose
+     *  series declares `edit.create` (where it lands and how it becomes an item). The canvas's own elements
+     *  move whether or not it has an `id` — where their series declares a move's fields (`edit.key` and
+     *  `start` / `end`, or `at`, #825). Each is a draft of the root's `editing` session. */
     id?: string;
-    /** Library ids accepted for `add` drags (omit = no adds). */
+    /** The ids of the Libraries beside the Plan whose cards it takes (`add`), reached by its `id` — its own
+     *  library panel's need none (omit = no Library beside it). */
     sources?: string[];
     /** IR-level drop veto — consulted with the candidate event (`add` for a card; `move` or `resize` for an
      *  element moved, #825; a `CellRef.row` is the row id's canonical text) where the drag rests and again

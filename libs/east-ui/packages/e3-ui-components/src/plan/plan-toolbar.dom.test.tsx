@@ -146,6 +146,8 @@ function Harness({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverl
         inspect: { row: () => undefined, valueAt: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.
         selectEvents: () => {},
+        // Whether the panel's cards drag (#1259): the toolbar never reads it.
+        takesCards: false,
         ...parts,
     };
     return <Toolbar items={usePlanToolbarItems(chrome, overlaps)} />;

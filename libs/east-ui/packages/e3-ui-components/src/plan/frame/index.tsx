@@ -37,7 +37,8 @@
  *   selects the first, and the inspector's banner lists what the selected
  *   event overlaps. They never block Save;
  * - **the panes** — the library in the start pane when the Plan's `library`
- *   lists a tab (#1195, `library.tsx`), and the inspector in the end pane when
+ *   lists a tab (#1195, `library.tsx`) — an author's tab's cards dragging onto
+ *   the rows that take a card (#1259) — and the inspector in the end pane when
  *   it is given `inspector` — what is selected on the canvas (#1197,
  *   `inspector.tsx`): optional props, no prop, no pane. Their open tab and
  *   collapsed state persist under the Plan's `id` (`planKeys(id).frame`,
@@ -76,7 +77,7 @@ import { usePlanWords } from "../words.js";
 import { usePlanEventCounts, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
 import { usePlanInspector } from "./inspector.js";
-import { usePlanLibrary, type PlanPickValue } from "./library.js";
+import { tabLibrary, usePlanLibrary, type PlanPickValue } from "./library.js";
 
 /** The Plan's payload, decoded — what `<Plan>` returns through the `Plan` carrier (#1191). */
 export type PlanValue = ValueTypeOf<typeof PlanPayloadType>;
@@ -186,7 +187,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
         [series, hidden]);
     // An event kind's element selects its event (#1197).
     const eventKinds = useMemo(() => (kinds ?? NO_KINDS).map((kind) => kind.key), [kinds]);
-    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden, eventKinds });
+    // The panel's own tabs whose cards land on the rows (#1259): the author's.
+    const panel = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tabLibrary(keys, tab.value)] : [])), [library, keys]);
+    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden, eventKinds, panel });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resources ?? NO_RESOURCES} library={library}
             inspector={inspector === true} hidden={hidden} onHidden={onHidden} />,
@@ -230,7 +233,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const [mounted] = useState(() => new Date());
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
-    const start = usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words });
+    const start = usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true });
     const counts = usePlanEventCounts(kinds, chrome?.scale);
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
     const overlaps = kinds.length > 0 ? counts?.overlaps : undefined;

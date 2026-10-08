@@ -193,7 +193,12 @@ export interface PlanCanvasArgs {
     rowsHidden?: PlanRowsHidden | undefined;
     /** The event kinds' slots (#1197): an element of theirs selects its event, as the Calendar's do (B15). */
     eventKinds?: readonly string[] | undefined;
+    /** The library ids of the Plan's own panel tabs whose cards land on its rows (#1259) — its author's tabs'. */
+    panel?: readonly string[] | undefined;
 }
+
+/** No panel tab whose cards land on the rows. */
+const NO_PANEL: readonly string[] = [];
 
 /**
  * The Plan's canvas, for the frame it renders in (#1193): everything the
@@ -201,10 +206,10 @@ export interface PlanCanvasArgs {
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, and what the viewer hides
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, and the panel's tabs whose cards land
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
-export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds }: PlanCanvasArgs): PlanCanvasParts {
+export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
@@ -472,7 +477,8 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
 
     // ── The drag-target role ──────────────────────────────────────────────
     // A drop is a draft of the editing session (#880): the canvas is a target
-    // only while the session can take one. A card lands; the canvas's own
+    // only while the session can take one. A card lands — from the Plan's own
+    // library panel (#1259), or a Library its `sources` lists; the canvas's own
     // runs, chips, tiles and marks move and resize (#825) — where one lands is
     // what its rows proposed at the drop point, from the press it began with
     // (`edit/store.ts`). The drag layer is told whether the gesture was
@@ -493,7 +499,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             label: grab.movable.label,
         });
     }, [draftDrop, draftMove, editStore]);
-    const rowDrop = usePlanDropTarget(value, data.sources, onDrag, editing.available);
+    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
@@ -729,6 +735,14 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     // told how to move one with.
     const helpId = `${uid}-move-help`;
     const moveSurface = !narrow ? rowDrop?.surface : undefined;
+    // Whether a card from the library panel's own tabs has a row to land on
+    // (#1259): the canvas takes cards, and a row on it makes an item of one,
+    // as `BodyRow` registers its cell. The panel's cards drag only then — never
+    // in the narrow layout, which draws no row to drop on.
+    const takesCards = useMemo(
+        () => !narrow && rowDrop?.cards === true && index.rows.some((row) => row.edits.drop
+            && DROPPABLE_KINDS.has(row.kind.type) && !derived.diagnostics.has(row.key)),
+        [narrow, rowDrop, index, derived]);
     const editCtx = useMemo<PlanEditContextValue | null>(() => (scale !== undefined
         ? { store: editStore, surface: moveSurface, helpId, styles, words, scale }
         : null), [editStore, moveSurface, helpId, styles, words, scale]);
@@ -1177,6 +1191,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             narrow,
             inspect,
             selectEvents,
+            takesCards,
         },
     };
 }

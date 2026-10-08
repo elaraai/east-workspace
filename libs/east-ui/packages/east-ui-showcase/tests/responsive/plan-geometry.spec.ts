@@ -538,10 +538,11 @@ test.describe("Plan links focus (#818, #1258)", () => {
         tags: "feed", pads: "runoff", proofs: "loop", "proof-sheets": "s", tickets: "s",
         sections: "stub", "sections-more": "stub", posters: "stub", "book-blocks": "stub",
     };
-    /** …and scrolled to the end: the plates draw nothing, and three leave a row above the view in a stub. */
+    /** …and scrolled to the end, the paper stock's rows under the events (#1259): the plates and the tags draw
+     *  nothing, and five leave a row above the view in a stub. */
     const EVENT_ROUTES_AT_THE_END = {
-        covers: "stub", card: "s", inserts: "stub", "report-covers": "loop", "seed-prints": "loop", tags: "feed",
-        pads: "runoff", proofs: "loop", "proof-sheets": "s", tickets: "s", sections: "s", "sections-more": "s",
+        covers: "stub", card: "stub", inserts: "stub", "report-covers": "loop", "seed-prints": "loop",
+        pads: "runoff", proofs: "loop", "proof-sheets": "stub", tickets: "s", sections: "s", "sections-more": "s",
         folded: "s", books: "s", posters: "stub", "book-blocks": "loop",
     };
 
@@ -684,11 +685,11 @@ test.describe("Plan element text (#1258, #1264)", () => {
      *  under where it lands on another: planNarrow lands on its groups' heat strips, which draw no text. */
     const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
         ...["planTargetState", "planVariants", "planSpanRows", "planCardRows", "planGroupedRows", "planSeriesData",
-            "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planEditing", "planUiState",
+            "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planUiState",
             "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
         ].map((name) => ({ name, file: PLAN_EXAMPLES })),
         { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
-        ...["planEvents", "planPrintWorks", "planLibrary", "planEventRefs", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
+        ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
     ];
 
     for (const { name, file, tab } of TEXT_EXAMPLES) {

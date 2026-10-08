@@ -91,10 +91,11 @@ export function GridSeparators({ styles }: { styles: Styles }) {
  * (#825).
  */
 export interface PlanRowDrop {
-    /** The canvas's DnD surface — its declared id, or one of its own for its elements' moves (#825). */
+    /** The canvas's DnD surface — its declared id, or one of its own when it declares none (#825). */
     surface: string;
-    /** Whether a library card reaches the canvas — it declares an `id`; without one the surface serves its own
-     *  elements' moves alone, and a row that only takes cards registers no cell. */
+    /** Whether a card reaches the canvas — from its own library panel's tabs (#1259), or from a Library beside it
+     *  that its `sources` lists under its declared `id`; with neither the surface serves its own elements' moves
+     *  alone, and a row that only takes cards registers no cell. */
     cards: boolean;
     /** The canvas's veto over its IR `canDrop` (`useIRCanDrop`), asked of the
      *  candidate event the drag's CURRENT bucket would produce — its duplicate

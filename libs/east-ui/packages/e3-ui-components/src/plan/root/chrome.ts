@@ -73,6 +73,13 @@ export interface PlanChrome {
      * which is brought into view.
      */
     selectEvents: (keys: readonly string[]) => void;
+    /**
+     * Whether a card from the library panel's own tabs has a row to land on
+     * (#1259): a row on the canvas whose series makes an item of a dropped
+     * card, the canvas taking cards, outside the narrow layout. The panel's
+     * author tabs let their cards drag by it.
+     */
+    takesCards: boolean;
 }
 
 /** What the canvas hands the frame it renders in. */

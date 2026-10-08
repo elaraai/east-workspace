@@ -24,7 +24,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -2575,7 +2575,8 @@ export const planLibraryDnd = example({
 });
 
 // ============================================================================
-// planRowDrop — the canvas as a drag TARGET, and which rows can receive
+// planRowDrop — `data`'s rows edited in place: cards dropped from the Plan's
+// library panel, runs moved and resized, one checked Save (#880, #825, #1259)
 // ============================================================================
 
 /** A job, its label already composed. */
@@ -2589,8 +2590,11 @@ export const DropAlloc = StructType({ key: StringType, at: DateTimeType, state: 
 export const DropShift = StructType({
     key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
 });
-/** One flat row of the ops record — `series` names the series that claims it;
- *  `readings` are fortnightly from W27. */
+/** A press a hall holds — its jobs; its name is its key. */
+export const DropPress = StructType({ jobs: ArrayType(DropJob) });
+/** One row of the ops record — `series` names the series that claims it;
+ *  `readings` are fortnightly from W27; a hall holds its presses
+ *  (`presses`), the hierarchy the data's own. */
 export const DropOpsRow = StructType({
     series: StringType, label: StringType,
     jobs: ArrayType(DropJob),
@@ -2599,62 +2603,80 @@ export const DropOpsRow = StructType({
     nums: ArrayType(Plan.Types.TableCell),
     shifts: ArrayType(DropShift),
     marks: ArrayType(Plan.Types.EventMark),
+    presses: DictType(StringType, DropPress),
 });
 
 /**
- * The ops RECORD a drop drafts and Save commits to — its initial state the
- * genesis commit. The droppable and inert kinds interleave, and the Hall 3
- * press is a section's member.
+ * The ops RECORD every gesture drafts and Save commits to — its initial state
+ * the genesis commit. The droppable and inert kinds interleave, and Hall 3 is
+ * an entry holding its two presses, H3-P11 already running four jobs, so one
+ * more is refused.
  */
 export const planDropOps = e3.record("plan_drop_ops", DictType(StringType, DropOpsRow), new Map([
     ["util",  { series: "util", label: "Util %", jobs: [], readings: [46.0, 58.0, 66.0, 72.0, 84.0, 96.0],
-                allocs: [], nums: [], shifts: [], marks: [] }],
-    ["p03",   { series: "press", label: "H1-P03", readings: [], allocs: [], nums: [], shifts: [], marks: [],
+                allocs: [], nums: [], shifts: [], marks: [], presses: new Map() }],
+    ["p03",   { series: "press", label: "H1-P03", readings: [], allocs: [], nums: [], shifts: [], marks: [], presses: new Map(),
                 jobs: [{ key: "j4642", label: "RUN · J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
-    ["p04",   { series: "press", label: "H1-P04", readings: [], allocs: [], nums: [], shifts: [], marks: [],
+    ["p04",   { series: "press", label: "H1-P04", readings: [], allocs: [], nums: [], shifts: [], marks: [], presses: new Map(),
                 jobs: [{ key: "j4624", label: "RUN · J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null) }] }],
     ["load",  { series: "load", label: "H2 load", jobs: [], readings: [46.0, 58.0, 66.0, 72.0, 84.0, 96.0],
-                allocs: [], nums: [], shifts: [], marks: [] }],
-    ["van1", { series: "van", label: "Van 1", jobs: [], readings: [], nums: [], shifts: [], marks: [],
+                allocs: [], nums: [], shifts: [], marks: [], presses: new Map() }],
+    ["van1", { series: "van", label: "Van 1", jobs: [], readings: [], nums: [], shifts: [], marks: [], presses: new Map(),
                 allocs: [{ key: "a1", at: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) }] }],
-    ["desp",  { series: "table", label: "Delivered · k", jobs: [], readings: [], allocs: [], shifts: [], marks: [],
+    ["desp",  { series: "table", label: "Delivered · k", jobs: [], readings: [], allocs: [], shifts: [], marks: [], presses: new Map(),
                 nums: [
                     { at: variant("time", new Date("2026-07-06T00:00:00Z")), value: some(128.0), text: none, tone: none },
                     { at: variant("time", new Date("2026-07-27T00:00:00Z")), value: some(-96.0), text: none, tone: none },
                 ] }],
-    ["crewA", { series: "crew", label: "Crew A", jobs: [], readings: [], allocs: [], nums: [], marks: [],
+    ["crewA", { series: "crew", label: "Crew A", jobs: [], readings: [], allocs: [], nums: [], marks: [], presses: new Map(),
                 shifts: [{ key: "s1", from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), label: "80h", state: variant("confirmed", null) }] }],
-    ["ms",    { series: "strm", label: "Milestones", jobs: [], readings: [], allocs: [], nums: [], shifts: [],
+    ["ms",    { series: "strm", label: "Milestones", jobs: [], readings: [], allocs: [], nums: [], shifts: [], presses: new Map(),
                 marks: [{ key: "k", at: variant("time", new Date("2026-07-13T00:00:00Z")), kind: variant("milestone", null), icon: none, label: some("KICKOFF") }] }],
-    // A section MEMBER — the header itself takes no drops, but the span row
-    // under it receives like any other span row.
-    ["p11",   { series: "gpress", label: "H3-P11", readings: [], allocs: [], nums: [], shifts: [], marks: [],
-                jobs: [{ key: "j4903", label: "RUN · J-4903", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null) }] }],
+    // A HALL, holding its presses: a gesture on one of them drafts the hall,
+    // the entry they ride in. H3-P11 already runs four jobs.
+    ["hall3", { series: "hall", label: "Hall 3", jobs: [], readings: [], allocs: [], nums: [], shifts: [], marks: [],
+                presses: new Map([
+                    ["H3-P11", { jobs: [
+                        { key: "j4897", label: "RUN · J-4897", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) },
+                        { key: "j4903", label: "RUN · J-4903", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null) },
+                        { key: "j4911", label: "RUN · J-4911", start: new Date("2026-08-17T00:00:00Z"), end: new Date("2026-08-31T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
+                        { key: "j4918", label: "RUN · J-4918", start: new Date("2026-08-31T00:00:00Z"), end: new Date("2026-09-14T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
+                    ] }],
+                    ["H3-P12", { jobs: [
+                        { key: "j4925", label: "RUN · J-4925", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("confirmed", null) },
+                    ] }],
+                ]) }],
 ]));
 
 /** The ops record's patch door — every Save commits through it. */
 export const planDropOpsPatch = e3.mutation.patch(planDropOps);
 
 /** A card in the palette — a thing a row of its family takes. */
-export const DropCard = StructType({
-    key: StringType, name: StringType, family: StringType, note: StringType, icon: StringType,
-});
+export const DropCard = StructType({ name: StringType, family: StringType, note: StringType });
 
-/** The palette's cards. */
-export const planDropCards = e3.input("plan_drop_cards", ArrayType(DropCard), variant("value", [
-    { key: "job-poster",  name: "Poster run",  family: "job",       note: "job · presses",       icon: "print" },
-    { key: "job-leaflet", name: "Leaflet run", family: "job",       note: "job · presses",       icon: "file-lines" },
-    { key: "dlv-van",     name: "Van 3",       family: "delivery",  note: "delivery · vans",     icon: "truck" },
-    { key: "shf-night",   name: "Night shift", family: "shift",     note: "shift · crews",       icon: "moon" },
-    { key: "mst-check",   name: "Press check", family: "milestone", note: "milestone · streams", icon: "flag" },
-    // Belongs to no family, so no row accepts it — the ⊘ stage everywhere,
-    // which is what a card with nowhere to go looks like.
-    { key: "pallet",      name: "PALLET",      family: "none",      note: "fits nowhere",        icon: "box" },
-]));
+/** The palette's cards, by key — a card's key is what a drop names it by. */
+export const planDropCards = e3.input("plan_drop_cards", DictType(StringType, DropCard), variant("value", new Map([
+    ["job-poster",  { name: "Poster run",  family: "job",       note: "job · presses" }],
+    ["job-leaflet", { name: "Leaflet run", family: "job",       note: "job · presses" }],
+    ["dlv-van",     { name: "Van 3",       family: "delivery",  note: "delivery · vans" }],
+    ["shf-night",   { name: "Night shift", family: "shift",     note: "shift · crews" }],
+    ["mst-check",   { name: "Press check", family: "milestone", note: "milestone · streams" }],
+    // Of a family no row takes, so every row refuses it — the ⊘ stage
+    // everywhere, which is what a card with nowhere to go looks like.
+    ["pallet",      { name: "PALLET",      family: "other",     note: "fits nowhere" }],
+])));
 
 /**
- * A Plan is a drag target, and a heterogeneous one — which is what makes it
- * different from every other target in the grammar.
+ * `data`'s rows edited in place (#880) — the Plan as a drag TARGET, a
+ * heterogeneous one, which is what makes it different from every other target
+ * in the grammar, and its own runs moved and resized (#825).
+ *
+ * The palette is the Plan's own library panel (#1259): `Plan.library.tab`
+ * lists the cards, grouped by family, and a card drags from it onto the rows
+ * that take one — by the pointer, or from the keyboard: Space picks a card up,
+ * the arrows carry it from row to row and along a row's buckets, Space drops
+ * it and Escape cancels, and every step is said to a screen reader. The Plan
+ * takes its own panel's cards with no `id` or `sources`.
  *
  * Roster, Board and Blend have ONE kind of cell, so "can you drop here" is a
  * question about the cell's contents. A Plan's rows are nine different things,
@@ -2671,39 +2693,61 @@ export const planDropCards = e3.input("plan_drop_cards", ArrayType(DropCard), va
  *  2. **By policy, with `canDrop`.** Of the rows that can receive, this canvas
  *     admits only the matching FAMILY: a job goes on a press, a delivery on
  *     a van, a shift on a crew, a milestone on a stream. The `PALLET` card
- *     belongs to no family and is therefore refused everywhere — the ⊘ stage
- *     on every row, which is what a card with nowhere to go should look like.
- *  3. **As a draft (#880).** A drop is a gesture of the editing session: the
- *     entry is drafted with the new item in its list and its rows derived
- *     again — drawn at once with the pending mark, undone with ⌘Z — and Save
- *     writes every draft as ONE checked batch, one commit through the
- *     record's patch door (`Record.onApply`).
+ *     is of a family no row takes and is therefore refused everywhere — the ⊘
+ *     stage on every row, which is what a card with nowhere to go should look
+ *     like.
+ *  3. **As a draft.** A drop is a gesture of the editing session: the entry is
+ *     drafted with the new item in its list and its rows derived again —
+ *     drawn at once with the pending mark, undone with ⌘Z — and Save writes
+ *     every draft as ONE checked batch, one commit through the record's patch
+ *     door (`Record.onApply`).
  *
- * The canvas is bounded shorter than its rows, so the Hall 3 press starts
- * below the fold: a card held at the canvas's bottom edge scrolls it there
- * (#608). A card is also a keyboard control — Space picks it up, the arrows
- * carry it from row to row and along a row's buckets, Space drops it and
- * Escape cancels — and every step is said to a screen reader.
+ * A press's run moves along its press or onto another press and resizes by
+ * either end: its series names the job's key and the instant fields a move
+ * writes (`key`, `start`, `end`). It moves in whole weeks, or in days with
+ * Shift held; from the keyboard, Space on a focused run picks it up: ←/→ move
+ * it a week, Shift+←/→ its end, Alt+←/→ its start, ↑/↓ carry it to another
+ * press, and Space drops it.
+ *
+ * Hall 3 is an entry of its own, holding its presses (`Plan.children`): its
+ * row rolls their runs up and takes no drop, and every gesture on one of its
+ * presses lands on the press row, one level down, yet drafts the HALL — the
+ * source's top-level entry, which the whole subtree rides in. A job moved
+ * between a Hall 1 press and a Hall 3 one leaves one entry and joins the
+ * other, as one gesture over both.
+ *
+ * `ready` is the author's check over a drafted entry: a press holding more
+ * than four jobs — an entry of its own, or one a hall holds — is refused, by
+ * name, and Save waits until it is fixed. H3-P11 already holds four, so a job
+ * dropped or moved onto it holds Save until one leaves. `onPatch` hears each
+ * gesture as it is made, and the footer says the last one.
+ *
+ * The Plan is bounded shorter than its rows, so the Hall 3 presses start below
+ * the fold: a card held at the canvas's bottom edge scrolls them there (#608).
  */
 export const planRowDrop = example({
     keywords: [
-        "Plan", "Library", "DnD", "drag", "drop", "canDrop", "sources", "id", "edit", "items", "create",
-        "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
+        "Plan", "library", "panel", "Plan.library.tab", "palette", "DnD", "drag", "drop", "canDrop",
+        "edit", "items", "create", "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "section", "row id", "row text",
-        "droppable", "inert", "bucket instant", "editing", "onApply", "onPatch", "draft", "Save", "undo",
-        "Plan.Types.PatchEvent", "Reactive", "State", "re-derive", "#880",
-        "auto-scroll", "keyboard", "screen reader", "announcements", "#608",
+        "droppable", "inert", "bucket instant", "editing", "session", "onApply", "onPatch", "ready",
+        "Readiness", "Editing.Types.Readiness", "draft", "drafts", "transaction", "Save", "undo", "redo",
+        "discard", "history", "pending", "Plan.Types.PatchEvent", "Reactive", "State", "re-derive", "#880",
+        "move", "resize", "run", "key", "start", "end", "Shift", "snap", "cross-row", "Plan.Types.Move", "#825",
+        "nested", "children", "Plan.children", "top-level entry", "rollup",
+        "auto-scroll", "keyboard", "Space", "screen reader", "announcements", "#608", "footer", "#1259",
         "Record", "Record.bind", "Record.onApply", "e3.record", "patch", "commit", "Data.bindPaged", "Data.bind",
     ],
-    description: "Library + Plan DnD over an e3 record — a card lands only on a series that declares `edit`, `canDrop` admits only the matching family, and every drop is a draft saved as one checked batch, one commit through the record's patch door",
+    description: "The Plan's editing session over an e3 record — cards dragged from the Plan's library panel land only on a series that declares `edit`, `canDrop` admits only the matching family, runs move and resize, a gesture on a hall's press drafts the hall, `ready` refuses a crowded press, and every gesture is a draft saved as one checked batch, one commit through the record's patch door",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The source is a RECORD: the canvas pages it, and each Save is
             // one commit through its patch door.
             const ops = $.let(Data.bindPaged(planDropOps));
             const record = $.let(Record.bind(planDropOps, [planDropOpsPatch]));
-            // The palette the cards come from.
+            // The palette the cards come from, by key.
             const cards = $.let(Data.bind(planDropCards));
+            const palette = $.let(cards.read());
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
             const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
                 const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
@@ -2724,7 +2768,7 @@ export const planRowDrop = example({
             // host has not committed, and the lifecycle is how the canvas says so.
             const ADDED = variant("proposed", variant("added", null));
 
-            // ── The two policy tables the host owns ───────────────────────
+            // ── The policy table the host owns ───────────────────────────
             // Which FAMILY of card each row will take. A drop cell names its
             // row by the canonical TEXT of the row's id — the series that made
             // it and the path of keys to it — so the table is keyed by that
@@ -2733,39 +2777,55 @@ export const planRowDrop = example({
             const rowAccepts = $.const(new Map([
                 [East.print(Plan.ref("press", "p03")), "job"],
                 [East.print(Plan.ref("press", "p04")), "job"],
-                [East.print(Plan.ref("gpress", "p11")), "job"],
+                [East.print(Plan.ref("gpress", "hall3", "H3-P11")), "job"],
+                [East.print(Plan.ref("gpress", "hall3", "H3-P12")), "job"],
                 [East.print(Plan.ref("van", "van1")), "delivery"],
                 [East.print(Plan.ref("crew", "crewA")), "shift"],
                 [East.print(Plan.ref("strm", "ms")), "milestone"],
             ]), DictType(StringType, StringType));
-            const palette = $.let(cards.read());
-            const cardFamily = $.let(palette.toDict((_$, c) => c.key, (_$, c) => c.family));
-            const cardName = $.let(palette.toDict((_$, c) => c.key, (_$, c) => c.name));
 
             // ── The drop veto ────────────────────────────────────────────
             // Consulted with the candidate event the pointer's CURRENT bucket
             // would produce, so the ⊘ appears while dragging rather than after,
-            // and once more before the drop becomes a draft. Only `add` reaches
-            // a Plan from a library, and refusing the rest says so.
+            // and once more before the drop becomes a draft. A card is vetted
+            // by its family; a run moved or resized is the canvas's own, which
+            // lands only on a row of its item type, so the veto lets it through.
             const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
-                const no = $.const(false, BooleanType);
+                const yes = $.const(true, BooleanType);
                 return event.match({
                     add: ($, add) => {
                         const row = $.let(add.into.row);
                         const card = $.let(add.from.key);
                         return rowAccepts.has(row)
-                            .and(_$ => cardFamily.has(card))
-                            .and(_$ => rowAccepts.get(row).equal(cardFamily.get(card)));
+                            .and(_$ => palette.has(card))
+                            .and(_$ => rowAccepts.get(row).equal(palette.get(card).family));
                     },
-                }, _$ => no);
+                }, _$ => yes);
             }));
 
             // ── The session ──────────────────────────────────────────────
-            // Every drop is a DRAFT of the entry it landed on: the canvas
-            // draws the new item at once, marked pending, and the history bar
-            // undoes, redoes, discards and saves it. Save commits every
-            // draft to the record as one checked batch; `onPatch` hears each
-            // gesture as it is made, into a log the viewer keeps.
+            // Every gesture is a DRAFT of the entry it touched — a hall's
+            // press drafts the hall — drawn at once, marked pending, and the
+            // history item undoes, redoes, discards and saves it. `ready`
+            // checks each drafted entry: a press holding more than four jobs
+            // — the entry itself, or one of a hall's presses — is refused, by
+            // name.
+            const ready = $.const(East.function([DropOpsRow, StringType], Editing.Types.Readiness, ($, row, _key) => {
+                const crowded = $.let(row.presses.filter((_$, p) => p.jobs.size().greater(4n)).toArray((_$, p, name) => ({
+                    field: "jobs", message: East.str`${name} holds ${East.print(p.jobs.size())} jobs — at most 4`,
+                })));
+                $.if(row.jobs.size().greater(4n), ($) => {
+                    $(crowded.pushLast({
+                        field: "jobs", message: East.str`${row.label} holds ${East.print(row.jobs.size())} jobs — at most 4`,
+                    }));
+                });
+                $.if(crowded.size().greater(0n), ($) => {
+                    $.return(East.value(variant("invalid", crowded), Editing.Types.Readiness));
+                });
+                return East.value(variant("ready", null), Editing.Types.Readiness);
+            }));
+            // Every gesture, as it is made — a drop, a move, an undo — into a
+            // log the viewer keeps, which the footer says.
             const lastBind = $.let(State.bind([StringType], "ex.plan.lastdrop", "none yet"));
             const onPatch = $.const(East.function([Plan.Types.PatchEvent(DropOpsRow)], NullType, ($, event) => {
                 $(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
@@ -2776,144 +2836,159 @@ export const planRowDrop = example({
                 window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
             }));
             return (
-                <VStack gap="4" align="stretch">
-                    <Library
-                        id="plan-library"
-                        data={palette}
-                        item={c => ({ key: c.key, label: c.name, sublabel: c.note, icon: c.icon })}
-                    />
-                    <Plan
-                        axis={axis}
-                        data={ops}
-                        // The DnD target role: `id` names this surface in every
-                        // cell ref, `sources` says which palettes it will take
-                        // from, and `canDrop` is the policy. A drop becomes a
-                        // draft of the session — without `editing` no card
-                        // lands, since nothing could hold it.
-                        id="ops-plan"
-                        sources={["plan-library"]}
-                        canDrop={canDrop}
-                        editing={{ onApply: Record.onApply(record, { keyed: true }), onPatch }}
-                        series={[
-                            // INERT — a chart plots a derived series, so there
-                            // is nothing a card could become here.
-                            Plan.series.chart(DropOpsRow, {
-                                key: "util", title: "Utilisation",
-                                match: r => r.series.equal("util"),
-                                label: r => r.label, id: true, height: "spark",
-                                layers: r => [Chart.Line(points(r.readings), { x: p => p.week, y: p => p.pct })],
-                            }),
-                            // RECEIVES — runs are discrete scheduled objects. A
-                            // dropped job joins the press's `jobs`: a
-                            // fortnight long, from the bucket the pointer named.
-                            Plan.series.span(DropOpsRow, {
-                                key: "press", title: "Press jobs",
-                                match: r => r.series.equal("press"),
-                                label: r => r.label, id: true,
-                                runs: r => r.jobs.map((_$, j) => Plan.run({
-                                    key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
-                                })),
-                                edit: {
-                                    items: "jobs",
-                                    create: (drop, r) => ({
-                                        key: East.str`drop-${drop.from.key}-${East.print(r.jobs.size())}`,
-                                        label: cardName.get(drop.from.key),
-                                        start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
-                                        state: ADDED,
-                                    }),
-                                },
-                            }),
-                            // INERT — an intensity field has no object to add to.
-                            Plan.series.heat(DropOpsRow, {
-                                key: "load", title: "Hall load",
-                                match: r => r.series.equal("load"),
-                                label: r => r.label,
-                                cells: r => Plan.heatCells(cells(r.readings), { min: 0, max: 100 }),
-                            }),
-                            // RECEIVES — a dropped delivery becomes a tile in
-                            // the bucket under the pointer.
-                            Plan.series.buckets(DropOpsRow, {
-                                key: "van", title: "Van drops",
-                                match: r => r.series.equal("van"),
-                                label: r => r.label,
-                                events: r => r.allocs.map((_$, a) =>
-                                    Plan.event({ key: a.key, at: a.at, state: a.state })),
-                                edit: {
-                                    items: "allocs",
-                                    create: (drop, r) => ({
-                                        key: East.str`drop-${drop.from.key}-${East.print(r.allocs.size())}`,
-                                        at: drop.at.unwrap("time"), state: ADDED,
-                                    }),
-                                },
-                            }),
-                            // INERT — the cells are computed numbers.
-                            Plan.series.table(DropOpsRow, {
-                                key: "table", title: "Delivered sheets",
-                                match: r => r.series.equal("table"),
-                                label: r => r.label,
-                                cells: r => r.nums,
-                                format: Format.Number({ maximumFractionDigits: 0n }),
-                            }),
-                            // RECEIVES — a dropped shift becomes a chip.
-                            Plan.series.cards(DropOpsRow, {
-                                key: "crew", title: "Crew shifts",
-                                match: r => r.series.equal("crew"),
-                                label: r => r.label,
-                                chips: r => r.shifts.map((_$, s) => Plan.chip({
-                                    key: s.key, from: s.from, to: s.to, label: s.label, state: s.state,
-                                })),
-                                edit: {
-                                    items: "shifts",
-                                    create: (drop, r) => ({
-                                        key: East.str`drop-${drop.from.key}-${East.print(r.shifts.size())}`,
-                                        from: drop.at.unwrap("time"), to: drop.at.unwrap("time").addWeeks(2n),
-                                        label: cardName.get(drop.from.key), state: ADDED,
-                                    }),
-                                },
-                            }),
-                            // RECEIVES — a dropped milestone becomes a mark at
-                            // the instant, the one kind with no duration.
-                            Plan.series.events(DropOpsRow, {
-                                key: "strm", title: "Milestones",
-                                match: r => r.series.equal("strm"),
-                                label: r => r.label, id: true,
-                                marks: r => r.marks,
-                                edit: {
-                                    items: "marks",
-                                    create: (drop, r) => ({
-                                        key: East.str`drop-${drop.from.key}-${East.print(r.marks.size())}`,
-                                        at: drop.at, kind: variant("milestone", null), icon: none,
-                                        label: some(cardName.get(drop.from.key)),
-                                    }),
-                                },
-                            }),
-                            // The HEADER is inert; the span row under it is not.
-                            Plan.series.section(DropOpsRow, { key: "hall3", title: "Hall 3", meta: "span" }, [
-                                Plan.series.span(DropOpsRow, {
-                                    key: "gpress", title: "Hall 3 press jobs",
-                                    match: r => r.series.equal("gpress"),
-                                    label: r => r.label, id: true,
-                                    runs: r => r.jobs.map((_$, j) => Plan.run({
-                                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
-                                    })),
-                                    edit: {
-                                        items: "jobs",
-                                        create: (drop, r) => ({
-                                            key: East.str`drop-${drop.from.key}-${East.print(r.jobs.size())}`,
-                                            label: cardName.get(drop.from.key),
-                                            start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
-                                            state: ADDED,
-                                        }),
-                                    },
+                <Plan
+                    axis={axis}
+                    data={ops}
+                    // The palette — the Plan's own library panel, its cards
+                    // grouped by family. A card drags onto the rows that take
+                    // one; `canDrop` is the policy. A drop becomes a draft of
+                    // the session — without `editing` no card lands, since
+                    // nothing could hold it.
+                    library={[Plan.library.tab(palette, {
+                        name: "Palette", icon: "palette",
+                        label: c => c.name, meta: c => some(c.note), group: c => c.family,
+                    })]}
+                    canDrop={canDrop}
+                    editing={{ onApply: Record.onApply(record, { keyed: true }), onPatch, ready }}
+                    series={[
+                        // INERT — a chart plots a derived series, so there
+                        // is nothing a card could become here.
+                        Plan.series.chart(DropOpsRow, {
+                            key: "util", title: "Utilisation",
+                            match: r => r.series.equal("util"),
+                            label: r => r.label, id: true, height: "spark",
+                            layers: r => [Chart.Line(points(r.readings), { x: p => p.week, y: p => p.pct })],
+                        }),
+                        // RECEIVES and MOVES — runs are discrete scheduled
+                        // objects. A dropped job joins the press's `jobs`, a
+                        // fortnight long from the bucket the pointer named;
+                        // a run moves and resizes — the job found by `key`,
+                        // the run's own key, and a move writing `start` and
+                        // `end`. Keys stay unique on a press: a drop or a move
+                        // that would repeat one is refused, so a new job's key
+                        // names its card and place.
+                        Plan.series.span(DropOpsRow, {
+                            key: "press", title: "Press jobs",
+                            match: r => r.series.equal("press"),
+                            label: r => r.label, id: true,
+                            runs: r => r.jobs.map((_$, j) => Plan.run({
+                                key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                            })),
+                            edit: {
+                                items: "jobs",
+                                key: "key", start: "start", end: "end",
+                                create: (drop, r) => ({
+                                    key: East.str`drop-${drop.from.key}-${East.print(r.jobs.size())}`,
+                                    label: palette.get(drop.from.key).name,
+                                    start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
+                                    state: ADDED,
                                 }),
-                            ]),
-                        ]}
-                        // Shorter than its rows: the last ones start below the
-                        // fold, and a card held at the bottom edge scrolls there.
-                        style={{ height: "300px" }}
-                    />
-                    <Text.MonoLabel>{East.str`LAST GESTURE · ${last}`}</Text.MonoLabel>
-                </VStack>
+                            },
+                        }),
+                        // INERT — an intensity field has no object to add to.
+                        Plan.series.heat(DropOpsRow, {
+                            key: "load", title: "Hall load",
+                            match: r => r.series.equal("load"),
+                            label: r => r.label,
+                            cells: r => Plan.heatCells(cells(r.readings), { min: 0, max: 100 }),
+                        }),
+                        // RECEIVES — a dropped delivery becomes a tile in
+                        // the bucket under the pointer.
+                        Plan.series.buckets(DropOpsRow, {
+                            key: "van", title: "Van drops",
+                            match: r => r.series.equal("van"),
+                            label: r => r.label,
+                            events: r => r.allocs.map((_$, a) =>
+                                Plan.event({ key: a.key, at: a.at, state: a.state })),
+                            edit: {
+                                items: "allocs",
+                                create: (drop, r) => ({
+                                    key: East.str`drop-${drop.from.key}-${East.print(r.allocs.size())}`,
+                                    at: drop.at.unwrap("time"), state: ADDED,
+                                }),
+                            },
+                        }),
+                        // INERT — the cells are computed numbers.
+                        Plan.series.table(DropOpsRow, {
+                            key: "table", title: "Delivered sheets",
+                            match: r => r.series.equal("table"),
+                            label: r => r.label,
+                            cells: r => r.nums,
+                            format: Format.Number({ maximumFractionDigits: 0n }),
+                        }),
+                        // RECEIVES — a dropped shift becomes a chip.
+                        Plan.series.cards(DropOpsRow, {
+                            key: "crew", title: "Crew shifts",
+                            match: r => r.series.equal("crew"),
+                            label: r => r.label,
+                            chips: r => r.shifts.map((_$, s) => Plan.chip({
+                                key: s.key, from: s.from, to: s.to, label: s.label, state: s.state,
+                            })),
+                            edit: {
+                                items: "shifts",
+                                create: (drop, r) => ({
+                                    key: East.str`drop-${drop.from.key}-${East.print(r.shifts.size())}`,
+                                    from: drop.at.unwrap("time"), to: drop.at.unwrap("time").addWeeks(2n),
+                                    label: palette.get(drop.from.key).name, state: ADDED,
+                                }),
+                            },
+                        }),
+                        // RECEIVES — a dropped milestone becomes a mark at
+                        // the instant, the one kind with no duration.
+                        Plan.series.events(DropOpsRow, {
+                            key: "strm", title: "Milestones",
+                            match: r => r.series.equal("strm"),
+                            label: r => r.label, id: true,
+                            marks: r => r.marks,
+                            edit: {
+                                items: "marks",
+                                create: (drop, r) => ({
+                                    key: East.str`drop-${drop.from.key}-${East.print(r.marks.size())}`,
+                                    at: drop.at, kind: variant("milestone", null), icon: none,
+                                    label: some(palette.get(drop.from.key).name),
+                                }),
+                            },
+                        }),
+                        // A SECTION's header is inert. Under it, a HALL: an
+                        // entry holding its presses, stepped down into
+                        // through a plain field — which is what lets a
+                        // gesture on a press write back into its hall. The
+                        // hall's row rolls their runs up and takes no drop; a
+                        // press of it receives, and its runs move — onto the
+                        // Hall 1 presses too.
+                        Plan.series.section(DropOpsRow, { key: "hall-block", title: "Halls", meta: "nested" }, [
+                            Plan.series.span(DropOpsRow, {
+                                key: "halls", title: "Halls",
+                                match: r => r.series.equal("hall"),
+                                label: r => r.label,
+                                runs: _r => [], rollup: "union",
+                                children: Plan.children(r => r.presses, [
+                                    Plan.series.span(DropPress, {
+                                        key: "gpress", title: "Hall presses",
+                                        label: (_p, k) => k, id: true,
+                                        runs: p => p.jobs.map((_$, j) => Plan.run({
+                                            key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                                        })),
+                                        edit: {
+                                            items: "jobs",
+                                            key: "key", start: "start", end: "end",
+                                            create: (drop, p) => ({
+                                                key: East.str`drop-${drop.from.key}-${East.print(p.jobs.size())}`,
+                                                label: palette.get(drop.from.key).name,
+                                                start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
+                                                state: ADDED,
+                                            }),
+                                        },
+                                    }),
+                                ]),
+                            }),
+                        ]),
+                    ]}
+                    footer={[{ text: East.str`LAST GESTURE · ${last}`, end: true }]}
+                    // Shorter than its rows: the last ones start below the
+                    // fold, and a card held at the bottom edge scrolls there.
+                    style={{ height: "360px" }}
+                />
             );
         }}</Reactive>
     )),
@@ -3095,193 +3170,6 @@ export const planFill = example({
                 <Box height="240px">
                     <Plan axis={axis} data={halls} series={series} style={{ height: "fill" }} />
                 </Box>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
-// planEditing — every change a draft, one checked Save (#880, #825)
-// ============================================================================
-
-/** A job on a press. */
-export const EditJob = StructType({
-    key: StringType, label: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
-});
-/** A press — its jobs. */
-export const EditPress = StructType({ jobs: ArrayType(EditJob) });
-/** A hall — its name, and its presses. */
-export const EditHall = StructType({ name: StringType, presses: DictType(StringType, EditPress) });
-
-/** The halls — a RECORD every gesture drafts and Save commits to. P11 already
- *  holds four jobs, so one more is refused. */
-export const planEditingHalls = e3.record("plan_editing_halls", DictType(StringType, EditHall), new Map([
-    ["H1", { name: "Hall 1", presses: new Map([
-        ["P03", { jobs: [
-            { key: "j4642", label: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
-        ] }],
-        ["P04", { jobs: [
-            { key: "j4624", label: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null) },
-            { key: "j4657", label: "J-4657", start: new Date("2026-07-27T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
-        ] }],
-    ]) }],
-    ["H2", { name: "Hall 2", presses: new Map([
-        ["P11", { jobs: [
-            { key: "j4723", label: "J-4723", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) },
-            { key: "j4732", label: "J-4732", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
-            { key: "j4741", label: "J-4741", start: new Date("2026-07-27T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
-            { key: "j4750", label: "J-4750", start: new Date("2026-08-10T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), state: variant("proposed", variant("recommended", null)) },
-        ] }],
-    ]) }],
-]));
-
-/** The halls' patch door — every Save commits through it. */
-export const planEditingHallsPatch = e3.mutation.patch(planEditingHalls);
-
-/** A card in the palette the jobs come from. */
-export const EditCard = StructType({ key: StringType, name: StringType, note: StringType, icon: StringType });
-
-/** The palette's cards. */
-export const planEditingCards = e3.input("plan_editing_cards", ArrayType(EditCard), variant("value", [
-    { key: "poster", name: "Poster run", note: "two weeks", icon: "print" },
-    { key: "leaflet", name: "Leaflet run", note: "two weeks", icon: "file-lines" },
-]));
-
-/**
- * The Plan's editing session (#880) — the Sheet's, over the canvas's entries.
- *
- * The source holds HALLS, each holding its presses. A press receives dropped
- * jobs (its `jobs` list) and has its jobs moved and resized, and every gesture
- * lands on the PRESS rows, one level down — yet each drafts the HALL, the
- * source's top-level entry, which the whole subtree rides in:
- *
- *  - A job card dropped on a press drafts a new job in its `jobs` at the
- *    bucket's instant (`edit: { items: "jobs", create }`).
- *  - A job's run moves along its press or onto another press, and resizes
- *    by either end (#825): the series names the job's key and the instant
- *    fields a move writes (`key`, `start`, `end`). It moves in whole weeks, or
- *    in days with Shift held. A move onto a press of the other hall takes
- *    the job out of one hall and puts it into the other, as one gesture over
- *    both. From the keyboard, Space on a focused run picks it up: ←/→ move it
- *    a week, Shift+←/→ its end, Alt+←/→ its start, ↑/↓ carry it to another
- *    press, and Space drops it.
- *
- * Every gesture is one transaction, drawn at once with the pending mark; the
- * toolbar's history bar undoes, redoes and discards it (so do ⌘Z and ⌘⇧Z).
- * `ready` is the author's check over a drafted hall: a press holding more
- * than four jobs is refused, by name, and Save waits until it is fixed — P11
- * already holds four, so a job moved onto it holds Save until one leaves.
- * The halls are an e3 record: Save commits the batch to it through its patch
- * door (`Record.onApply`), and `onPatch` hears each gesture as it is made.
- */
-export const planEditing = example({
-    keywords: [
-        "Plan", "editing", "session", "draft", "drafts", "transaction", "onApply", "onPatch", "ready",
-        "Readiness", "Editing.Types.Readiness", "invalid",
-        "edit", "items", "create", "drop", "Library", "DnD", "id", "sources",
-        "undo", "redo", "discard", "Save", "history bar", "pending", "nested", "children", "Plan.children",
-        "top-level entry", "Plan.Types.PatchEvent", "Reactive", "State", "#880",
-        "move", "resize", "drag", "run", "key", "start", "end", "Shift", "snap", "keyboard", "Space",
-        "cross-row", "Plan.Types.Move", "#825",
-        "Record", "Record.bind", "Record.onApply", "e3.record", "patch", "commit", "Data.bindPaged",
-    ],
-    description: "The Plan's editing session over an e3 record — dropped jobs and moved or resized runs on nested press rows draft their hall (both halls when a job changes hall), the history bar undoes and saves them as one commit, and `ready` refuses a crowded press",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            // The halls are a RECORD: the canvas pages it, and each Save is
-            // one commit through its patch door.
-            const halls = $.let(Data.bindPaged(planEditingHalls));
-            const record = $.let(Record.bind(planEditingHalls, [planEditingHallsPatch]));
-            // The palette the jobs come from.
-            const cards = $.let(Data.bind(planEditingCards));
-            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-                return w1.addWeeks(n.subtract(1n));
-            }));
-            // What a drop creates is a proposal the host has not committed.
-            const ADDED = variant("proposed", variant("added", null));
-            const palette = $.let(cards.read());
-            const cardName = $.let(palette.toDict((_$, c) => c.key, (_$, c) => c.name));
-
-            // The author's check over one drafted HALL — every check of the
-            // batch runs in one call. A refusal names the press.
-            const ready = $.const(East.function([EditHall, StringType], Editing.Types.Readiness, ($, hall, _key) => {
-                const crowded = $.let(hall.presses.filter((_$, m) => m.jobs.size().greater(4n)));
-                const result = $.let(variant("ready", null), Editing.Types.Readiness);
-                $.if(crowded.size().greater(0n), ($) => {
-                    $.assign(result, variant("invalid", crowded.toArray((_$, m, k) => ({
-                        field: "jobs", message: East.str`${k} holds ${East.print(m.jobs.size())} jobs — at most 4`,
-                    }))));
-                });
-                return result;
-            }));
-            // Every gesture, as it is made — a drop, a move, an undo — into a
-            // log the viewer keeps.
-            const lastBind = $.let(State.bind([StringType], "ex.plan.editing.last", "none yet"));
-            const onPatch = $.const(East.function([Plan.Types.PatchEvent(EditHall)], NullType, ($, event) => {
-                $(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
-            }));
-            const last = $.let(lastBind.read());
-            const axis = $.const(Plan.axis({
-                window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
-            }));
-            return (
-                <VStack gap="4" align="stretch">
-                    <Library
-                        id="plan-editing-jobs"
-                        data={palette}
-                        item={c => ({ key: c.key, label: c.name, sublabel: c.note, icon: c.icon })}
-                    />
-                    <Plan
-                        axis={axis}
-                        data={halls}
-                        id="plan-editing"
-                        sources={["plan-editing-jobs"]}
-                        series={[
-                            // One row per hall, its presses stepped down into
-                            // through a plain field — which is what lets a
-                            // gesture on a press write back into its hall.
-                            Plan.series.span(EditHall, {
-                                key: "halls", title: "Halls",
-                                label: l => l.name,
-                                runs: _l => [],
-                                rollup: "union",
-                                children: Plan.children(l => l.presses, [
-                                    Plan.series.span(EditPress, {
-                                        key: "presses", title: "Presses",
-                                        label: (_m, k) => k, id: true,
-                                        runs: m => m.jobs.map((_$, j) => Plan.run({
-                                            key: j.key, start: j.start, end: j.end,
-                                            label: East.str`RUN · ${j.label}`, state: j.state,
-                                        })),
-                                        edit: {
-                                            items: "jobs",
-                                            // A run moves and resizes: the job is
-                                            // found by `key` — the run's own key —
-                                            // and a move writes `start` and `end`.
-                                            // Keys stay unique on a press: a drop
-                                            // or a move that would repeat one is
-                                            // refused, so the new job's key names
-                                            // its card, bucket and place.
-                                            key: "key", start: "start", end: "end",
-                                            create: (drop, m) => ({
-                                                key: East.str`${drop.from.key}-${East.print(drop.at.unwrap("time"))}-${East.print(m.jobs.size())}`,
-                                                label: cardName.get(drop.from.key),
-                                                start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
-                                                state: ADDED,
-                                            }),
-                                        },
-                                    }),
-                                ]),
-                            }),
-                        ]}
-                        editing={{ onApply: Record.onApply(record, { keyed: true }), onPatch, ready }}
-                        style={{ height: "360px" }}
-                    />
-                    <Text.MonoLabel>{East.str`LAST GESTURE · ${last}`}</Text.MonoLabel>
-                </VStack>
             );
         }}</Reactive>
     )),
