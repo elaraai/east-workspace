@@ -1098,183 +1098,97 @@ export const planBucketRows = example({
     inputs: [],
 });
 
+// ============================================================================
+// planMeasures — measure rows over weekly readings, folded to the resolution
+// the slice states (#824)
+// ============================================================================
+
 /**
- * One measure — its readings, weekly from W27, the window's first week:
- * `weekly` the series the row draws, `extra` a second set for stacked or
- * dual-axis compositions, and `lo` / `hi` a band's bounds.
+ * A measure — its readings a week apiece from W23, the window's first week, a
+ * week with none read nothing: `readings` the series its row draws, and
+ * `second` the set a row pairs with it — the stacked columns' second hall, the
+ * dual chart's on-time line, a table's Δ against plan; `lo` / `hi` a band's
+ * bounds; and a finishing line's capacity, stored in the element vocabulary
+ * itself (`segments`). A measure nests (`children`): a hall holds its presses,
+ * a top its contracts, a contract its orders — the hierarchy is the data's own
+ * (#822), to whatever depth it has.
  */
-export const ChartMeasure = StructType({
+export const Measure = RecursiveType((self) => StructType({
     series: StringType, label: StringType,
     sub: OptionType(StringType), value: OptionType(StringType),
-    weekly: ArrayType(FloatType),
-    extra: ArrayType(FloatType),
-    lo: ArrayType(FloatType),
-    hi: ArrayType(FloatType),
-});
-
-/** The measures, one per mark kind and composition. */
-export const planChartMeasures = e3.input("plan_chart_measures", DictType(StringType, ChartMeasure), variant("value", new Map([
-    ["spark", { series: "spark", label: "On-time", sub: none, value: some("94.2%"),
-      weekly: [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2], extra: [], lo: [], hi: [] }],
-    ["cum", { series: "cum", label: "Cumulative · k", sub: none, value: some("194 k sheets"),
-      weekly: [40.0, 54.0, 68.0, 82.0, 96.0, 110.0, 124.0, 138.0, 152.0, 166.0, 180.0, 194.0], extra: [], lo: [], hi: [] }],
-    ["stacked", { series: "stacked", label: "Printed · k", sub: some("k/wk"), value: none,
-      weekly: [28.0, 34.0, 40.0, 29.0, 35.0, 41.0, 30.0, 36.0, 42.0, 31.0, 37.0, 43.0],
-      extra: [14.0, 19.0, 24.0, 16.0, 21.0, 26.0, 18.0, 23.0, 15.0, 20.0, 25.0, 17.0], lo: [], hi: [] }],
-    ["ppm", { series: "ppm", label: "Defects · ppm", sub: none, value: some("161"),
-      weekly: [120.0, 157.0, 134.0, 171.0, 148.0, 125.0, 162.0, 139.0, 176.0, 153.0, 130.0, 167.0], extra: [], lo: [], hi: [] }],
-    ["refs", { series: "refs", label: "On-time + refs", sub: none, value: none,
-      weekly: [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2], extra: [], lo: [], hi: [] }],
-    // Output columns on the left axis; the on-time line and its ±3 band on
-    // the right.
-    ["dual", { series: "dual", label: "Out + on-time", sub: none, value: none,
-      weekly: [28.0, 34.0, 40.0, 29.0, 35.0, 41.0, 30.0, 36.0, 42.0, 31.0, 37.0, 43.0],
-      extra: [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2],
-      lo: [93.1, 93.4, 93.8, 94.0, 93.2, 92.1, 90.4, 88.0, 85.9, 88.4, 90.8, 91.2],
-      hi: [99.1, 99.4, 99.8, 100.0, 99.2, 98.1, 96.4, 94.0, 91.9, 94.4, 96.8, 97.2] }],
-])));
-
-export const planChartRows = example({
-    keywords: ["Plan", "data", "series", "chart", "layers", "spark", "expanded", "fixed", "refLine", "refBand", "refDot", "breach", "stacked", "dual-axis", "swatches", "Area", "Band", "Scatter", "Column", "Line", "domain", "tickValues", "section", "match", "gutter", "raw", "readings", "Data.bind", "bound", "e3.input"],
-    description: "Chart rows over one measure source bound from e3 — weekly readings turned into each layer's points, one series per mark kind, plus annotations and a fixed dual-axis composition",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const measures = $.let(Data.bind(planChartMeasures));
-            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-                return w1.addWeeks(n.subtract(1n));
-            }));
-            const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
-            const BandRow = StructType({ week: DateTimeType, lo: FloatType, hi: FloatType });
-            // A measure's weekly readings from W27 as a layer's points, and a
-            // band's bounds as its points.
-            const points = $.const(East.function([ArrayType(FloatType)], ArrayType(MeasureRow), ($, readings) =>
-                East.Array.generate(readings.size(), MeasureRow, (_$, i) => ({ week: week(i.add(27n)), pct: readings.get(i) }))));
-            const band = $.const(East.function([ArrayType(FloatType), ArrayType(FloatType)], ArrayType(BandRow), ($, lo, hi) =>
-                East.Array.generate(lo.size(), BandRow, (_$, i) => ({ week: week(i.add(27n)), lo: lo.get(i), hi: hi.get(i) }))));
-            const series = $.const([
-                // Line — the KPI spark with a breach threshold; the caret opens
-                // it to a custom 120px (expandedHeight, default 88).
-                Plan.series.chart(ChartMeasure, {
-                    key: "spark", title: "Spark",
-                    match: r => r.series.equal("spark"),
-                    label: r => r.label, id: true,
-                    value: r => r.value, status: _r => some(variant("warning", null)),
-                    height: "spark", expandable: true, expandedHeight: "120px",
-                    layers: r => [Plan.layer(Chart.Line(points(r.weekly), { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } })],
-                }),
-                // Area — the cumulative fill.
-                Plan.series.chart(ChartMeasure, {
-                    key: "cum", title: "Cumulative",
-                    match: r => r.series.equal("cum"),
-                    label: r => r.label, id: true, value: r => r.value,
-                    layers: r => [Chart.Area(points(r.weekly), { x: p => p.week, y: p => p.pct })],
-                }),
-                // Columns — the row's two reading sets stacked by one series
-                // id, on a two-line gutter (label over sub).
-                Plan.series.chart(ChartMeasure, {
-                    key: "stacked", title: "Stacked",
-                    match: r => r.series.equal("stacked"),
-                    label: r => r.label, id: true, stacked: true, sub: r => r.sub,
-                    layers: r => [
-                        Plan.layer(Chart.Column(points(r.weekly), { x: p => p.week, y: p => p.pct }), { series: "H1" }),
-                        Plan.layer(Chart.Column(points(r.extra), { x: p => p.week, y: p => p.pct }), { series: "H2" }),
-                    ],
-                }),
-                // Scatter — the defect cloud.
-                Plan.series.chart(ChartMeasure, {
-                    key: "ppm", title: "Ppm",
-                    match: r => r.series.equal("ppm"),
-                    label: r => r.label, id: true, value: r => r.value,
-                    layers: r => [Chart.Scatter(points(r.weekly), { x: p => p.week, y: p => p.pct })],
-                }),
-                // Line + every annotation kind, at expanded density.
-                Plan.series.chart(ChartMeasure, {
-                    key: "refs", title: "Refs",
-                    match: r => r.series.equal("refs"),
-                    label: r => r.label, id: true,
-                    height: "expanded",
-                    layers: r => [
-                        Plan.layer(Chart.Line(points(r.weekly), { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),
-                        Chart.refLine({ y: 100, label: "TARGET 100" }),
-                        Chart.refBand({ x: [week(34n), week(36n)], label: "CRUNCH" }),
-                        Chart.refDot({ x: week(36n), y: 91.4, label: "LOW" }),
-                    ],
-                }),
-                // The composed dual-axis chart under a section header; axes take
-                // Chart.Root's vocabulary — domain / tickValues. Output columns
-                // scale left; the on-time line + its band scale right.
-                Plan.series.section(ChartMeasure, { key: "quality", title: "Quality", meta: "1 row" }, [
-                    Plan.series.chart(ChartMeasure, {
-                        key: "dual", title: "Dual",
-                        match: r => r.series.equal("dual"),
-                        label: r => r.label, id: true,
-                        height: Plan.fixed("120px"),
-                        left: { domain: [0, 60], tickValues: [0, 25, 50] },
-                        right: { domain: [80, 105], tickValues: [85, 95, 105] },
-                        swatches: [{ color: "ink.3", label: "out" }, { color: "brand.d", label: "on-time · rh" }],
-                        layers: r => [
-                            Chart.Column(points(r.weekly), { x: p => p.week, y: p => p.pct }),
-                            Plan.layer(Chart.Line(points(r.extra), { x: p => p.week, y: p => p.pct }), { axis: "right" }),
-                            Plan.layer(Chart.Band(band(r.lo, r.hi), { x: p => p.week, low: p => p.lo, high: p => p.hi }), { axis: "right" }),
-                        ],
-                    }),
-                ]),
-            ], ArrayType(Plan.Types.Series(ChartMeasure)));
-            const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
-            return (
-                <Plan
-                    axis={axis}
-                    data={measures}
-                    series={series}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * A heat row — a HALL holds its presses' rows (`children`): the hierarchy is
- * the data's (#822), so the hall's row derives its own cells from theirs.
- * `load` is a press's weekly readings from W27 (a week with none is a gap);
- * `weights` and `segs` are stored in the element vocabulary itself.
- */
-export const HeatRow = RecursiveType((self) => StructType({
-    series: StringType, label: StringType,
-    sub: OptionType(StringType),
-    load: ArrayType(OptionType(FloatType)),
-    weights: ArrayType(Plan.Types.WeightCell),
-    segs: ArrayType(Plan.Types.SegmentCell),
+    readings: ArrayType(OptionType(FloatType)),
+    second: ArrayType(OptionType(FloatType)),
+    lo: ArrayType(FloatType), hi: ArrayType(FloatType),
+    segments: ArrayType(Plan.Types.SegmentCell),
     children: DictType(StringType, self),
 }));
 
-/** The halls, the crew's booked hours and the finishing line's capacity. */
-export const planHeatHalls = e3.input("plan_heat_halls", DictType(StringType, HeatRow), variant("value", new Map([
-    // A hall with no readings of its own — its row shows the per-bucket mean
-    // of its presses' (the series declares `aggregate`). W31 has no reading.
-    ["hall1", { series: "depth", label: "Hall 1", sub: none, load: [], weights: [], segs: [],
+/** On-time %, a week apiece from W23: July's weeks run under the 92 breach. */
+const MEASURE_ON_TIME = [some(96.1), some(96.4), some(96.8), some(97.0), some(96.2), some(91.0), some(89.4), some(88.9), some(90.6), some(93.8), some(94.0), some(94.2)];
+
+/** Sheets printed, thousands a week — Hall 1's, then Hall 2's. */
+const MEASURE_PRINTED_H1 = [some(28.0), some(34.0), some(40.0), some(29.0), some(35.0), some(41.0), some(30.0), some(36.0), some(42.0), some(31.0), some(37.0), some(43.0)];
+const MEASURE_PRINTED_H2 = [some(14.0), some(19.0), some(24.0), some(16.0), some(21.0), some(26.0), some(18.0), some(23.0), some(15.0), some(20.0), some(25.0), some(17.0)];
+
+/** An order's delivered sheets, thousands a week — the week of 3 August none. */
+const MEASURE_ACT = [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)];
+
+/** The Δ against plan beside them — some weeks none. */
+const MEASURE_DELTA = [some(-8.0), some(-6.5), some(-5.0), none, some(-2.0), some(-0.5), some(1.0), none, some(4.0), some(5.5), some(7.0), none];
+
+/** What left as the sheets came in. */
+const MEASURE_OUT = [some(-12.0), some(-15.0), some(-18.0), some(-21.0), some(-24.0), some(-27.0), some(-30.0), some(-33.0), some(-36.0), some(-39.0), some(-42.0), some(-45.0)];
+
+/**
+ * Twelve weeks of every measure, W23–W34 — from the first Monday of June, so
+ * the first month's column starts with the first week; the weeks after now
+ * (W27) read ahead.
+ */
+export const planMeasureReadings = e3.input("plan_measure_readings", DictType(StringType, Measure), variant("value", new Map([
+    // ── Output ──
+    ["spark", { series: "spark", label: "On-time", sub: none, value: some("94.2%"),
+      readings: MEASURE_ON_TIME, second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    // A running total: each week the sheets printed so far.
+    ["cum", { series: "cum", label: "Cumulative · k", sub: none, value: some("194 k sheets"),
+      readings: [some(40.0), some(54.0), some(68.0), some(82.0), some(96.0), some(110.0), some(124.0), some(138.0), some(152.0), some(166.0), some(180.0), some(194.0)],
+      second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    ["stacked", { series: "stacked", label: "Printed · k", sub: some("k/wk"), value: none,
+      readings: MEASURE_PRINTED_H1, second: MEASURE_PRINTED_H2, lo: [], hi: [], segments: [], children: new Map() }],
+    ["ppm", { series: "ppm", label: "Defects · ppm", sub: none, value: some("161"),
+      readings: [some(120.0), some(157.0), some(134.0), some(171.0), some(148.0), some(125.0), some(162.0), some(139.0), some(176.0), some(153.0), some(130.0), some(167.0)],
+      second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    ["refs", { series: "refs", label: "On-time + refs", sub: none, value: none,
+      readings: MEASURE_ON_TIME, second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    // Output columns on the left axis; the on-time line and its ±3 band on the right.
+    ["dual", { series: "dual", label: "Out + on-time", sub: none, value: none,
+      readings: MEASURE_PRINTED_H1, second: MEASURE_ON_TIME,
+      lo: [93.1, 93.4, 93.8, 94.0, 93.2, 88.0, 86.4, 85.9, 87.6, 90.8, 91.0, 91.2],
+      hi: [99.1, 99.4, 99.8, 100.0, 99.2, 94.0, 92.4, 91.9, 93.6, 96.8, 97.0, 97.2],
+      segments: [], children: new Map() }],
+    // ── Load ──
+    // A hall with no readings of its own: its row is its presses' per-bucket
+    // mean. H1-P03 read nothing in the week of 29 June; H1-P04 nothing in
+    // August, which folds to a month with no data.
+    ["hall1", { series: "depth", label: "Hall 1", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
       children: new Map([
-          ["p03h", { series: "depth", label: "H1-P03", sub: none, weights: [], segs: [], children: new Map(),
-            load: [some(46.0), some(52.0), some(58.0), some(61.0), none, some(72.0), some(78.0), some(84.0), some(90.0), some(96.0), some(98.0), some(92.0)] }],
-          ["p04h", { series: "depth", label: "H1-P04", sub: none, weights: [], segs: [], children: new Map(),
-            load: [some(46.0), some(52.0), some(58.0), some(61.0), none, some(72.0), some(78.0), some(84.0), some(90.0), some(96.0), some(98.0), some(92.0)] }],
+          ["p03h", { series: "depth", label: "H1-P03", sub: none, value: none, second: [], lo: [], hi: [], segments: [], children: new Map(),
+            readings: [some(46.0), some(52.0), some(58.0), some(61.0), none, some(72.0), some(78.0), some(84.0), some(90.0), some(96.0), some(98.0), some(92.0)] }],
+          ["p04h", { series: "depth", label: "H1-P04", sub: none, value: none, second: [], lo: [], hi: [], segments: [], children: new Map(),
+            readings: [some(44.0), some(50.0), some(55.0), some(60.0), some(63.0), some(70.0), some(74.0), some(80.0), some(86.0), none, none, none] }],
       ]) }],
-    // Booked-vs-free fractions, fortnightly; the back half is the planned
-    // pale tail.
-    ["booked", { series: "booked", label: "Crew A", sub: some("booked h"), load: [], segs: [], children: new Map(),
-      weights: [
-          { at: variant("time", new Date("2026-06-29T00:00:00Z")), fraction: 0.9, planned: false },
-          { at: variant("time", new Date("2026-07-13T00:00:00Z")), fraction: 0.79, planned: false },
-          { at: variant("time", new Date("2026-07-27T00:00:00Z")), fraction: 0.68, planned: false },
-          { at: variant("time", new Date("2026-08-10T00:00:00Z")), fraction: 0.57, planned: true },
-          { at: variant("time", new Date("2026-08-24T00:00:00Z")), fraction: 0.46, planned: true },
-          { at: variant("time", new Date("2026-09-07T00:00:00Z")), fraction: 0.35, planned: true },
-      ] }],
-    // Segment compositions — plain `{ fill, weight, label }` records.
-    ["finishing", { series: "segments", label: "Finishing line", sub: some("capacity"), load: [], weights: [], children: new Map(),
-      segs: [
+    ["peak", { series: "peak", label: "Hall 2 peak %", sub: none, value: none,
+      readings: [some(45.0), some(62.0), some(79.0), some(46.0), some(63.0), some(80.0), some(47.0), some(64.0), some(81.0), some(48.0), some(65.0), some(82.0)],
+      second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    // Crew A's booked fraction of its hours, a week apiece.
+    ["booked", { series: "booked", label: "Crew A", sub: some("booked h"), value: none,
+      readings: [some(0.9), some(0.84), some(0.79), some(0.74), some(0.68), some(0.62), some(0.57), some(0.52), some(0.46), some(0.41), some(0.35), some(0.3)],
+      second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    // ── Finishing ──
+    // Capacity compositions — plain `{ fill, weight, label }` records. June's
+    // and August's are their month's only one, so they keep their labels.
+    ["finishing", { series: "segments", label: "Finishing line", sub: some("capacity"), value: none,
+      readings: [], second: [], lo: [], hi: [], children: new Map(),
+      segments: [
           { at: variant("time", new Date("2026-06-29T00:00:00Z")), segments: [
               { fill: variant("success", null), weight: 60.0, label: some("60%") },
               { fill: variant("warning", null), weight: 25.0, label: some("25%") },
@@ -1288,427 +1202,405 @@ export const planHeatHalls = e3.input("plan_heat_halls", DictType(StringType, He
               { fill: variant("danger", null), weight: 40.0, label: some("40%") },
               { fill: variant("free", null), weight: 60.0, label: none },
           ] },
+          { at: variant("time", new Date("2026-08-10T00:00:00Z")), segments: [
+              { fill: variant("success", null), weight: 55.0, label: some("55%") },
+              { fill: variant("warning", null), weight: 30.0, label: some("30%") },
+              { fill: variant("slack", null), weight: 15.0, label: none },
+          ] },
       ] }],
-])));
-
-export const planHeatRows = example({
-    keywords: ["Plan", "data", "series", "heat", "Matrix", "cells", "depth", "aggregate", "mean", "children", "nested", "recursive", "RecursiveType", "scale", "warnAt", "weightCells", "segmentCells", "segment", "no-data", "hatch", "section", "match", "gutter", "raw", "readings", "Data.bind", "bound", "e3.input"],
-    description: "Heat rows over one hall source bound from e3 — colour-depth cells from weekly readings under a hall that averages them, weight bars, and status segments",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const halls = $.let(Data.bind(planHeatHalls));
-            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-                return w1.addWeeks(n.subtract(1n));
-            }));
-            // A press's weekly readings from W27 as heat cells, each printing
-            // its value — a week with no reading is the no-data hatch.
-            const loadCells = $.const(East.function([ArrayType(OptionType(FloatType))], ArrayType(Plan.Types.HeatCell), ($, load) =>
-                East.Array.generate(load.size(), Plan.Types.HeatCell, ($, i) => {
-                    const value = $.let(load.get(i), OptionType(FloatType));
-                    const label = $.let(none, OptionType(StringType));
-                    $.match(value, { some: ($, v) => { $.assign(label, some(East.Float.printFixed(v, 0n))); } });
-                    return { at: Plan.at.time(week(i.add(27n))), value, label };
-                })));
-            const series = $.const([
-                // A hall's presses nest under it, and its row is their per-bucket
-                // mean — painted on `scale`, the scale a parent's DERIVED cells
-                // take (#824; a mean of rows on 0–100 would inherit it anyway).
-                Plan.series.heat(HeatRow, {
-                    key: "depth", title: "Depth",
-                    match: r => r.series.equal("depth"),
-                    label: r => r.label, id: true,
-                    cells: r => Plan.heatCells(loadCells(r.load), { min: 0, max: 100, warnAt: 95 }),
-                    children: r => r.children, aggregate: "mean",
-                    scale: { min: 0, max: 100, warnAt: 95 },
-                }),
-                Plan.series.heat(HeatRow, {
-                    key: "booked", title: "Booked",
-                    match: r => r.series.equal("booked"),
-                    label: r => r.label,
-                    sub: r => r.sub,
-                    cells: r => Plan.weightCells(r.weights),
-                }),
-                Plan.series.section(HeatRow, { key: "finishing", title: "Finishing", meta: "1 row" }, [
-                    Plan.series.heat(HeatRow, {
-                        key: "segments", title: "Segments",
-                        match: r => r.series.equal("segments"),
-                        label: r => r.label,
-                        sub: r => r.sub,
-                        cells: r => Plan.segmentCells(r.segs),
-                    }),
-                ]),
-            ], ArrayType(Plan.Types.Series(HeatRow)));
-            const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
-            return (
-                <Plan
-                    axis={axis}
-                    data={halls}
-                    series={series}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * The RAW order record — actuals and the plan Δ as weekly readings from W27
- * (a week with none prints the muted em-dash); every display decision lives
- * in the series configs. Orders nest (`children`): a top holds its contracts,
- * a contract its orders — the hierarchy is the data's own (#822), to whatever
- * depth it has.
- */
-export const TableOrder = RecursiveType((self) => StructType({
-    series: StringType, name: StringType,
-    sub: OptionType(StringType),
-    act: ArrayType(OptionType(FloatType)),
-    plan: ArrayType(OptionType(FloatType)),
-    children: DictType(StringType, self),
-}));
-
-/** The orders, contracts and lots. */
-export const planTableOrders = e3.input("plan_table_orders", DictType(StringType, TableOrder), variant("value", new Map([
+    // ── Deliveries ──
     // Two levels of nesting — a top holds its contracts, a contract its
-    // orders; every level with no values of its own is a subtotal.
-    ["deliveries", { series: "orders", name: "Deliveries", sub: none, act: [], plan: [],
+    // orders; every level with no readings of its own is a subtotal.
+    ["deliveries", { series: "orders", label: "Deliveries", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
       children: new Map([
-          ["contract-a", { series: "orders", name: "Contract A", sub: none, act: [], plan: [],
+          ["contract-a", { series: "orders", label: "Contract A", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
             children: new Map([
-                ["j6188", { series: "orders", name: "J-6188", sub: none, plan: [], children: new Map(),
-                  act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)] }],
-                ["j6204", { series: "orders", name: "J-6204", sub: none, plan: [], children: new Map(),
-                  act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)] }],
+                ["j6188", { series: "orders", label: "J-6188", sub: none, value: none, readings: MEASURE_ACT, second: [], lo: [], hi: [], segments: [], children: new Map() }],
+                ["j6204", { series: "orders", label: "J-6204", sub: none, value: none, readings: MEASURE_ACT, second: [], lo: [], hi: [], segments: [], children: new Map() }],
             ]) }],
-          ["contract-b", { series: "orders", name: "Contract B", sub: none, act: [], plan: [],
+          ["contract-b", { series: "orders", label: "Contract B", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
             children: new Map([
-                ["j6219", { series: "orders", name: "J-6219", sub: none, plan: [], children: new Map(),
-                  act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)] }],
+                ["j6219", { series: "orders", label: "J-6219", sub: none, value: none, readings: MEASURE_ACT, second: [], lo: [], hi: [], segments: [], children: new Map() }],
             ]) }],
       ]) }],
-    ["reprints", { series: "orders", name: "Reprints", sub: none, act: [], plan: [],
+    ["reprints", { series: "orders", label: "Reprints", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
       children: new Map([
-          ["contract-b", { series: "orders", name: "Contract B", sub: none, act: [], plan: [],
+          ["contract-b", { series: "orders", label: "Contract B", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
             children: new Map([
-                ["rp-0031", { series: "orders", name: "RP-0031", sub: none, plan: [], children: new Map(),
-                  act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)] }],
+                ["rp-0031", { series: "orders", label: "RP-0031", sub: none, value: none, readings: MEASURE_ACT, second: [], lo: [], hi: [], segments: [], children: new Map() }],
             ]) }],
       ]) }],
-    // Footer emphasis + negative tone + the muted em-dash.
-    ["net", { series: "net", name: "Net flow", sub: none, plan: [], children: new Map(),
-      act: [some(22.0), some(-26.0), none] }],
-    // Multi-value series — act + plan readings per row. The SPLIT (how the
+    // Footer emphasis, a negative and the em-dash: July read nothing at all.
+    ["net", { series: "net", label: "Net flow", sub: none, value: none,
+      readings: [some(22.0), some(-26.0), some(8.0), some(-4.0), some(12.0), none, none, none, none, some(-30.0), some(12.0), some(6.0)],
+      second: [], lo: [], hi: [], segments: [], children: new Map() }],
+    // Multi-value rows — the actuals and the Δ per row. The SPLIT (how the
     // positions sit against each other) and the GUTTER (one line or two) are
     // independent choices, so all four combinations are here: the pair that
     // reads well depends on the numbers, not on the split.
-    ["actplan", { series: "actplan", name: "Act · Δ plan", sub: some("k/wk"), children: new Map(),
-      act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-      plan: [some(-8.0), some(-6.5), some(-5.0), none, some(-2.0), some(-0.5), some(1.0), none, some(4.0), some(5.5), some(7.0), none] }],
-    ["inout", { series: "inout", name: "In / out", sub: none, children: new Map(),
-      act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-      plan: [some(-12.0), some(-15.0), some(-18.0), some(-21.0), some(-24.0), some(-27.0), some(-30.0), some(-33.0), some(-36.0), some(-39.0), some(-42.0), some(-45.0)] }],
+    ["actplan", { series: "actplan", label: "Act · Δ plan", sub: some("k/wk"), value: none,
+      readings: MEASURE_ACT, second: MEASURE_DELTA, lo: [], hi: [], segments: [], children: new Map() }],
+    ["inout", { series: "inout", label: "In / out", sub: none, value: none,
+      readings: MEASURE_ACT, second: MEASURE_OUT, lo: [], hi: [], segments: [], children: new Map() }],
     // Horizontal, on a ONE-line gutter — the pair reads as a single fact
     // ("booked beside free"), so a sub label would only repeat it.
-    ["sidebyside", { series: "sidebyside", name: "Booked · free", sub: none, children: new Map(),
-      act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-      plan: [some(-12.0), some(-15.0), some(-18.0), some(-21.0), some(-24.0), some(-27.0), some(-30.0), some(-33.0), some(-36.0), some(-39.0), some(-42.0), some(-45.0)] }],
+    ["sidebyside", { series: "sidebyside", label: "Booked · free", sub: none, value: none,
+      readings: MEASURE_ACT, second: MEASURE_OUT, lo: [], hi: [], segments: [], children: new Map() }],
     // Vertical, on a TWO-line gutter — the stack needs the unit spelled out,
     // because the positions are the same measure at two times.
-    ["overunder", { series: "overunder", name: "Act / plan", sub: some("k/wk"), children: new Map(),
-      act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-      plan: [some(-8.0), some(-6.5), some(-5.0), none, some(-2.0), some(-0.5), some(1.0), none, some(4.0), some(5.5), some(7.0), none] }],
+    ["overunder", { series: "overunder", label: "Act / plan", sub: some("k/wk"), value: none,
+      readings: MEASURE_ACT, second: MEASURE_DELTA, lo: [], hi: [], segments: [], children: new Map() }],
     // NESTED and multi-value: the subtotal parent mirrors its members, an act
     // subtotal beside a Δ subtotal.
-    ["lots", { series: "lot", name: "Lots", sub: none, act: [], plan: [],
+    ["lots", { series: "lot", label: "Lots", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
       children: new Map([
-          ["lt-1", { series: "lot", name: "LT-2201", sub: none, children: new Map(),
-            act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-            plan: [some(-8.0), some(-6.5), some(-5.0), none, some(-2.0), some(-0.5), some(1.0), none, some(4.0), some(5.5), some(7.0), none] }],
-          ["lt-2", { series: "lot", name: "LT-2202", sub: none, children: new Map(),
-            act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-            plan: [some(-8.0), some(-6.5), some(-5.0), none, some(-2.0), some(-0.5), some(1.0), none, some(4.0), some(5.5), some(7.0), none] }],
+          ["lt-1", { series: "lot", label: "LT-2201", sub: none, value: none, readings: MEASURE_ACT, second: MEASURE_DELTA, lo: [], hi: [], segments: [], children: new Map() }],
+          ["lt-2", { series: "lot", label: "LT-2202", sub: none, value: none, readings: MEASURE_ACT, second: MEASURE_DELTA, lo: [], hi: [], segments: [], children: new Map() }],
       ]) }],
     // The same, STACKED: members and their subtotal both put the two positions
     // on their own lines, so the parent has to grow too.
-    ["stacks", { series: "stack", name: "Stacks", sub: none, act: [], plan: [],
+    ["stacks", { series: "stack", label: "Stacks", sub: none, value: none, readings: [], second: [], lo: [], hi: [], segments: [],
       children: new Map([
-          ["st-1", { series: "stack", name: "ST-3301", sub: none, children: new Map(),
-            act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-            plan: [some(-12.0), some(-15.0), some(-18.0), some(-21.0), some(-24.0), some(-27.0), some(-30.0), some(-33.0), some(-36.0), some(-39.0), some(-42.0), some(-45.0)] }],
-          ["st-2", { series: "stack", name: "ST-3302", sub: none, children: new Map(),
-            act: [some(40.0), some(47.0), some(54.0), some(61.0), some(68.0), some(75.0), some(82.0), some(89.0), some(96.0), none, some(110.0), some(117.0)],
-            plan: [some(-12.0), some(-15.0), some(-18.0), some(-21.0), some(-24.0), some(-27.0), some(-30.0), some(-33.0), some(-36.0), some(-39.0), some(-42.0), some(-45.0)] }],
+          ["st-1", { series: "stack", label: "ST-3301", sub: none, value: none, readings: MEASURE_ACT, second: MEASURE_OUT, lo: [], hi: [], segments: [], children: new Map() }],
+          ["st-2", { series: "stack", label: "ST-3302", sub: none, value: none, readings: MEASURE_ACT, second: MEASURE_OUT, lo: [], hi: [], segments: [], children: new Map() }],
       ]) }],
-])));
-
-export const planTableRows = example({
-    keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "children", "nested", "recursive", "RecursiveType", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "stacked", "two-line", "strong", "muted", "rollup", "mirror", "position", "raw", "readings", "Data.bind", "bound", "e3.input"],
-    description: "Table rows over one order source bound from e3 — weekly readings as cells, subtotals at every level of the data's nesting, footer emphasis, and every split × gutter combination",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const orders = $.let(Data.bind(planTableOrders));
-            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-                return w1.addWeeks(n.subtract(1n));
-            }));
-            // Weekly readings from W27 as the raw `{ at, value }` cells
-            // `Plan.tableCells` reads.
-            const RawCell = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const readings = $.const(East.function([ArrayType(OptionType(FloatType))], ArrayType(RawCell), ($, values) =>
-                East.Array.generate(values.size(), RawCell, (_$, i) => ({ at: week(i.add(27n)), value: values.get(i) }))));
-            const series = $.const([
-                // Each order nests under its contract, each contract under its top
-                // (`children`, to any depth), and every parent sums its children.
-                Plan.series.table(TableOrder, {
-                    key: "orders", title: "Orders",
-                    match: r => r.series.equal("orders"),
-                    label: r => r.name,
-                    cells: r => Plan.tableCells(readings(r.act)),
-                    children: r => r.children, aggregate: "sum",
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                Plan.series.table(TableOrder, {
-                    key: "net", title: "Net",
-                    match: r => r.series.equal("net"),
-                    label: r => r.name, emphasis: "footer",
-                    cells: r => Plan.tableCells(readings(r.act)),
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                // Per-POSITION style declared ONCE, in the CONFIG — a strong
-                // rolled-up actual beside its muted, always-signed plan Δ.
-                Plan.series.table(TableOrder, {
-                    key: "actplan", title: "Actual vs plan",
-                    match: r => r.series.equal("actplan"),
-                    label: r => r.name, stacked: true, sub: r => r.sub,
-                    series: r => [
-                        Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(readings(r.act)) }),
-                        Plan.tableSeries({
-                            tone: "muted",
-                            format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
-                            cells: Plan.tableCells(readings(r.plan)),
-                        }),
-                    ],
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                // The VERTICAL split stacks the positions; the row grows.
-                Plan.series.table(TableOrder, {
-                    key: "inout", title: "Inout",
-                    match: r => r.series.equal("inout"),
-                    label: r => r.name, split: "vertical",
-                    series: r => [
-                        Plan.tableSeries({ cells: Plan.tableCells(readings(r.act)) }),
-                        Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(readings(r.plan)) }),
-                    ],
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                // HORIZONTAL on a ONE-line gutter — the other half of the pair
-                // above: the split is a cell-layout choice and the gutter a label
-                // choice, so neither implies the other.
-                Plan.series.table(TableOrder, {
-                    key: "sidebyside", title: "Side by side",
-                    match: r => r.series.equal("sidebyside"),
-                    label: r => r.name, split: "horizontal",
-                    series: r => [
-                        Plan.tableSeries({ strong: true, cells: Plan.tableCells(readings(r.act)) }),
-                        Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(readings(r.plan)) }),
-                    ],
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                // A MULTI-VALUE series under a subtotal parent — every position
-                // rolls up, so the parent shows an act subtotal beside a Δ subtotal
-                // instead of collapsing to one number and looking complete. Flag a
-                // position `rollup: true` to narrow it back to that one.
-                Plan.series.table(TableOrder, {
-                    key: "lot", title: "Lot",
-                    match: r => r.series.equal("lot"),
-                    label: r => r.name,
-                    series: r => [
-                        Plan.tableSeries({ strong: true, cells: Plan.tableCells(readings(r.act)) }),
-                        Plan.tableSeries({
-                            tone: "muted",
-                            format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
-                            cells: Plan.tableCells(readings(r.plan)),
-                        }),
-                    ],
-                    children: r => r.children, aggregate: "sum",
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                // NESTED and VERTICAL — the subtotal stacks its positions the way
-                // its members do. The parent's positions carry no values of their
-                // own (they are derived), so its height comes from its members'
-                // count: a parent that read its own empty cells as one line would
-                // render as two.
-                Plan.series.table(TableOrder, {
-                    key: "stack", title: "Stack",
-                    match: r => r.series.equal("stack"),
-                    label: r => r.name, split: "vertical",
-                    series: r => [
-                        Plan.tableSeries({ strong: true, cells: Plan.tableCells(readings(r.act)) }),
-                        Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(readings(r.plan)) }),
-                    ],
-                    children: r => r.children, aggregate: "sum",
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-                // VERTICAL on a TWO-line gutter — the remaining combination, and
-                // the one that grows the row in BOTH directions at once.
-                Plan.series.table(TableOrder, {
-                    key: "overunder", title: "Over / under",
-                    match: r => r.series.equal("overunder"),
-                    label: r => r.name, split: "vertical", stacked: true, sub: r => r.sub,
-                    series: r => [
-                        Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(readings(r.act)) }),
-                        Plan.tableSeries({
-                            tone: "muted",
-                            format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
-                            cells: Plan.tableCells(readings(r.plan)),
-                        }),
-                    ],
-                    format: Format.Number({ maximumFractionDigits: 0n }),
-                }),
-            ], ArrayType(Plan.Types.Series(TableOrder)));
-            const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
-            return (
-                <Plan
-                    axis={axis}
-                    data={orders}
-                    series={series}
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
-// planFold — a coarser resolution FOLDS each bucket's values (#824)
-// ============================================================================
-
-/** One measure — its weekly readings from W23; `series` picks its row's series. */
-export const FoldMeasure = StructType({ series: StringType, label: StringType, readings: ArrayType(FloatType) });
-
-/** Twelve weeks of each measure, W23–W34 — from the first Monday of June, so
- *  the first month's column starts with the first week. */
-export const planFoldMeasures = e3.input("plan_fold_measures", DictType(StringType, FoldMeasure), variant("value", new Map([
-    ["load",  { series: "load",  label: "Hall load %", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],
-    ["peak",  { series: "peak",  label: "Peak load %", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],
-    ["book",  { series: "book",  label: "Booked", readings: [0.4, 0.82, 0.64, 0.46, 0.88, 0.7, 0.52, 0.94, 0.76, 0.58, 0.4, 0.82] }],
-    ["desp",  { series: "desp",  label: "Delivered · k", readings: [80.0, 109.0, 138.0, 107.0, 136.0, 105.0, 134.0, 103.0, 132.0, 101.0, 130.0, 99.0] }],
-    ["stock", { series: "stock", label: "Paper stock · k", readings: [420.0, 398.0, 376.0, 354.0, 332.0, 310.0, 288.0, 266.0, 244.0, 222.0, 200.0, 178.0] }],
-    ["out",   { series: "out",   label: "Printed · k", readings: [60.0, 83.0, 66.0, 89.0, 72.0, 95.0, 78.0, 61.0, 84.0, 67.0, 90.0, 73.0] }],
-    ["ontime",   { series: "ontime",   label: "On-time %", readings: [88.0, 92.0, 96.0, 91.0, 95.0, 90.0, 94.0, 89.0, 93.0, 88.0, 92.0, 96.0] }],
+    // A balance: the paper in stock, thousands of sheets, each week's close.
+    ["stock", { series: "stock", label: "Paper stock · k", sub: none, value: none,
+      readings: [some(420.0), some(398.0), some(376.0), some(354.0), some(332.0), some(310.0), some(288.0), some(266.0), some(244.0), some(222.0), some(200.0), some(178.0)],
+      second: [], lo: [], hi: [], segments: [], children: new Map() }],
 ])));
 
 /** A week the canvas shows — the rows its slice narrows. */
-export const FoldWeek = StructType({ week: DateTimeType });
+export const MeasureWeek = StructType({ week: DateTimeType });
 
 /**
- * Temporal fold (#824). The data is weekly; the canvas shows it at whatever
- * resolution its slice states, and at MONTH every row shows ONE value per
- * month — the fold of its weeks there — where it used to stack four or five
- * on top of each other. Each cell builder and chart layer declares its fold,
- * defaulting to what its values mean: a heat level and a line fold by `mean`,
- * a table numeral and a column by `sum`, a weight fraction by `mean`. A row
- * overrides it where the meaning differs — peak load by `max`, closing stock
- * by `last`. Nothing in the data changes, and a row whose weeks were never
- * folded (WEEK) shows them as they are.
+ * Measure rows — the chart, heat and table grammars over weekly readings, and
+ * the temporal fold (#824) that shows them at whatever resolution the slice
+ * states. At MONTH, where it opens, every row shows ONE value per month — the
+ * fold of its weeks there — where it would stack four or five on top of each
+ * other. Each cell builder and chart layer declares its fold, defaulting to
+ * what its values mean: a heat level, a weight fraction and a line by `mean`,
+ * a table numeral and a column by `sum`. A row overrides it where the meaning
+ * differs — peak load by `max`; a running total and a closing stock by
+ * `last`; and the dual chart's output columns by `mean`, so its fixed scale
+ * holds at every resolution. A bucket with ONE week keeps it as it is, and a
+ * month with no reading is no data.
+ *
+ * - **Chart rows**: a line with its breach (July's mean falls under 92), an
+ *   area, columns stacked by series id on a two-line gutter, a scatter that
+ *   draws every reading, every annotation (`refLine`, `refBand`, `refDot`) at
+ *   expanded density, and a fixed-height dual-axis composition — columns
+ *   left, a line and its band right, swatches, domains and ticks.
+ * - **Heat rows**: colour depth under a hall averaging its presses on its
+ *   `scale`, with the no-data hatch — a week, and a whole month, with no
+ *   reading — weight bars whose planned tail is pale, and status segments.
+ * - **Table rows**: subtotals at every depth of the data's nesting, footer
+ *   emphasis with a negative and the em-dash, and multi-value positions —
+ *   strong and muted, signed, `rollup` — in every split × gutter combination.
  *
  * The switch is the toolbar's (#1258): a slice bound over the weeks the
  * canvas shows declares the `resolution` affordance, and the axis the
  * resolutions it offers, so the toolbar's segment switches MONTH and WEEK. A
- * switch keeps the canvas's column count — three months, then the first
- * three weeks — and the horizon brush moves the window across the twelve.
+ * switch keeps the canvas's column count — three months, then the first three
+ * weeks — and the horizon brush moves the window across the twelve.
  */
-export const planFold = example({
+export const planMeasures = example({
     keywords: [
-        "Plan", "fold", "temporal fold", "resolution", "week", "month", "rebucket", "bucket",
-        "sum", "mean", "max", "last", "count", "default", "override", "heatCells", "weightCells",
-        "tableCells", "tableSeries", "layer", "Plan.layer", "column", "line", "format",
-        "Slice", "Slice.bind", "affordances", "toolbar", "segment", "range", "brush",
-        "Reactive", "#824", "#1258", "readings", "Data.bind", "bound", "e3.input",
+        "Plan", "measures", "data", "series", "chart", "layers", "spark", "expanded", "fixed", "refLine",
+        "refBand", "refDot", "breach", "stacked", "dual-axis", "swatches", "Area", "Band", "Scatter", "Column",
+        "Line", "domain", "tickValues", "heat", "Matrix", "cells", "depth", "aggregate", "mean", "children",
+        "nested", "recursive", "RecursiveType", "scale", "warnAt", "heatCells", "weightCells", "segmentCells",
+        "segment", "no-data", "hatch", "table", "tableCells", "subtotal", "sum", "format", "emphasis", "footer",
+        "em-dash", "neg", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "two-line",
+        "strong", "muted", "rollup", "mirror", "position", "fold", "temporal fold", "resolution", "week", "month",
+        "rebucket", "bucket", "max", "last", "count", "default", "override", "layer", "Plan.layer", "column",
+        "line", "Slice", "Slice.bind", "affordances", "toolbar", "range", "brush", "section", "match", "gutter",
+        "raw", "readings", "Reactive", "Data.bind", "bound", "e3.input", "#824", "#1258",
     ],
-    description: "Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last); the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK",
+    description: "Measure rows over weekly readings bound from e3, at MONTH to start — chart rows (a line with its breach, an area, stacked columns, a scatter, every annotation, and a fixed dual-axis composition with its band and swatches), heat rows (colour depth under a hall averaging its presses on its scale with the no-data hatch, weight bars with a planned tail, status segments) and table rows (subtotals at every depth, footer emphasis with a negative and the em-dash, multi-value positions in every split × gutter combination); each row folds a month's weeks by what its values mean, or by its override (peak load by max, a running total and the paper stock by last, the dual chart's columns by mean), and the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK",
     fn: East.function([], UIComponentType, (_$) => {
-        const cfg = Slice.config(FoldWeek, {
+        const cfg = Slice.config(MeasureWeek, {
             fields: { week: { label: "Week", format: { date: "MMM D" } } },
             rangeFieldId: "week",
         });
         return (<Reactive>{$ => {
-            const measures = $.let(Data.bind(planFoldMeasures));
+            const measures = $.let(Data.bind(planMeasureReadings));
             // Monday of ISO week n, 2026 — twelve weeks, W23–W34.
             const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
                 const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
                 return w1.addWeeks(n.subtract(1n));
             }));
+            const Point = StructType({ week: DateTimeType, v: FloatType });
+            const BandPoint = StructType({ week: DateTimeType, lo: FloatType, hi: FloatType });
             const Weekly = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const MeasureRow = StructType({ week: DateTimeType, v: FloatType });
-            // A measure's weekly readings from W23, as each row kind reads
-            // them: heat cells, booked fractions (the weeks after now are the
-            // planned, pale tail), table cells and chart points.
-            const heat = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), ($, readings) =>
-                East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$, i) => ({
-                    at: Plan.at.time(week(i.add(23n))), value: some(readings.get(i)), label: none,
+            // A measure's readings from W23, as each row kind reads them: a
+            // chart's points (a week with no reading draws none), heat cells
+            // printing their values (a week with none the no-data hatch),
+            // booked fractions (the weeks after now the planned, pale tail),
+            // and table cells (a week with none the em-dash).
+            const points = $.const(East.function([ArrayType(OptionType(FloatType))], ArrayType(Point), ($, readings) =>
+                readings.filterMap((_$2, r, i) => r.match({
+                    some: (_$3, v) => East.value(some({ week: week(i.add(23n)), v }), OptionType(Point)),
+                    none: (_$3) => East.value(none, OptionType(Point)),
                 }))));
-            const booked = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.WeightCell), ($, readings) =>
-                East.Array.generate(readings.size(), Plan.Types.WeightCell, (_$, i) => ({
-                    at: Plan.at.time(week(i.add(23n))), fraction: readings.get(i), planned: i.add(23n).greater(27n),
+            const band = $.const(East.function([ArrayType(FloatType), ArrayType(FloatType)], ArrayType(BandPoint), ($, lo, hi) =>
+                East.Array.generate(lo.size(), BandPoint, (_$2, i) => ({ week: week(i.add(23n)), lo: lo.get(i), hi: hi.get(i) }))));
+            const heat = $.const(East.function([ArrayType(OptionType(FloatType))], ArrayType(Plan.Types.HeatCell), ($, readings) =>
+                East.Array.generate(readings.size(), Plan.Types.HeatCell, ($2, i) => {
+                    const value = $2.let(readings.get(i), OptionType(FloatType));
+                    const label = $2.let(none, OptionType(StringType));
+                    $2.match(value, { some: ($3, v) => { $3.assign(label, some(East.Float.printFixed(v, 0n))); } });
+                    return { at: Plan.at.time(week(i.add(23n))), value, label };
+                })));
+            const booked = $.const(East.function([ArrayType(OptionType(FloatType))], ArrayType(Plan.Types.WeightCell), ($, readings) =>
+                readings.filterMap((_$2, r, i) => r.match({
+                    some: (_$3, f) => East.value(some({ at: Plan.at.time(week(i.add(23n))), fraction: f, planned: i.add(23n).greater(27n) }), OptionType(Plan.Types.WeightCell)),
+                    none: (_$3) => East.value(none, OptionType(Plan.Types.WeightCell)),
                 }))));
-            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(Weekly), ($, readings) =>
-                East.Array.generate(readings.size(), Weekly, (_$, i) => ({ at: week(i.add(23n)), value: some(readings.get(i)) }))));
-            const points = $.const(East.function([ArrayType(FloatType)], ArrayType(MeasureRow), ($, readings) =>
-                East.Array.generate(readings.size(), MeasureRow, (_$, i) => ({ week: week(i.add(23n)), v: readings.get(i) }))));
+            const weekly = $.const(East.function([ArrayType(OptionType(FloatType))], ArrayType(Weekly), ($, readings) =>
+                East.Array.generate(readings.size(), Weekly, (_$2, i) => ({ at: week(i.add(23n)), value: readings.get(i) }))));
             const whole = $.const(Format.Number({ maximumFractionDigits: 0n }));
             const series = $.const([
-                // A level — a month shows its weeks' MEAN (the default). The
-                // declared format prints the folded values.
-                Plan.series.heat(FoldMeasure, {
-                    key: "load", title: "Hall load",
-                    match: r => r.series.equal("load"), label: r => r.label,
-                    cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, format: whole }),
-                }),
-                // The same weeks, folded by their MAX — the peak a month hit.
-                Plan.series.heat(FoldMeasure, {
-                    key: "peak", title: "Peak load",
-                    match: r => r.series.equal("peak"), label: r => r.label,
-                    cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, fold: "max", format: whole }),
-                }),
-                // A fraction of each bucket booked — a month's is its weeks' mean.
-                Plan.series.heat(FoldMeasure, {
-                    key: "book", title: "Booked",
-                    match: r => r.series.equal("book"), label: r => r.label,
-                    cells: r => Plan.weightCells(booked(r.readings)),
-                }),
-                // An amount — a month shows its weeks' SUM (the default).
-                Plan.series.table(FoldMeasure, {
-                    key: "desp", title: "Deliveries",
-                    match: r => r.series.equal("desp"), label: r => r.label,
-                    cells: r => Plan.tableCells(weekly(r.readings)), format: whole,
-                }),
-                // A balance — a month shows where it CLOSED, its last week.
-                Plan.series.table(FoldMeasure, {
-                    key: "stock", title: "Paper stock",
-                    match: r => r.series.equal("stock"), label: r => r.label,
-                    cells: r => Plan.tableCells(weekly(r.readings)), fold: "last", format: whole,
-                }),
-                // Columns sum; a line averages.
-                Plan.series.chart(FoldMeasure, {
-                    key: "out", title: "Output",
-                    match: r => r.series.equal("out"), label: r => r.label, id: true,
-                    layers: r => [Chart.Column(points(r.readings), { x: p => p.week, y: p => p.v })],
-                }),
-                Plan.series.chart(FoldMeasure, {
-                    key: "ontime", title: "On-time",
-                    match: r => r.series.equal("ontime"), label: r => r.label, id: true,
-                    layers: r => [Plan.layer(Chart.Line(points(r.readings), { x: p => p.week, y: p => p.v }), { fold: "mean" })],
-                }),
-            ], ArrayType(Plan.Types.Series(FoldMeasure)));
+                Plan.series.section(Measure, { key: "output", title: "Output", meta: "5 rows" }, [
+                    // A level: the on-time line folds a month's weeks by their
+                    // MEAN, a line's default — and July's falls through the
+                    // breach. Its caret opens it to a custom 120px
+                    // (expandedHeight, default 88).
+                    Plan.series.chart(Measure, {
+                        key: "spark", title: "On-time",
+                        match: r => r.series.equal("spark"),
+                        label: r => r.label, id: true,
+                        value: r => r.value, status: _r => some(variant("warning", null)),
+                        height: "spark", expandable: true, expandedHeight: "120px",
+                        layers: r => [Plan.layer(Chart.Line(points(r.readings), { x: p => p.week, y: p => p.v }), { breach: { below: 92 } })],
+                    }),
+                    // A running total — a month shows where it CLOSED.
+                    Plan.series.chart(Measure, {
+                        key: "cum", title: "Cumulative",
+                        match: r => r.series.equal("cum"),
+                        label: r => r.label, id: true, value: r => r.value,
+                        layers: r => [Plan.layer(Chart.Area(points(r.readings), { x: p => p.week, y: p => p.v }), { fold: "last" })],
+                    }),
+                    // Amounts — the two halls' columns stacked by one series id,
+                    // each month their weeks' SUM, on a two-line gutter (label
+                    // over sub).
+                    Plan.series.chart(Measure, {
+                        key: "stacked", title: "Stacked",
+                        match: r => r.series.equal("stacked"),
+                        label: r => r.label, id: true, stacked: true, sub: r => r.sub,
+                        layers: r => [
+                            Plan.layer(Chart.Column(points(r.readings), { x: p => p.week, y: p => p.v }), { series: "H1" }),
+                            Plan.layer(Chart.Column(points(r.second), { x: p => p.week, y: p => p.v }), { series: "H2" }),
+                        ],
+                    }),
+                    // A scatter draws every reading, folded or not.
+                    Plan.series.chart(Measure, {
+                        key: "ppm", title: "Ppm",
+                        match: r => r.series.equal("ppm"),
+                        label: r => r.label, id: true, value: r => r.value,
+                        layers: r => [Chart.Scatter(points(r.readings), { x: p => p.week, y: p => p.v })],
+                    }),
+                    // A line and every annotation kind, at expanded density.
+                    Plan.series.chart(Measure, {
+                        key: "refs", title: "Refs",
+                        match: r => r.series.equal("refs"),
+                        label: r => r.label, id: true,
+                        height: "expanded",
+                        layers: r => [
+                            Plan.layer(Chart.Line(points(r.readings), { x: p => p.week, y: p => p.v }), { breach: { below: 92 } }),
+                            Chart.refLine({ y: 100, label: "TARGET 100" }),
+                            Chart.refBand({ x: [week(29n), week(31n)], label: "CRUNCH" }),
+                            Chart.refDot({ x: week(30n), y: 88.9, label: "LOW" }),
+                        ],
+                    }),
+                ]),
+                // The composed dual-axis chart; its axes take Chart.Root's
+                // vocabulary — domain / tickValues. Output columns scale left,
+                // folded by their MEAN, a week's average, so the fixed 0–60
+                // scale holds at every resolution; the on-time line and its
+                // band scale right.
+                Plan.series.section(Measure, { key: "quality", title: "Quality", meta: "1 row" }, [
+                    Plan.series.chart(Measure, {
+                        key: "dual", title: "Dual",
+                        match: r => r.series.equal("dual"),
+                        label: r => r.label, id: true,
+                        height: Plan.fixed("120px"),
+                        left: { domain: [0, 60], tickValues: [0, 25, 50] },
+                        right: { domain: [80, 105], tickValues: [85, 95, 105] },
+                        swatches: [{ color: "ink.3", label: "out" }, { color: "brand.d", label: "on-time · rh" }],
+                        layers: r => [
+                            Plan.layer(Chart.Column(points(r.readings), { x: p => p.week, y: p => p.v }), { fold: "mean" }),
+                            Plan.layer(Chart.Line(points(r.second), { x: p => p.week, y: p => p.v }), { axis: "right" }),
+                            Plan.layer(Chart.Band(band(r.lo, r.hi), { x: p => p.week, low: p => p.lo, high: p => p.hi }), { axis: "right" }),
+                        ],
+                    }),
+                ]),
+                Plan.series.section(Measure, { key: "load", title: "Load", meta: "5 rows" }, [
+                    // A hall's presses nest under it, and its row is their
+                    // per-bucket MEAN — painted on `scale`, the scale a parent's
+                    // DERIVED cells take (#824).
+                    Plan.series.heat(Measure, {
+                        key: "depth", title: "Depth",
+                        match: r => r.series.equal("depth"),
+                        label: r => r.label, id: true,
+                        cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, warnAt: 95 }),
+                        children: r => r.children, aggregate: "mean",
+                        scale: { min: 0, max: 100, warnAt: 95 },
+                    }),
+                    // The same kind of reading, folded by its MAX — the peak a
+                    // month hit, printed through the declared format.
+                    Plan.series.heat(Measure, {
+                        key: "peak", title: "Peak load",
+                        match: r => r.series.equal("peak"),
+                        label: r => r.label,
+                        cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, fold: "max", format: whole }),
+                    }),
+                    // A fraction of each week booked — a month's is its weeks'
+                    // mean, pale only when every one of them is planned.
+                    Plan.series.heat(Measure, {
+                        key: "booked", title: "Booked",
+                        match: r => r.series.equal("booked"),
+                        label: r => r.label, sub: r => r.sub,
+                        cells: r => Plan.weightCells(booked(r.readings)),
+                    }),
+                ]),
+                Plan.series.section(Measure, { key: "finishing", title: "Finishing", meta: "1 row" }, [
+                    // A month of several weeks sums each fill, and draws no
+                    // in-bar label: a label described one week.
+                    Plan.series.heat(Measure, {
+                        key: "segments", title: "Segments",
+                        match: r => r.series.equal("segments"),
+                        label: r => r.label, sub: r => r.sub,
+                        cells: r => Plan.segmentCells(r.segments),
+                    }),
+                ]),
+                Plan.series.section(Measure, { key: "deliveries", title: "Deliveries", meta: "21 rows" }, [
+                    // Each order nests under its contract, each contract under its
+                    // top (`children`, to any depth), and every parent sums its
+                    // children.
+                    Plan.series.table(Measure, {
+                        key: "orders", title: "Orders",
+                        match: r => r.series.equal("orders"),
+                        label: r => r.label,
+                        cells: r => Plan.tableCells(weekly(r.readings)),
+                        children: r => r.children, aggregate: "sum",
+                        format: whole,
+                    }),
+                    Plan.series.table(Measure, {
+                        key: "net", title: "Net",
+                        match: r => r.series.equal("net"),
+                        label: r => r.label, emphasis: "footer",
+                        cells: r => Plan.tableCells(weekly(r.readings)),
+                        format: whole,
+                    }),
+                    // Per-POSITION style declared ONCE, in the CONFIG — a strong
+                    // rolled-up actual beside its muted, always-signed plan Δ.
+                    Plan.series.table(Measure, {
+                        key: "actplan", title: "Actual vs plan",
+                        match: r => r.series.equal("actplan"),
+                        label: r => r.label, stacked: true, sub: r => r.sub,
+                        series: r => [
+                            Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(weekly(r.readings)) }),
+                            Plan.tableSeries({
+                                tone: "muted",
+                                format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                                cells: Plan.tableCells(weekly(r.second)),
+                            }),
+                        ],
+                        format: whole,
+                    }),
+                    // The VERTICAL split stacks the positions; the row grows.
+                    Plan.series.table(Measure, {
+                        key: "inout", title: "Inout",
+                        match: r => r.series.equal("inout"),
+                        label: r => r.label, split: "vertical",
+                        series: r => [
+                            Plan.tableSeries({ cells: Plan.tableCells(weekly(r.readings)) }),
+                            Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(weekly(r.second)) }),
+                        ],
+                        format: whole,
+                    }),
+                    // HORIZONTAL on a ONE-line gutter — the other half of the pair
+                    // above: the split is a cell-layout choice and the gutter a
+                    // label choice, so neither implies the other.
+                    Plan.series.table(Measure, {
+                        key: "sidebyside", title: "Side by side",
+                        match: r => r.series.equal("sidebyside"),
+                        label: r => r.label, split: "horizontal",
+                        series: r => [
+                            Plan.tableSeries({ strong: true, cells: Plan.tableCells(weekly(r.readings)) }),
+                            Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(weekly(r.second)) }),
+                        ],
+                        format: whole,
+                    }),
+                    // A MULTI-VALUE series under a subtotal parent — every position
+                    // rolls up, so the parent shows an act subtotal beside a Δ
+                    // subtotal instead of collapsing to one number and looking
+                    // complete. Flag a position `rollup: true` to narrow it back to
+                    // that one.
+                    Plan.series.table(Measure, {
+                        key: "lot", title: "Lot",
+                        match: r => r.series.equal("lot"),
+                        label: r => r.label,
+                        series: r => [
+                            Plan.tableSeries({ strong: true, cells: Plan.tableCells(weekly(r.readings)) }),
+                            Plan.tableSeries({
+                                tone: "muted",
+                                format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                                cells: Plan.tableCells(weekly(r.second)),
+                            }),
+                        ],
+                        children: r => r.children, aggregate: "sum",
+                        format: whole,
+                    }),
+                    // NESTED and VERTICAL — the subtotal stacks its positions the
+                    // way its members do. The parent's positions carry no values
+                    // of their own (they are derived), so its height comes from
+                    // its members' count: a parent that read its own empty cells
+                    // as one line would render as two.
+                    Plan.series.table(Measure, {
+                        key: "stack", title: "Stack",
+                        match: r => r.series.equal("stack"),
+                        label: r => r.label, split: "vertical",
+                        series: r => [
+                            Plan.tableSeries({ strong: true, cells: Plan.tableCells(weekly(r.readings)) }),
+                            Plan.tableSeries({ tone: "muted", cells: Plan.tableCells(weekly(r.second)) }),
+                        ],
+                        children: r => r.children, aggregate: "sum",
+                        format: whole,
+                    }),
+                    // VERTICAL on a TWO-line gutter — the remaining combination,
+                    // and the one that grows the row in BOTH directions at once.
+                    Plan.series.table(Measure, {
+                        key: "overunder", title: "Over / under",
+                        match: r => r.series.equal("overunder"),
+                        label: r => r.label, split: "vertical", stacked: true, sub: r => r.sub,
+                        series: r => [
+                            Plan.tableSeries({ strong: true, rollup: true, cells: Plan.tableCells(weekly(r.readings)) }),
+                            Plan.tableSeries({
+                                tone: "muted",
+                                format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                                cells: Plan.tableCells(weekly(r.second)),
+                            }),
+                        ],
+                        format: whole,
+                    }),
+                    // A balance — a month shows where it CLOSED, its last week.
+                    Plan.series.table(Measure, {
+                        key: "stock", title: "Paper stock",
+                        match: r => r.series.equal("stock"),
+                        label: r => r.label,
+                        cells: r => Plan.tableCells(weekly(r.readings)), fold: "last",
+                        format: whole,
+                    }),
+                ]),
+            ], ArrayType(Plan.Types.Series(Measure)));
             // The weeks the canvas shows — the rows its slice narrows.
-            const weeks = $.let(East.Array.generate(12n, FoldWeek, (_$, i) => ({ week: week(i.add(23n)) })));
+            const weeks = $.let(East.Array.generate(12n, MeasureWeek, (_$2, i) => ({ week: week(i.add(23n)) })));
             // The resolution is the slice's, MONTH to start, and the window
             // its range. A slice range is CLOSED — both ends inclusive — so
             // the twelve weeks W23–W34 end the millisecond before W35.
-            const slice = $.let(Slice.bind([FoldWeek], "ex.plan.fold", cfg, Slice.state({
+            const slice = $.let(Slice.bind([MeasureWeek], "ex.plan.measures", cfg, Slice.state({
                 range: some(variant("datetime", { from: week(23n), to: week(35n).addMilliseconds(-1n) })),
                 resolution: some(variant("month", null)),
             }), weeks, none));

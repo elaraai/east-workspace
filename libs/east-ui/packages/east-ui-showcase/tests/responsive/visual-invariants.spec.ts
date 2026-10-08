@@ -62,8 +62,8 @@ async function paintedLines(page: Page, at: Box): Promise<number[]> {
 
 /** The Plan examples that draw a ruler over rows. */
 const RULED = [
-    "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
-    "planFold", "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
+    "planTargetState", "planSpanRows", "planBucketRows", "planMeasures",
+    "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
     "planLibraryDnd", "planRowDrop", "planFill", "planUiState", "planExpand",
     "planNumberAxis", "planOrdinalAxis",
 ];
