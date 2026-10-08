@@ -95,8 +95,8 @@ const READING = "reading";
 /** No unscheduled event. */
 const NO_BACKLOG: readonly BacklogEntry[] = [];
 
-/** The shared empty state's glyph: an empty box, as a Library's. */
-const EMPTY_GLYPH = "☐";
+/** The shared empty state's icon: an empty box, as a Library's — Font Awesome's open box (#1263). */
+const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
 
 /** Props of {@link usePlanLibrary}. */
 export interface PlanLibraryProps {
@@ -406,7 +406,7 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
                     const nothing = empty("series", "");
                     return { key: "series", label: m.libraryTab({ tab: "series" }), count: words.number(lines),
                         body: seriesPick === undefined || lines === 0
-                            ? <EmptyStateView glyph={EMPTY_GLYPH} title={nothing.title} description={nothing.description} />
+                            ? <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description} />
                             : (
                                 <SliceDensityContext.Provider value="editor">
                                     <EastChakraPickPanel value={{ pick: seriesPick, title: m.libraryTab({ tab: "series" }) }} />

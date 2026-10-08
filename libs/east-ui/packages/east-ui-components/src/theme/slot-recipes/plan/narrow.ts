@@ -139,8 +139,13 @@ export const narrowBase = {
         textOverflow: "ellipsis",
         minWidth: 0,
     },
+    // The section's go mark: Font Awesome's chevron (#1263), the size the
+    // text `›` it replaced drew at, and its own width, not Font Awesome's
+    // fixed 1.25em.
     narrowSectionGo: {
-        fontSize: "14px",
+        "--fa-width": "auto",
+        display: "inline-flex",
+        fontSize: "10px",
         lineHeight: 1,
         color: "fg.subtle",
     },

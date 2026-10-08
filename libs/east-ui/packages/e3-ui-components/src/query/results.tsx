@@ -63,6 +63,9 @@ const TIGHT = 470;
 /** Skeleton rows while a run goes. */
 const SKELETON_ROWS = 6;
 
+/** The empty state's icon before any run: Font Awesome's play, as Run is the way to a result (#1263). */
+const IDLE_ICON = { prefix: "fas", name: "play" } as const;
+
 /**
  * How a result opens: rows — an array, a set or a vector — as a Table, one
  * value as a tree.
@@ -229,7 +232,7 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
     if (state.status === "idle") {
         body = (
             <Box css={styles.idle} data-query-results-idle="">
-                <EmptyStateView glyph="⏎" title={m.idleTitle()} description={
+                <EmptyStateView icon={IDLE_ICON} title={m.idleTitle()} description={
                     <Box as="ul" css={styles.idleList}>
                         <li>{m.idleChecks()}</li>
                         <li>{m.idleRun()}</li>

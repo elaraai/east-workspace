@@ -30,7 +30,7 @@
 import { useMemo, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import {
     HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds, radioGroupKey,
 } from "@elaraai/east-ui-components/internal";
@@ -117,9 +117,9 @@ export function Seg<K extends string>({ label, name, items, active, onPick }: Se
 
 /**
  * A segment strip folded into one chip (#952) — the checked segment and a
- * caret, opening a menu of every segment; picking one does what the strip's
- * press does. The toolbar's segments take this form once the row is short of
- * room.
+ * caret, Font Awesome's (#1263), opening a menu of every segment; picking one
+ * does what the strip's press does. The toolbar's segments take this form
+ * once the row is short of room.
  */
 export function SegMenu<K extends string>({ label, name, items, active, onPick }: SegProps<K>) {
     const chip = useRecipe({ key: "chip" });
@@ -134,7 +134,7 @@ export function SegMenu<K extends string>({ label, name, items, active, onPick }
                 <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]} data-slot="segMenu"
                     data-plan-segmenu={name} aria-label={label}>
                     {current?.label ?? active}
-                    <Box as="span" data-chip-caret="">{"▾"}</Box>
+                    <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>

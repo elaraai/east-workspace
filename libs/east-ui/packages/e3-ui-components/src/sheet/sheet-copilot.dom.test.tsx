@@ -6,7 +6,8 @@
  *
  * The copilot in the DOM (Sheet Spec §5 rows 10–12, §9): fills as grey ghosts
  * with one next target, the ⇥ walk, the row fill, proposal rows with ✓ / ×
- * and the rejection memory, an async proposer's pending chip and settlement
+ * — Font Awesome's check and xmark, the gutter's tooltip naming them in words
+ * (#1263) — and the rejection memory, an async proposer's pending chip and settlement
  * with fake timers, supersession (latest wins), a swapped provider function
  * value re-running the copilot, a proposed row's cells under a column the
  * viewer hides (#1186), and a folded gutter's row-actions menu taking the
@@ -27,6 +28,7 @@ import {
 import { Sheet, SheetPayloadType, sheetKeys, type SheetLibraryTab } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { sheetJournal, type PatchEvent } from "./journal.test-utils.js";
 import { boundFrame, touchFrame } from "./frame.test-utils.js";
@@ -375,6 +377,9 @@ describe("proposals (B§5.2)", () => {
         expect(proposals()).toHaveLength(1);
         const p = proposals()[0]!;
         expect(p.querySelector('[data-slot="gutter"]')!.textContent).toBe("3");
+        // Its gutter's tooltip names its buttons in words; they draw Font Awesome's check and xmark, never a text glyph (#1263).
+        expect(p.querySelector<HTMLElement>('[data-slot="gutter"]')!.title).toBe("Suggested row — Add adds it, Reject rejects it");
+        expect(["accept", "reject"].map((slot) => markOf(p.querySelector(`[data-slot="${slot}"]`)))).toEqual(["fas check", "fas xmark"]);
         expect(p.querySelector('[data-key="activity"]')!.textContent).toBe("Spraying");
         expect(p.querySelector('[data-key="notes"]')!.textContent).toBe("spray the routed panels");
         expect(p.querySelectorAll('[data-slot="hatch"]').length).toBeGreaterThan(0);

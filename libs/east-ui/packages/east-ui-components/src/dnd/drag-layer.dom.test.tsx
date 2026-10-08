@@ -34,6 +34,7 @@ import {
     type DropVeto,
 } from "./drag-layer.js";
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "../testing/drag-layer.js";
+import { faIcons } from "../testing/icons.js";
 
 afterEach(() => {
     cleanup();
@@ -278,6 +279,8 @@ describe("DragLayerProvider", () => {
         expect(zone!.hasAttribute("data-drop-valid")).toBe(true);
         expect(zone!.hasAttribute("data-drop-invalid")).toBe(false);
         expect(zone!.getAttribute("aria-label")).toBe("Remove");
+        // Its mark is Font Awesome's trash can, never a written ⌫ (#1263).
+        expect([zone!.textContent, faIcons(zone!, "trash-can").length]).toEqual(["", 1]);
 
         // Drop on it — the ordinary trash sink path delivers remove/trash.
         pointAt(zone);

@@ -17,9 +17,9 @@
  */
 
 import { type ReactNode } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe } from "@chakra-ui/react";
+import { chakra, Menu as ChakraMenu, Portal, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { type IconDefinition } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { coarseHitArea } from "../style/hit-area.js";
 
 /** Props of {@link ChipMenu}. */
@@ -53,7 +53,7 @@ export function ChipMenu({ label, icon, caret = false, data, onSelect, children 
                 <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]}
                     aria-label={label} title={label} {...own}>
                     <FontAwesomeIcon icon={icon} data-chip-icon="" />
-                    {caret && <Box as="span" data-chip-caret="">{"▾"}</Box>}
+                    {caret && <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />}
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>

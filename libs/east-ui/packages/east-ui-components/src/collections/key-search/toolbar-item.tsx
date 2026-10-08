@@ -25,7 +25,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Box, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
 import type { EastTypeValue } from "@elaraai/east";
 import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceEditPopover } from "../../slice/edit/index.js";
@@ -94,7 +94,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
                     <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
                         aria-label={label} data-key-search="icon" data-state={open ? "open" : "closed"}>
                         <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
-                        <Box as="span" data-chip-caret="">{"▾"}</Box>
+                        <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                     </chakra.button>
                 }>
                 <Box ref={boxRef} data-key-search="popover">{box}</Box>

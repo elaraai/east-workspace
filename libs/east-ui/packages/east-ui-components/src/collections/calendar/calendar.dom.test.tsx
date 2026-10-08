@@ -16,6 +16,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
+import { faIcons, loneGlyphs } from "../../testing/icons.js";
 import { EastChakraCalendar, type CalendarValue, type CalendarCellValue } from "./index.js";
 
 afterEach(cleanup);
@@ -111,6 +112,28 @@ describe("EastChakraCalendar", () => {
         expect(screen.getByText("predicted")).toBeTruthy();
         expect(screen.getByText("last yr")).toBeTruthy();
         expect(screen.getByText("Thu W1")).toBeTruthy();
-        expect(screen.getByText("▲ +17%")).toBeTruthy();
+        expect(screen.getByText("+17%")).toBeTruthy();
+    });
+
+    test("the delta chip is Font Awesome's caret beside the signed figure — up, down, and its bar while flat — never a text glyph (#1263)", () => {
+        renderCal(calendarValue({
+            cells: [cell("W1", "Mon", 120, { compare: 100 }), cell("W1", "Tue", 80, { compare: 100 }), cell("W1", "Thu", 90, { compare: 90 })],
+            footer: some({ valueLabel: "predicted", compareLabel: "last yr", legend: none }),
+        } as Partial<CalendarValue>));
+        const read = () => {
+            const chip = document.querySelector<HTMLElement>("[data-dir]")!;
+            return {
+                dir: chip.getAttribute("data-dir"),
+                text: chip.textContent,
+                icons: ["caret-up", "caret-down", "minus"].map((name) => faIcons(chip, name).length),
+            };
+        };
+        fireEvent.click(screen.getByText("120"));
+        expect(read()).toEqual({ dir: "up", text: "+20%", icons: [1, 0, 0] });
+        fireEvent.click(screen.getByText("80"));
+        expect(read()).toEqual({ dir: "down", text: "−20%", icons: [0, 1, 0] });
+        fireEvent.click(screen.getByText("90"));
+        expect(read()).toEqual({ dir: "flat", text: "0%", icons: [0, 0, 1] });
+        expect(loneGlyphs(document.body)).toEqual([]);
     });
 });

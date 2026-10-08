@@ -8,7 +8,8 @@
  * then into one menu, each at its rank; and no item where the foot would show
  * nothing. jsdom lays nothing out, so widths are stubbed from the form each
  * item shows: the summary and the buttons 300px, the buttons alone 200, the
- * menu 40; a peer item 300, or 100 once folded; the gap 10px.
+ * menu 40; a peer item 300, or 100 once folded; the gap 10px. The menu's
+ * trigger is Font Awesome's list-check and its caret (#1263).
  */
 
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
@@ -17,6 +18,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { East } from "@elaraai/east";
 import { Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
+import { faIcons } from "../../testing/icons.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { reviewToolbarItem, type ReviewFootModel } from "./review.js";
 
@@ -152,6 +154,8 @@ test("the menu holds the verbs: each does what its button does", async () => {
     const trigger = view.container.querySelector<HTMLElement>('[data-slot="reviewMenu"]')!;
     // In English by default.
     expect(trigger.getAttribute("aria-label")).toBe("Review");
+    // Its face is Font Awesome's list-check and its caret, never a written ▾ (#1263).
+    expect([trigger.textContent, faIcons(trigger, "list-check").length, faIcons(trigger, "caret-down").length]).toEqual(["", 1, 1]);
     for (const [name, call] of [["Reject all", "reject"], ["Re-plan", "rerun"], ["Approve all", "approve"]] as const) {
         await openMenu(trigger);
         expect(menuItems()).toEqual(["reject:Reject all", "rerun:Re-plan", "approve:Approve all"]);

@@ -688,7 +688,7 @@ Task → Which tag?
 │   │       ├─ areas + shifts + people + assignments + id (required) — the four tables + DnD target identity
 │   │       ├─ area / shift / person (optional) — entity row mappers to { key, label, sublabel? }
 │   │       ├─ assignment (optional) — row mapper to { key, person, area, shift, state }
-│   │       ├─ requirements + requirement (optional) — coverage rows + mapper to { area, shift, required } (n/required numerals + ⊕ open-slot placeholders, under/over tones)
+│   │       ├─ requirements + requirement (optional) — coverage rows + mapper to { area, shift, required } (n/required numerals + open-slot placeholders — Font Awesome's circle-plus — under/over tones)
 │   │       ├─ mode (optional) — published (default) | edit
 │   │       ├─ areaHeader / areaWidth (optional) — frozen column header (omit = blank; zero baked copy) + CSS width (default 150px)
 │   │       ├─ maxVisible (optional) — per-cell chip cap before the +N overflow popover
@@ -878,8 +878,7 @@ Task → Which tag?
 │   └─ <EmptyState> — zero-data state
 │       └─ Props:
 │           ├─ title (required) — string or UIComponent
-│           ├─ glyph (optional) — spec-preferred mono glyph ("·   ·   ·"; takes precedence over icon)
-│           ├─ icon (optional) — FA icon escape hatch
+│           ├─ icon (optional) — its one mark, a Font Awesome solid icon ({ prefix: "fas", name: "inbox" }); a text `glyph` is removed (#1263) and refused at build
 │           ├─ description / actions (optional) — body + action row
 │           └─ size / iconColor + COLOR overrides (optional)
 │

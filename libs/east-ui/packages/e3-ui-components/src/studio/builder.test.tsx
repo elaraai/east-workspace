@@ -17,7 +17,8 @@
  * (B16–B18), its layout edits (B20, B12), nothing selected (B21), and the
  * palette counting unsaved drafts. Save as template (D7, #997). The publish
  * preview (#998), in the canvas's place: its bar (E1), the page (E2), the
- * aside (E3–E5) and the footer (E6). The toolbar on a row short of room
+ * aside (E3–E5) — every mark in it Font Awesome's (#1263) — and the footer
+ * (E6). The toolbar on a row short of room
  * (#1229): its ladder, the ⋯ chip's bundle and menu, and Save as template
  * hung from the chip.
  */
@@ -33,6 +34,7 @@ import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
 } from "@elaraai/east-ui-components";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import {
     RecordBindHandleType, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -767,9 +769,10 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
     const preview = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-studio-publish]")!;
     /** An element of the preview, by its data attribute. */
     const part = (c: HTMLElement, name: string) => preview(c).querySelector<HTMLElement>(`[data-publish-${name}]`);
-    /** The change list's rows: each one's sign, its words and its detail. */
+    /** The change list's rows: each one's sign — the Font Awesome icon it draws (#1263) — its words and its detail. */
     const rows = (c: HTMLElement) => [...preview(c).querySelectorAll("[data-publish-change]")]
-        .map((row) => [...row.children].flatMap((el) => (el.children.length > 0 && el.tagName === "DIV" ? [...el.children] : [el])).map((el) => el.textContent));
+        .map((row) => [...row.children].flatMap((el) => (el.children.length > 0 && el.tagName === "DIV" ? [...el.children] : [el]))
+            .map((el) => (el.hasAttribute("data-sign") ? markOf(el) : el.textContent)));
     /** The footer's buttons. */
     const saveButton = (c: HTMLElement) => part(c, "save") as HTMLButtonElement;
     const publishButton = (c: HTMLElement) => part(c, "publish") as HTMLButtonElement;
@@ -825,8 +828,8 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "versions")!.lastElementChild!.textContent).toBe("v4");
         expect(part(container, "count")!.textContent).toBe("2 changes since v3");
         expect(rows(container)).toEqual([
-            ["±", "Resized Revenue trend", "span 12 → 8"],
-            ["+", "Added Breakdown bars", "row 2 · span 4"],
+            ["fas plus-minus", "Resized Revenue trend", "span 12 → 8"],
+            ["fas plus", "Added Breakdown bars", "row 2 · span 4"],
         ]);
         expect(part(container, "facts")!.textContent).toBe("AudienceField ops · 24 usersRolloutImmediate");
         expect(publishButton(container).textContent).toBe("Publish v4 to Staging");
@@ -841,9 +844,22 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
         expect(part(container, "versions")!.textContent).toBe("Overview · v1");
         expect(part(container, "count")!.textContent).toBe("2 changes · first version");
-        expect(rows(container)).toEqual([["+", "Added KPI rail", "row 1 · span 12"], ["+", "Added Revenue trend", "row 2 · span 8"]]);
+        expect(rows(container)).toEqual([["fas plus", "Added KPI rail", "row 1 · span 12"], ["fas plus", "Added Revenue trend", "row 2 · span 8"]]);
         expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).textContent).toBe("Publish v1 to Staging");
+    }, 30_000);
+
+    test("E3: a placement the draft removes since the live version is signed with Font Awesome's minus (#1263)", async () => {
+        const { container } = await mountBuilder();
+        await openPage("f-regional");
+        await keyOn(container, "p-kpi", { key: "Delete" });
+        await press("Preview");
+        // The changes in the draft's order, then what it removed.
+        expect(rows(container).map((row) => row.slice(0, 2))).toEqual([
+            ["fas plus-minus", "Resized Revenue trend"],
+            ["fas plus", "Added Breakdown bars"],
+            ["fas minus", "Removed KPI rail"],
+        ]);
     }, 30_000);
 
     test("E3: a page live as it stands is up to date — nothing to publish, and no banner", async () => {
@@ -874,17 +890,17 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await previewPage("f-regional");
         const banner = () => part(container, "banner")!;
         expect(banner().getAttribute("data-tone")).toBe("change");
-        // The design system's banner: its glyph, then its words.
-        expect([banner().firstElementChild!.textContent, banner().lastElementChild!.textContent])
-            .toEqual(["△", "Component logic unchanged — only layout changed. Safe to publish."]);
+        // The design system's banner: its icon — Font Awesome's paired status icon of its tone (#1263) — then its words.
+        expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
+            .toEqual(["fas circle-check", "Component logic unchanged — only layout changed. Safe to publish."]);
         await act(async () => { fireEvent.click(part(container, "exit")!); });
         await previewPage("c-monthly");
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
         expect(part(container, "count")!.textContent).toBe("1 change since v3");
         expect(banner().getAttribute("data-tone")).toBe("warning");
         expect(banner().getAttribute("role")).toBe("alert");
-        expect([banner().firstElementChild!.textContent, banner().lastElementChild!.textContent])
-            .toEqual(["!", "Logic changed since v3 in Orders by week — its placements publish with its new code"]);
+        expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
+            .toEqual(["fas triangle-exclamation", "Logic changed since v3 in Orders by week — its placements publish with its new code"]);
     }, 30_000);
 
     test("E4: the banner's words — one component is its; several are theirs, named in the order they are placed", () => {
@@ -916,7 +932,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await keyOn(container, "p-trend", { key: "[" });
         await press("Preview");
         // The preview shows what will publish: the trend at 7, unsaved.
-        expect(rows(container)[0]).toEqual(["±", "Resized Revenue trend", "span 12 → 7"]);
+        expect(rows(container)[0]).toEqual(["fas plus-minus", "Resized Revenue trend", "span 12 → 7"]);
         expect(saveButton(container).disabled).toBe(false);
         await act(async () => { fireEvent.click(publishButton(container)); });
         await settle();

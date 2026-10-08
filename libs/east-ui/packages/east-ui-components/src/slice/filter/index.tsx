@@ -6,7 +6,7 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -35,14 +35,15 @@ export interface EastChakraSliceFilterProps {
 
 /**
  * Renders an East UI `Slice.Filter`. **Compact** (in a `Slice.Frame` eyebrow):
- * one row of as many brand chips as fit with remove `×`, a `+N more` chip opening a
+ * one row of as many brand chips as fit with a remove — Font Awesome's xmark,
+ * never a text glyph (#1263) — a `+N more` chip opening a
  * `Slice.Edit` list, and a dashed `+ FILTER` chip opening the builder popover.
  * **Focused** (standalone): the same chip rail plus a `SHOWING N {unit}` footer
  * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
  *
  * Every chip is a button (#1231): a clause chip opens its clause's editor,
- * whose foot removes it (Remove filter); its × is the pointer's, as a Sheet
+ * whose foot removes it (Remove filter); its xmark is the pointer's, as a Sheet
  * tab's is (#860) — with a mouse it removes the clause, the keyboard removes
  * a focused clause with Delete, and on a coarse pointer it is not drawn: the
  * chip is one target, 44px by its halo, as `+N more` and `+ FILTER` are.
@@ -80,7 +81,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     // save-as-cohort form; a number = editing the clause at that index.
     const [open, setOpen] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
     const [cohortName, setCohortName] = useState("");
-    // On a touch screen a clause chip draws no × (#1231): the chip is one
+    // On a touch screen a clause chip draws no xmark (#1231): the chip is one
     // target, and its editor's foot removes the clause.
     const coarse = useCoarsePointer();
 
@@ -126,7 +127,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     };
 
     // A clause chip: one button opening the op/value editor (Slice.Edit), whose
-    // foot removes the clause; its × the pointer's (#1231).
+    // foot removes the clause; its xmark the pointer's (#1231).
     const clausePill = (pred: PredicateValue, i: number) => (
         <SliceEditPopover
             key={i}
@@ -144,7 +145,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                     {!coarse && (
                         <Box as="span" data-chip-remove="" aria-hidden="true" title="Remove filter"
                             onClick={(e: MouseEvent) => { e.stopPropagation(); removeClause(i); }}>
-                            ×
+                            <FontAwesomeIcon icon={faXmark} />
                         </Box>
                     )}
                 </chakra.button>
@@ -249,7 +250,9 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                                 <Box key={i} css={edit.moreRow}>
                                     <Box as="span">{formatPredicate(pred, words)}</Box>
                                     {open === "more" && (
-                                        <chakra.button type="button" css={edit.moreRowRemove} onClick={() => slice.removeFilter(BigInt(i))} aria-label="Remove filter">×</chakra.button>
+                                        <chakra.button type="button" css={edit.moreRowRemove} onClick={() => slice.removeFilter(BigInt(i))} aria-label="Remove filter">
+                                            <FontAwesomeIcon icon={faXmark} />
+                                        </chakra.button>
                                     )}
                                 </Box>
                             ))}

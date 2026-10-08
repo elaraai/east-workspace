@@ -11,8 +11,9 @@
  *
  * - **B1–B8**: the one toolbar and its fold; the pane, its tabs and its rail;
  *   the Query tab's parts — the source, the step cards and their rows, the
- *   shape lines, the foot; the slots' and the cards' states; the status line;
- *   the save popover and its description; no border.
+ *   shape lines, the foot; the slots' and the cards' states — a slot's caret
+ *   Font Awesome's (#1263); the status line; the save popover and its
+ *   description; no border.
  * - **U1**: a condition built by clicks, each pick opening the next slot; the
  *   autocomplete's keys, and ⌘⏎ running; a fix; the history over a pick.
  * - **U2**: Visual · jq and back — its notes and notices, a syntax error
@@ -30,6 +31,7 @@ import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi 
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { East, JqType, PatchType, checkJq, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
+import { faIcons } from "@elaraai/east-ui-components/testing";
 import { Query } from "@elaraai/e3-ui/internal";
 import {
     RECORD, ROOT, WORKSPACE, commits as committed, mountBuilder, offlineCall, openQuery, press, readRecord as recordOf, recordHarness, savedQuery,
@@ -241,7 +243,8 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         const card = cardsOf(container)[1]!;
         expect([titleOf(card), card.hasAttribute("data-unfinished"), card.textContent!.endsWith("Not in the query until it's finished.")]).toEqual(["Sort", true, true]);
         const slot = card.querySelector<HTMLElement>("[aria-haspopup=listbox]")!;
-        expect([slot.hasAttribute("data-empty"), slot.textContent]).toEqual([true, "field▾"]);
+        // Its caret is Font Awesome's, never a written ▾ (#1263).
+        expect([slot.hasAttribute("data-empty"), slot.textContent, faIcons(slot, "caret-down").length]).toEqual([true, "field", 1]);
         expect([slot.hasAttribute("data-open"), popoverLabel()]).toEqual([true, "Sort by"]);
         expect(statusOf(container).check).toEqual(["warning", "1 to finish"]);
     }, 30_000);

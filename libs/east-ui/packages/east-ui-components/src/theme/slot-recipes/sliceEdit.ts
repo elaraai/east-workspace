@@ -263,7 +263,9 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             letterSpacing: "0.06em",
         },
+        // A row's remove: Font Awesome's xmark (#1263), its own width.
         moreRowRemove: {
+            "--fa-width": "auto",
             color: "fg.muted",
             cursor: "pointer",
             fontSize: "16px",

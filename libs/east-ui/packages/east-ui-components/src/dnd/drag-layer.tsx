@@ -78,6 +78,8 @@ import {
     type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { restrictToWindowEdges } from "@dnd-kit/modifiers";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { type DragEventType, type CellRefType, type LibraryRefType } from "@elaraai/east-ui/internal";
 import {
@@ -982,12 +984,12 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     );
 }
 
-/** The shared trash zone — an ordinary `trash` sink, portalled to the page's bottom centre. */
+/** The shared trash zone — an ordinary `trash` sink, portalled to the page's bottom centre; its mark Font Awesome's trash can, never a text glyph (#1263). */
 function TrashZone({ label }: { label: string }) {
     const sinkRef = useDropSink("trash");
     return createPortal(
         <div ref={sinkRef as (el: HTMLDivElement | null) => void} data-drag-trash="" aria-label={label}>
-            ⌫
+            <FontAwesomeIcon icon={faTrashCan} />
         </div>,
         document.body,
     );

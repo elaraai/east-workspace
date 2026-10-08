@@ -4,6 +4,8 @@
  */
 
 import { useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faBan } from '@fortawesome/free-solid-svg-icons';
 import { useDateField, useDateSegment } from '@react-aria/datepicker';
 import { useDateFieldState } from '@react-stately/datepicker';
 import { createCalendar } from '@internationalized/date';
@@ -76,7 +78,7 @@ export function DateField(props: DateFieldProps) {
                 {state.segments.map((segment, i) => (
                     <DateSegment key={i} segment={segment} state={state} />
                 ))}
-                {state.isInvalid && <span style={{ color: 'red' }}>🚫</span>}
+                {state.isInvalid && <span style={{ color: 'red' }}><FontAwesomeIcon icon={faBan} /></span>}
             </div>
             {props.description && <div {...descriptionProps}>{props.description}</div>}
         </div>

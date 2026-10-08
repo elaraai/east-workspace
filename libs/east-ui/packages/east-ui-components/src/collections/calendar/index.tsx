@@ -5,6 +5,8 @@
 
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCaretDown, faCaretUp, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -283,7 +285,10 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const delta = selectedCell !== undefined && selectedCompare !== undefined && selectedCompare !== 0
         ? Math.round((selectedCell.value / selectedCompare - 1) * 100) : undefined;
     const deltaDir = delta === undefined ? "flat" : (delta > 0 ? "up" : (delta < 0 ? "down" : "flat"));
-    const deltaText = delta === undefined ? "" : `${delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "– "}${Math.abs(delta)}%`;
+    // The direction is Font Awesome's caret — a bar while flat — beside the
+    // signed figure; never a text glyph (#1263).
+    const deltaIcon = deltaDir === "up" ? faCaretUp : deltaDir === "down" ? faCaretDown : faMinus;
+    const deltaText = delta === undefined ? "" : `${delta > 0 ? "+" : delta < 0 ? "−" : ""}${Math.abs(delta)}%`;
 
     const showFooter = footer !== undefined || actionLabel !== undefined;
     const legend = footer ? getSomeorUndefined(footer.legend) : undefined;
@@ -308,7 +313,10 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
                         </>
                     )}
                     {delta !== undefined && (
-                        <Box as="span" css={styles.deltaChip} data-dir={deltaDir}>{deltaText}</Box>
+                        <Box as="span" css={styles.deltaChip} data-dir={deltaDir}>
+                            <FontAwesomeIcon icon={deltaIcon} />
+                            {deltaText}
+                        </Box>
                     )}
                 </>
             ) : (
