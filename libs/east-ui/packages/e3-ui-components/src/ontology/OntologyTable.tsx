@@ -21,6 +21,12 @@
  * - clicking a chip or the expanded "open" affordance selects the node in
  *   the shared properties drawer.
  *
+ * What a collapse hides — a row's flow detail, a group's body, the graph
+ * warnings — stays mounted, so it animates open and shut, and is `inert`
+ * while shut: out of the tab order, the accessibility tree and the pointer's
+ * way (#1270). Each such region says which it is (`data-ontology-collapse`)
+ * and whether it is open (`data-open`).
+ *
  * Styling rides the shared theme: `table` slot recipe for the grid chrome,
  * kind accents from `accents.ts`, and the `spec-pulse-live` keyframe for
  * cycle badges.
@@ -304,7 +310,8 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                         gridTemplateRows={isExpanded ? '1fr' : '0fr'}
                         transition="grid-template-rows 220ms ease"
                     >
-                        <Box overflow="hidden" minH="0">
+                        <Box overflow="hidden" minH="0" inert={!isExpanded}
+                            data-ontology-collapse="detail" data-open={isExpanded ? '' : undefined}>
                             <Box
                                 px="4" py="3"
                                 bg="bg.panel"
@@ -469,7 +476,8 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
 
             {/* Animated collapse of the group's body. */}
             <Box display="grid" gridTemplateRows={isCollapsed ? '0fr' : '1fr'} transition="grid-template-rows 220ms ease">
-                <Box overflow="hidden" minH="0">
+                <Box overflow="hidden" minH="0" inert={isCollapsed}
+                    data-ontology-collapse="group" data-open={isCollapsed ? undefined : ''}>
                     {group.sections.length > 0 && group.processCount > 0 && (
                         <chakra.table css={headerCss} style={{ tableLayout: 'fixed' }}>
                             <Box as="colgroup">
@@ -588,7 +596,8 @@ export const OntologyTable = memo(function OntologyTable({ ontology, onSelectNod
                         </Box>
                     </HStack>
                     <Box display="grid" gridTemplateRows={showLints ? '1fr' : '0fr'} transition="grid-template-rows 200ms ease">
-                        <Box overflow="hidden" minH="0">
+                        <Box overflow="hidden" minH="0" inert={!showLints}
+                            data-ontology-collapse="lints" data-open={showLints ? '' : undefined}>
                             <VStack alignItems="stretch" gap="0.5" pt="1.5">
                                 {projection.lints.map(l => (
                                     <Text key={l} fontSize="body.sm" color="fg.muted">{l}</Text>
