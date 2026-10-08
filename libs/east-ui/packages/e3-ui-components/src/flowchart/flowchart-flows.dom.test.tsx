@@ -132,13 +132,13 @@ function payload(source: FlowchartValue["source"], options: Partial<Pick<Flowcha
     return {
         canvas: {
             orientation: none, freshness: none, minimap: none, legend: some(false), density: none, slice: none,
-            stateHover: none, linkHover: none, triggerHover: none, onSelectState: none, onSelectLink: none, onSelectTrigger: none,
+            onSelectState: none, onSelectLink: none, onSelectTrigger: none,
             onTracePath: none, canConnect: none,
         },
         source,
         open: options.open ?? none,
         library: options.library ?? [variant("flows", null)],
-        inspector: false,
+        inspector: none,
         readOnly: options.readOnly ?? false,
         name: options.name ?? none,
     };

@@ -42,13 +42,16 @@
  * Every field is one column (#1220): its label, its control's line and its
  * help line, the control filling the line and an Option's Set or Clear at its
  * end, centred on it. Each input is the design system's Input size, 32px, so
- * every kind lands on one line.
+ * every kind lands on one line. A text or a printed value longer than its box
+ * — a description in a phone's pane — ends in an ellipsis where the box cuts
+ * it, and its control carries the whole as its title (#1250).
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
- * `data-dirty`, `data-field-line`, `data-field-side`) and geometry only.
+ * `data-dirty`, `data-field-line`, `data-field-side`), a text's title and
+ * geometry only.
  *
  * @packageDocumentation
  */
@@ -395,9 +398,11 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         queueMicrotask(commit);
     };
 
+    // A value printed for a person: read only, or under the host's own control.
+    const printedText = printed || own !== undefined ? printOf(inner, held, editor, options, words) : undefined;
     const control = ((): Control => {
         const printedValue = (text: string): Control => variant("StringInput", { ...STRING_INPUT, value: text, style: INPUT_STYLE });
-        if (printed || own !== undefined) return printedValue(printOf(inner, held, editor, options, words));
+        if (printed || own !== undefined) return printedValue(printedText as string);
         // No value — an empty Option, or a draft's field not given — in an input that cannot show none: Set gives it one.
         if (held === undefined && editor.type !== "text" && editor.type !== "select" && editor.type !== "reference") {
             return variant("StringInput", { ...STRING_INPUT, placeholder: some(m.notSet()), disabled: some(true), style: INPUT_STYLE });
@@ -514,13 +519,16 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         readOnly: printed || readOnly ? some(true) : none,
         style: some({ ...FIELD_STYLE, schemaKey: some(key) }),
     };
+    // The text a one-line box holds, whole — a value printed, or a text field's — its control's title: an ellipsis ends it
+    // where the box cuts it short (the `fieldForm` recipe), and the title says the rest.
+    const whole = own !== undefined ? undefined : printedText ?? (editor.type === "text" ? (held ?? "") as string : undefined);
     // Beside an input that cannot show none: Set while it holds no value, and an Option's Clear while it does.
     const side = own !== undefined || printed || readOnly || editor.type === "text" || editor.type === "select" || editor.type === "reference" ? undefined
         : held === undefined ? "set" : spec.optional ? "clear" : undefined;
     // The control's line: the control filling it — the host's own, or the input — and the Set or Clear at its end.
     const line = (
         <Box css={styles.line} data-field-line="">
-            <Box ref={fieldRef} css={styles.control}>
+            <Box ref={fieldRef} css={styles.control} title={whole === undefined || whole.length === 0 ? undefined : whole}>
                 {own ?? <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />}
             </Box>
             {side !== undefined && (

@@ -4,7 +4,7 @@
  */
 
 /**
- * The Flowchart (#1243–#1249): the state-transition flowchart, e3-ui's as the
+ * The Flowchart (#1243–#1250): the state-transition flowchart, e3-ui's as the
  * Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows from
  * an e3 record of flows by name, or from the host — flows by name, or one
  * flow — and returns its payload through the `Flowchart` carrier, which
@@ -47,6 +47,7 @@ import {
     FlowchartComponent,
     FlowchartDataType,
     FlowchartFlowsHandleType,
+    FlowchartInspectorType,
     FlowchartPayloadType,
     FlowchartSessionApplyType,
     FlowchartSourceType,
@@ -120,6 +121,7 @@ export {
     FlowchartFlowsApplyType,
     FlowchartFlowsHandleType,
     FlowchartHistoryType,
+    FlowchartInspectorType,
     FlowchartPayloadType,
     FlowchartSessionApplyType,
     FlowchartSourceType,
@@ -127,7 +129,9 @@ export {
     flowchartKeys,
     type FlowchartBindHandle,
     type FlowchartCommon,
+    type FlowchartInspectorOptions,
     type FlowchartRecordHandle,
+    type FlowchartRowInspector,
 } from "./payload.js";
 export {
     flowchartValue,
@@ -214,17 +218,43 @@ const MEMBERS = {
 /**
  * `<Flowchart>` — the state-transition flowchart: states as nodes in ordered
  * phase lanes (the layout derived, no coordinates), H/V-routed transitions,
- * decision triggers (lettered diamonds) and evidence-weighted strokes. Hover
- * cards, the selection and the pointer-highlight grammar are built in.
+ * decision triggers (lettered diamonds) and evidence-weighted strokes. The
+ * selection — a state, a transition, a decision, a lane by its header, or
+ * several states — and the pointer-highlight grammar are built in, and the
+ * inspector shows what is selected.
  *
  * @remarks
  * - **Its frame**: it renders in its builder frame wherever it is used — one
  *   toolbar (find state, LR · TD, the freshness chip and, over `data`, the
  *   slice's rail; over a record, the history item), the canvas filling main
  *   and scrolling both ways inside it, and the footer's counts; a library pane
- *   when `library` lists tabs, and an inspector pane when given `inspector`.
- *   It fills the box it is given and draws no border: give it a box of its
- *   own height.
+ *   when `library` lists tabs, and the inspector pane unless
+ *   `inspector={false}`. It fills the box it is given and draws no border:
+ *   give it a box of its own height.
+ * - **Its inspector** (#1250, on by default, ruled by the user on
+ *   2026-10-08): the end pane, Details and Issues — Issues with its count, and
+ *   collapsed a rail with its icon and the issue count. Details shows what is
+ *   selected through its form, every field by the shared input its type
+ *   takes: a state (its key — a new one rekeying its transitions and the
+ *   decisions' queues — label, lane, members and notes; its transitions in and
+ *   out, each selecting it; Duplicate, Delete), a transition (its ends, its
+ *   kind, its decision and its key; its evidence read only; Delete), a
+ *   decision (its fields, its queue as tags over the flow's states; the
+ *   transitions it governs; Delete), a lane — a click on its header selects
+ *   it — (its key, which moves its states, and its label; its states' count;
+ *   Delete while it holds none), several states (their count; moved to a
+ *   lane, or deleted, together) or, with nothing selected, the open flow (its
+ *   name and description — a new name renames it — Duplicate and Delete over
+ *   many flows; its counts, its last save and who made it, and three hints).
+ *   Each edit is one transaction, a field the drafts changed tinted against
+ *   the record; read only, Details shows every field and edits none. Issues
+ *   lists a transition naming a missing state, a state naming a missing lane,
+ *   two of one key — which holds Save off — a decision's queue naming a
+ *   missing state, and a Save's conflict or refusal, a click selecting what
+ *   each names. `inspector={{ state, transition }}` gives a kind its own
+ *   Details in place of its form: an East function over the row and its
+ *   writer, `update` writing the edited row back as one transaction. The
+ *   hover cards went: the inspector is where details live.
  * - **Its open flow**, over many flows: `flow`, else the first by name, until
  *   the viewer opens another — from the Flows tab
  *   (`Flowchart.library.flows()`), which lists every flow by name — kept in
@@ -250,17 +280,18 @@ const MEMBERS = {
  *   the canvas's selection, and on a touch screen so does a tap on the
  *   selected card. Each drop is one transaction of the open flow's session.
  * - **Its edits** are its editing session's (#1247): over a record, and over
- *   `data` given `onApply`, every gesture — "+ LANE", a lane's header renamed
- *   or its × (off while the lane holds states), the "+ STATE" ghost, a state
+ *   `data` given `onApply`, every gesture — "+ LANE", a lane's header
+ *   double-clicked into its rename (a click selects the lane, #1250) or its ×
+ *   (off while the lane holds states), the "+ STATE" ghost, a state
  *   double-clicked into its editor (a new key rekeys its transitions and the
  *   decisions' queues) or dragged across lanes, a handle dragged to another
- *   state, Del on the selected state, transition or decision — is one
- *   transaction the history item undoes and redoes (⌘Z, ⇧⌘Z or ⌘Y anywhere
- *   in the frame but a field being typed into), and Save sends the open
- *   flow's drafts as one commit: through the record's patch mutation, or as
- *   one patch of `data`'s value to the host's `onApply`. Two lanes, states,
- *   transitions or decisions of one key hold Save off. The footer counts the
- *   changes waiting on Save.
+ *   state, Del on the selected state, states, transition, decision or empty
+ *   lane, and every edit the inspector makes — is one transaction the history
+ *   item undoes and redoes (⌘Z, ⇧⌘Z or ⌘Y anywhere in the frame but a field
+ *   being typed into), and Save sends the open flow's drafts as one commit:
+ *   through the record's patch mutation, or as one patch of `data`'s value to
+ *   the host's `onApply`. Two lanes, states, transitions or decisions of one
+ *   key hold Save off. The footer counts the changes waiting on Save.
  * - **Its flows** are an e3 record's (`record`): `Flowchart.Types.Flows`,
  *   flows by name, bound with its patch mutation, the canvas showing `flow`,
  *   else the first by name. A record always holds flows by name (ruled
@@ -282,12 +313,16 @@ const MEMBERS = {
  *   one flow, or of another type, or not bound with its patch mutation;
  *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
  *   it fills sets; a callback for an edit (`onAddState`, `onCreateLink`, …)
- *   or `linkMode`, which the session's gestures replace; a library that lists
- *   a tab twice — the Flows tab or a template tab, or two of the author's
- *   tabs of one name — or the Flows tab over one flow; a data tab whose rows
- *   are neither an Array nor a `Dict<String, T>`; a `states` drop over
- *   another type than a state's patch, a `transitions` drop over another than
- *   a transition's, and a `tab` drop over none of a flow's row types.
+ *   or `linkMode`, which the session's gestures replace; a hover card's
+ *   builder (`stateHover`, `linkHover`, `triggerHover`), which the inspector
+ *   replaces; an `inspector` of another kind than a Boolean or `{ state,
+ *   transition }`, a key other than those two, or a kind's own Details of
+ *   another type than `(Row, (Row) => Null) => UIComponentType`; a library
+ *   that lists a tab twice — the Flows tab or a template tab, or two of the
+ *   author's tabs of one name — or the Flows tab over one flow; a data tab
+ *   whose rows are neither an Array nor a `Dict<String, T>`; a `states` drop
+ *   over another type than a state's patch, a `transitions` drop over another
+ *   than a transition's, and a `tab` drop over none of a flow's row types.
  *
  * The closed-set fields in data (`kind`, `orientation`) are typed variant
  * values, `Flowchart.Types.*`.
@@ -369,6 +404,8 @@ export interface FlowchartInternalNamespace extends FlowchartNamespace {
         FlowsHandle: typeof FlowchartFlowsHandleType;
         /** The editing session's Save, over a record or the host's flows ({@link FlowchartSessionApplyType}). */
         SessionApply: typeof FlowchartSessionApplyType;
+        /** The inspector pane: each kind's own Details ({@link FlowchartInspectorType}). */
+        Inspector: typeof FlowchartInspectorType;
         /** One tab of the library ({@link FlowchartLibraryTabType}). */
         LibraryTab: typeof FlowchartLibraryTabType;
         /** An author's tab's cards, by what they land on ({@link FlowchartLandsType}). */
@@ -409,6 +446,7 @@ export const FlowchartInternal: FlowchartInternalNamespace = Object.assign(Flowc
         Data: FlowchartDataType,
         FlowsHandle: FlowchartFlowsHandleType,
         SessionApply: FlowchartSessionApplyType,
+        Inspector: FlowchartInspectorType,
         LibraryTab: FlowchartLibraryTabType,
         Lands: FlowchartLandsType,
         Card: FlowchartCardType,

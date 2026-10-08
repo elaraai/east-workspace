@@ -20,7 +20,7 @@
  * @packageDocumentation
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Box, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, none } from "@elaraai/east";
 import { useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
@@ -90,20 +90,32 @@ export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pen
     );
 }
 
+/** A record's last save (FB10, #1250): when, as the footer and the inspector say it, and who made it. */
+export interface FlowchartLastSave {
+    /** Its time when it was today, its date and time otherwise. */
+    readonly when: string;
+    /** Who made it: the commit's actor. */
+    readonly by: string;
+}
+
 /**
- * When a record of flows was last saved (FB10): its newest commit's time
- * when it was today, its date and time otherwise — read where the flowchart
- * renders, and again when the record commits.
+ * When a record of flows was last saved, and who saved it (FB10, #1250): its
+ * newest commit's time when it was today, its date and time otherwise, and
+ * its actor — read where the flowchart renders, and again when the record
+ * commits.
  *
  * @param source - Where the flows come from
  * @param words - The formatters the time prints with, in the app's locale
  * @returns The last save, or `undefined` over `data`, while the commits are unread, or when there are none
  */
-export function useLastSave(source: FlowchartValue["source"], words: Formatters): string | undefined {
+export function useLastSave(source: FlowchartValue["source"], words: Formatters): FlowchartLastSave | undefined {
     const history = source.type === "record" ? source.value.history : undefined;
     const read = useCallback(() => (history === undefined ? none : history()), [history]);
     const { result } = useTrackedEvaluation(read);
-    const at = result.ok && result.value.type === "some" ? result.value.value[0]?.at : undefined;
-    if (at === undefined) return undefined;
-    return stringEqual(words.date(at), words.date(new Date())) ? words.time(at) : words.dateTime(at);
+    const newest = result.ok && result.value.type === "some" ? result.value.value[0] : undefined;
+    return useMemo(() => {
+        if (newest === undefined) return undefined;
+        const at = newest.at;
+        return { when: stringEqual(words.date(at), words.date(new Date())) ? words.time(at) : words.dateTime(at), by: newest.actor };
+    }, [newest, words]);
 }

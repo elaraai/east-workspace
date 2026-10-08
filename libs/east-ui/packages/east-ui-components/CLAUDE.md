@@ -272,8 +272,9 @@ input filling it, an Option's Set or Clear at its end (`data-field-line`,
 `data-field-side`) — and its help line. Each input is the design system's
 Input size, so every kind stands on one 32px line (44px on a coarse
 pointer); fields sit 16px apart, a nested struct's head 8px over its first
-field. The showcase's `inspector-form.spec.ts` measures it in both
-inspectors.
+field. A text or a printed value longer than its box ends in an ellipsis, its
+control titled with the whole (#1250). The showcase's `inspector-form.spec.ts`
+measures it in the Sheet's, the Plan's and the Flowchart's inspectors.
 
 The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
 `fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's

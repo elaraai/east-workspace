@@ -13,9 +13,10 @@
  * transition it lands on, which takes the brand wash; an author's card setting
  * its fields on a decision's diamond, a state and a lane's header; every
  * refusal in its words, red, dropping nothing; a read-only flowchart refusing
- * every drop; a card carried over the canvas raising no hover card, no
- * dimming and no "+ STATE" ghost; ⏎ on a card dropping it on the canvas's
- * selection — refused, the footer saying why — and scrolling the state it
+ * every drop; a card carried over the canvas raising no dimming and no
+ * "+ STATE" ghost; ⏎ on a card dropping it on the canvas's selection — a
+ * lane's card on the lane a click on its header selected (#1250) — refused,
+ * the footer saying why — and scrolling the state it
  * adds into view, where a pointer's drop leaves the view be; on a touch screen
  * a tap on the selected card doing what ⏎ does; and each drop one
  * transaction, one Undo taking it back, Save committing it through the record.
@@ -27,13 +28,12 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, DictType, East, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant,
     type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
@@ -371,37 +371,30 @@ describe("a state template dropped on a lane (FB30, FB31)", () => {
 // ============================================================================
 
 describe("a card carried over the canvas (FB30)", () => {
-    test("raises no hover card, no dimming and no + STATE ghost — picked up while the pointer rests on a state, it lets go of that state's card and dimming; the drag over, each comes back", async () => {
-        recordHarness(FLOWS);
-        const { container } = await mountRecord(($) => {
-            const stateHover = $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(key)));
-            return { ...depot($), stateHover };
-        }, { drag: true });
-        const hoverCard = () => container.querySelector("[data-flowchart-hovercard]")?.textContent ?? null;
+    test("raises no dimming and no + STATE ghost — picked up while the pointer rests on a state, it lets go of that state's dimming; the drag over, each comes back", async () => {
+        const { container } = await mountDepot();
         const ghost = () => container.querySelector("[data-flowchart-ghoststate]")?.getAttribute("data-flowchart-ghoststate") ?? null;
         /** CH*'s opacity: no transition joins it to ARV, so the pointer on ARV dims it. */
         const chutes = () => node(container, "CH*").style.opacity;
-        const wait = (ms: number) => act(async () => { await new Promise((done) => setTimeout(done, ms)); });
         await openTab(container, "Steps");
-        // At rest: the pointer on ARV dims CH*, and ARV's card opens after its 400ms.
+        // At rest: the pointer on ARV dims CH*.
         act(() => { fireEvent.pointerEnter(node(container, "ARV")); });
-        await waitFor(() => expect(hoverCard()).toBe("ARV"));
         expect(chutes()).toBe("0.45");
-        // A card picked up: ARV lets go of its card and its dimming.
+        // A card picked up: ARV lets go of its dimming.
         pickUp(cardOf(container, "Held"));
-        expect([hoverCard(), chutes()]).toEqual([null, "1"]);
-        // Carried over the canvas: a state raises no card and dims nothing; a lane raises no ghost.
+        expect(chutes()).toBe("1");
+        // Carried over the canvas: a state dims nothing; a lane raises no ghost.
         act(() => { fireEvent.pointerEnter(node(container, "ARV")); });
         act(() => { fireEvent.pointerEnter(container.querySelector("[data-flowchart-band='hold']")!); });
-        await wait(500);
-        expect([hoverCard(), chutes(), ghost()]).toEqual([null, "1", null]);
-        // The drag over: the lane under the pointer shows its ghost, and a state its card and its dimming.
+        expect([chutes(), ghost()]).toEqual(["1", null]);
+        // The drag over: the lane under the pointer shows its ghost, and a state its dimming.
         restOn(container, TAIL);
         await release(TAIL);
         expect(ghost()).toBe("hold");
         act(() => { fireEvent.pointerEnter(node(container, "ARV")); });
-        await waitFor(() => expect(hoverCard()).toBe("ARV"));
         expect(chutes()).toBe("0.45");
+        // No hover card ever: the inspector shows what is selected (#1250).
+        expect(container.querySelector("[data-flowchart-hovercard]")).toBeNull();
     }, 30_000);
 });
 
@@ -527,6 +520,37 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
             links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!],
             triggers: [{ ...SORT.triggers[0]!, owner: some("customs-desk") }],
         })).toBe(true);
+    }, 30_000);
+
+    test("a lane's card lands on the lane a click on its header selected (#1250): with a state selected it is refused, the footer saying why; with the lane, it names the lane, one transaction", async () => {
+        const { container, harness } = await mountDepot();
+        await openTab(container, "Names");
+        // A state selected: no lane's header to set the name on.
+        await act(async () => { fireEvent.click(node(container, "SCN")); });
+        await settle();
+        await enter(cardOf(container, "Sortation"));
+        expect(footerMessage(container)).toBe("Drop onto a lane's header");
+        // The sort lane's header clicked: the lane selected, and ⏎ names it.
+        await act(async () => { fireEvent.click(container.querySelector("[data-flowchart-lane='sort']")!); });
+        await settle();
+        expect(container.querySelector("[data-flowchart-lane-selected]")!.getAttribute("data-flowchart-lane-selected")).toBe("sort");
+        await enter(cardOf(container, "Sortation"));
+        expect([...container.querySelectorAll("[data-flowchart-lane]")].map((el) => el.textContent)).toEqual(["INTAKE", "SORTATION", "HOLD"]);
+        expect([footerMessage(container), pending(container)]).toEqual(["", ` · ${m.footerPending({ n: 1, count: "1" })}`]);
+        await press(SAVE);
+        expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, lanes: [SORT.lanes[0]!, { ...SORT.lanes[1]!, label: some("Sortation") }, SORT.lanes[2]!] })).toBe(true);
+    }, 30_000);
+
+    test("with a lane selected, a state template lands at the end of that lane (#1250)", async () => {
+        const { container } = await mountDepot();
+        await act(async () => { fireEvent.click(container.querySelector("[data-flowchart-lane='hold']")!); });
+        await settle();
+        await openTab(container, "Steps");
+        await enter(cardOf(container, "Held"));
+        expect(stateKeys(container)).toEqual(["ARV", "SCN", "CH*", "HLD"]);
+        // The hold lane, the third, 166px wide from 332px: its first row, 56px down.
+        expect([node(container, "HLD").style.left, node(container, "HLD").style.top]).toEqual([`${332 + 83 - NODE_W / 2}px`, "56px"]);
+        expect(node(container, "HLD").hasAttribute("data-selected")).toBe(true);
     }, 30_000);
 
     test("the footer's line says why a ⏎ was refused until another flow opens", async () => {

@@ -69,8 +69,8 @@ export type FlowchartOrientationType = typeof FlowchartOrientationType;
  * @remarks
  * Evidence drives derived marks only: stroke weight scales with `volume`
  * (log scale 1.6 / 2 / 2.5 px, floor 1.4), `volume` + `unit` print as the
- * paper-filled badge on the longest straight run, and `count` /
- * `measuredAt` surface in hover cards and the inspector provenance block.
+ * paper-filled badge on the longest straight run, and the inspector shows
+ * all four, read only, under the transition's fields (#1250).
  *
  * @property volume - Total measured volume behind the arrow
  * @property count - Event count behind the arrow (e.g. cage moves)
@@ -107,7 +107,7 @@ export type FlowchartEvidenceType = typeof FlowchartEvidenceType;
  * @property label - Display label under the code
  * @property lane - The lane (ordered phase) this state belongs to
  * @property members - State-class member count → the ×N badge
- * @property notes - Free-text notes surfaced on hover / inspector
+ * @property notes - Free-text notes, shown and edited in the inspector
  */
 export const FlowchartStateType = StructType({
     /** Short mono code — the node identity ("IND") */
@@ -118,7 +118,7 @@ export const FlowchartStateType = StructType({
     lane: StringType,
     /** State-class member count → the ×N badge */
     members: OptionType(IntegerType),
-    /** Free-text notes surfaced on hover / inspector */
+    /** Free-text notes, shown and edited in the inspector */
     notes: OptionType(StringType),
 });
 

@@ -18,7 +18,8 @@
  * apart, a nested struct's among them, and a struct's head 8px over its first
  * field — the gap inside a field, from its label to its control. The line is
  * the design system's Input, 32px (44px on a coarse pointer): a checkbox's box
- * sits centred on it, as a Set or a Clear does.
+ * sits centred on it, as a Set or a Clear does. A text longer than its box
+ * ends in an ellipsis.
  *
  * @packageDocumentation
  */
@@ -86,11 +87,14 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
             minHeight: fieldHeights.md,
             _coarse: { minHeight: "44px" },
         },
+        /* The control filling the line: a text longer than its box ends in an
+         * ellipsis where the box cuts it, the whole its title (#1250). */
         control: {
             display: "flex",
             alignItems: "center",
             flex: "1 1 0",
             minWidth: 0,
+            "& input": { textOverflow: "ellipsis" },
         },
         side: {
             display: "flex",

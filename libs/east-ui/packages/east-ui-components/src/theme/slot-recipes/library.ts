@@ -13,8 +13,8 @@
  * line, and any status and glyph at the right. A placed card — the one
  * already on the target — is drawn in the brand: its border, a tint, and the
  * brand ink through it. Narrow, the cards stack in one column, the mock's
- * palette; wide, the same cards pack a grid. Filtered cards dim rather than
- * unmount.
+ * palette, none wider than it; wide, the same cards pack a grid. Filtered
+ * cards dim rather than unmount.
  *
  * The gallery draws the Studio mock's page library and component library
  * cards: the media on the sunken paper, above the face or at its start; the
@@ -247,9 +247,11 @@ export const librarySlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
+        /* Cards 220px wide at least, packed as many to a row as fit — and in a
+         * column narrower than one, as a phone's pane is, a card its width. */
         grid: {
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(220px, 100%), 1fr))",
             gap: "6px",
         },
         card: {

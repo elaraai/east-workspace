@@ -26,8 +26,12 @@
  * in the order `library` lists it, each data tab's cards from its own rows —
  * over an Array and over a Dict, apart from the flows and from the other tabs
  * — with what each card's drop sets, a tab listed twice refused, naming it,
- * and each data tab's other refusals; and the drops' (#1249): the drop target
- * the flowchart's library's cards land on, under its name.
+ * and each data tab's other refusals; the drops' (#1249): the drop target
+ * the flowchart's library's cards land on, under its name; and the
+ * inspector's (#1250): on by default, `false` taking it away, a kind's own
+ * Details crossing the wire over bytes — its `update` writing the edited row
+ * back — the canvas carrying no hover card, and each hover prop and each
+ * misuse of `inspector` refused at build, naming the remedy.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -39,6 +43,7 @@ import {
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Text } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import e3 from "@elaraai/e3";
 import {
@@ -383,7 +388,8 @@ describe("the payload (FB6)", () => {
         if (payload.source.type !== "record") assert.fail(`expected the record arm, got ${payload.source.type}`);
         assert.ok(flowsEqual(payload.source.value.read(), FLOWS), "the record's read, called where the renderer calls it");
         assert.deepEqual(payload.source.value.history(), none);
-        assert.deepEqual([payload.open, payload.name, payload.inspector, payload.readOnly, payload.library], [some("Returns"), some("depot"), true, false, []]);
+        assert.deepEqual([payload.open, payload.name, payload.inspector, payload.readOnly, payload.library],
+            [some("Returns"), some("depot"), some({ state: none, transition: none }), false, []]);
     });
 
     hostTest("over a record, the editing session's Apply commits its keyed batch as one patch through the record's patch mutation — a new flow's insert by name (#1246)", async () => {
@@ -554,8 +560,8 @@ describe("the payload (FB6)", () => {
         }
     });
 
-    hostTest("the canvas carries today's options, none for every one left out — and no height: the flowchart fills its box (#1245)", () => {
-        assert.deepEqual(Object.keys(FlowchartCanvasType.fields).filter((field) => /height/iu.test(field)), []);
+    hostTest("the canvas carries today's options, none for every one left out — and no height: the flowchart fills its box (#1245); no hover card: the inspector shows what is selected (#1250)", () => {
+        assert.deepEqual(Object.keys(FlowchartCanvasType.fields).filter((field) => /height|hover/iu.test(field)), []);
         const payload = carried((_$) => PublicFlowchart({ data: INBOUND_VALUE }));
         const canvas = payload.canvas;
         for (const [field, value] of Object.entries(canvas)) assert.deepEqual(value, none, `canvas.${field} is none`);
@@ -596,6 +602,74 @@ describe("the payload (FB6)", () => {
             frame: "flowchart.depot.frame", flow: "flowchart.depot.flow", library: "flowchart.library.depot", orientation: "flowchart.depot.orientation",
             surface: "flowchart.depot.surface",
         });
+    });
+});
+
+// ============================================================================
+// The inspector (#1250, FB44, FB45)
+// ============================================================================
+
+describe("the inspector (#1250, FB44, FB45)", () => {
+    const StateType = Flowchart.Types.State;
+    const LinkType = Flowchart.Types.Link;
+    /** Each kind's Details its form: the pane with no author's own. */
+    const FORMS = some({ state: none, transition: none });
+
+    hostTest("is on by default — no prop, `true` and `{}` give the pane, each kind's Details its form — and `false` takes it away (FB44)", () => {
+        const cases: [string, ($: BlockBuilder<UIComponentType>) => object, ValueTypeOf<typeof FlowchartPayloadType>["inspector"]][] = [
+            ["no prop", (_$) => ({ data: FLOWS }), FORMS],
+            ["true", (_$) => ({ data: FLOWS, inspector: true }), FORMS],
+            ["{}", (_$) => ({ data: FLOWS, inspector: {} }), FORMS],
+            ["false", (_$) => ({ data: FLOWS, inspector: false }), none],
+            ["no prop, over a record", ($) => ({ record: $.let(flowsRecord()) }), FORMS],
+            ["false, over a record", ($) => ({ record: $.let(flowsRecord()), inspector: false }), none],
+        ];
+        for (const [what, props, expected] of cases) {
+            assert.deepEqual(carried(($) => PublicFlowchart(props($) as never)).inspector, expected, what);
+        }
+    });
+
+    hostTest("a kind's own Details cross the wire over bytes: the state's is called with the state selected, its `update` writing the edited state back; the transition's Details stay its form (FB45)", () => {
+        const payload = carried(($) => PublicFlowchart({
+            data: FLOWS,
+            inspector: {
+                state: $.const(East.function([StateType, FunctionType([StateType], NullType)], UIComponentType, ($2, s, update) => {
+                    const held = $2.const({ key: s.key, label: some("Held"), lane: s.lane, members: s.members, notes: s.notes }, StateType);
+                    $2(update(held));
+                    return Text.Root(s.key);
+                })),
+            },
+        }));
+        if (payload.inspector.type !== "some") assert.fail("the pane is on");
+        const own = payload.inspector.value.state;
+        if (own.type !== "some") assert.fail("the state's own Details ride the wire");
+        assert.equal(payload.inspector.value.transition.type, "none", "a transition's Details are its form");
+        const chutes = INBOUND_VALUE.states[1]!;
+        const written: Uint8Array[] = [];
+        const ui = own.value(encodeBeast2For(StateType)(chutes), (bytes: Uint8Array) => { written.push(bytes); return null; });
+        const expected = East.compile(East.function([], UIComponentType, (_$) => Text.Root("CH*")), [])();
+        assert.ok(equalFor(UIComponentType)(ui, expected), "the author's UI, over the state given");
+        assert.equal(written.length, 1);
+        assert.ok(equalFor(StateType)(decodeBeast2For(StateType)(written[0]!), { ...chutes, label: some("Held") }), "update wrote the edited state, as a state's bytes");
+    });
+
+    hostTest("a transition's own Details are called with the transition selected, and its `update` writes the edited transition back", () => {
+        const payload = carried(($) => PublicFlowchart({
+            data: FLOWS,
+            inspector: {
+                transition: $.const(East.function([LinkType, FunctionType([LinkType], NullType)], UIComponentType, ($2, l, update) => {
+                    const observed = $2.const({ key: l.key, from: l.from, to: l.to, kind: some(variant("observed", null)), trigger: l.trigger, evidence: l.evidence }, LinkType);
+                    $2(update(observed));
+                    return Text.Root(l.to);
+                })),
+            },
+        }));
+        if (payload.inspector.type !== "some" || payload.inspector.value.transition.type !== "some") assert.fail("the transition's own Details ride the wire");
+        assert.equal(payload.inspector.value.state.type, "none", "a state's Details are its form");
+        const link = INBOUND_VALUE.links[1]!;
+        const written: Uint8Array[] = [];
+        payload.inspector.value.transition.value(encodeBeast2For(LinkType)(link), (bytes: Uint8Array) => { written.push(bytes); return null; });
+        assert.ok(equalFor(LinkType)(decodeBeast2For(LinkType)(written[0]!), { ...link, kind: some(variant("observed", null)) }));
     });
 });
 
@@ -901,6 +975,35 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
         refusals.push([`\`${callback}\` over a record — the session's gestures replace it (#1247, FB24)`, ($) => ({ record: $.let(flowsRecord()), [callback]: given($) }), refusal]);
         refusals.push([`\`${callback}\` over the host's flow — the session's gestures replace it (#1247, FB24)`, ($) => ({ data: INBOUND_VALUE, [callback]: given($) }), refusal]);
     }
+    /** A refusal's exact words, as the pattern a test matches. */
+    const exactly = (text: string): RegExp => new RegExp(`^Error: ${text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`);
+    // Each hover card's builder, over either source (#1250, FB46): the hover cards went, and the inspector names the remedy.
+    const hover = ($: BlockBuilder<NullType>) => $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(key)));
+    const HOVER_REMEDIES = [
+        ["stateHover", "give a state its own Details with inspector={{ state: East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …) }}"],
+        ["linkHover", "give a transition its own Details with inspector={{ transition: East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …) }}"],
+        ["triggerHover", "a decision's Details are its form — every field, and the transitions it governs"],
+    ] as const;
+    for (const [prop, remedy] of HOVER_REMEDIES) {
+        const refusal = exactly(`Flowchart: \`${prop}\` is not a prop — the hover cards went, and the inspector, on by default, shows what is selected: ${remedy}`);
+        refusals.push([`\`${prop}\` over a record — the inspector replaces it (#1250, FB46)`, ($) => ({ record: $.let(flowsRecord()), [prop]: hover($) }), refusal]);
+        refusals.push([`\`${prop}\` over the host's flow — the inspector replaces it (#1250, FB46)`, ($) => ({ data: INBOUND_VALUE, [prop]: hover($) }), refusal]);
+    }
+    // `inspector` of another kind, a key it does not take, and a kind's own Details of another type (#1250, FB44, FB45).
+    const ON_BY_DEFAULT = exactly("Flowchart: `inspector` is on by default — inspector={false} removes the pane, and inspector={{ state, transition }} gives a state or a transition its own Details, each an East function over the row and its writer");
+    const own = <R extends typeof Flowchart.Types.State | typeof Flowchart.Types.Link>($: BlockBuilder<NullType>, row: R) =>
+        $.const(East.function([row, FunctionType([row], NullType)], UIComponentType, (_$2) => Text.Root("own")));
+    const ownState = exactly("Flowchart: `inspector.state` is a state's own Details — an East function over the state and its writer: East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …)");
+    const ownTransition = exactly("Flowchart: `inspector.transition` is a transition's own Details — an East function over the transition and its writer: East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($, link, update) => …)");
+    refusals.push(
+        ["an `inspector` that is a word (#1250)", (_$) => ({ data: INBOUND_VALUE, inspector: "on" }), ON_BY_DEFAULT],
+        ["an `inspector` that is a function: a kind's own Details are given by kind (#1250)", ($) => ({ data: INBOUND_VALUE, inspector: own($, Flowchart.Types.State) }), ON_BY_DEFAULT],
+        ["an `inspector` naming a kind it gives no own Details for (#1250)", ($) => ({ data: INBOUND_VALUE, inspector: { decision: own($, Flowchart.Types.State) } }),
+            exactly("Flowchart: `inspector` gives a state or a transition its own Details — { state, transition } — and `decision` is neither: every other kind's Details are its form")],
+        ["a state's own Details over a transition (#1250, FB45)", ($) => ({ data: INBOUND_VALUE, inspector: { state: own($, Flowchart.Types.Link) } }), ownState],
+        ["a state's own Details that return no UI (#1250, FB45)", ($) => ({ data: INBOUND_VALUE, inspector: { state: $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], StringType, (_$2, s) => s.key)) } }), ownState],
+        ["a transition's own Details over a state (#1250, FB45)", ($) => ({ record: $.let(flowsRecord()), inspector: { transition: own($, Flowchart.Types.State) } }), ownTransition],
+    );
     for (const [what, props, refusal] of refusals) {
         hostTest(`refuses ${what}`, () => {
             assert.throws(build(props), refusal);
@@ -958,6 +1061,16 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ record: flows, onAddState: $.const(East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$2) => null)) });
             // @ts-expect-error — connecting is the session's whenever the flowchart edits: no link mode (#1247, FB24)
             PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow, linkMode: "connect" });
+            // The inspector (#1250): on by default, `false` taking it away, and a state's or a transition's own Details.
+            PublicFlowchart({ data: INBOUND_VALUE, inspector: false });
+            PublicFlowchart({ record: flows, inspector: {
+                state: $.const(East.function([PublicFlowchart.Types.State, FunctionType([PublicFlowchart.Types.State], NullType)], UIComponentType, (_$2, s) => Text.Root(s.key))),
+                transition: $.const(East.function([PublicFlowchart.Types.Link, FunctionType([PublicFlowchart.Types.Link], NullType)], UIComponentType, (_$2, l) => Text.Root(l.to))),
+            } });
+            // @ts-expect-error — the hover cards went: the inspector shows what is selected (#1250, FB46)
+            PublicFlowchart({ data: INBOUND_VALUE, stateHover: $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(key))) });
+            // @ts-expect-error — a kind's own Details are a state's or a transition's: a decision's are its form (#1250, FB45)
+            PublicFlowchart({ data: INBOUND_VALUE, inspector: { decision: true } });
             // The library's data tabs (#1248): one flow takes every tab but the Flows tab.
             const steps = $.const(STEPS, ArrayType(StepRow));
             const moves = $.const(MOVES, DictType(StringType, MoveRow));
