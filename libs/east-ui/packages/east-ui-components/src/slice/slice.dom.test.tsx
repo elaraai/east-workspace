@@ -28,6 +28,7 @@ import {
 import { Slice } from "@elaraai/east-ui/internal";
 import { buildSliceHandle } from "../platform/slice/index.js";
 import { sliceConfig } from "../testing/slice.js";
+import { faIcons, loneGlyphs } from "../testing/icons.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
@@ -1307,6 +1308,12 @@ async function tabTo(user: ReturnType<typeof userEvent.setup>, target: Element):
 /** The trigger a compact affordance's editor hangs from: the element carrying its popover's `aria-haspopup`. */
 const triggerOf = (el: Element): HTMLElement => el.closest<HTMLElement>("[aria-haspopup]")!;
 
+/** A chip's pointer remove — its `data-chip-remove` part — or `null` when it draws none. */
+const removeOf = (chip: Element): HTMLElement | null => chip.querySelector<HTMLElement>("[data-chip-remove]");
+
+/** A remove as it draws: the text it writes, and the Font Awesome xmarks in it (#1263). */
+const drawn = (el: Element): [string | null, number] => [el.textContent, faIcons(el, "xmark").length];
+
 describe("the compact slice triggers — each a button the keyboard reaches and opens (#1231)", () => {
     const compact = some(variant("compact", null));
     const clause = variant("integer", { fieldId: "sessions", op: variant("gte", 20n) });
@@ -1405,7 +1412,7 @@ describe("the compact slice triggers — each a button the keyboard reaches and 
     }
 });
 
-describe("a clause chip — removed by its × with a mouse, by Delete, by its editor's Remove filter, and on a touch screen by its editor alone (#1231)", () => {
+describe("a clause chip — removed by its xmark with a mouse, by Delete, by its editor's Remove filter, and on a touch screen by its editor alone (#1231)", () => {
     const cfg = sliceConfig({
         scenario: variant("string",  { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario, format: none }),
         sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
@@ -1429,10 +1436,10 @@ describe("a clause chip — removed by its × with a mouse, by Delete, by its ed
     /** A clause's chip, by its words. */
     const chip = (words: RegExp) => triggerOf(screen.getByText(words));
 
-    test("a click on its × removes the clause and opens no editor — not the one of the clause that takes its place", async () => {
+    test("a click on its xmark removes the clause and opens no editor — not the one of the clause that takes its place", async () => {
         const { handle } = mountClauses("clause.mouse");
         const user = userEvent.setup();
-        await user.click(within(chip(/scenario contains v/)).getByText("×"));
+        await user.click(removeOf(chip(/scenario contains v/))!);
         expect(handle.read().filters.length).toBe(1);
         expect(predEqual(handle.read().filters[0], clauses[1])).toBe(true);
         // A click that reached the chip would open the editor of the clause now in its place.
@@ -1464,9 +1471,9 @@ describe("a clause chip — removed by its × with a mouse, by Delete, by its ed
         expect(screen.queryByRole("dialog")).toBeNull();
     });
 
-    test("with a mouse a clause chip draws its × beside its words; on a coarse pointer it draws none, and the chip opens its editor, Remove filter in its foot", async () => {
+    test("with a mouse a clause chip draws its xmark beside its words; on a coarse pointer it draws none, and the chip opens its editor, Remove filter in its foot", async () => {
         const fine = mountClauses("clause.fine");
-        expect(within(chip(/sessions ≥ 20/)).getByText("×")).toBeTruthy();
+        expect(drawn(removeOf(chip(/sessions ≥ 20/))!)).toEqual(["", 1]);
         fine.unmount();
 
         vi.stubGlobal("matchMedia", (query: string) => ({
@@ -1475,8 +1482,8 @@ describe("a clause chip — removed by its × with a mouse, by Delete, by its ed
         }));
         try {
             const { handle } = mountClauses("clause.coarse");
-            expect(within(chip(/scenario contains v/)).queryByText("×")).toBeNull();
-            expect(within(chip(/sessions ≥ 20/)).queryByText("×")).toBeNull();
+            expect([removeOf(chip(/scenario contains v/)), faIcons(chip(/scenario contains v/), "xmark").length]).toEqual([null, 0]);
+            expect([removeOf(chip(/sessions ≥ 20/)), faIcons(chip(/sessions ≥ 20/), "xmark").length]).toEqual([null, 0]);
             const user = userEvent.setup();
             await user.click(screen.getByText(/sessions ≥ 20/));
             const dialog = await screen.findByRole("dialog");
@@ -1631,7 +1638,7 @@ describe("a cohort chip on a touch screen — one target opening its editor, On 
     });
 });
 
-describe("the breakdown's chip — a button opening its editor: its × and Delete with a mouse, its editor alone on a touch screen (#1253)", () => {
+describe("the breakdown's chip — a button opening its editor: its xmark and Delete with a mouse, its editor alone on a touch screen (#1253)", () => {
     const cfg = sliceConfig({
         region:  variant("string", { label: "Region",  accessor: (r: { region: string }) => r.region, format: none }),
         channel: variant("string", { label: "Channel", accessor: (r: { channel: string }) => r.channel, format: none }),
@@ -1652,9 +1659,9 @@ describe("the breakdown's chip — a button opening its editor: its × and Delet
     }
     const chip = (label: string) => screen.getByRole("button", { name: `Split by ${label}` });
 
-    test("a click on its × clears the breakdown and opens no editor", async () => {
+    test("a click on its xmark clears the breakdown and opens no editor", async () => {
         const { splitBy } = mountBreakdown("breakdown.mouse");
-        await userEvent.setup().click(within(chip("Region")).getByText("×"));
+        await userEvent.setup().click(removeOf(chip("Region"))!);
         expect(equalBreakdowns(splitBy(), none)).toBe(true);
         await expect(screen.findByRole("dialog", undefined, { timeout: 300 })).rejects.toThrow();
     });
@@ -1696,17 +1703,17 @@ describe("the breakdown's chip — a button opening its editor: its × and Delet
         await expect(screen.findByRole("dialog", undefined, { timeout: 300 })).rejects.toThrow();
     });
 
-    test("on a touch screen the chip draws no ×, and its tap opens its editor, Clear breakdown in its foot", async () => {
+    test("on a touch screen the chip draws no xmark, and its tap opens its editor, Clear breakdown in its foot", async () => {
         coarsePointer();
         const { splitBy } = mountBreakdown("breakdown.coarse");
-        expect(within(chip("Region")).queryByText("×")).toBeNull();
+        expect([removeOf(chip("Region")), faIcons(chip("Region"), "xmark").length]).toEqual([null, 0]);
         const user = userEvent.setup();
         await user.click(chip("Region"));
         await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear breakdown" }));
         expect(equalBreakdowns(splitBy(), none)).toBe(true);
     });
 
-    test("focused, on a touch screen each dimension's chip is one button and none draws its ×: a tap on the active one clears it", async () => {
+    test("focused, on a touch screen each dimension's chip is one button and none draws its xmark: a tap on the active one clears it", async () => {
         const fine = mountBreakdown("breakdown.focused.fine", "focused");
         expect(screen.getByRole("button", { name: "Clear breakdown" })).toBeTruthy();
         fine.unmount();
@@ -1764,7 +1771,7 @@ describe("the sectioned editor's disclosures — each trigger the button itself,
         expect(screen.getByText("Body")).toBeTruthy();
     });
 
-    test("a click on a clause chip's × in the editor removes the clause and opens nothing", async () => {
+    test("a click on a clause chip's xmark in the editor removes the clause and opens nothing", async () => {
         const slice = fakeSlice({ filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })] });
         const { container } = ui(
             <SliceDensityContext.Provider value="editor">
@@ -1772,8 +1779,60 @@ describe("the sectioned editor's disclosures — each trigger the button itself,
             </SliceDensityContext.Provider>,
         );
         const chip = container.querySelector<HTMLElement>("[data-slice-clause='0']")!;
-        await userEvent.setup().click(within(chip).getByText("×"));
+        await userEvent.setup().click(removeOf(chip)!);
         expect(slice.read().filters.length).toBe(0);
         expect(chip.getAttribute("aria-expanded")).toBe("false");
+    });
+});
+
+// ============================================================================
+// #1263 — every remove a slice draws is Font Awesome's xmark
+// ============================================================================
+
+describe("every remove a slice draws is Font Awesome's xmark, never a written × (#1263)", () => {
+    const compact = some(variant("compact", null));
+    const filters = [
+        variant("integer", { fieldId: "sessions", op: variant("gte", 20n) }),
+        variant("string", { fieldId: "region", op: variant("eq", "EU") }),
+    ];
+
+    test("a filter's clause chips", () => {
+        const { container } = ui(<EastChakraSliceFilter value={{ slice: fakeSlice({ filters }), unit: none, density: compact, editOpen: none } as never} />);
+        expect([...container.querySelectorAll("[data-slice-clause]")].map((c) => drawn(removeOf(c)!))).toEqual([["", 1], ["", 1]]);
+        expect(loneGlyphs(container)).toEqual([]);
+    });
+
+    test("each row of a filter's +N more list", async () => {
+        // Every element 100px wide against a 0-wide row: every clause folds (see #161's test).
+        const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return 100; } });
+        try {
+            ui(<EastChakraSliceFilter value={{ slice: fakeSlice({ filters }), unit: none, density: compact, editOpen: none } as never} />);
+            await userEvent.setup().click(screen.getByText("+2 more"));
+            const dialog = await screen.findByRole("dialog");
+            expect(within(dialog).getAllByRole("button", { name: "Remove filter" }).map(drawn)).toEqual([["", 1], ["", 1]]);
+            expect(loneGlyphs(document.body)).toEqual([]);
+        } finally {
+            if (offsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidth);
+            else delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+        }
+    });
+
+    test("the breakdown's chip, and the active dimension's clear while focused", () => {
+        const split = () => fakeSlice({ breakdown: some({ fieldId: "region", limit: none }) });
+        const first = ui(<EastChakraSliceBreakdown value={{ slice: split(), density: compact } as never} />);
+        expect(drawn(removeOf(screen.getByRole("button", { name: "Split by Region" }))!)).toEqual(["", 1]);
+        expect(loneGlyphs(first.container)).toEqual([]);
+        first.unmount();
+        const focused = ui(<EastChakraSliceBreakdown value={{ slice: split(), density: some(variant("focused", null)) } as never} />);
+        expect(drawn(screen.getByRole("button", { name: "Clear breakdown" }))).toEqual(["", 1]);
+        expect(loneGlyphs(focused.container)).toEqual([]);
+    });
+
+    test("a clause in the cohort's editor", async () => {
+        const slice = fakeSlice({ cohorts: [{ id: "eu", name: "EU", filters: [variant("string", { fieldId: "region", op: variant("eq", "EU") })] }] });
+        await uiOpen(<EastChakraSliceCohort value={{ slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: some(true) } as never} />);
+        expect(screen.getAllByRole("button", { name: "Remove clause" }).map(drawn)).toEqual([["", 1]]);
+        expect(loneGlyphs(document.body)).toEqual([]);
     });
 });

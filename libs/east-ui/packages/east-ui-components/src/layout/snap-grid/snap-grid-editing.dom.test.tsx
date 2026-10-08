@@ -28,6 +28,7 @@ import { none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { layOut } from "../../testing/drag-layer.js";
+import { faIcons, loneGlyphs } from "../../testing/icons.js";
 import {
     BLOCKED, SEED, type EditingSnapGrid, type TileValue,
     announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, hostWrites, key, layRows, marks,
@@ -230,12 +231,14 @@ describe("L11 — the drop stages", () => {
         const letGo = await hold(tileEl(c, "trend"), zone);
         expect(zone.hasAttribute("data-drop-active")).toBe(true);
         expect(zone.hasAttribute("data-drop-invalid")).toBe(false);
-        // Its words: at rest, while dragging, and as the target — CSS shows the one that applies.
-        expect([...zone.querySelectorAll("span")].map((s) => s.textContent)).toEqual([
-            "Drag from the library · new 12-col row",
-            "▾ Drop between rows, beside a tile, or here",
-            "▾ Drop component here · snaps to a new 12-col row",
+        // Its words: at rest, while dragging, and as the target — CSS shows the one that applies. The two
+        // under a drag lead with Font Awesome's caret, never a written ▾ (#1263).
+        expect([...zone.querySelectorAll("span")].map((s) => [s.textContent, faIcons(s, "caret-down").length, s.firstElementChild?.tagName.toLowerCase() ?? null])).toEqual([
+            ["Drag from the library · new 12-col row", 0, null],
+            ["Drop between rows, beside a tile, or here", 1, "svg"],
+            ["Drop component here · snaps to a new 12-col row", 1, "svg"],
         ]);
+        expect(loneGlyphs(zone)).toEqual([]);
         await letGo();
         expect(zone.hasAttribute("data-drop-active")).toBe(false);
         expect(c.querySelector("[data-snap-grid-insert]")).toBeNull();
@@ -837,6 +840,8 @@ describe("the toolbar folded into chips (#1229)", () => {
         row.px = 1;
         const canvas = await mountSnapGrid({ chrome: true });
         const chip = bar(canvas.container).querySelector<HTMLElement>("[data-snap-grid-view]")!;
+        // The chip is Font Awesome's eye and its caret, never a written ▾ (#1263).
+        expect([chip.textContent, faIcons(chip, "eye").length, faIcons(chip, "caret-down").length]).toEqual(["", 1, 1]);
         await openMenu(chip);
         expect(menuItems()).toEqual(["menuitem:Zoom out", "menuitem:Zoom in", "menuitemradio:Desktop (checked)", "menuitemradio:Tablet"]);
         const zoomShown = () => document.querySelector("[data-snap-grid-view-zoom]")!.textContent;

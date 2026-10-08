@@ -46,3 +46,10 @@ function pathKeys(root: string, prefix: string): string[] {
 export function catalogPathKeys(): string[] {
     return [...pathKeys(EAST_UI_TEST, ""), ...pathKeys(E3_UI_TEST, "e3/")];
 }
+
+/** The examples file a catalog pathKey names: east-ui's, or e3-ui's under the `e3/` prefix. */
+export function examplesFile(pathKey: string): string {
+    return pathKey.startsWith("e3/")
+        ? join(E3_UI_TEST, `${pathKey.slice("e3/".length)}.examples.tsx`)
+        : join(EAST_UI_TEST, `${pathKey}.examples.tsx`);
+}

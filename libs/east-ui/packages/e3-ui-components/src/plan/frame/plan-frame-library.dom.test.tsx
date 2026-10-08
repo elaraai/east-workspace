@@ -12,8 +12,8 @@
  * read again as a record commits; the Series tab hiding a kind, a measure, a
  * resource kind and a row of the Plan's own, kept per viewer across a
  * remount; an author's tab's cards, its search and a click selecting a card;
- * the empty states; and the panes' open tab and collapsed state kept under
- * the Plan's id. The Series tab is `Pick.Panel`'s list: the old Series
+ * the empty states, each marked by Font Awesome's open box (#1263); and the
+ * panes' open tab and collapsed state kept under the Plan's id. The Series tab is `Pick.Panel`'s list: the old Series
  * popover's tests run in it, over a canvas whose series are picked.
  */
 
@@ -23,6 +23,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -75,12 +76,12 @@ async function search(c: HTMLElement, text: string) {
     await act(async () => { fireEvent.change(within(panel(c)).getByRole("textbox", { name: "Search library" }), { target: { value: text } }); });
 }
 
-/** The open tab's empty state: its title and the line under it, or `null` while cards show. */
+/** The open tab's empty state: its mark (each Font Awesome icon it draws, then any text), its title and the line under it, or `null` while cards show. */
 const emptyState = (c: HTMLElement) => {
     const empty = panel(c).querySelector<HTMLElement>("[data-library-empty]") ?? panel(c).querySelector<HTMLElement>("[data-empty-state]");
     if (empty === null) return null;
     const title = within(empty).getByRole("heading");
-    return [title.textContent, title.nextElementSibling?.textContent ?? null];
+    return [markOf(title.parentElement!.previousElementSibling), title.textContent, title.nextElementSibling?.textContent ?? null];
 };
 
 /** The Series tab's lines: each its name and whether it shows. */
@@ -396,17 +397,17 @@ describe("empty tabs (PB30)", () => {
         await settle();
         expect(tabs(pane(container))).toEqual(["Backlog 0", "Customers 0", "Events 0"]);
         await openTab(container, "Backlog");
-        expect(emptyState(container)).toEqual(["Backlog clear", "Every event is scheduled."]);
+        expect(emptyState(container)).toEqual(["fas box-open", "Backlog clear", "Every event is scheduled."]);
         await openTab(container, "Customers");
-        expect(emptyState(container)).toEqual(["Nothing in Customers", "Customers lists nothing yet."]);
+        expect(emptyState(container)).toEqual(["fas box-open", "Nothing in Customers", "Customers lists nothing yet."]);
         await openTab(container, "Events");
-        expect(emptyState(container)).toEqual(["No templates", "No event kind declares a template to drag in."]);
+        expect(emptyState(container)).toEqual(["fas box-open", "No templates", "No event kind declares a template to drag in."]);
         cleanup();
         const works = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(works.container, "Events");
         await search(works.container, "zz");
-        expect(emptyState(works.container)).toEqual(["No matches", 'Nothing matches "zz".']);
+        expect(emptyState(works.container)).toEqual(["fas box-open", "No matches", 'Nothing matches "zz".']);
     });
 });
 
@@ -462,8 +463,14 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
     /** A line of the Series tab's own, known at build. */
     const own = (id: string, title: string) => ({ id, title, subtitle: none, icon: none, count: none, narrowed: false });
 
-    /** A canvas of one row whose series are picked, with a Series tab listing a kind of its own before the pick and a row after. */
-    function renderPicked(pick: ReturnType<typeof fakePick> | { key: string; state: unknown; items: unknown[] }) {
+    /** A Series tab listing a kind of its own before the pick and a row after. */
+    const SERIES_TAB = [variant("series", {
+        kinds: [own("events.job", "Print job")],
+        rows: [{ item: own("rows.ms", "Milestones"), hides: variant("rows", "ms") }],
+    })] as unknown as PlanValue["library"];
+
+    /** A canvas of one row whose series are picked — or, with no pick, not — under a library of a Series tab. */
+    function renderPicked(pick: ReturnType<typeof fakePick> | { key: string; state: unknown; items: unknown[] } | undefined, library: PlanValue["library"] = SERIES_TAB) {
         initializeStore(new UIStore());
         const root = {
             rows: variant("inline", oneBlock([{
@@ -474,14 +481,10 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
             }] as never)),
             links: [],
             axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: some(pick), slice: none, footer: [],
+            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: pick === undefined ? none : some(pick), slice: none, footer: [],
             id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
             style: none,
         } as unknown as PlanRootValue;
-        const library = [variant("series", {
-            kinds: [own("events.job", "Print job")],
-            rows: [{ item: own("rows.ms", "Milestones"), hides: variant("rows", "ms") }],
-        })] as unknown as PlanValue["library"];
         return render(
             <ChakraProvider value={system}>
                 <EastChakraPlan value={root} storageKey="plan-picked" library={library} />
@@ -550,6 +553,15 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
             getStore().write("plan.pick.zero-rows", new Uint8Array());
         });
         expect(lines(container)[1]).toEqual(["Press jobs", false]);
+    });
+
+    test("a Series tab with no line to hide is the shared empty state, its mark Font Awesome's open box (#1263)", async () => {
+        const { container } = renderPicked(undefined, [variant("series", { kinds: [], rows: [] })] as unknown as PlanValue["library"]);
+        await settle();
+        await openTab(container, "Series");
+        const title = within(panel(container)).getByRole("heading");
+        expect([markOf(title.parentElement!.previousElementSibling), title.textContent, title.nextElementSibling?.textContent])
+            .toEqual(["fas box-open", "No series", "This plan shows nothing to hide."]);
     });
 
     test("two lines sharing an id are one switch — reported, and reconciled correctly", async () => {

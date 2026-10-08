@@ -13,9 +13,10 @@
  * and foot, its layout and columns, the toolbar's Grid · List switch, its
  * dashed card to add one, and the compact card's behaviour kept. With nothing
  * to show (#1186), the shared empty state: the host's words for no items, or
- * `No matches` for a search or a filter that hides every card. A host that
- * takes a draggable card's ⏎ (#1187) gets it, while Space still picks the
- * card up.
+ * `No matches` for a search or a filter that hides every card, its mark Font
+ * Awesome's open box (#1263). A host that takes a draggable card's ⏎ (#1187)
+ * gets it, while Space still picks the card up. A compact Library's add action
+ * is Font Awesome's plus beside its words (#1263).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -30,6 +31,7 @@ import { getRegisteredPlatformImplementations } from "../../platform/registry.js
 import { UIStore } from "../../platform/state-store.js";
 import { DragLayerProvider } from "../../dnd/drag-layer.js";
 import { announced, pointAt, press, stubScrollIntoView, tick } from "../../testing/drag-layer.js";
+import { faIcons, loneGlyphs, markOf } from "../../testing/icons.js";
 import { EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "./index.js";
 
 // jsdom lacks the ResizeObserver the menu's positioner reaches for, and the
@@ -215,6 +217,29 @@ describe("Library — the Filter menu and the noun", () => {
         expect(row.getByRole("button", { name: "Secondary" })).toBeTruthy();
         expect(row.getByRole("button", { name: "Filter" })).toBeTruthy();
     });
+
+    test("a compact Library's add action is Font Awesome's plus beside its words, never a written + (#1263)", async () => {
+        initializeStore(new UIStore());
+        const { container } = mount(East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const said = $.let(State.bind([StringType], "library.test.add", ""));
+            const onAdd = $.const(East.function([], NullType, ($2) => { $2(said.write("added")); }));
+            return Stack.VStack([
+                Text.Root(East.str`said ${said.read()}`),
+                Library.Root([{ id: "kpi", name: "KPI rail" }], {
+                    id: "things",
+                    item: r => ({ key: r.id, label: r.name }),
+                    addLabel: "New component",
+                    onAdd,
+                }),
+            ]);
+        }))), getRegisteredPlatformImplementations())() as ValueTypeOf<typeof UIComponentType>);
+
+        const add = screen.getByRole("button", { name: "New component" });
+        expect([add.hasAttribute("data-library-footer-add"), add.textContent, faIcons(add, "plus").length]).toEqual([true, "New component", 1]);
+        expect(loneGlyphs(container, ["+"])).toEqual([]);
+        await act(async () => { fireEvent.click(add); });
+        expect(screen.getByText("said added")).toBeTruthy();
+    });
 });
 
 describe("Library — the gallery (#1030)", () => {
@@ -370,7 +395,7 @@ describe("Library — the gallery (#1030)", () => {
         expect(add.textContent).toBe("New page from template");
         // The last group's grid ends with it.
         expect(add.parentElement!.lastElementChild).toBe(add);
-        expect(screen.queryByText("+ New page from template")).toBeNull();
+        expect(container.querySelector("[data-library-footer-add]")).toBeNull();
         await act(async () => { fireEvent.click(add); });
         expect(screen.getByText("said added")).toBeTruthy();
     });
@@ -405,12 +430,12 @@ describe("Library — nothing to show (#1186)", () => {
         filterOptions: [{ key: "kind", label: "Kind" }, { key: "bay", label: "Bay" }], searchable: true, noun: none, addLabel: none,
         onAdd: none, onCardClick: none, slice: none, style: none, variant: none, layout: none, toolbar: true,
     });
-    /** What the empty state says — its glyph, its title and the line under it — or `null` while cards show. */
-    const said = (container: HTMLElement): [string, string, string | null] | null => {
+    /** What the empty state says — its mark (each Font Awesome icon it draws, then any text), its title and the line under it — or `null` while cards show. */
+    const said = (container: HTMLElement): [string | null, string, string | null] | null => {
         const empty = container.querySelector<HTMLElement>("[data-library-empty]");
         if (empty === null) return null;
         const title = within(empty).getByRole("heading");
-        return [title.parentElement!.previousElementSibling?.textContent ?? "", title.textContent ?? "", title.nextElementSibling?.textContent ?? null];
+        return [markOf(title.parentElement!.previousElementSibling), title.textContent ?? "", title.nextElementSibling?.textContent ?? null];
     };
 
     test("no items: the host's words as the shared empty state, and nothing when the host gives none", () => {
@@ -419,7 +444,8 @@ describe("Library — nothing to show (#1186)", () => {
                 <EastChakraLibrary value={library([])} storageKey="library-test" empty={{ title: "No templates", description: "The builder declares none." }} />
             </ChakraProvider>,
         );
-        expect(said(given.container)).toEqual(["☐", "No templates", "The builder declares none."]);
+        expect(said(given.container)).toEqual(["fas box-open", "No templates", "The builder declares none."]);
+        expect(loneGlyphs(given.container)).toEqual([]);
         cleanup();
         const silent = render(<ChakraProvider value={system}><EastChakraLibrary value={library([])} storageKey="library-test" /></ChakraProvider>);
         expect(said(silent.container)).toBeNull();
@@ -435,7 +461,7 @@ describe("Library — nothing to show (#1186)", () => {
         expect(said(container)).toBeNull();
         const search = screen.getByRole("textbox", { name: "Search library" });
         await act(async () => { fireEvent.change(search, { target: { value: " zz " } }); });
-        expect(said(container)).toEqual(["☐", "No matches", 'Nothing matches "zz".']);
+        expect(said(container)).toEqual(["fas box-open", "No matches", 'Nothing matches "zz".']);
         await act(async () => { fireEvent.change(search, { target: { value: "S1" } }); });
         expect(said(container)).toBeNull();
         await act(async () => { fireEvent.change(search, { target: { value: "" } }); });
@@ -444,7 +470,7 @@ describe("Library — nothing to show (#1186)", () => {
         await pick("saw");
         expect(said(container)).toBeNull();
         await pick("Bay 4");
-        expect(said(container)).toEqual(["☐", "No matches", "No item holds every value the filter checks."]);
+        expect(said(container)).toEqual(["fas box-open", "No matches", "No item holds every value the filter checks."]);
         await pick("Bay 1");
         expect(said(container)).toBeNull();
     });

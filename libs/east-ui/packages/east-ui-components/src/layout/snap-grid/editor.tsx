@@ -52,7 +52,7 @@ import {
 import { Box, chakra, Menu as ChakraMenu, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas, faCheck, faEye, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { fas, faCaretDown, faCheck, faEye, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
@@ -402,8 +402,9 @@ const SnapGridGapCell = memo(function SnapGridGapCell(p: GapProps) {
             <Box ref={ref} css={styles.endZone} data-snap-grid-end="" data-snap-grid-gap={index}>
                 <Box css={styles.endZoneBox}>
                     <Box as="span" css={styles.endZoneRest}>{words.m.endZoneRest()}</Box>
-                    <Box as="span" css={styles.endZoneDragging}>{words.m.endZoneDragging()}</Box>
-                    <Box as="span" css={styles.endZoneTarget}>{words.m.endZoneTarget()}</Box>
+                    {/* Where a drop lands, pointed at by Font Awesome's caret (#1263). */}
+                    <Box as="span" css={styles.endZoneDragging}><FontAwesomeIcon icon={faCaretDown} />{words.m.endZoneDragging()}</Box>
+                    <Box as="span" css={styles.endZoneTarget}><FontAwesomeIcon icon={faCaretDown} />{words.m.endZoneTarget()}</Box>
                 </Box>
             </Box>
         );

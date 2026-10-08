@@ -10,7 +10,8 @@
  * the terminal chip, the icon), then the Plan's own (the user's decision): the
  * summary shortens to its count; the resolution segment folds into its menu,
  * then the grain segment, the summary hides; the key search folds into its
- * icon; the history item folds last, to its buttons. jsdom lays nothing out,
+ * icon; the history item folds last, to its buttons. A segment's menu chip
+ * draws Font Awesome's caret (#1263). jsdom lays nothing out,
  * so each item's width is stubbed by the form it shows, every fold giving room
  * back; the gap is 10px.
  */
@@ -23,7 +24,7 @@ import { Editing } from "@elaraai/east-ui/internal";
 import {
     system, formatters, EditSession, editingMessages, buildSliceHandle, UIStore, Toolbar, type HistoryBarProps,
 } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
+import { markOf, sliceConfig } from "@elaraai/east-ui-components/testing";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { usePlanToolbarItems } from "./shell/Toolbar.js";
 import type { PlanChrome } from "./root/chrome.js";
@@ -234,6 +235,9 @@ describe("the Plan's toolbar items (#952, #1193)", () => {
         expect(c.querySelector("[data-toolbar-item='cluster'] [data-rail-rung='icon']")).not.toBeNull();
         expect(c.querySelector("[data-plan-segmenu='resolution']")!.textContent).toContain("WEEK");
         expect(c.querySelector("[data-plan-segmenu='grain']")!.textContent).toContain("GROUP");
+        // Each menu's chip: its segment's words and Font Awesome's caret, never a written ▾ (#1263).
+        expect(["resolution", "grain"].map((name) => markOf(c.querySelector(`[data-plan-segmenu='${name}']`))))
+            .toEqual(["fas caret-down WEEK", "fas caret-down GROUP"]);
         expect(c.querySelector("[data-plan-seg]")).toBeNull();
         expect(c.querySelector("[data-slot='toolbarSummary']")).toBeNull();
         expect(c.querySelector("[data-history-form='buttons']")).not.toBeNull();

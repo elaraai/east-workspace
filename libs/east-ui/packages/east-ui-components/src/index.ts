@@ -442,6 +442,14 @@ export {
 } from "./dnd/drag-layer.js";
 // The drag layer's words (#608) — `<DragLayerProvider messages={…}>` overrides any subset.
 export { dragMessages, type DragMessages } from "./dnd/messages.js";
+// The assignment surfaces' words (#1263) — a Board's or a Roster's chip state,
+// as its accessible name says it; `<AssignmentMessagesProvider>` overrides any subset.
+export {
+    AssignmentMessagesProvider,
+    assignmentMessages,
+    type AssignmentMessages,
+    type AssignmentMessagesProviderProps,
+} from "./collections/shared/assignment-messages.js";
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";

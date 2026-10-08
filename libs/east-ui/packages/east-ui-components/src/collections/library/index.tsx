@@ -75,8 +75,8 @@ export interface LibraryEmpty {
     description?: string | undefined;
 }
 
-/** The empty state's glyph: an empty box, the design system's. */
-const EMPTY_GLYPH = "☐";
+/** The empty state's icon: an empty box, as the design system draws it — Font Awesome's open box (#1263). */
+const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
 
 type SlotStyles = Record<string, SystemStyleObject>;
 
@@ -1117,7 +1117,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter 
             >
                 {nothing !== undefined && (
                     <Box data-library-empty="">
-                        <EmptyStateView glyph={EMPTY_GLYPH} title={nothing.title} description={nothing.description} />
+                        <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description} />
                     </Box>
                 )}
                 {bodyContent}
@@ -1131,8 +1131,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter 
                         </Box>
                     )}
                     {!gallery && addLabel !== undefined && (
-                        <Box as="button" css={styles.addAction} marginLeft="auto" onClick={handleAdd}>
-                            + {addLabel}
+                        <Box as="button" css={styles.addAction} onClick={handleAdd} data-library-footer-add="">
+                            <FontAwesomeIcon icon={faPlus} />
+                            {addLabel}
                         </Box>
                     )}
                 </Box>

@@ -36,9 +36,9 @@ export interface SnapGridMessages extends EditingMessages {
     canvasLabel: () => string;
     /** The end zone at rest. */
     endZoneRest: () => string;
-    /** The end zone while a tile or a card that can land is dragged. */
+    /** The end zone while a tile or a card that can land is dragged — words only: the canvas draws Font Awesome's caret beside them (#1263). */
     endZoneDragging: () => string;
-    /** The end zone while a drop there would make a new row. */
+    /** The end zone while a drop there would make a new row — words only, the caret beside them. */
     endZoneTarget: () => string;
     /** The selected tile's remove button. */
     remove: () => string;
@@ -93,8 +93,8 @@ export const snapGridMessages: SnapGridMessages = {
     ...editingMessages,
     canvasLabel: () => "Page layout",
     endZoneRest: () => "Drag from the library · new 12-col row",
-    endZoneDragging: () => "▾ Drop between rows, beside a tile, or here",
-    endZoneTarget: () => "▾ Drop component here · snaps to a new 12-col row",
+    endZoneDragging: () => "Drop between rows, beside a tile, or here",
+    endZoneTarget: () => "Drop component here · snaps to a new 12-col row",
     remove: () => "Remove from page",
     spanHandle: () => "Drag to change span",
     heightHandle: () => "Drag to change height",

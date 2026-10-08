@@ -6,7 +6,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faFilter } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faFilter, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { IntegerType, type ValueTypeOf, none, parseFor, printFor, some } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -36,18 +36,19 @@ const readLimit = parseFor(IntegerType);
 
 /**
  * Renders an East UI `Slice.Breakdown` — dimension chips (active one
- * brand-tinted with `×`) over a resulting-series preview, with a roll-up
- * footer whose `<select>` sets the top-N cut. Selecting a dimension writes
- * `state.breakdown`; the `×` clears it. Dimensions + groups come from the bound
- * slice; swatch colours are assigned by position.
+ * brand-tinted with a remove, Font Awesome's xmark — never a text glyph,
+ * #1263) over a resulting-series preview, with a roll-up footer whose
+ * `<select>` sets the top-N cut. Selecting a dimension writes
+ * `state.breakdown`; the xmark clears it. Dimensions + groups come from the
+ * bound slice; swatch colours are assigned by position.
  *
  * **Compact**, the active dimension's chip is a button, as a clause chip is
  * (#1231, #1253): it opens its editor, which switches the dimension and whose
- * foot clears it (Clear breakdown). Its × is the pointer's — with a mouse it
+ * foot clears it (Clear breakdown). Its xmark is the pointer's — with a mouse it
  * clears the breakdown, the keyboard clears it with Delete on the chip, the
  * focus handed to `+ dimension` — and on a coarse pointer it is not drawn: the
  * chip is one target, 44px by its halo. **Focused**, on a coarse pointer each
- * dimension's chip is one 44px target with no ×, a tap on the active one
+ * dimension's chip is one 44px target with no xmark, a tap on the active one
  * clearing it.
  */
 export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({ value }: EastChakraSliceBreakdownProps) {
@@ -99,7 +100,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     useEffect(() => { if (active === undefined) setEditOpen(false); }, [active]);
     const setBreakdown = (fieldId: string) => slice.setBreakdown(some({ fieldId, limit: none }));
     const clearBreakdown = () => slice.setBreakdown(none);
-    // On a touch screen the active dimension's chip draws no × (#1253).
+    // On a touch screen the active dimension's chip draws no xmark (#1253).
     const coarse = useCoarsePointer();
 
     // Delete on the active dimension's chip clears the breakdown and hands the
@@ -142,7 +143,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                 {!coarse && (
                                     <Box as="span" data-chip-remove="" aria-hidden="true" title="Clear breakdown"
                                         onClick={(e: MouseEvent) => { e.stopPropagation(); clearBreakdown(); }}>
-                                        ×
+                                        <FontAwesomeIcon icon={faXmark} />
                                     </Box>
                                 )}
                             </chakra.button>
@@ -222,7 +223,9 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     {d.label}
                                 </chakra.button>
                                 {on && (
-                                    <chakra.button type="button" cursor="pointer" color="link" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
+                                    <chakra.button type="button" data-chip-remove="" onClick={clearBreakdown} aria-label="Clear breakdown">
+                                        <FontAwesomeIcon icon={faXmark} />
+                                    </chakra.button>
                                 )}
                             </Box>
                         );

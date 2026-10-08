@@ -5,7 +5,8 @@
  * @vitest-environment jsdom
  *
  * Plan narrow-layout DOM tests (§10 / #570) — below the compact width the
- * canvas is a review tool: tabs, cards, the shared ruler and the chips.
+ * canvas is a review tool: tabs, cards, the shared ruler and the chips; a
+ * section header's go mark is Font Awesome's chevron (#1263).
  *
  * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
  */
@@ -16,7 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
+import { markOf, sliceConfig } from "@elaraai/east-ui-components/testing";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
@@ -314,6 +315,9 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect([...container.querySelectorAll("[data-plan-section]")].map((x) => testKeyOf(x.getAttribute("data-plan-section")!)))
             .toEqual(["hall1", "other"]);
         expect(container.querySelector(rowSel("hall1", "data-plan-section"))!.textContent).toContain("2 rows");
+        // Each header ends with its go mark: Font Awesome's chevron, never a written › (#1263).
+        expect([...container.querySelectorAll("[data-plan-section]")].map((x) => markOf(x.lastElementChild!.lastElementChild)))
+            .toEqual(["fas chevron-right", "fas chevron-right"]);
         expect([...container.querySelectorAll("[data-plan-card]")].map((c) => testKeyOf(c.getAttribute("data-plan-card")!)))
             .toEqual(["m1", "m2", "van"]);
         // A section header scopes to its group…

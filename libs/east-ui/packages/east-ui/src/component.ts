@@ -575,11 +575,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     /**
-     * EmptyState — placeholder UI for zero-state sections.
+     * EmptyState — placeholder UI for zero-state sections. Its one mark is
+     * `icon`, a Font Awesome solid icon; its text `glyph` is removed (#1263).
      */
     EmptyState: StructType({
         icon: OptionType(IconType),
-        glyph: OptionType(StringType),
         title: node,
         description: OptionType(node),
         actions: OptionType(node),

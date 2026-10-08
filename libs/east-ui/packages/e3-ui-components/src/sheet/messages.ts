@@ -209,7 +209,7 @@ export interface SheetMessages extends EditingMessages {
     takeTitle: (p: { meta: string | undefined }) => string;
     /** A suggested row's name. */
     proposalName: (p: { number: string }) => string;
-    /** Its gutter title. */
+    /** Its gutter title — a native tooltip, so it names its buttons by their words, never by their icons (#1263). */
     proposalTitle: () => string;
     /** Its checkbox. */
     proposalSelect: () => string;
@@ -656,7 +656,7 @@ export const sheetMessages: SheetMessages = {
     take: ({ header }) => `Take ${header}`,
     takeTitle: ({ meta }) => `Take — ${meta ?? "suggested"}`,
     proposalName: ({ number }) => `Suggested row ${number}`,
-    proposalTitle: () => "Suggested row — ✓ adds it, × rejects it",
+    proposalTitle: () => "Suggested row — Add adds it, Reject rejects it",
     proposalSelect: () => "Select this suggested row",
     proposalAccept: () => "Add this suggested row",
     proposalAcceptTitle: () => "Add this row to the plan — ⏎",

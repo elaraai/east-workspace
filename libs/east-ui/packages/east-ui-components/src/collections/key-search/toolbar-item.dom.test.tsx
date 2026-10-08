@@ -8,7 +8,8 @@
  * popover with the focus in its input; while a query is typed the item keeps
  * its form, and a search keyed afresh lets it go. jsdom lays nothing out, so
  * widths are stubbed from the form each item shows: the box 200px, the icon
- * 44; a peer item 300, or 100 once folded; the gap 10px.
+ * 44; a peer item 300, or 100 once folded; the gap 10px. The icon is Font
+ * Awesome's magnifying glass and its caret (#1263).
  */
 
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
@@ -18,6 +19,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { toEastTypeValue, StringType } from "@elaraai/east";
 import type { ReactNode } from "react";
 import { system } from "../../theme/index.js";
+import { faIcons } from "../../testing/icons.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { focusKeySearch, useKeySearchToolbarItem, type KeySearchSource, type KeySearchToolbarOptions } from "./toolbar-item.js";
 
@@ -133,6 +135,8 @@ test("the box, then its icon: the search folds at its rank, after the row's othe
     expect(view.form()).toBe("1");
     const icon = view.container.querySelector('[data-key-search="icon"]')!;
     expect(icon.getAttribute("aria-label")).toBe("Find a job");
+    // Its face is Font Awesome's magnifying glass and its caret, never a written ▾ (#1263).
+    expect([icon.textContent, faIcons(icon, "magnifying-glass").length, faIcons(icon, "caret-down").length]).toEqual(["", 1, 1]);
     expect(view.container.querySelector('[data-toolbar-item="seek"] [data-part="dataset-key-search"]')).toBeNull();
     // Wide again, the box is back.
     view.resize(510);

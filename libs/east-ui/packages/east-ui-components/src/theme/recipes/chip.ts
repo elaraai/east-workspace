@@ -24,7 +24,14 @@
  * A chip's own parts are styled here, by attribute, never inline: a leading
  * icon (`data-chip-icon`), the disclosure caret (`data-chip-caret`), a
  * muted meta word such as a day count (`data-chip-meta`), and a clause's
- * remove (`data-chip-remove`) — the pointer's ×, in the link's ink (#1231).
+ * remove (`data-chip-remove`) — the pointer's, in the link's ink (#1231). The
+ * icon, the caret and the remove are Font Awesome's — the caret its caret-down,
+ * the remove its xmark — never a text glyph (#1263). The caret and the remove
+ * take their own width (`--fa-width: auto`), never Font Awesome 7's fixed
+ * 1.25em, so each is as wide as the glyph it replaced and the chip keeps its
+ * width: the caret, 5px at its 8px; the remove, at 0.8em, the mono `×`'s 0.6em
+ * (the xmark is three quarters as wide as it is tall). The leading icon was
+ * Font Awesome's already, and keeps its width.
  */
 
 import { defineRecipe } from "@chakra-ui/react";
@@ -52,9 +59,9 @@ export const chipRecipe = defineRecipe({
         lineHeight: "1",
         fontVariantNumeric: "tabular-nums",
         "& [data-chip-icon]": { fontSize: "10px" },
-        "& [data-chip-caret]": { fontSize: "8px" },
+        "& [data-chip-caret]": { fontSize: "8px", "--fa-width": "auto" },
         "& [data-chip-meta]": { color: "fg.muted" },
-        "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0" },
+        "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0", fontSize: "0.8em", "--fa-width": "auto" },
     },
     variants: {
         tone: {

@@ -9,7 +9,6 @@ import {
     East,
     OptionType,
     StructType,
-    StringType,
     variant,
     some,
     none,
@@ -38,7 +37,7 @@ export {
  * Standalone mirror of the inline `EmptyState` variant in `component.ts`.
  * Used by renderers for `equalFor` memoization.
  *
- * @property icon - Optional leading Font Awesome icon
+ * @property icon - Optional leading Font Awesome solid icon — the empty state's one mark
  * @property title - Rich node for the empty-state title
  * @property description - Optional rich node for the description
  * @property actions - Optional rich actions slot (e.g. a Button or HStack of Buttons)
@@ -46,14 +45,12 @@ export {
  */
 export const EmptyStateType: StructType<{
     icon: OptionType<IconType>,
-    glyph: OptionType<StringType>,
     title: UIComponentType,
     description: OptionType<UIComponentType>,
     actions: OptionType<UIComponentType>,
     style: OptionType<EmptyStateStyleType>,
 }> = StructType({
     icon: OptionType(IconType),
-    glyph: OptionType(StringType),
     title: UIComponentType,
     description: OptionType(UIComponentType),
     actions: OptionType(UIComponentType),
@@ -75,8 +72,7 @@ type EmptyStateInput =
  * TypeScript options bag for `EmptyState.Root`.
  *
  * @property title - Title (string coerced to `Text.Root` or a UIComponent)
- * @property icon - Optional leading Font Awesome icon
- * @property glyph - Spec-preferred mono glyph string (takes precedence over `icon`)
+ * @property icon - Optional leading Font Awesome solid icon — the empty state's one mark
  * @property description - Optional description (rich or string)
  * @property actions - Optional trailing action(s) (rich; typically a Button or HStack)
  * @property size - Size preset (sm / md / lg)
@@ -88,10 +84,8 @@ type EmptyStateInput =
 export interface EmptyStateOptions extends EmptyStateStyle {
     /** Title (string coerced to `Text.Root` or a UIComponent) — required. */
     title: EmptyStateInput;
-    /** Optional leading Font Awesome icon (off-spec escape hatch) */
+    /** Optional leading Font Awesome solid icon, `{ prefix: "fas", name: "inbox" }` — the empty state's one mark, above the title. */
     icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
-    /** Spec-preferred mono glyph string (e.g. `"·   ·   ·"` / `"+ + +"`) — renders at 36px mono with letter-spacing 0.1em, colour `border.strong`. When set, takes precedence over `icon`. */
-    glyph?: SubtypeExprOrValue<StringType>;
     /** Optional description (rich or string) */
     description?: EmptyStateInput;
     /** Optional trailing action(s) (rich; typically a Button or HStack) */
@@ -102,9 +96,11 @@ export interface EmptyStateOptions extends EmptyStateStyle {
  * Creates an EmptyState — a placeholder for a section that would otherwise
  * render zero rows / zero results / no scenarios.
  *
- * @param options - Required `title`, optional `icon` / `glyph` /
- *   `description` / `actions` / visual style fields
+ * @param options - Required `title`, optional `icon` / `description` /
+ *   `actions` / visual style fields
  * @returns An East expression representing the EmptyState component
+ * @throws When `glyph` is given — removed in #1263: an empty state's mark is
+ *   a Font Awesome solid icon, its `icon`
  *
  * @example
  * ```ts
@@ -124,7 +120,14 @@ export interface EmptyStateOptions extends EmptyStateStyle {
 function createEmptyStateRoot(
     options: EmptyStateOptions,
 ): ExprType<UIComponentType> {
-    const { title, icon, glyph, description, actions, ...visual } = options;
+    // The removed glyph, named (#1263) — a plain JS caller would otherwise lose
+    // it silently: every icon is a Font Awesome solid icon, never a text glyph.
+    if ("glyph" in (options as object)) {
+        throw new Error(
+            "EmptyState: `glyph` is removed (#1263) — an empty state's mark is a Font Awesome solid icon: " +
+            "give `icon` instead, as `{ prefix: \"fas\", name: \"<icon>\" }`");
+    }
+    const { title, icon, description, actions, ...visual } = options;
 
     const titleExpr: ExprType<UIComponentType> = typeof title === "string"
         ? Text.Root(title)
@@ -156,7 +159,6 @@ function createEmptyStateRoot(
 
     return East.value(variant("EmptyState", {
         icon: iconValue ? some(iconValue) : none,
-        glyph: glyph !== undefined ? some(glyph) : none,
         title: titleExpr,
         description: descriptionValue ? some(descriptionValue) : none,
         actions: actionsValue ? some(actionsValue) : none,
@@ -195,8 +197,8 @@ export const EmptyState = {
     /**
      * Creates an EmptyState.
      *
-     * @param options - Required `title`, optional `icon` / `glyph` /
-     *   `description` / `actions` / visual style fields
+     * @param options - Required `title`, optional `icon` (a Font Awesome solid
+     *   icon) / `description` / `actions` / visual style fields
      *
      * @example
      * ```ts

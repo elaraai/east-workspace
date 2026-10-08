@@ -98,3 +98,10 @@ Each wire changed under this rule, with the kind it is.
   every case after `Sheet` moves down one, so a UI value encoded under either
   type does not decode under the other: packages are re-exported, and the
   dataflow computes each UI task's output again under the new type.
+- **east-ui's `UIComponentType`'s `EmptyState` arm loses its `glyph` (#1263)**
+  — package-borne. An empty state's one mark is its `icon`, a Font Awesome
+  solid icon, and `EmptyState`'s text `glyph` is refused at build. The arm's
+  fields after `glyph` move up one, so a UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it.

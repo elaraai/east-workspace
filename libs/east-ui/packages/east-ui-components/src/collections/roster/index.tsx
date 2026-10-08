@@ -6,7 +6,7 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faGripVertical, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -15,6 +15,7 @@ import { VirtualRows } from "../virtual-rows.js";
 import { useDragMessages, useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
 import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
+import { useAssignmentMessages, type AssignmentMessages } from "../shared/assignment-messages.js";
 import { useValueSync } from "../../hooks/useValueSync";
 import { useDataStable } from "../../hooks/useDataStable";
 
@@ -56,19 +57,20 @@ function cellRef(surface: string, person: string, day: string, event?: string): 
     return { surface, row: person, slot: day, event: event !== undefined ? some(event) : none };
 }
 
-/** The chip text per the spec's visual grammar for each state. State is
- *  carried by STYLING (spec `.shift-chip`: removed = strikethrough, ghost =
- *  italic-dashed, added = brand tint), so the label stays the bare shift
- *  value — only `added` keeps a leading `+`. This keeps chips compact enough
- *  to sit inside a day column without truncating. */
-function chipText(shift: RosterShiftValue): string {
+/** A chip's accessible name when its face marks an operator's proposal to
+ *  add. State is carried by STYLING (spec `.shift-chip`: removed =
+ *  strikethrough, ghost = italic-dashed, added = brand tint), so the label
+ *  stays the bare shift value — only `added` leads with a plus, Font
+ *  Awesome's (#1263), drawn and never written, so the name says it. This keeps
+ *  chips compact enough to sit inside a day column without truncating. */
+function chipName(shift: RosterShiftValue, words: AssignmentMessages): string | undefined {
     return match(shift.state, {
-        committed: () => shift.label,
-        rejected: () => shift.label,
+        committed: () => undefined,
+        rejected: () => undefined,
         proposed: (flavour) => match(flavour, {
-            added: () => `+${shift.label}`,
-            removed: () => shift.label,
-            model: () => shift.label,
+            added: () => words.added({ label: shift.label }),
+            removed: () => undefined,
+            model: () => undefined,
         }),
     });
 }
@@ -104,6 +106,9 @@ interface RosterChipProps {
 function RosterChip({ surface, person, day, shift, edit, styles, onSelect, onAccept, onRemove }: RosterChipProps) {
     const state = stateAttr(shift);
     const ghost = state === "model";
+    // A proposal to add draws the plus before its label, and says so in its name.
+    const words = useAssignmentMessages();
+    const name = chipName(shift, words);
     // Only proposed shifts are draggable, and only in edit mode.
     const draggable = edit && (state === "added" || state === "removed" || state === "model");
 
@@ -131,6 +136,7 @@ function RosterChip({ surface, person, day, shift, edit, styles, onSelect, onAcc
             css={styles.chip}
             data-state={state}
             {...drag}
+            {...(name !== undefined ? { "aria-label": name } : {})}
             onClick={handleClick}
             {...(draggable && drag ? { "data-draggable": "" } : {})}
         >
@@ -139,7 +145,12 @@ function RosterChip({ surface, person, day, shift, edit, styles, onSelect, onAcc
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}
-            <Box as="span" css={styles.chipLabel}>{chipText(shift)}</Box>
+            {name !== undefined && (
+                <Box as="span" css={styles.chipSign} data-chip-sign="" aria-hidden="true">
+                    <FontAwesomeIcon icon={faPlus} />
+                </Box>
+            )}
+            <Box as="span" css={styles.chipLabel}>{shift.label}</Box>
             {/* Hover actions overlay the chip's right edge (absolute) rather
              *  than reserving flow width — otherwise, in a narrow day column,
              *  the grip + buttons crush the label to a clipped stub. */}
@@ -432,8 +443,11 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
         <Box css={styles.strip}>
             {summary !== undefined && <Box as="span" css={styles.stripSummary}>{summary}</Box>}
             {edit && (
-                <Box as="span" css={styles.stripHint}>
-                    drag handles ⠿ · click empty cell to add · ✓ accept ghost · ⌫ remove
+                // The controls named by the icons they draw (#1263), each beside its words.
+                <Box as="span" css={styles.stripHint} data-roster-hint="">
+                    drag handles <FontAwesomeIcon icon={faGripVertical} /> · click empty cell to add
+                    {" · "}<FontAwesomeIcon icon={faCheck} /> accept ghost
+                    {" · "}<FontAwesomeIcon icon={faTrashCan} /> remove
                 </Box>
             )}
         </Box>

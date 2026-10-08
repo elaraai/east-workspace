@@ -11,7 +11,8 @@
  *
  * - **R1**: a run is one one-shot call over the root, the counting program in
  *   the visual view and the jq in the jq view; a new run abandons the old;
- *   opening a saved query runs it, an edit or a new query never does.
+ *   opening a saved query runs it, an edit or a new query never does; before
+ *   any run the empty state's mark is Font Awesome's play (#1263).
  * - **R2, R8**: a fresh visual run counts the shape lines — 40, 16, 16, 16, 16
  *   and 10 for the default query.
  * - **R3**: an edit makes the result stale — the banner, the dashed body, the
@@ -28,6 +29,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { ArrayType, IntegerType, StructType, decodeBeast2, decodeEastIR, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, variant } from "@elaraai/east";
 import { ApiError } from "@elaraai/e3-api-client";
 import type { ExecuteResult } from "@elaraai/e3-types";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import type { QueryCall } from "./hooks.js";
 import {
     FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
@@ -120,6 +122,9 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
         const fixture = fixtureCall({ hold: true });
         await mountBuilder(fixture.call);
         expect([fixture.requests.length, results().querySelector("[data-query-results-idle]") !== null, footer().count]).toEqual([0, true, "No result yet"]);
+        // The idle state's mark is Font Awesome's play — Run is the way to a result — never a written ⏎ (#1263).
+        const idle = results().querySelector<HTMLElement>("[data-query-results-idle]")!;
+        expect(markOf(within(idle).getByRole("heading").parentElement!.previousElementSibling)).toBe("fas play");
         await openQuery(variant("saved", TOP.name));
         expect(fixture.requests).toHaveLength(1);
         expect(results().querySelector("[data-query-results-running]")!.textContent).toBe("Reading customers and orders");

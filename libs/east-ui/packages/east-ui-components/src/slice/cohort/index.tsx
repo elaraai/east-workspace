@@ -6,7 +6,7 @@
 import { memo, useState, type ReactElement } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faPen } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faPen, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, some, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -196,7 +196,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                             onClick={() => setDraft(d => d && { ...d, clauses: d.clauses.filter((_, j) => j !== i) })}
                             aria-label="Remove clause"
                         >
-                            ×
+                            <FontAwesomeIcon icon={faXmark} />
                         </chakra.button>
                     </Box>
                 </Box>

@@ -458,14 +458,23 @@ export const librarySlotRecipe = defineSlotRecipe({
             padding: "0",
             _hover: { color: "brand.fg" },
         },
+        /* The footer's add, at its end: Font Awesome's plus, then the words
+         * (#1263) — the plus the secondary-fact trigger's icon size, its own
+         * width, not Font Awesome's fixed 1.25em. */
         addAction: {
             ...CAPS,
+            "--fa-width": "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            marginLeft: "auto",
             letterSpacing: "0.14em",
             color: "brand.solid",
             cursor: "pointer",
             background: "transparent",
             border: "none",
             padding: "0",
+            "& svg": { fontSize: "9px" },
             _hover: { color: "brand.fg" },
         },
         ghost: {

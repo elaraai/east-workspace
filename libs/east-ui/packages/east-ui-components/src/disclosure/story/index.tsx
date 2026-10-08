@@ -31,6 +31,8 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Box as ChakraBox } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowDown, faArrowUp } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Story, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
@@ -237,7 +239,7 @@ const StoryChromeRow = memo(function StoryChromeRow({ title, count, active, stic
                 _hover={{ borderColor: "fg.muted", color: "fg" }}
                 onClick={onNavigate ? () => onNavigate(active - 1) : undefined}
             >
-                ↑
+                <FontAwesomeIcon icon={faArrowUp} />
             </ChakraBox>
             <ChakraBox
                 as="button"
@@ -257,7 +259,7 @@ const StoryChromeRow = memo(function StoryChromeRow({ title, count, active, stic
                 _hover={{ borderColor: "fg.muted", color: "fg" }}
                 onClick={onNavigate ? () => onNavigate(active + 1) : undefined}
             >
-                ↓
+                <FontAwesomeIcon icon={faArrowDown} />
             </ChakraBox>
         </ChakraBox>
     );

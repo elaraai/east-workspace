@@ -60,6 +60,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Box, Tabs } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { type EastChakraComponent } from "@elaraai/east-ui-components";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
@@ -429,7 +431,7 @@ export function PlanNarrow({
                             {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone}
                                 role="img" aria-label={statusText(h.tone, words)} />}
                             {h.value !== undefined && <Box as="span" css={styles.gutterValue}>{h.value}</Box>}
-                            <Box as="span" css={styles.narrowSectionGo} aria-hidden>{"›"}</Box>
+                            <Box as="span" css={styles.narrowSectionGo} aria-hidden><FontAwesomeIcon icon={faChevronRight} /></Box>
                         </Box>
                     </Box>,
                 );

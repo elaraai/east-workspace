@@ -693,13 +693,14 @@ popover — else the rail's search box.
   head, as the Rows tab's do.
 - **A Columns card**: the column's header, its kind in mono 10px, an eye
   (an eye-slash while hidden); a hidden column's card is dimmed.
-- **An empty tab** is the shared empty state: a ☐, its title (`No
-  templates`, `Nothing in Crews`, `No matches`) and a line under it.
+- **An empty tab** is the shared empty state: an empty box — Font Awesome's
+  open box, never a text glyph (#1263) — its title (`No templates`, `Nothing
+  in Crews`, `No matches`) and a line under it.
 - **What the shared parts change from the Calendar mock**: the card's name is
   13px, not 12.5px, and its line mono 10px, not 10.5px; an author's card's
   label is the card's name, not a member's mono 11px; the search box is the Library's 28px box in
   its toolbar row, not a 32px input on a paper-2 band, and folds narrower in
-  a narrow pane; the empty state's glyph is 36px, not 26px. Nothing a card
+  a narrow pane; the empty state's icon is 36px, not 26px. Nothing a card
   says is lost.
 - **The inspector**: 320px open; sections padded 16px with a rule between —
   the head (what is selected in mono caps, its id, a Pending or New chip, the

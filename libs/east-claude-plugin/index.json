@@ -35610,12 +35610,12 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/feedback/empty-state.examples.tsx",
       "suite": "",
-      "test": "No-results state with mono glyph and clear-filters action",
+      "test": "No-results state with a Font Awesome icon and a clear-filters action",
       "keywords": [
         "EmptyState",
         "Root",
         "no results",
-        "glyph",
+        "icon",
         "filters"
       ],
       "imports": [
@@ -35626,7 +35626,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// No-results state with mono glyph and clear-filters action\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <EmptyState\n                title=\"No results\"\n                glyph=\"·   ·   ·\"\n                description=\"Try clearing filters or broadening your search.\"\n                actions={<Button variant=\"outline\">Clear filters</Button>}\n            />\n        );\n    })"
+      "source": "// No-results state with a Font Awesome icon and a clear-filters action\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <EmptyState\n                title=\"No results\"\n                icon={{ prefix: \"fas\", name: \"magnifying-glass\" }}\n                description=\"Try clearing filters or broadening your search.\"\n                actions={<Button variant=\"outline\">Clear filters</Button>}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:empty-state.examples.tsx:emptyStateNoScenarios",
@@ -35634,13 +35634,13 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/feedback/empty-state.examples.tsx",
       "suite": "",
-      "test": "Primary empty state with a 'new scenario' call to action — mono glyph + brand-d CTA",
+      "test": "Primary empty state with a 'new scenario' call to action — a Font Awesome icon + brand-d CTA",
       "keywords": [
         "EmptyState",
         "scenario",
         "create",
         "primary action",
-        "glyph"
+        "icon"
       ],
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
@@ -35650,7 +35650,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// Primary empty state with a 'new scenario' call to action — mono glyph + brand-d CTA\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <EmptyState\n                title=\"No scenarios yet\"\n                glyph=\"+ + +\"\n                description=\"Create your first scenario to start exploring what-if outcomes.\"\n                actions={\n                    <HStack gap=\"2\">\n                        <Button variant=\"solid\">New scenario</Button>\n                        <Button variant=\"outline\">Import</Button>\n                    </HStack>\n                }\n            />\n        );\n    })"
+      "source": "// Primary empty state with a 'new scenario' call to action — a Font Awesome icon + brand-d CTA\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <EmptyState\n                title=\"No scenarios yet\"\n                icon={{ prefix: \"fas\", name: \"folder-plus\" }}\n                description=\"Create your first scenario to start exploring what-if outcomes.\"\n                actions={\n                    <HStack gap=\"2\">\n                        <Button variant=\"solid\">New scenario</Button>\n                        <Button variant=\"outline\">Import</Button>\n                    </HStack>\n                }\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:empty-state.examples.tsx:emptyStateError",
@@ -35658,11 +35658,11 @@
       "package": "east-ui",
       "file": "east-ui/packages/east-ui/test/feedback/empty-state.examples.tsx",
       "suite": "",
-      "test": "Error empty state — mono glyph stays rule-strong; status colour comes from surround, not glyph",
+      "test": "Error empty state — its icon stays rule-strong; the status colour comes from the surround, not the icon",
       "keywords": [
         "EmptyState",
         "error",
-        "glyph"
+        "icon"
       ],
       "imports": [
         "import { East, example } from \"@elaraai/east\";",
@@ -35672,7 +35672,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// Error empty state — mono glyph stays rule-strong; status colour comes from surround, not glyph\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <EmptyState\n                title=\"Something went wrong\"\n                glyph=\"!\"\n                description=\"We couldn't load this section. Try refreshing.\"\n                actions={<Button>Retry</Button>}\n            />\n        );\n    })"
+      "source": "// Error empty state — its icon stays rule-strong; the status colour comes from the surround, not the icon\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <EmptyState\n                title=\"Something went wrong\"\n                icon={{ prefix: \"fas\", name: \"triangle-exclamation\" }}\n                description=\"We couldn't load this section. Try refreshing.\"\n                actions={<Button>Retry</Button>}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:progress.examples.tsx:progressBasic",

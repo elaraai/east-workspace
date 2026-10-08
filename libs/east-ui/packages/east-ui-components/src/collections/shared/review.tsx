@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faListCheck } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faListCheck } from "@fortawesome/free-solid-svg-icons";
 import { type OptionType, type ValueTypeOf } from "@elaraai/east";
 import { type RowReviewType, type ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -356,7 +356,7 @@ function ReviewMenu({ controller, labels }: { controller: ReviewFootModel; label
                 <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]}
                     data-slot="reviewMenu" aria-label={labels.menu}>
                     <FontAwesomeIcon icon={faListCheck} data-chip-icon="" />
-                    <Box as="span" data-chip-caret="">{"▾"}</Box>
+                    <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>
