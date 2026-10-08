@@ -227,33 +227,72 @@ const linkFigures = (root: Element, want: { weights: readonly number[]; slots: n
 };
 
 /**
- * Each bar whose text is partly drawn (#1258). Its label holds the bar: it is
- * whole, or ellipsized when it alone does not fit. Its quantity is drawn
- * whole beside a whole label, or not at all — never cut, and never squeezing
- * the label. What a bar draws is what lies inside its border: it clips there.
+ * Each bar, chip or rollup band whose text is partly drawn (#1258, #1264). A
+ * label shows whole, ellipsized after at least one whole letter — what shows of
+ * it at least as wide as its first letter and the ellipsis in its own font — or
+ * not at all: never a partial glyph. A bar's quantity is drawn whole beside a
+ * whole label, or not at all — never cut, and never squeezing the label. A
+ * chip's icon is drawn whole or not at all. What an element draws is what lies
+ * inside its border: it clips there. Measured in a bar under a row or a narrow
+ * card, a chip, and a rollup band; a label is the element's `data-plan-label`,
+ * or its first span where it has none.
  */
-const cutBarText = (root: Element): string[] => {
+const cutText = (root: Element): string[] => {
     const out: string[] = [];
-    for (const bar of root.querySelectorAll<HTMLElement>("[data-plan-row] [data-run]:not([data-ctx])")) {
-        const box = bar.getBoundingClientRect();
-        const bs = getComputedStyle(bar);
-        const bw = (side: string) => Number.parseFloat(bs.getPropertyValue(`border-${side}-width`));
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    /** Whether an element is drawn at all: displayed, visible and of some width. */
+    const drawnAt = (el: Element) => {
+        const cs = getComputedStyle(el);
+        return cs.display !== "none" && cs.visibility !== "hidden" && el.getBoundingClientRect().width > 0.5;
+    };
+    const holder = "[data-plan-row], [data-plan-card]";
+    const elements = root.querySelectorAll<HTMLElement>(
+        `:is(${holder}) [data-run]:not([data-ctx]), :is(${holder}) [data-chip]:not([data-ctx]), :is(${holder}) [data-plan-band]:not([data-ctx])`);
+    for (const el of elements) {
+        const box = el.getBoundingClientRect();
+        const es = getComputedStyle(el);
+        const bw = (side: string) => Number.parseFloat(es.getPropertyValue(`border-${side}-width`));
         const b = { left: box.left + bw("left"), right: box.right - bw("right"), top: box.top + bw("top"), bottom: box.bottom - bw("bottom") };
-        const name = `${bar.closest("[data-plan-row]")!.getAttribute("data-plan-row")} ${bar.getAttribute("data-run")}`;
-        const [label, qty] = [...bar.children].filter((c): c is HTMLElement => c.tagName === "SPAN");
+        const row = el.closest(holder)!;
+        const noun = el.hasAttribute("data-run") ? "bar" : el.hasAttribute("data-chip") ? "chip" : "band";
+        const what = noun === "band" ? "rollup band" : `${noun} ${el.getAttribute(`data-${noun === "bar" ? "run" : "chip"}`)}`;
+        const name = `${row.getAttribute("data-plan-row") ?? row.getAttribute("data-plan-card")} ${what}`;
+        const spans = [...el.children].filter((c): c is HTMLElement => c.tagName === "SPAN" && !c.hasAttribute("data-plan-icon"));
+        const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]") ?? spans[0];
+        const inside = (r: DOMRect) => r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
+        // A chip's icon: whole inside the chip, or not drawn.
+        for (const icon of el.querySelectorAll("svg")) {
+            if (drawnAt(icon) && !inside(icon.getBoundingClientRect())) out.push(`${name}: its icon is cut`);
+        }
         if (label === undefined) continue;
-        const inBar = (r: DOMRect) => r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
-        const cs = getComputedStyle(label);
-        const whole = label.scrollWidth <= label.clientWidth;
-        const ellipsized = cs.textOverflow === "ellipsis" && cs.overflowX === "hidden" && cs.whiteSpace === "nowrap";
-        if (!inBar(label.getBoundingClientRect())) out.push(`${name}: its label is not drawn in the bar`);
-        const q = qty?.getBoundingClientRect();
-        const drawn = q !== undefined
-            && Math.min(q.right, b.right) - Math.max(q.left, b.left) > 0.5
-            && Math.min(q.bottom, b.bottom) - Math.max(q.top, b.top) > 0.5;
-        if (drawn && !(inBar(q) && qty!.scrollWidth <= qty!.clientWidth)) out.push(`${name}: its quantity "${qty!.textContent}" is cut`);
-        if (drawn && !whole) out.push(`${name}: its quantity squeezes its label "${label.textContent}" to ${label.clientWidth}px of ${label.scrollWidth}px`);
-        if (!drawn && !whole && !ellipsized) out.push(`${name}: its label "${label.textContent}" is cut`);
+        const qty = el.hasAttribute("data-run") ? spans.find((s) => s !== label) : undefined;
+        const ls = getComputedStyle(label);
+        const lr = label.getBoundingClientRect();
+        // What shows of the label: its box, inside the element's clip.
+        const shows = Math.min(lr.right, b.right) - Math.max(lr.left, b.left);
+        const text = (label.textContent ?? "").trim();
+        if (drawnAt(label) && shows > 0.5 && text !== "") {
+            // The element clips at its border, where no ellipsis is drawn: the label's box keeps inside it.
+            const whole = label.scrollWidth <= label.clientWidth;
+            const ellipsized = ls.textOverflow === "ellipsis" && ls.overflowX === "hidden" && ls.whiteSpace === "nowrap";
+            // The label's font from its parts: its `font` shorthand reads empty
+            // under tabular numerals, which the shorthand cannot say, and a
+            // canvas given nothing keeps its own 10px sans-serif.
+            ctx.font = `${ls.fontStyle} ${ls.fontWeight} ${ls.fontSize} ${ls.fontFamily}`;
+            if (!ctx.font.includes(ls.fontSize)) { out.push(`${name}: its label's font (${ctx.font}) cannot be measured`); continue; }
+            const spacing = Number.parseFloat(ls.letterSpacing) || 0;
+            const oneLetter = ctx.measureText(`${[...text][0]}…`).width + 2 * spacing;
+            if (!inside(lr)) out.push(`${name}: its label "${text}" runs past the ${noun}'s edge`);
+            else if (!whole && !ellipsized) out.push(`${name}: its label "${text}" is cut`);
+            else if (!whole && shows < oneLetter - 0.5) out.push(`${name}: its label "${text}" shows ${shows.toFixed(1)}px, under one letter and the ellipsis (${oneLetter.toFixed(1)}px)`);
+            if (qty !== undefined) {
+                const q = qty.getBoundingClientRect();
+                const drawn = Math.min(q.right, b.right) - Math.max(q.left, b.left) > 0.5
+                    && Math.min(q.bottom, b.bottom) - Math.max(q.top, b.top) > 0.5;
+                if (drawn && !(inside(q) && qty.scrollWidth <= qty.clientWidth)) out.push(`${name}: its quantity "${qty.textContent}" is cut`);
+                if (drawn && !whole) out.push(`${name}: its quantity squeezes its label "${text}" to ${label.clientWidth}px of ${label.scrollWidth}px`);
+            }
+        }
     }
     return out;
 };
@@ -631,26 +670,94 @@ test.describe("Plan links focus (#818, #1258)", () => {
 });
 
 /**
- * A bar's text and a row's controls (#1258). A bar's label holds the bar, its
- * quantity beside it only when both fit whole. A row's controls are 24px sm
- * ghost buttons at the end of its gutter line, after its value, no ring — and
- * always shown (the user's ruling over `Plan links.html`'s hover reveal), a
- * pressed one in the brand tint; never under 480; the canvas's tooltip names
- * each.
+ * An element's text (#1258, #1264): no bar, chip or rollup band in a Plan
+ * example draws a partial glyph — its label whole, ellipsized after a whole
+ * letter, or hidden; a bar's quantity whole beside a whole label or not drawn;
+ * a chip's icon whole or not drawn — at the desktop's width and a laptop's, in
+ * both themes. A label too narrow to show is one hover away, in the canvas's
+ * tooltip.
  */
-test.describe("Plan bars and row controls (#1258)", () => {
+test.describe("Plan element text (#1258, #1264)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
 
-    for (const name of ["planSpanRows", "planTargetState"]) {
+    /** Every Plan example that draws bars, chips or rollup bands, and the narrow layout's tab its rows' cards are
+     *  under where it lands on another: planNarrow lands on its groups' heat strips, which draw no text. */
+    const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
+        ...["planTargetState", "planVariants", "planSpanRows", "planCardRows", "planGroupedRows", "planSeriesData",
+            "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planEditing", "planUiState",
+            "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
+        ].map((name) => ({ name, file: PLAN_EXAMPLES })),
+        { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
+        ...["planEvents", "planPrintWorks", "planLibrary", "planEventRefs", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
+    ];
+
+    for (const { name, file, tab } of TEXT_EXAMPLES) {
         for (const width of [1280, 1024]) {
-            test(`${name} at ${width}px: no bar's text is partly drawn — its label whole or ellipsized, its quantity whole beside a whole label or not drawn`, async ({ page }) => {
-                await page.setViewportSize({ width, height: 800 });
-                const entry = await openExample(page, name);
-                await expect.poll(() => entry.locator("[data-plan-row] [data-run]").count()).toBeGreaterThan(0);
-                await expect.poll(() => entry.evaluate(cutBarText)).toEqual([]);
-            });
+            for (const theme of ["light", "dark"] as const) {
+                test(`${name} at ${width}px (${theme}): no bar, chip or rollup band draws a partial glyph — its label whole, ellipsized after a whole letter, or hidden; a bar's quantity whole beside a whole label or not drawn; a chip's icon whole or not drawn`, async ({ page }) => {
+                    await page.setViewportSize({ width, height: 800 });
+                    const entry = await openExample(page, name, file, theme);
+                    if (tab !== undefined) await entry.locator(`[data-plan-narrow] [data-plan-tab=${JSON.stringify(tab)}]`).click();
+                    await expect.poll(() => entry.locator("[data-run], [data-chip], [data-plan-band]").count()).toBeGreaterThan(0);
+                    await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+                });
+            }
         }
     }
+
+    /** Each element set either side of a width its text turns at (#1264) — the examples draw few such widths. In
+     *  the mono faces a letter and the ellipsis take 2ch: 11.4px at a band's 9.5px, which has no padding, and 12px
+     *  at a chip's 10px, inside its 9px padding either side; a chip's icon takes 1.25em, 12.5px, and its gap 4px.
+     *  So a plain chip's label turns at 30px, a chip's icon at 30.5px, and the label beside it at 46.5px. */
+    const TURNS: readonly { name: string; file: string; sel: string; width: number; label: boolean; icon: boolean | null }[] = [
+        { name: "planSpanRows", file: PLAN_EXAMPLES, sel: "[data-plan-band]", width: 10, label: false, icon: null },
+        { name: "planSpanRows", file: PLAN_EXAMPLES, sel: "[data-plan-band]", width: 16, label: true, icon: null },
+        { name: "planVariants", file: PLAN_EXAMPLES, sel: "[data-chip]:not([data-icon])", width: 28, label: false, icon: null },
+        { name: "planVariants", file: PLAN_EXAMPLES, sel: "[data-chip]:not([data-icon])", width: 32, label: true, icon: null },
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-chip][data-icon]", width: 28, label: false, icon: false },
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-chip][data-icon]", width: 40, label: false, icon: true },
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-chip][data-icon]", width: 50, label: true, icon: true },
+    ];
+
+    for (const turn of TURNS) {
+        const parts = `${turn.label ? "its label" : "no label"}${turn.icon === null ? "" : turn.icon ? " and its icon" : " and no icon"}`;
+        test(`${turn.name}: ${turn.sel} at ${turn.width}px draws ${parts}, and no partial glyph`, async ({ page }) => {
+            const entry = await openExample(page, turn.name, turn.file);
+            const sel = `:is([data-plan-row], [data-plan-card]) ${turn.sel}:not([data-ctx])`;
+            await page.addStyleTag({ content: `${sel} { width: ${turn.width}px !important; min-width: 0 !important; }` });
+            const drawn = () => entry.evaluate((root, sel) => [...root.querySelectorAll(sel)].map((el) => {
+                const shown = (part: Element | null) => (part === null ? null : getComputedStyle(part).display !== "none");
+                return { label: shown(el.querySelector(":scope > [data-plan-label]")), icon: shown(el.querySelector(":scope > [data-plan-icon]")) };
+            }), sel);
+            await expect.poll(async () => (await drawn()).length, `no ${turn.sel} drawn`).toBeGreaterThan(0);
+            await expect.poll(async () => (await drawn()).filter((d) => d.label !== turn.label || d.icon !== turn.icon)).toEqual([]);
+            await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+        });
+    }
+
+    test("planEventLinks: its narrowest bars draw no text, and a hover shows each one's label in the canvas's tooltip", async ({ page }) => {
+        const entry = await openExample(page, "planEventLinks", PLAN_EVENT_EXAMPLES);
+        for (const [job, label] of [["J-2015", "Night run"], ["J-2020", "Card stock"], ["J-2016", "Store flyers"]] as const) {
+            const bar = entry.locator(`[data-plan-row] [data-run*=${JSON.stringify(job)}]`);
+            await expect(bar).toHaveCount(1);
+            // Too narrow for a letter and the ellipsis: its label is not drawn.
+            expect(await bar.locator("[data-plan-label]").evaluate((el) => getComputedStyle(el).display), job).toBe("none");
+            await bar.hover();
+            await expect(page.locator('[data-plan-overlay="tooltip"]'), job).toHaveText(label);
+            await page.mouse.move(0, 0);
+            await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveCount(0);
+        }
+    });
+});
+
+/**
+ * A row's controls (#1258): 24px sm ghost buttons at the end of its gutter
+ * line, after its value, no ring — and always shown (the user's ruling over
+ * `Plan links.html`'s hover reveal), a pressed one in the brand tint; never
+ * under 480; the canvas's tooltip names each.
+ */
+test.describe("Plan row controls (#1258)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
 
     test("planSpanRows: a row's controls show at rest, at the end of its gutter line after its value; the canvas's tooltip names each; pressed, one wears the press and every row's controls stay shown", async ({ page }) => {
         const entry = await openExample(page, "planSpanRows");

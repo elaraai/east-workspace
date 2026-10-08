@@ -127,7 +127,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
-            <Box as="span" css={styles.barLabel}>{run.label}</Box>
+            {/* Its label (`data-plan-label`): hidden below a letter and the ellipsis, its hover saying it (#1264). */}
+            <Box as="span" css={styles.barLabel} data-plan-label="">{run.label}</Box>
             {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
             {moved !== undefined && moved > 0 && (
                 <Box as="span" css={styles.barQty}>{words.m.moved({ n: moved, count: words.number(moved) })}</Box>
@@ -190,8 +191,9 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled,
                 });
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
-                        left={`${left * 100}%`} width={`${width * 100}%`}>
-                        {caption}
+                        data-plan-band="" left={`${left * 100}%`} width={`${width * 100}%`}>
+                        {/* Ellipsized, or hidden below a letter and the ellipsis, its hover saying it (#1264). */}
+                        <Box as="span" css={styles.rollBandLabel} data-plan-label="">{caption}</Box>
                     </Box>
                 );
             })}
