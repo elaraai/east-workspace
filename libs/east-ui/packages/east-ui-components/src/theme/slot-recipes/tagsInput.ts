@@ -12,7 +12,11 @@
  * box a tag is typed into, centred in it — so tags with one row of chips, or
  * none, sit on the line a text of their size does, and grow a row at a time.
  * Chakra's default recipe sizes the chips and the box by its own variables
- * (24px and 28px); these heights replace them.
+ * (24px and 28px); these heights replace them. A chip's delete is Font
+ * Awesome's xmark (#1263) in the square Chakra's icon took — 80% of the
+ * delete's own box, a third less than the chip height Chakra sizes it by:
+ * Font Awesome's own height is 1em, outranking the `_icon` size, so the
+ * delete's font is the icon's size, and `--fa-width` its width.
  *
  * @packageDocumentation
  */
@@ -71,6 +75,8 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             fontWeight: "normal",
             display: "inline-flex",
             alignItems: "center",
+            fontSize: "calc(var(--tags-input-item-height) / 1.5 * 0.8)",
+            "--fa-width": "1em",
             /* Touch (#346). */
             ...coarseHitArea({ position: true }),
         },

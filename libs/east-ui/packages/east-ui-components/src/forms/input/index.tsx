@@ -5,6 +5,8 @@
 
 import { memo, useMemo, useCallback, useState, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
 import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, type SystemStyleObject, Box, useFieldContext, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, parseFor, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -240,8 +242,8 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
                 onFocus={handleFocus}
             />
             <ChakraNumberInput.Control>
-                <ChakraNumberInput.IncrementTrigger />
-                <ChakraNumberInput.DecrementTrigger />
+                <ChakraNumberInput.IncrementTrigger><FontAwesomeIcon icon={faChevronUp} /></ChakraNumberInput.IncrementTrigger>
+                <ChakraNumberInput.DecrementTrigger><FontAwesomeIcon icon={faChevronDown} /></ChakraNumberInput.DecrementTrigger>
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
@@ -326,8 +328,8 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
                 onFocus={handleFocus}
             />
             <ChakraNumberInput.Control>
-                <ChakraNumberInput.IncrementTrigger />
-                <ChakraNumberInput.DecrementTrigger />
+                <ChakraNumberInput.IncrementTrigger><FontAwesomeIcon icon={faChevronUp} /></ChakraNumberInput.IncrementTrigger>
+                <ChakraNumberInput.DecrementTrigger><FontAwesomeIcon icon={faChevronDown} /></ChakraNumberInput.DecrementTrigger>
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );

@@ -5,6 +5,8 @@
 
 import { memo, useMemo, useCallback, useState } from "react";
 import { Checkbox as ChakraCheckbox, type CheckboxCheckedChangeDetails, type CheckboxRootProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Checkbox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -40,7 +42,10 @@ export interface EastChakraCheckboxProps {
 }
 
 /**
- * Renders an East UI Checkbox value using Chakra UI Checkbox component.
+ * Renders an East UI Checkbox value using Chakra UI Checkbox component. Its
+ * control draws Font Awesome's check while checked and its minus while
+ * indeterminate — never Chakra's own checkmark — and nothing while
+ * unchecked (#1263).
  */
 export const EastChakraCheckbox = memo(function EastChakraCheckbox({ value }: EastChakraCheckboxProps) {
     const [props, setProps] = useState(toChakraCheckbox(value));
@@ -62,7 +67,11 @@ export const EastChakraCheckbox = memo(function EastChakraCheckbox({ value }: Ea
             onCheckedChange={handleCheckedChange}
         >
             <ChakraCheckbox.HiddenInput />
-            <ChakraCheckbox.Control />
+            <ChakraCheckbox.Control>
+                <ChakraCheckbox.Context>
+                    {(api) => (api.indeterminate ? <FontAwesomeIcon icon={faMinus} /> : api.checked ? <FontAwesomeIcon icon={faCheck} /> : null)}
+                </ChakraCheckbox.Context>
+            </ChakraCheckbox.Control>
             {label && <ChakraCheckbox.Label>{label}</ChakraCheckbox.Label>}
         </ChakraCheckbox.Root>
     );

@@ -12,6 +12,8 @@ import {
     type AccordionRootProps,
     type AccordionItemProps,
 } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Accordion } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -64,7 +66,9 @@ export interface EastChakraAccordionItemProps {
 
 /**
  * Renders an East UI Accordion Item. The rich `trigger` (UIComponentType)
- * is dispatched through `EastChakraComponent`.
+ * is dispatched through `EastChakraComponent`; its indicator is Font
+ * Awesome's chevron-down, which the recipe turns, never Chakra's own icon
+ * (#1263).
  */
 export const EastChakraAccordionItem = memo(function EastChakraAccordionItem({
     value,
@@ -87,7 +91,7 @@ export const EastChakraAccordionItem = memo(function EastChakraAccordionItem({
                 {...(triggerBackground !== undefined ? { bg: triggerBackground } : {})}
                 {...(triggerHoverBackground !== undefined ? { _hover: { bg: triggerHoverBackground } } : {})}
             >
-                <ChakraAccordion.ItemIndicator />
+                <ChakraAccordion.ItemIndicator><FontAwesomeIcon icon={faChevronDown} /></ChakraAccordion.ItemIndicator>
                 <Box as="span" css={styles.itemTitle}>{value.title}</Box>
                 {meta !== undefined && <Box as="span" css={styles.itemMeta}>{meta}</Box>}
             </ChakraAccordion.ItemTrigger>

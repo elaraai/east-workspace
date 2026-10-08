@@ -6,6 +6,10 @@
 /**
  * FileUpload slot recipe — content-sized dashed dropzone + bordered file rows.
  * Dropzone content layout (stacked vs inline) is driven by the renderer.
+ * A file's delete is Font Awesome's xmark (#1263) in the 16px square
+ * Chakra's icon took: Font Awesome's own height is 1em, outranking the
+ * `_icon` size, so the delete's font is the icon's size, and `--fa-width`
+ * its width.
  *
  * @packageDocumentation
  */
@@ -62,5 +66,6 @@ export const fileUploadSlotRecipe = defineSlotRecipe({
         itemName: { fontSize: "{fontSizes.body}", color: "fg", flex: 1 },
         itemSizeText: { fontFamily: "mono", fontSize: "11px", color: "fg.muted" },
         fileText: { fontSize: "{fontSizes.body}", color: "fg" },
+        itemDeleteTrigger: { fontSize: "16px", "--fa-width": "1em" },
     },
 });

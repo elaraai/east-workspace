@@ -5,12 +5,13 @@
  * @vitest-environment jsdom
  *
  * The icon checks the renderer tests share (#1263) find what they say they
- * find: a lone glyph, not one in words; the Font Awesome icons of a name; and
- * an element's mark, its icons before any text it writes.
+ * find: a lone glyph, not one in words; the Font Awesome icons of a name; an
+ * element's mark, its icons before any text it writes; and every icon that is
+ * not Font Awesome's.
  */
 
 import { describe, test, expect } from "vitest";
-import { ICON_GLYPHS, faIcons, loneGlyphs, markOf } from "./icons.js";
+import { ICON_GLYPHS, faIcons, foreignIcons, loneGlyphs, markOf } from "./icons.js";
 
 /** A detached element over the given markup. */
 function fragment(html: string): HTMLElement {
@@ -46,5 +47,13 @@ describe("the icon checks (#1263)", () => {
         expect(markOf(fragment("☐"))).toBe("☐");
         expect(markOf(fragment(""))).toBe("");
         expect(markOf(null)).toBeNull();
+    });
+
+    test("foreignIcons names every svg that is not a solid Font Awesome icon — Chakra's own, one drawn by hand, another prefix — and none that is", () => {
+        const chakra = `<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>`;
+        const drawn = `<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3.75 2.5 6.25 5l-2.5 2.5"></path></svg>`;
+        expect(foreignIcons(fragment(`<span>${chakra}</span>${svg("xmark")}<i>${drawn}</i>${svg("plus", "far")}`)))
+            .toEqual(['<svg viewBox="0 0 24 24">', '<svg viewBox="0 0 10 10">', '<svg viewBox="">']);
+        expect(foreignIcons(fragment(`${svg("check")}<b>${svg("minus")}</b>`))).toEqual([]);
     });
 });

@@ -6,6 +6,8 @@
 import { memo, useState, useMemo, useCallback } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Combobox as ChakraCombobox, createListCollection } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Combobox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -59,6 +61,8 @@ export interface EastChakraComboboxProps {
 
 /**
  * Renders an East UI Combobox value using Chakra UI Combobox component. Its
+ * clear, its chevron and a picked item's check are Font Awesome's xmark,
+ * chevron-down and check, never Chakra's own icons (#1263). Its
  * list closes when the focus moves to anything outside the list, the box and
  * its triggers — on a touch screen too, where Zag leaves it open (#1228,
  * `close-on-focus-outside.ts`), closed there as Zag closes it on a desktop:
@@ -146,8 +150,8 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
             <ChakraCombobox.Control>
                 <ChakraCombobox.Input ref={box} placeholder={placeholder ?? "Search..."} />
                 <ChakraCombobox.IndicatorGroup>
-                    <ChakraCombobox.ClearTrigger />
-                    <ChakraCombobox.Trigger />
+                    <ChakraCombobox.ClearTrigger><FontAwesomeIcon icon={faXmark} /></ChakraCombobox.ClearTrigger>
+                    <ChakraCombobox.Trigger><FontAwesomeIcon icon={faChevronDown} /></ChakraCombobox.Trigger>
                 </ChakraCombobox.IndicatorGroup>
             </ChakraCombobox.Control>
             <Portal>
@@ -157,7 +161,7 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
                         {collection.items.map((item) => (
                             <ChakraCombobox.Item key={item.value} item={item}>
                                 {item.label}
-                                <ChakraCombobox.ItemIndicator />
+                                <ChakraCombobox.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraCombobox.ItemIndicator>
                             </ChakraCombobox.Item>
                         ))}
                     </ChakraCombobox.Content>

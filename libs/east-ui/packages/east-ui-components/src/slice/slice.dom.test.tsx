@@ -28,7 +28,7 @@ import {
 import { Slice } from "@elaraai/east-ui/internal";
 import { buildSliceHandle } from "../platform/slice/index.js";
 import { sliceConfig } from "../testing/slice.js";
-import { faIcons, loneGlyphs } from "../testing/icons.js";
+import { faIcons, foreignIcons, loneGlyphs, markOf } from "../testing/icons.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
@@ -1786,7 +1786,8 @@ describe("the sectioned editor's disclosures — each trigger the button itself,
 });
 
 // ============================================================================
-// #1263 — every remove a slice draws is Font Awesome's xmark
+// #1263 — every remove a slice draws is Font Awesome's xmark; the search's
+// combobox draws Font Awesome's chevron and checks
 // ============================================================================
 
 describe("every remove a slice draws is Font Awesome's xmark, never a written × (#1263)", () => {
@@ -1834,5 +1835,15 @@ describe("every remove a slice draws is Font Awesome's xmark, never a written ×
         await uiOpen(<EastChakraSliceCohort value={{ slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: some(true) } as never} />);
         expect(screen.getAllByRole("button", { name: "Remove clause" }).map(drawn)).toEqual([["", 1]]);
         expect(loneGlyphs(document.body)).toEqual([]);
+    });
+});
+
+describe("the focused search's combobox draws Font Awesome's icons, never Chakra's own (#1263)", () => {
+    test("its trigger is Font Awesome's chevron-down, named as before, and each match's check Font Awesome's", () => {
+        const matches = () => [{ id: "SKU-1", label: "Oak board", meta: none }, { id: "SKU-2", label: "Ash board", meta: none }];
+        ui(<EastChakraSliceSearch value={{ slice: fakeSlice({}, { matches }), recent: [], density: some(variant("focused", null)) } as never} />);
+        expect(markOf(screen.getByRole("button", { name: "Toggle suggestions" }))).toBe("fas chevron-down");
+        expect([...document.querySelectorAll('[data-scope="combobox"][data-part="item-indicator"]')].map(markOf)).toEqual(["fas check", "fas check"]);
+        expect(foreignIcons(document.body)).toEqual([]);
     });
 });

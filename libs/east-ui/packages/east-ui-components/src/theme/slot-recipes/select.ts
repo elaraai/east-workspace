@@ -9,7 +9,10 @@
  * nothing but the focus ring). Each size's trigger is the shared input's one
  * line (`fieldHeights`, #1220), its value centred in it; it clears the
  * `textStyle` Chakra's default trigger sizes carry, which outranks a size's
- * own `fontSize`.
+ * own `fontSize`. The chevron and a picked item's check are Font Awesome's
+ * (#1263), each in the square Chakra's icon took: 16px — 20px at lg, 14px at
+ * xs. Font Awesome's own height is 1em, outranking the `_icon` size, so the
+ * part's font is the icon's size, and `--fa-width` its width.
  *
  * @packageDocumentation
  */
@@ -53,6 +56,16 @@ export const selectSlotRecipe = defineSlotRecipe({
         },
         indicator: {
             color: "fg.muted",
+            fontSize: "16px",
+            "--fa-width": "1em",
+        },
+        // A box the icon's own at every size (Chakra's md alone makes it flex),
+        // never a line box around it: Font Awesome draws inline.
+        itemIndicator: {
+            display: "inline-flex",
+            alignItems: "center",
+            fontSize: "16px",
+            "--fa-width": "1em",
         },
         content: {
             background: "bg.surface",
@@ -109,7 +122,9 @@ export const selectSlotRecipe = defineSlotRecipe({
         size: {
             sm: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.sm}", height: fieldHeights.sm, paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "0" } },
             md: { trigger: { textStyle: "none", fontSize: "{fontSizes.body}", height: fieldHeights.md, paddingX: "10px", paddingInlineEnd: "30px", paddingY: "0" } },
-            lg: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.lg}", height: fieldHeights.lg, paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "0" } },
+            lg: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.lg}", height: fieldHeights.lg, paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "0" }, indicator: { fontSize: "20px" } },
+            // Chakra's xs trigger keeps its own; its chevron is 14px, as Chakra's was.
+            xs: { indicator: { fontSize: "14px" } },
         },
     },
     defaultVariants: {

@@ -40,7 +40,7 @@
 import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type ChangeEvent, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, Combobox as ChakraCombobox, Input as ChakraInput, NumberInput as ChakraNumberInput, Portal, chakra, createListCollection, useCombobox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRightLong, faMinus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRightLong, faChevronDown, faChevronUp, faMinus } from "@fortawesome/free-solid-svg-icons";
 import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment, dateToCalendarDate, dateValueToDate, useDensity } from "@elaraai/east-ui-components/internal";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
@@ -358,7 +358,7 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         </Box>
     );
 
-    /** The common number field: the input and its stepper column, borderless inside the ring. */
+    /** The common number field: the input and its stepper column — Font Awesome's chevrons (#1263) — borderless inside the ring. */
     const number = (
         <ChakraNumberInput.Root
             size={controlSize}
@@ -381,8 +381,8 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
                 onPaste={stop}
             />
             <ChakraNumberInput.Control css={styles.editorStepper} data-slot="editorStepper">
-                <ChakraNumberInput.IncrementTrigger />
-                <ChakraNumberInput.DecrementTrigger />
+                <ChakraNumberInput.IncrementTrigger><FontAwesomeIcon icon={faChevronUp} /></ChakraNumberInput.IncrementTrigger>
+                <ChakraNumberInput.DecrementTrigger><FontAwesomeIcon icon={faChevronDown} /></ChakraNumberInput.DecrementTrigger>
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );

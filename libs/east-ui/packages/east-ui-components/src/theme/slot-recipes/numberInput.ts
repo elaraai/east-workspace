@@ -6,7 +6,10 @@
 /**
  * NumberInput slot recipe — the bordered numeric field with the in-flow
  * stepper column on its right edge: two stacked chevron triggers that split
- * the field height, divided by hairline rules, disabling at the bound.
+ * the field height, divided by hairline rules, disabling at the bound. Each
+ * chevron is Font Awesome's (#1263), 9px square as Chakra's was: Font
+ * Awesome's own height is 1em, outranking the `_icon` size, so the trigger's
+ * font is the icon's size, and `--fa-width` its width.
  * The root carries the shared field chrome; the inner input is borderless
  * and wears the numeric figure treatment.
  *
@@ -40,7 +43,8 @@ const stepperTrigger = {
     lineHeight: "1",
     borderTopEndRadius: "0",
     borderBottomEndRadius: "0",
-    _icon: { boxSize: "9px" },
+    fontSize: "9px",
+    "--fa-width": "1em",
     _hover: { background: "bg.muted", color: "fg" },
     _active: { background: "bg.muted" },
     _disabled: {

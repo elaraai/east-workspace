@@ -15,7 +15,8 @@
  *   toolbar, its full width: the stale strip — its "Stale" tag, "The query
  *   changed after this run.", and Run again with its keys — while the query
  *   differs from the one the result is of; a run that gave no result, worded by
- *   how it ended; and the note after a download, dismissible;
+ *   how it ended; and the note after a download, dismissible by Font
+ *   Awesome's xmark (#1263);
  * - **the body**: before any run, the empty state; while a run goes, the data
  *   sources it reads over skeleton rows — and a split run's progress, pieces
  *   done of all (#941); a result as a Table (east-ui's Table renderer, over
@@ -33,9 +34,9 @@
  */
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Box, Button, CloseButton, Menu as ChakraMenu, Portal, Skeleton, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, CloseButton, Menu as ChakraMenu, Portal, Skeleton, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown, faCircleExclamation, faCircleInfo, faDownload, faSitemap, faTableList } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faCircleExclamation, faCircleInfo, faDownload, faSitemap, faTableList, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { describeJqType, none, some } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
 import { EastChakraTable, EastChakraValueTree, EmptyStateView, Toolbar, type ToolbarItem, type ValueTreeValue } from "@elaraai/east-ui-components";
@@ -321,6 +322,8 @@ export interface ResultStripsProps {
 export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words }: ResultStripsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
+    // The note's close draws its xmark at the size Chakra's icon took in a 2xs button.
+    const closeMark = useRecipe({ key: "iconButtonMark" })({ size: "2xs" });
     const output = state.status === "done" ? state.output : undefined;
     const failure = runFailure(state, words);
     return (
@@ -347,7 +350,7 @@ export const ResultStrips = memo(function ResultStrips({ state, stale, note, onD
                 <Box css={styles.strip} data-tone="note" role="status">
                     <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleInfo} /></Box>
                     <Box as="span" css={styles.stripText}>{note}</Box>
-                    <CloseButton size="2xs" css={styles.stripAction} onClick={onDismissNote} />
+                    <CloseButton size="2xs" css={[styles.stripAction, closeMark]} onClick={onDismissNote}><FontAwesomeIcon icon={faXmark} /></CloseButton>
                 </Box>
             )}
         </Box>

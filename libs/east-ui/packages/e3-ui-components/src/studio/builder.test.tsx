@@ -14,7 +14,8 @@
  * (B10), a dropped card's cell (B11), Save as one patch commit and a conflict
  * (B12), the panes (B13), Preview, Publish, Desktop and Tablet (B14). The
  * inspector (#996): its pane and rail (B15), the selected placement
- * (B16–B18), its layout edits (B20, B12), nothing selected (B21), and the
+ * (B16–B18), its layout edits (B20, B12) — the height select's chevron and
+ * check Font Awesome's (#1263) — nothing selected (B21), and the
  * palette counting unsaved drafts. Save as template (D7, #997). The publish
  * preview (#998), in the canvas's place: its bar (E1), the page (E2), the
  * aside (E3–E5) — every mark in it Font Awesome's (#1263) — and the footer
@@ -34,7 +35,7 @@ import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
 } from "@elaraai/east-ui-components";
-import { markOf } from "@elaraai/east-ui-components/testing";
+import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import {
     RecordBindHandleType, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -644,6 +645,20 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(frame().style.height).toBe("240px");
         await pick("Auto");
         expect(frame().style.height).toBe("");
+    }, 30_000);
+
+    test("B20: the height select's chevron and the picked height's check are Font Awesome's, never Chakra's own (#1263)", async () => {
+        const { container } = await mountBuilder();
+        await select(container, "c-trend");
+        const trigger = inspector(container).querySelector<HTMLElement>("[data-inspector-height]")!;
+        const control = trigger.closest<HTMLElement>('[data-scope="select"][data-part="control"]')!;
+        expect(markOf(control.querySelector('[data-part="indicator"]'))).toBe("fas chevron-down");
+        await act(async () => { fireEvent.click(trigger); });
+        const checks = screen.getAllByRole("option").map((option) => [option.textContent, option.querySelector<HTMLElement>('[data-part="item-indicator"]')!] as const);
+        expect([...new Set(checks.map(([, check]) => markOf(check)))]).toEqual(["fas check"]);
+        // Shown on the height the placement has: its content's.
+        expect(checks.filter(([, check]) => !check.hidden).map(([name]) => name)).toEqual(["Auto"]);
+        expect([...foreignIcons(control), ...foreignIcons(screen.getByRole("listbox"))]).toEqual([]);
     }, 30_000);
 
     test("B20: the alignment segments set where the placement sits in a taller row", async () => {

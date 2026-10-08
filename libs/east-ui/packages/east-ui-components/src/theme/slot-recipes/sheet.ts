@@ -60,8 +60,8 @@
  *     a row that could not be drawn is one row of `fg.danger` mono on the
  *     invalid row's wash.
  *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
- *     `border.subtle` below (`border.strong` when folded); a 10 px stroke
- *     chevron, ink-3; count mono 10; title
+ *     `border.subtle` below (`border.strong` when folded); Font Awesome's
+ *     chevron-right in a 10 px square (#1263), ink-3; count mono 10; title
  *     body 13/600 `fg` over the eyebrow mono 9.5 uppercase .08em
  *     `fg.subtle`; band cells mono 11 `fg.muted`. Membership is shown by
  *     markers and rails in the gutter.
@@ -726,9 +726,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-kind=accept]:hover": { color: "status.pos", background: "color-mix(in oklch, var(--chakra-colors-status-pos) 8%, transparent)" },
             "&[data-kind=reject]:hover, &[data-kind=discard]:hover": { color: "status.neg", background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, transparent)" },
             "&[data-kind=apply]:hover": { color: "brand.solid", background: "brandTint" },
-            // the header's fold-all: a disclosure, not a decision — the chevrons' ink-3, ink on hover, no hue. Its double chevron turns like theirs: right while every group is folded, down otherwise.
+            // the header's fold-all: a disclosure, not a decision — the chevrons' ink-3, ink on hover, no hue. Its double chevron — Font Awesome's angles-right in the chevrons' 10 px square (#1263) — turns like theirs: right while every group is folded, down otherwise.
             "&[data-kind=fold]": {
                 color: "fg.muted",
+                fontSize: "10px",
+                "--fa-width": "1em",
                 "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
                 "&[aria-expanded=true] svg": { transform: "rotate(90deg)" },
             },
@@ -1403,8 +1405,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             border: "none",
             background: "transparent",
             borderRadius: "{radii.sm}",
-            // the chevron: 10 px stroke, ink-3; it turns down as the group opens.
+            // the chevron: Font Awesome's chevron-right in a 10 px square (#1263), ink-3; it turns down as the group opens.
             color: "fg.muted",
+            fontSize: "10px",
+            "--fa-width": "1em",
             cursor: "pointer",
             _hover: { color: "fg" },
             "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
@@ -1824,7 +1828,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
-        // The chevron before a line's number (10 px stroke, ink-3): a disclosure — ink on hover, no hue.
+        // The chevron before a line's number (Font Awesome's chevron-right in a 10 px square, #1263; ink-3): a disclosure — ink on hover, no hue.
         subRowChevron: {
             position: "absolute",
             left: "0",
@@ -1842,6 +1846,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             cursor: "pointer",
             zIndex: "2",
+            fontSize: "10px",
+            "--fa-width": "1em",
             _hover: { color: "fg", background: "bg.muted" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-1px" },
             // It turns down as the line opens.

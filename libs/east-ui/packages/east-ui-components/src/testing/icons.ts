@@ -5,7 +5,8 @@
 
 /**
  * The icon checks the renderer tests share (#1263): every icon a renderer
- * draws is a Font Awesome solid icon, never a text glyph.
+ * draws is a Font Awesome solid icon, never a text glyph, nor an icon of
+ * Chakra's own or one drawn by hand.
  *
  * @packageDocumentation
  */
@@ -45,6 +46,20 @@ export function markOf(el: Element | null): string | null {
         ...[...el.querySelectorAll('svg[data-prefix="fas"]')].map((svg) => `fas ${svg.getAttribute("data-icon")}`),
         ...(text !== "" ? [text] : []),
     ].join(" ");
+}
+
+/**
+ * Every `svg` under a root that is not a Font Awesome solid icon — an icon a
+ * Chakra part draws of its own, or one drawn by hand — each named by its view
+ * box.
+ *
+ * @param root - Where to look
+ * @returns What draws an icon that is not Font Awesome's, empty when nothing does
+ */
+export function foreignIcons(root: ParentNode): string[] {
+    return [...root.querySelectorAll("svg")]
+        .filter((svg) => svg.getAttribute("data-prefix") !== "fas")
+        .map((svg) => `<svg viewBox="${svg.getAttribute("viewBox") ?? ""}">`);
 }
 
 /**

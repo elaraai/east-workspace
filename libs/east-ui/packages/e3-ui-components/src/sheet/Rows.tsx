@@ -22,7 +22,7 @@
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faAngleDown, faAngleUp, faArrowRight, faCheck, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faAngleDown, faAngleUp, faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
@@ -66,16 +66,13 @@ export function setSheetRowRenderProbe(fn: ((r: number, copy: boolean) => void) 
 // brand appears only for selection and insertion.
 
 /**
- * The chevron: a 10 px stroke on a line's number and a group's band alike.
- * It always points right; its button turns it down when open (the recipe's
- * `rotate`), so opening and folding turn it rather than swap it.
+ * The chevron: Font Awesome's chevron-right on a line's number and a group's
+ * band alike (#1263), in the recipe's 10 px box. It always points right; its
+ * button turns it down when open (the recipe's `rotate`), so opening and
+ * folding turn it rather than swap it.
  */
 function Chevron() {
-    return (
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3.75 2.5 6.25 5l-2.5 2.5" />
-        </svg>
-    );
+    return <FontAwesomeIcon icon={faChevronRight} aria-hidden />;
 }
 
 /**

@@ -58,6 +58,7 @@ import { iconButtonRecipe } from "./recipes/icon-button.js";
 import { separatorRecipe } from "./recipes/separator.js";
 import { skeletonRecipe } from "./recipes/skeleton.js";
 import { chipRecipe } from "./recipes/chip.js";
+import { iconButtonMarkRecipe } from "./recipes/icon-button-mark.js";
 
 import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tabsSlotRecipe } from "./slot-recipes/tabs.js";
@@ -155,6 +156,8 @@ import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
+import { nativeSelectSlotRecipe } from "./slot-recipes/nativeSelect.js";
+import { alertSlotRecipe } from "./slot-recipes/alert.js";
 
 const config = defineConfig({
     globalCss,
@@ -188,6 +191,7 @@ const config = defineConfig({
             separator:  separatorRecipe,
             skeleton:   skeletonRecipe,
             chip:       chipRecipe,
+            iconButtonMark: iconButtonMarkRecipe,
             /* Touch floor (#348) merged onto Chakra's default textarea
              * recipe — sub-16px focused fields make iOS Safari zoom. */
             textarea:   defineRecipe({
@@ -291,6 +295,8 @@ const config = defineConfig({
             builderFrame:    builderFrameSlotRecipe,
             queryAutocomplete: queryAutocompleteSlotRecipe,
             logViewer:       logViewerSlotRecipe,
+            nativeSelect:    nativeSelectSlotRecipe,
+            alert:           alertSlotRecipe,
         },
     },
 });
