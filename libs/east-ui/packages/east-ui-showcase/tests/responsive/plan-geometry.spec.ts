@@ -614,12 +614,14 @@ test.describe("Plan links focus (#818, #1258)", () => {
     });
 });
 
-/** Every Plan example that draws bars, chips, tiles or rollup bands, and the narrow layout's tab its rows' cards are
- *  under where it lands on another: planNarrow lands on its groups' heat strips, which draw no text. */
+/** Every Plan example — those drawing bars, chips, tiles or rollup bands, and those drawing marks, charts, heat values,
+ *  table numerals and segments, whose numbers, marks' icons and rulers the sweep reads too (#1269) — and the narrow
+ *  layout's tab its rows' cards are under where it lands on another: planNarrow lands on its groups' heat strips. */
 const TEXT_EXAMPLES: readonly { name: string; file: string; tab?: string }[] = [
     ...["planTargetState", "planVariants", "planSpanRows", "planBucketRows", "planCardRows", "planGroupedRows",
         "planSeriesData", "planLiteralRows", "planPick", "planLibraryDnd", "planRowDrop", "planFill", "planUiState",
         "planExpand", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome",
+        "planChartRows", "planHeatRows", "planTableRows", "planFold", "planEventRows",
     ].map((name) => ({ name, file: PLAN_EXAMPLES })),
     { name: "planNarrow", file: PLAN_EXAMPLES, tab: "rows" },
     ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
@@ -695,7 +697,9 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
                     await page.setViewportSize({ width, height: 800 });
                     const entry = await openExample(page, name, file, theme);
                     if (tab !== undefined) await entry.locator(`[data-plan-narrow] [data-plan-tab=${JSON.stringify(tab)}]`).click();
-                    await expect.poll(() => entry.locator("[data-run], [data-chip], [data-event], [data-plan-band]").count()).toBeGreaterThan(0);
+                    // Something it measures is drawn: an element, an event's mark, a chart's, a heat value, a table's
+                    // numerals or a segment.
+                    await expect.poll(() => entry.locator("[data-run], [data-chip], [data-event], [data-plan-band], [data-mark], [data-plan-mark], [data-plan-heat-label], [data-table-parts], [data-fill]").count()).toBeGreaterThan(0);
                     await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
                     await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
                     await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
