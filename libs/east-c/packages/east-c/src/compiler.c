@@ -121,7 +121,9 @@ static size_t prof_entry_for(const void *key, const char *name, bool platform, i
     g_prof_entries[e] = (EastProfileEntry){
         .key = key,
         /* A platform entry's name is its key, which the profiler owns. */
-        .name = platform ? name : name ? strdup(name) : NULL,
+        .name = platform ? name
+                : name   ? strdup(name)
+                         : NULL,
         .platform = platform,
         .loc_id = loc_id,
         .call_loc_id = 0,
@@ -323,7 +325,8 @@ void east_profile_print(FILE *out)
          * at a call site with the caller's location, so the call site is what
          * tells the helpers apart. A platform function has only its call. */
         const char *defined = e->platform ? "platform function" : e->site ? e->site : "-";
-        bool called = e->call_site && (e->platform || !e->site || strcmp(e->site, e->call_site) != 0);
+        bool called =
+            e->call_site && (e->platform || !e->site || strcmp(e->site, e->call_site) != 0);
         fprintf(out, "  %-16s %10llu calls %9.3f s self %9.3f s total  %s%s%s\n",
                 e->name ? e->name : "<anon>", (unsigned long long)e->calls,
                 (double)e->self_ns / 1e9, (double)e->total_ns / 1e9, defined,

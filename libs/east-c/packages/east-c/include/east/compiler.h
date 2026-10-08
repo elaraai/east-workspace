@@ -68,16 +68,16 @@ struct EastCompiledFn {
  * a call, and its time so far. The strings borrow the profiler's own copies
  * and are valid until east_profile_reset. */
 typedef struct {
-    const void *key;     /* the body, or the profiler's copy of the platform
-                            function's name */
-    const char *name;    /* the Let it was bound to, the platform function's
-                            name, or NULL */
-    bool platform;       /* a platform function */
-    int64_t loc_id;      /* the Function node's site (0 for a platform function) */
-    int64_t call_loc_id; /* the first Call or Platform node that invoked it (0
-                            when only a host called it) — what places a helper
-                            the builder inlined at its call site and stamped
-                            with the caller's location */
+    const void *key;       /* the body, or the profiler's copy of the platform
+                              function's name */
+    const char *name;      /* the Let it was bound to, the platform function's
+                              name, or NULL */
+    bool platform;         /* a platform function */
+    int64_t loc_id;        /* the Function node's site (0 for a platform function) */
+    int64_t call_loc_id;   /* the first Call or Platform node that invoked it (0
+                              when only a host called it) — what places a helper
+                              the builder inlined at its call site and stamped
+                              with the caller's location */
     const char *site;      /* loc_id as "file:line:column", resolved through the
                               source map its function carries, or NULL */
     const char *call_site; /* call_loc_id likewise, through its caller's map */

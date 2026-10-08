@@ -119,7 +119,8 @@ static const char *line_with(const char *text, const char *needle, char *buf, si
 
 static bool sanitizer_clean(const char *err)
 {
-    return !err || (strstr(err, "AddressSanitizer") == NULL && strstr(err, "LeakSanitizer") == NULL);
+    return !err ||
+           (strstr(err, "AddressSanitizer") == NULL && strstr(err, "LeakSanitizer") == NULL);
 }
 
 int main(int argc, char **argv)
@@ -148,7 +149,8 @@ int main(int argc, char **argv)
     CHECK(err && strstr(err, "generate_fixtures.mjs:") != NULL,
           "profile: the helper must be placed at its source location:\n%s", err ? err : "(none)");
     CHECK(err && strstr(err, "still running") == NULL,
-          "profile: no report while it runs without EAST_PROFILE_INTERVAL:\n%s", err ? err : "(none)");
+          "profile: no report while it runs without EAST_PROFILE_INTERVAL:\n%s",
+          err ? err : "(none)");
     CHECK(sanitizer_clean(err), "profile: sanitizer report in CLI stderr:\n%s", err);
     free(out);
     free(err);
@@ -171,7 +173,8 @@ int main(int argc, char **argv)
     CHECK(rc == 0, "EAST_PROFILE: expected exit 0, got %d", rc);
     err = read_text("envprofile_err.txt");
     CHECK(err && strstr(err, "Profile (self time") != NULL && strstr(err, "100 calls") != NULL,
-          "EAST_PROFILE=1: the profile must be printed without the flag:\n%s", err ? err : "(none)");
+          "EAST_PROFILE=1: the profile must be printed without the flag:\n%s",
+          err ? err : "(none)");
     free(err);
     setenv("EAST_PROFILE", "0", 1);
     rc = run_cli(cmd, "envprofile_out.txt", "envprofile_err.txt");
@@ -193,7 +196,8 @@ int main(int argc, char **argv)
     CHECK(out && occurrences(out, "step") == 3, "platform: the program must log 3 steps, got: %s",
           out ? out : "(none)");
     line_with(err, "console_log", line, sizeof(line));
-    CHECK(strstr(line, "3 calls") != NULL && strstr(line, "platform function  called at ") != NULL &&
+    CHECK(strstr(line, "3 calls") != NULL &&
+              strstr(line, "platform function  called at ") != NULL &&
               strstr(line, "generate_fixtures.mjs:") != NULL,
           "platform: console_log must be its own entry with 3 calls, placed by its call:\n%s",
           err ? err : "(none)");
@@ -220,8 +224,8 @@ int main(int argc, char **argv)
     rc = run_cli(cmd, "exec_out.txt", "exec_err.txt");
     CHECK(rc == 0, "exec: expected exit 0, got %d", rc);
     err = read_text("exec_err.txt");
-    CHECK(err && strstr(err, "Profile") == NULL, "exec: nothing must be printed without --profile:\n%s",
-          err ? err : "(none)");
+    CHECK(err && strstr(err, "Profile") == NULL,
+          "exec: nothing must be printed without --profile:\n%s", err ? err : "(none)");
     free(err);
 
     /* EAST_PROFILE_INTERVAL: the report so far while the work runs (an

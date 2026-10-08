@@ -221,12 +221,15 @@ static void test_inline_calls(void)
           "row helper: the row narrows to what the helper reads of its parameter");
     ir_node_release(a);
 
-    /* for l in r.lines: let x = (fn(it) { let p = it.price })(l)  ==>  { lines: Array<{ price }> } */
-    IRNode *b = for_array("l", field(var("r"), "lines"),
-                          let("x", call_inline("it", let("p", field(var("it"), "price")), var("l"))));
+    /* for l in r.lines: let x = (fn(it) { let p = it.price })(l)  ==>  { lines: Array<{ price }> }
+     */
+    IRNode *b =
+        for_array("l", field(var("r"), "lines"),
+                  let("x", call_inline("it", let("p", field(var("it"), "price")), var("l"))));
     got = narrowed_row(b, "item helper", &declined);
     CHECK(!declined && got &&
-              east_type_equal(got, struct1("lines", east_array_type(struct1("price", &east_float_type)))),
+              east_type_equal(
+                  got, struct1("lines", east_array_type(struct1("price", &east_float_type)))),
           "item helper: an inner loop's items narrow through a helper it calls");
     ir_node_release(b);
 
@@ -235,7 +238,8 @@ static void test_inline_calls(void)
                                      field(var("r"), "lines")));
     got = narrowed_row(c, "chain helper", &declined);
     CHECK(!declined && got &&
-              east_type_equal(got, struct1("lines", east_array_type(east_struct_type(NULL, NULL, 0)))),
+              east_type_equal(got,
+                              struct1("lines", east_array_type(east_struct_type(NULL, NULL, 0)))),
           "chain helper: a helper sizing a field's array narrows its items to nothing");
     ir_node_release(c);
 
@@ -247,8 +251,8 @@ static void test_inline_calls(void)
 
     /* let x = (fn(r) { let y = r })(r.lines.size())   ==>  declined: a parameter
      * taking a live variable's name for anything but a chain of it shadows it */
-    IRNode *e = let("x", call_inline("r", let("y", var("r")),
-                                     size_of("ArraySize", field(var("r"), "lines"))));
+    IRNode *e = let(
+        "x", call_inline("r", let("y", var("r")), size_of("ArraySize", field(var("r"), "lines"))));
     got = narrowed_row(e, "helper shadow", &declined);
     CHECK(declined, "helper shadow: a parameter shadowing a live variable must decline");
     ir_node_release(e);
