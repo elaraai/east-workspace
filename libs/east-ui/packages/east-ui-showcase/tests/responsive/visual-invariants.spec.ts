@@ -826,6 +826,8 @@ interface ToolbarWindow {
     /** The width of the example's shared toolbar row, or -1 when it has none. */
     __toolbarRow: (root: Element) => number;
     __painted: Painted[];
+    /** The latest delivery in the frame under way: what that frame paints, unless a later one supersedes it. */
+    __paintPending: Painted | null;
     __paintFrame: number;
     __paintObserver: ResizeObserver;
 }
@@ -879,10 +881,14 @@ async function toolbarAtRest(entry: Locator): Promise<string> {
  * Samples what the toolbar paints, until {@link stopPainting}: as each frame
  * begins, and as its row's resize is delivered. The sampler's observer is
  * younger than the toolbar's own, so it is delivered after it — it reads what
- * that frame will paint, the toolbar having answered the width. A frame begun
- * while a resize is still to be delivered (its row not at the width last
- * delivered) paints only after the toolbar has answered, so that sample is
- * dropped.
+ * that frame will paint, the toolbar having answered the width. A frame's
+ * deliveries can come in more than one pass — a container's breakpoint
+ * crossed in one observer's delivery moves the row, and the toolbar answers
+ * its new width in the next pass (#1259) — and the frame paints once, after
+ * the last: so a frame's sample is its last delivery, taken as the next frame
+ * begins. A frame begun while a resize is still to be delivered (its row not
+ * at the width last delivered) paints only after the toolbar has answered, so
+ * that sample is dropped.
  */
 async function startPainting(entry: Locator): Promise<void> {
     await entry.evaluate((root) => {
@@ -890,14 +896,18 @@ async function startPainting(entry: Locator): Promise<void> {
         const take = (): Painted => ({ row: w.__toolbarRow(root), sig: w.__toolbarSig(root) });
         let delivered = Number.NaN;
         w.__painted = [];
+        w.__paintPending = null;
         w.__paintObserver = new ResizeObserver(() => {
             const s = take();
             delivered = s.row;
-            w.__painted.push(s);
+            w.__paintPending = s;
         });
         const row = root.querySelector("[data-toolbar]");
         if (row !== null) w.__paintObserver.observe(row);
         const tick = () => {
+            // What the frame before painted: its last delivery.
+            if (w.__paintPending !== null) w.__painted.push(w.__paintPending);
+            w.__paintPending = null;
             const s = take();
             if (Math.abs(s.row - delivered) <= 0.5) w.__painted.push(s);
             w.__paintFrame = requestAnimationFrame(tick);
@@ -912,6 +922,8 @@ async function stopPainting(entry: Locator): Promise<Painted[]> {
         const w = window as unknown as ToolbarWindow;
         cancelAnimationFrame(w.__paintFrame);
         w.__paintObserver.disconnect();
+        if (w.__paintPending !== null) w.__painted.push(w.__paintPending);
+        w.__paintPending = null;
         return w.__painted;
     });
 }
