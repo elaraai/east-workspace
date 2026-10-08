@@ -24,6 +24,7 @@ import { CardsRow } from "./CardsRow.js";
 import { EventsRow } from "./EventsRow.js";
 import { TableRowCells } from "./TableRow.js";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { usePlanEdit } from "../edit/store.js";
 import type { PlanDerived, VisibleRow } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -49,8 +50,12 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
     const rowKey = v.row.key;
     const rowId = v.row.id;
     // How the row's elements move (#825) — never inside a context strip,
-    // whose one action is the way back.
-    const move = !ctx && v.row.edits.move.type === "some" ? v.row.edits.move.value : undefined;
+    // whose one action is the way back: a row of `data`'s while its session
+    // takes a move, an event kind's by its events (#1196).
+    const edit = usePlanEdit();
+    const move = ctx ? undefined
+        : v.row.edits.move.type === "some" ? (edit?.dataMoves === true ? v.row.edits.move.value : undefined)
+            : edit?.eventMove?.(v.row);
     switch (kind.type) {
         case "span":
             return (

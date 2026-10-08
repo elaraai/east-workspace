@@ -15,7 +15,9 @@
  *   kind, how long it runs and the resource kinds it is placed on (PB27).
  * - **Backlog** (`Plan.library.backlog()`) — every event kind's unscheduled
  *   events (a kind whose times are Options), read through the kind's own seam
- *   and read again when its record commits: each card its kind's icon, its
+ *   with its drafts in place (#1196) and read again when its record commits,
+ *   so a card scheduled leaves it and an event unscheduled joins it at once:
+ *   each card its kind's icon, its
  *   title and `6 h · Press A · due Fri 16`, grouped by when it is due — Due
  *   this week, Due next week, Later, No date — counted from the week the
  *   axis's now is in, or today's (PB28).
@@ -33,14 +35,15 @@
  *   pane is a rail with the backlog's count, or the first tab's when the
  *   library lists no Backlog tab (PB26).
  *
- * Templates, backlog events, and the cards of an author's tab — with a `drop`,
- * or while a row of the canvas takes a card — are drag sources from the
- * libraries `${planKeys(id).library}:events`, `…:backlog` and `…:tab:<its
- * name>`: a template's or an event's card keyed by its kind and key as East
- * prints a `Schedule.Types.EventRef`, an author's by its row's key as text. An
- * author's card lands on a row whose series makes an item of a card (#1259),
- * as a Library's card beside the Plan does, by the pointer or the keyboard;
- * what the event kinds take dropped is #1196's.
+ * Templates, backlog events, and the cards of an author's tab are drag
+ * sources from the libraries `${planKeys(id).library}:events`, `…:backlog` and
+ * `…:tab:<its name>`: a template's or an event's card keyed by its kind and key
+ * as East prints a `Schedule.Types.EventRef`, an author's by its row's key as
+ * text. A template or a backlog event drags while the canvas draws an event
+ * kind's row to drop it on (#1196). An author's card lands on a row whose
+ * series makes an item of a card (#1259), as a Library's card beside the Plan
+ * does, by the pointer or the keyboard, and — with a `drop` — on an event of
+ * its patch's kind (#1196): it drags while one of them is on the canvas.
  *
  * @packageDocumentation
  */
@@ -48,7 +51,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
-import { ScheduleEventRefType, type planKeys } from "@elaraai/e3-ui/internal";
+import { ScheduleEventRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined, useTrackedEvaluation,
     type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
@@ -89,8 +92,16 @@ const LIBRARY_SIZE = "272px";
 /** A library tab's cards fill the pane and scroll there, every card mounted. */
 const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none });
 
-/** The drafts the backlog is read with: none yet — the event kinds' editing is #1194's. */
-const NO_DRAFTS: Parameters<PlanEventKindValue["planUnscheduled"]>[0] = new SortedMap([], compareFor(StringType));
+/** One kind's drafts, by entry id, as its seams take them. */
+type PlanKindDraftsValue = Parameters<PlanEventKindValue["planUnscheduled"]>[0];
+
+/** Every kind's drafts, by kind then by entry id (#1194). */
+type PlanEventDraftsValue = ValueTypeOf<typeof PlanEventDraftsType>;
+
+/** A kind with no drafts. */
+const NO_DRAFTS: PlanKindDraftsValue = new SortedMap([], compareFor(StringType));
+/** No kind holds a draft. */
+const NONE_DRAFTED: PlanEventDraftsValue = new SortedMap([], compareFor(StringType));
 
 /** A read whose kinds are still in flight: the backlog stands as it was. */
 const READING = "reading";
@@ -123,7 +134,16 @@ export interface PlanLibraryProps {
     words: PlanWords;
     /** Whether a row of the canvas takes a card from an author's tab (#1259): its cards drag then. */
     takesCards: boolean;
+    /** Every event kind's drafts (#1194): the backlog is read with them in place (#1196). */
+    drafts?: PlanEventDraftsValue | undefined;
+    /** Whether the canvas draws an event kind's row to drop a template or a backlog event on (#1196): their cards drag then. */
+    takesEvents?: boolean | undefined;
+    /** The event kinds with an event on the canvas (#1196): an author's tab whose patch lands on one lets its cards drag. */
+    patchKinds?: ReadonlySet<string> | undefined;
 }
+
+/** No event kind has an event on the canvas. */
+const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
 
 /** A card with nothing but its face: no media, byline, action, facets or secondary facts. */
 function card(fields: Pick<LibraryItemValue, "key" | "label" | "sublabel" | "icon" | "status" | "trailing" | "draggable" | "filtered" | "placed" | "search" | "groups">): LibraryItemValue {
@@ -229,10 +249,13 @@ function seriesPickOf(
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, and whether a row takes an author's card
+ * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' drafts, whether the canvas takes the event kinds' cards, and the kinds with an event on it
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
-export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards }: PlanLibraryProps): BuilderFrameDock | undefined {
+export function usePlanLibrary({
+    library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
+    drafts = NONE_DRAFTED, takesEvents = false, patchKinds = NO_PATCH_KINDS,
+}: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     const noun = useCallback((tab: PlanLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: PlanLibraryTabWord, name: string) => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
@@ -266,7 +289,8 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
                 icon: some(kind.icon),
                 status: none,
                 trailing: none,
-                draggable: true,
+                // A template drags while the canvas has an event kind's row to drop it on (#1196).
+                draggable: takesEvents,
                 filtered: false,
                 placed: false,
                 search: some([template.name, group ?? "", line].join(" · ")),
@@ -276,23 +300,24 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
         groupOptions: [{ key: "kind", label: m.libraryGroupBy({ tab: "events" }) }],
         noun: noun("events"),
         onCardClick: none,
-    }), [keys, kinds, resourceKinds, words, m, noun]);
+    }), [keys, kinds, resourceKinds, words, m, noun, takesEvents]);
 
     // ── Backlog: every kind's unscheduled events, by when they are due (PB28) ──
-    // Read through each kind's seam, as the footer counts it: tracked, so a
-    // commit to a kind's record reads it again; the last read stands while one
-    // is in flight or has failed.
+    // Read through each kind's seam with its drafts in place, as the footer
+    // counts it (#1196): a card scheduled leaves, an event unscheduled joins.
+    // Tracked, so a commit to a kind's record reads it again; the last read
+    // stands while one is in flight or has failed.
     const readBacklog = useCallback((): readonly BacklogEntry[] | typeof READING | undefined => {
         if (!listsBacklog) return undefined;
         const out: BacklogEntry[] = [];
         for (const kind of kinds) {
             if (!kind.backlog) continue;
-            const read = kind.planUnscheduled(NO_DRAFTS);
+            const read = kind.planUnscheduled(drafts.get(kind.key) ?? NO_DRAFTS);
             if (read.type === "none") return READING;
             for (const item of read.value) out.push({ kind, item });
         }
         return out;
-    }, [listsBacklog, kinds]);
+    }, [listsBacklog, kinds, drafts]);
     const { result } = useTrackedEvaluation(readBacklog);
     const heldBacklog = useRef<readonly BacklogEntry[]>(NO_BACKLOG);
     const unscheduled = useMemo(() => {
@@ -330,7 +355,8 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
                     icon: some(kind.icon),
                     status: none,
                     trailing: none,
-                    draggable: true,
+                    // An unscheduled event drags while the canvas has an event kind's row to drop it on (#1196).
+                    draggable: takesEvents,
                     filtered: false,
                     placed: false,
                     search: some([item.title, kind.name, line].join(" · ")),
@@ -341,7 +367,7 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
             noun: noun("backlog"),
             onCardClick: none,
         });
-    }, [unscheduled, now, keys, words, m, resourceName, noun]);
+    }, [unscheduled, now, keys, words, m, resourceName, noun, takesEvents]);
 
     // ── Series: what the canvas shows that the viewer can hide (PB29) ──
     // A new set is a new pick, so the panel draws its eyes again.
@@ -354,8 +380,8 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
         [seriesLines, pick, keys.series, hidden, onHidden]);
 
     // ── An author's tabs: their cards, a click selecting one (PB62) ──────
-    // A tab's cards drag when it has a `drop`, or while a row of the canvas
-    // takes a card (#1259).
+    // A tab's cards drag while a row of the canvas takes a card (#1259), or —
+    // with a `drop` — while an event of its patch's kind is on the canvas (#1196).
     // The card each tab's click selected, by the tab's key.
     const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map());
     const onAuthorCard = useCallback((tabKey: string, key: string) => {
@@ -384,7 +410,7 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
                     icon: icon === undefined ? none : some(icon),
                     status: none,
                     trailing: none,
-                    draggable: tab.drop.type === "some" || takesCards,
+                    draggable: takesCards || (tab.drop.type === "some" && patchKinds.has(tab.drop.value)),
                     filtered: false,
                     placed: chosen !== undefined && stringEqual(chosen, c.key),
                     search: some([c.key, c.label, meta ?? ""].join(" · ")),
@@ -395,7 +421,7 @@ export function usePlanLibrary({ library, kinds, resources, pick, keys, hidden, 
             noun: noun("tab"),
             onCardClick: some((key: string) => { onAuthorCard(tabKey, key); return null; }),
         })];
-    })), [authorTabs, picked, keys, m, noun, onAuthorCard, takesCards]);
+    })), [authorTabs, picked, keys, m, noun, onAuthorCard, takesCards, patchKinds]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (PB61).

@@ -12,7 +12,8 @@
  * Each chip is a button named by its label, span and state (#819).
  *
  * On a row whose series declares a move's fields (#825) a chip moves — by
- * itself or by an end — as a run bar does.
+ * itself or by an end — as a run bar does; an event kind's chip moves its
+ * event (#1196), and wears the drafted look while its drafts change it.
  */
 
 import { useMemo } from "react";
@@ -25,6 +26,7 @@ import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
+import { usePlanElementDrafted } from "./element-draft.js";
 import { chipName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -66,6 +68,8 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
     const select = usePlanElementSelect(rowKey, chip.key, ref);
     // An event in an overlap pair wears the warn ring (#1198).
     const overlap = usePlanElementOverlap(chip.key);
+    // An event its drafts changed wears the brand tint in a brand border (#1196).
+    const drafted = usePlanElementDrafted(chip.key);
     return (
         <Box css={styles.cardChip}
             data-ctx={ctx === true ? "" : undefined}
@@ -73,6 +77,7 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             // Its label hides sooner beside an icon (#1264).
             data-icon={icon !== undefined ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
+            data-draft={drafted ? "" : undefined}
             // Focusable: Enter opens its popover (#816), and the
             // row's Tab walk reaches it (#819).
             tabIndex={-1}

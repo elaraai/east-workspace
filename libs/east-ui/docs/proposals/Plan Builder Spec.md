@@ -831,6 +831,12 @@ As built (#1193):
   onto `data`'s rows (PB64), and with `drop` onto an event (#1196). `drop`'s
   patch is checked at build: its type is one event kind's row type, or the
   build fails naming the tab, as it does for a type two kinds share.
+- **PB63.** A card of an author's tab dropped on an event of its patch's kind
+  sets the fields the patch sets on that event, as one `drop` transaction, as
+  the Sheet's cards set a row's (SB61). The ghost names the card and the event
+  (`Harbour Arts Society → Spring catalogue`). Refused: anywhere but an event
+  (`Drop a customer onto an event`), or an event of another kind (`Stops take
+  no customer`).
 - **PB64.** An author's tab's cards drag onto the rows of `data` whose series
   declares `edit.create`, by the pointer or carried from the keyboard, as a
   `<Library>`'s card beside the Plan does (#1259): the drop is the same `add`,
@@ -921,6 +927,77 @@ As built (#1259):
   `CellRef` with the row id's text and the snapped instant) and the drag
   machine the Calendar shares with it (#1148). The panes slide off main during
   a drag.
+
+As built (#1196):
+
+- The event kinds' drag is e3-ui-components' `src/plan/edit/event-drag.ts`,
+  on the canvas's one drop target (`root/drop.ts`) and #825's machinery: the
+  rows' cells (`rows/RowShell.tsx`), the elements' handles and edges
+  (`edit/movable.tsx`), the landing (`edit/store.ts`) and the keyboard's carry
+  (`edit/use-carry.ts`). Each gesture is one step of the Plan's one history
+  through the kinds' recorder (`edit/events.ts`, §9.9): a template's drop
+  `create`s under a key from `mint` (a String key the template's, made unique:
+  `brochure-2`), a backlog card's drop and a move or a resize `place`, an
+  unschedule `unplace`, an author's card its patch's `sets` as `field`
+  gestures in one call.
+- Where: an event kind's row stands for a resource — a resource kind's row of a
+  way its kinds draw, at the resource's path — or for its kind's events on none
+  (the Unassigned row). A card lands on any of a resource's rows: a stop's
+  template dropped on a press's bars lands on the press, drawn on its marks.
+  The keyboard carries an element along its kind's own rows, ↑ / ↓ passing a
+  resource's other rows.
+- The verdict, asked where the drag rests and again of the drop: the kind takes
+  a gesture now (its record read, no Save of it under way); it is placed on the
+  row's resource kind, or, on its own Unassigned row, its field takes none; its
+  own `write` takes the gesture; and `canDrop` over `Schedule.Types.Candidate`
+  — `from` the template's key, the backlog event's or the moved event's —
+  returns none. A `canDrop` that throws lets the drop land, said in the
+  console, as the data rows' veto does.
+- The ghost's caption (#1187): what lands where — `Brochure run · Press A1 ·
+  Mon, Oct 12, 2026`, the start's time after its day when it has one, `3 events`
+  for a selection moving together — or, in red, why not: `Needs presses` (the
+  resource kinds the kind is placed on, lowercased and joined by `or`, as its
+  template cards name them — a kind carries no singular name), `canDrop`'s
+  message, `Print job can't change now`, or `Can't go here` (a write that
+  refuses otherwise). The keyboard's carry says the same refusal after its
+  words. The landing band spans what the drop makes: a template's event for
+  its duration, a backlog event for its own, the event an author's card lands
+  on.
+- A template's event starts at the bucket's start — on a day or a longer
+  bucket, at the template's `at` — and runs the template's duration (an
+  instant kind's none); it is selected, on the row it draws on. A backlog
+  event starts at the bucket's start and runs its own duration, on the row's
+  resource.
+- A move: a bar, a chip, or an instant kind's tile or mark lands where its row
+  put it; any other's tile or mark moves its event's own times by the units
+  the element moved. Across rows it writes the row's resource. A selected
+  element moves the selection with it, one step: the others by the same
+  units, those on its resource onto the row's; one refused refuses the whole
+  move. An event the move leaves where it was — a selected one on a resource
+  of its own, carried across at the same time — is no part of the step and
+  stays undrafted, and an element let go where it stands records nothing.
+  PB35's resize is #825's: an end never closer to the other than one unit (a
+  day at day resolution; under Shift, an hour).
+- PB36: the canvas names the Backlog tab's library as the one its elements
+  return to — the drag layer's `returns`, with `kinds.trash: false`
+  (east-ui-components): a return is vetted and captioned there
+  (`Spring catalogue → Backlog`; refused, `Stops have no backlog`), and no trash
+  zone shows. It unschedules the dragged event alone. The tab's frame takes the
+  drop while the tab is open.
+- PB63: the coordinate names the event under the pointer (`CellRef.event`);
+  the caption names the patch's fields and, for another kind's event, the
+  kind's name in the plural.
+- What drags: the Events and Backlog tabs' cards while the canvas draws an
+  event kind's row (`PlanChrome.takesEvents`), an author's tab's while a row of
+  `data`'s takes a card (#1259) or an event of its patch's kind is on the canvas
+  (`PlanChrome.patchKinds`); in the narrow layout, nothing.
+- The library's Backlog tab reads every kind's drafts, as the footer counts
+  them: a card scheduled leaves it, an event unscheduled joins it at once.
+- §8's drafted look: a bar, a chip or a mark of an event its drafts changed
+  carries `data-draft`, and the `plan` recipe draws it (`planElementDrafted`,
+  `slot-recipes/plan/focus.ts`): the brand tint in a 1.5px brand border in its
+  lifecycle look's place, under the rings — a mark the tint's ring round its
+  glyph. A tile has none yet: its renderer, `rows/BucketsRow.tsx`, is #1266's.
 
 ### 9.8 The inspector (owner: the inspector)
 
@@ -1046,9 +1123,9 @@ As built (#1194):
   write the kind refuses leaves its event as it was. The drag (#1196) drives
   the first five.
 - Every seam reads the drafts: the `blocks`, the footer's counts and the
-  overlaps, and the inspector's events and a row's facts. The library's
-  Backlog tab reads none yet, as no gesture of these moves an event in or out
-  of it.
+  overlaps, and the inspector's events and a row's facts — and, since #1196,
+  the library's Backlog tab, which a schedule and an unschedule move an event
+  out of and into.
 - Save is on while every kind's drafts pass their checks and one kind has a
   change it can send. A kind in conflict, refused or out of date holds no
   other kind's Save. While a kind's write has no answer, Save is Retry, which
@@ -1138,6 +1215,7 @@ As built (#1198):
 | A bar, tile, chip or mark | along its row, or another resource's | Moves it; across rows it writes the resource field (PB34) | a resource of a kind it doesn't take |
 | A bar's or a chip's edge | along the axis | Resizes it (PB35) | it would be shorter than one snap |
 | An event | the Backlog tab | Unschedules it (PB36) | its kind's times are not Options |
+| An author's card | an event of its patch's kind | Sets the fields its patch sets (PB63) | it is not on an event, or the event is of another kind |
 
 ## 11. What changes from today's Plan, and what is lost
 

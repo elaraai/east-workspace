@@ -9,8 +9,10 @@
  *
  * - a pointer drag of an element, from its press ({@link PlanGrab}) — the
  *   element, what it moves (the whole element or one end) and where it was
- *   grabbed — and where it would land now ({@link PlanProposal}). The drag
- *   layer carries the drag; the rows read the grab to say where it lands.
+ *   grabbed — and where it would land now ({@link PlanProposal}), with the
+ *   units it moved by, which an event kind's element moves its event's own
+ *   times by (#1196). The drag layer carries the drag; the rows read the grab
+ *   to say where it lands.
  * - a keyboard carry ({@link PlanCarry}): Space on an element picks it up, and
  *   the canvas moves it by keys until it drops or cancels.
  *
@@ -23,7 +25,9 @@
 import { createContext, useContext } from "react";
 import type { MoveMode, Span } from "../../shared/time/drag.js";
 import { equalInstants, type PlanInstantValue } from "../instant.js";
+import type { PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
+import type { PlanRowMove } from "../rows/SpanRow.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 
@@ -68,6 +72,15 @@ export interface PlanGrab {
 export interface PlanProposal {
     readonly rowKey: RowKey;
     readonly span: PlanSpan;
+    /**
+     * The units it moved by since it was picked up — the buckets the pointer
+     * crossed, or the keyboard's steps — in Shift's finer unit when `fine`
+     * (#1196): what an event kind's element moves its event's own times by,
+     * and the other events selected with it.
+     */
+    readonly units?: number | undefined;
+    /** Whether `units` are Shift's finer ones. */
+    readonly fine?: boolean | undefined;
 }
 
 /** A keyboard carry — the element, and where it would land now. */
@@ -84,9 +97,10 @@ export interface PlanSaid {
     readonly seq: number;
 }
 
-/** Two proposals alike — the same row, and extents East calls equal. */
+/** Two proposals alike — the same row, extents East calls equal, and the same units. */
 function sameProposal(a: PlanProposal | null, b: PlanProposal): boolean {
-    return a !== null && a.rowKey === b.rowKey && equalInstants(a.span.start, b.span.start) && equalInstants(a.span.end, b.span.end);
+    return a !== null && a.rowKey === b.rowKey && equalInstants(a.span.start, b.span.start) && equalInstants(a.span.end, b.span.end)
+        && a.units === b.units && a.fine === b.fine;
 }
 
 /**
@@ -259,6 +273,13 @@ export interface PlanEditContextValue {
     store: PlanEditStore;
     /** The canvas's drag surface — `undefined` while nothing can move (no session, no id, the narrow layout). */
     surface: string | undefined;
+    /** Whether `data`'s rows take a move now: the root edits them, and its session takes a gesture (#880). */
+    dataMoves: boolean;
+    /**
+     * How an event kind's row's elements move (#1196) — `undefined` for a row
+     * that is no event kind's, and while the canvas takes no event's drag.
+     */
+    eventMove: ((row: PlanRowValue) => PlanRowMove | undefined) | undefined;
     /** The id of the words that tell a keyboard reader how to move an element. */
     helpId: string;
     /** The Plan recipe's styles — the ghost's look. */

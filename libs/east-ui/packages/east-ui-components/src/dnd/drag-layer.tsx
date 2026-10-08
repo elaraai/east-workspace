@@ -33,6 +33,12 @@
  * away), the drop point is read again, and a drop with nothing under it says
  * so rather than vanishing.
  *
+ * An element dragged onto a Library's frame returns to it — a `remove` to its
+ * `source` — where the surface it came from takes returns there: every library
+ * it takes cards from, or only the ones it names (`returns`, #1196), which then
+ * vet a return and caption the ghost as a cell does. A surface whose elements
+ * only ever return to a library shows no trash zone (`kinds.trash`).
+ *
  * Visual stages (grip, ghost, indicators, cancel) follow the
  * `drag-drop-visuals` spec via data attributes that the theme styles:
  * `data-dragging` on the origin, `data-drop-valid` / `data-drop-active` /
@@ -107,6 +113,13 @@ export interface DragKinds {
     remove?: boolean;
     /** Span-edge resize (#268) — temporal span surfaces. */
     resize?: boolean;
+    /**
+     * Whether a removed element may go to the shared trash zone, which shows
+     * while one of the surface's elements is dragged — `remove` when left out.
+     * A surface whose elements only return to a library (`returns`, #1196)
+     * says `false`, and no trash zone shows.
+     */
+    trash?: boolean;
 }
 
 /** Display-only metadata accompanying a completed drag (not part of the
@@ -114,6 +127,23 @@ export interface DragKinds {
 export interface DragMeta {
     /** The dragged card's display label. */
     label?: string;
+    /** The library a returned element was dropped on — a `remove` to its `source` (#1196). */
+    library?: string;
+}
+
+/**
+ * The libraries an element of a surface returns to (#1196) — a `remove` to its
+ * `source`, dropped on one's frame — with the surface's verdict and the ghost's
+ * words there. Left out, an element returns to every library the surface takes
+ * cards from (`sources`), and every return is taken.
+ */
+export interface DragReturns {
+    /** The libraries an element returns to: only these frames take one. */
+    libraries: readonly string[];
+    /** The verdict over a return to one of them — `false` refuses it (⊘): asked where the drag rests, and again of the drop. */
+    canDrop?: (event: DragEventValue, library: string) => boolean;
+    /** What the ghost says while the drag rests over the library (#1187): where it goes, or — red — why it does not. */
+    caption?: (event: DragEventValue, library: string, allowed: boolean) => string | undefined;
 }
 
 /** A target surface registration. */
@@ -124,6 +154,8 @@ export interface DragTargetConfig {
     sources: readonly string[];
     /** Supported event kinds. */
     kinds: DragKinds;
+    /** The libraries the surface's elements return to, with its verdict and the ghost's words there (#1196) — `sources`, taking every return, when left out. */
+    returns?: DragReturns;
     /**
      * Receives every completed drag on this surface. Answering `false` says
      * it did not take the drag — its own write refused it, or it changed
@@ -511,12 +543,26 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         if (payload.kind !== "event") return false;
         const target = targets.current.get(payload.from.surface);
         if (!target || !(target.kinds.remove ?? false)) return false;
-        // Return-to-palette only connects to a library the surface declared.
+        // Return-to-palette only connects to a library the surface declared:
+        // one it names its elements return to, else one it takes cards from.
         if (reg.kind === "library") {
-            return reg.library !== undefined && target.sources.includes(reg.library);
+            return reg.library !== undefined && (target.returns?.libraries ?? target.sources).includes(reg.library);
         }
-        return true;
+        return target.kinds.trash ?? true;
     }, []);
+
+    /** The event a return onto a sink would deliver: a `remove` to the trash, or to its source. */
+    const returnEvent = useCallback((reg: SinkRegistration, from: Required<CellCoord>): DragEventValue => variant("remove", {
+        from: cellRefValue(from),
+        to: variant(reg.kind === "trash" ? "trash" : "source", null),
+    }), []);
+
+    /** The surface's verdict over a return onto a library sink (#1196) — a trash drop is never refused. */
+    const returnAllowed = useCallback((reg: SinkRegistration, payload: DragPayload): boolean => {
+        if (reg.kind !== "library" || reg.library === undefined || payload.kind !== "event") return true;
+        const returns = targets.current.get(payload.from.surface)?.returns;
+        return returns?.canDrop?.(returnEvent(reg, payload.from), reg.library) ?? true;
+    }, [returnEvent]);
 
     /** A destination's name, for the announcements. */
     const targetName = useCallback((el: HTMLElement, point: Point | undefined, payload: DragPayload): string => {
@@ -629,14 +675,26 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
             return;
         }
-        // Over nothing, or over a sink: the ghost goes alone.
+        // Over nothing the ghost goes alone; over a sink, with what its surface says of a return there.
         caption.set(undefined);
         const sink = el !== null ? sinks.current.get(el) : undefined;
         if (el !== null && sink !== undefined && sinkValid(sink, d.payload)) {
-            el.setAttribute("data-drop-active", "");
             d.hovered = el;
+            const allowed = returnAllowed(sink, d.payload);
+            if (allowed) {
+                el.removeAttribute("data-drop-invalid");
+                el.setAttribute("data-drop-active", "");
+            } else {
+                el.removeAttribute("data-drop-active");
+                el.setAttribute("data-drop-invalid", "");
+            }
+            if (sink.kind === "library" && sink.library !== undefined && d.payload.kind === "event") {
+                const returns = targets.current.get(d.payload.from.surface)?.returns;
+                const text = returns?.caption?.(returnEvent(sink, d.payload.from), sink.library, allowed);
+                caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
+            }
         }
-    }, [connected, sinkValid, track, caption]);
+    }, [connected, sinkValid, returnAllowed, returnEvent, track, caption]);
 
     /**
      * dnd-kit's collision step: the destination under the pointer, or under a
@@ -849,16 +907,19 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             return;
         }
         if (sink !== undefined && sinkValid(sink, payload) && payload.kind === "event") {
+            // The surface's verdict is asked once more, of the return about to be delivered (#1196).
+            if (!returnAllowed(sink, payload)) {
+                outcome.current = { kind: "notDropped", item };
+                return;
+            }
             const target = targets.current.get(payload.from.surface);
-            const taken = target?.onDrag?.(variant("remove", {
-                from: cellRefValue(payload.from),
-                to: variant(sink.kind === "trash" ? "trash" : "source", null),
-            }));
+            const meta = sink.kind === "library" && sink.library !== undefined ? { library: sink.library } : undefined;
+            const taken = target?.onDrag?.(returnEvent(sink, payload.from), meta);
             outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: targetName(el, point, payload) };
             return;
         }
         outcome.current = { kind: "notDropped", item };
-    }, [track, hit, connected, sinkValid, targetName, caption]);
+    }, [track, hit, connected, sinkValid, returnAllowed, returnEvent, targetName, caption]);
 
     const onDragEnd = useCallback((_event: DragEndEvent) => finish(true), [finish]);
     const onDragCancel = useCallback(() => finish(false), [finish]);
@@ -899,9 +960,9 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const point = restPoint.current;
             const target = targetName(el, point, payload);
             const cell = cells.current.get(el)?.current;
-            const message = cell === undefined || allows(cell, payload, point)
-                ? words.over({ item, target })
-                : words.refused({ item, target });
+            const sink = cell === undefined ? sinks.current.get(el) : undefined;
+            const taken = cell !== undefined ? allows(cell, payload, point) : sink === undefined || returnAllowed(sink, payload);
+            const message = taken ? words.over({ item, target }) : words.refused({ item, target });
             if (message === spoken.current) return undefined;
             spoken.current = message;
             return message;
@@ -926,7 +987,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 return payload !== undefined ? words.cancelled({ item: itemName(payload) }) : undefined;
             },
         };
-    }, [words, targetName, allows]);
+    }, [words, targetName, allows, returnAllowed]);
     const accessibility = useMemo(() => ({
         announcements,
         screenReaderInstructions: { draggable: words.instructions() },
@@ -942,15 +1003,15 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     }), [registerTarget, registerCell, registerSink]);
 
     // ── Shared trash sink (#267) ──────────────────────────────────────────
-    // While a drag whose owning target declares `kinds.remove` is in flight,
+    // While a drag whose owning target declares `kinds.remove` — and not
+    // `trash: false`, its elements only returning to a library (#1196) — is in flight,
     // the provider renders a fixed trash zone (bottom-centre portal) wired
     // through the ordinary `trash` sink path — dropping delivers
     // `remove: { from, to: trash }` with zero per-component work. Structural
     // validity only: a trash drop is never `data-drop-invalid` (a veto is a
     // cell concern). Per-chip trash buttons remain the click path.
-    const trashEligible = dragged !== null
-        && dragged.kind === "event"
-        && (targets.current.get(dragged.from.surface)?.kinds.remove ?? false);
+    const draggedKinds = dragged !== null && dragged.kind === "event" ? targets.current.get(dragged.from.surface)?.kinds : undefined;
+    const trashEligible = draggedKinds !== undefined && (draggedKinds.remove ?? false) && (draggedKinds.trash ?? true);
 
     return (
         <DndContext

@@ -438,6 +438,7 @@ export {
     type CellCoord,
     type DragKinds,
     type DragMeta,
+    type DragReturns,
     type DragTargetConfig,
 } from "./dnd/drag-layer.js";
 // The drag layer's words (#608) — `<DragLayerProvider messages={…}>` overrides any subset.

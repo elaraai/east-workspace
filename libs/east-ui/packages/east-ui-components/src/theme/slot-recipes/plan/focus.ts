@@ -9,7 +9,8 @@
  * takes focus, so a row, a band, a bar and a cell all say "you are here" the
  * same way. Keyboard focus only (`:focus-visible`): a click that focuses a row
  * paints nothing new. A selected event (#1197) is ONE ring too, on every mark
- * an event draws, and so is an event in an overlap pair (#1198).
+ * an event draws, and so is an event in an overlap pair (#1198). An event its
+ * drafts changed (#1196) is ONE look: the brand tint in a brand border.
  *
  * @packageDocumentation
  */
@@ -48,3 +49,27 @@ export const planElementSelected = {
  * composes the two (a confirmed mark's inset brand ring inside this one).
  */
 export const PLAN_OVERLAP_RING = "0 0 0 1.5px {colors.status.warn}";
+
+/**
+ * An event its drafts changed (#1196, `Plan Builder Spec.md` §8) — a bar's or a
+ * chip's box on the brand tint in a 1.5px solid brand border, whatever its
+ * lifecycle look: the tint means selected or dirty only (#949), and the
+ * Calendar's drafted blocks wear the same. Spread AFTER the lifecycle states,
+ * so it takes their place, and BEFORE the rings — the stuck and overlap rings,
+ * the selection and the focus — which ride over it.
+ */
+export const planElementDrafted = {
+    "&[data-draft]": {
+        background: "{colors.brandTint}",
+        color: "brand.fg",
+        borderWidth: "1.5px",
+        borderStyle: "solid",
+        borderColor: "{colors.brand.solid}",
+        boxShadow: "none",
+        fontStyle: "normal",
+        textDecoration: "none",
+    },
+} satisfies SystemStyleObject;
+
+/** A drafted event's mark at an instant (#1196) — a point has no box to tint, so it wears a 3px ring of the brand tint round it. */
+export const PLAN_DRAFT_HALO = "0 0 0 3px {colors.brandTint}";

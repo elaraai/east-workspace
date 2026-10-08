@@ -21,16 +21,17 @@ import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
 import {
-    useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DragPayload, type DropCellOptions,
+    getSomeorUndefined, useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DragPayload, type DropCellOptions,
     type DropVeto,
 } from "@elaraai/east-ui-components";
-import { proposeAt, spanFracs } from "../../shared/time/drag.js";
+import { proposeAt, spanFracs, unitsBetween } from "../../shared/time/drag.js";
 import { NowLine } from "../../shared/time/now-line.js";
 import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
 import { toPlanSlot } from "../slot.js";
 import { spanWords } from "../edit/movable.js";
-import { usePlanEdit } from "../edit/store.js";
+import { usePlanEdit, type PlanProposal } from "../edit/store.js";
 import { holdsKey } from "../edit/use-carry.js";
+import type { PlanEventDrop } from "../edit/event-drag.js";
 import { resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
@@ -88,19 +89,25 @@ export function GridSeparators({ styles }: { styles: Styles }) {
  * target AND this row's KIND accepts drops (see `DROPPABLE_KINDS`): a library
  * card, where the row's series declares `edit.create`, and a moved run, chip,
  * tile or mark of the row's item type, where it declares a move's fields
- * (#825).
+ * (#825); and, on an event kind's row, the event kinds' drags (#1196).
  */
 export interface PlanRowDrop {
     /** The canvas's DnD surface — its declared id, or one of its own when it declares none (#825). */
     surface: string;
-    /** Whether a card reaches the canvas — from its own library panel's tabs (#1259), or from a Library beside it
-     *  that its `sources` lists under its declared `id`; with neither the surface serves its own elements' moves
-     *  alone, and a row that only takes cards registers no cell. */
+    /** Whether a card reaches `data`'s rows — from the canvas's own library panel's tabs (#1259), or from a Library
+     *  beside it that its `sources` lists under its declared `id`; with neither, a row of `data`'s that only takes
+     *  cards registers no cell. */
     cards: boolean;
+    /** The libraries whose cards land on `data`'s rows: the panel's author tabs', and the `sources` its `id` names. */
+    libraries: ReadonlySet<string>;
+    /** Whether `data`'s session takes a gesture now (#880): its rows take moves, and cards. */
+    data: boolean;
     /** The canvas's veto over its IR `canDrop` (`useIRCanDrop`), asked of the
      *  candidate event the drag's CURRENT bucket would produce — its duplicate
      *  flag included. */
     canDrop?: DropVeto | undefined;
+    /** The event kinds' drag and drop (#1196): what lands on their rows, its verdict and the ghost's words. */
+    events?: PlanEventDrop | undefined;
 }
 
 export interface RowShellProps {
@@ -223,24 +230,41 @@ export function RowShell({
     // for an end dragged, of that end — and the landing band spans the extent
     // it would take. A row takes one only when its items are the element's
     // item type (`accepts`); any other row is no destination at all.
+    //
+    // An event kind's row (#1196) takes the event kinds' drags instead: a
+    // template or a backlog card at the bucket under the pointer, an author's
+    // card on the event under it, and an event's element by its kind — and the
+    // event kinds judge each, say what lands where on the ghost, and size the
+    // band (`edit/event-drag.ts`).
     const edit = usePlanEdit();
     const store = edit?.store;
     const moves = row.edits.move.type === "some" ? row.edits.move.value : undefined;
+    // An event kind's row (#1196): the resource it stands for, which the event
+    // kinds' drags land on — their verdict, the ghost's words and the band.
+    const events = drop?.events;
+    const eventTarget = useMemo(() => events?.target(row), [events, row]);
     const plotElRef = useRef<HTMLElement | null>(null);
     /** The pointer as a window fraction of this row's plot. */
     const fracAt = useCallback((clientX: number): number => {
         const rect = plotElRef.current?.getBoundingClientRect();
         return rect !== undefined && rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
     }, []);
-    /** Where a moved element lands on this row, with the pointer at `clientX` — told to the store. */
+    /** Where a moved element lands on this row, with the pointer at `clientX` — told to the store, with the units it moved by. */
     const landing = useCallback((clientX: number) => {
         const grab = store?.grab;
         if (store === undefined || grab === null || grab === undefined) return undefined;
-        const span = proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, fracAt(clientX), store.shift);
-        store.propose({ rowKey: row.key, span });
+        const frac = fracAt(clientX);
+        const span = proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, frac, store.shift);
+        store.propose({ rowKey: row.key, span, units: unitsBetween(scale, grab.grabFrac, frac, store.shift), fine: store.shift });
         return { grab, span };
     }, [store, scale, fracAt, row.key]);
-    const resolveCoord = useCallback((clientX: number, _clientY: number, payload: DragPayload): CellCoord => {
+    /** The event element under a point in this row's plot, by its key — where an author's card lands (#1196, PB63). */
+    const eventAt = useCallback((clientX: number, clientY: number): string | undefined => {
+        const hit = document.elementFromPoint(clientX, clientY)?.closest(PLAN_EVENT_ELEMENT_SELECTOR);
+        if (hit === null || hit === undefined || plotElRef.current?.contains(hit) !== true) return undefined;
+        return hit.getAttribute("data-run") ?? hit.getAttribute("data-event") ?? hit.getAttribute("data-chip") ?? hit.getAttribute("data-mark") ?? undefined;
+    }, []);
+    const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
         const surface = drop?.surface ?? "";
         if (payload.kind !== "item") {
             const at = landing(clientX);
@@ -254,18 +278,38 @@ export function RowShell({
         // drop past the truncation point can never land at a wrong instant.
         const bi = scale.bucketAtFrac(fracAt(clientX));
         const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
-        return { surface, row: row.key, slot: bucket !== undefined ? toPlanSlot(bucket.start) : "" };
-    }, [scale, drop?.surface, row.key, landing, fracAt]);
-    /** Whether this row takes what is dragged at all — a card where its series makes one, an element of its item type. */
+        const slot = bucket !== undefined ? toPlanSlot(bucket.start) : "";
+        // An author's card lands on the event under the pointer (#1196): the coordinate names it.
+        const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;
+        return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
+    }, [scale, drop?.surface, row.key, landing, fracAt, eventTarget, events, eventAt]);
+    /** The landing the store holds for this row, when the drag rests on it — what the event kinds judge an element by. */
+    const landingHere = useCallback((): PlanProposal | undefined => {
+        const proposal = store?.proposal;
+        return proposal !== null && proposal !== undefined && proposal.rowKey === row.key ? proposal : undefined;
+    }, [store, row.key]);
+    /**
+     * Whether this row takes what is dragged at all — a card where its series
+     * makes one, an element of its item type; on an event kind's row, the
+     * event kinds' cards and elements (#1196).
+     */
     const accepts = useCallback((payload: DragPayload): boolean => {
-        if (payload.kind === "item") return row.edits.drop && drop?.cards === true;
+        if (payload.kind === "item") {
+            return (eventTarget !== undefined && events?.takesCard(payload.from.library) === true)
+                || (row.edits.drop && drop?.cards === true && drop.libraries.has(payload.from.library));
+        }
         const grab = store?.grab;
-        if (moves === undefined || grab === null || grab === undefined) return false;
+        if (grab === null || grab === undefined) return false;
         // The press armed what is dragged: the same element, from its row.
         if (payload.from.event !== grab.movable.key || payload.from.row !== grab.movable.rowKey) return false;
+        // An event kind's element lands on the event kinds' rows, by its kind (#1196).
+        if (events?.isEvent(grab.movable) === true) {
+            return eventTarget !== undefined && (payload.kind !== "edge" || row.key === grab.movable.rowKey);
+        }
+        if (moves === undefined || drop?.data !== true) return false;
         // An end moves along its own row only (the layer holds an edge there too).
         return payload.kind === "edge" ? row.key === grab.movable.rowKey : moves.items === grab.movable.items;
-    }, [store, moves, row.edits.drop, row.key, drop]);
+    }, [store, moves, row.edits.drop, row.key, drop, eventTarget, events]);
     // The registered coord is the row at its FIRST bucket: it is what the
     // drag-start sweep asks about, before the drag rests anywhere. A row the
     // predicate can only ever refuse never lights up as a candidate, instead of
@@ -291,8 +335,28 @@ export function RowShell({
         // row lands here only when none of this row's elements has its key.
         if (candidate.type === "move" && candidate.value.from.row !== row.key
             && candidate.value.from.event.type === "some" && holdsKey(row, candidate.value.from.event.value)) return false;
+        // An event kind's row is the event kinds' to judge (#1196): a card at the
+        // bucket — or on the event — under the pointer, an element where the
+        // landing put it (before it rests here, by the kinds alone).
+        if (eventTarget !== undefined && events !== undefined) {
+            if (candidate.type === "add") {
+                const into = candidate.value.into;
+                return events.card(row, candidate.value.from, into.slot, getSomeorUndefined(into.event)).allowed;
+            }
+            const grab = store?.grab;
+            if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return false;
+            return events.element(row, grab.movable, landingHere()).allowed;
+        }
         return drop.canDrop?.(candidate) ?? true;
-    }, [drop, row]);
+    }, [drop, row, eventTarget, events, store, landingHere]);
+    /** What the ghost says while the drag rests here (#1187): on an event kind's row, what lands where, or why not (#1196). */
+    const caption = useCallback((coord: CellCoord, payload: DragPayload): string | undefined => {
+        if (eventTarget === undefined || events === undefined) return undefined;
+        if (payload.kind === "item") return events.card(row, payload.from, coord.slot, coord.event).caption;
+        const grab = store?.grab;
+        if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return undefined;
+        return events.element(row, grab.movable, landingHere()).caption;
+    }, [eventTarget, events, row, store, landingHere]);
 
     // ── The landing band ──────────────────────────────────────────────────
     // While a card is over this row, show WHERE it would come to rest. The
@@ -310,7 +374,7 @@ export function RowShell({
     const dragActive = useDragLayerOptional()?.active === true;
     const previewRef = useRef<HTMLDivElement | null>(null);
     const previewTextRef = useRef<HTMLSpanElement | null>(null);
-    const positionPreview = useCallback((clientX: number, _clientY: number, payload: DragPayload) => {
+    const positionPreview = useCallback((clientX: number, clientY: number, payload: DragPayload) => {
         const el = previewRef.current;
         if (el === null) return;
         if (payload.kind !== "item") {
@@ -330,9 +394,20 @@ export function RowShell({
         const bi = scale.bucketAtFrac(fracAt(clientX));
         const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
         if (bucket === undefined) return;
+        // On an event kind's row (#1196) the band spans what the drop makes —
+        // a template's event for its duration, a backlog event for its own — or
+        // the event an author's card lands on.
+        const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;
+        const span = eventTarget !== undefined ? events?.card(row, payload.from, toPlanSlot(bucket.start), event).span : undefined;
+        if (span !== undefined) {
+            const { left, right } = spanFracs(scale, span);
+            el.style.left = `${left * 100}%`;
+            el.style.width = `${(right - left) * 100}%`;
+            return;
+        }
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
-    }, [scale, landing, fracAt, edit, words]);
+    }, [scale, landing, fracAt, edit, words, eventTarget, events, eventAt, row]);
 
     // A keyboard drag rests at bucket centres, the announcements name the row
     // and its bucket — or, for a moved element, the span it would take — in
@@ -345,18 +420,22 @@ export function RowShell({
             return scale.buckets.map((b) => rect.left + ((b.x0 + b.x1) / 2) * rect.width);
         },
         name: (coord, payload) => {
+            // An event kind's row is named by the resource it stands for (#1196) — a way
+            // of drawing after a resource's first is labelled with its kinds' names.
+            const label = (eventTarget !== undefined ? events?.where(row) : undefined) ?? gutter.label;
             const proposal = store?.proposal;
             if (payload.kind !== "item" && store?.grab != null && proposal != null && proposal.rowKey === row.key) {
-                return words.m.list({ parts: [gutter.label, spanWords(scale, store.grab.movable, proposal.span, words)] });
+                return words.m.list({ parts: [label, spanWords(scale, store.grab.movable, proposal.span, words)] });
             }
             const bucket = scale.buckets.find((b) => toPlanSlot(b.start) === coord.slot);
             return bucket !== undefined
-                ? words.m.list({ parts: [gutter.label, scale.bucketText(bucket)] })
-                : gutter.label;
+                ? words.m.list({ parts: [label, scale.bucketText(bucket)] })
+                : label;
         },
         onHover: positionPreview,
         accepts,
-    }), [scale, words, gutter.label, positionPreview, accepts, store, row.key]);
+        caption,
+    }), [scale, words, gutter.label, positionPreview, accepts, caption, store, row, eventTarget, events]);
     // The keyboard carry (#825) lands here: the landing band at the extent it
     // would take, lit — or refused — as a drag's destination is.
     const noSubscribe = useCallback(() => () => undefined, []);

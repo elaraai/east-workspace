@@ -70,6 +70,7 @@ type Styles = Record<string, Record<string, unknown>>;
  * possible, the predicate is what this particular canvas permits. And a row
  * takes a card only where its series declares where one lands (`edit`,
  * #880): its row arrives flagged `edits.drop`, and the drop drafts its entry.
+ * An event kind's row of these kinds takes the event kinds' drags (#1196).
  */
 export const DROPPABLE_KINDS: ReadonlySet<string> = new Set(["span", "buckets", "events", "cards"]);
 
@@ -252,10 +253,13 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         // a chart / heat / table row is inert to a drag by construction,
         // not by predicate (see `DROPPABLE_KINDS`) — and of those, only a
         // row whose series declares where a card lands (#880), on a canvas a
-        // card can reach, or what a moved element writes (#825). A diagnostic
-        // row places nothing, so nothing can land on it either.
+        // card can reach, or what a moved element writes (#825), while its
+        // session takes a gesture; or an event kind's row, which the event
+        // kinds' drags land on (#1196). A diagnostic row places nothing, so
+        // nothing can land on it either.
         drop: DROPPABLE_KINDS.has(kind.type) && diagnostic === undefined
-            && ((v.row.edits.drop && rowDrop?.cards === true) || v.row.edits.move.type === "some")
+            && ((v.row.edits.drop && rowDrop?.cards === true) || (v.row.edits.move.type === "some" && rowDrop?.data === true)
+                || rowDrop?.events?.target(v.row) !== undefined)
             ? rowDrop : undefined,
         draft,
         grid,

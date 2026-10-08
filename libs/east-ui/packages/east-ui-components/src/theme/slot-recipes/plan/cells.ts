@@ -15,7 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
-import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const cellsSlots = [
@@ -339,6 +339,8 @@ export const cellsBase = {
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "bg.surface", color: "{colors.status.warn}" },
         }),
+        // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
+        ...planElementDrafted,
         // An event in an overlap pair (#1198): the warn ring — a confirmed
         // chip keeps its inset brand ring inside it.
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },

@@ -19,6 +19,7 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { useState } from "react";
+import { StringType, equalFor } from "@elaraai/east";
 import {
     DragLayerProvider,
     useDragTarget,
@@ -29,6 +30,7 @@ import {
     useDragEventEdge,
     type CellCoord,
     type DragEventValue,
+    type DragMeta,
     type DragPayload,
     type DragTargetConfig,
     type DropVeto,
@@ -1045,5 +1047,89 @@ describe("the ghost's caption (#1187)", () => {
         expect(caption()).toEqual({ text: "cho pm", refused: false });
         fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
         expect(caption()).toBeNull();
+    });
+});
+
+describe("returns to a library (#1196)", () => {
+    const stringEqual = equalFor(StringType);
+    /** The event a return carries back, by its key. */
+    const returned = (e: DragEventValue) => (e.type === "remove" && e.value.from.event.type === "some" ? e.value.from.event.value : undefined);
+    /** The caption under the ghost, or `null` while the ghost goes alone. */
+    const caption = () => {
+        const el = document.querySelector("[data-drag-caption]");
+        return el === null ? null : { text: el.textContent, refused: el.hasAttribute("data-refused") };
+    };
+
+    test("a surface naming its returns: its elements return to those libraries alone, each return vetted and captioned — red where refused — with no trash zone, and the library named on delivery", () => {
+        const events: DragEventValue[] = [];
+        const metas: (DragMeta | undefined)[] = [];
+        // The backlog takes `s1` back; `s2` is of a kind with no backlog.
+        const config: DragTargetConfig = {
+            id: "roster", sources: ["people"], kinds: { add: true, move: true, remove: true, trash: false },
+            returns: {
+                libraries: ["backlog"],
+                canDrop: (e) => stringEqual(returned(e) ?? "", "s1"),
+                caption: (e, library, allowed) => `${returned(e) ?? "?"} → ${library}${allowed ? "" : ": no backlog"}`,
+            },
+            onDrag: (e, meta) => { events.push(e); metas.push(meta); },
+        };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={config} />
+                <Chip surface="roster" row="patel" slot="mon" event="s1" />
+                <Chip surface="roster" row="patel" slot="tue" event="s2" />
+                <LibraryFrame id="backlog" />
+                <LibraryFrame id="people" />
+            </DragLayerProvider>,
+        );
+        const backlog = getByTestId("library-backlog");
+        const people = getByTestId("library-people");
+        // `s2` over the backlog: refused, said in red.
+        engage(getByTestId("chip-s2"), backlog);
+        expect(backlog.hasAttribute("data-drop-valid")).toBe(true);
+        expect(backlog.hasAttribute("data-drop-invalid")).toBe(true);
+        expect(backlog.hasAttribute("data-drop-active")).toBe(false);
+        expect(caption()).toEqual({ text: "s2 → backlog: no backlog", refused: true });
+        expect(announced()).toBe("Return to backlog does not take s2.");
+        // Nothing of the surface's is thrown away: no trash zone.
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+        // The library it takes cards from is no place its elements return to.
+        expect(people.hasAttribute("data-drop-valid")).toBe(false);
+        pointAt(people);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: 20, clientY: 20 });
+        expect(people.hasAttribute("data-drop-active")).toBe(false);
+        expect(caption()).toBeNull();
+        // Let go over the backlog: asked once more, and refused.
+        pointAt(backlog);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 30 });
+        expect(events).toHaveLength(0);
+        expect(announced()).toBe("s2 was not dropped.");
+        // `s1` over the backlog: taken, said, and delivered as a return to its source, the library named.
+        engage(getByTestId("chip-s1"), backlog);
+        expect(backlog.hasAttribute("data-drop-active")).toBe(true);
+        expect(caption()).toEqual({ text: "s1 → backlog", refused: false });
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        const e = sole(events);
+        expect(e.type).toBe("remove");
+        if (e.type === "remove") expect(e.value.to.type).toBe("source");
+        expect(metas).toEqual([{ library: "backlog" }]);
+        expect(caption()).toBeNull();
+    });
+
+    test("left out, an element returns to every library the surface takes cards from, and the trash zone shows while one is carried", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: (e) => events.push(e) }} />
+                <Chip surface="roster" row="patel" slot="mon" event="s1" />
+                <LibraryFrame id="people" />
+            </DragLayerProvider>,
+        );
+        engage(getByTestId("chip-s1"), getByTestId("library-people"));
+        expect(document.querySelector("[data-drag-trash]")).not.toBeNull();
+        expect(getByTestId("library-people").hasAttribute("data-drop-active")).toBe(true);
+        expect(caption()).toBeNull();
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        expect(sole(events).type).toBe("remove");
     });
 });

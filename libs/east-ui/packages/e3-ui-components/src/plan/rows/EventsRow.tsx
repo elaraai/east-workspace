@@ -17,7 +17,9 @@
  * a reader.
  *
  * On a row whose series declares a move's fields (#825) a mark moves to
- * another instant, or another row of its item type, by its glyph.
+ * another instant, or another row of its item type, by its glyph; an event
+ * kind's mark moves its event (#1196), and wears the brand tint's ring while
+ * its drafts change it.
  */
 
 import { useMemo } from "react";
@@ -29,6 +31,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
+import { usePlanElementDrafted } from "./element-draft.js";
 import { markName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -74,6 +77,8 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const select = usePlanElementSelect(rowKey, mark.key, ref);
     // An event in an overlap pair wears the warn ring (#1198).
     const overlap = usePlanElementOverlap(mark.key);
+    // An event its drafts changed wears the brand tint's ring (#1196).
+    const drafted = usePlanElementDrafted(mark.key);
     // Every glyph is the same button to a reader (#819) — and, where it
     // moves, the same draggable (#825).
     const common = {
@@ -85,6 +90,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         "data-dragging": carried ? "" : undefined,
         "data-selected": select.selected ? "" : undefined,
         "data-overlap": overlap ? "" : undefined,
+        "data-draft": drafted ? "" : undefined,
         "aria-pressed": select.selectable ? select.selected : undefined,
     } as const;
     // ── R4 (#591) ──

@@ -105,6 +105,18 @@ export interface PlanChrome {
      * author tabs let their cards drag by it.
      */
     takesCards: boolean;
+    /**
+     * Whether the event kinds' cards have a row to land on (#1196): an event
+     * kind's row on the canvas, outside the narrow layout. The Events and
+     * Backlog tabs' cards drag by it.
+     */
+    takesEvents: boolean;
+    /**
+     * The event kinds with an event drawn on the canvas (#1196), outside the
+     * narrow layout: an author's tab whose `drop` patch lands on one of them
+     * lets its cards drag, to set it on an event (PB63).
+     */
+    patchKinds: ReadonlySet<string>;
 }
 
 /** What the canvas hands the frame it renders in. */

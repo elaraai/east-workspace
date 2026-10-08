@@ -21,7 +21,9 @@
  *
  * On a row whose series declares a move's fields (#825) a bar moves: the
  * pointer drags it, or one of its two end handles, and Space picks it up for
- * the keyboard (`edit/`).
+ * the keyboard (`edit/`). An event kind's bar moves and resizes its event
+ * (#1196), and wears the brand tint in a brand border while its drafts change
+ * it (`data-draft`).
  */
 
 import { useMemo } from "react";
@@ -37,6 +39,7 @@ import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
+import { usePlanElementDrafted } from "./element-draft.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SpanKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "span" }>["value"];
@@ -100,6 +103,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
     const select = usePlanElementSelect(rowKey, run.key, ref);
     // An event in an overlap pair wears the warn ring (#1198).
     const overlap = usePlanElementOverlap(run.key);
+    // An event its drafts changed wears the brand tint in a brand border (#1196).
+    const drafted = usePlanElementDrafted(run.key);
     return (
         <Box
             css={styles.bar}
@@ -107,6 +112,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
             data-state={stateKey}
             data-stuck={stuck ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
+            data-draft={drafted ? "" : undefined}
             data-runoff={runoff ? "" : undefined}
             // A collapsed parent's bars are the geometry's rollup height —
             // the recipe's, as every bar height is (#817, #1258).

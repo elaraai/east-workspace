@@ -416,6 +416,20 @@ describe("every gesture is one transaction (PB43)", () => {
         await press(historyButton(container, UNDO));
         expect([bar(container, "J-1001"), shift(container, "SH-01"), stop(container, "S-01")].every((node) => node !== null)).toBe(true);
     });
+
+    test("the bulk edit over events sharing their state and their resource shows both, and stands as they change together (PB39)", async () => {
+        const { container } = mount(programOf(ex.planPrintWorks));
+        await settle();
+        await select(bar(container, "J-1001")!);
+        await select(bar(container, "J-1002")!, true);
+        const trigger = (key: string) => pane(container).querySelector(`[data-field='${key}'] [data-scope=select][data-part=trigger]`)?.textContent ?? null;
+        // Both actual, both on Press A1: the form shows what they share.
+        expect([trigger("state"), trigger("resource")]).toEqual(["actual", "Press A1"]);
+        // An hour on, together: the form reads them again and still shows it — each field an Option, compared as one.
+        await press(action(container, "shift:1hour"));
+        expect(pending(container)).toBe("2 pending");
+        expect([trigger("state"), trigger("resource")]).toEqual(["actual", "Press A1"]);
+    });
 });
 
 // ============================================================================
