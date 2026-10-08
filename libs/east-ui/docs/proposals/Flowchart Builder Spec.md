@@ -348,10 +348,15 @@ library={[
 
 Each data tab reads its rows as `Sheet.library.tab` does: an `Array<T>` or a
 `Dict<String, T>`, with accessors `(row, key) => …`, a key that repeats keeping
-its first card. `states`' and `transitions`' names default to `States` and
-`Transitions`. A `states` drop is the new state's fields over its defaults; a
-`transitions` drop sets fields on the transition it lands on; a `tab` drop's
-type picks what it lands on: a state, a transition, a lane or a decision.
+its first card. Each tab takes its own bound data, apart from the flows (the
+record or `data`) and from the other tabs (the user, 2026-10-08): an input's
+rows or a record's, read where the surface is built, so a commit to one moves
+that tab's cards alone and keeps the flows' drafts. `states`' and
+`transitions`' names default to `States` and `Transitions`, in the flowchart's
+words, so a host translates them. A `states` drop is the new state's fields
+over its defaults; a `transitions` drop sets fields on the transition it lands
+on; a `tab` drop's type picks what it lands on: a state, a transition, a lane
+or a decision.
 
 ### 4.3 `Flowchart.value`, `Flowchart.values` and `Flowchart.over`
 
@@ -388,8 +393,10 @@ Each names the prop and the remedy:
   one flow (`data` of `Flowchart.Types.Flow`), a data tab whose rows are
   neither an Array nor a `Dict<String, T>`, a `states` drop over another type
   than `Flowchart.Types.State`, a `transitions` drop over another type than
-  `Flowchart.Types.Link` or one that sets `key`, `from` or `to`, and a `tab`
-  drop over none of the four row types;
+  `Flowchart.Types.Link`, and a `tab` drop over none of the four row types. A
+  `transitions` card whose drop sets `key`, `from` or `to` is refused as the
+  tab's cards are read, naming the tab, the card and the field: the fields a
+  patch sets are values its rows give, which the build cannot see (#1248);
 - in `Flowchart.value` and `Flowchart.values`: two states, links, lanes or
   decisions of one key in a flow, a state naming no lane the flow has, a link
   naming a decision the flow doesn't have.
@@ -442,9 +449,11 @@ FlowchartPayloadType = StructType({
 
 FlowchartLibraryTabType = VariantType({
     flows:       NullType,
-    states:      FlowchartCardsType,                   // each card's fields: the State patch it sets, as cells of the state's fields
-    transitions: FlowchartCardsType,                   // the Link patch it sets
-    tab:         StructType({ name: StringType, lands: OptionType(VariantType({ state, transition, lane, decision })), cards: … }),
+    states:      StructType({ name: OptionType(StringType), icon: OptionType(StringType), cards: ArrayType(StateCard) }),       // each card { key, label, meta, group, sets: Patch(State) }; no name, the renderer's `States`
+    transitions: StructType({ name: OptionType(StringType), icon: OptionType(StringType), cards: ArrayType(TransitionCard) }),  // sets: Patch(Link); no name, `Transitions`
+    tab:         StructType({ name: StringType, icon: OptionType(StringType), lands: VariantType({                               // its cards by what they land on
+        none: ArrayType(Card), state: ArrayType(StateCard), transition: ArrayType(TransitionCard), lane: ArrayType(LaneCard), decision: ArrayType(DecisionCard),
+    }) }),
 });
 
 FlowchartComponent = EastUI.component("Flowchart", FlowchartPayloadType, { optional: true });
@@ -534,11 +543,14 @@ target by its box or by its halo (`coarseHitArea`), never by growing the row.
 - **A Flows card**: the flow's name 13px 600, and under it its description, or
   its counts in mono 10px (`4 lanes · 9 states · 11 transitions`); the open
   flow is placed; a flow with pending drafts carries a Pending chip.
-- **A state card**: a grip, the template's label, its meta in mono 10px, the
-  tab's icon in its tile, grouped by `group`.
-- **A transition card**: a grip, a 28px swatch of the stroke its drop gives
-  (solid ink, or dashed info for observed; a diamond with the decision's letter
-  when it sets one), its label, its meta.
+- **A state card**: the Library's compact card — a grip, the template's label,
+  its meta under it, the tab's icon in its tile, grouped by `group`.
+- **A transition card**: as a state card — a grip, its label, its meta, the
+  tab's icon in its tile (#1248). Every icon is a Font Awesome solid icon, never
+  a drawn shape, so the card draws no swatch of the stroke its drop gives; the
+  author's `meta` says what it sets.
+- **An author's card**: as a state card, with no grip while its tab declares
+  no `drop`.
 - **The inspector**: as the Sheet's, its head naming what is selected in mono
   caps (`STATE · SRT`, `TRANSITION · SRT → LDD`, `DECISION · R`, `LANE ·
   SORT`).

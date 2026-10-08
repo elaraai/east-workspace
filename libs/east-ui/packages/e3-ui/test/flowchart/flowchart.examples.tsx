@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { Box, Drawer, Meter, Reactive, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -75,6 +75,30 @@ export const handoverFlow = e3.input("flowchart_handover", Flowchart.Types.Flow,
     triggers: [{ key: "attempt", label: "attempt", owner: "driver" }],
 })));
 
+// The library's rows (#1248): each tab its own bound data, apart from the
+// flows and from the other tabs — the step types an input's rows, the
+// transition types a record's rows by name, and the roles that own a decision
+// another input's.
+export const StepTemplate = StructType({ code: StringType, name: StringType, kind: StringType, slots: OptionType(IntegerType) });
+export const stepTemplates = e3.input("flowchart_step_templates", ArrayType(StepTemplate), variant("value", [
+    { code: "ARV", name: "Arrived", kind: "Intake", slots: none },
+    { code: "SCN", name: "Scanned", kind: "Intake", slots: none },
+    { code: "CH*", name: "Sort chutes", kind: "Sort", slots: some(12n) },
+    { code: "HLD", name: "Held", kind: "Hold", slots: none },
+    { code: "LDD", name: "Loaded", kind: "Load", slots: none },
+]));
+export const MoveTemplate = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType), note: StringType });
+export const moveTemplates = e3.record("flowchart_move_templates", DictType(StringType, MoveTemplate), new Map([
+    ["Observed", { kind: variant("observed", null), decision: none, note: "Mined from the scans" }],
+    ["Planned", { kind: variant("planned", null), decision: none, note: "The designed path" }],
+    ["Routed", { kind: variant("planned", null), decision: some("route"), note: "Governed by the route decision" }],
+]));
+export const DecisionOwner = StructType({ role: StringType, name: StringType, desk: StringType });
+export const decisionOwners = e3.input("flowchart_decision_owners", ArrayType(DecisionOwner), variant("value", [
+    { role: "sort-planner", name: "Sort planner", desk: "Sort hall" },
+    { role: "customs-desk", name: "Customs desk", desk: "Hold bay" },
+]));
+
 export const flowchartFlows = example({
     keywords: ["Flowchart", "record", "Flows", "Flowchart.values", "Record.bind", "flow", "many flows", "e3.record", "Flowchart.library.flows", "Flows tab", "New flow"],
     description: "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first and the Flows tab listing every flow",
@@ -84,6 +108,58 @@ export const flowchartFlows = example({
             return (
                 <Box height="500px">
                     <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * The library (#1248): the Flows tab, then the step types, the transition
+ * types and the roles that own a decision — each tab its own bound data,
+ * apart from the flows and from the other tabs: an input's rows, a record's
+ * rows by name, another input's. Each template card is a drag source, as is
+ * each of the author's cards, whose tab declares a `drop`; a click selects a
+ * card, and a click on the selected card lets it go.
+ */
+export const flowchartLibrary = example({
+    keywords: ["Flowchart", "library", "Flowchart.library.states", "Flowchart.library.transitions", "Flowchart.library.tab", "templates", "state templates", "transition templates", "author's tab", "bound data", "Data.bind", "Record.bind", "drag", "cards", "Flowchart.patch"],
+    description: "A record of flows with its library — the Flows tab, step types from an input's rows, transition types from a record's rows by name, and the author's own cards — each tab its own bound data, each card a drag source a click selects",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+            const steps = $.let(Data.bind(stepTemplates));
+            const moves = $.let(Record.bind(moveTemplates, []));
+            const owners = $.let(Data.bind(decisionOwners));
+            return (
+                <Box height="560px">
+                    <Flowchart
+                        record={flows}
+                        flow="Inbound parcels"
+                        name="depot"
+                        library={[
+                            Flowchart.library.flows(),
+                            // Step types, an input's rows: a card dropped on a lane adds a state seeded with what its drop sets.
+                            Flowchart.library.states(steps.read(), {
+                                name: "Steps", icon: "box",
+                                key: s => s.code, label: s => s.name, meta: s => some(s.code), group: s => s.kind,
+                                drop: s => Flowchart.patch(Flowchart.Types.State, { key: s.code, label: some(s.name), members: s.slots }),
+                            }),
+                            // Transition types, a record's rows by name: a card dropped on a transition retypes it.
+                            Flowchart.library.transitions(moves.read(), {
+                                icon: "arrow-right",
+                                key: (_m, name) => name, label: (_m, name) => name, meta: m => some(m.note),
+                                drop: m => Flowchart.patch(Flowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
+                            }),
+                            // The author's own cards: a role dropped on a decision owns it.
+                            Flowchart.library.tab(owners.read(), {
+                                name: "Owners", icon: "user-tie",
+                                key: o => o.role, label: o => o.name, meta: o => some(o.desk),
+                                drop: o => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(o.role) }),
+                            }),
+                        ]}
+                    />
                 </Box>
             );
         }}</Reactive>

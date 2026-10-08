@@ -4,7 +4,7 @@
  */
 
 /**
- * The Flowchart (#1243–#1247): the state-transition flowchart, e3-ui's as the
+ * The Flowchart (#1243–#1248): the state-transition flowchart, e3-ui's as the
  * Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows from
  * an e3 record of flows by name, or from the host — flows by name, or one
  * flow — and returns its payload through the `Flowchart` carrier, which
@@ -17,7 +17,9 @@
  *   written as literals and checked when the package builds.
  * - `over.ts` — `Flowchart.over`, one flow from an app's own tables.
  * - `patch.ts` — `Flowchart.patch`, a patch over one of a flow's rows.
- * - `library.ts` — `Flowchart.library`, the library pane's tabs: the Flows tab.
+ * - `library.ts` — `Flowchart.library`, the library pane's tabs — the Flows
+ *   tab, the state and transition templates and the author's tabs, each
+ *   reading its own rows — and their wire.
  * - `canvas.ts` — the canvas: what the flowchart draws its flow with.
  * - `payload.ts` — the payload, its carrier, the shared keys, the props and
  *   their refusals.
@@ -28,23 +30,26 @@
 
 import { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
 import { FlowchartCanvasType } from "./canvas.js";
-import { FlowchartLibraryFactories, type FlowchartLibrary } from "./library.js";
+import {
+    FlowchartCardType,
+    FlowchartDecisionCardType,
+    FlowchartLandsType,
+    FlowchartLaneCardType,
+    FlowchartLibraryFactories,
+    FlowchartLibraryTabType,
+    FlowchartStateCardType,
+    FlowchartTransitionCardType,
+    type FlowchartLibrary,
+} from "./library.js";
 import { flowchartOver } from "./over.js";
 import { FlowchartPatchTypeFor, flowchartPatch } from "./patch.js";
 import {
-    FlowchartCardType,
     FlowchartComponent,
     FlowchartDataType,
-    FlowchartDecisionCardType,
     FlowchartFlowsHandleType,
-    FlowchartLandsType,
-    FlowchartLaneCardType,
-    FlowchartLibraryTabType,
     FlowchartPayloadType,
     FlowchartSessionApplyType,
     FlowchartSourceType,
-    FlowchartStateCardType,
-    FlowchartTransitionCardType,
     createFlowchartPayload,
 } from "./payload.js";
 import {
@@ -83,29 +88,41 @@ export {
 } from "./over.js";
 export { FlowchartPatchTypeFor, flowchartPatch, type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput } from "./patch.js";
 export {
+    FlowchartCardType,
+    FlowchartDecisionCardType,
+    FlowchartLandsType,
+    FlowchartLaneCardType,
     FlowchartLibraryFactories,
+    FlowchartLibraryTabType,
+    FlowchartStateCardType,
+    FlowchartTransitionCardType,
     libraryFlows,
+    libraryStates,
+    libraryTab,
+    libraryTransitions,
+    type FlowchartAuthorTab,
+    type FlowchartCardAccessors,
+    type FlowchartFlowsTab,
     type FlowchartLibrary,
+    type FlowchartLibraryRows,
     type FlowchartLibraryTab,
     type FlowchartOneFlowLibraryTab,
+    type FlowchartStatesConfig,
+    type FlowchartStatesTab,
+    type FlowchartTabConfig,
+    type FlowchartTransitionsConfig,
+    type FlowchartTransitionsTab,
 } from "./library.js";
 export {
-    FlowchartCardType,
     FlowchartComponent,
     FlowchartDataType,
-    FlowchartDecisionCardType,
     FlowchartFlowApplyType,
     FlowchartFlowsApplyType,
     FlowchartFlowsHandleType,
     FlowchartHistoryType,
-    FlowchartLandsType,
-    FlowchartLaneCardType,
-    FlowchartLibraryTabType,
     FlowchartPayloadType,
     FlowchartSessionApplyType,
     FlowchartSourceType,
-    FlowchartStateCardType,
-    FlowchartTransitionCardType,
     createFlowchartPayload,
     flowchartKeys,
     type FlowchartBindHandle,
@@ -216,6 +233,15 @@ const MEMBERS = {
  *   too, kept under its `name`. Where it edits, "+ New flow" names a new
  *   flow, opened empty with one lane; each flow keeps its own drafts until
  *   the history item saves or discards them.
+ * - **Its library** (#1248): the tabs `library` lists, in its order, each with
+ *   its count and a search — the Flows tab; state templates
+ *   (`Flowchart.library.states(rows, …)`) and transition templates
+ *   (`Flowchart.library.transitions(rows, …)`), each card a drag source; and
+ *   the author's own cards (`Flowchart.library.tab(rows, …)`), a drag source
+ *   when the tab declares a `drop`. Each data tab reads its own rows — an
+ *   input's or a record's, an Array or a `Dict<String, T>` — apart from the
+ *   flows and from the other tabs. A click selects a card, and a click on the
+ *   selected card lets it go; an empty tab says so in the shared empty state.
  * - **Its edits** are its editing session's (#1247): over a record, and over
  *   `data` given `onApply`, every gesture — "+ LANE", a lane's header renamed
  *   or its × (off while the lane holds states), the "+ STATE" ghost, a state
@@ -250,7 +276,11 @@ const MEMBERS = {
  *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
  *   it fills sets; a callback for an edit (`onAddState`, `onCreateLink`, …)
  *   or `linkMode`, which the session's gestures replace; a library that lists
- *   a tab twice, or the Flows tab over one flow.
+ *   a tab twice — the Flows tab or a template tab, or two of the author's
+ *   tabs of one name — or the Flows tab over one flow; a data tab whose rows
+ *   are neither an Array nor a `Dict<String, T>`; a `states` drop over
+ *   another type than a state's patch, a `transitions` drop over another than
+ *   a transition's, and a `tab` drop over none of a flow's row types.
  *
  * The closed-set fields in data (`kind`, `orientation`) are typed variant
  * values, `Flowchart.Types.*`.

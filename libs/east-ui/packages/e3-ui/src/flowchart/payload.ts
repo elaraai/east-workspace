@@ -29,8 +29,10 @@
  * one transaction of its editing session, and each callback it took before is
  * refused when the surface is built, naming the remedy.
  *
- * Its library's tabs are the `Flowchart.library.*` calls `library` lists
- * (`library.ts`), on the wire in that order.
+ * Its library's tabs are the `Flowchart.library.*` calls `library` lists, on
+ * the wire in that order: `library.ts` builds each — the Flows tab, and the
+ * template and author's tabs, each card read from the tab's own rows — and
+ * makes the library's refusals (#1248).
  *
  * @packageDocumentation
  */
@@ -44,7 +46,6 @@ import {
     East,
     Expr,
     FunctionType,
-    NullType,
     OptionType,
     PatchType,
     StringType,
@@ -66,127 +67,8 @@ import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EastUI, Editing } from "@elaraai/east-ui";
 import { Record as RecordBind, RecordOutcomeType } from "../bind/record.js";
 import { buildCanvas, FlowchartCanvasType, type FlowchartCanvasOptions, type FlowchartSliceOptions } from "./canvas.js";
-import type { FlowchartLibraryTab } from "./library.js";
-import { FlowchartPatchTypeFor } from "./patch.js";
-import {
-    FlowchartFlowType,
-    FlowchartFlowsType,
-    FlowchartLaneType,
-    FlowchartLinkType,
-    FlowchartStateType,
-    FlowchartTriggerType,
-} from "./types.js";
-
-// ============================================================================
-// The library's tabs on the wire
-// ============================================================================
-
-/**
- * A card a library tab lists that drops nothing: an author's card read, never
- * dragged.
- *
- * @property key - Its identity in its tab
- * @property label - Its title
- * @property meta - A line under its title
- * @property group - The group its tab lists it under
- */
-export const FlowchartCardType = StructType({
-    key: StringType,
-    label: StringType,
-    meta: OptionType(StringType),
-    group: OptionType(StringType),
-});
-
-/** Type representing {@link FlowchartCardType}. */
-export type FlowchartCardType = typeof FlowchartCardType;
-
-/**
- * A state template's card: what it shows, and the fields of the state it
- * adds, over a state's defaults — the `Flowchart.patch(Flowchart.Types.State, …)`
- * its drop returns.
- */
-export const FlowchartStateCardType = StructType({
-    ...FlowchartCardType.fields,
-    sets: FlowchartPatchTypeFor(FlowchartStateType),
-});
-
-/** Type representing {@link FlowchartStateCardType}. */
-export type FlowchartStateCardType = typeof FlowchartStateCardType;
-
-/**
- * A transition template's card: what it shows, and the fields it sets on the
- * transition it lands on — the `Flowchart.patch(Flowchart.Types.Link, …)` its
- * drop returns.
- */
-export const FlowchartTransitionCardType = StructType({
-    ...FlowchartCardType.fields,
-    sets: FlowchartPatchTypeFor(FlowchartLinkType),
-});
-
-/** Type representing {@link FlowchartTransitionCardType}. */
-export type FlowchartTransitionCardType = typeof FlowchartTransitionCardType;
-
-/** An author's card that lands on a lane's header, and the lane's fields it sets. */
-export const FlowchartLaneCardType = StructType({
-    ...FlowchartCardType.fields,
-    sets: FlowchartPatchTypeFor(FlowchartLaneType),
-});
-
-/** Type representing {@link FlowchartLaneCardType}. */
-export type FlowchartLaneCardType = typeof FlowchartLaneCardType;
-
-/** An author's card that lands on a decision's diamond, and the decision's fields it sets. */
-export const FlowchartDecisionCardType = StructType({
-    ...FlowchartCardType.fields,
-    sets: FlowchartPatchTypeFor(FlowchartTriggerType),
-});
-
-/** Type representing {@link FlowchartDecisionCardType}. */
-export type FlowchartDecisionCardType = typeof FlowchartDecisionCardType;
-
-/**
- * An author's tab's cards, by what they land on — the type of the patch its
- * `drop` returns — each card with the fields it sets there.
- *
- * @property none - The tab declares no `drop`: its cards are read, never dragged
- * @property state - Its cards land on a state
- * @property transition - Its cards land on a transition
- * @property lane - Its cards land on a lane's header
- * @property decision - Its cards land on a decision's diamond
- */
-export const FlowchartLandsType = VariantType({
-    none: ArrayType(FlowchartCardType),
-    state: ArrayType(FlowchartStateCardType),
-    transition: ArrayType(FlowchartTransitionCardType),
-    lane: ArrayType(FlowchartLaneCardType),
-    decision: ArrayType(FlowchartDecisionCardType),
-});
-
-/** Type representing {@link FlowchartLandsType}. */
-export type FlowchartLandsType = typeof FlowchartLandsType;
-
-/**
- * One tab of the library pane, as `library` lists it (`Flowchart Builder
- * Spec.md` §4.2).
- *
- * @remarks
- * A card crosses the closed payload as the fields its drop sets, typed by the
- * row it lands on — a flow's rows are the flowchart's own types.
- *
- * @property flows - Every flow in the record; a click opens one
- * @property states - State templates from bound rows: its name, its icon and its cards
- * @property transitions - Transition templates from bound rows: its name, its icon and its cards
- * @property tab - The author's own cards: its name, its icon, and its cards by what they land on
- */
-export const FlowchartLibraryTabType = VariantType({
-    flows: NullType,
-    states: StructType({ name: StringType, icon: OptionType(StringType), cards: ArrayType(FlowchartStateCardType) }),
-    transitions: StructType({ name: StringType, icon: OptionType(StringType), cards: ArrayType(FlowchartTransitionCardType) }),
-    tab: StructType({ name: StringType, icon: OptionType(StringType), lands: FlowchartLandsType }),
-});
-
-/** Type representing {@link FlowchartLibraryTabType}. */
-export type FlowchartLibraryTabType = typeof FlowchartLibraryTabType;
+import { FlowchartLibraryTabType, buildLibrary } from "./library.js";
+import { FlowchartFlowType, FlowchartFlowsType } from "./types.js";
 
 // ============================================================================
 // Where the flows come from
@@ -574,39 +456,6 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
     return { many, source: variant("data", variant(many ? "flows" : "flow", { value, apply: some(apply) })) };
 }
 
-/** How a tab names itself in a refusal. */
-function tabName(tab: FlowchartLibraryTab): string {
-    return `Flowchart.library.${tab.kind}()`;
-}
-
-/**
- * The library pane on the wire (`Flowchart Builder Spec.md` §4.2, FB16): its
- * tabs in the order `library` lists them; none when it is left out.
- *
- * @param library - The tabs, each a `Flowchart.library.*` call
- * @param many - Whether the flowchart holds flows by name, rather than one flow
- * @returns The tabs on the wire
- * @throws {Error} Naming the tab and the remedy: a `library` that is no list
- *   of `Flowchart.library.*` calls, a tab listed twice, and the Flows tab over
- *   one flow
- */
-function buildLibrary(library: unknown, many: boolean): ValueTypeOf<FlowchartLibraryTabType>[] {
-    if (library === undefined) return [];
-    const LIST = "Flowchart: `library` lists the library pane's tabs, each a Flowchart.library.* call — library={[Flowchart.library.flows()]}";
-    if (!Array.isArray(library)) throw new Error(LIST);
-    const seen = new Set<string>();
-    return (library as unknown[]).map((given): ValueTypeOf<FlowchartLibraryTabType> => {
-        const tab = given as FlowchartLibraryTab | null | undefined;
-        if (tab === null || tab === undefined || tab.kind !== "flows") throw new Error(LIST);
-        if (seen.has(tab.kind)) throw new Error(`Flowchart: the library lists ${tabName(tab)} twice — each tab once`);
-        seen.add(tab.kind);
-        if (!many) {
-            throw new Error(`Flowchart: ${tabName(tab)} lists flows by name, and this \`data\` is one flow, Flowchart.Types.Flow — leave the Flows tab out of \`library\`, or pass the flows by name`);
-        }
-        return variant("flows", null);
-    });
-}
-
 /**
  * Creates the flowchart's payload alone — what `<Flowchart>` returns through
  * the `Flowchart` carrier — for the tests and the renderer's fixtures, which
@@ -622,8 +471,10 @@ function buildLibrary(library: unknown, many: boolean): ValueTypeOf<FlowchartLib
  *   `data`'s type; `"brush"` among the affordances; a table or row mapper,
  *   which `Flowchart.over` takes; `height` or `maxHeight`, which the box the
  *   flowchart fills sets; a callback for an edit, or `linkMode`, which the
- *   editing session's gestures replace; and a `library` that lists a tab
- *   twice, or the Flows tab over one flow
+ *   editing session's gestures replace; and each of the library's refusals
+ *   (`library.ts`'s `buildLibrary`): a tab listed twice, the Flows tab over
+ *   one flow, a data tab's rows of neither an Array nor a `Dict<String, T>`,
+ *   and a `drop` of another type than its tab's
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {

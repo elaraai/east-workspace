@@ -163,7 +163,7 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
-// The Flowchart (#1243–#1247): the state-transition flowchart a solution
+// The Flowchart (#1243–#1248): the state-transition flowchart a solution
 // mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
 // transitions, decision triggers and evidence-weighted strokes, over a record
 // of flows or the host's flow, in its frame, its library and inspector panes
@@ -173,7 +173,9 @@ export {
 // `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
-    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab,
+    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows,
+    type FlowchartFlowsTab, type FlowchartStatesTab, type FlowchartTransitionsTab, type FlowchartAuthorTab,
+    type FlowchartCardAccessors, type FlowchartStatesConfig, type FlowchartTransitionsConfig, type FlowchartTabConfig,
     type FlowchartCanvasOptions, type FlowchartSliceOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
     type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
     type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,

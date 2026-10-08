@@ -26,8 +26,14 @@
  * plus beside its word — no `+` or `×` drawn as text. A gesture there is a
  * draft of the e3 the page runs: ⌘Z undoes it and ⇧⌘Z redoes it from the
  * canvas, the footer counts it, and Save commits it through the record's
- * patch mutation. Every measurement is polled until it holds, on a page at
- * rest.
+ * patch mutation. The library's other tabs (#1248), on the depot's flows with
+ * its library: the tabs `library` lists — the Flows tab, the step types, the
+ * transition types and the author's owners — in its order with their counts,
+ * folded to fit the pane's row, every tab on the row or in its `+n` menu and
+ * none under the collapse control; each tab's cards inside the pane, each with
+ * its tab's Font Awesome icon and, where it drags, Font Awesome's grip; and on
+ * a phone the pane opened from its rail, which counts the first tab's cards.
+ * Every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-flows`.
@@ -460,6 +466,155 @@ test.describe("The Flowchart's Flows tab on a phone (#1246)", () => {
                 });
             });
             expect(lands).toEqual([true, true, true, true]);
+        });
+    }
+});
+
+// ── The library's other tabs (#1248) ───────────────────────────────────────
+
+const LIBRARY_HASH = "e3/flowchart/flowchart/flowchartLibrary";
+
+/** The tabs the depot's library lists, in its order, each with its count. */
+const LIBRARY_TABS = ["Flows 2", "Steps 5", "Transitions 3", "Owners 2"];
+
+/** Each tab's cards, as its rows give them: each its key, its tab's icon, and Font Awesome's grip where it drags. */
+const LIBRARY_CARDS: Record<string, { key: string; icon: string; grip: string | null }[]> = {
+    // The flows: no grip — a click opens one.
+    Flows: [
+        { key: "Inbound parcels", icon: "fas diagram-project", grip: null },
+        { key: "Returns", icon: "fas diagram-project", grip: null },
+    ],
+    // The step types, by their kind: Intake, Sort, Hold, Load.
+    Steps: ["ARV", "SCN", "CH*", "HLD", "LDD"].map((key) => ({ key, icon: "fas box", grip: "fas grip-vertical" })),
+    // The transition types, a record's rows by name.
+    Transitions: ["Observed", "Planned", "Routed"].map((key) => ({ key, icon: "fas arrow-right", grip: "fas grip-vertical" })),
+    // The roles that own a decision, the author's own cards.
+    Owners: ["sort-planner", "customs-desk"].map((key) => ({ key, icon: "fas user-tie", grip: "fas grip-vertical" })),
+};
+
+/** Open the depot's flows with its library, at rest, and return the flowchart's root. */
+async function openLibrary(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
+    await page.goto(`/?theme=${theme}#${LIBRARY_HASH}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${LIBRARY_HASH}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-builder-frame] [data-flowchart-node]").first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry.locator("[data-flowchart-root]").first();
+}
+
+/**
+ * The library pane as the page lays it out: where the pane is and how wide
+ * its sheet; its tab row — the tabs on it, the open one, its fold and its `+n`
+ * menu, and any of them starting before the row or running under its collapse
+ * control; the open tab's cards — each its key, its tile's icon, its grip, and
+ * whether it sits inside the pane's sides — and what is drawn past the sheet's
+ * sides.
+ */
+function libraryOf(root: Locator) {
+    return root.evaluate((el) => {
+        const round = (n: number) => Math.round(n * 10) / 10;
+        const slot = el.querySelector("[data-frame-slot='start']")!;
+        const sheet = slot.firstElementChild!.getBoundingClientRect();
+        const pane = slot.querySelector("[data-orientation][data-side][data-surface]")!;
+        const header = pane.firstElementChild!;
+        const toggle = header.querySelector(":scope > button[aria-expanded]");
+        const row = header.getBoundingClientRect();
+        const end = toggle === null ? row.right : toggle.getBoundingClientRect().left;
+        const tabs = [...header.querySelectorAll("[role='tab']")];
+        const more = header.querySelector("[data-dock-more]");
+        const icon = (svg: Element | null) => (svg === null ? null : `${svg.getAttribute("data-prefix")} ${svg.getAttribute("data-icon")}`);
+        const panel = pane.querySelector("[role='tabpanel']:not([hidden])");
+        const p = panel?.getBoundingClientRect();
+        return {
+            mode: slot.getAttribute("data-pane-mode"),
+            sheet: round(sheet.width),
+            tabs: tabs.map((t) => t.textContent),
+            open: tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? null,
+            fold: header.querySelector("[role='tablist']")?.getAttribute("data-fold") ?? null,
+            more: more === null ? null : more.textContent,
+            runs: [...tabs, ...(more === null ? [] : [more])].flatMap((t) => {
+                const b = t.getBoundingClientRect();
+                return b.left < row.left - 0.5 || b.right > end + 0.5 ? [t.textContent] : [];
+            }),
+            cards: panel === null || p === undefined ? [] : [...panel.querySelectorAll("[data-library-item]")].map((card) => {
+                const c = card.getBoundingClientRect();
+                return {
+                    key: card.getAttribute("data-library-item"),
+                    icon: icon(card.querySelector(":scope > div > svg")),
+                    grip: icon(card.querySelector("[data-drag-grip] svg")),
+                    inside: c.width > 0 && c.left >= p.left - 0.5 && c.right <= p.right + 0.5 && c.left >= sheet.left - 0.5 && c.right <= sheet.right + 0.5,
+                };
+            }),
+            past: [...slot.firstElementChild!.querySelectorAll("*")].filter((e) => {
+                const r = e.getBoundingClientRect();
+                return r.width > 0 && (r.left < sheet.left - 0.5 || r.right > sheet.right + 0.5);
+            }).map((e) => `${e.tagName.toLowerCase()} ${e.getAttribute("data-slot") ?? e.getAttribute("data-library-item") ?? ""}`.trim()),
+        };
+    });
+}
+
+/** Opens a library tab by its name: on the row, or from the `+n` menu — failing where it is neither. */
+async function openLibraryTab(page: Page, root: Locator, name: string): Promise<void> {
+    const onRow = root.locator("[data-frame-slot='start'] [role='tab']", { hasText: new RegExp(`^${name}( |$)`) });
+    if (await onRow.count() > 0) await onRow.click();
+    else {
+        await root.locator("[data-frame-slot='start'] [data-dock-more]").click();
+        await page.getByRole("menuitem", { name: new RegExp(`^${name}( |$)`) }).click();
+        await expect(page.locator("[role='menu']")).toHaveCount(0);
+    }
+    await settled(page);
+}
+
+/**
+ * The library's tab row — the tabs on it in the library's order, the rest
+ * counted by its `+n`, none past the row — and each tab, opened in turn from
+ * the row or the menu, its cards inside the pane with their icons and grips.
+ */
+async function expectEveryTab(page: Page, root: Locator): Promise<void> {
+    const read = await libraryOf(root);
+    // The row's tabs in the library's order, the open one among them; the menu counts the rest.
+    expect(read.tabs).toEqual(LIBRARY_TABS.filter((tab) => read.tabs.includes(tab)));
+    expect(read.tabs).toContain(read.open);
+    const folded = LIBRARY_TABS.length - read.tabs.length;
+    expect(read.more).toBe(folded > 0 ? `+${folded}` : null);
+    expect(read.runs).toEqual([]);
+    for (const [name, cards] of Object.entries(LIBRARY_CARDS)) {
+        await openLibraryTab(page, root, name);
+        await expect.poll(async () => (await libraryOf(root)).open).toBe(LIBRARY_TABS.find((tab) => tab.startsWith(`${name} `)));
+        const tab = await libraryOf(root);
+        expect(tab.cards.map(({ key, icon, grip }) => ({ key, icon, grip })), name).toEqual(cards);
+        expect(tab.cards.filter((card) => !card.inside).map((card) => card.key), `${name}: cards past the pane`).toEqual([]);
+        expect([tab.runs, tab.past], name).toEqual([[], []]);
+    }
+}
+
+test.describe("The Flowchart's library (#1248)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width; the phone's below");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`pinned open beside the canvas: the tabs \`library\` lists, in its order with their counts, every one on the row or in its +n menu and none under the collapse control; each tab's cards inside the pane, with its Font Awesome icon and, where it drags, the grip (${theme})`, async ({ page }) => {
+            const root = await openLibrary(page, theme);
+            await sizeTo(page, root, 1200);
+            await expect.poll(async () => { const read = await libraryOf(root); return [read.mode, read.sheet]; }).toEqual(["pinned", PANE]);
+            await expectEveryTab(page, root);
+        });
+    }
+});
+
+test.describe("The Flowchart's library on a phone (#1248)", () => {
+    test.skip(({ isMobile }) => !isMobile, "the phone projects");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`opened from its rail — which counts the first tab's cards — over main: every tab on the row or in its +n menu, none under the collapse control; each tab's cards inside the pane, with its icon and grip (${theme})`, async ({ page }) => {
+            const root = await openLibrary(page, theme);
+            // Collapsed, the pane is its rail: its icon, the first tab's — the flows' — count and its name.
+            await expect.poll(() => root.locator("[data-frame-slot='start'] [title='Library']")
+                .evaluate((rail) => [...rail.children].map((part) => part.textContent))).toEqual(["", "2", "Library"]);
+            await root.getByRole("button", { name: "Expand Library" }).click();
+            await settled(page);
+            await expect.poll(async () => (await libraryOf(root)).mode).toBe("overlay");
+            await expectEveryTab(page, root);
         });
     }
 });

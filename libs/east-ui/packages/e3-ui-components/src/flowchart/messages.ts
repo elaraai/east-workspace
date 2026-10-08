@@ -4,11 +4,13 @@
  */
 
 /**
- * The Flowchart's words (#1246, #1247) — its Flows tab's, its "+ New flow"
+ * The Flowchart's words (#1246–#1248) — its Flows tab's, its "+ New flow"
  * popover's, its empty state's and its banner's; its gestures' — "+ LANE", a
  * lane's ×, the "+ STATE" ghost, each gesture's name in the history, the
- * issue two of one key raise — and its footer's changes waiting on Save —
- * beside the editing session's own (`EditingMessages`), which its history
+ * issue two of one key raise — its footer's changes waiting on Save, and its
+ * library pane's — the pane's name, a template tab's name when its author
+ * gives none, each data tab's empty state, its search's noun and its grouping
+ * — beside the editing session's own (`EditingMessages`), which its history
  * item and banners speak, as the Sheet's and the query builder's tables carry
  * them. A host translates the flowchart where it translates the session.
  *
@@ -26,6 +28,9 @@ export interface FlowchartCount {
     /** The number, printed in the app's locale. */
     readonly count: string;
 }
+
+/** A tab of the library pane that reads rows of its own (#1248): the state templates, the transition templates, or one of the author's. */
+export type FlowchartLibraryTabWord = "states" | "transitions" | "tab";
 
 /** The Flowchart's message table: its own words, and the editing session's. */
 export interface FlowchartMessages extends EditingMessages {
@@ -71,6 +76,18 @@ export interface FlowchartMessages extends EditingMessages {
     duplicateKey: (p: { what: FlowKeyKind; key: string }) => string;
     /** The footer's changes waiting on Save (FB10) — `3 pending`. */
     footerPending: (p: { n: number; count: string }) => string;
+    /** The library pane's name: its rail's label and its toggle's words (#1248). */
+    libraryPane: () => string;
+    /** A template tab's name, when its author gives none — `States`, `Transitions` (#1248). */
+    libraryTab: (p: { tab: Exclude<FlowchartLibraryTabWord, "tab"> }) => string;
+    /** A data tab's empty state: its title — `No templates`, `Nothing in Owners` (FB28); `name` is an author's tab's. */
+    libraryEmpty: (p: { tab: FlowchartLibraryTabWord; name: string }) => string;
+    /** The line under it. */
+    libraryEmptyHint: (p: { tab: FlowchartLibraryTabWord; name: string }) => string;
+    /** What a data tab's search box counts its cards as — `template`, `templates`. */
+    libraryNoun: (p: { tab: FlowchartLibraryTabWord; n: number }) => string;
+    /** What a data tab's cards are grouped by: its grouping control's words. */
+    libraryGroupBy: () => string;
     /**
      * The banner while `flow` names a flow the flowchart doesn't hold (FB42):
      * the name asked for, and the flow shown in its place, when there is one —
@@ -129,7 +146,15 @@ export const flowchartMessages: FlowchartMessages = {
     editLabel: ({ edit }) => EDIT_LABELS[edit],
     duplicateKey: ({ what, key }) => `Two ${ROWS[what]} are keyed ${quoted(key)}`,
     footerPending: ({ count }) => `${count} pending`,
-    flowMissing: ({ name, shown }) => (shown === undefined ? `${name} isn't a flow here` : `${name} isn't a flow here — showing ${shown}`),
+    libraryPane: () => "Library",
+    libraryTab: ({ tab }) => (tab === "states" ? "States" : "Transitions"),
+    libraryEmpty: ({ tab, name }) => (tab === "tab" ? `Nothing in ${name}` : "No templates"),
+    libraryEmptyHint: ({ tab, name }) => (tab === "states" ? "No state template to drag onto a lane."
+        : tab === "transitions" ? "No transition template to drag onto a transition."
+            : `${name} lists nothing yet.`),
+    libraryNoun: ({ tab, n }) => (tab === "tab" ? plural(n, "card", "cards") : plural(n, "template", "templates")),
+    libraryGroupBy: () => "Group",
+    flowMissing:({ name, shown }) => (shown === undefined ? `${name} isn't a flow here` : `${name} isn't a flow here — showing ${shown}`),
 };
 
 /** The words a flowchart speaks: its message table, and its locale's formatters. */
