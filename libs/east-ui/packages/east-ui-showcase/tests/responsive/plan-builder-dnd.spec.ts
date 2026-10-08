@@ -25,85 +25,13 @@
  * `pnpm exec playwright test plan-builder-dnd`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
-import { openExample, rowSel } from "./plan-page";
+import { test, expect } from "playwright/test";
+import { PLAN_EVENT_EXAMPLES, openExample, rowSel } from "./plan-page";
+import { PRESS_A1 as A1, PRINT_WORKS_DAYS as DAYS, boxOf, centre, dayOf, libraryOf, openCards, openPrintWorks as open, pickUp, regionAt } from "./plan-builder-page";
 import { settled } from "./settle";
 
 /** The event kinds' examples file (#1191). */
-const EVENTS = "e3/plan/plan-events";
-
-/** Press A1's bars. */
-const A1 = rowSel("presses.span", "Hall A", "a1");
-
-/** The print works' window: four weeks, a day a bucket. */
-const DAYS = 28;
-
-/** The frame's start pane: the library. */
-const libraryOf = (entry: Locator) => entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='start']");
-
-/** The cards of a pane's open tab. */
-const openCards = (pane: Locator) => pane.locator('[role="tabpanel"]:not([hidden]) [data-library-item]');
-
-/** A locator's box — it must be laid out. */
-async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-    const box = await locator.boundingBox();
-    if (box === null) throw new Error("not laid out");
-    return box;
-}
-
-/** A locator's centre, in client px. */
-async function centre(locator: Locator): Promise<{ x: number; y: number }> {
-    const box = await boxOf(locator);
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-}
-
-/** The middle of a day of a plot, its window's day 0 Monday 5 October. */
-async function dayOf(plot: Locator, day: number): Promise<{ x: number; y: number }> {
-    const box = await boxOf(plot);
-    return { x: box.x + ((day + 0.5) / DAYS) * box.width, y: box.y + box.height / 2 };
-}
-
-/** The frame's region at a point — `main`, or a pane's side — or `null` outside the frame. */
-function regionAt(page: Page, at: { x: number; y: number }): Promise<string | null> {
-    return page.evaluate(({ x, y }) =>
-        document.elementFromPoint(x, y)?.closest("[data-frame-slot]")?.getAttribute("data-frame-slot") ?? null, at);
-}
-
-/** Sets the box the Plan fills to a width, and waits for the page to be at rest. */
-async function sizeTo(page: Page, entry: Locator, width: number): Promise<void> {
-    await entry.locator("[data-plan-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-    await settled(page);
-}
-
-/**
- * The print works at rest, 70px under its scroller's top, so a drag stays
- * clear of the page's edge bands: in a box 760px wide its library overlays
- * main, 1440px wide it is pinned beside it — opened from its rail when it
- * rests there. A box 1440px wide is drawn in a window wide enough to hold it
- * left of the page's own "On this page" column.
- */
-async function open(page: Page, placement: "overlay" | "pinned", theme: "light" | "dark" = "light"): Promise<Locator> {
-    if (placement === "pinned") await page.setViewportSize({ width: 1920, height: 1080 });
-    const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
-    await sizeTo(page, entry, placement === "overlay" ? 760 : 1440);
-    await entry.locator("[data-plan-frame]").evaluate((frame) => {
-        frame.scrollIntoView({ block: "start" });
-        let scroller = frame.parentElement;
-        while (scroller !== null && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) {
-            scroller = scroller.parentElement;
-        }
-        if (scroller !== null) scroller.scrollTop -= 70;
-    });
-    await settled(page);
-    const pane = libraryOf(entry);
-    if (await pane.getAttribute("data-collapsed") !== null) {
-        await entry.locator("[data-builder-frame]").first().getByRole("button", { name: "Expand Library" }).click();
-    }
-    await expect(pane).not.toHaveAttribute("data-collapsed", "");
-    await expect(pane).toHaveAttribute("data-pane-mode", placement);
-    await settled(page);
-    return entry;
-}
+const EVENTS = PLAN_EVENT_EXAMPLES;
 
 /**
  * An element's fill and its top and left borders, beside the brand's tint, ink
@@ -129,15 +57,6 @@ function lookOf(el: Element) {
 
 /** The links example's dispatch bay: its tiles, the deliveries. */
 const BAY = rowSel("bays.buckets", "bay");
-
-/** Press a node and carry it past the drag's 4px threshold — the drag is in flight. */
-async function pickUp(page: Page, node: Locator): Promise<{ x: number; y: number }> {
-    const at = await centre(node);
-    await page.mouse.move(at.x, at.y);
-    await page.mouse.down();
-    await page.mouse.move(at.x + 12, at.y + 12, { steps: 3 });
-    return at;
-}
 
 test.describe("the Plan builder's drag and drop (#1196)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "dragged at the desktop width; a phone's canvas is its narrow layout, read below");

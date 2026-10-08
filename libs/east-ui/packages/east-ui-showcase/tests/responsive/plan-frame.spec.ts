@@ -30,9 +30,9 @@
  * `pnpm exec playwright test plan-frame`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { test, expect, type Locator } from "playwright/test";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
-import { PLAN_EXAMPLES, openExample, rowSel } from "./plan-page";
+import { PLAN_EXAMPLES, openExample, planBox, remount, rowSel, sizeBox, toolbarLadderFaults } from "./plan-page";
 import { settled } from "./settle";
 
 /** The event kinds' examples file (#1191). */
@@ -49,9 +49,6 @@ const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly strin
     { name: "planLibrary", file: EVENTS, panes: ["start"] },
     { name: "planNarrow", file: PLAN_EXAMPLES },
 ];
-
-/** The rail's clusters: every step of theirs folds before any of the Plan's own. */
-const RAIL = ["cluster", "range"];
 
 /** The canvas's own scroller in main: the rows' bounded viewport, or the narrow layout's list. */
 const SCROLLER = "[data-frame-slot='main'] [data-virtual-rows='bounded'], [data-frame-slot='main'] [data-slot='narrowList']";
@@ -112,12 +109,6 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
         }
         return { bad, toolbar: band !== null };
     }, panes);
-}
-
-/** Sets the box the frame fills to a width, and waits for the page to be at rest. */
-async function sizeTo(page: Page, box: Locator, width: number): Promise<void> {
-    await box.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-    await settled(page);
 }
 
 test.describe("the Plan's frame (#1193)", () => {
@@ -206,55 +197,13 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         test(`${name}: one 44px row from 1440px to 360px — nothing past its edge, nothing scrolled — folded as far as its own ladder says, the rail first and the history last, never less at a narrower frame`, async ({ page }) => {
             test.setTimeout(120_000);
             const entry = await openExample(page, name, file);
-            const box = entry.locator("[data-plan-frame]").first().locator("xpath=..");
-            const toolbar = entry.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar]");
-            const bad: string[] = [];
-            let last: { keys: string; folds: number } | undefined;
-            for (const width of [1440, 1280, 1024, 900, 768, 640, 560, 480, 420, 360]) {
-                await sizeTo(page, box, width);
-                const at = await toolbar.evaluate((row) => {
-                    const band = row.closest("[data-frame-slot='toolbar']")!.getBoundingClientRect();
-                    const items = [...row.children].map((el) => el.getBoundingClientRect());
-                    return {
-                        state: row.getAttribute("data-toolbar-state") ?? "",
-                        ladder: row.getAttribute("data-toolbar-ladder") ?? "",
-                        folds: Number(row.getAttribute("data-toolbar-folds")),
-                        band: Math.round(band.height),
-                        inBand: items.every((b) => b.top >= band.top - 0.5 && b.bottom <= band.bottom + 0.5),
-                        scrolls: row.scrollWidth > row.clientWidth + 0.5,
-                        fits: items.every((b) => b.right <= row.getBoundingClientRect().right + 0.5),
-                    };
-                });
-                if (at.band !== 44 || !at.inBand || at.scrolls || !at.fits) {
-                    bad.push(`at ${width}px: band ${at.band}px, ${at.inBand ? "" : "an item out of the band, "}${at.scrolls ? "scrolled, " : ""}${at.fits ? "" : "past the row's edge"} — ${at.state}`);
-                }
-                const state = new Map(at.state.split(";").filter((p) => p !== "").map((p) => {
-                    const [key, of] = p.split("=");
-                    return [key!, Number(of!.split("/")[0])] as const;
-                }));
-                const ladder = at.ladder.split(" ").filter((s) => s !== "").map((s) => s.split(">")[0]!);
-                // What it folded is its ladder's first steps, each item at the form they put it.
-                for (const [key, form] of state) {
-                    const want = ladder.slice(0, at.folds).filter((k) => k === key).length;
-                    if (form !== want) bad.push(`at ${width}px: ${key} at form ${form}, where the ladder's first ${at.folds} steps put it at ${want}`);
-                }
-                // The rail's steps first; the history's last.
-                const firstOwn = ladder.findIndex((k) => !RAIL.includes(k));
-                if (firstOwn >= 0 && ladder.slice(firstOwn).some((k) => RAIL.includes(k))) bad.push(`at ${width}px: a rail step after the Plan's own — ${at.ladder}`);
-                if (ladder.includes("history") && ladder[ladder.length - 1] !== "history") bad.push(`at ${width}px: the history item folds before the last step — ${at.ladder}`);
-                // Never less folded at a narrower frame with the same items (the narrow layout drops the grain).
-                const keys = [...state.keys()].join(",");
-                if (last !== undefined && last.keys === keys && at.folds < last.folds) bad.push(`at ${width}px: ${at.folds} folds, fewer than the wider frame's ${last.folds}`);
-                last = { keys, folds: at.folds };
-            }
-            expect(bad).toEqual([]);
+            expect(await toolbarLadderFaults(page, entry, [1440, 1280, 1024, 900, 768, 640, 560, 480, 420, 360])).toEqual([]);
         });
     }
 
     test("planRowDrop, at 360px: no review in the row — the key search an icon that opens its box in a popover with the focus in it, the history beside it", async ({ page }) => {
         const entry = await openExample(page, "planRowDrop");
-        const box = entry.locator("[data-plan-frame]").first().locator("xpath=..");
-        await sizeTo(page, box, 360);
+        await sizeBox(page, planBox(entry), 360);
         const toolbar = entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']");
         // A Plan approves and rejects nothing (#1260): no review item, no verdict menu.
         await expect(toolbar.locator("[data-toolbar-item='review'], [data-slot='reviewMenu'], [data-review-batch]")).toHaveCount(0);
@@ -316,24 +265,6 @@ async function historyFaults(entry: Locator): Promise<string[]> {
     }, HISTORY_BUTTONS);
 }
 
-/**
- * Leaves the print works' page for another e3 page and comes back to it, in
- * the same page — its e3 kept in memory — so the Plan mounts afresh over what
- * its records hold.
- */
-async function remount(page: Page, name: string): Promise<Locator> {
-    const away = `${PLAN_EXAMPLES}/planTargetState`;
-    await page.evaluate((h) => { location.hash = `#${h}`; }, away);
-    await expect(page.locator("[data-index]", { has: page.locator(`a[href="#${away}"]`) }).locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
-    const hash = `${EVENTS}/${name}`;
-    await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    await expect(entry.locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
-    await settled(page);
-    return entry;
-}
-
 test.describe("the Plan's history over its event kinds (#1194)", () => {
     for (const theme of ["light", "dark"] as const) {
         test(`planPrintWorks (${theme}): the history item ends the toolbar's one 44px row — Undo, Redo, Discard and Save in the shared item's words, every one inside the row, off with nothing drafted — the ladder's last step; the banners under the row take no room`, async ({ page }) => {
@@ -349,7 +280,7 @@ test.describe("the Plan's Save on e3-web (#1194)", () => {
     test("planPrintWorks: a job's customer changed in the inspector is a draft, the field tinted brand; Save commits it to the jobs record on the e3 the page runs — the draft retires, no banner — and the Plan mounted again shows it", async ({ page }) => {
         // The inspector pinned open beside main (#1220), in a box wide enough for both panes.
         const open = async (entry: Locator) => {
-            await sizeTo(page, entry.locator("[data-plan-frame]").first().locator("xpath=.."), 1440);
+            await sizeBox(page, planBox(entry), 1440);
             await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
             await settled(page);
             const frame = entry.locator("[data-builder-frame]").first();
@@ -380,7 +311,7 @@ test.describe("the Plan's Save on e3-web (#1194)", () => {
         await expect(customer.getByRole("textbox")).toHaveValue("Alder & Finch Ltd");
         await expect(frame.locator(":scope > [data-frame-slot='banners'] [data-session-banner]")).toHaveCount(0);
         // Mounted afresh over the record: the job's customer is the one saved.
-        const again = await open(await remount(page, "planPrintWorks"));
+        const again = await open(await remount(page, "planPrintWorks", EVENTS));
         await expect(again.customer.getByRole("textbox")).toHaveValue("Alder & Finch Ltd");
         await expect(again.customer).not.toHaveAttribute("data-dirty", /.*/);
         await expect(again.save).toBeDisabled();
@@ -412,7 +343,7 @@ test.describe("the Plan's inspector (#1197)", () => {
             const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
             // A box wide enough for both panes beside main's 480px: the inspector pinned open, its lines laid out (#1220 —
             // at the desktop project's own width the inspector rests on its rail, and a collapsed pane has nothing to measure).
-            await sizeTo(page, entry.locator("[data-plan-frame]").first().locator("xpath=.."), 1440);
+            await sizeBox(page, planBox(entry), 1440);
             const bar = entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" });
             await bar.click();
             await settled(page);
