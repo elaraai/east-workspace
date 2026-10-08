@@ -106,16 +106,7 @@ const CANVAS: FlowchartCanvasValue = {
     onSelectLink: none,
     onSelectTrigger: none,
     onTracePath: none,
-    linkMode: some(variant("connect", null)),
-    onCreateLink: none,
-    onDeleteLink: none,
     canConnect: none,
-    onAddLane: none,
-    onRenameLane: none,
-    onDeleteLane: none,
-    onAddState: none,
-    onEditState: none,
-    onMoveState: none,
 };
 
 /** A payload over `source`, its canvas the one above. */
@@ -124,7 +115,7 @@ function payload(source: FlowchartValue["source"], open: FlowchartValue["open"] 
 }
 
 /** The host's one flow. */
-const hostFlow = (flow: FlowchartFlowValue): FlowchartValue["source"] => variant("data", variant("flow", { value: flow, onApply: none }));
+const hostFlow = (flow: FlowchartFlowValue): FlowchartValue["source"] => variant("data", variant("flow", { value: flow, apply: none }));
 
 /** The depot's flows by name. */
 const FLOWS = new SortedMap<string, FlowchartFlowValue>([["Sort", sortFlow()], ["Returns", RETURNS]], compareFor(StringType));
@@ -205,14 +196,17 @@ describe("EastChakraFlowchart", () => {
         expect(footerText(container).replace(/\s+/g, "")).toMatch(/^2links/);
     });
 
-    it("the payload's readOnly takes the canvas's edit affordances away", () => {
-        const editable: FlowchartCanvasValue = { ...CANVAS, onAddLane: some(() => null) };
-        const { container } = mount({ ...payload(hostFlow(sortFlow())), canvas: editable });
+    it("the payload's readOnly takes the canvas's edit affordances away, as the host's data without onApply does (#1247)", () => {
+        const { container } = mount(payload(record(), some("Sort")));
         expect(container.querySelector("[data-flowchart-addlane]")).not.toBeNull();
+        expect(container.querySelectorAll("[data-flowchart-lane-delete]")).toHaveLength(2);
         cleanup();
-        const { container: shut } = mount({ ...payload(hostFlow(sortFlow())), canvas: editable, readOnly: true });
-        expect(shut.querySelector("[data-flowchart-addlane]")).toBeNull();
+        const { container: shut } = mount({ ...payload(record(), some("Sort")), readOnly: true });
+        expect(shut.querySelector("[data-flowchart-addlane], [data-flowchart-lane-delete]")).toBeNull();
         expect(stateKeys(shut)).toContain("CH*");
+        cleanup();
+        const { container: hosts } = mount(payload(hostFlow(sortFlow())));
+        expect(hosts.querySelector("[data-flowchart-addlane], [data-flowchart-lane-delete]")).toBeNull();
     });
 
     it("a flowchart without a freshness chip has none on its toolbar, and one over an empty flow has no find state", () => {
@@ -312,7 +306,7 @@ describe("the frame's panes and footer (#1245)", () => {
         expect(older.querySelector("[data-flowchart-saved]")!.textContent).toBe(` · saved ${formatters("en-US").dateTime(before)}`);
         cleanup();
         // Over the host's flows, no save to say.
-        const { container: hosts } = mount(payload(variant("data", variant("flows", { value: FLOWS, onApply: none })), some("Sort")));
+        const { container: hosts } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), some("Sort")));
         expect(hosts.querySelector("[data-flowchart-flow]")!.textContent).toBe("Sort");
         expect(hosts.querySelector("[data-flowchart-saved]")).toBeNull();
     });
@@ -342,14 +336,14 @@ describe("the frame's panes and footer (#1245)", () => {
 
 describe("the flow the source holds (#1244)", () => {
     it("over the host's flows, the canvas shows the flow `open` names", () => {
-        const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, onApply: none })), some("Sort")));
+        const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), some("Sort")));
         expect(stateKeys(container)).toContain("CH*");
         expect(stateKeys(container)).not.toContain("RCV");
     });
 
     it("over many flows, with none named — or one the flows do not hold — the canvas shows the first by name", () => {
         for (const open of [none, some("Gone")]) {
-            const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, onApply: none })), open));
+            const { container } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), open));
             expect(stateKeys(container)).toEqual(["RCV", "INS"]);
             cleanup();
         }

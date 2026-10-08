@@ -15,10 +15,14 @@
  * keyed records); every refusal of §4.4 this child owns, each naming its
  * prop; the tag's forms, type by type; the frame's (#1245): the keys its
  * panes keep their state under, and no height of its own — the flowchart fills
- * the box it is given; and the flows' (#1246): the Flows tab on the wire,
+ * the box it is given; the flows' (#1246): the Flows tab on the wire,
  * refused twice and over one flow, the keys the open flow and LR · TD are
- * kept under, and the editing session's Apply over a record, a keyed batch
- * committed as one patch through the record's patch mutation.
+ * kept under, and the editing session's Save over a record, a keyed batch
+ * committed as one patch through the record's patch mutation; and the
+ * editing's (#1247): over the host's flows, by name or one, the session's Save
+ * handing the host's `onApply` one patch of its own value — by key, never the
+ * whole value replaced — and every callback the flowchart took for an edit
+ * refused, naming the remedy.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -26,7 +30,7 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
     ArrayType, AsyncFunctionType, BooleanType, DictType, East, Expr, FunctionType, IntegerType, NullType, OptionType, PatchType, SortedMap,
-    StringType, StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant,
+    StringType, StructType, applyFor, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, Slice, UIComponentType } from "@elaraai/east-ui";
@@ -440,7 +444,7 @@ describe("the payload (FB6)", () => {
         assert.deepEqual([payload.open, payload.readOnly], [none, true]);
     });
 
-    hostTest("the host's flows — a value, an expression or a bind handle — are the data arm's flows, with its onApply", () => {
+    hostTest("the host's flows — a value, an expression or a bind handle — are the data arm's flows, with the session's Save when the host gives onApply", () => {
         const apply = East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$) => variant("applied", { revision: none }));
         const asValue = carried((_$) => PublicFlowchart({ data: FLOWS, flow: "Inbound parcels" }));
         const asExpr = carried(($) => PublicFlowchart({ data: $.const(FLOWS, FlowsType), onApply: $.const(apply) }));
@@ -449,9 +453,83 @@ describe("the payload (FB6)", () => {
         for (const [form, payload, applies] of [["value", asValue, false], ["expression", asExpr, true], ["bind handle", asHandle, false]] as const) {
             if (payload.source.type !== "data" || payload.source.value.type !== "flows") assert.fail(`${form}: expected the data arm's flows`);
             assert.ok(flowsEqual(payload.source.value.value.value, FLOWS), `${form}: the flows`);
-            assert.equal(payload.source.value.value.onApply.type, applies ? "some" : "none", `${form}: its onApply`);
+            assert.equal(payload.source.value.value.apply.type, applies ? "some" : "none", `${form}: the session's Save`);
         }
         assert.deepEqual(asValue.open, some("Inbound parcels"));
+    });
+
+    hostTest("over the host's flows by name, the session's Save hands the host's onApply one patch of the flows, by name — an update, an insert, a delete — never the whole value replaced (#1247, FB22)", async () => {
+        // The host's commit answers with the patch it was handed, printed, as the revision.
+        const printPatch = printFor(PatchType(FlowsType));
+        const echo = East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult,
+            (_$, patch) => variant("applied", { revision: some(East.print(patch)) }));
+        const payload = carried(($) => PublicFlowchart({ data: FLOWS, onApply: $.const(echo) }));
+        if (payload.source.type !== "data" || payload.source.value.type !== "flows") assert.fail("expected the data arm's flows");
+        const save = payload.source.value.value.apply;
+        if (save.type !== "some") assert.fail("expected the session's Save");
+        const ChangeSet = Editing.Types.ChangeSet(FlowType, StringType);
+        const optionDiff = diffFor(OptionType(FlowType));
+        /** The session's batch over one flow of the host's, as it stood, and as the drafts leave it. */
+        const batchOf = (name: string, before: Flow | undefined, after: Flow | undefined) => encodeBeast2For(ChangeSet)({
+            requestId: `r-${name}`, label: "Save",
+            base: variant("snapshot", new SortedMap(before === undefined ? [] : [[name, before]], compareFor(StringType))),
+            changes: [{ id: name, patch: optionDiff(before === undefined ? none : some(before), after === undefined ? none : some(after)), place: before === undefined ? some(variant("keyOrder", null)) : none }],
+        });
+        // What the host's commit is handed: the diff of its whole value, before the drafts and after — by name.
+        const flowsDiff = diffFor(FlowsType);
+        const applyFlows = applyFor(FlowsType);
+        const hostAfter = (name: string, flow: Flow | undefined): Flows => {
+            const after = new SortedMap(FLOWS, compareFor(StringType));
+            if (flow === undefined) after.delete(name);
+            else after.set(name, flow);
+            return after;
+        };
+
+        // An update: the returns flow's lane renamed — its update by name, which reaches it alone.
+        const renamed: Flow = { ...RETURNS_VALUE, lanes: [{ key: "counter", label: some("Front counter") }] };
+        const update = flowsDiff(FLOWS, hostAfter("Returns", renamed));
+        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, renamed)), variant("applied", { revision: some(printPatch(update)) }));
+        assert.equal(update.type, "patch");
+        assert.ok(flowsEqual(applyFlows(FLOWS, update), hostAfter("Returns", renamed)));
+
+        // An insert: a new flow by name.
+        const night: Flow = { description: none, lanes: [{ key: "lane-1", label: some("Lane 1") }], states: [], links: [], triggers: [] };
+        const insert = flowsDiff(FLOWS, hostAfter("Night shift", night));
+        assert.deepEqual(await save.value(batchOf("Night shift", undefined, night)), variant("applied", { revision: some(printPatch(insert)) }));
+
+        // A delete: the flow by name — its one-flow snapshot emptied, whose own diff would replace the
+        // host's whole value; the host's other flows stay.
+        const removal = flowsDiff(FLOWS, hostAfter("Returns", undefined));
+        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, undefined)), variant("applied", { revision: some(printPatch(removal)) }));
+        assert.equal(removal.type, "patch");
+        assert.deepEqual([...applyFlows(FLOWS, removal).keys()], ["Inbound parcels"]);
+    });
+
+    hostTest("over the host's one flow, the session's Save hands the host's onApply the flow's own patch; adding or removing the flow is refused (#1247, FB22)", async () => {
+        const printPatch = printFor(PatchType(FlowType));
+        const echo = East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult,
+            (_$, patch) => variant("applied", { revision: some(East.print(patch)) }));
+        const payload = carried(($) => PublicFlowchart({ data: INBOUND_VALUE, onApply: $.const(echo) }));
+        if (payload.source.type !== "data" || payload.source.value.type !== "flow") assert.fail("expected the data arm's flow");
+        const save = payload.source.value.value.apply;
+        if (save.type !== "some") assert.fail("expected the session's Save");
+        const ChangeSet = Editing.Types.ChangeSet(FlowType, StringType);
+        const optionDiff = diffFor(OptionType(FlowType));
+        // A state moved to another lane: the flow's patch, and nothing about its entry.
+        const moved: Flow = { ...INBOUND_VALUE, states: [INBOUND_VALUE.states[0]!, { ...INBOUND_VALUE.states[1]!, lane: "intake" }] };
+        const batch = encodeBeast2For(ChangeSet)({
+            requestId: "r-one", label: "Move state", base: variant("snapshot", new SortedMap([["", INBOUND_VALUE]], compareFor(StringType))),
+            changes: [{ id: "", patch: optionDiff(some(INBOUND_VALUE), some(moved)), place: none }],
+        });
+        const patch = diffFor(FlowType)(INBOUND_VALUE, moved);
+        assert.deepEqual(await save.value(batch), variant("applied", { revision: some(printPatch(patch)) }));
+        assert.ok(flowEqual(applyFor(FlowType)(INBOUND_VALUE, patch), moved));
+        // One flow is changed in place: a batch removing it reaches no host.
+        const removal = encodeBeast2For(ChangeSet)({
+            requestId: "r-gone", label: "Delete", base: variant("snapshot", new SortedMap([["", INBOUND_VALUE]], compareFor(StringType))),
+            changes: [{ id: "", patch: optionDiff(some(INBOUND_VALUE), none), place: none }],
+        });
+        assert.deepEqual(await save.value(removal), variant("rejected", [{ entry: "", row: none, field: none, message: "One flow is changed in place: Save never adds or removes it" }]));
     });
 
     hostTest("the host's one flow — Flowchart.over's expression, or a value — is the data arm's flow", () => {
@@ -566,6 +644,23 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
         ["a `library` that is no list of Flowchart.library calls (#1246)", (_$) => ({ data: FLOWS, library: [{ kind: "rows" }] }),
             /^Error: Flowchart: `library` lists the library pane's tabs, each a Flowchart\.library\.\* call — library=\{\[Flowchart\.library\.flows\(\)\]\}$/],
     ];
+    // Every callback the flowchart took for an edit, and `linkMode`, over either source (#1247, FB24).
+    const callbacks: [string, ($: BlockBuilder<NullType>) => unknown][] = [
+        ["linkMode", (_$) => "connect"],
+        ["onCreateLink", ($) => $.const(East.function([StructType({ from: StringType, to: StringType })], NullType, (_$2) => null))],
+        ["onDeleteLink", ($) => $.const(East.function([StringType], NullType, (_$2) => null))],
+        ["onAddLane", ($) => $.const(East.function([], NullType, (_$2) => null))],
+        ["onRenameLane", ($) => $.const(East.function([StructType({ key: StringType, label: StringType })], NullType, (_$2) => null))],
+        ["onDeleteLane", ($) => $.const(East.function([StringType], NullType, (_$2) => null))],
+        ["onAddState", ($) => $.const(East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$2) => null))],
+        ["onEditState", ($) => $.const(East.function([StructType({ key: StringType, code: StringType, label: StringType })], NullType, (_$2) => null))],
+        ["onMoveState", ($) => $.const(East.function([StructType({ key: StringType, lane: StringType })], NullType, (_$2) => null))],
+    ];
+    for (const [callback, given] of callbacks) {
+        const refusal = new RegExp(`^Error: Flowchart: \`${callback}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\`$`);
+        refusals.push([`\`${callback}\` over a record — the session's gestures replace it (#1247, FB24)`, ($) => ({ record: $.let(flowsRecord()), [callback]: given($) }), refusal]);
+        refusals.push([`\`${callback}\` over the host's flow — the session's gestures replace it (#1247, FB24)`, ($) => ({ data: INBOUND_VALUE, [callback]: given($) }), refusal]);
+    }
     for (const [what, props, refusal] of refusals) {
         hostTest(`refuses ${what}`, () => {
             assert.throws(build(props), refusal);
@@ -619,6 +714,10 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ data: INBOUND_VALUE, states: STATE_ROWS });
             // @ts-expect-error — the flowchart fills the box it is given: no height of its own (#1245)
             PublicFlowchart({ data: INBOUND_VALUE, height: "560px" });
+            // @ts-expect-error — every gesture is the editing session's: no callback for an edit (#1247, FB24)
+            PublicFlowchart({ record: flows, onAddState: $.const(East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$2) => null)) });
+            // @ts-expect-error — connecting is the session's whenever the flowchart edits: no link mode (#1247, FB24)
+            PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow, linkMode: "connect" });
         });
     };
     assert.equal(typeof never, "function");

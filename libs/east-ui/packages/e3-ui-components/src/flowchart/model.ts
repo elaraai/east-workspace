@@ -93,6 +93,10 @@ export interface FlowchartModel {
     counts: { total: number; planned: number; observed: number; unresolved: number };
     /** The flow holds no lane, no state and no transition: there is nothing to draw (#1246). A flow of lanes alone — a new one — draws its lanes. */
     blank: boolean;
+    /** How many states each lane holds, by its key — the states naming it (#1247): a lane holding states is not deleted (FB19). */
+    laneStates: ReadonlyMap<string, number>;
+    /** The flow has no lane: `lanes` is one stand-in band, no lane of the flow's, which no gesture renames, deletes or adds a state to (#1247). */
+    standIn: boolean;
 }
 
 /**
@@ -236,6 +240,9 @@ export function buildModel(value: {
         });
     });
 
+    const laneStates = new Map<string, number>();
+    for (const s of value.states) laneStates.set(s.lane, (laneStates.get(s.lane) ?? 0) + 1);
+
     const triggers = new Map<string, ModelTrigger>();
     for (const t of value.triggers) {
         triggers.set(t.key, {
@@ -257,5 +264,7 @@ export function buildModel(value: {
         triggers,
         counts: { total: links.length, planned, observed, unresolved },
         blank: value.lanes.length === 0 && value.states.length === 0 && value.links.length === 0,
+        laneStates,
+        standIn: lanes.length === 0,
     };
 }

@@ -4,16 +4,20 @@
  */
 
 /**
- * The Flowchart's words (#1246) — its Flows tab's, its "+ New flow"
- * popover's, its empty state's and its banner's — beside the editing session's own
- * (`EditingMessages`), which its history item and banners speak, as the
- * Sheet's and the query builder's tables carry them. A host translates the
- * flowchart where it translates the session.
+ * The Flowchart's words (#1246, #1247) — its Flows tab's, its "+ New flow"
+ * popover's, its empty state's and its banner's; its gestures' — "+ LANE", a
+ * lane's ×, the "+ STATE" ghost, each gesture's name in the history, the
+ * issue two of one key raise — and its footer's changes waiting on Save —
+ * beside the editing session's own (`EditingMessages`), which its history
+ * item and banners speak, as the Sheet's and the query builder's tables carry
+ * them. A host translates the flowchart where it translates the session.
  *
  * @packageDocumentation
  */
 
+import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
+import type { FlowKeyKind, FlowchartEdit } from "./edits.js";
 
 /** A count as a message takes it: the number, for its plural, and the number as the locale prints it. */
 export interface FlowchartCount {
@@ -31,7 +35,7 @@ export interface FlowchartMessages extends EditingMessages {
     flowNoun: (p: { n: number }) => string;
     /** A flow's counts, its card's line when it has no description — `4 lanes · 9 states · 11 transitions`. */
     flowCounts: (p: { lanes: FlowchartCount; states: FlowchartCount; transitions: FlowchartCount }) => string;
-    /** The chip on a flow whose drafts are not yet applied. */
+    /** The chip on a flow whose drafts are not yet saved. */
     flowPending: () => string;
     /** The empty state's title, over no flow. */
     flowsEmpty: () => string;
@@ -49,8 +53,24 @@ export interface FlowchartMessages extends EditingMessages {
     createFlow: () => string;
     /** The popover's cancel. */
     cancel: () => string;
-    /** A new flow's one lane's label. */
-    newFlowLane: () => string;
+    /** A new lane's label, by its number — `Lane 3`; a new flow's one lane is `Lane 1`. */
+    newLane: (p: { n: number; count: string }) => string;
+    /** "+ LANE": the word under its plus. */
+    laneWord: () => string;
+    /** "+ LANE"'s accessible name, and its tooltip. */
+    addLane: () => string;
+    /** The "+ STATE" ghost: the word beside its plus. */
+    stateWord: () => string;
+    /** A lane's ×: its accessible name, and its tooltip while it can delete — `Delete lane Sort`. */
+    deleteLane: (p: { label: string }) => string;
+    /** Why a lane's × is off (FB19): the states it holds — `Move its 3 states first`. */
+    laneHoldsStates: (p: { n: number; count: string }) => string;
+    /** A gesture's name in the history, and its Save's (FB17) — `Move state`. */
+    editLabel: (p: { edit: FlowchartEdit }) => string;
+    /** The issue two rows of one kind under one key raise, which holds Save off (FB22) — `Two states are keyed "SCN"`. */
+    duplicateKey: (p: { what: FlowKeyKind; key: string }) => string;
+    /** The footer's changes waiting on Save (FB10) — `3 pending`. */
+    footerPending: (p: { n: number; count: string }) => string;
     /**
      * The banner while `flow` names a flow the flowchart doesn't hold (FB42):
      * the name asked for, and the flow shown in its place, when there is one —
@@ -60,6 +80,26 @@ export interface FlowchartMessages extends EditingMessages {
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
+/** A key as the issue quotes it: East's printing of the string. */
+const quoted = printFor(StringType);
+
+/** Each gesture's name. */
+const EDIT_LABELS: { readonly [E in FlowchartEdit]: string } = {
+    addLane: "Add lane",
+    renameLane: "Rename lane",
+    deleteLane: "Delete lane",
+    addState: "Add state",
+    editState: "Edit state",
+    moveState: "Move state",
+    deleteState: "Delete state",
+    connect: "Connect states",
+    deleteLink: "Delete transition",
+    deleteDecision: "Delete decision",
+};
+
+/** What each kind of row is called, many of them. */
+const ROWS: { readonly [K in FlowKeyKind]: string } = { lane: "lanes", state: "states", transition: "transitions", decision: "decisions" };
 
 /** The English table. */
 export const flowchartMessages: FlowchartMessages = {
@@ -80,7 +120,15 @@ export const flowchartMessages: FlowchartMessages = {
     flowNameTaken: ({ name }) => `${name} is already a flow here.`,
     createFlow: () => "Create flow",
     cancel: () => "Cancel",
-    newFlowLane: () => "Lane 1",
+    newLane: ({ count }) => `Lane ${count}`,
+    laneWord: () => "Lane",
+    addLane: () => "Add lane",
+    stateWord: () => "state",
+    deleteLane: ({ label }) => `Delete lane ${label}`,
+    laneHoldsStates: ({ n, count }) => `Move its ${count} ${plural(n, "state", "states")} first`,
+    editLabel: ({ edit }) => EDIT_LABELS[edit],
+    duplicateKey: ({ what, key }) => `Two ${ROWS[what]} are keyed ${quoted(key)}`,
+    footerPending: ({ count }) => `${count} pending`,
     flowMissing: ({ name, shown }) => (shown === undefined ? `${name} isn't a flow here` : `${name} isn't a flow here — showing ${shown}`),
 };
 

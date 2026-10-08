@@ -15,7 +15,8 @@
  * row never folding less. The canvas scrolls both ways inside main under the
  * viewer's wheel, its lanes running main's whole height, the toolbar and the
  * footer staying put, and a hover card hanging under the pointer however far
- * it has scrolled; find
+ * it has scrolled; over the host's tables with no `onApply` it edits nothing
+ * — no "+ LANE", no lane's ×, no history item (#1247); find
  * state's query, typed a key at a time, finds a state by its label, and a
  * pick selects it and scrolls it into the canvas's view. In both themes; on a
  * phone the row holds every item, folded — LR · TD's chip with Font Awesome's
@@ -112,10 +113,12 @@ test.describe("The Flowchart's frame (#1245)", () => {
                     body: at("[data-frame-slot='main'] > [data-flowchart-body]"),
                     footer: at("[data-frame-slot='footer']"),
                     eyebrows: el.querySelectorAll("[data-flowchart-eyebrow]").length,
+                    // Read only: no gesture's control, and no history item (#1247).
+                    gestures: el.querySelectorAll("[data-flowchart-addlane], [data-flowchart-lane-delete], [data-flowchart-band], [data-toolbar-item='history']").length,
                     w: round(f.width),
                     h: round(f.height),
                 };
-            })).toEqual(expect.objectContaining({ root: [0, 0, 0, 0], frame: [0, 0, 0, 0], border: Array.from({ length: 8 }, () => "0px"), rows: 1, eyebrows: 0 }));
+            })).toEqual(expect.objectContaining({ root: [0, 0, 0, 0], frame: [0, 0, 0, 0], border: Array.from({ length: 8 }, () => "0px"), rows: 1, eyebrows: 0, gestures: 0 }));
             const read = await root.evaluate((el) => {
                 const f = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
                 const at = (sel: string) => {

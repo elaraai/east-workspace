@@ -19,8 +19,9 @@ same way, renders in its `BuilderFrame` too (#1245) — its canvas
 (`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx`, and over
 flows by name (#1246) its Flows tab (`flows.tsx`), the open flow, kept in
 the UI store (`open-flow.ts`), as LR · TD is (`orientation.ts`), each flow's
-editing session (`session.ts`) and its words (`messages.ts`) — builds on the
-same parts, and keeps its slot recipe there too. The segment strip
+editing session (`session.ts`) — every canvas gesture one transaction of it,
+each gesture's flow `edits.ts`'s (#1247) — and its words (`messages.ts`) —
+builds on the same parts, and keeps its slot recipe there too. The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
 toolbars share, are `src/shared/seg.tsx`.
 The time parts the Plan shares with the Calendar are in `src/shared/time/`

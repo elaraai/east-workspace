@@ -14,14 +14,20 @@
  * - `record`, an e3 record of `Flowchart.Types.Flows` — flows by name — bound
  *   with its patch mutation. The handle crosses the payload as the query
  *   builder's does: its `read`, its `history` and its patch write — and, for
- *   the editing session over the flows (#1246), its Apply: the session's keyed
+ *   the editing session over the flows (#1246), its Save: the session's keyed
  *   batch committed through the patch mutation by `Record.onApply(record, {
  *   keyed: true })`. A record always holds flows by name (ruled 2026-10-07:
  *   e3's patch mutation writes only keyed records), so a lone flow is a
  *   one-entry record, or the host's;
  * - `data`, the host's flows by name or one flow — a value, an expression or a
- *   bind handle — the value's type picking the arm, with the host's `onApply`
- *   when its edits are committed.
+ *   bind handle — the value's type picking the arm. Given the host's
+ *   `onApply`, the arm carries the session's Save through it (#1247): the
+ *   session's batch restated as one patch of the host's value, which the
+ *   host's `onApply` takes and answers.
+ *
+ * The flowchart takes no callback for an edit (#1247, FB24): every gesture is
+ * one transaction of its editing session, and each callback it took before is
+ * refused when the surface is built, naming the remedy.
  *
  * Its library's tabs are the `Flowchart.library.*` calls `library` lists
  * (`library.ts`), on the wire in that order.
@@ -34,6 +40,7 @@ import {
     AsyncFunctionType,
     BlobType,
     BooleanType,
+    DictType,
     East,
     Expr,
     FunctionType,
@@ -43,6 +50,7 @@ import {
     StringType,
     StructType,
     VariantType,
+    dictPatchOpsType,
     isTypeEqual,
     isValueOf,
     none,
@@ -191,12 +199,13 @@ export const FlowchartHistoryType = FunctionType([], OptionType(ArrayType(Record
 export type FlowchartHistoryType = typeof FlowchartHistoryType;
 
 /**
- * The editing session's Apply over a record of flows (#1246, FB14): the
- * session's keyed batch — a flow's insert, update or delete by name — as the
- * session hands it, bytes of `Editing.Types.ChangeSet(Flowchart.Types.Flow,
- * String)`, committed as one patch through the record's patch mutation by
- * `Record.onApply(record, { keyed: true })`, and answered as the session's
- * Apply is.
+ * The editing session's Save (#1246, #1247, FB22): the session's keyed batch —
+ * the open flow's insert, update or delete by name — as the session hands it,
+ * bytes of `Editing.Types.ChangeSet(Flowchart.Types.Flow, String)`, sent as
+ * one commit and answered as the session's Save is: over a record, one patch
+ * through its patch mutation by `Record.onApply(record, { keyed: true })`;
+ * over the host's flows or flow, one patch of that value through the host's
+ * `onApply`.
  */
 export const FlowchartSessionApplyType = AsyncFunctionType([BlobType], Editing.Types.ApplyResult);
 
@@ -223,28 +232,29 @@ export const FlowchartFlowsHandleType = StructType({
 /** Type representing {@link FlowchartFlowsHandleType}. */
 export type FlowchartFlowsHandleType = typeof FlowchartFlowsHandleType;
 
-/** The host's commit of its flows' edits: one patch of the flows, as a record's would be, answered as the editing session's Apply is. */
+/** The host's commit of its flows' edits: one patch of the flows, as a record's would be, answered as the editing session's Save is. */
 export const FlowchartFlowsApplyType = AsyncFunctionType([PatchType(FlowchartFlowsType)], Editing.Types.ApplyResult);
 
 /** Type representing {@link FlowchartFlowsApplyType}. */
 export type FlowchartFlowsApplyType = typeof FlowchartFlowsApplyType;
 
-/** The host's commit of its one flow's edits: one patch of the flow, as a record's would be. */
+/** The host's commit of its one flow's edits: one patch of the flow, answered as the editing session's Save is. */
 export const FlowchartFlowApplyType = AsyncFunctionType([PatchType(FlowchartFlowType)], Editing.Types.ApplyResult);
 
 /** Type representing {@link FlowchartFlowApplyType}. */
 export type FlowchartFlowApplyType = typeof FlowchartFlowApplyType;
 
 /**
- * The host's flows: its value, of either type, and its commit when it takes
- * the flowchart's edits — each arm's `onApply` takes its own value's patch.
+ * The host's flows: its value, of either type, and — when the host takes the
+ * flowchart's edits — the session's Save through the host's `onApply` (#1247,
+ * FB22), which hands the host one patch of its own value's type.
  *
  * @property flows - Flows by name
  * @property flow - One flow
  */
 export const FlowchartDataType = VariantType({
-    flows: StructType({ value: FlowchartFlowsType, onApply: OptionType(FlowchartFlowsApplyType) }),
-    flow: StructType({ value: FlowchartFlowType, onApply: OptionType(FlowchartFlowApplyType) }),
+    flows: StructType({ value: FlowchartFlowsType, apply: OptionType(FlowchartSessionApplyType) }),
+    flow: StructType({ value: FlowchartFlowType, apply: OptionType(FlowchartSessionApplyType) }),
 });
 
 /** Type representing {@link FlowchartDataType}. */
@@ -401,6 +411,9 @@ const TABLES = ["states", "links", "lanes", "triggers", "state", "link", "lane",
 /** The sizes the flowchart took before it filled the box it is given (#1245). */
 const SIZES = ["height", "maxHeight"] as const;
 
+/** The callbacks the flowchart took for its edits before each gesture was a transaction of its editing session (#1247, FB24). */
+const EDIT_CALLBACKS = ["linkMode", "onCreateLink", "onDeleteLink", "onAddLane", "onRenameLane", "onDeleteLane", "onAddState", "onEditState", "onMoveState"] as const;
+
 /** The refusal of a record not bound with its patch mutation. */
 const UNBOUND = "Flowchart: `record` is an e3 record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])";
 
@@ -484,7 +497,16 @@ function applyOf(onApply: unknown, applyType: EastType, value: string): ExprType
     return apply;
 }
 
-/** The data arm: the host's flows, of either type, with its commit when it takes the edits. */
+/**
+ * The data arm: the host's flows, of either type, and — when the host takes
+ * the edits — the session's Save through its `onApply` (#1247, FB22). The
+ * session's batch is keyed by name, as over a record: over flows by name it is
+ * restated as one patch of the flows, each change the open flow's insert,
+ * update or delete by name, as `Record.onApply(record, { keyed: true })`
+ * restates it for a record — never the whole value replaced, so the host's
+ * other flows stay as they are; over one flow, its one change is the flow's
+ * own patch. The host's `onApply` answers the session.
+ */
 function dataArm(data: unknown, onApply: unknown): FlowchartArm {
     const value = dataValue(data);
     const type = Expr.type(value as unknown as Expr) as EastType;
@@ -492,10 +514,64 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
     if (!many && !isTypeEqual(type, FlowchartFlowType)) {
         throw new Error(`Flowchart: \`data\` is Flowchart.Types.Flows, flows by name, or Flowchart.Types.Flow, one flow — a value, an expression or a bind handle of either; Flowchart.over builds one flow from an app's tables — and this is ${printType(type)}`);
     }
-    const apply = onApply === undefined
-        ? none
-        : some(applyOf(onApply, many ? FlowchartFlowsApplyType : FlowchartFlowApplyType, many ? "Flowchart.Types.Flows" : "Flowchart.Types.Flow"));
-    return { many, source: variant("data", variant(many ? "flows" : "flow", { value, onApply: apply })) };
+    if (onApply === undefined) return { many, source: variant("data", variant(many ? "flows" : "flow", { value, apply: none })) };
+    // The host's commit, its patch opaque here, as in `Record.onApply`; its runtime type is exact.
+    const host = applyOf(onApply, many ? FlowchartFlowsApplyType : FlowchartFlowApplyType, many ? "Flowchart.Types.Flows" : "Flowchart.Types.Flow") as
+        ExprType<AsyncFunctionType<[EastType], typeof Editing.Types.ApplyResult>>;
+    const batchType = Editing.Types.ChangeSet(FlowchartFlowType, StringType);
+    const apply = many
+        ? East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
+            const commit = $.const(host);
+            const batch = $.const(blob.decodeBeast(batchType, "v2"));
+            // Each change is its flow's insert, update or delete, by name: the
+            // batch's own values and patches, carrying what the flow was when
+            // the edit began.
+            const ops = $.let(new Map(), DictType(StringType, dictPatchOpsType(FlowchartFlowType)));
+            $.for(batch.changes, ($, change) => {
+                $.match(change.patch, {
+                    replace: ($, swap) => {
+                        $.match(swap.after, {
+                            some: ($, after) => {
+                                $.match(swap.before, {
+                                    none: ($) => { $(ops.insert(change.id, variant("insert", after))); },
+                                    some: ($, before) => { $(ops.insert(change.id, variant("update", East.diff(before, after)))); },
+                                });
+                            },
+                            none: ($) => {
+                                $.match(swap.before, { some: ($, before) => { $(ops.insert(change.id, variant("delete", before))); } });
+                            },
+                        });
+                    },
+                    patch: ($, entry) => {
+                        $.match(entry, { some: ($, update) => { $(ops.insert(change.id, variant("update", update))); } });
+                    },
+                });
+            });
+            return commit(variant("patch", ops));
+        })
+        : East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
+            const commit = $.const(host);
+            const batch = $.const(blob.decodeBeast(batchType, "v2"));
+            // One flow is one entry, changed in place: its change is the flow's own patch.
+            const result = $.let(variant("rejected", [{ entry: "", row: none, field: none,
+                message: "One flow is changed in place: Save never adds or removes it" }]), Editing.Types.ApplyResult);
+            $.for(batch.changes, ($, change) => {
+                $.match(change.patch, {
+                    replace: ($, swap) => {
+                        $.match(swap.before, {
+                            some: ($, before) => {
+                                $.match(swap.after, { some: ($, after) => { $.assign(result, commit(East.diff(before, after))); } });
+                            },
+                        });
+                    },
+                    patch: ($, entry) => {
+                        $.match(entry, { some: ($, update) => { $.assign(result, commit(update)); } });
+                    },
+                });
+            });
+            return result;
+        });
+    return { many, source: variant("data", variant(many ? "flows" : "flow", { value, apply: some(apply) })) };
 }
 
 /** How a tab names itself in a refusal. */
@@ -545,8 +621,9 @@ function buildLibrary(library: unknown, many: boolean): ValueTypeOf<FlowchartLib
  *   of neither flow type; an `onApply` that does not take the patch of
  *   `data`'s type; `"brush"` among the affordances; a table or row mapper,
  *   which `Flowchart.over` takes; `height` or `maxHeight`, which the box the
- *   flowchart fills sets; and a `library` that lists a tab twice, or the Flows
- *   tab over one flow
+ *   flowchart fills sets; a callback for an edit, or `linkMode`, which the
+ *   editing session's gestures replace; and a `library` that lists a tab
+ *   twice, or the Flows tab over one flow
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
@@ -559,6 +636,11 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     for (const size of SIZES) {
         if (size in canvas) {
             throw new Error(`Flowchart: \`${size}\` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … /></Box>`);
+        }
+    }
+    for (const callback of EDIT_CALLBACKS) {
+        if (callback in canvas) {
+            throw new Error(`Flowchart: \`${callback}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\``);
         }
     }
     if (record !== undefined && data !== undefined) {

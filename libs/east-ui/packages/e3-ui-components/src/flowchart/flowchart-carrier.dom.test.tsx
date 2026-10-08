@@ -4,21 +4,22 @@
  *
  * @vitest-environment jsdom
  *
- * The Flowchart through its carrier (#1243, #1244, #1245). `<Flowchart>` returns
- * the flowchart as the `Flowchart` extension — its payload's bytes beside its
- * kind — and the dispatcher hands it to the renderer registered against that
- * kind, decoding the payload's functions against the registered platform: a
- * record's read, which the canvas draws the open flow from, a hover card's
- * builder, which returns UI, and a select callback, which writes a bound
- * State. Every flowchart here is built by `<Flowchart>`, compiled, and
- * rendered through `EastChakraComponent`, as an app renders it.
+ * The Flowchart through its carrier (#1243, #1244, #1245, #1247). `<Flowchart>`
+ * returns the flowchart as the `Flowchart` extension — its payload's bytes
+ * beside its kind — and the dispatcher hands it to the renderer registered
+ * against that kind, decoding the payload's functions against the registered
+ * platform: a record's read, which the canvas draws the open flow from, a
+ * hover card's builder, which returns UI, and a select callback, which writes
+ * a bound State. Every flowchart here is built by `<Flowchart>`, compiled, and
+ * rendered through `EastChakraComponent`, as an app renders it — and one
+ * given a callback for an edit is refused as it is built (#1247, FB24).
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, BooleanType, East, NullType, OptionType, PatchType, StringType, encodeBeast2For, none, variant, type ValueTypeOf,
+    ArrayType, BooleanType, East, NullType, OptionType, PatchType, StringType, StructType, encodeBeast2For, none, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import { Reactive, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
@@ -199,5 +200,22 @@ describe("functions across the carrier (#1243)", () => {
         // builds again with the new label.
         act(() => { getStore().write(LABEL_KEY, encodeString("BETA")); });
         await waitFor(() => expect(container.querySelector("[data-flowchart-hovercard]")?.textContent).toBe("BETA · ARV"));
+    });
+});
+
+describe("no callback for an edit (#1247, FB24)", () => {
+    test("`<Flowchart>` given a callback it took for an edit, or `linkMode`, is refused as the surface is built, naming the remedy", () => {
+        const given = {
+            onAddState: East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$) => null),
+            onCreateLink: East.function([StructType({ from: StringType, to: StringType })], NullType, (_$) => null),
+            linkMode: "connect",
+        };
+        for (const [prop, value] of Object.entries(given)) {
+            const built = () => East.function([], UIComponentType, ($) => Flowchart({
+                record: $.let(boundFlows()),
+                [prop]: value,
+            } as never));
+            expect(built).toThrow(`Flowchart: \`${prop}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\``);
+        }
     });
 });
