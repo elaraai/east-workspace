@@ -8,9 +8,11 @@
  * flows by name, or the host's flows or flow, `data`'s type picking its form —
  * each form's props typed (`Flowchart Builder Spec.md` §4.1, decision 3). A
  * record always holds flows by name (ruled 2026-10-07). Over one flow the
- * library lists every tab but the Flows tab (#1246, FB16). No form takes a
- * callback for an edit: the gestures are the editing session's, which Save
- * commits (#1247, FB24). Its payload and every refusal are `payload.ts`'s.
+ * library lists every tab but the Flows tab (#1246, FB16) — its templates and
+ * the author's tabs, each over its own rows (#1248). No form takes a callback
+ * for an edit: the gestures are the editing session's, which Save commits
+ * (#1247, FB24). Its payload and every refusal are `payload.ts`'s, and its
+ * library's tabs and their refusals `library.ts`'s.
  *
  * @packageDocumentation
  */

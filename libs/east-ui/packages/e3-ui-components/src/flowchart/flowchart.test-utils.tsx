@@ -4,16 +4,17 @@
  */
 
 /**
- * The Flowchart's DOM tests' shared harness (#1246, #1247): a record of flows
+ * The Flowchart's DOM tests' shared harness (#1246–#1248): a record of flows
  * in memory, bound with its patch mutation, whose patch door applies each
- * patch with East's own checks — as an app binds one — and the flowchart over
- * it through its carrier, so a Save is a real commit; and the waits and
+ * patch with East's own checks — as an app binds one — beside any other
+ * records a test binds too (a library tab's rows, #1248), and the flowchart
+ * over it through its carrier, so a Save is a real commit; and the waits and
  * presses its tests share.
  */
 
 import { act, fireEvent, render, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, PatchType, applyFor, decodeBeast2For, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, PatchType, applyFor, decodeBeast2For, encodeBeast2For, variant, type BlockBuilder, type EastType, type ExprType, type PatchTypeOf, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { Flowchart, RecordBindHandleType, recordBindPlatformFn } from "@elaraai/e3-ui/internal";
@@ -72,13 +73,30 @@ export interface RecordHarness {
 }
 
 /**
+ * Another record in memory beside the flows — a library tab's rows (#1248):
+ * its name, its keyed type and its rows.
+ *
+ * @typeParam T - Its type: a Dict, as every record's
+ */
+export interface OtherRecord<T extends EastType = EastType> {
+    /** Its name: what a test binds it by. */
+    readonly name: string;
+    /** Its type. */
+    readonly type: T;
+    /** Its rows. */
+    readonly initial: ValueTypeOf<T>;
+}
+
+/**
  * A record of flows in memory, bound with its patch mutation, whose patch door
- * applies each patch with East's own checks.
+ * applies each patch with East's own checks — and, beside it, any other
+ * records given, each with a patch mutation of its own.
  *
  * @param initial - The record's flows
+ * @param others - The other records, each with its patch mutation
  * @returns The harness
  */
-export function recordHarness(initial: Flows): RecordHarness {
+export function recordHarness(initial: Flows, others: readonly { readonly name: string; readonly type: EastType; readonly initial: unknown }[] = []): RecordHarness {
     const store = new Map<string, Uint8Array>();
     const api: DatasetApi = {
         async get(ws, path) {
@@ -99,9 +117,29 @@ export function recordHarness(initial: Flows): RecordHarness {
     const memory = createInMemoryRecordApi(cache, WORKSPACE, [{
         name: RECORD, stateType: Flowchart.Types.Flows, initial,
         mutations: [{ name: "patch", argTypes: [PatchType(Flowchart.Types.Flows)], reduce: (state, patch) => applyPatch(state as never, patch as never) }],
-    }]);
+    }, ...others.map((other) => {
+        const apply = applyFor(other.type);
+        return {
+            name: other.name, stateType: other.type, initial: other.initial,
+            mutations: [{ name: "patch", argTypes: [PatchType(other.type)], reduce: (state: unknown, patch: unknown) => apply(state as never, patch as never) }],
+        };
+    })]);
     initializeRecordApi(memory, cache, WORKSPACE);
     return { memory, cache };
+}
+
+/**
+ * Commits a patch to another record through its patch mutation, as another
+ * writer does — what the flowchart reads it through moves.
+ *
+ * @param harness - The records in memory
+ * @param other - The record
+ * @param patch - The patch, of the record's type
+ * @returns The mutation's outcome
+ */
+export async function commitOther<T extends EastType>(harness: RecordHarness, other: OtherRecord<T>, patch: ValueTypeOf<PatchTypeOf<T>>): Promise<string> {
+    const result = await harness.memory.mutate(WORKSPACE, other.name, "patch", { args: [encodeBeast2For(PatchType(other.type))(patch)] });
+    return result.outcome.type;
 }
 
 /**
@@ -127,16 +165,29 @@ export async function commits(harness: RecordHarness): Promise<string[]> {
 }
 
 /**
+ * Binds another record of the harness's, as a surface's body binds one, with
+ * its patch mutation.
+ *
+ * @param $ - The surface's body
+ * @param other - The record
+ * @returns Its bind handle
+ */
+export function bindOther<T extends EastType>($: BlockBuilder<UIComponentType>, other: OtherRecord<T>): { read: () => ExprType<T> } {
+    const handle = RecordBindHandleType(other.type, { patch: [PatchType(other.type)] });
+    return $.let(recordBindPlatformFn([handle], other.name)) as unknown as { read: () => ExprType<T> };
+}
+
+/**
  * The flowchart over the record, as a surface mounts it: `<Flowchart>` built
  * over the bound record, compiled, and rendered through its carrier.
  *
- * @param props - Its props beside `record`; the Flows tab listed, by default
+ * @param props - Its props beside `record` — or what makes them in the surface's body, where it binds other records; the Flows tab listed, by default
  * @returns The render
  */
-export async function mountRecord(props: object = { library: [Flowchart.library.flows()] }): Promise<RenderResult> {
+export async function mountRecord(props: object | (($: BlockBuilder<UIComponentType>) => object) = { library: [Flowchart.library.flows()] }): Promise<RenderResult> {
     const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const flows = $.let(recordBindPlatformFn([FlowsHandle], RECORD));
-        return Flowchart({ record: flows as never, ...props });
+        return Flowchart({ record: flows as never, ...(typeof props === "function" ? props($) : props) });
     }))), getRegisteredPlatformImplementations()) as () => UIValue;
     const utils = render(
         <ChakraProvider value={system}>

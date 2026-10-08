@@ -45,12 +45,14 @@
  *   flow's name first; where it edits, the changes waiting on Save; and over a
  *   record its last save;
  * - **the panes** — the library in the start pane when the payload's
- *   `library` lists a tab, and the inspector in the end pane when it is given
- *   `inspector`: optional props, no prop, no pane. The Flows tab
- *   (`flows.tsx`) lists every flow by name and starts new ones; what the
- *   other tabs hold is their own (the templates and the author's tabs #1248,
- *   the inspector #1250). The panes' open tab and collapsed state persist
- *   under the flowchart's `name` (`flowchartKeys(name).frame`).
+ *   `library` lists a tab (`library.tsx`, #1248), and the inspector in the end
+ *   pane when it is given `inspector`: optional props, no prop, no pane. The
+ *   library's tabs are the ones `library` lists, in its order, each with its
+ *   count: the Flows tab (`flows.tsx`), which lists every flow by name and
+ *   starts new ones, and the state and transition templates and the author's
+ *   tabs, each a `Library` of its own rows' cards; what the inspector holds is
+ *   #1250's. The panes' open tab and collapsed state persist under the
+ *   flowchart's `name` (`flowchartKeys(name).frame`).
  *
  * The flowchart fills the box it is given and draws no border: a host gives it
  * a box of its own height.
@@ -58,7 +60,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import type { Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -86,6 +88,7 @@ import * as flowEdits from "./edits.js";
 import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
 import { FlowsTab, NoFlows, type FlowCard, type NewFlowProps } from "./flows.js";
+import { useFlowchartLibrary } from "./library.js";
 import { flowchartMessages, type FlowchartWords } from "./messages.js";
 import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
 import { useViewerOrientation } from "./orientation.js";
@@ -111,9 +114,6 @@ export interface EastChakraFlowchartProps {
     /** The structural storage key. */
     storageKey: string;
 }
-
-/** The library pane's width open: the design system's 272px (§8). */
-const LIBRARY_SIZE = "272px";
 
 /** The inspector pane's width open: the design system's 320px (§8). */
 const INSPECTOR_SIZE = "320px";
@@ -180,38 +180,6 @@ function flowsHeld(source: FlowchartValue["source"]): FlowsHeld {
     }
 }
 
-/**
- * The library pane, when the payload's `library` lists a tab: the frame's
- * start pane, its tabs in the order listed. The Flows tab is #1246's; what
- * the other tabs hold is their own child's — the templates and the author's
- * tabs #1248's.
- *
- * @param library - The tabs the payload lists
- * @param flows - The Flows tab's body and its count; `undefined` over one flow
- * @param words - The flowchart's words
- * @returns The pane, or `undefined` when the library lists none
- */
-function libraryPane(library: FlowchartValue["library"], flows: { body: ReactNode; count: string } | undefined, words: FlowchartWords): BuilderFrameDock | undefined {
-    if (library.length === 0) return undefined;
-    // Collapsed, the rail counts the first tab's cards: the Flows tab's, when it is first.
-    const badge = library[0]?.type === "flows" ? flows?.count : undefined;
-    return {
-        label: "Library",
-        icon: "layer-group",
-        size: LIBRARY_SIZE,
-        persist: "local",
-        ...(badge === undefined ? {} : { badge }),
-        tabs: library.map((tab) => {
-            switch (tab.type) {
-                case "flows": return { key: "flows", label: words.m.flowsTab(), count: flows?.count, body: flows?.body ?? null };
-                case "states": return { key: "states", label: tab.value.name, body: null };
-                case "transitions": return { key: "transitions", label: tab.value.name, body: null };
-                case "tab": return { key: `tab.${tab.value.name}`, label: tab.value.name, body: null };
-            }
-        }),
-    };
-}
-
 /** The inspector pane: the frame's end pane. What it holds is #1250's. */
 const INSPECTOR_PANE: BuilderFrameDock = { label: "Inspector", icon: "sliders", size: INSPECTOR_SIZE, persist: "local", body: null };
 
@@ -259,7 +227,9 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
     const formatters = useFormatters();
     const words = useMemo((): FlowchartWords => ({ ...formatters, m: flowchartMessages }), [formatters]);
     const canvas = value.canvas;
-    const keys = useMemo(() => flowchartKeys(getSomeorUndefined(value.name)), [value.name]);
+    // Keyed on the name's text: each payload decodes its Option afresh, and the keys must hold while the name does.
+    const flowchartName = getSomeorUndefined(value.name);
+    const keys = useMemo(() => flowchartKeys(flowchartName), [flowchartName]);
 
     // ── The flows, and the one open (FB12) ──────────────────────────────
     const flows = held.many ? held.flows : undefined;
@@ -409,7 +379,8 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
         body: <FlowsTab cards={cards} open={openName} onOpen={openFlow} newFlow={newFlow}
             id={`${keys.library}:flows`} storageKey={`${keys.library}.flows`} styles={styles} words={words} />,
     }), [flows, cards, openName, openFlow, newFlow, keys.library, styles, words]);
-    const start = useMemo(() => libraryPane(value.library, flowsTab, words), [value.library, flowsTab, words]);
+    // The library pane: the tabs `library` lists, each data tab a Library of its own rows' cards (#1248).
+    const start = useFlowchartLibrary({ library: value.library, flows: flowsTab, keys, words });
 
     // The banners: the open flow's session's, then a `flow` the flowchart doesn't hold, as the Sheet names an entry its record doesn't (FB42).
     const banners = !edits && missing === undefined ? undefined : (

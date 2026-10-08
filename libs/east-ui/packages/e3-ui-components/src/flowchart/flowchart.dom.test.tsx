@@ -267,14 +267,14 @@ describe("LR · TD and find state (#1245)", () => {
 describe("the frame's panes and footer (#1245)", () => {
     const LIBRARY: ValueTypeOf<FlowchartLibraryTabType>[] = [
         variant("flows", null),
-        variant("states", { name: "Steps", icon: some("box"), cards: [] }),
+        variant("states", { name: some("Steps"), icon: some("box"), cards: [] }),
     ];
 
     it("a library that lists tabs is the start pane, its tabs in order; an inspector given is the end pane", () => {
         const { container } = mount({ ...payload(record()), library: LIBRARY, inspector: true });
         const start = container.querySelector("[data-frame-slot='start']")!;
-        // The Flows tab counts the record's flows (#1246); the templates' tab is #1248's.
-        expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Flows 2", "Steps"]);
+        // The Flows tab counts the record's flows (#1246), the templates' tab its cards (#1248).
+        expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Flows 2", "Steps 0"]);
         expect(container.querySelector("[data-frame-slot='end']")!.textContent).toContain("Inspector");
     });
 
