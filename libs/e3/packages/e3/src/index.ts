@@ -108,7 +108,7 @@ export type {
   EastNodePlatform,
   EastCPlatform,
 } from './runner.js';
-export { runnerToVariant, DEFAULT_RUNNER } from './runner.js';
+export { runnerToVariant, DEFAULT_RUNNER, STOCK_PLATFORM_FAMILIES, STOCK_PLATFORMS_BY_RUNNER } from './runner.js';
 
 /**
  * The e3 SDK namespace.
