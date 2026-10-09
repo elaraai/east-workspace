@@ -18,7 +18,11 @@
  * - a touch on the body engages after a `delay` ms hold, and drifting more than
  *   `tolerance` px first is a scroll — the sensor stands down and the page pans;
  * - a touch on a drag grip (`[data-drag-grip]`) engages at once: a grip is
- *   unambiguous intent, and it takes no scroll gesture (`touch-action: none`).
+ *   unambiguous intent, and it takes no scroll gesture (`touch-action: none`);
+ * - a touch on a grip that also taps (`[data-drag-grip="tap"]` — a folded
+ *   sheet row's actions button, whose tap opens its menu, #1215) engages
+ *   once it has travelled `distance` px, as a mouse does: a tap stays a tap,
+ *   and the grip takes no scroll gesture either.
  *
  * Once a touch drag engages, the page does not pan for the rest of it. Escape,
  * a window resize or a hidden page cancels the drag, and the click a drag ends
@@ -103,6 +107,8 @@ export class DragPointerSensor implements SensorInstance {
     private readonly props: SensorProps<DragPointerOptions>;
     private readonly pointerId: number;
     private readonly touch: boolean;
+    /** Engages once the press has travelled `distance` px — a mouse, a pen, or a touch on a grip that also taps. */
+    private readonly byTravel: boolean;
     private readonly initial: { x: number; y: number };
     private readonly doc: Document;
     private readonly origin: Element | null;
@@ -141,11 +147,12 @@ export class DragPointerSensor implements SensorInstance {
             listen(win, "contextmenu", preventDefault),
         ];
 
-        const onGrip = this.origin?.closest("[data-drag-grip]") != null;
-        if (this.touch && !onGrip) {
+        const grip = this.origin?.closest("[data-drag-grip]") ?? null;
+        this.byTravel = !this.touch || grip?.getAttribute("data-drag-grip") === "tap";
+        if (this.touch && grip === null) {
             this.timer = setTimeout(this.start, options.delay);
             props.onPending(props.active, { delay: options.delay, tolerance: options.tolerance }, this.initial);
-        } else if (!this.touch && options.distance > 0) {
+        } else if (this.byTravel && options.distance > 0) {
             props.onPending(props.active, { distance: options.distance }, this.initial);
         } else {
             this.start();
@@ -182,7 +189,7 @@ export class DragPointerSensor implements SensorInstance {
         options.track.point = point;
         if (!this.activated) {
             const moved = Math.hypot(point.x - this.initial.x, point.y - this.initial.y);
-            if (this.touch) {
+            if (!this.byTravel) {
                 // A drift before the hold is a scroll: stand down, and let the page pan.
                 if (moved > options.tolerance) this.cancel();
                 return;

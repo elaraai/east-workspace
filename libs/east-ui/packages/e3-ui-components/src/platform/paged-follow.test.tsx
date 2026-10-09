@@ -7,36 +7,42 @@
  * A Plan (#821) and a Sheet (#851) over a bound paged source follow its
  * dataset — the real `Data.bindPaged` runtime (`defaultPagedRuntime`, its
  * channels, its revision pinning and `refresh`) behind a stand-in paging
- * service, rendered by the real component. Writing the dataset moves the
- * source to the new content hash, and the component swaps each row's content
- * in place: the row element survives, and the old rows stay on screen until
- * the new revision's window lands.
+ * service, rendered by the real component — the Sheet in its frame (#1216).
+ * Writing the dataset moves the source to the new content hash, and the
+ * component swaps each row's content in place: the row element survives, and
+ * the old rows stay on screen until the new revision's window lands. And a
+ * Sheet's first edit drafts at once: the entry it reads before drafting is
+ * answered from the window it shows, never fetched on its own (#1217).
  */
 
-import { describe, test, expect, afterEach } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     DictType, East, StringType, StructType, compareFor, encodeBeast2For, none, printFor, some, toEastTypeValue, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Plan, Sheet, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    EastChakraPlan, EastChakraSheet, getRegisteredPlatformImplementations, system,
-    type PlanRootValue, type SheetRootValue,
-} from "@elaraai/east-ui-components";
+import { getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { Plan, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { DatasetHashMismatchError, type DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
+import { EastChakraPlan, type PlanRootValue } from "../plan/index.js";
+import { EastChakraSheet, type SheetValue } from "../sheet/frame/index.js";
+import { boundFrame } from "../sheet/frame.test-utils.js";
 import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi, type PagedSelector } from "./paged-runtime.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
+// The Sheet's frame, tall enough for its rows (#1216).
+let restoreFrame: () => void = () => {};
+beforeEach(() => { restoreFrame = boundFrame(2000); });
 afterEach(() => {
     cleanup();
     clearPagedApi();
     localStorage.clear();
+    restoreFrame();
 });
 
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -66,9 +72,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 function standInServer(initial: Content) {
     const state = { content: initial, held: new Map<string, { promise: Promise<void>; resolve: () => void }>() };
     const watchers: ((hash: string | null) => void)[] = [];
+    /** Every window asked for, as `offset+limit@hash`. */
+    const requests: string[] = [];
     const api: PagedApi = {
         async getRevision() { return state.content.hash; },
         async getPage(_ws, _path, window): Promise<DatasetPage> {
+            requests.push(`${window.offset}+${window.limit}@${window.hash ?? ""}`);
             const gate = state.held.get(window.hash ?? "");
             if (gate !== undefined) await gate.promise;
             if (window.hash !== undefined && window.hash !== state.content.hash) {
@@ -90,6 +99,7 @@ function standInServer(initial: Content) {
     };
     return {
         api,
+        requests,
         /** Write the dataset: new content under a new hash, its pages held back. */
         write(next: Content) {
             state.held.set(next.hash, deferred());
@@ -123,8 +133,8 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
             }],
             decisions: [], ports: [], rollup: none,
         }),
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
-        edits: { verdict: false, drop: false, move: none },
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
+        edits: { drop: false, move: none },
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
@@ -159,7 +169,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [], now: none, format: none,
         }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none,
         slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
@@ -220,14 +230,19 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
 /** A Sheet as an author writes it — a text column over the bound machines,
  *  the handle its input — so the rows reach the renderer through the Sheet's
  *  own derived source, pinned as `Data.bindPaged`'s handle is. */
-const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], UIComponentType, (_$, machines) =>
-    Sheet.Root(machines, { label: Sheet.column.text(Machine, { header: "Label" }) }, { blanks: 0 }));
+const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, (_$, machines) =>
+    Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0 }));
 
-/** The Sheet root over the bound handle. */
-function sheetOver(handle: Record<string, unknown>): SheetRootValue {
-    const ui = East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never) as unknown as { value: SheetRootValue };
-    return ui.value;
+/** The Sheet over the bound handle. */
+function sheetOver(handle: Record<string, unknown>): SheetValue {
+    return East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never);
 }
+
+/** The same Sheet with an `onApply` of the host's, so a gesture drafts (#1217). */
+const editedProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, ($, machines) => {
+    const apply = $.const(East.function([Sheet.Types.ChangeSet(Machine)], Sheet.Types.ApplyResult, (_$, _batch) => variant("applied", { revision: none })));
+    return Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0, onApply: apply });
+});
 
 describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
     test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
@@ -259,5 +274,35 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
         expect(container.querySelector('[data-row-id="m1"]')).toBe(row);
+    });
+
+    test("a first edit drafts at once: the entry it reads is answered from the window the sheet shows, never fetched on its own (#1217)", async () => {
+        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
+        initializePagedApi(server.api, "ws");
+        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
+        const value = East.compile(editedProgram, getRegisteredPlatformImplementations())(handle as never);
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraSheet value={value} storageKey="e3-1217-sheet" />
+            </ChakraProvider>,
+        );
+        await screen.findByText("A-M1");
+        await settle();
+        const asked = [...server.requests];
+
+        fireEvent.doubleClick(container.querySelector('[data-row-id="m1"] [data-key="label"]')!);
+        await settle();
+        const input = container.querySelector('[data-slot="editorInput"]')!;
+        fireEvent.input(input, { target: { value: "A-M1, checked" } });
+        await settle();
+        fireEvent.keyDown(input, { key: "Enter" });
+        await settle();
+
+        // Drafted: the row marked, its cell the edit, Save on.
+        expect(container.querySelector('[data-row-id="m1"][data-draft]')).not.toBeNull();
+        expect(container.querySelector('[data-row-id="m1"] [data-key="label"]')!.textContent).toBe("A-M1, checked");
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+        // The service was asked for the sheet's window, and for nothing since.
+        expect(server.requests).toEqual(asked);
     });
 });

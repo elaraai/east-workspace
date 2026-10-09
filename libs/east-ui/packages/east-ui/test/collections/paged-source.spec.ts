@@ -6,9 +6,9 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, equalFor, some, none } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, equalFor, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Plan, Table } from "@elaraai/east-ui/internal";
+import { Table } from "@elaraai/east-ui/internal";
 import { buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
 
 // The row-source contract (#567) as a component consumes it. Paged data is
@@ -22,11 +22,6 @@ const WideRows = ArrayType(WideRow);
 const WIDE_ROWS = Array.from({ length: 50 }, (_, i) => ({
     id: `r${String(i).padStart(2, "0")}`, n: BigInt(i),
 }));
-
-/** The same 50 rows KEYED — the Dict form at the same scale. */
-const WideVal = StructType({ n: IntegerType });
-const WideDict = DictType(StringType, WideVal);
-const WIDE_DICT = new Map(WIDE_ROWS.map(r => [r.id, { n: r.n }] as const));
 
 /** At most this many elements a window, whatever is asked for — as e3 trims a
  *  dataset's pages of wide elements to its byte budget (#829). */
@@ -46,21 +41,6 @@ const WIDE_ROWS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
 });
 const TRIMMED_ROWS = { id: "trimmed-rows", page: TRIMMED_ROWS_PAGE, total: WIDE_ROWS_TOTAL, seek: none };
 
-const TRIMMED_ENTRIES_PAGE = East.function([IntegerType, IntegerType], OptionType(WideDict), ($, offset, limit) => {
-    const all = $.const(WIDE_DICT, WideDict);
-    const keys = $.let(all.toArray((_$, _v, k) => k));
-    const n = $.let(keys.size());
-    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
-    const served = $.let(limit.less(TRIM).ifElse(() => limit, () => TRIM));
-    const end = $.let(start.add(served).less(n).ifElse(() => start.add(served), () => n));
-    return some(all.getKeys(keys.slice(start, end).toSet()));
-});
-const WIDE_DICT_TOTAL = East.function([], OptionType(IntegerType), ($) => {
-    const all = $.const(WIDE_DICT, WideDict);
-    return some(all.size());
-});
-const TRIMMED_ENTRIES = { id: "trimmed-entries", page: TRIMMED_ENTRIES_PAGE, total: WIDE_DICT_TOTAL, seek: none };
-
 /** A source that trims to 7 and has only its first piece in hand — every later
  *  piece is still on the wire, so it reads `none`. */
 const FIRST_PIECE_ONLY_PAGE = East.function([IntegerType, IntegerType], OptionType(WideRows), ($, offset, limit) => {
@@ -75,10 +55,6 @@ const IN_FLIGHT = { id: "slow", page: FIRST_PIECE_ONLY_PAGE, total: WIDE_ROWS_TO
 /** Two sources over the same closures, told apart by their ids alone. */
 const OPS_SOURCE = { id: "inputs.ops", page: TRIMMED_ROWS_PAGE, total: WIDE_ROWS_TOTAL, seek: none };
 const OTHER_SOURCE = { id: "inputs.other", page: TRIMMED_ROWS_PAGE, total: WIDE_ROWS_TOTAL, seek: none };
-
-/** A canvas window for the trimmed-source tests — the Plan's paged arm
- *  requires one, and nothing here depends on where it sits. */
-const TRIM_WINDOW = { min: new Date("2026-07-06T00:00:00Z"), max: new Date("2026-09-28T00:00:00Z") };
 
 describeEast("Row-source contract (#567)", (test) => {
     test("two sources at different ids compare UNEQUAL — the memo discriminator", $ => {
@@ -120,24 +96,8 @@ describeEast("Row-source contract (#567)", (test) => {
         $(Assert.equal(past.unwrap("some").length(), 0n));
     });
 
-    test("a Plan over a trimmed KEYED source gets WHOLE windows", $ => {
-        const src = $.const(TRIMMED_ENTRIES, Paged.Types.Source(WideDict));
-        $(Assert.equal(src.page(0n, 20n).unwrap("some").size(), 7n));
-        const series = $.const([
-            Plan.series.span(WideVal, { key: "entries", title: "Entries", label: (_r, k) => k, runs: () => [] }),
-        ], ArrayType(Plan.Types.Series(WideVal)));
-        const axis = $.const(Plan.axis({ window: TRIM_WINDOW, resolution: "week" }));
-        const plan = $.let(Plan.Root({ axis, data: src, series }));
-        const derived = $.let(plan.unwrap().unwrap("Plan").rows.unwrap("paged"));
-        // One row per entry: a whole window is 20 rows, r00…r19 in key order —
-        // the one series' block of it (#823: a window is the canvas's blocks).
-        const w0 = $.let(derived.page(0n, 20n).unwrap("some").get(0n).rows);
-        $(Assert.equal(w0.size(), 20n));
-        $(Assert.equal(w0.get(0n).id, Plan.ref("entries", "r00")));
-        $(Assert.equal(w0.get(19n).id, Plan.ref("entries", "r19")));
-        const w2 = $.let(derived.page(40n, 20n).unwrap("some").get(0n).rows);
-        $(Assert.equal(w2.size(), 10n));
-    });
+    // e3-ui's Plan over a trimmed keyed source is held to the same in its own
+    // specs (`test/plan/plan-source.spec.ts`).
 
     test("a piece still in flight holds the whole derived window at `none`", $ => {
         const src = $.const(IN_FLIGHT, Paged.Types.Source(WideRows));

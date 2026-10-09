@@ -3,7 +3,41 @@
 React Query hooks and preview React components for the e3 API.
 Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `DatasetPreview`, `EastValueViewer`, `InputPreview`,
-`VirtualizedLogViewer`, plus the diff component family.
+`VirtualizedLogViewer`, the diff component family, the Plan's canvas
+(`src/plan/`, #1177) and the Sheet (`src/sheet/`, #1179), each registered
+against its e3-ui extension (`Plan`, `Sheet`) as the package
+loads. Each renders in its `BuilderFrame` wherever it is used — the Plan's
+(`src/plan/frame/`, #1193) around its canvas (`src/plan/canvas.tsx`, a hook
+handing the frame main and its chrome's facts), the Sheet's
+(`src/sheet/frame/`, #1216) around its grid: there is no frameless Plan or
+Sheet. Both build on east-ui-components' shared parts through its
+`./internal` entry, and their tests on `./testing`; their slot recipes
+stay in east-ui-components' theme. The Flowchart's renderer
+(`src/flowchart/`, #1243) registers against its `Flowchart` extension the
+same way, renders in its `BuilderFrame` too (#1245) — its canvas
+(`canvas.tsx`), its toolbar's items (`toolbar.tsx`), its footer
+(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx`, and over
+flows by name (#1246) its Flows tab (`flows.tsx`), the open flow, kept in
+the UI store (`open-flow.ts`), as LR · TD is (`orientation.ts`), each flow's
+editing session (`session.ts`) — every canvas gesture one transaction of it,
+each gesture's flow `edits.ts`'s (#1247) — its library pane (`library.tsx`,
+#1248: the tabs `library` lists, each data tab a `Library` of its own rows'
+cards), its drops (#1249: `drop.ts` plans what a card does where it lands,
+pure; `use-drop.ts` is the drop target, each drop and each card's ⏎ one
+transaction), its inspector (#1250: `inspector.tsx`, the end pane on by
+default — Details through `FieldForm`, or a state's or a transition's own,
+and Issues; what is selected, per open flow, `selection.ts`; the open flow's
+issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
+parts, and
+keeps its slot recipes there too, the canvas's and the inspector's. The segment strip
+and the one chip it folds into, which the Plan's and the Flowchart's
+toolbars share, are `src/shared/seg.tsx`.
+The time parts the Plan shares with the Calendar are in `src/shared/time/`
+(#1148): the scale (its engine and
+time arm), the move, draw and slot arithmetic, the now line, lane packing
+and weekend and off-hours shading. The now line's look is one part of the
+theme, merged into the recipe of each component that draws one
+(`slot-recipes/time/now.ts`).
 
 ## HARD RULE: East values through East
 
@@ -21,6 +55,10 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
   calls without the builder: the root, the one-shot call, the plan and its
   split call, the calls in memory — which loads no React and no renderer,
   so a host in Node uses it (`test/query/node-safe.spec.ts` guards that).
+  The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
+  external, as east-ui-components' does: each is a context the host shares
+  with every renderer package, so one `I18nProvider` reaches them all
+  (#1206, `src/locale.dom.test.tsx`, `test/one-locale.spec.ts`).
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —

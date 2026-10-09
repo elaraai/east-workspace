@@ -15,7 +15,8 @@
  * the owning target's `onDrag`, which may say it did not take it.
  *
  * A drag is picked up by the pointer — a mouse or pen after 4px of travel, a
- * touch after a 300ms hold, a touch on a grip at once ({@link DragPointerSensor})
+ * touch after a 300ms hold, a touch on a grip at once, and on a grip that also
+ * taps after 4px of travel ({@link DragPointerSensor})
  * — or by the keyboard ({@link DragKeyboardSensor}): Space or Enter on a
  * focused draggable, the arrow keys to move between the cells that take it
  * (and along a continuous cell's stops), Space or Enter to drop, and Escape or
@@ -32,10 +33,19 @@
  * away), the drop point is read again, and a drop with nothing under it says
  * so rather than vanishing.
  *
+ * An element dragged onto a Library's frame returns to it — a `remove` to its
+ * `source` — where the surface it came from takes returns there: every library
+ * it takes cards from, or only the ones it names (`returns`, #1196), which then
+ * vet a return and caption the ghost as a cell does. A surface whose elements
+ * only ever return to a library shows no trash zone (`kinds.trash`).
+ *
  * Visual stages (grip, ghost, indicators, cancel) follow the
  * `drag-drop-visuals` spec via data attributes that the theme styles:
  * `data-dragging` on the origin, `data-drop-valid` / `data-drop-active` /
- * `data-drop-invalid` on cells and sinks, and the portal ghost.
+ * `data-drop-invalid` on cells and sinks, and the portal ghost. A cell may
+ * caption the ghost (#1187): while the drag rests over it, a line under the
+ * ghost says where the drop would land, or — red, `data-refused` — why the
+ * cell refuses it (`[data-drag-caption]`).
  *
  * @packageDocumentation
  */
@@ -50,6 +60,7 @@ import {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
     type KeyboardEvent as ReactKeyboardEvent,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
@@ -73,6 +84,8 @@ import {
     type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { restrictToWindowEdges } from "@dnd-kit/modifiers";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { type DragEventType, type CellRefType, type LibraryRefType } from "@elaraai/east-ui/internal";
 import {
@@ -100,6 +113,13 @@ export interface DragKinds {
     remove?: boolean;
     /** Span-edge resize (#268) — temporal span surfaces. */
     resize?: boolean;
+    /**
+     * Whether a removed element may go to the shared trash zone, which shows
+     * while one of the surface's elements is dragged — `remove` when left out.
+     * A surface whose elements only return to a library (`returns`, #1196)
+     * says `false`, and no trash zone shows.
+     */
+    trash?: boolean;
 }
 
 /** Display-only metadata accompanying a completed drag (not part of the
@@ -107,6 +127,23 @@ export interface DragKinds {
 export interface DragMeta {
     /** The dragged card's display label. */
     label?: string;
+    /** The library a returned element was dropped on — a `remove` to its `source` (#1196). */
+    library?: string;
+}
+
+/**
+ * The libraries an element of a surface returns to (#1196) — a `remove` to its
+ * `source`, dropped on one's frame — with the surface's verdict and the ghost's
+ * words there. Left out, an element returns to every library the surface takes
+ * cards from (`sources`), and every return is taken.
+ */
+export interface DragReturns {
+    /** The libraries an element returns to: only these frames take one. */
+    libraries: readonly string[];
+    /** The verdict over a return to one of them — `false` refuses it (⊘): asked where the drag rests, and again of the drop. */
+    canDrop?: (event: DragEventValue, library: string) => boolean;
+    /** What the ghost says while the drag rests over the library (#1187): where it goes, or — red — why it does not. */
+    caption?: (event: DragEventValue, library: string, allowed: boolean) => string | undefined;
 }
 
 /** A target surface registration. */
@@ -117,6 +154,8 @@ export interface DragTargetConfig {
     sources: readonly string[];
     /** Supported event kinds. */
     kinds: DragKinds;
+    /** The libraries the surface's elements return to, with its verdict and the ghost's words there (#1196) — `sources`, taking every return, when left out. */
+    returns?: DragReturns;
     /**
      * Receives every completed drag on this surface. Answering `false` says
      * it did not take the drag — its own write refused it, or it changed
@@ -158,6 +197,14 @@ export interface DropCellOptions {
      * with no cell. Absent ⇒ every payload its surface connects to.
      */
     accepts?: (payload: DragPayload) => boolean;
+    /**
+     * What the ghost says while the drag rests over the cell (#1187) — where
+     * the drop would land (`Edge banding · after row 3`), or, when the cell
+     * refuses it, why (the caption turns red) — at the coordinate the drag
+     * rests on, for what is dragged. `allowed` is the cell's verdict there.
+     * Absent, or `undefined`, the ghost goes alone.
+     */
+    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | undefined;
 }
 
 interface CellRegistration extends DropCellOptions {
@@ -376,6 +423,44 @@ function clearStages(el: HTMLElement): void {
     el.removeAttribute("data-drop-invalid");
 }
 
+/** What the ghost says (#1187): its words, and whether they say why the cell refuses the drop. */
+interface DragCaption {
+    text: string;
+    refused: boolean;
+}
+
+/**
+ * The ghost's caption, held outside React's state: the layer sets it each
+ * time a drag rests, and only the caption's own view renders again — never
+ * the page the drag crosses.
+ */
+class CaptionStore {
+    private value: DragCaption | undefined = undefined;
+    private readonly listeners = new Set<() => void>();
+
+    readonly subscribe = (listener: () => void): (() => void) => {
+        this.listeners.add(listener);
+        return () => { this.listeners.delete(listener); };
+    };
+
+    readonly get = (): DragCaption | undefined => this.value;
+
+    /** Say something else — or nothing — telling the view only when the words or their verdict change. */
+    set(next: DragCaption | undefined): void {
+        const was = this.value;
+        if (was === next || (was !== undefined && next !== undefined && was.text === next.text && was.refused === next.refused)) return;
+        this.value = next;
+        for (const listener of this.listeners) listener();
+    }
+}
+
+/** The caption under the ghost — red while it says why the cell refuses the drop. Words the announcements already say, so hidden from a screen reader. */
+function DragCaptionView({ store }: { store: CaptionStore }) {
+    const caption = useSyncExternalStore(store.subscribe, store.get, store.get);
+    if (caption === undefined) return null;
+    return <div data-drag-caption="" data-refused={caption.refused ? "" : undefined} aria-hidden="true">{caption.text}</div>;
+}
+
 export interface DragLayerProviderProps {
     children: ReactNode;
     /** The layer's words — any subset, over the English table ({@link dragMessages}). */
@@ -421,6 +506,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     /** What the live region last said the drag rests over — `null` when over nothing — so it speaks again only on a change. */
     const spoken = useRef<string | null>(null);
     const scroller = useRef<EdgeScroller | null>(null);
+    /** What the ghost says where the drag rests (#1187). */
+    const caption = useRef(new CaptionStore()).current;
 
     // ── Validity ──────────────────────────────────────────────────────────
 
@@ -456,12 +543,26 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         if (payload.kind !== "event") return false;
         const target = targets.current.get(payload.from.surface);
         if (!target || !(target.kinds.remove ?? false)) return false;
-        // Return-to-palette only connects to a library the surface declared.
+        // Return-to-palette only connects to a library the surface declared:
+        // one it names its elements return to, else one it takes cards from.
         if (reg.kind === "library") {
-            return reg.library !== undefined && target.sources.includes(reg.library);
+            return reg.library !== undefined && (target.returns?.libraries ?? target.sources).includes(reg.library);
         }
-        return true;
+        return target.kinds.trash ?? true;
     }, []);
+
+    /** The event a return onto a sink would deliver: a `remove` to the trash, or to its source. */
+    const returnEvent = useCallback((reg: SinkRegistration, from: Required<CellCoord>): DragEventValue => variant("remove", {
+        from: cellRefValue(from),
+        to: variant(reg.kind === "trash" ? "trash" : "source", null),
+    }), []);
+
+    /** The surface's verdict over a return onto a library sink (#1196) — a trash drop is never refused. */
+    const returnAllowed = useCallback((reg: SinkRegistration, payload: DragPayload): boolean => {
+        if (reg.kind !== "library" || reg.library === undefined || payload.kind !== "event") return true;
+        const returns = targets.current.get(payload.from.surface)?.returns;
+        return returns?.canDrop?.(returnEvent(reg, payload.from), reg.library) ?? true;
+    }, [returnEvent]);
 
     /** A destination's name, for the announcements. */
     const targetName = useCallback((el: HTMLElement, point: Point | undefined, payload: DragPayload): string => {
@@ -547,16 +648,21 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             prev.removeAttribute("data-drop-invalid");
         }
         d.hovered = null;
-        if (el === null) return;
-        const cell = cells.current.get(el)?.current;
-        if (cell !== undefined) {
+        const cell = el !== null ? cells.current.get(el)?.current : undefined;
+        if (el !== null && cell !== undefined) {
             // An unconnected element is not a destination, and a drop must not consider it one.
-            if (!connected(cell, d.payload)) return;
+            if (!connected(cell, d.payload)) {
+                caption.set(undefined);
+                return;
+            }
             d.hovered = el;
             // The verdict is asked HERE, at this point — never read back from
             // `data-drop-valid`, the drag-start sweep's snapshot: a veto that
-            // discriminates on the slot answers per bucket.
-            if (allows(cell, d.payload, point)) {
+            // discriminates on the slot answers per bucket. It is asked of the
+            // event the drop would deliver here, which the caption speaks of.
+            const coord = coordAt(cell, point, d.payload);
+            const allowed = cell.canDrop === undefined || cell.canDrop(dropEvent(d.payload, coord, track.altKey));
+            if (allowed) {
                 el.removeAttribute("data-drop-invalid");
                 el.setAttribute("data-drop-valid", "");
                 el.setAttribute("data-drop-active", "");
@@ -565,14 +671,30 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 el.removeAttribute("data-drop-active");
                 el.setAttribute("data-drop-invalid", "");
             }
+            const text = cell.caption?.(coord, d.payload, allowed);
+            caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
             return;
         }
-        const sink = sinks.current.get(el);
-        if (sink !== undefined && sinkValid(sink, d.payload)) {
-            el.setAttribute("data-drop-active", "");
+        // Over nothing the ghost goes alone; over a sink, with what its surface says of a return there.
+        caption.set(undefined);
+        const sink = el !== null ? sinks.current.get(el) : undefined;
+        if (el !== null && sink !== undefined && sinkValid(sink, d.payload)) {
             d.hovered = el;
+            const allowed = returnAllowed(sink, d.payload);
+            if (allowed) {
+                el.removeAttribute("data-drop-invalid");
+                el.setAttribute("data-drop-active", "");
+            } else {
+                el.removeAttribute("data-drop-active");
+                el.setAttribute("data-drop-invalid", "");
+            }
+            if (sink.kind === "library" && sink.library !== undefined && d.payload.kind === "event") {
+                const returns = targets.current.get(d.payload.from.surface)?.returns;
+                const text = returns?.caption?.(returnEvent(sink, d.payload.from), sink.library, allowed);
+                caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
+            }
         }
-    }, [connected, allows, sinkValid]);
+    }, [connected, sinkValid, returnAllowed, returnEvent, track, caption]);
 
     /**
      * dnd-kit's collision step: the destination under the pointer, or under a
@@ -707,6 +829,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         spoken.current = null;
         lastHit.current = undefined;
         restPoint.current = undefined;
+        caption.set(undefined);
         // Candidates precede the drop — mark every valid destination now.
         for (const [el, cell] of cells.current) {
             if (connected(cell.current, payload) && allows(cell.current, payload, undefined)) el.setAttribute("data-drop-valid", "");
@@ -715,7 +838,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             if (sinkValid(reg, payload)) el.setAttribute("data-drop-valid", "");
         }
         setDragged(payload);
-    }, [hit, rest, connected, allows, sinkValid]);
+    }, [hit, rest, connected, allows, sinkValid, caption]);
 
     /**
      * The drag moved, or what it rests over changed: mark where it rests now.
@@ -739,6 +862,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         drag.current = null;
         for (const el of cells.current.keys()) clearStages(el);
         for (const el of sinks.current.keys()) clearStages(el);
+        caption.set(undefined);
         setDragged(null);
         if (d === null) return;
         d.origin?.removeAttribute("data-dragging");
@@ -783,16 +907,19 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             return;
         }
         if (sink !== undefined && sinkValid(sink, payload) && payload.kind === "event") {
+            // The surface's verdict is asked once more, of the return about to be delivered (#1196).
+            if (!returnAllowed(sink, payload)) {
+                outcome.current = { kind: "notDropped", item };
+                return;
+            }
             const target = targets.current.get(payload.from.surface);
-            const taken = target?.onDrag?.(variant("remove", {
-                from: cellRefValue(payload.from),
-                to: variant(sink.kind === "trash" ? "trash" : "source", null),
-            }));
+            const meta = sink.kind === "library" && sink.library !== undefined ? { library: sink.library } : undefined;
+            const taken = target?.onDrag?.(returnEvent(sink, payload.from), meta);
             outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: targetName(el, point, payload) };
             return;
         }
         outcome.current = { kind: "notDropped", item };
-    }, [track, hit, connected, sinkValid, targetName]);
+    }, [track, hit, connected, sinkValid, returnAllowed, returnEvent, targetName, caption]);
 
     const onDragEnd = useCallback((_event: DragEndEvent) => finish(true), [finish]);
     const onDragCancel = useCallback(() => finish(false), [finish]);
@@ -833,9 +960,9 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const point = restPoint.current;
             const target = targetName(el, point, payload);
             const cell = cells.current.get(el)?.current;
-            const message = cell === undefined || allows(cell, payload, point)
-                ? words.over({ item, target })
-                : words.refused({ item, target });
+            const sink = cell === undefined ? sinks.current.get(el) : undefined;
+            const taken = cell !== undefined ? allows(cell, payload, point) : sink === undefined || returnAllowed(sink, payload);
+            const message = taken ? words.over({ item, target }) : words.refused({ item, target });
             if (message === spoken.current) return undefined;
             spoken.current = message;
             return message;
@@ -860,7 +987,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 return payload !== undefined ? words.cancelled({ item: itemName(payload) }) : undefined;
             },
         };
-    }, [words, targetName, allows]);
+    }, [words, targetName, allows, returnAllowed]);
     const accessibility = useMemo(() => ({
         announcements,
         screenReaderInstructions: { draggable: words.instructions() },
@@ -876,15 +1003,15 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     }), [registerTarget, registerCell, registerSink]);
 
     // ── Shared trash sink (#267) ──────────────────────────────────────────
-    // While a drag whose owning target declares `kinds.remove` is in flight,
+    // While a drag whose owning target declares `kinds.remove` — and not
+    // `trash: false`, its elements only returning to a library (#1196) — is in flight,
     // the provider renders a fixed trash zone (bottom-centre portal) wired
     // through the ordinary `trash` sink path — dropping delivers
     // `remove: { from, to: trash }` with zero per-component work. Structural
     // validity only: a trash drop is never `data-drop-invalid` (a veto is a
     // cell concern). Per-chip trash buttons remain the click path.
-    const trashEligible = dragged !== null
-        && dragged.kind === "event"
-        && (targets.current.get(dragged.from.surface)?.kinds.remove ?? false);
+    const draggedKinds = dragged !== null && dragged.kind === "event" ? targets.current.get(dragged.from.surface)?.kinds : undefined;
+    const trashEligible = draggedKinds !== undefined && (draggedKinds.remove ?? false) && (draggedKinds.trash ?? true);
 
     return (
         <DndContext
@@ -907,18 +1034,23 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 </DragMessagesContext.Provider>
             </DragLayerContext.Provider>
             <DragOverlay className="east-drag-ghost" zIndex={1700} modifiers={GHOST_MODIFIERS} dropAnimation={null}>
-                {dragged !== null ? <div data-drag-ghost="">{dragged.ghost}</div> : null}
+                {dragged !== null ? (
+                    <>
+                        <div data-drag-ghost="">{dragged.ghost}</div>
+                        <DragCaptionView store={caption} />
+                    </>
+                ) : null}
             </DragOverlay>
         </DndContext>
     );
 }
 
-/** The shared trash zone — an ordinary `trash` sink, portalled to the page's bottom centre. */
+/** The shared trash zone — an ordinary `trash` sink, portalled to the page's bottom centre; its mark Font Awesome's trash can, never a text glyph (#1263). */
 function TrashZone({ label }: { label: string }) {
     const sinkRef = useDropSink("trash");
     return createPortal(
         <div ref={sinkRef as (el: HTMLDivElement | null) => void} data-drag-trash="" aria-label={label}>
-            ⌫
+            <FontAwesomeIcon icon={faTrashCan} />
         </div>,
         document.body,
     );

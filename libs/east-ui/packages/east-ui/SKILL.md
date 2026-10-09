@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Plan> (the composite canvas — heterogeneous rows on ONE shared { time | number | ordinal } axis, laid out by the series list and nested from the data's own structure, paged sources, series library, key search, and an editing session — review verdicts, dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Apply), <Sheet> (the planning spreadsheet — typed columns over the host's raw rows, registers and a driver, directed link cells, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, Excel round-trip, paged sources with key search), <Matrix>, <Calendar>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, or a rail and breadcrumb the author passes, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, the Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, or a rail and breadcrumb the author passes, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
 ---
 
 # East UI
@@ -80,6 +80,11 @@ re-listing each member's description:
   Explicit escape hatches over the palette / variant defaults; take semantic
   tokens (`fg.muted`, `bg.subtle`) or CSS colours.
 
+Every icon is a Font Awesome **solid** icon (#1263): an icon prop takes
+`{ prefix: "fas", name: "…" }`, or the bare solid name where it says so. East
+UI draws no other set — a factory refuses another prefix at build, naming the
+icon.
+
 ```
 Task → Which tag?
 │
@@ -133,10 +138,10 @@ Task → Which tag?
 │   │   │   ├─ variant (optional) — "tiles" (default) | "wireframe": each tile an outline at its size with its content left out, its spans kept at any width and its declared height exact — a page's thumbnail. It draws no frame of its own: its host frames it (a Library gallery card's media) and it fills the host's height. With no rows it is the blank page — a band over the body, each dashed
 │   │   │   ├─ width (optional) — the design width ("1440px"): a page's grid is that wide, scrolls inside a narrower host, and its spans answer to it; on the editing canvas it is the most the grid lays out at — a narrower column lays it out at the column's width, a wider one centres it — and the toolbar reads it out
 │   │   │   ├─ height / maxHeight (optional) — pin or cap the SnapGrid; the grid scrolls within
-│   │   │   ├─ edit + editing (optional, given together) — the builder's canvas: every tile keeps its declared span at any width, and each gesture is a DRAFT of the shared editing session — the Sheet's and the Plan's — each ONE undoable transaction (origin drop / move / resize / remove); the history item (Undo · Redo · Discard · Apply) sits in the canvas's toolbar (see The frame), and ⌘Z / Ctrl+Z undo, ⌘⇧Z / Ctrl+Y redo. Editing takes an `Array` source — its order is the tiles' order, so a move is a new order and a new row key; a `Dict` is refused. `edit` names the row fields a gesture writes: { key: "id" (the String identity field), row: "row" (String), span: "span" (Integer), height?: "height" (Option<Integer>; omitted, heights are not edited), align?: "align" (SnapGrid.Types.Align; the field an align request writes — omitted, one is refused), create?: ($, card, at) => R — a dropped library card's new row: `card` the drag grammar's { library, key }, `at` { key (a fresh identity), row (the row it lands in) }; the canvas then writes `at.row` and fits the span }. `editing` is { onApply? | onUpdate?, onPatch?, onDrafted?, mode?, ready? } as on the Plan: `onUpdate={handle.write}` with `data={handle}` is the inline adapter; `onPatch` hears SnapGrid.Types.PatchEvent(R); `onDrafted` fn(Array<R>) => Null hears the rows the canvas draws — the source with its drafts, exactly as Apply would leave them — as it mounts and whenever they change (a gesture, an undo or redo, a Discard, a source that moved), so a pane beside it reads what it shows; `ready` fn(R) => Editing.Types.Readiness marks the tile it refuses and holds Apply. Apply leaves exactly the order the canvas shows
-│   │   │   ├─ ui (optional) — the bound selection: `State.bind([SnapGrid.Types.UiState], key, SnapGrid.uiState())` — the canvas draws the tile it holds and writes the one the user picks, so an inspector beside it reads and sets it; omitted, the canvas keeps its own. Its `request` asks the editing canvas for a change, as the Plan's `focus` asks for a row: `ui.write(SnapGrid.uiState({ selected: key, request: { key, change: variant("span", 8n) } }))` — `span` (held to the row's room), `row` (counting from 1; a row already holding 6 tiles, or one past the last, is a new row after it), `height` (`none` for its content's), `align` (written to `edit.align`) — taken as ONE gesture of the session by the rules the handles and drags keep, undoable with the rest, and written back `none`
+│   │   │   ├─ edit + editing (optional, given together) — the builder's canvas: every tile keeps its declared span at any width, and each gesture is a DRAFT of the shared editing session — e3-ui's Sheet's and Plan's — each ONE undoable transaction (origin drop / move / resize / remove); the history item (Undo · Redo · Discard · Save) sits in the canvas's toolbar (see The frame), and ⌘Z / Ctrl+Z undo, ⌘⇧Z / Ctrl+Y redo. Editing takes an `Array` source — its order is the tiles' order, so a move is a new order and a new row key; a `Dict` is refused. `edit` names the row fields a gesture writes: { key: "id" (the String identity field), row: "row" (String), span: "span" (Integer), height?: "height" (Option<Integer>; omitted, heights are not edited), align?: "align" (SnapGrid.Types.Align; the field an align request writes — omitted, one is refused), create?: ($, card, at) => R — a dropped library card's new row: `card` the drag grammar's { library, key }, `at` { key (a fresh identity), row (the row it lands in) }; the canvas then writes `at.row` and fits the span }. `editing` is { onApply? | onUpdate?, onPatch?, onDrafted?, mode?, ready? } as on e3-ui's Plan: `onUpdate={handle.write}` with `data={handle}` is the inline adapter; `onPatch` hears SnapGrid.Types.PatchEvent(R); `onDrafted` fn(Array<R>) => Null hears the rows the canvas draws — the source with its drafts, exactly as Save would leave them — as it mounts and whenever they change (a gesture, an undo or redo, a Discard, a source that moved), so a pane beside it reads what it shows; `ready` fn(R) => Editing.Types.Readiness marks the tile it refuses and holds Save. Save leaves exactly the order the canvas shows
+│   │   │   ├─ ui (optional) — the bound selection: `State.bind([SnapGrid.Types.UiState], key, SnapGrid.uiState())` — the canvas draws the tile it holds and writes the one the user picks, so an inspector beside it reads and sets it; omitted, the canvas keeps its own. Its `request` asks the editing canvas for a change, as e3-ui's Plan's `focus` asks for a row: `ui.write(SnapGrid.uiState({ selected: key, request: { key, change: variant("span", 8n) } }))` — `span` (held to the row's room), `row` (counting from 1; a row already holding 6 tiles, or one past the last, is a new row after it), `height` (`none` for its content's), `align` (written to `edit.align`) — taken as ONE gesture of the session by the rules the handles and drags keep, undoable with the rest, and written back `none`
 │   │   │   ├─ view (optional) — the bound design width and zoom: `State.bind([SnapGrid.Types.ViewState], key, SnapGrid.viewState())` under a key of its own, apart from `ui` — the editing canvas draws at them and writes the width the user presses and the zoom step they take; omitted, the canvas keeps them, starting from `width` and `zoom`
-│   │   │   ├─ apply (optional) — the bound Apply request: `State.bind([SnapGrid.Types.ApplyState], key, variant("idle", null))` under a key of its own — a screen that must not leave drafts behind (a publish) writes `variant("asked", id)` with an id of its own, and the editing canvas applies its drafts as its history item does — waiting out an Apply already running, retrying one of unknown outcome — and answers under the same id: `applied(id)` once the source confirms them, or at once with none; `refused({ id, reason })` when they cannot land, `reason` in the canvas's words (the conflict's, the rejection's, a check's or the stale source's). The canvas stays the only writer of its drafts; omitted, only the history item applies
+│   │   │   ├─ apply (optional) — the bound Apply request: `State.bind([SnapGrid.Types.ApplyState], key, variant("idle", null))` under a key of its own — a screen that must not leave drafts behind (a publish) writes `variant("asked", id)` with an id of its own, and the editing canvas saves its drafts as its history item does — waiting out a Save already running, retrying one of unknown outcome — and answers under the same id: `applied(id)` once the source confirms them, or at once with none; `refused({ id, reason })` when they cannot land, `reason` in the canvas's words (the conflict's, the rejection's, a check's or the stale source's). The canvas stays the only writer of its drafts; omitted, only the history item saves
 │   │   │   ├─ widths (optional) — [{ label, icon?, width }] the design widths the editing canvas's toolbar offers, a device each (`{ label: "Desktop", icon: "desktop", width: "1440px" }`, `{ label: "Tablet", icon: "tablet-screen-button", width: "1024px" }`): the one the canvas draws at is pressed, and pressing another draws it at that width
 │   │   │   ├─ toolbar (optional) — { start?, end? } the host's items in the editing canvas's toolbar, each an array of UIComponents: `start` leads the row (a `<Status>`), `end` closes it (Preview, Publish buttons); they never fold
 │   │   │   ├─ panes (optional) — { start?, end? } the panes beside the editing canvas, under its toolbar — a palette, an inspector: a `<Dock surface="shell">` pane collapses to its rail and the canvas column takes the room
@@ -144,7 +149,7 @@ Task → Which tag?
 │   │   │   ├─ sources (optional) — the Library ids whose cards land on the canvas (`edit.create` builds the row); id (optional) — the drag surface's name in a drop's cell refs; canDrop (optional) — fn(DragEventType) => Boolean, the veto over a card's `add` or a tile's `move` where the drag rests (⊘; a throwing predicate fails open). A drop's cell ref: `row` is the row key, or "" for a new row between rows; `slot` the pointed column "1"–"12", or the gap's index ("0" above the first row, n below the last)
 │   │   │   ├─ guides (optional) — draw the column ruler above the rows (the selected tile's columns in brand) and the column bands behind them
 │   │   │   └─ zoom (optional) — the scale the canvas draws at (1.0 actual size); the canvas scrolls inside its host
-│   │   ├─ The frame (editing): one toolbar across the canvas's width, then the `panes` beside a column holding the selection bar over the grid panel. The toolbar leads with `toolbar.start`, the grid chip ("12 col · snap on") and — once the source confirms an Apply — the time it was saved ("Saved · 14:32", UTC); it closes with the width readout ("1440 px"), the zoom (− 100% +, 10% steps from 50% to 150%), the history item, the `widths` and `toolbar.end`. A narrower frame folds it by one ladder: the grid chip first, then the width readout, the saved time, the widths to their icons, and the history item last. The selection bar names the selected tile — its `icon` in a tile, its `label` (else its key) and its `meta` — or says "No selection · Click a component on the grid to arrange it". The history shortcuts work anywhere in the frame, a pane's controls too; a key typed into a field stays the field's
+│   │   ├─ The frame (editing): one toolbar across the canvas's width, then the `panes` beside a column holding the selection bar over the grid panel. The toolbar leads with `toolbar.start`, the grid chip ("12 col · snap on") and — once the source confirms a Save — the time it was saved ("Saved · 14:32", UTC); it closes with the width readout ("1440 px"), the zoom (− 100% +, 10% steps from 50% to 150%), the history item, the `widths` and `toolbar.end`. A narrower frame folds it by one ladder: the grid chip first, then the width readout, the saved time, the widths to their icons, and the history item last. The selection bar names the selected tile — its `icon` in a tile, its `label` (else its key) and its `meta` — or says "No selection · Click a component on the grid to arrange it". The history shortcuts work anywhere in the frame, a pane's controls too; a key typed into a field stays the field's
 │   │   ├─ The canvas: a click selects a tile (brand border and focus shadow, four corner handles, a span handle on the right edge, a height handle on the bottom edge, the bottom-right corner drags both, and a remove button); Esc or a click on empty canvas clears it. A span drag snaps per column — at least 2, at most 12 less the row's other spans. A height drag snaps to 40px steps, or to a neighbour's bottom edge within 16px while a dashed guide runs across the row; a tile with a `minHeight` shrinks to it, any other stops at its content's height; at most 960; released near its content's height it is auto again. A tile or a card drops beside a tile (a brand line with a "+" badge), between rows, or on the end zone under the last row, each a new row; a tile that takes a row past 12 shrinks to the free columns when that leaves it 3 or more, and otherwise every tile in the row takes ⌊12 / n⌋; a row holds at most 6 tiles (⊘), and a row left empty is gone. Keys: the arrows move the selection; [ and ] change the span by 1; Delete / Backspace remove; tiles drag by keyboard too. A tile's content takes the tile's height — a `<Chart height="fill" …/>` takes the tile's once given one, and its natural height in an auto tile
 │   │   └─ Factories:
 │   │       ├─ SnapGrid.cell({ key, row, span, height?, minHeight?, align?, frame?, label?, icon?, meta?, content }) — one tile: key (its identity) · row (the key of the row it sits in) · span (columns of 12, held to 1–12) · height (Option<Integer> px; none = its content's height) · minHeight (Option<Integer> px; the least height a height drag leaves it — a chart's plot; none = its content's height) · align ("top" default | "center" | "stretch" — where a shorter tile sits in its row) · frame (default true; false = bare) · label (Option<String>; its name for the drag ghost, the announcements, the history and the selection bar; none = its key) · icon (Option<String>; a Font Awesome solid icon name, the selection bar's tile) · meta (Option<String>; the selection bar's line after its name — what it is, what it reads) · content (the UIComponent it shows)
@@ -309,13 +314,13 @@ Task → Which tag?
 │   │       ├─ variant (optional) — solid | subtle | outline | ghost | plain
 │   │       ├─ colorPalette / size (optional) — hue + size token
 │   │       ├─ onClick (optional) — East.function([], NullType) handler
-│   │       ├─ startIcon / endIcon (optional) — leading / trailing icon ({ prefix, name })
+│   │       ├─ startIcon / endIcon (optional) — leading / trailing icon ({ prefix: "fas", name })
 │   │       ├─ loading / loadingText / loadingIcon (optional) — spinner state + swapped label/icon
 │   │       ├─ disabled (optional) — blocks interaction
 │   │       └─ hoverBackground + COLOR overrides (optional) — palette escape hatches
 │   ├─ <IconButton> — icon-only button
 │   │   └─ Props:
-│   │       ├─ prefix / name (required) — Font Awesome icon ("fas", "chevron-right")
+│   │       ├─ prefix / name (required) — Font Awesome solid icon ("fas", "chevron-right")
 │   │       ├─ label (required) — accessible aria-label
 │   │       ├─ variant / colorPalette / size (optional) — as Button
 │   │       ├─ onClick / loading / loadingIcon / disabled (optional) — as Button
@@ -506,80 +511,10 @@ Task → Which tag?
 │   │   │   ├─ size / variant / animateContent / label (optional) — chrome
 │   │   │   └─ itemColor / itemHoverBackground / selectedBackground / selectedColor / caretColor / connectorColor (optional)
 │   │   └─ Factories:
-│   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = FA icon + style)
+│   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = a Font Awesome solid icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
-│   ├─ <Plan axis={Plan.axis({…})} data={rows} series={[Plan.series.span(Row, {…}), …]} /> — the composite canvas: ONE shared axis — { time | number | ordinal } (#631): a UTC window ÷ resolution, a numeric window ÷ step, or an ordinal list = n bucket columns — over heterogeneous rows — the eight row kinds: span state-runs, bucket allocation lanes, chart measures, heat cells, bucketed table numerals, cards shift chips, event marks, and group strips — sliced, searched, picked and reviewed as one surface. Rows derive from `data` through `series` as an ordered STREAM (#822): the series list IS the layout (one contiguous block per series, top to bottom), a parent is followed by its subtree, and hierarchy comes only from the data's own nesting — never from a field value. Every row carries a typed id, `Plan.Types.RowId` = { series, path } (the series that made it and the entry keys that lead to it; `Plan.ref` builds one), which every callback reports and `links` address. Nothing behaves differently because `data` is inline or paged
-│   │   ├─ Props:
-│   │   │   ├─ axis (required) — ONE of three kinds; every element instant on the canvas must ride its arm. The kind is also a TYPE: `Plan.axis.number(…)` fixes the tag's `K`, every builder result carries the kind its instants' STATIC types imply (a `DateTimeType` accessor ⇒ `"time"`, a `FloatType` field ⇒ `"number"`, `Plan.at.ordinal(…)` ⇒ `"ordinal"`), a series collects its elements' kinds, and a series (or literal row) on another arm FAILS TO COMPILE at the tag — no wire change, the brand is phantom. Kind-erased values (a stored record, an `Expr<Plan.Types.Instant>`, an East-mapped element list, a `$.let`-bound axis or `$.const`-bound series list, chart rows) constrain nothing at compile time and are held to the axis at render — a row on another arm is a render-time diagnostic naming the row and the arm, never a silent misplacement. Plan.axis({ window?, resolution, resolutions?, now?, format? }) — the TIME shorthand (= Plan.axis.time): half-open [min, max) UTC window; omit window ⇒ the bound slice's datetime range — there is NO fit to the data (#822): a canvas that neither states a window nor binds a slice is refused, at build when the axis is written in the tag, else as the render-time NO WINDOW diagnostic (a bound or stored axis); `resolutions` lists the WEEK/DAY segment options; `now` draws the observed/plan divider; `format` overrides tick labels (date tokens; defaults: week ⇒ "W27", day ⇒ "MON"); at a resolution coarser than a row's data a bucket shows ONE value per row — the fold of those in it (#824) · Plan.axis.number({ window?, step, now?, format? }) — a numeric window ÷ `step` (bucket edges on whole steps; omit window ⇒ the bound slice's float / integer range, under the same no-fit rule; `format` a Chart.format.* spec; no resolution segment — step IS the declaration) · Plan.axis.ordinal({ values, now? }) — the declared values ARE the buckets, in order (the list is the window: no slice range, no brush, the window keys idle; an unlisted value positions nowhere; an interval END names its LAST bucket, inclusive)
-│   │   │   ├─ data (required) — a KEYED collection: a `Dict<K, R>` value/expression for the inline arm, or a `$.let`-bound paged handle for a WINDOWED arm — the platform's bind (e3-ui `Data.bindPaged(…)`), recognised by its East type: `pinned` when it names its snapshot, which `editing.onApply` needs; `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none. Any key type `K` — a row's path starts with its entry's key, a String as it is, any other key as its `.east` text (`3`, `(line="L1", bin=3)`) — and any entry type `R`: a struct, a `RecursiveType` node, or a collection (a `groupToDicts` group). A positional collection is refused — key it at the call site with `rows.toDict((_$, r) => r.id)`. A paged canvas pages by PARENTS (#823): a window is N top-level entries, each with its whole subtree, so a parent never straddles two windows and its bands, means, subtotals and member count are exact — nest children in the source, and group a flat paged source in its dataflow (a group is one entry holding its members; a parent is bounded by a page). Each top-level series is a BLOCK, exactly as inline: a paged canvas pages every block on its own over the same windows (its own bands and resident run; one read of a window serves every block), draws a section's header and hand-built rows once (FIXED blocks), and rebases only the block a far jump lands in; a window landing above the rows in view at a height its estimate missed moves the scroll, never the rows. A paged source may serve SHORT windows (e3 trims pages of wide entries to a byte budget) and the canvas still reads WHOLE ones — its derived source re-requests what a trimmed page left out. When the source's `revision()` moves (e3-ui `Data.bindPaged` follows each write to its dataset), the canvas re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position holds, and a standing key search is cleared (its hit named a row of the old snapshot)
-│   │   │   ├─ series (required unless `pick`) — the row recipes over `data`; the list IS the layout (#822): each series contributes one contiguous block, top to bottom in declared order, its rows in source order, each parent followed by its subtree. Data series: Plan.series.span/buckets/chart/heat/table/cards/events(Row, { key, title, subtitle?, icon?, keyType?, match?, label, id?, stacked?, sub?, value?, status?, approval?, review?, expand?, children?, collapsed?, edit?, …kind fields }) — every accessor receives (entry, key); a `RecursiveType` entry arrives as its node. What a gesture WRITES is declared on the series (#880): `review: { verdict: "approval" }` names the entry's `ApprovalStateType` field a verdict drafts (the row shows it as its approval; `approval` only SHOWS a verdict the canvas cannot change — give one or the other), and `edit: { items: "jobs", create: (drop, entry, key) => item }` (span / buckets / cards / events) names the entry's `Array` field a dropped card joins and builds the item from the `Plan.Types.Drop` — see `editing`. Naming the item's `String` key field and its instant fields as well — `edit: { items: "jobs", key: "key", start: "start", end: "end" }` (span / cards) or `{ items, key, at }` (buckets / events) — makes its runs, chips, tiles and marks MOVE, and its runs and chips RESIZE (#825): an element's key is its item's key — its identity across every row it can move to, since a row's list keeps its keys unique (a card or a move that would repeat one is refused, the drag showing ⊘) — an instant field is a `DateTime`, a `Float` / `Integer` (number axis), a `String` (ordinal) or a `Plan.Types.Instant`, and `create` becomes optional. `children` nests, to any depth: a bare accessor `(r) => r.children` walks more of THIS series (a recursive entry's own children), `Plan.children(of, [series…])` steps down to a child collection of another entry type (an `Array` in data order, a `Dict` in key order — its series laid out like a top-level list), an array of step-downs gives several child collections in order (a gesture on a nested row writes back through them, so where a series below takes gestures they read a FIELD of the entry — `r => r.children`, `Plan.children(r => r.lines, …)` — or are the entry itself, `g => g`; a computed collection is refused at build); `collapsed: true | (r, k) => …` is a parent's initial state. A parent derives exactly, because its whole subtree rides in its entry: span bands over the subtree's runs (`rollup` "union" | "byStatus" | "sum"; a band sums its runs' quantities unit by unit — the unit rides each `Plan.quantity`), a heat parent with no cells of its own the children's per-bucket `aggregate` (default "mean") painted on its `scale` ({ min?, max?, warnAt? }; default the scale its members share), a table parent with no values per-position subtotals (`aggregate` default "sum", `format`) — each summarising what its children SHOW, their values already folded to the resolution · Plan.series.group(Row, { key, title, label, children, summaryAggregate?, summary?, collapsed? }) — one strip PER ENTRY, its members the entry's children (derived member count; collapsed it rests as its summary strip — explicit `summary` cells OR a `summaryAggregate` of the members' heat cells, never both) · Plan.series.section(Row, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…]) — a fixed titled block over series (it adds no path segment; its header's id is `Plan.sectionRef(key, …parentPath)`) · Plan.series.views(Row, { key, title, match?, children?, collapsed? }, [series…]) — ONE entity shown several ways: one row per member series per entry, ADJACENT and in declared order (a member's own `match` decides whether its row shows; members declare no `children`), the entry's children following its view rows under the first, and a seek on the entry landing on its first view row · Plan.series.rows(Row, identity, rows) — hand-built rows (the kind factories below) placed as one block. Series keys are unique across the WHOLE series tree — a repeat is a build-time Error naming both sites (a list bound as an East value is checked at render: a repeated id draws as a row diagnostic, never a silent drop). There is no `groupBy`: to group a flat source, reshape it first — inline, one `groupToDicts` in the canvas function (`rows.groupToDicts(($, r) => r.line, ($, _r, k) => k)`, entries `Dict<String, Row>` whose key is the group); a paged source in the dataflow. A source keyed by another type (`Dict<Integer, R>`) works with series whose accessors ignore the key; one that reads it declares `keyType` and, bound as a list, types it `Plan.Types.Series(R, KeyType)`
-│   │   │   ├─ pick (optional, exclusive with `series`) — Plan.pick(key, allSeries, { hidden? }): the bound series library — the toolbar Series button opens the panel, which lists the series by title, subtitle and kind icon in the list's order (that order is the canvas layout); hidden series drop from the canvas (a hidden section, group or views takes its whole block); there are no row counts (#822 — a count means something only with every entry in hand); a pick is STATE, so the Plan must sit inside a <Reactive>
-│   │   │   ├─ links (optional) — [Plan.link({ key, from: Plan.ref(series, …path), fromRun, to: Plan.ref(…), toRun, quantity?: Plan.quantity(34, { unit: "t" }) })] run-edge quantity ribbons, their ends named by row id (a `views` entry's chart row and its span row are two different ends); rows an edge touches grow the links-focus control (gathers the transitive upstream/downstream family; unrelated rows collapse to 11px rails / ⋯ gap bands — never removed). A ribbon's share of the family's largest quantity sets its ink, and the quantity's caption — its `text`, else its value through its `format`, then its unit — prints on it and is its tooltip; a link with no quantity draws faintest and says nothing. A click on a ribbon reports the `link` element ref ({ key, from, to }) and opens the root's popover for it
-│   │   │   ├─ popover / hover (optional) — generalized element resolvers fn(Plan.Types.ElementRef) => Option<UIComponent> over EVERY element (run / event / chip / mark / cell refs, each carrying the row's id — compare with `East.equal(ev.row, Plan.ref(…))` — and link refs { key, from, to }, a ribbon belonging to no one row); resolved lazily at click/hover time — a `none` result opens nothing
-│   │   │   ├─ expandRender / expandGutter (optional) — the R2 expand-in-place renders fn(Plan.Types.RowId) => UIComponent for rows declaring `expand` (per-row DATA: `{ height?: "168px", axis?: "keep" | "dim" | "off" }` — the render's height, and whether the shared grid + now-line run through it, wash to 40%, or hide inside that row); the focused row GROWS to hold the render (its marks keep their band at the top, its gutter cell grows with it and takes `expandGutter`); every other data row compresses to a 16px strip — never removed: bars / tiles / chips shrink to 7px marks, chart and table rows re-encode as a tone strip, event marks keep their silhouette; a strip click or Esc returns
-│   │   │   ├─ review (optional) — the review chrome ({ columnLabel?, summary?, onRerun?, rerunLabel? }): decision column + batch foot. A verdict is a DRAFT of the `editing` session, never a callback (#880): the reviewed series names the field it writes (`review: { verdict: "approval" }`), Approve / Reject on a row and Approve all / Reject all at the foot are ONE gesture each (the "all" forms draft every row the canvas HOLDS that takes a verdict — paged, the loaded rows, and the foot says so: "Approve 200 loaded"), and the pressed button is the drafted field drawn again. Without `editing` the buttons are disabled and the foot has no batch; a row whose series only shows `approval` draws it pressed, both buttons disabled. `onRerun` changes no data, so it stays a callback. The removed `onApprove` / `onReject` / `onApproveAll` / `onRejectAll` throw at build, naming the replacement
-│   │   │   ├─ editing (optional) — the editing session (#880), the Sheet's (#879) over the source's TOP-LEVEL entries: { onApply? | onUpdate?, onPatch?, mode?, ready? }. Every verdict, dropped card, move and resize drafts the entry its row came from (a gesture on a nested row drafts the entry its whole subtree rides in), drawn at once where it was made — the entry's rows derived again, marked pending, or incomplete / invalid while a check refuses that entry — each gesture ONE undoable transaction. The history bar (issues · Undo · Redo · Discard · Apply, and its status line) ends the toolbar and sits among the narrow layout's chips; ⌘Z / Ctrl+Z undo, ⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y redo. `onApply` fn(Editing.Types.ChangeSet(R, K)) => Editing.Types.ApplyResult (sync or async) commits one checked batch against the base the drafts began from — the inline `Dict`'s snapshot, or a paged source's revision (a paged `onApply` needs the source's `revision` and `refresh`): a batch against a source that moved is refused, never rebased, and the bar says "Source changed — review or discard these drafts"; an Apply that throws leaves the outcome unknown, and "Retry request" resends the SAME request (dedupe by its `requestId`); drafts retire only when the source reads back at the committed revision. `onUpdate` fn(Dict<K, R>) => Null is the inline adapter instead (exclusive with `onApply`): pass `data={handle}` and `onUpdate={handle.write}`, and each batch applies with `Editing.apply` over the handle's LATEST `Dict` and writes the whole result once — idempotent across retries. `onPatch` fn(Plan.Types.PatchEvent(R)) => Null hears every gesture (origin verdict / drop / move / resize / undo / redo / discard). `mode` "batch" (default — Apply sends) | "auto" (each ready gesture goes at once). `ready` fn(R, K) => Editing.Types.Readiness checks a drafted entry — a refusal names the entry and holds Apply (a check that throws refuses its own entry only). Without `editing` the canvas takes no gesture
-│   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["cohort","filter","search","range","resolution","brush","summary"]): the slice's range (`datetime` on a time axis, the field's `float` / `integer` on a number axis) / resolution IS the window + resolution source of truth (axis seeds the unbound case; an ordinal axis has no range arm; the window widens outward to whole periods). A slice range is CLOSED (both ends inclusive) and the window half-open, so the canvas writes `[min, max)` as the range ending at the last value before `max` on the field's own lattice — an integer's `max − 1`, a datetime's millisecond before, a float's next double down — and reads it back whole (#949): seed an integer range `{ from: 1n, to: 8n }` for the eight steps 1–8 (the range chip reads `1–8`), a datetime one ending the millisecond before the window's end (`week(39n).addMilliseconds(-1n)`); `brush` mounts the horizon band on time and number axes — an OVERVIEW of the range field in whole periods, one histogram bar each, with a lens joining its window to the plot's edges (drag its body to slide the window, an edge to resize it, empty track to draw one — every snapped step APPLIES live, so the canvas re-renders honestly mid-gesture and the release commits), `resolution` the WEEK/DAY segment (time axis, slice-bound only), `summary` the count line. On a PAGED canvas, narrowing affordances are scope-badged ("loaded rows only") and `search` becomes a KEY SEARCH over the source's `seek` — the jump REBASES residency at the match (windows in between are never fetched); the query is a whole-key literal, a prefix, leading struct fields, or a `from..to` RANGE over a leading prefix of the key's flattened fields (`late, 3..ok`), which is what a time window or a status band asks for — quoting is the escape: a quoted value is exact and a `..` inside it is text (`"../config"`)
-│   │   │   ├─ grain (optional) — initial grain "resource" (default) | "group" (root groups collapse to summary strips); the `g` key cycles it, and a canvas with a root group mounts the toolbar's GROUP · RESOURCE segment for it — slice or no slice (#632; the narrow layout's tabs own the grain there); onGrainChange observes
-│   │   │   ├─ ui (optional) — the interaction state, held by the HOST (#824): State.bind([Plan.Types.UiState], key, Plan.uiState({ selected?, collapsed?, expanded?, charts?, focus? })) — the canvas draws it from its first frame, takes every outside write (a selection, rows folded or opened, charts expanded) and writes the user's own actions back, once per action; `collapsed` / `expanded` list the rows folded / opened AGAINST their declaration (a row in neither follows it; in both, folded); `focus` is a REQUEST — the canvas opens the rows it nests under, scrolls it to the top of the view, makes it the tab stop (DOM focus stays put) and writes `focus: none` back; a paged row it has not loaded is opened by its window, or sought by its entry's key where the source can seek. Bound, the canvas persists no toggles of its own under its `storageKey`
-│   │   │   ├─ id + sources + canDrop (optional) — DnD TARGET (the shared grammar): Library cards `add` onto rows whose series declares `edit` — span / buckets / events / cards only (chart / heat / table render DERIVED values, and section headers and group strips are wayfinding — they register no cell) — and only with `editing`: a drop is a DRAFT of the session (#880), its item built by the series' `create` from the `Plan.Types.Drop` ({ from: { library, key }, row, at, duplicate } — `at` the start of the bucket it landed in, on the axis arm). `canDrop` sees the drag grammar's `add`: its `into.row` is the row id's canonical TEXT — key host tables by `East.print(Plan.ref(series, …path))`, or read it back with `row.parse(Plan.Types.RowId)`; slot = the bucket start instant per the axis arm — time: Z-less ISO (`slot.parse(DateTimeType)`), number: a decimal (`slot.parse(FloatType)`), ordinal: the value; drop verdicts resolve LIVE where the drag rests — `canDrop` is asked of the event a drop there would deliver (an `add`'s `duplicate` is whether Alt is held), renders the ⊘ stage, and is asked again before the drop becomes a draft — and the landing band previews WHERE the card lands. A moved or resized element (#825) is vetoed the same way: `canDrop` sees the grammar's `move` ({ from, to } cells, `from.event` the element's key) or `resize` ({ event, edge }). The canvas's own elements move with or without an `id` — only a card needs it. A card held at a bounded canvas's edge scrolls it to the rows beyond; by keyboard (#608) → / ← step onto a row and along its buckets and ↑ / ↓ between rows, each bucket announced ("Weld cell is over L1-M03, Week of Jul 6, 2026."). `onDrag` is removed (#880) and throws at build
-│   │   │   ├─ onSelect / onElementClick / onGroupToggle (optional) — row selection, ONE element callback and section toggles; payloads are row ids + element keys + instants, never indices: onSelect the `Plan.Types.RowId`; onElementClick a `Plan.Types.ElementRef` — the SAME ref the popover resolver receives, its arm the element kind (run { row, run } · event { row, event } · mark { row, mark } · chip { row, chip } · cell { row, at } — `at` a Plan.Types.Instant on the axis arm, a folded bucket's start · link { key, from, to }), so `ref.match({ run: …, link: … }, …)` handles the kinds it cares about; onGroupToggle { row, expanded } for any row with children
-│   │   │   ├─ footer (optional) — [{ text, tone?, end? }] status-footer items; a paged canvas adds the transport line ("N loaded of M · Loading…", counted in source ELEMENTS); until the source is exhausted a TOP-LEVEL section's member count prints `~`-marked (its members are entries the windows share out) — every other parent's numbers are exact, its subtree riding whole in one entry
-│   │   │   └─ style (optional) — { height ("fill" fills the parent — the wrapper takes the bound, the body virtualizes + scrolls), maxHeight, density ("compact" ⇒ dense 24px rows), gutterWidth ("168px", CSS px) }; a bounded canvas pins the PARENT of the rows in view under its header — with its ancestors' path on a deep tree — once the parent's own row scrolls off, inline and paged (a click goes to it, #823)
-│   │   ├─ Narrow (below 480px of CONTAINER width — a phone, a splitter pane, a task preview; §10): the same definition reflows to a review tool — cohort / filter / range chips + a WEEK▾ resolution chip (no horizon brush) and Groups · Rows · Measures tabs (the `<Tabs>` line grammar, counts as plain numerals) over ONE slice, then the card list with the shared ruler as its sticky first row (a separator per bucket, labels thinned to what fits): Groups = the group grain as hottest-first strip cards (tap opens its rows) — the LANDING only when it is a map (three or more groups, or any strip); Rows = every data row as a card SECTIONED by group (a section header scopes to that group; `← All rows` returns) with the gutter identity as the card head and the row's plot — the same kind renderer — as the body on the shared window; Measures = chart rows full-width at expanded density; tap selects, a second tap on an `expand` row drills it in place (~148px; neighbours keep their size), a two-finger horizontal drag pans the window; a bounded `height` pins the header and scrolls the list; a paged source shows its resident prefix. Wrap a Plan in `<Box width="360px">` to see it on a desktop page
-│   │   ├─ Keyboard (#819): the body is a TREEGRID with ONE tab stop that roves between its rows — every row, group band, ⋯ gap band and paged-window band (loading or failed) is a `row` with aria-level / aria-expanded / aria-selected and an `aria-rowindex` that stays exact under virtualization, collapse and paging · ↑ / ↓ step, Home / End go to the first / last, PgUp / PgDn move a viewport · → opens a closed section (a group band, a nesting parent, an `expandable` chart) and steps into an open one's first child; ← closes an open one, else steps to the parent · Enter does the row's click (select; a group band toggles; a rail, strip or ⋯ band returns from the row focus) · Space toggles the section / chart · a step onto an UNLOADED band asks the source for that window and moves on to the row once it lands (Home / End reach the source's own first / last row) · Tab walks the row's widgets — its controls, its elements in time order, tabbables in the expand render, its review buttons — then leaves the canvas; ← / → (Home / End) step between elements in time order; Enter / Space on an element does its click (the popover, the row's selection, the element callback) · Esc ladder, one rung per press: popover → element back to its row → brush → focus → deselect · n recenters the window on `now` · [ / ] pan one period · g cycles the grain — window keys are SLICE writes, so an unbound canvas idles them · with `editing`, ⌘Z / Ctrl+Z undo the last gesture and ⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y redo it (#880) · with `editing`, Space on a movable element picks it up (#825): ← / → move it one bucket, Shift+← / → its end and Alt+← / → its start, ↑ / ↓ carry it to the nearest row above / below that takes it, Space / Enter drop it, Esc / Tab cancel — each step said in the canvas's live region · the toolbar's GROUP · RESOURCE and WEEK · DAY segments are radio groups: one tab stop each, ← / → (Home / End) move and pick
-│   │   ├─ Screen readers (#819): a polite live region says what changed — a selection, a section or chart opening / closing, a row focus coming or going, the grain, the resolution, each window a paged source lands ("Loaded elements 201–400 of 5,000", counted in source elements like the transport line); every element is named in words — label, span or bucket ("Week of Jul 6, 2026"), state, tone — a chart row reads as an image with a min / max / last summary per layer, and colour-only cells (heat depth, booked weight, segment composition, compressed strips) carry their value as text; narrow, the Groups · Rows · Measures tabs are a real tablist (arrow keys, one tabpanel each)
-│   │   ├─ Localization (#820): every word the canvas says itself — toolbar, ruler, footer, diagnostics, bands, narrow tabs and cards, review buttons, the history bar (the table carries the editing session's words, #880), element names, live-region announcements — comes from ONE typed message table, and every number and date it prints is in the LOCALE: react-aria's `<I18nProvider locale="de-DE">` above the app sets it (the browser's language otherwise), and derived numbers ("2.234,5 t"), ruler ticks ("MO · DI"), the words a reader hears ("29. Juni 2026") and a Chart.format.* axis all follow it. Host React code overrides any subset of the words for a subtree with `<PlanMessagesProvider messages={GERMAN}>` (@elaraai/east-ui-components; `planMessages` is the English table — each message a function of named, already-formatted parameters, plus the raw `n` for plurals; define the overrides ONCE, not per render — providers nest). What the AUTHOR wrote is data and never translated: labels, footer items, and a date `format` pattern on the axis (East tokens, as written); the label a patch event carries to the host stays in English, as the Sheet's does
-│   │   └─ Factories:
-│   │       ├─ Plan.axis({ … }) = Plan.axis.time / Plan.axis.number({ window?, step, now?, format? }) / Plan.axis.ordinal({ values, now? }) — the shared axis declaration, one of three kinds (Plan.Types.Axis); Plan.at.time(d) / Plan.at.number(n) / Plan.at.ordinal(s) build ONE INSTANT explicitly (Plan.Types.Instant) — needed only for element RECORDS written as data (a Plan.Types.HeatCell array, a stored Plan.Types.Run): every element builder below takes a Date / number / string, or a DateTime / Float / Integer / String expression, and wraps it to the arm by its type, so a `start: r.start` DateTime accessor and a `day: FloatType` field both need nothing written
-│   │       ├─ Plan.series.* — the data-driven row series (see `series` above); Plan.Types.Series(Row) is one series' East type over `Dict<String, Row>` entries, Plan.Types.Series(Row, KeyType) over another key type
-│   │       ├─ Plan.children(of, [series…]) — a step down from an entry to a child collection of another entry type (`of(entry, key)` returns an `Array` or a `Dict`), for a series' `children`
-│   │       ├─ Plan.ref(series, …path) / Plan.sectionRef(series, …path) — a row's id (Plan.Types.RowId = entry { series, path } | section { series, path }): `Plan.ref("machines", "L1-M03")`, a nested row `Plan.ref("rollup", "Program A", "L1-M03")`, a `views` member's row by the MEMBER's key; for links, `East.equal` comparisons in resolvers, and host tables keyed by `East.print(id)` (an id is a variant — it cannot be a Dict key itself)
-│   │       ├─ Plan.run({ key, start, end, label, quantity?, state, status?, moved?, icon? }) — one state-run bar (state: "actual"|"in-progress"|"confirmed"|"estimated"|"added"|"recommended"|"removed"|"rejected"; `quantity` is ONE Plan.quantity — the bar prints its caption after the label and a parent's rollup band sums it with its siblings' in the same unit; status "warning" draws the stuck ring; runs past the window mask-fade, never fabricate an end)
-│   │       ├─ Plan.quantity(value, { unit?, format?, text? }) — a quantity (Plan.Types.Quantity): `value` is what sums, weighs and compares, `unit` what a rollup sums by (tonnes never add to hours), `format` a Format.* spec printing the value in the viewer's locale, `text` a caption printed instead (the value still sums) — a run's and a link's `quantity`
-│   │       ├─ Plan.event({ key, at, lane?, label?, icon?, state, tone?, color?, colorPalette?, stretch?, content?, animation? }) — one bucket tile (label omitted ⇒ the resting ✓ / dashed `plan` chip; lane omitted in a laned row spans the full cell — the mixed grammar)
-│   │       ├─ Plan.lane({ key, label? }) / Plan.marker({ at, lane?, status?, message }) — bucket sub-slot lanes + cell status rings (status defaults "danger"; message = the tooltip)
-│   │       ├─ Plan.chip({ key, from, to, label, state, icon? }) — one cards shift chip; Plan.mark({ key, at, kind, icon?, label? }) — one event mark (kind: "milestone" | "exception" | Plan.markKind.decision(applied))
-│   │       ├─ Plan.decision({ key, at, applied }) / Plan.port({ at, label? }) — span-row decision diamonds (◇ pending / ◆ applied) + quantity in/out ports
-│   │       ├─ Plan.heatCells(cells, { min?, max?, warnAt?, fold?, format? }) / Plan.weightCells(cells, { fold?, format? }) / Plan.segmentCells(cells, { fold?, format? }) + Plan.segment({ fill, weight, label? }) — the three heat-row cell arms (colour depth / booked-vs-free bars / compositions); `fold` is what a coarser bucket shows of the cells in it (heat and weight "mean", segments "sum"; "sum" | "mean" | "min" | "max" | "last" | "count"), `format` a Format.* spec for the values the arm prints — a heat cell without a `label` prints its value only through a declared `format`, and the words a reader hears for a weight or a segment share follow it
-│   │       ├─ Plan.tableCells(rawCells) / Plan.tableSeries({ cells, format?, tone?, strong?, rollup?, fold? }) — bucketed numerals (a raw cell's `at` wraps by its field type — DateTime / Float / Integer / String / an instant) (multi-series per row, style declared once per position; explicit text/tone overrides via PlanTableCellType values); a series folds by `fold` (default "sum"), and `Plan.series.table`'s `fold` declares it for its `cells`
-│   │       ├─ Plan.layer(chartLayer, { axis?, breach?, series?, fold? }) + Plan.fixed("120px") — chart rows consume Chart.Line/Column/Area/Scatter/Band/ref* builder results AS DATA on the shared scale (the x accessor's static type picks the arm — DateTimeType ⇒ time, Float/Integer ⇒ number, String ⇒ ordinal — and must match the canvas axis at render; Chart.Bar is a build-time error on every kind); Plan.layer adds the y-axis side, breach threshold, stack series and the fold a coarser bucket shows (columns "sum", lines and areas "mean"; scatter and band layers draw every point)
-│   │       ├─ Plan.span/buckets/chart/heat/table/cards/events/group({ key, label, id?, sub?, value?, meta?, stacked?, swatches?, collapsed?, pinned?, height?, status?, approval?, expand?, …kind fields, rows? }) — literal kind factories returning row STREAMS (the row, then its nested `rows:` in order; parents DECLARE rollup/aggregate and the renderer derives the numbers); ride them beside data-driven series via Plan.series.rows — a hand-built row's id is that series' key plus the factory `key`s that lead to it (`Plan.ref("works", "shutdown", "elec")`), so keys must be unique among siblings (a repeat draws as a DUPLICATE ID row diagnostic)
-│   │       ├─ Plan.link({ key, from, fromRun, to, toRun, quantity? }) — one link-graph edge; `key` is what a ribbon click's `link` ref names it by, `from` / `to` are row ids (`Plan.ref`), `quantity` a Plan.quantity
-│   │       ├─ Plan.uiState({ selected?, collapsed?, expanded?, charts?, focus? }) — the seed of a bound `ui` state (Plan.Types.UiState): rows named by id (`Plan.ref`), omitted fields empty
-│   │       └─ Plan.Types.PatchEvent(R) — what `editing.onPatch` receives for entries of `R` · Plan.Types.Drop ({ from: { library, key }, row: RowId, at: Instant, duplicate }) — what an `edit.create` builds its item from · Plan.Types.Gesture (verdict(ApprovalState) | drop(Drop) | move(Move)) and Plan.Types.RowEdits ({ verdict, drop, move: Option<MoveEdits> } — the gestures a row takes) · Plan.Types.Move ({ key, from: RowId, to: RowId, start, end } — a moved or resized element, #825) — the editing wire (#880); the session's contracts are the shared `Editing.Types.*` (ChangeSet(R, K), ApplyResult, Readiness)
-│   ├─ <Sheet data={rows} id="id" columns={{ start: Sheet.column.date(Row, {…}), qty: Sheet.column.quantity(Row, Driver, {…}), … }} /> — the planning SPREADSHEET: typed columns over the host's raw rows (date · quantity + unit · integer · text · register lookup / reference / enum · a set of register members · a directed `from > to` LINK between register members as a TYPED value · stamped read-only codes · a custom parse / print pair), a blank tail that invites the next row, typed parsing with a docked candidate strip (nothing ever floats over the grid), a copilot that fills cells and proposes whole rows from author East functions, a lens over a bound slice's narrowing (hits keep their row numbers, the rest collapse into context bands) with saved-view tabs, Excel round-tripping, and a paged arm with a key search. Declared the way Plan and Table are: `data` is the host's rows, every per-row fact is an accessor, the builders take the row type FIRST, and nothing at the author's side is addressed by a string name
-│   │   ├─ Props:
-│   │   │   ├─ data (required) — the rows: an `Array<R>` value / expression or a `$.let`-bound whole-value handle (`State.bind` / `Data.bind`) for the INLINE arm; a paged source for a WINDOWED arm — the platform's bind (e3-ui `Data.bindPaged`), recognised by its East type: `pinned` when it names its snapshot, which `onApply` needs, `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none — positional (`Array<R>` windows) or keyed (`Dict<String, R>` windows; the key is the row id). When a pinned source's `revision()` moves (e3-ui `Data.bindPaged` follows each write to its dataset), the sheet re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position and row heights hold, and a standing key search is cleared (its hit named a row of the old snapshot). A failure stays where it happened: a window the source cannot read is ONE band where its rows would be — the elements it covers, the reason and a Retry — while the windows around it keep working and the rows after it keep their numbers; the reader never asks a failed window again by itself (Retry does, and the source's own rate limit applies); a `total()` or `revision()` that throws is said on the footer's transport line with a Retry while the rows stay; only a source that fails before anything lands replaces the sheet, with a Retry. After an Apply, a read-back that throws keeps the Apply waiting with its reason and a Retry on the history bar, and a row that throws while it draws is a one-row diagnostic. A `Dict` inline is refused (a sorted map would sit rows in key order, not the planner's)
-│   │   │   ├─ id (required on a positional source) — the `String` field that identifies a row (a keyed paged source needs none); over entries of groups and loose rows, a field of BOTH the group type and the line type
-│   │   │   ├─ columns (required) — keyed by the row's fields and checked per key (a key that is not a field, a date under a `String` field, a builder over another row type: type errors): Sheet.column.text(R, cfg) · date(R, { base?, format?, level?, actual? }) — the common date field (`dd / mm / yyyy` segments); pasted text takes the B§3 grammar (`+3d`, `4d` from `base`, `fri`, ISO, `d/m[/yy]`); `level: r => …` reads each row's date at a Sheet.Types.DateLevel ("week" | "day" | "range" | "time" — no shifts: a host with shifts uses a `custom` kind) and `actual: r => Option<DateTime>` is when the work really happened (the cell then prints it with its difference, the wanted date becoming the cell's detail) · quantity(R, cfg) or quantity(R, D, { uom: d => d.uom, format? }) — a float with the DRIVER row's unit in the common number field, in the viewer's language (#852): the cell groups (1,234.5 — German 1.234,5; through `format` when declared), the edit box and copy are bare (1234.5 — German 1234,5), typed and pasted text reads the viewer's separators (pasted `1.2k` / `1.2m`, German `1,5k`, still parse; a typed quantity rounds to a whole number), and ⏎ on an unchanged edit box writes nothing · integer(R, cfg) · lookup(R, { options? }) — the DRIVER column only (scored candidates from its register) · reference(R, register, cfg) — a lookup over a flat member list · enum(R, register, { options? }) — an upper-cased register word with a valence dot · set(R, register, { members?, multiple?, store? }) — comma members, the link grammar without an arrow · link(R, D, register, { to? | from?, members, multiple?, sides?, arity?, check?, store?, options? }) — `from > to`, the split cell; `members: [{ kind, identified?, countable?, resolvesTo?, ranged? }]` — `ranged` offers and prints runs of consecutive codes as one range. `options` (enum / lookup / link) is fn(Sheet.Types.DraftContext(R, D)) => Option<Array<String>> — the member keys the row is OFFERED (`none` = the whole register; typed text still resolves against the whole register) · stamped(R, { owner? }) — read-only, skipped by paste and clear · custom(R, { accepts, parse, print }) — an author parse / print pair over the field's payload. Every kind takes { header, sub, width, editable?, fill?, detail? } (`header` + `sub` are the two header lines; `fill` = providers, the first that yields wins; `detail: r => String | Option<String>` is the text the hover and the strip show beyond the value); text / date / quantity / integer also take `value: r => …` for a derived READ-ONLY projection on any field. A set / link column sits on a `Sheet.Types.Link` field, an `Array<Sheet.Types.Member>` field (the other half named by `to` / `from`), or a `String` field the grammar parses on read and prints on commit per `store` ("asTyped" | "canonical" — the register's labels)
-│   │   │   ├─ group (optional) — Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? }): the rows are GROUPS whose lines live in one `Array<L>` field; `columns` are declared over `L`; `cells` = band cells (Sheet.group.cell.*) keyed by the line column they sit under; `noun: { singular, plural }` is the word the renderer prints for a group (omitted, the sheet says its own in the viewer's language — "group" / "groups" in English, #861). LOOSE rows between the groups (#846): give `data` Sheet.Types.Entry(P, "lines") entries — each `variant("group", P)` or `variant("row", L)` — and a row entry draws as a plain row: no band or rail, numbered in the groups' sequence, its own cells. The seam above a band or beside a loose row inserts a loose row (a line's seam and a group's blank line still insert a line); loose rows delete, paste and count on their own ("2 groups · 3 lines · 3 loose rows"), fold-all passes them by and no band sticks over them. A new line there gets its `id` field minted unless `newRow` supplies one; drafts, checks and the change set carry the entry (a draft is `variant("group", …)` or `variant("row", …)`, a loose row's DraftContext has `group: none`)
-│   │   │   ├─ subRows (optional) — Sheet.subRows(R, { arrayField: (item, row) => Sheet.subRow({ code?, name, chips?, facets?, id? }) }): READ-ONLY rows under each line (a flat row) that share none of its columns — keyed like `columns` by the array fields of the type the columns are built over (a grouped sheet: the line type), key order = display order; `facets` is a label → String | Option<String> record (a `none` drops out); the renderer owns the tree, the `{line}.{n}` index, folding and search
-│   │   │   ├─ driver (optional) — Sheet.driver(column, rows, { key, label, aliases?, meta? }): the `lookup` column whose member decides what the row does; its rows are the register and its row type `D` is what a quantity's `uom`, a link's `sides` and every copilot function (`ctx.driver`) read
-│   │   │   ├─ registers (optional) — { name: Sheet.register.members(rows, { kind, key, label, aliases?, meta?, parent?, tone? }) | Sheet.register.concat([…]) }: the lookup tables reference / enum / set / link columns resolve against; accessors receive `(value, key)` (a `Dict<String, T>` register reads its key as the second argument; an Array's key is its index); duplicate keys fold, first wins — so a family kind ("CNC lathe" from every lathe) declares one member per distinct value
-│   │   │   ├─ owned (optional) — accessor r => Bool: rows the upstream system owns — no copilot, stamped columns read-only
-│   │   │   ├─ suggest (optional) — { ahead?, triggers?, ghost?, propose: [fn] }: the copilot's row proposers — East functions (sync, or async for a model call) over Sheet.Types.DraftContext(R, D) — current draft row and neighbours, rowIndex, driver: Option<D> and today; draft fields are missing | value(T) | invalid(String), so guard with hasTag("value") before unwrap("value") — returning Array<Sheet.Types.Proposal(R)> ({ patch: Sheet.patch(R, { … }), meta }); a column's `fill` providers are the same shape returning Option<Sheet.Types.Fill(T)> ({ value, meta }). The first that yields wins; fills CHAIN in column order (a later column sees the earlier fills as if taken); an async one shows a pending chip in the strip and the newest context wins; a rejected fill / proposal is remembered for the session
-│   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["search"]; filter / cohort allowed; brush / legend / breakdown refused — no axis, no series): the sheet NEVER narrows — it draws the narrowing as the LENS: hits keep brand row numbers, ±0 / ±1 / ±3 context rows show either side, the rest collapse into bands whose pill opens 1 · 3 · 10 · all rows at a time, the count reads `n matches · m context`, no blank tail. A Link column is searched through `Slice.config`'s `text` projection (`stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) }`); a field the slice narrows on must be a COLUMN of the sheet. On the paged arm the lens is scope-badged "loaded rows only" and a keyed source's `search` becomes a KEY SEARCH over `seek` (the jump rebases residency and, once the match's window is in, lands the ring on the match and scrolls to it — until then the jump owns the viewport, so a scroll report from where the sheet was cannot undo it; a match whose window cannot be read shows its failed band instead). The ring, a range and an open editor stay on their rows as windows land around them
-│   │   │   ├─ views / onViewsChange / activeView (optional) — saved views = slice-state snapshots plus the lens's context and reveals (Array<Sheet.Types.View>), evaluated live as TABS: the pinned whole-sheet tab, `+ TAB` snapshot (named from the query), live match counts, the dirty dot when the slice drifts from the tab, ⏎ update / esc revert, × or middle-click close, double-click rename, drag reorder; every change reaches the host through `onViewsChange` while landing locally at once; `activeView` opens a tab and is followed when the host moves it
-│   │   │   ├─ onUpdate (optional, INLINE arm only) — fn(Array<R>) => Null over a LIVE data bind handle: reads the latest collection, checks the batch base and writes the complete result once. Hidden fields survive. Pass data={rows} and onUpdate={rows.write}; a captured array is refused for this adapter.
-│   │   │   ├─ onPatch / onApply (optional, either arm) — onPatch: fn(Sheet.Types.PatchEvent(E)) => Null observes one draft gesture including incomplete values; onApply: sync/async fn(Sheet.Types.ChangeSet(E)) => Sheet.Types.ApplyResult persists a complete checked batch. Paged writes require revision/refresh, atomic host application and request-id deduplication. onEdit / Types.Edit / Types.Source are removed.
-│   │   │   ├─ applyMode (optional) — "batch" (default) shows right-aligned Font Awesome Undo, Redo, Discard and Apply icon buttons with tooltips; "automatic" serializes ready gestures through the same acknowledgement path. No duplicate pending-change label.
-│   │   │   ├─ newRow / ready (optional) — newRow: fn(NewRow) => Patch(R) supplies defaults, including hidden fields; ready.row: fn(Draft(R), DraftContext(R, D)) => Readiness adds business rules; ready.group: fn(DraftGroup(G, "rows")) => Readiness checks grouped drafts. Required fields and valid parsing are always checked; optional absence becomes none.
-│   │   │   ├─ edits (optional) — insertRows / removeRows gate structure independently of cell edits; insertGroups / removeGroups require grouping. moveRows: "none" | "within" | "between" and moveGroups declare source-compatible movement permissions (movement gestures remain in progress). Keyed top-level creation uses key order; positional insertion uses gutter buttons, the selection strip or Alt+Insert / Alt+Shift+Insert.
-│   │   │   ├─ onSelect / selection (optional) — the ring reported as { rowId, key }; give `selection` and the ring is CONTROLLED (follows the value, scrolls into view, every move still reports)
-│   │   │   ├─ newRowId (optional) — fn() => String minting inserted rows' ids (else the renderer mints one)
-│   │   │   ├─ readOnly / blanks / density (optional) — the whole sheet read-only · padding rows below the last real one (default 18; typing into one INSERTS a row after the last real one — blanks are padding, never rows) · row rhythm
-│   │   │   ├─ footer (optional) — [{ text, tone? }] counts; a paged sheet adds the transport line ("N loaded of M · Loading…")
-│   │   │   └─ style (optional) — { height ("fill" fills the parent; the rows virtualize and scroll within), maxHeight, gutterWidth }
-│   │   ├─ Keyboard (B§6): arrows / ⇧arrows (↓ on the last row appends — not under a lens or an unexhausted paged source) · ⇥ / ⇧⇥ walk the copilot's fills, then take rows, then move · ⏎ takes the next suggestion, else edits with the value selected (F2 too); a printable key seeds a fresh edit · ⌘⏎ fills the row (one undo step), ⌘⇧⏎ takes everything · esc ladder, one rung per press: editor → chip selection → selected proposal → row fill → every suggestion → range → dirty tab revert → the whole sheet · ⌫ clears cells (never a stamped one) or deletes whole selected rows · ⌘C / ⌘V round-trip with Excel (a link cell as two columns) · ⌘/ and ⌘F focus the search. In a link editor: `,` resolves a member, `>` hops From → To, ⇥ takes the ghost → a predicted chip → hops → commits right, ⌫ pops the last chip
-│   │   ├─ Localization (#861): every word the sheet says itself — the toolbar and the view tabs, the header, the rows, bands and gap pills, the strip and the editor, the footer and the history bar, the insertion chips, and the message each gesture leaves — comes from ONE typed message table, its counts in the LOCALE react-aria's `<I18nProvider locale="de-DE">` sets (the browser's language otherwise). Host React code overrides any subset of the words for a subtree with `<SheetMessagesProvider messages={GERMAN}>` (@elaraai/east-ui-components; `sheetMessages` is the English table — each message a function of named, already-formatted parameters, plus the raw `n` for plurals; define the overrides ONCE, not per render — providers nest). The message a gesture leaves is kept as data and worded as it shows, so a new table re-words it. What the AUTHOR wrote is data and never translated: headers and subs, a group's `noun`, register labels and metas, lock tags, footer items; the date and link GRAMMARS keep their forms (day-first dates, `TBC`, `N x kind`), and the issues a patch event carries to the host stay in English (the sheet shows them in its words)
-│   │   └─ Factories:
-│   │       ├─ Sheet.column.text / date / quantity / integer / lookup / reference / enum / set / link / stamped / custom(R, …) — the column builders (see `columns`); Sheet.driver(column, rows, accessors) — the driver; Sheet.register.members(rows, accessors) / Sheet.register.concat([…]) — registers
-│   │       ├─ Sheet.link.parse(text, members) / Sheet.link.print(link) — the link grammar as East functions (`M2140, Line 2 > 4 x CNC lathe`: codes and aliases, ranges `M2140-45`, counted `N x kind`, `TBC`, free text kept as a `text` member — never a refusal) · Sheet.link.arity(half, implied) — how many members a half should hold, `implied: fn(Context(R, D)) => Option<Sheet.Types.Counted>` (the strip reads "n × kind implied · k named") · Sheet.link.check.exists() and author checks fn(Sheet.Types.CheckContext(R)) => Option<String> — a `some(message)` FLAGS the member (warn chip + title), never blocks
-│   │       ├─ Sheet.patch(R, { field: value, … }) — a row patch (omitted fields `none`): a proposal's row, where the runner writes only the fields with editable columns, or the explicit defaults `newRow` / `newGroup` return for a new row, hidden fields included (a field left `none` starts missing)
-│   │       ├─ Sheet.subRows(R, sources) / Sheet.subRow({ code?, name, chips?, facets?, id? }) — sub rows (see `subRows`); a left-out `code` / `id` is "", `chips` / `facets` []
-│   │       ├─ Sheet.apply(E, idField) — the checked batch applier as an East function: fn(entries, Sheet.Types.ChangeSet(E), revision: Option<String>) => Sheet.Types.Applied(E) — the base (snapshot or revision) is checked first, then the whole batch applies or none of it does (`conflict` says why); `E` is the row struct or a Sheet.Types.Entry(G, "rows") union of groups and ungrouped rows. Request deduplication stays with the host's `onApply`. It IS the shared `Editing.apply` (#879); a keyed Dict source applies with `Editing.apply(DictType(K, E))` — entries addressed by key, placed `keyOrder`
-│   │       └─ Sheet.Types.DraftContext(R, D) / Draft(R) / Fill(T) / Patch(R) / Proposal(R) / PatchEvent(E) / ChangeSet(E) / Applied(E) / Entry(G, "rows") / ApplyResult / Readiness / CheckContext(R) — typed contracts for providers, drafts, checked application and checks; grouped contexts use (G, "rows", D). The transaction and draft types are the shared editing contract's (`Editing.Types.*`, #879) under their Sheet names — the same values. Sheet.Types.Link / Member / Cell / Row / Line / SubRow / Facet / DateLevel / Noun / View / Selection / Counted / Sides / RegisterMember are shared value and wire types.
+│   ├─ <Plan> — the planning canvas (ONE shared time | number | ordinal axis over heterogeneous rows: event kinds over records, rows laid out by a series list over data, and read-only rows) is e3-ui's (#1177, #1191): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
+│   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows or the host's, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — row structs, or RecursiveType rows whose node is a struct (nested with `tree`); columns (required) — array of Matrix.column(…) (data-drivable with .map)
@@ -641,25 +576,7 @@ Task → Which tag?
 │   │       ├─ Schematic.circle(r) / .polyline(verts, {width}) / .polygon(verts) / .rect() — item footprints + zone geometry
 │   │       ├─ Schematic.outline() / .hatch() — zone boundary patterns
 │   │       └─ Schematic.solid() / .dashed() — link / net stroke styles
-│   ├─ <Flowchart states={…} links={…} lanes={…} /> — state-transition flowchart: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); dim-ladder highlight built in; hover content is DEV-DEFINED (the Schematic contract); view lenses are saved slice cohorts
-│   │   ├─ Props:
-│   │   │   ├─ states + links + lanes (required) — the three tables (lanes accept a literal [{ key, label? }] array; array order = band order)
-│   │   │   ├─ state / link / lane / trigger (optional) — row mappers to { key, label?, lane, members?, notes? } / { key?, from, to, kind?, trigger?, evidence? } / { key, label? } / { key, label, letter?, owner?, queue?, outcomes? }; omit when rows are already Flowchart.Types.*
-│   │   │   ├─ triggers (optional) — decision registry; a link's `trigger` names one (0..1 per link ⇒ the lettered diamond at the longest-run midpoint; clicking it highlights governed links)
-│   │   │   ├─ link `kind` "planned" (solid, default) | "observed" (dashed 5/4); DERIVED marks: a from/to ref with no state row ⇒ the neg-dashed ghost "No state row" node (unresolved, counted in the footer); from == to folds to the `↻ n` badge (never routed); `members` ⇒ the ×N state-class badge
-│   │   │   ├─ link `evidence` { volume?, count?, measuredAt?, unit? } — stroke weight (log 1.6 / 2 / 2.5 px, floor 1.4) + paper-filled run badges whose chrome inherits the link class (imported, never hand-authored)
-│   │   │   ├─ stateHover / linkHover / triggerHover (optional) — hover-card content builders (East fn key => UIComponent, evaluated lazily on hover in the standard 400ms shell); absent ⇒ no hover card; detail drills through the click callbacks (open a <Drawer> in the handler)
-│   │   │   ├─ orientation (optional) — "LR" (default) | "TD" initial; the eyebrow segment toggles it (view state, never a filter chip; TD swaps the handle axes); freshness (optional) — eyebrow chip { label, date? }
-│   │   │   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states
-│   │   │   ├─ slice + affordances (optional) — bound slice chrome at compact density (default ["filter","search"]; search = "⌕ find state"; "brush" is a build-time error — no continuous 1D axis); the footer derives `N links · narrowed from M · −%` + the planned/observed split
-│   │   │   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
-│   │   │   ├─ linkMode + onCreateLink + onDeleteLink + canConnect (optional) — drag-to-connect authoring from ANY handle ("draw" | "connect"; links join at the closest FACING handle pair; canConnect(from, to) vetoes BEFORE the draft snaps and fails OPEN; dropping on the SOURCE node commits an ↻ in-place transition; the drag previews the spec-compliant H/V route; Del deletes the selected link)
-│   │   │   ├─ onAddLane (optional) — its presence renders the dashed full-height "+ LANE" tail affordance (click fires it); absent ⇒ no affordance
-│   │   │   ├─ onRenameLane + onDeleteLane (optional) — lane editing: headers become click-to-edit (Enter/blur commits → { key, label }); × beside each header deletes (lane key). The HOST owns the cascade — the canvas stays safe either way: states referencing a missing lane fall into the LAST lane, dangling links render as neg-dashed ghosts (orphans stay visible)
-│   │   │   ├─ onAddState + onEditState + onMoveState (optional) — state editing: hovering a lane band reveals the dashed node-footprint "+ STATE" ghost parked one row below its last node (click → inline editor, code auto-focused + label; ⏎ commits { lane, key, label }, esc/blur-empty dismisses; the committed state starts unconnected); double-click a node opens the same editor ({ key, code, label } — rekeying links is the host's call); dragging a node across lanes highlights candidate bands and drops fire { key, lane }
-│   │   │   ├─ readOnly (optional) — runtime edit gate: true suppresses every authoring affordance (connect gesture, Del, + LANE) WITHOUT unwiring callbacks (feed a permission / published-mode flag); read-only is otherwise the DEFAULT — each edit channel exists only when its callback / mode is provided; selection + hover always stay (inspecting isn't editing)
-│   │   │   └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320); default content-sized
-│   │   └─ Factories: (tables are plain rows + mappers; closed-set fields are typed values via Flowchart.Types.* — State, Link, Lane, Trigger, Evidence, Kind, Orientation, LinkMode, LinkCreateEvent)
+│   ├─ <Flowchart> — the state-transition flowchart (states in ORDERED phase lanes, its layout derived — no coordinates; H/V-routed transitions; per-link decision triggers and evidence) is e3-ui's (#1243): `import { Flowchart } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Map markers={…} center={Map.at(lat,lng)} zoom={n} /> — interactive geographic basemap; read-only / selection-only
 │   │   ├─ Props:
 │   │   │   ├─ markers + center + zoom (required) — marker rows + initial camera
@@ -758,7 +675,7 @@ Task → Which tag?
 │   │       ├─ areas + shifts + people + assignments + id (required) — the four tables + DnD target identity
 │   │       ├─ area / shift / person (optional) — entity row mappers to { key, label, sublabel? }
 │   │       ├─ assignment (optional) — row mapper to { key, person, area, shift, state }
-│   │       ├─ requirements + requirement (optional) — coverage rows + mapper to { area, shift, required } (n/required numerals + ⊕ open-slot placeholders, under/over tones)
+│   │       ├─ requirements + requirement (optional) — coverage rows + mapper to { area, shift, required } (n/required numerals + open-slot placeholders — Font Awesome's circle-plus — under/over tones)
 │   │       ├─ mode (optional) — published (default) | edit
 │   │       ├─ areaHeader / areaWidth (optional) — frozen column header (omit = blank; zero baked copy) + CSS width (default 150px)
 │   │       ├─ maxVisible (optional) — per-cell chip cap before the +N overflow popover
@@ -852,10 +769,10 @@ Task → Which tag?
 │   │       ├─ Image.url(u) — hosted image
 │   │       ├─ Image.dataUri(s) — self-contained base64
 │   │       └─ Image.blob(bytes, format) — raw BlobType bytes → revocable object URL
-│   ├─ <Icon> — FontAwesome icon
+│   ├─ <Icon> — a Font Awesome solid icon (East UI draws no other set, #1263)
 │   │   └─ Props:
-│   │       ├─ prefix / name (required) — FA icon identity
-│   │       ├─ variant (optional) — solid | regular | light | thin | brands
+│   │       ├─ prefix / name (required) — the icon: "fas", the solid set, and its name; another prefix is refused at build, naming the icon
+│   │       ├─ variant (optional) — solid, the one set
 │   │       ├─ size (optional) — xs…2xl; label (optional) — accessible name
 │   │       └─ colorPalette / borderRadius + BOX bag + COLOR overrides (optional)
 │   ├─ <Kbd> — keyboard-shortcut chip (⌘ K)
@@ -948,8 +865,7 @@ Task → Which tag?
 │   └─ <EmptyState> — zero-data state
 │       └─ Props:
 │           ├─ title (required) — string or UIComponent
-│           ├─ glyph (optional) — spec-preferred mono glyph ("·   ·   ·"; takes precedence over icon)
-│           ├─ icon (optional) — FA icon escape hatch
+│           ├─ icon (optional) — its one mark, a Font Awesome solid icon ({ prefix: "fas", name: "inbox" }); a text `glyph` is removed (#1263) and refused at build
 │           ├─ description / actions (optional) — body + action row
 │           └─ size / iconColor + COLOR overrides (optional)
 │
@@ -1037,7 +953,7 @@ Task → Which tag?
 │   │   │   ├─ nav (required) — the binding from Navigation.bind, bound in the enclosing <Reactive>
 │   │   │   └─ pages (required) — one body per route: { route: ($, payload, nav) => <…/> }; renders ONLY the active route (leaf-only) and remounts on change; the nav handle fixes the route types
 │   │   └─ Factories:
-│   │       ├─ Navigation.config({ route: { value: T, label, icon?, section?, badge? } }) — typed registry (config.Route variant type, config.Page.<route>(payload) constructors); icon `{ prefix, name }` / section / badge drive the <App> rail row (single source of truth)
+│   │       ├─ Navigation.config({ route: { value: T, label, icon?, section?, badge? } }) — typed registry (config.Route variant type, config.Page.<route>(payload) constructors); icon `{ prefix: "fas", name }` / section / badge drive the <App> rail row (single source of truth)
 │   │       └─ Navigation.bind(config, key, [config.Page.home()]) — reactive path-stack handle { path, current, depth, canPop, pop, go.<route>(payload), navigateTo([…]) } — go/navigateTo are typed per route (the Record.bind pattern); pair <Breadcrumb>/<NavList> on the same key to drive/derive chrome from nav.path()
 │   ├─ <Route nav={nav} routes={{…}}> — <Pages> generalized to any slot (#333)
 │   │   └─ Props:
@@ -1154,10 +1070,10 @@ Task → Which tag?
 │   │   ├─ Slice.config fields { format } — filter chips, brush axis labels, range summaries (string shorthands "number"|"percent"|"compact"|{currency:{code?,compact?}}|{date|time|datetime: pattern} also accepted)
 │   │   ├─ <Numeric format> and <Stat format> — KPI values (Format.*)
 │   │   ├─ <Table columns={{ c: { format } }}> — a column's number cells and a parent's subtotals (Format.*); an undeclared number cell prints every digit, never grouped, with the viewer's decimal separator
-│   │   ├─ Sheet.column.quantity(R, D, { format }) — a quantity column's cells (Format.*); its edit box and copy stay bare and its grammar reads the viewer's separators (#852)
 │   │   ├─ Deck.metric / Deck.Readout cells / card fill { format } — board metrics (Chart.format.*)
-│   │   ├─ Plan.axis { format } — timeline tick labels (a date pattern on a time axis; Chart.format.* on a number axis)
-│   │   └─ Plan.quantity { format } and Plan.heatCells / weightCells / segmentCells { format } — a run's or a link's caption, and the values a heat arm prints (Format.*)
+│   │   ├─ e3-ui's Plan.axis { format } — timeline tick labels (a date pattern on a time axis; Chart.format.* on a number axis)
+│   │   ├─ e3-ui's Plan.quantity { format } and Plan.heatCells / weightCells / segmentCells { format } — a run's or a link's caption, and the values a heat arm prints (Format.*)
+│   │   └─ e3-ui's Sheet.column.quantity(R, D, { format }) — a quantity column's cells (Format.*); its edit box and copy stay bare and its grammar reads the viewer's separators (#852)
 │   ├─ The locale: react-aria's `<I18nProvider locale="de-DE">` above the app sets it for every component — `@elaraai/east-ui-components` re-exports `I18nProvider`, so a host needs no react-aria dependency of its own — and the browser's language stands in otherwise. Numbers, counts (a pager's total, a footer's "N loaded of M") and the default dates follow it: 1.234,5 · 29.6.2026 · 29. Juni 2026. What the AUTHOR wrote prints as written: labels and footer items, and a date PATTERN — East's tokens, English month and weekday names, whatever the locale
 │   ├─ Accessor alternative: Deck metric/fill format props ALSO accept a text accessor ((value) => String / (value, max) => String) — reified at authoring time into a pre-rendered `text` field; the raw value still ships, and a `none` value renders "—"
 │   ├─ Date tokens: East's date tokens incl. weekdays — dd/ddd/dddd; "ddd DD" → Mon 30. All date rendering is UTC (East DateTime is a UTC instant) — a pattern, an axis, a filter chip, a range preset (Today / 7d / 30d / YTD are UTC days) — so no component depends on the viewer's timezone
@@ -1171,7 +1087,7 @@ Task → Which tag?
 │   │   ├─ Library.status(label, tone, ring?) — palette card status chip, a gallery card's dot (`ring` open) · Library.glyph(icon, label, tone?) — its trailing glyph
 │   │   ├─ Table rowStatus — fn(rowIndex) => StatusToken row tint
 │   │   ├─ Schematic item { status } (Option token dot) and { tone } (brand|ink|muted|success|warning|danger stroke override)
-│   │   ├─ Plan.run { status } (stuck ring) · Plan.marker { status } (cell rings, default danger) · Plan.event { tone } — tile tints, all ORTHOGONAL to `state`
+│   │   ├─ e3-ui's Plan.run { status } (stuck ring) · Plan.marker { status } (cell rings, default danger) · Plan.event { tone } — tile tints, all ORTHOGONAL to `state`
 │   │   ├─ Matrix.marker { status } — corner markers
 │   │   ├─ <Status value> — dot + word (`ring` an open ring — not live yet); <Banner status> uses the wider notice set (info|warning|success|error|neutral|change|guard|stale)
 │   │   └─ <Meter tone> / BarStrip item { tone } / SegmentedMeter segment { tone } — bar fills
@@ -1226,9 +1142,10 @@ status poll reports each new content hash and the source moves to that
 snapshot, so a `refresh` after your own write only gets there sooner. A
 pinned read the server refuses because the dataset has moved on (409
 `dataset_hash_mismatch`) rediscovers the current snapshot instead of failing
-its window. How a consumer bridges the move is its own: a `<Plan>` and a
-`<Sheet>` keep the rows they show until the new snapshot's windows land, and
-clear a standing key search.
+its window. How a consumer bridges the move is its own: e3-ui's `<Plan>` and
+`<Sheet>` keep the rows they show until the new snapshot's windows land; the
+Sheet clears a standing key search, and the Plan asks it again there, its
+text kept.
 
 ## Key Patterns
 
@@ -1359,7 +1276,7 @@ Non-UI sub-structures are never child sub-tags.
 
 Every size prop is a **plain string** and every renderer parses it the same
 way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
-`<Plan>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
+e3-ui's `<Plan>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
 `<Library>`, `<Schematic>`, `<SnapGrid>`) and layout primitives (`<Box>` / `<Flex>` /
 `<Stack>` / `<Grid>` / `<Card>`):
 
@@ -1467,320 +1384,67 @@ Removed with #954: `groupBy` (nest the data — a data step before the table)
 and a column's `aggregateRender` (a parent is a row: its subtotal draws
 through the column's `render` or `format`).
 
-### Plan — the series list is the layout, the data is the hierarchy (#822)
+### Editing — one transaction contract (#879)
 
-A canvas is `data` plus a list of series, and the list IS the layout: one
-block per series, top to bottom, each parent followed by its subtree. Nesting
-comes only from what an entry holds — a recursive entry's own children, or a
-step down into a child collection — so a parent's bands, means and subtotals
-are exact, and the canvas reads the same inline or paged. There is no
-`groupBy`: to group a flat source, reshape it first.
+An editable collection's changes are drafts, applied as one checked batch
+through one contract: `Editing.apply` and `Editing.Types.*` — `ChangeSet`,
+`PatchEvent`, `Readiness`, `Origin`, `Draft`, `Entry` and the rest. The
+SnapGrid's editing canvas and e3-ui's `<Sheet>` and `<Plan>` each
+run a session on it, and e3-ui's `Sheet.apply` and `Sheet.Types.*` are its
+very values under the Sheet's names. A gesture's `origin` names what made it:
+a typed or pasted value, a fill or a proposed row taken, an entry inserted,
+moved or removed, a `resize`, a `drop`, an undo, a redo or a discard (a review
+`verdict`, which no collection makes since #1260, stays so a journal of earlier
+events still reads).
 
-```tsx
-// Grouping is a DATA step: one groupToDicts makes each line an entry holding its rows.
-const lines = $.let(rows.groupToDicts(($, r) => r.line, ($, _r, k) => k));
-const LineGroup = DictType(StringType, LineRow);
-const series = $.const([
-    // One strip PER LINE; its rows stepped down into, laid out like a top-level list.
-    Plan.series.group(LineGroup, {
-        key: "lines", title: "Lines",
-        label: (_g, line) => line,
-        summaryAggregate: "mean",
-        children: Plan.children((g) => g, [
-            Plan.series.span(LineRow, {
-                key: "line-jobs", title: "Jobs",
-                match: r => r.jobs.size().greater(0n),
-                label: r => r.label,
-                runs: r => r.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.batch, state: j.state })),
-            }),
-            Plan.series.heat(LineRow, {
-                key: "line-load", title: "Load",
-                match: r => r.cells.size().greater(0n),
-                label: r => r.label,
-                cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
-            }),
-        ]),
-    }),
-], ArrayType(Plan.Types.Series(LineGroup)));
-// <Plan axis={axis} data={lines} series={series} />
-```
-
-A recursive entry nests to whatever depth the data has, and every parent
-derives its numbers from its subtree:
-
-```tsx
-const OrderRow = RecursiveType((self) => StructType({
-    name: StringType, act: ArrayType(RawCell), children: DictType(StringType, self),
-}));
-Plan.series.table(OrderRow, {
-    key: "orders", title: "Orders", label: r => r.name,
-    cells: r => Plan.tableCells(r.act),           // a parent carries no values of its own…
-    children: r => r.children, aggregate: "sum",  // …and shows its subtree's subtotal, at every depth
-    format: Format.Number({ maximumFractionDigits: 0n }),
-})
-```
-
-One entity shown several ways is a `views` series: each entry gets one row per
-member series, side by side, and each row has its own id:
-
-```tsx
-Plan.series.views(OpsRow, { key: "machines", title: "Machines", match: r => r.pick.equal("machines") }, [
-    Plan.series.span(OpsRow,  { key: "machine-jobs",   title: "Machine jobs",          label: r => r.label,
-        runs: r => r.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: j.state })) }),
-    Plan.series.chart(OpsRow, { key: "machine-util",   title: "Machine · utilisation", label: r => r.label, layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })] }),
-    Plan.series.table(OpsRow, { key: "machine-tonnes", title: "Machine · tonnes",      label: r => r.label, cells: r => r.nums }),
-])
-// a click on m03's utilisation row reports Plan.ref("machine-util", "m03")
-```
+A host's `onApply` takes one checked `ChangeSet` and answers an
+`ApplyResult`: it checks the base the drafts began from, applies the whole
+batch or none of it, deduplicates by the request id and returns the committed
+revision. An unknown outcome retries the same frozen request, and an
+append-only journal (`onPatch`) is not an application acknowledgement.
+`Editing.apply` is that check and application as an East function, over an
+`Array` by its identity field or a keyed `Dict` by key: each change names its
+entry by key (a `String` key as it is, any other key by its `.east` text), and
+a new entry is placed `keyOrder`.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| **Layout and nesting** | | |
-| `series={[s1, s2, …]}` | The list is the layout: one block per series, top to bottom; a pick's list order is the same layout. | `planTargetState` |
-| `children: (r, k) => r.children` | More of this series: a `RecursiveType` entry, to any depth. A parent's span bands (`rollup`, summed per quantity unit), heat `aggregate` (on its `scale`) or table subtotals (`aggregate`, `format`) derive from its subtree. | `planTableRows`, `planSpanRows`, `planHeatRows` |
-| `children: Plan.children(of: (r, k) => Array \| Dict, series: Series[])` | A step down to a child collection of another type, laid out like a top-level list; an array of step-downs gives several collections, in order. | `planSeriesData`, `planGroupedRows` |
-| `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` **❗** | One strip per entry, its members the entry's children; the removed `by` form throws. | `planGroupedRows`, `planNarrow` |
-| `rows.groupToDicts(($, r) => r.line, ($, _r, k) => k)` | Grouping is a data step; a paged source is grouped in its dataflow. | `planGroupedRows`, `planFill` |
-| `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summaryAggregate? }, members: Series[])` | A fixed titled block over series; it adds no path segment. | `planTargetState`, `planLibraryDnd` |
-| `Plan.series.views(R, { key, title, match?, children?, collapsed? }, members: Series[])` **❗** | One row per member per entry, adjacent; the entry's children follow under the first view row, and a seek lands there. A member may not declare `children`. | `planLibraryDnd`, `planFill` |
-| `Plan.series.rows(R, { key, title }, [Plan.span({ key, label, rows? }), …])` | Hand-built rows as one block; a row's id is the series key plus the factory keys to it. | `planLiteralRows` |
-| **Paged sources (#823)** | | |
-| `data={paged}` — a `Data.bindPaged(…)` handle (e3-ui) **❗** | Parents are the page unit: a window is N top-level entries with their whole subtrees, so nest children in the source and group a flat source in its dataflow. | `dataBindPagedPlan` (e3-ui) |
-| several series over one paged source | Each series is a block that pages on its own — its own bands and resident run — and one read of a window serves every block; a section's header and hand-built rows are fixed blocks, drawn once. | `dataBindPagedBlocks` (e3-ui) |
-| **Identity** | | |
-| `Plan.ref(series: String, ...path: String[]): RowId` | A row's typed id, for links, `East.equal` in resolvers, and host tables keyed by `East.print(id)`. | `planSpanRows`, `planRowDrop` |
-| `Plan.sectionRef(series: String, ...path: String[]): RowId` | A section header's id, at its parent's path. | — |
-| `onSelect` / `expandRender` / `expandGutter`: `fn(Plan.Types.RowId)`; element refs, `onGroupToggle`, a drop (`Plan.Types.Drop`): `{ row: RowId, … }` | Every callback names a row by its id. | `planVariants`, `planExpand`, `planRowDrop` |
-| series keys unique across the whole tree **❗** | A repeated key is a build-time error naming both series; a repeated run-time id draws a DUPLICATE ID row diagnostic. | — |
-| **Window** | | |
-| `Plan.axis({ window: { min, max }, … })` or `slice={{ slice }}` **❗** | The window is stated, or it is the bound slice's range. A canvas with neither is refused, and nothing fits the axis to the data. | `planTargetState`, `planNumberAxis` |
+| `Editing.apply(E, "id")` / `Editing.apply(DictType(K, E))` | The shared applier — an Array by its identity field, or a keyed Dict by key (`Editing.Types.ChangeSet(E, K)`): the whole batch, or a conflict saying why. | `editingApplyBatch`, `editingApplyKeyed` |
 
-A paged canvas pages by parents, block by block (#823): a window holds its
-entries whole, so every parent derives exactly, and each top-level series is a
-block paging on its own over the same windows — the canvas draws exactly as it
-does inline. Group a flat paged source in the dataflow that produces it, so a
-group arrives as one entry holding its members.
+### Fields — a builder inspector's typed form (#1147)
 
-Removed with #822: `groupBy` on span / heat / table; `Plan.series.group(R, {
-by })` and the static `group(R, chrome, children)` form (use `section`);
-`keyPrefix` / `keySuffix` (use `views`); numbered keys to force a layout
-(order the series list); fit-to-data; and `Plan.pick`'s `data` counts.
+A builder's inspector shows what is selected as a typed form over its struct.
+`Fields.specs(R, hints, omit)` resolves each field into a `Fields.Types.Spec`:
+its editor from its East type, a hint adding only what a type cannot say.
+e3-ui's builders carry the specs in their payloads, and east-ui-components'
+`FieldForm` draws each one as the shared `<Field>` (its label, its path as the
+key) around the input its type takes — so an inspector an author writes
+themselves from `<Field>` and the form tags looks the same.
 
-### Plan — values, folds, one element callback and a bound ui state (#824)
+| Field type | Editor with no hint | Hint |
+| --- | --- | --- |
+| `String` | text | `Fields.text({ placeholder? })`; `Fields.reference({ of })` — a key of a keyed set the host lists |
+| `Integer`, `Float` | number, with its steppers | `Fields.number({ unit?, step?, min?, max? })` — bigints for an Integer field, numbers for a Float |
+| `Boolean` / `DateTime` | checkbox / date and time | — |
+| a variant of empty cases | select, each case's name spelled out | `Fields.select({ labels? })` — the cases it labels first |
+| `Set<String>`, `Array<String>` | tags, typed freely | `Fields.tags({ options? })` — suggested as a tag is typed |
+| `Array` of a struct with one String and one Boolean field | checklist | `Fields.checklist({ text?, done? })` — naming them where there are several |
+| a struct | its fields, under its name | a hint per nested field |
+| `Option<T>` | `T`'s, which can be cleared | `T`'s |
+| anything else | printed | `Fields.readonly()`; `Fields.hidden()` leaves any field out |
 
-A quantity is ONE value — the number, its unit and how it prints — so a bar's
-caption and a rollup's total can never disagree. Values fold to the axis's
-resolution: weekly cells on a MONTH axis show one cell per month per row, and
-every cell builder, table series and chart layer says how (`fold`). Every
-element click is one callback over the same ref the popover resolver receives,
-and the interaction state can live with the host.
-
-```tsx
-Plan.run({ key: j.key, start: j.start, end: j.end, label: j.batch, state: j.state,
-    quantity: Plan.quantity(j.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }) })
-Plan.heatCells(r.load, { min: 0, max: 100, fold: "max", format: Format.Number({ maximumFractionDigits: 0n }) })
-
-// The host holds what is selected, folded, opened and expanded; a write brings a row into view.
-const ui = $.let(State.bind([Plan.Types.UiState], "ops.plan.ui", Plan.uiState({ collapsed: [Plan.ref("lines", "Line 3")] })));
-const goTo = $.const(East.function([Plan.Types.RowId], NullType, ($, id) => {
-    const s = $.let(ui.read());
-    $(ui.write(East.value({ selected: some(id), collapsed: s.collapsed, expanded: s.expanded, charts: s.charts, focus: some(id) }, Plan.Types.UiState)));
-}));
-// One callback for every element; a partial match answers only the arms it names.
-const picked = $.let(State.bind([StringType], "ops.plan.picked", ""));
-const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, ($, ref) => {
-    $.match(ref, {
-        run: ($, r) => { $(picked.write(East.str`run ${r.run} on ${East.print(r.row)}`)); },
-        link: ($, l) => { $(picked.write(East.str`link ${l.key}: ${l.from.run} → ${l.to.run}`)); },
-    });
-}));
-// <Plan axis={axis} data={lines} series={series} ui={ui} onElementClick={onElementClick} />
-```
+Every hint but `hidden` takes `label` and `help`. A hint is checked against its
+field's type as it compiles (`Fields.number` on a String field is a type
+error), and the specs refuse one again as they resolve, naming the field.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `Plan.quantity(value: Float, { unit?: String, format?: Format.*, text?: String }): Quantity` | A run's or a link's quantity: its caption is `text`, else the value through `format`, then its unit; rollup bands sum it unit by unit. | `planSeriesData`, `planSpanRows` |
-| `fold?: "sum" \| "mean" \| "min" \| "max" \| "last" \| "count"` | What a coarser bucket shows of a row's values in it: heat and weight `mean`, segments, table numerals and columns `sum`, lines and areas `mean`. One value in a bucket keeps its own instant, label and text. | `planFold` |
-| `onElementClick: fn(Plan.Types.ElementRef) => Null` | Every element kind — run, event, mark, chip, cell, link — through one callback; the arm says which. | `planVariants` |
-| `ui: State.bind([Plan.Types.UiState], key, Plan.uiState({ … }))` | The host's selection, folds, opens, expanded charts and a `focus` request the canvas spends; the user's actions are written back. | `planUiState` |
-| `Plan.link({ key, from, fromRun, to, toRun, quantity? })` | A ribbon keyed for its click ref, weighed and captioned by its quantity. | `planSpanRows` |
-
-Removed with #824: `qty` and the string `quantity` on a run (one
-`Plan.quantity`); the span series' `unit` (a quantity carries its unit); the
-five element callbacks `onRunClick` / `onEventClick` / `onMarkClick` /
-`onChipClick` / `onCellClick` (`onElementClick`); a link's `label` (its
-quantity's caption); and a group strip given both `summary` and
-`summaryAggregate` (refused at build).
-
-### Plan — every change is a draft (#880)
-
-The Plan's editing session is the Sheet's (#879), over the source's TOP-LEVEL
-entries. A review verdict, a dropped card and a moved or resized element are
-gestures, never callbacks:
-each drafts the entry its row came from — at any depth, since the whole
-subtree rides in its entry — the canvas draws the draft at once by deriving
-the entry's rows again, and Apply sends every draft as one checked batch. The
-series says what a gesture writes; the root says where the batch goes.
-
-```tsx
-// A LIVE handle over the lines: the canvas reads it, and Apply writes it.
-const lines = $.let(State.bind([DictType(StringType, Line)], "ops.plan.lines", seed));
-// The author's check over one drafted line; a refusal names the machine and holds Apply.
-const ready = $.const(East.function([Line, StringType], Editing.Types.Readiness, ($, line, _key) => {
-    const crowded = $.let(line.machines.filter((_$, m) => m.jobs.size().greater(4n)));
-    const result = $.let(variant("ready", null), Editing.Types.Readiness);
-    $.if(crowded.size().greater(0n), ($) => {
-        $.assign(result, variant("invalid", crowded.toArray((_$, m, k) => ({
-            field: "jobs", message: East.str`${k} holds ${East.print(m.jobs.size())} jobs — at most 4`,
-        }))));
-    });
-    return result;
-}));
-// Every gesture as it is made — a verdict, a drop, an undo.
-const last = $.let(State.bind([StringType], "ops.plan.last", ""));
-const onPatch = $.const(East.function([Plan.Types.PatchEvent(Line)], NullType, ($, event) => {
-    $(last.write(East.str`${event.origin.getTag()} · ${event.label}`));   // verdict · Approve M03
-}));
-<Plan axis={axis} data={lines} id="ops-plan" sources={["jobs"]}
-    series={[Plan.series.span(Line, {
-        key: "lines", title: "Lines", label: l => l.name, runs: _l => [],
-        // A gesture on a machine writes back into its line through this FIELD.
-        children: Plan.children(l => l.machines, [
-            Plan.series.span(Machine, {
-                key: "machines", title: "Machines", label: (_m, k) => k,
-                runs: m => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: j.state })),
-                review: { verdict: "approval" },            // Approve / Reject draft `approval`
-                edit: {                                      // a dropped card joins `jobs`; a run moves and resizes
-                    items: "jobs", key: "key", start: "start", end: "end",
-                    create: (drop, m) => ({
-                        key: East.str`${drop.from.key}-${East.print(m.jobs.size())}`, label: drop.from.key,
-                        start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
-                        state: variant("proposed", variant("added", null)),
-                    }),
-                },
-            }),
-        ]),
-    })]}
-    review={{ summary: <Text>SAVED · 2 PENDING</Text> }}
-    editing={{ onUpdate: lines.write, onPatch, ready }} />
-```
-
-| Signature | Description | Example |
-| --- | --- | --- |
-| **What a gesture writes (on the series)** | | |
-| `review: { verdict: F }` — `F` an `ApprovalStateType` field of the entry **❗** | Approve / Reject on a row draft the entry with `F` set, and the row shows `F` as its approval; Approve all / Reject all draft every row the canvas holds that takes a verdict, as ONE gesture. A misnamed field, or `approval` beside it, fails the build. | `planReview`, `planEditing` |
-| `edit: { items: F, create: (drop: Plan.Types.Drop, entry, key) => Item }` — `F` an `Array<Item>` field; span / buckets / cards / events **❗** | A library card dropped on a row joins `F` as `create`'s item: `drop.from` is the card, `drop.at` the start of the bucket it landed in, on the axis arm. A misnamed field fails the build. | `planRowDrop`, `planEditing` |
-| `edit: { items: F, key: K, start: S, end: E }` (span / cards) or `{ items: F, key: K, at: A }` (buckets / events) **❗** | A run, chip, tile or mark moves by its body, and a run or chip resizes by either end, with the pointer, a touch or the keyboard (#825). It moves in whole buckets; Shift moves one finer unit (a day under a week, an hour under a day, 15 minutes under an hour). Onto another row whose items are the same type, the item leaves its list for that row's, as one gesture over both entries. `K` is the item's `String` key field, since an element's key is its item's key — and its identity across every row it can move to: a row's list keeps its keys unique, so a card or a move that would repeat one is refused (⊘ while dragging); `S`, `E` and `A` are instant fields (`DateTime`; `Float` / `Integer` on a number axis; `String` on an ordinal one; `Plan.Types.Instant`). `create` becomes optional. A field a move cannot write fails the build. | `planEditing` |
-| `children: r => r.kids` / `Plan.children(r => r.kids, …)` / `Plan.children(g => g, …)` **❗** | A gesture below an entry writes back through its `children`, so where a series below takes gestures they read a FIELD of the entry or are the entry itself; a computed collection fails the build. | `planEditing` |
-| **The session (on the root)** | | |
-| `editing={{ onUpdate: handle.write }}` with `data={handle}` **❗** | The inline adapter: Apply applies the batch with `Editing.apply` over the handle's latest `Dict` and writes it once — idempotent across retries. It needs the handle itself as `data`. | `planReview`, `planRowDrop`, `planEditing` |
-| `editing={{ onApply: fn(Editing.Types.ChangeSet(R, K)) => Editing.Types.ApplyResult }}` **❗** | The host's transaction, sync or async, checked against the base the drafts began from. A paged source needs `revision` and `refresh`; the host applies atomically, dedupes by `requestId` and returns the committed revision. | — |
-| `onPatch: fn(Plan.Types.PatchEvent(R)) => Null` | One call per gesture, and per undo, redo and discard. | `planEditing`, `planRowDrop` |
-| `ready: fn(R, K) => Editing.Types.Readiness` | The author's check over a drafted entry: a refusal marks the rows the draft changed and holds Apply; a check that throws refuses its own entry only. | `planEditing` |
-| `mode: "batch" \| "auto"` | Apply sends the batch (default), or each ready gesture goes at once. | — |
-| `canDrop: fn(DragEventType) => Boolean` | Vets the event a drop where the drag rests would deliver — its `duplicate` whether Alt is held — showing the ⊘ stage, and again before it becomes a draft. A move is vetoed as the grammar's `move` or `resize` (#825), and a refusal is announced. | `planRowDrop`, `planEditing` |
-
-- **Drawn where made.** A drafted entry's rows are derived again, exactly as
-  Apply will leave them. A row the draft changed carries the Sheet's mark:
-  pending, or incomplete / invalid while a check refuses its entry — each
-  entry marked for its own issues. The narrow layout's cards carry the same marks.
-- **One gesture, one transaction.** The history bar ends the toolbar, and sits
-  among the narrow layout's chips: issues · Undo · Redo · Discard · Apply, and
-  its status line. ⌘Z / Ctrl+Z undo; ⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y redo.
-- **The base is the source's.** An inline `Dict` is checked by its snapshot, a
-  paged source by its revision. A batch against a source that moved is
-  refused, never rebased ("Source changed — review or discard these drafts").
-  An Apply whose outcome is unknown retries the SAME request ("Retry
-  request"), and drafts retire only once the source reads back at the
-  committed revision ("Applied — loading the confirmed revision…").
-- **Paged.** Approve all covers the loaded rows, and the foot says how many
-  ("Approve 200 loaded").
-- **Moves (#825).** A move along its row, or a resize, drafts the item's
-  instants in place. A move to another row takes the item out of its list
-  and appends it to the target row's, and a batch that takes an item and
-  places it nowhere is refused whole. The row under the drag draws a landing
-  band with the proposed span, and the ghost carries the element's label and
-  span. The narrow layout takes no moves.
-- **No session, no gesture.** Without `editing` the decision buttons are
-  disabled, the foot has no batch, no card lands, nothing moves, and there is
-  no history bar. Rerun changes no data, so it stays a callback.
-
-Removed with #880: review `onApprove` / `onReject` / `onApproveAll` /
-`onRejectAll` (a series' `review.verdict`) and the root's `onDrag` (a series'
-`edit`). Each throws at build, naming its replacement.
-
-### Sheet — drafts and checked application
-
-The row's `StructType` defines completeness, including fields without columns.
-Columns define editing and parsing. Missing optional fields normalize to `none`;
-missing required fields and invalid text block the entire batch. Optional
-`ready.row` / `ready.group` business rules cannot bypass these automatic checks.
-
-```tsx
-<Sheet data={jobs} id="id"
-    columns={{ task: Sheet.column.text(JobType), qty: Sheet.column.integer(JobType) }}
-    onUpdate={jobs.write} />
-```
-
-Here `jobs` is a live `State.bind` or `Data.bind` handle over `ArrayType(JobType)`.
-`onUpdate` reads the latest collection when applying, checks the original batch
-base and writes once. Use `onPatch` for a journal of individual gestures,
-including incomplete drafts, and `onApply` for host transactions. A paged host
-must atomically check its revision, deduplicate the request id and return the
-committed revision. An append-only journal is not an application acknowledgement.
-An unknown outcome retries the same frozen request.
-
-The transaction contract is every editable collection's, not the Sheet's alone
-(#879): `Editing.apply` and `Editing.Types.*` — `ChangeSet`, `PatchEvent`,
-`Readiness`, `Origin`, `Draft`, `Entry` and the rest — are the very values
-`Sheet.apply` and `Sheet.Types.*` name. A gesture's `origin` names the other
-collections' gestures too: a `resize`, a `drop`, a review `verdict`. A keyed
-`Dict` source applies with `Editing.apply(DictType(K, E))`: each change names
-its entry by key (a `String` key as it is, any other key by its `.east` text),
-and a new entry is placed `keyOrder`.
-
-**Draft and editing contracts**
-
-| Signature | Description | Example |
-| --- | --- | --- |
-| `Sheet.Types.Draft(R)` | Each field is missing / value(T) / invalid(String). | `sheetReadiness` |
-| `Sheet.Types.DraftContext(R, D)` | Current draft row, neighbours and optional driver; grouped overload `(G, "rows", D)`. | `sheetCopilot` |
-| `newRow: fn(NewRow) => Patch(R)` | Explicit defaults for newly inserted drafts, including required hidden fields. | `sheetInsertion` |
-| `ready.row: fn(Draft(R), DraftContext(R)) => Readiness` | Synchronous business checks alongside mandatory schema checks. | `sheetReadiness` |
-| `onPatch: fn(PatchEvent(E)) => Null` | Draft contents, placement, origin and readiness once per gesture. | `sheetWriteBack` |
-| `onApply: fn(ChangeSet(E)) => ApplyResult` | Complete checked batch; supports async callbacks and safe retries. | `recordSheetApply` (e3-ui) |
-| `Sheet.apply(E, "id")` | Applies a checked batch to a collection: the whole batch, or a conflict saying why. | `sheetApplyBatch` |
-| `Editing.apply(E, "id")` / `Editing.apply(DictType(K, E))` | The shared applier (#879) — an Array by its identity field, or a keyed Dict by key (`Editing.Types.ChangeSet(E, K)`). | `editingApplyBatch`, `editingApplyKeyed` |
-| `Sheet.Types.Entry(G, "rows")` | Groups with their rows beside ungrouped rows, as one union; `Sheet.apply`, `DraftEntry` and `PatchEvent` take it. | `sheetApplyEntries` |
-| `data: Array<Sheet.Types.Entry(G, "rows")>` + `group={Sheet.group(G, "rows", …)}` | Loose rows between the groups: a row entry is a plain row of the line type; `id` names a `String` field of both types. | `sheetLoose` |
-| `edits: { insertRows?, removeRows?, insertGroups?, removeGroups?, moveRows?, moveGroups? }` | Structure permissions; group flags require grouping; keyed top-level movement is refused. Movement gestures remain under development. | `sheetInsertion` |
-
-Providers receive drafts: test `field.hasTag("value")` before reading
-`field.unwrap("value")`. They can fill a row before its remaining fields are
-complete. Constructors can supply hidden fields; copilot patches target editable
-columns. Typing, paste, fill and accepted suggestions share the transaction path
-and Undo/Redo. `sheetWriteBack`, `sheetReadiness`, `sheetInsertion`,
-`sheetGrouped` and `sheetLoose` are executable showcase examples.
-
-### Sheet — sub rows and column rules
-
-Sub rows show a line's own records (operations, bookings) without giving them
-columns; column rules say what a cell offers, how deep a date reads, and what a
-cell says beyond its value. Rule accessors (`level`, `actual`, `detail`) run in
-the row projection, so they follow the host's rows, not an open edit.
-
-| Signature | Description | Example |
-| --- | --- | --- |
-| `subRows={Sheet.subRows(L, { field: (item, row) => Sheet.subRow({…}) })}` | Read-only sub rows per array field, in key order; a variant source matches arm by arm. | `sheetSubRows` |
-| `Sheet.group(P, "lines", { title, noun: { singular, plural } })` | The host's word for a group; omitted, the sheet says its own in the viewer's language. | `sheetSubRows` |
-| `options: fn(DraftContext(R, D)) => Option<Array<String>>` | enum / lookup / link: the members a row is offered; `none` = all. | `sheetRules` |
-| `date(R, { level: r => DateLevel, actual: r => Option<DateTime> })` | Read the date at the row's level; print the actual once it happened. | `sheetRules` |
-| `detail: r => String \| Option<String>` | Text the hover and the strip show beyond the cell's value. | `sheetRules` |
-| `members: [{ kind, identified: true, ranged: true }]` | Offer and print runs of consecutive codes as one range. | `sheetRules` |
+| `Fields.specs(R, hints?, omit?): Array<Fields.Types.Spec>` **❗** | The specs: the hinted fields first, in hint order, then the rest as declared; a nested struct's fields by path, under its name; `omit`'s and the hidden fields left out. Refuses a hint that does not fit its field, naming it. | `fieldsSpecs` |
+| `Fields.select({ labels })` | A variant's select: the cases it labels first, in its order, then the rest, each name spelled out. | `fieldsSelect` |
 
 ### Drag and drop — one grammar, every target (#608)
 
-A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or `<Plan>`
+A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or e3-ui's `<Plan>`
 that lists its `id` in `sources` is a target. Every drag between them reduces
 to one `DragEventType` — `add` (a card onto a cell), `move`, `remove` (to the
 trash or back to the palette) or `resize` (a span's edge) — and the renderer
@@ -1797,10 +1461,10 @@ const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, event) 
 | --- | --- | --- |
 | **The gesture** | | |
 | pointer | A mouse or pen drag starts after 4px of travel, so a click stays a click; a touch after a 300ms hold — a drift first scrolls the page; a touch on a grip at once. Only the pointer that pressed moves, drops or cancels the drag — a second finger never does. | `rosterLibraryDnd` |
-| keyboard | Every draggable is a focusable control: Space / Enter picks it up, the arrow keys carry it between the cells that take it (and along a Plan row's buckets), Space / Enter drops it, Escape / Tab cancels. A Plan element is picked up with Space alone, since Enter is its click, and carries its own keys (#825). A key pressed in a control inside it is the control's. | `boardLibraryDnd`, `planRowDrop` |
-| reach | A drag resting near a scroll container's edge scrolls it — the container under the pointer: a bounded Plan's body, the page — and whatever scrolls under a still drag is read again. | `planRowDrop` |
+| keyboard | Every draggable is a focusable control: Space / Enter picks it up, the arrow keys carry it between the cells that take it (and along a Plan row's buckets), Space / Enter drops it, Escape / Tab cancels. A Plan element is picked up with Space alone, since Enter is its click, and carries its own keys (#825). A key pressed in a control inside it is the control's. | `boardLibraryDnd`, `planRowDrop` (e3-ui) |
+| reach | A drag resting near a scroll container's edge scrolls it — the container under the pointer: a bounded Plan's body, the page — and whatever scrolls under a still drag is read again. | `planRowDrop` (e3-ui) |
 | **The verdict** | | |
-| `canDrop: fn(DragEventType) => Boolean` | Asked of the event a drop where the drag rests would deliver — an `add`'s `duplicate` is whether Alt is held now — so the ⊘ stage shows before the drop, and asked again of the event delivered. A predicate that throws allows. | `rosterLibraryDnd`, `blendLibraryDnd`, `planRowDrop` |
+| `canDrop: fn(DragEventType) => Boolean` | Asked of the event a drop where the drag rests would deliver — an `add`'s `duplicate` is whether Alt is held now — so the ⊘ stage shows before the drop, and asked again of the event delivered. A predicate that throws allows. | `rosterLibraryDnd`, `blendLibraryDnd`, `planRowDrop` (e3-ui) |
 | the drop | Resolves where it happens: a cell that scrolled away is never dropped on, and a drop with nothing under it says so rather than vanishing. | — |
 | **Screen readers** | | |
 | announcements | The pick-up, each new cell or bucket the drag rests over (or one that refuses it), the drop and a cancel are said in a live region. Host React code re-words them with `<DragLayerProvider messages={{ pickedUp: ({ item }) => … }}>` (@elaraai/east-ui-components; `dragMessages` is the English table, and any subset overrides it). | — |
@@ -1934,31 +1598,34 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   legend, tooltip, stacking); `Chart.Column` is the vertical twin (formerly
   named `Chart.Bar`).
 - **Plan (subsumes the retired Gantt / Planner / AlignedStack, #571)** —
-  `<Plan>` is the composite canvas: ONE shared axis — time, number or
+  e3-ui's `<Plan>` (#1177, #1191) is the planning canvas: ONE shared axis — time, number or
   ordinal (#631) — over heterogeneous rows (state-runs, allocation lanes, chart measures,
   heat, bucketed numerals, shift chips, event marks), laid out by the series
-  list, nested from the data's own structure and each named by a typed id,
-  with slice/key-search/series-library/review chrome, an editing session
-  (every verdict, dropped card, move and resize a draft, #880 / #825) and PAGED sources. A Gantt
+  list and nested from the data's own structure, or placed from event kinds
+  over records (e3-ui's `Schedule`, a Calendar's too), each named by a typed id,
+  with slice/key-search/series-library chrome, an editing session (every
+  dropped card, move and resize a draft, saved together — #880 / #825 / #1260) and PAGED sources. A Gantt
   is a Plan with span rows, a Planner a Plan with bucket rows, an
   AlignedStack a Plan mixing chart / heat / table rows on the shared axis.
   Reach for `<Plan>` for anything scheduled on ONE shared axis — calendar
   time, a numbered day / shift / distance, or an ordered list of phases —
   with mixed row kinds, nesting to any depth, a paged source, or rows addressed
-  by stable ids.
+  by stable ids; the e3-ui skill documents it.
 - **Table vs Sheet** — `<Table>` DISPLAYS rows (sort, pin, nest, review,
   paginate; cells printed in the viewer's language, or drawn by `render`);
-  `<Sheet>` is where a planner TYPES
-  them: typed cells with grammars (dates, quantities, register lookups, a
-  directed link), a blank tail that inserts rows, an East-function copilot,
-  and a slice lens drawn as context bands rather than a filtered row set.
-  Reach for `<Sheet>` when the rows are authored in place and written back
-  (`onUpdate` / `onApply`); for reading, sorting and reviewing a dataset,
-  `<Table>`.
+  e3-ui's `<Sheet>` (#1179, #1216) is where a planner TYPES
+  them, in its builder frame: typed cells with grammars (dates, quantities,
+  register lookups, a directed link), a blank tail that inserts rows, an
+  East-function copilot, and a slice lens drawn as context bands rather than
+  a filtered row set. Reach for `<Sheet>` when the rows are authored in place
+  and written back (through an e3 record's patch, or `onUpdate` / `onApply`)
+  — the e3-ui skill documents it; for reading, sorting and reviewing a
+  dataset, `<Table>`.
 - **Flowchart vs Schematic** — `<Schematic>` is a world-coordinate 2D canvas
-  (data carries x/y; zones, footprints, camera); `<Flowchart>` derives its
-  whole layout from lanes + links (no coordinates) for state-transition /
-  process-flow reading, with decision triggers and evidence on the links.
+  (data carries x/y; zones, footprints, camera); e3-ui's `<Flowchart>`
+  (#1243) derives its whole layout from lanes + links (no coordinates) for
+  state-transition / process-flow reading, with decision triggers and
+  evidence on the links — the e3-ui skill documents it.
 - **Library vs Deck** — `<Library>` is the draggable palette (DnD source),
   or with `variant="gallery"` a library a person browses — large cards, each
   with its media, a byline and an action a click follows;

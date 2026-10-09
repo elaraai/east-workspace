@@ -23,6 +23,10 @@ export default defineConfig({
         'react-dom',
         'react/jsx-runtime',
         '@chakra-ui/react',
+        // The locale's context, as React's and Chakra's: one for every
+        // renderer package — bundled here, the Plan would read a context of
+        // its own, which the host's `I18nProvider` never sets.
+        '@react-aria/i18n',
         '@elaraai/e3-api-client',
         '@elaraai/e3-types',
         '@elaraai/e3-ui',

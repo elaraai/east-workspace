@@ -19,6 +19,7 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { useState } from "react";
+import { StringType, equalFor } from "@elaraai/east";
 import {
     DragLayerProvider,
     useDragTarget,
@@ -27,11 +28,15 @@ import {
     useDragSourceItem,
     useDragEventChip,
     useDragEventEdge,
+    type CellCoord,
     type DragEventValue,
+    type DragMeta,
+    type DragPayload,
     type DragTargetConfig,
     type DropVeto,
 } from "./drag-layer.js";
-import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "./dnd.test-utils.js";
+import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "../testing/drag-layer.js";
+import { faIcons } from "../testing/icons.js";
 
 afterEach(() => {
     cleanup();
@@ -276,6 +281,8 @@ describe("DragLayerProvider", () => {
         expect(zone!.hasAttribute("data-drop-valid")).toBe(true);
         expect(zone!.hasAttribute("data-drop-invalid")).toBe(false);
         expect(zone!.getAttribute("aria-label")).toBe("Remove");
+        // Its mark is Font Awesome's trash can, never a written ⌫ (#1263).
+        expect([zone!.textContent, faIcons(zone!, "trash-can").length]).toEqual(["", 1]);
 
         // Drop on it — the ordinary trash sink path delivers remove/trash.
         pointAt(zone);
@@ -677,6 +684,54 @@ describe("touch grip fast-path", () => {
         const e = sole(events);
         expect(e.type).toBe("add");
     });
+
+    /** A grip that also taps (#1215): a folded sheet row's actions button — its tap opens a menu, here counted. */
+    function TapGripChip({ taps }: { taps: { n: number } }) {
+        const drag = useDragEventChip({ surface: "roster", row: "patel", slot: "mon", event: "s1" }, <span>s1</span>);
+        return <span data-testid="tap-grip" data-drag-grip="tap" {...drag} onClick={() => { taps.n += 1; }} />;
+    }
+
+    test("a touch on a grip that also taps waits for travel: a tap is its click, never a drag", () => {
+        vi.useFakeTimers();
+        const events: DragEventValue[] = [];
+        const taps = { n: 0 };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: [], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <TapGripChip taps={taps} />
+                <Cell surface="roster" row="cho" slot="mon" />
+            </DragLayerProvider>,
+        );
+        const grip = getByTestId("tap-grip");
+        fireEvent.pointerDown(grip, { pointerType: "touch", pointerId: 1, clientX: 0, clientY: 0 });
+        expect(grip.hasAttribute("data-dragging")).toBe(false);
+        // Held past the long-press: still no drag — this grip engages by travel alone.
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(grip.hasAttribute("data-dragging")).toBe(false);
+        fireEvent.pointerUp(document, { pointerType: "touch", pointerId: 1, clientX: 0, clientY: 0 });
+        fireEvent.click(grip);
+        expect(taps.n).toBe(1);
+        expect(events).toHaveLength(0);
+    });
+
+    test("a touch that travels 4px on a grip that also taps engages at once — no hold — and the drag's own click never reaches it", () => {
+        const events: DragEventValue[] = [];
+        const taps = { n: 0 };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: [], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <TapGripChip taps={taps} />
+                <Cell surface="roster" row="cho" slot="mon" />
+            </DragLayerProvider>,
+        );
+        const grip = getByTestId("tap-grip");
+        engage(grip, getByTestId("cell-cho-mon"), { pointerType: "touch" });
+        expect(grip.hasAttribute("data-dragging")).toBe(true);
+        fireEvent.pointerUp(document, { pointerType: "touch", pointerId: 1, clientX: 10, clientY: 10 });
+        fireEvent.click(grip);
+        expect(sole(events).type).toBe("move");
+        expect(taps.n).toBe(0);
+    });
 });
 
 // ── The keyboard ─────────────────────────────────────────────────────────
@@ -909,5 +964,172 @@ describe("announcements (#608)", () => {
         fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
         expect(sole(events).type).toBe("add");
         expect(announced()).toBe("patel was dropped on patel · thu.");
+    });
+});
+
+describe("the ghost's caption (#1187)", () => {
+    /** A cell that captions the ghost: where the card would land, or why not. */
+    function CaptionCell({ row, slot, canDrop }: { row: string; slot: string; canDrop?: DropVeto }) {
+        const caption = (coord: CellCoord, payload: DragPayload, allowed: boolean) => {
+            const item = payload.kind === "item" ? payload.from.key : payload.from.event;
+            return allowed ? `${item} · ${coord.row} ${coord.slot}` : `${coord.slot} is full`;
+        };
+        const ref = useDropCell({ surface: "roster", row, slot }, false, canDrop, undefined, { caption });
+        return <div ref={ref} data-testid={`cell-${row}-${slot}`} />;
+    }
+    /** The caption under the ghost: its words, and whether they say why not — or `null` while the ghost goes alone. */
+    const caption = () => {
+        const el = document.querySelector("[data-drag-caption]");
+        return el === null ? null : { text: el.textContent, refused: el.hasAttribute("data-refused") };
+    };
+    /** Rest the drag over an element, the pointer moved. */
+    const restOver = (el: Element | null, x: number) => {
+        pointAt(el);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: x, clientY: 10 });
+    };
+
+    test("the ghost says what a cell's caption says where the drag rests — red where the cell refuses — and nothing over a cell with none, over nothing, or once the drag ends", () => {
+        const events: DragEventValue[] = [];
+        const refuseFri: DropVeto = (e) => !(e.type === "add" && e.value.into.slot === "fri");
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <CaptionCell row="patel" slot="thu" />
+                <CaptionCell row="patel" slot="fri" canDrop={refuseFri} />
+                <Cell surface="roster" row="patel" slot="sat" />
+            </DragLayerProvider>,
+        );
+        // Picked up, over nothing: the ghost alone.
+        engage(getByTestId("card-patel"), null);
+        expect(document.querySelector("[data-drag-ghost]")).not.toBeNull();
+        expect(caption()).toBeNull();
+        // Over a cell that takes it: where it would land.
+        restOver(getByTestId("cell-patel-thu"), 20);
+        expect(caption()).toEqual({ text: "patel · patel thu", refused: false });
+        // Over a cell that refuses it: why, in red.
+        restOver(getByTestId("cell-patel-fri"), 30);
+        expect(getByTestId("cell-patel-fri").hasAttribute("data-drop-invalid")).toBe(true);
+        expect(caption()).toEqual({ text: "fri is full", refused: true });
+        // Over a cell with no caption, and over nothing: the ghost alone again.
+        restOver(getByTestId("cell-patel-sat"), 40);
+        expect(caption()).toBeNull();
+        restOver(getByTestId("cell-patel-thu"), 50);
+        expect(caption()).toEqual({ text: "patel · patel thu", refused: false });
+        restOver(null, 60);
+        expect(caption()).toBeNull();
+        // Dropped: the caption goes at once.
+        restOver(getByTestId("cell-patel-thu"), 70);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 70, clientY: 10 });
+        expect(sole(events).type).toBe("add");
+        expect(caption()).toBeNull();
+    });
+
+    test("a caption speaks of the coordinate the drag rests on — a continuous cell's, at the pointer — and goes when the drag is cancelled", () => {
+        // One cell whose slot is the pointer's half: left or right.
+        function HalfCell() {
+            const resolve = (x: number) => ({ surface: "roster", row: "cho", slot: x < 100 ? "am" : "pm" });
+            const caption = (coord: CellCoord) => `cho ${coord.slot}`;
+            const ref = useDropCell({ surface: "roster", row: "cho", slot: "am" }, false, undefined, resolve, { caption });
+            return <div ref={ref} data-testid="cell-cho" />;
+        }
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: () => {} }} />
+                <Card library="people" itemKey="patel" />
+                <HalfCell />
+            </DragLayerProvider>,
+        );
+        engage(getByTestId("card-patel"), null);
+        restOver(getByTestId("cell-cho"), 40);
+        expect(caption()).toEqual({ text: "cho am", refused: false });
+        restOver(getByTestId("cell-cho"), 140);
+        expect(caption()).toEqual({ text: "cho pm", refused: false });
+        fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+        expect(caption()).toBeNull();
+    });
+});
+
+describe("returns to a library (#1196)", () => {
+    const stringEqual = equalFor(StringType);
+    /** The event a return carries back, by its key. */
+    const returned = (e: DragEventValue) => (e.type === "remove" && e.value.from.event.type === "some" ? e.value.from.event.value : undefined);
+    /** The caption under the ghost, or `null` while the ghost goes alone. */
+    const caption = () => {
+        const el = document.querySelector("[data-drag-caption]");
+        return el === null ? null : { text: el.textContent, refused: el.hasAttribute("data-refused") };
+    };
+
+    test("a surface naming its returns: its elements return to those libraries alone, each return vetted and captioned — red where refused — with no trash zone, and the library named on delivery", () => {
+        const events: DragEventValue[] = [];
+        const metas: (DragMeta | undefined)[] = [];
+        // The backlog takes `s1` back; `s2` is of a kind with no backlog.
+        const config: DragTargetConfig = {
+            id: "roster", sources: ["people"], kinds: { add: true, move: true, remove: true, trash: false },
+            returns: {
+                libraries: ["backlog"],
+                canDrop: (e) => stringEqual(returned(e) ?? "", "s1"),
+                caption: (e, library, allowed) => `${returned(e) ?? "?"} → ${library}${allowed ? "" : ": no backlog"}`,
+            },
+            onDrag: (e, meta) => { events.push(e); metas.push(meta); },
+        };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={config} />
+                <Chip surface="roster" row="patel" slot="mon" event="s1" />
+                <Chip surface="roster" row="patel" slot="tue" event="s2" />
+                <LibraryFrame id="backlog" />
+                <LibraryFrame id="people" />
+            </DragLayerProvider>,
+        );
+        const backlog = getByTestId("library-backlog");
+        const people = getByTestId("library-people");
+        // `s2` over the backlog: refused, said in red.
+        engage(getByTestId("chip-s2"), backlog);
+        expect(backlog.hasAttribute("data-drop-valid")).toBe(true);
+        expect(backlog.hasAttribute("data-drop-invalid")).toBe(true);
+        expect(backlog.hasAttribute("data-drop-active")).toBe(false);
+        expect(caption()).toEqual({ text: "s2 → backlog: no backlog", refused: true });
+        expect(announced()).toBe("Return to backlog does not take s2.");
+        // Nothing of the surface's is thrown away: no trash zone.
+        expect(document.querySelector("[data-drag-trash]")).toBeNull();
+        // The library it takes cards from is no place its elements return to.
+        expect(people.hasAttribute("data-drop-valid")).toBe(false);
+        pointAt(people);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: 20, clientY: 20 });
+        expect(people.hasAttribute("data-drop-active")).toBe(false);
+        expect(caption()).toBeNull();
+        // Let go over the backlog: asked once more, and refused.
+        pointAt(backlog);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 30 });
+        expect(events).toHaveLength(0);
+        expect(announced()).toBe("s2 was not dropped.");
+        // `s1` over the backlog: taken, said, and delivered as a return to its source, the library named.
+        engage(getByTestId("chip-s1"), backlog);
+        expect(backlog.hasAttribute("data-drop-active")).toBe(true);
+        expect(caption()).toEqual({ text: "s1 → backlog", refused: false });
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        const e = sole(events);
+        expect(e.type).toBe("remove");
+        if (e.type === "remove") expect(e.value.to.type).toBe("source");
+        expect(metas).toEqual([{ library: "backlog" }]);
+        expect(caption()).toBeNull();
+    });
+
+    test("left out, an element returns to every library the surface takes cards from, and the trash zone shows while one is carried", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: (e) => events.push(e) }} />
+                <Chip surface="roster" row="patel" slot="mon" event="s1" />
+                <LibraryFrame id="people" />
+            </DragLayerProvider>,
+        );
+        engage(getByTestId("chip-s1"), getByTestId("library-people"));
+        expect(document.querySelector("[data-drag-trash]")).not.toBeNull();
+        expect(getByTestId("library-people").hasAttribute("data-drop-active")).toBe(true);
+        expect(caption()).toBeNull();
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        expect(sole(events).type).toBe("remove");
     });
 });

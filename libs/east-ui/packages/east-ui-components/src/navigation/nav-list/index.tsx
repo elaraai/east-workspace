@@ -8,13 +8,12 @@ import { Box, Flex, Text, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName, type IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
-import { far } from "@fortawesome/free-regular-svg-icons";
-import { fab } from "@fortawesome/free-brands-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { NavList } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-library.add(fas, far, fab);
+// Font Awesome's solid set alone: East UI draws solid icons only (#1263).
+library.add(fas);
 
 const navListEqual = equivalentFor(NavList.Types.NavList);
 

@@ -5,35 +5,63 @@
 
 /**
  * Flowchart slot recipe — the state-transition flowchart per the
- * `Flowchart` design spec: 44px eyebrow (slice cluster left; orientation
- * segment + freshness chip right), body canvas (lane bands, node cards,
- * H/V links), 38px derived-count footer. Node cards are 116×40 r6 with a
- * mono 12/700 code line and a 10.5px muted label; the hover-card SHELL is
- * paper / rule-strong / r6, with no shadow (its body is dev-defined UI).
+ * `Flowchart` design spec, in its builder frame (#1245): the root holding the
+ * frame and the colours the canvas draws with; the freshness chip's dot (the
+ * chip, a toolbar item, is the shared `chip`); the canvas filling main (lane
+ * bands, node cards, H/V links), scrolling both ways in its own box; and the
+ * 38px derived-count footer in the frame's footer, its rule its own. Node
+ * cards are 116×40 r6
+ * with a mono 12/700 code line and a 10.5px muted label. It has no hover card
+ * (#1250): the inspector (`flowchartInspector`) shows what is selected. The
+ * selection (#1250) is marked here: a selected state's card and ↻ badge in
+ * the brand's rule, a selected decision's diamond in the brand's tint and a
+ * heavier rule, and a selected lane — a click on its header — ringed inside
+ * its band, the ring under the states and the transitions' hit paths.
+ * The Flows tab (#1246) is the shared `library` recipe's cards over a foot
+ * holding "+ New flow" — the Library's own foot and add action, its plus a
+ * Font Awesome icon, a 44px target on a coarse pointer by its halo, which the
+ * foot holds whole — and a flowchart with no flow is the shared empty state,
+ * centred in its box. Where it edits (#1247), its gestures' controls are Font
+ * Awesome's solid icons in the canvas's HTML layer: each lane's × beside its
+ * header (off, dimmed, while the lane holds states; a 44px target on a coarse
+ * pointer, by its halo), "+ LANE" at the band row's tail, its plus over its
+ * word, and the "+ STATE" ghost's plus beside its word. The frame's own
+ * regions are the `builderFrame` recipe's. Where a library card drops on the
+ * canvas (#1249), the canvas is one drop cell whose own marks stand in for
+ * the shared stage frame — the lane it lands in washed in the brand's tint,
+ * dashed, with a brand line where the state lands; the state, the transition
+ * (the brand wash) or the diamond it sets in the brand — each shown only while
+ * the drag rests there and the drop lands; a refusal is the ghost's red
+ * caption, and the not-allowed cursor.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
+
+/** Where a drop is taken, and not refused (#1249): the stage the canvas's marks show on. */
+const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
 
 export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
     slots: [
-        "root", "eyebrow", "eyebrowLeft", "eyebrowRight",
-        "orientationSegment", "freshnessChip", "freshnessDot", "freshnessDate",
+        "root", "freshnessDot",
         "body", "scroll", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
+        "laneDelete", "addLane", "laneSelected",
         "stateGhost", "stateEditor", "moveClone",
+        "dropLane", "dropSeam",
         "legend", "legendTitle", "legendRow",
         "minimap",
-        "footer", "footerStrong", "footerNeg", "footerSplit",
-        "hoverCard",
+        "footer", "footerFlow", "footerStrong", "footerNeg", "footerMessage", "footerSplit",
+        "flowsTab", "flowsList", "flowsFoot", "newFlow", "noFlows",
     ],
     base: {
-        /* Bare like Table / Planner — identity chrome is host composition.
-         * The --fc-* variables name the design system's colours (--ink-2 /
-         * --ink-3 / --ink-4 / --paper / --paper-2 / --rule-strong / --info /
-         * --brand / --brand-d / --brand-dd / --neg) through the theme's one
-         * token for each, so both modes follow it — SVG geometry consumes
-         * them directly. */
+        /* Fills the box it is given and draws no border: the frame inside it
+         * fills it in turn (#1245). The --fc-* variables name the design
+         * system's colours (--ink-2 / --ink-3 / --ink-4 / --paper / --paper-2
+         * / --rule-strong / --info / --brand / --brand-d / --brand-dd / --neg)
+         * through the theme's one token for each, so both modes follow it —
+         * SVG geometry consumes them directly. */
         root: {
             "--fc-ink":         "{colors.fg.strong}",
             "--fc-ink3":        "{colors.fg.muted}",
@@ -46,87 +74,17 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "--fc-brand-d":     "{colors.brand.solid}",
             "--fc-brand-dd":    "{colors.brandPressed}",
             "--fc-neg":         "{colors.status.neg}",
-            background: "bg.surface",
             display: "flex",
             flexDirection: "column",
+            width: "100%",
+            height: "100%",
+            minWidth: 0,
             minHeight: 0,
             position: "relative",
         },
 
-        /* ── eyebrow — one row, 44px, never wraps ─────────────────────── */
-        eyebrow: {
-            height: "44px",
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "3",
-            paddingX: "3",
-            borderBottomWidth: "1px",
-            borderColor: "border.subtle",
-            overflow: "hidden",
-        },
-        eyebrowLeft: {
-            display: "flex",
-            alignItems: "center",
-            gap: "2",
-            minWidth: 0,
-            flex: "1 1 auto",
-            overflow: "hidden",
-            /* Spec eyebrow anatomy: chips first, then a COMPACT find-state
-             * field — never a full-width search box. */
-            "& input": { maxWidth: "128px" },
-        },
-        /* Right zone, fixed: orientation segment then the freshness chip. */
-        eyebrowRight: {
-            display: "flex",
-            alignItems: "center",
-            gap: "2",
-            flexShrink: 0,
-        },
-        orientationSegment: {
-            display: "flex",
-            alignItems: "stretch",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "4px",
-            overflow: "hidden",
-            "& > button": {
-                fontFamily: "mono",
-                fontSize: "10px",
-                fontWeight: "600",
-                letterSpacing: "0.5px",
-                paddingX: "2",
-                paddingY: "1",
-                color: "fg.muted",
-                background: "bg.panel",
-                cursor: "pointer",
-                _hover: { color: "fg" },
-            },
-            "& > button[data-active]": {
-                background: "bg.surface",
-                color: "fg",
-            },
-            "& > button + button": {
-                borderLeftWidth: "1px",
-                borderColor: "border.subtle",
-            },
-        },
-        freshnessChip: {
-            display: "flex",
-            alignItems: "center",
-            gap: "1.5",
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "600",
-            color: "fg.muted",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "full",
-            paddingX: "2.5",
-            paddingY: "1",
-            whiteSpace: "nowrap",
-        },
+        /* ── the freshness chip's dot — the chip itself is the shared
+         *    `chip` recipe's, a toolbar item (#1245) ───────────────────── */
         freshnessDot: {
             width: "6px",
             height: "6px",
@@ -134,21 +92,46 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             background: "status.pos",
             flexShrink: 0,
         },
-        freshnessDate: { color: "fg.subtle", fontWeight: "400" },
 
-        /* ── body ─────────────────────────────────────────────────────── */
+        /* ── body — main's whole box; the canvas scrolls inside it ─────── */
         body: {
             flex: "1 1 0%",
+            minWidth: 0,
             minHeight: 0,
             position: "relative",
         },
+        /* Focusable, so a press inside it takes its keys (Del, #1247); a
+         * press draws no ring — the selection says what Del deletes. */
         scroll: {
             position: "absolute",
             inset: 0,
             overflow: "auto",
+            _focus: { outline: "none" },
         },
+        /* The canvas, and its one drop cell (#1249): its own marks stand in for
+         * the shared stage's frame and wash over the whole canvas — most of
+         * which refuses a transition's card — so the stage keeps only its
+         * not-allowed cursor; the ghost's red caption says why. */
         canvasWrap: {
             position: "relative",
+            "&[data-drag-cell][data-drop-valid]::before, &[data-drag-cell][data-drop-active]::before, &[data-drag-cell][data-drop-invalid]::before": { content: "none" },
+            "&[data-drag-cell][data-drop-active], &[data-drag-cell][data-drop-invalid]": { background: "transparent" },
+            "&[data-drag-cell][data-drop-invalid]::after": { content: "none" },
+            /* The transition a card retypes takes the brand wash (FB32): a wide,
+             * soft stroke under its line, as the selection's halo is drawn. */
+            "& [data-flowchart-dropwash]": {
+                display: "none",
+                fill: "none",
+                stroke: "var(--fc-brand)",
+                strokeWidth: "12px",
+                opacity: 0.3,
+                pointerEvents: "none",
+            },
+            [`&${TAKEN} [data-flowchart-dropwash]`]: { display: "inline" },
+            /* The decision a card sets takes the brand: its diamond's fill tinted, its rule the brand's. */
+            [`&${TAKEN} [data-flowchart-trigger][data-drop-target] > rect`]: { fill: "brandTint", strokeWidth: "2px" },
+            /* The decision selected (#1250): its diamond's fill tinted, its rule heavier — the inspector shows it. */
+            "& [data-flowchart-trigger][data-selected] > rect": { fill: "brandTint", strokeWidth: "2.4px" },
         },
 
         /* ── node cards — 116×40, r6, mono code + muted label ─────────── */
@@ -164,6 +147,14 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             "&[data-selected]": {
                 borderWidth: "1.5px",
                 borderColor: "brand.600",
+            },
+            /* The state an author's card sets (#1249, FB33): the brand's tint and rule. */
+            "&[data-drop-target]": {
+                [`${TAKEN} > &`]: {
+                    borderWidth: "1.5px",
+                    borderColor: "brand.solid",
+                    background: "brandTint",
+                },
             },
         },
         ghostNode: {
@@ -219,9 +210,73 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             },
         },
 
+        /* ── a lane's × and "+ LANE" (#1247) ─────────────────────────── */
+        /* A lane's ×: Font Awesome's xmark, 14px square beside its header,
+         * in the header's ink; off — faded, never a click — while the lane
+         * holds states, its tooltip saying why. */
+        laneDelete: {
+            position: "absolute",
+            zIndex: 1,
+            boxSizing: "border-box",
+            width: "14px",
+            height: "14px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0",
+            border: "none",
+            background: "transparent",
+            color: "fg.subtle",
+            fontSize: "10px",
+            cursor: "pointer",
+            _hover: { color: "fg.muted" },
+            "&[data-disabled]": { opacity: 0.4, cursor: "not-allowed", _hover: { color: "fg.subtle" } },
+            ...coarseHitArea(),
+        },
+        /* "+ LANE": the band row's tail, full lane height, dashed rule-strong
+         * r6 — Font Awesome's plus over the word in LR's tall column, beside
+         * it on TD's wide band; mono 9px caps, 2px tracking, the header's ink. */
+        addLane: {
+            position: "absolute",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: "8px",
+            paddingTop: "22px",
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            borderColor: "border.strong",
+            borderRadius: "6px",
+            background: "transparent",
+            color: "fg.subtle",
+            fontFamily: "mono",
+            fontSize: "9px",
+            letterSpacing: "2px",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            "& svg": { fontSize: "12px" },
+            _hover: { borderColor: "brand.600", color: "fg.muted" },
+            "&[data-orientation='TD']": { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingTop: "0" },
+        },
+        /* The lane selected (#1250) — a click on its header: its band ringed
+         * in the brand's rule just inside its edge, solid where a drop's lane
+         * is dashed, and no wash; under the states, and never a pointer's. */
+        laneSelected: {
+            position: "absolute",
+            boxSizing: "border-box",
+            pointerEvents: "none",
+            outlineWidth: "1.5px",
+            outlineStyle: "solid",
+            outlineColor: "brand.solid",
+            outlineOffset: "-2px",
+        },
+
         /* ── "+ STATE" ghost + inline node editor + move clone ────────── */
         /* The ghost is the placement preview — dashed rule-strong, the
-         * exact node footprint, "+ state" centred (spec Flowchart.Lane). */
+         * exact node footprint, Font Awesome's plus and "state" centred
+         * (spec Flowchart.Lane). */
         stateGhost: {
             position: "absolute",
             boxSizing: "border-box",
@@ -232,6 +287,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            gap: "4px",
             fontFamily: "mono",
             fontSize: "10px",
             fontWeight: "600",
@@ -270,6 +326,37 @@ export const flowchartSlotRecipe = defineSlotRecipe({
                 fontWeight: "400",
                 color: "fg.muted",
             },
+        },
+        /* ── where a dropped card lands (#1249) ─────────────────────────── */
+        /* The lane a state lands in, or whose header a card sets: the band
+         * washed in the brand's tint under the states, a dashed brand rule
+         * inside its edge — the candidate band a moved state's is. */
+        dropLane: {
+            position: "absolute",
+            display: "none",
+            boxSizing: "border-box",
+            pointerEvents: "none",
+            background: "brandTint",
+            outlineWidth: "1.5px",
+            outlineStyle: "dashed",
+            outlineColor: "brand.solid",
+            outlineOffset: "-3px",
+            [`${TAKEN} > &`]: { display: "block" },
+        },
+        /* Where the state lands: a 2px brand line across the node's footprint,
+         * centred on the seam between the states either side of it — level in
+         * LR, upright in TD. Its place and length are the canvas's. */
+        dropSeam: {
+            position: "absolute",
+            display: "none",
+            pointerEvents: "none",
+            zIndex: 2,
+            background: "brand.solid",
+            borderRadius: "full",
+            height: "2px",
+            marginTop: "-1px",
+            "&[data-orientation='TD']": { height: "auto", width: "2px", marginTop: "0", marginLeft: "-1px" },
+            [`${TAKEN} > &`]: { display: "block" },
         },
         /* Translucent clone following the pointer during a cross-lane drag. */
         moveClone: {
@@ -331,7 +418,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             lineHeight: 0,
         },
 
-        /* ── footer — 38px, derived count only ────────────────────────── */
+        /* ── footer — 38px, derived counts, in the frame's footer ──────── */
         footer: {
             height: "38px",
             flexShrink: 0,
@@ -347,25 +434,76 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
         },
+        /* The open flow's name, leading the counts over many flows. */
+        footerFlow: { color: "fg", fontWeight: "600" },
         footerStrong: { color: "fg", fontWeight: "700" },
         footerNeg: { color: "status.neg", fontWeight: "600" },
+        /* Why a card's ⏎ was refused (#1249): the footer's own ink, cut short before the split. */
+        footerMessage: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },
 
-        /* ── hover card — paper · rule-strong · r6, no shadow ─────────── */
-        /* Hover-card SHELL — paper · rule-strong · r6 (the design system
-         * shadows nothing but the focus ring); the BODY is dev-defined UI
-         * (stateHover / linkHover / triggerHover builders). */
-        hoverCard: {
-            position: "absolute",
-            zIndex: 10,
-            minWidth: "180px",
-            maxWidth: "320px",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "6px",
-            padding: "10px 12px",
-            pointerEvents: "auto",
+        /* ── the Flows tab — its cards, and "+ New flow" under them (#1246) ── */
+        /* The tab's body: the cards filling the pane, the foot under them. */
+        flowsTab: {
+            flex: "1 1 0%",
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+        },
+        /* The cards: the shared Library, filling what the foot leaves. */
+        flowsList: {
+            flex: "1 1 0%",
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+        },
+        /* The foot: the Library's own — its rule over it — holding "+ New flow" at its end.
+         * It sits on the pane's bottom edge, which clips: on a coarse pointer it is
+         * as tall as the button's 44px halo and its rule, so the halo is whole. */
+        flowsFoot: {
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            paddingX: "14px",
+            paddingY: "10px",
+            borderTopWidth: "1px",
+            borderTopColor: "border.subtle",
+            _coarse: { minHeight: "45px" },
+        },
+        /* "+ New flow": the Library's add action — mono caps in the brand ink,
+         * named by the design system's tokens (the 10px label, semibold, the
+         * label's 0.14em tracking) — its plus a Font Awesome icon; a 44px target
+         * on a coarse pointer, by its halo. */
+        newFlow: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "1.5",
+            fontFamily: "mono",
+            fontSize: "label.sm",
+            fontWeight: "semibold",
+            letterSpacing: "label",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "brand.solid",
+            cursor: "pointer",
+            background: "transparent",
+            border: "none",
+            padding: "0",
+            _hover: { color: "brand.fg" },
+            ...coarseHitArea({ position: true }),
+        },
+        /* No flow: the shared empty state, centred in its box — the tab's, or main. */
+        noFlows: {
+            flex: "1 1 0%",
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "auto",
         },
     },
 });

@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
+import { coarseHitArea } from "../../style/hit-area.js";
+import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -33,11 +35,18 @@ export interface EastChakraSliceFilterProps {
 
 /**
  * Renders an East UI `Slice.Filter`. **Compact** (in a `Slice.Frame` eyebrow):
- * one row of as many brand chips as fit with remove `×`, a `+N more` chip opening a
+ * one row of as many brand chips as fit with a remove — Font Awesome's xmark,
+ * never a text glyph (#1263) — a `+N more` chip opening a
  * `Slice.Edit` list, and a dashed `+ FILTER` chip opening the builder popover.
  * **Focused** (standalone): the same chip rail plus a `SHOWING N {unit}` footer
  * (result **of** total). The add-filter builder always lives in a `Slice.Edit`
  * popover, so opening it never re-flows the surface.
+ *
+ * Every chip is a button (#1231): a clause chip opens its clause's editor,
+ * whose foot removes it (Remove filter); its xmark is the pointer's, as a Sheet
+ * tab's is (#860) — with a mouse it removes the clause, the keyboard removes
+ * a focused clause with Delete, and on a coarse pointer it is not drawn: the
+ * chip is one target, 44px by its halo, as `+N more` and `+ FILTER` are.
  */
 export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value, foldChips }: EastChakraSliceFilterProps) {
     const chip = useRecipe({ key: "chip" });
@@ -72,6 +81,32 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     // save-as-cohort form; a number = editing the clause at that index.
     const [open, setOpen] = useState<"add" | "more" | "save" | number | null>(seedOpen ? "add" : null);
     const [cohortName, setCohortName] = useState("");
+    // On a touch screen a clause chip draws no xmark (#1231): the chip is one
+    // target, and its editor's foot removes the clause.
+    const coarse = useCoarsePointer();
+
+    // A clause removed by Delete hands the focus on once the chips have drawn
+    // again, as a Sheet tab's close does (#860): to the clause that takes its
+    // place, else the one before it, else `+N more`, else `+ FILTER`.
+    const focusAfter = useRef<{ chips: Element; index: number } | null>(null);
+    useLayoutEffect(() => {
+        const after = focusAfter.current;
+        if (after === null) return;
+        focusAfter.current = null;
+        const clauses = after.chips.querySelectorAll<HTMLElement>("[data-slice-clause]");
+        const next = clauses[after.index] ?? clauses[after.index - 1]
+            ?? after.chips.querySelector<HTMLElement>("[data-slice-more]")
+            ?? after.chips.querySelector<HTMLElement>("[data-slice-add='filter']");
+        next?.focus();
+    });
+    const removeClause = (i: number) => slice.removeFilter(BigInt(i));
+    const onClauseKey = (i: number) => (e: KeyboardEvent<HTMLElement>) => {
+        if (e.key !== "Delete") return;
+        e.preventDefault();
+        const chips = e.currentTarget.closest("[data-slice-filter]");
+        if (chips !== null) focusAfter.current = { chips, index: i };
+        removeClause(i);
+    };
 
     // Replace the clause at `i` in place (op / value edit keeps order).
     const replaceFilter = (i: number, pred: PredicateValue) => slice.write({ ...state, filters: filters.map((f, j) => j === i ? pred : f) });
@@ -91,19 +126,29 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         setOpen(null);
     };
 
-    // A clause chip: the label opens the op/value editor (Slice.Edit), the × removes.
+    // A clause chip: one button opening the op/value editor (Slice.Edit), whose
+    // foot removes the clause; its xmark the pointer's (#1231).
     const clausePill = (pred: PredicateValue, i: number) => (
         <SliceEditPopover
             key={i}
             open={open === i}
             onOpenChange={o => setOpen(o ? i : null)}
             label={<>{"Edit · "}<Box as="span" css={edit.clauseField}>{pred.value.fieldId}</Box></>}
+            footLeft={<chakra.button type="button" css={edit.footDanger} onClick={() => { setOpen(null); removeClause(i); }}>Remove filter</chakra.button>}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Cancel</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "brand", numeric: true })} cursor="pointer" flexShrink={0}>
+                // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
+                <chakra.button type="button" css={[chip({ tone: "brand", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer" flexShrink={0}
+                    data-slice-clause={i} onKeyDown={onClauseKey(i)}>
                     <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
-                    <chakra.button type="button" cursor="pointer" color="link" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
-                </Box>
+                    {/* The pointer's remove; the keyboard's is Delete on the chip. */}
+                    {!coarse && (
+                        <Box as="span" data-chip-remove="" aria-hidden="true" title="Remove filter"
+                            onClick={(e: MouseEvent) => { e.stopPropagation(); removeClause(i); }}>
+                            <FontAwesomeIcon icon={faXmark} />
+                        </Box>
+                    )}
+                </chakra.button>
             }
         >
             {open === i
@@ -120,10 +165,12 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             size="lg"
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Done</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer" data-slice-add="filter">
+                // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
+                <chakra.button type="button" css={[chip({ tone: "dashed", numeric: true, caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                    data-slice-add="filter" aria-label="Add filter">
                     <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                     <Box as="span">{compact ? "filter" : "add filter"}</Box>
-                </Box>
+                </chakra.button>
             }
         >
             {/* Add applies the clause and CLOSES the popover — consistent with
@@ -140,7 +187,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         // clause / add-filter editors expand inline via `SliceEditPopover`'s
         // editor-density disclosure.
         return (
-            <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="wrap" minWidth="0">
+            <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="wrap" minWidth="0" data-slice-filter="">
                 {filters.map((pred, i) => clausePill(pred, i))}
                 {addPopover}
             </Box>
@@ -155,8 +202,9 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         // Reserve the `+N more` chip's width during measuring (worst-case count)
         // so it never collapses one chip too many once it appears.
         const showMore = measuring ? filters.length > 0 : overflow > 0;
+        // The row clips sideways only: a chip's touch halo reaches above and below it (#1221).
         return (
-            <Box ref={rowRef} position="relative" display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" overflow="hidden" minWidth="0">
+            <Box ref={rowRef} position="relative" display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" overflowX="clip" minWidth="0" data-slice-filter="">
                 {shown.map((pred, i) => (
                     <Box key={i} data-overflow-item flexShrink="0" display="inline-flex">
                         {clausePill(pred, i)}
@@ -184,10 +232,12 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                                     </>
                                 )}
                             trigger={
-                                <Box css={chip({ tone: "more", numeric: true })} cursor="pointer">
+                                // A 44px touch target on a coarse pointer, by its halo (#1231).
+                                <chakra.button type="button" css={[chip({ tone: "more", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                                    data-slice-more="">
                                     <Box as="span">{`+${measuring ? filters.length : overflow} more`}</Box>
                                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
-                                </Box>
+                                </chakra.button>
                             }
                         >
                             {open === "save" && (
@@ -200,7 +250,9 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                                 <Box key={i} css={edit.moreRow}>
                                     <Box as="span">{formatPredicate(pred, words)}</Box>
                                     {open === "more" && (
-                                        <chakra.button type="button" css={edit.moreRowRemove} onClick={() => slice.removeFilter(BigInt(i))} aria-label="Remove filter">×</chakra.button>
+                                        <chakra.button type="button" css={edit.moreRowRemove} onClick={() => slice.removeFilter(BigInt(i))} aria-label="Remove filter">
+                                            <FontAwesomeIcon icon={faXmark} />
+                                        </chakra.button>
                                     )}
                                 </Box>
                             ))}
@@ -215,7 +267,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     return (
         <Box css={frame.root}>
             <Box css={frame.body}>
-                <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">
+                <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center" data-slice-filter="">
                     {filters.map((pred, i) => clausePill(pred, i))}
                     {addPopover}
                 </Box>

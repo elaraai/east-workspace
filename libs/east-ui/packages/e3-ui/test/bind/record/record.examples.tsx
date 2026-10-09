@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
-import { Button, HStack, Reactive, Sheet, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data, Record } from "@elaraai/e3-ui";
+import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // The package-side record + mutation definitions. `Record.bind` takes the
@@ -84,28 +84,29 @@ export const recordBindStatus = example({
 });
 
 // A keyed record a Sheet edits — each job's key is its id — and its patch
-// door, which every Apply commits through.
+// door, which every Save commits through.
 export const JobType = StructType({ task: StringType, qty: IntegerType });
 export const jobs = e3.record("jobs", DictType(StringType, JobType), new Map());
 export const jobsPatch = e3.mutation.patch(jobs);
 
 export const recordSheetApply = example({
-    keywords: ["Record", "onApply", "Sheet", "Apply", "patch", "commit", "conflict", "discard", "bindPaged", "editing", "system of record"],
-    description: "A Sheet over a record: its rows paged from the record, each Apply one commit through the record's patch door — a stale Apply is a conflict naming the entry, and nothing is overwritten",
+    keywords: ["Record", "onApply", "Sheet", "Save", "patch", "commit", "conflict", "discard", "bindPaged", "editing", "system of record"],
+    description: "A Sheet over a record: its rows paged from the record, each Save one commit through the record's patch door — a stale Save is a conflict naming the entry, and nothing is overwritten",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const rows = $.let(Data.bindPaged(jobs));
             const record = $.let(Record.bind(jobs, [jobsPatch]));
             return (
-                <Sheet
-                    data={rows}
-                    columns={{
-                        task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
-                        qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
-                    }}
-                    onApply={Record.onApply(record)}
-                    style={{ height: "360px" }}
-                />
+                <Box height="360px">
+                    <Sheet
+                        data={rows}
+                        columns={{
+                            task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+                            qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
+                        }}
+                        onApply={Record.onApply(record)}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),

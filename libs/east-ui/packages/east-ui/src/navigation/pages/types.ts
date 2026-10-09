@@ -29,6 +29,8 @@ import {
     type ExprType,
 } from "@elaraai/east";
 
+import type { SolidIconPrefix } from "../../display/icon/types.js";
+
 // ============================================================================
 // Route config — the single source of truth for each route's payload TYPE
 // ============================================================================
@@ -41,15 +43,15 @@ import {
  * @typeParam V - The route's payload East type (`NullType` for an argless page).
  * @property value - The East type of the value passed when navigating to this route.
  * @property label - Human-readable label (breadcrumb / rail).
- * @property icon - Optional leading Font Awesome icon for the `<App>` rail row (`{ prefix, name }`).
+ * @property icon - Optional leading Font Awesome solid icon for the `<App>` rail row (`{ prefix: "fas", name }`) — East UI draws no other (#1263).
  * @property section - Optional `<App>` rail section heading to group this route under; omit ⇒ the route is reachable but hidden from the rail (a deep page).
  * @property badge - Optional trailing badge text for the `<App>` rail row (count / "New").
  */
 export interface NavRouteConfig<V extends EastType = EastType> {
     value: V;
     label: string;
-    /** Optional leading Font Awesome icon for the `<App>` rail row. */
-    icon?: { prefix: string; name: string };
+    /** Optional leading Font Awesome solid icon for the `<App>` rail row; another set is refused at build (#1263). */
+    icon?: { prefix: SolidIconPrefix; name: string };
     /** Optional `<App>` rail section heading; omit ⇒ reachable but hidden from the rail. */
     section?: string;
     /** Optional trailing badge text for the `<App>` rail row. */

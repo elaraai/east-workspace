@@ -4,13 +4,16 @@
  */
 
 /**
- * The Plan recipe's CHROME — the frame, the toolbar, the horizon brush, the ruler,
- * the footer, the focus bar, the diagnostics, the paged window bands, and the
- * canvas-wide overlays (the now line, the cursor hairline and chip, the element
- * overlay body).
+ * The Plan recipe's CHROME — the frame, the horizon brush, the ruler, the
+ * footer, the focus bar, the diagnostics, the paged window bands, and the
+ * canvas-wide overlays (the cursor hairline and chip, the element overlay
+ * body). The toolbar band is the Plan's `BuilderFrame`'s (#1193); its items
+ * wear the shared parts' recipes, and the summary and the scope badge the
+ * footer's item. The now line and its chip are the shared time part's
+ * (`../time/now.ts`, #1148), merged into the recipe beside this one.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */
@@ -20,10 +23,10 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const shellSlots = [
-    "root", "toolbar", "toolbarLibraryCount", "brushRow",
-    "brushCaption", "horizonLens", "ruler", "rulerTick", "nowChip", "footer", "footerItem", "focusBar",
+    "root", "frame", "brushRow",
+    "brushCaption", "horizonLens", "ruler", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
-    "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry", "nowLine",
+    "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry",
     "cursorLine", "cursorChip", "elementOverlay",
 ] as const;
 
@@ -37,23 +40,14 @@ export const shellBase = {
         minWidth: 0,
         fontVariantNumeric: "tabular-nums",
     },
-    // ── Toolbar (44px): the band the shared toolbar's row lies in (#952) —
-    // slice chrome, the grain/resolution segments, the summary, the library
-    // and the history bar, folded on one ladder ──
-    toolbar: {
-        minHeight: "var(--plan-toolbar-h)",
-        display: "flex",
-        alignItems: "center",
-        padding: "0 12px",
-        background: "bg.surface",
-        borderBottomWidth: "1px",
-        borderBottomColor: "border.subtle",
-    },
-    // The `N of M` in the library popover's head — the brand marks it as a
-    // live count of what is showing, not a static caption.
-    toolbarLibraryCount: {
-        color: "brand.fg",
-        fontWeight: "bold",
+    // ── The Plan's frame (#1193): what wraps its `BuilderFrame`, carrying
+    // the canvas's geometry variables, which the canvas, the toolbar's
+    // items and the footer all read. A Plan that declares no bound adds no
+    // box of its own; one that does is that box, at the declared height,
+    // and the frame fills it ──
+    frame: {
+        display: "contents",
+        "&[data-plan-bound]": { display: "flex", flexDirection: "column", width: "100%", minWidth: 0, minHeight: 0 },
     },
     // ── Horizon brush band (32px): caption in the gutter, strip in the plot ──
     brushRow: {
@@ -113,7 +107,11 @@ export const shellBase = {
         overflow: "clip",
     },
     // A tick — the header row's one style (#949): mono 10 / 600, uppercase,
-    // the label ink, as the gutter caption beside it.
+    // the label ink, as the gutter caption beside it. Its label is drawn
+    // whole: where the columns are narrower than their labels the ruler draws
+    // every k-th (#1269, `data-thinned` on the rest), and a label may run past
+    // its column into the blank ones beside it, so the tick clips nothing.
+    // The first and the last sit against the track's ends (`data-align`).
     rulerTick: {
         fontFamily: "mono",
         fontSize: "10px",
@@ -124,31 +122,27 @@ export const shellBase = {
         alignItems: "center",
         justifyContent: "center",
         whiteSpace: "nowrap",
-        overflow: "hidden",
+        overflow: "visible",
         minWidth: 0,
         position: "relative",
+        "&[data-align='start']": { justifyContent: "flex-start" },
+        "&[data-align='end']": { justifyContent: "flex-end" },
+        "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },
         // No border: the ruler's bucket lines are the rows' own separators
         // (`GridSeparators`, drawn over the ticks), so the two can never sit
         // a pixel apart.
     },
-    // The NOW chip in the ruler — mono 9.5 / 600 on the one committed fill
-    // (#949: the label floor, one dark fill).
-    nowChip: {
-        position: "absolute",
-        top: "50%",
-        transform: "translate(-50%, -50%)",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "semibold",
-        letterSpacing: "0.08em",
-        color: "bg.surface",
-        background: "brand.emphasized",
-        borderRadius: "2px",
-        padding: "1px 4px",
-        zIndex: 7,
-        pointerEvents: "none",
+    // A tick's label, the desktop ruler's and the narrow layout's: on a
+    // knockout of the ruler's paper, above the bucket lines it runs past, so
+    // no line strikes through its letters (#1269).
+    rulerLabel: {
+        position: "relative",
+        zIndex: 1,
+        padding: "0 1px",
+        background: "bg.panel",
+        whiteSpace: "nowrap",
     },
-    // ── Footer (28px): mono status line ──
+    // ── Footer (28px): mono status line, the frame's footer (#1193) ──
     footer: {
         minHeight: "var(--plan-footer-h)",
         display: "flex",
@@ -158,9 +152,10 @@ export const shellBase = {
         background: "bg.panel",
         borderTopWidth: "1px",
         borderTopColor: "border.subtle",
-        // The narrow layout (§10) has no 28px band to fit a status line
-        // into — the same items wrap onto as many lines as they need.
-        "[data-plan-narrow] &": { flexWrap: "wrap", minHeight: "auto", padding: "6px 12px", rowGap: "2px", columnGap: "10px" },
+        // Under the narrow layout (§10) there is no 28px band to fit a
+        // status line into — the same items wrap onto as many lines as they
+        // need.
+        "&[data-plan-narrow]": { flexWrap: "wrap", minHeight: "auto", padding: "6px 12px", rowGap: "2px", columnGap: "10px" },
     },
     footerItem: {
         fontFamily: "mono",
@@ -176,43 +171,50 @@ export const shellBase = {
         "&[data-tone='info']":    { color: "{colors.status.info}" },
         "&[data-end]": { marginLeft: "auto" },
     },
-    // The focus band — a SECTION row between the header and the body
-    // (`← ALL ROWS` + the caption), wearing the group-band vocabulary:
-    // panel wash + mono uppercase caption. The ruler NEVER moves for it.
+    // The focus band (`Plan links.html`, #1258) — a band between the header
+    // and the body, 32 tall on the band paper: `← All rows` as a link at its
+    // start, the focus's caption at its end. The ruler NEVER moves for it.
     focusBar: {
-        minHeight: "var(--plan-group-h)",
+        height: "32px",
+        boxSizing: "border-box",
         display: "flex",
         alignItems: "center",
-        gap: "10px",
-        padding: "0 12px",
-        background: "bg.panel",
+        justifyContent: "space-between",
+        gap: "8px",
+        padding: "0 20px",
+        background: "bg.canvas",
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
     },
+    // `← All rows` — a link button: the body face at 12.5 / 500, in the link ink.
     focusBack: {
-        fontFamily: "mono",
-        fontSize: "10px",
-        fontWeight: "semibold",
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-        color: "brand.fg",
-        background: "transparent",
+        height: "20px",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: 0,
         border: "none",
-        cursor: "pointer",
-        padding: "2px 6px",
-        marginLeft: "-6px",
-        borderRadius: "2px",
+        borderRadius: "sm",
+        background: "none",
+        fontFamily: "body",
+        fontSize: "body.sm",
+        fontWeight: "medium",
+        color: "link",
         whiteSpace: "nowrap",
-        "&:hover": { background: "bg.surface" },
+        cursor: "pointer",
+        flexShrink: 0,
+        "&:hover": { color: "link.hover" },
+        ...planElementFocus,
     },
+    // The caption — mono 10 / 600, the label tracking, uppercase, the label ink.
     focusCaption: {
+        minWidth: 0,
         fontFamily: "mono",
-        fontSize: "10px",
+        fontSize: "label.sm",
         fontWeight: "semibold",
-        letterSpacing: "0.12em",
+        letterSpacing: "label",
         textTransform: "uppercase",
-        color: "fg.muted",
-        marginLeft: "auto",
+        color: "fg.subtle",
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
@@ -266,12 +268,12 @@ export const shellBase = {
         textOverflow: "ellipsis",
         "[data-plan-row] &, [data-plan-group] &, [data-plan-card] &": { position: "absolute", inset: 0, padding: "0 10px" },
     },
-    // The diagnostics cluster (#811) — it gives way before the toolbar's
-    // controls do, wrapping its chips rather than crushing a segment.
+    // The diagnostics cluster (#811), one item of the frame's toolbar: one
+    // line, as every item is (PB21) — a long reason truncates in its chip.
     diagnostics: {
         display: "inline-flex",
         alignItems: "center",
-        flexWrap: "wrap",
+        flexWrap: "nowrap",
         gap: "6px",
         minWidth: 0,
         flexShrink: 1,
@@ -374,18 +376,6 @@ export const shellBase = {
         ...planElementFocus,
     },
     // ── Overlays ──
-    nowLine: {
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        width: 0,
-        borderLeftWidth: "1.5px",
-        borderLeftColor: "{colors.brand.solid}",
-        pointerEvents: "none",
-        zIndex: 7,
-        "[data-axis='dim'] &": { opacity: 0.4 },
-        "[data-axis='off'] &": { display: "none" },
-    },
     cursorLine: {
         position: "absolute",
         top: 0,
@@ -417,7 +407,7 @@ export const shellBase = {
         pointerEvents: "none",
     },
     // The element popover / hover card body (the canvas's one overlay
-    // layer, `collections/plan/root/overlays.tsx`) — one content geometry
+    // layer, e3-ui-components' `plan/root/overlays.tsx`) — one content geometry
     // for both surfaces, so an element's click surface and its hover
     // surface read as the same family.
     elementOverlay: {

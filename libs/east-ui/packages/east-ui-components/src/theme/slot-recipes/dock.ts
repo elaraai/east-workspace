@@ -6,11 +6,16 @@
 /**
  * Dock slot recipe — the design system's docked pane, as the Studio spec
  * draws its palette and inspector. Expanded, the pane has one row: its tab
- * row, the mono caps labels with the open tab underlined in ink, and the
- * collapse control at the row's end. Collapsed, the rail: a bar holding the
- * expand control, then the icon tile, the count, the label and the detail,
- * read down the rail — the tile and the count in the brand while the pane is
- * active, as the inspector's are while a tile is selected. The recipe carries
+ * row, the mono caps labels — each with any count after it, in the quiet ink
+ * — with the open tab underlined in ink, and the collapse control at the
+ * row's end. A row its tabs don't fit folds them (#1210): its counts leave
+ * the row (`data-fold` on the tab list), then its trailing tabs go into the
+ * `+n` menu's trigger (`tabMore`), drawn as a tab is; a lone open tab that
+ * still doesn't fit (`data-squeezed`) shrinks, its name cut short with an
+ * ellipsis. Collapsed, the rail: a bar holding the expand control, then the
+ * icon tile, the count, the label and the detail, read down the rail — the
+ * tile and the count in the brand while the pane is active, as the
+ * inspector's are while a tile is selected. The recipe carries
  * the static chrome; the size along the collapse axis and the animated
  * transition are data-driven and set inline by the renderer.
  *
@@ -32,7 +37,7 @@ const CAPS = {
 
 export const dockSlotRecipe = defineSlotRecipe({
     className: "elara-dock",
-    slots: ["root", "header", "tabList", "tab", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
+    slots: ["root", "header", "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabMore", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
     base: {
         root: {
             display: "flex",
@@ -66,6 +71,15 @@ export const dockSlotRecipe = defineSlotRecipe({
             flexShrink: 0,
             "& > button:last-child": { marginLeft: "auto" },
         },
+        /* The tabs and the `+n` menu: the room the row leaves beside the
+         * collapse control, whatever the tabs take — what the fold measures. */
+        tabs: {
+            display: "flex",
+            alignItems: "stretch",
+            gap: "20px",
+            flex: "1 1 0",
+            minWidth: 0,
+        },
         tabList: {
             display: "flex",
             gap: "20px",
@@ -75,6 +89,8 @@ export const dockSlotRecipe = defineSlotRecipe({
             ...CAPS,
             display: "flex",
             alignItems: "center",
+            gap: "7px",
+            flexShrink: 0,
             height: "43px",
             padding: "0",
             background: "transparent",
@@ -88,8 +104,57 @@ export const dockSlotRecipe = defineSlotRecipe({
             _hover: { color: "fg" },
             _focusVisible: { outline: "none", boxShadow: "focus" },
             "&[data-selected]": { color: "fg", borderBottomColor: "fg" },
+            /* The open tab alone beside the menu, and still too wide: it shrinks. */
+            "&[data-squeezed]": { flexShrink: 1, minWidth: 0 },
             /* The label as the pane's only tab is a name, not a control. */
             "span&": { cursor: "default" },
+        },
+        tabLabel: {
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
+        /* What a tab holds, counted after its label: lighter, near-untracked
+         * tabular figures in the quiet ink, open or not. A folded row keeps
+         * it in the tab's name, off the row. */
+        tabCount: {
+            fontWeight: "500",
+            letterSpacing: "0.04em",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.subtle",
+            "[data-fold] &": {
+                position: "absolute",
+                width: "1px",
+                height: "1px",
+                margin: "-1px",
+                padding: "0",
+                overflow: "hidden",
+                clip: "rect(0, 0, 0, 0)",
+                whiteSpace: "nowrap",
+                borderWidth: "0",
+            },
+        },
+        /* The `+n` menu's trigger: the folded tabs' count, drawn as a tab is. */
+        tabMore: {
+            ...CAPS,
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            flexShrink: 0,
+            height: "43px",
+            padding: "0",
+            background: "transparent",
+            border: "none",
+            borderBottomWidth: "2px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "transparent",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+            _hover: { color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
+            "& svg": { fontSize: "8px", opacity: 0.7 },
         },
         toggle: {
             flexShrink: 0,

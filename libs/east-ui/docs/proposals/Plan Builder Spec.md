@@ -1,0 +1,1403 @@
+# Plan Builder — design
+
+The e3-ui `Plan`: the axis-aligned planning canvas moves from east-ui to
+e3-ui, plans events of several kinds across resources on its one shared axis,
+and is laid out in `BuilderFrame` as Studio's builder, the query builder, the
+Calendar and the Roster are: one toolbar, a library holding every kind's
+templates, the backlog and the series list, the canvas in main, and an
+inspector. Resources and events are the Calendar's own, one shared contract,
+`Schedule`, so the same records drive a Calendar and a Plan.
+
+It is one component, `<Plan>` (decision 16, #1191): it renders in its frame
+wherever it is used, its library and inspector are optional props, and its
+rows come from event kinds over records, from `data` laid out by its series,
+and from read-only `rows`. The first design's two components, `<Plan.View>`
+(the canvas, as the east-ui `<Plan>` was) and `<Plan.Builder>` (event kinds in
+the frame), are gone; where a section below still says "the builder", it is
+`<Plan>`.
+
+This document is the design the Plan and Sheet builders' epic builds for
+Plan; `Sheet Builder Spec.md` beside it is the Sheet's. Each sub-issue copies
+the sections it owns.
+
+## 0. The files
+
+| File | What it is |
+|---|---|
+| `Plan Builder Spec.md` | This design. |
+| `Plan Spec.md`, `Plan Spec.html`, `Plan Spec v2.html`, `Plan Data Interface.md` | The canvas itself, unchanged: the axis, the eight row kinds, series, rollups, links, the horizon brush, paging. Their review — the decision column, Approve all and Reject all — is gone (#1260). |
+| `Calendar Spec.md`, `Calendar Spec.html` | The builder chrome this follows, and the event and resource kinds `Schedule` shares. |
+
+There is no hi-fi mock of the builder. The canvas looks as `Plan Spec.html`
+has it, and the frame, library and inspector as the Calendar's mock. An agent
+measures either in a headless browser, through its DOM, and never reads a
+screenshot.
+
+## 1. Summary
+
+- **What.** `<Plan>` places events (jobs, stops, shifts) on resources
+  (presses, crews) across its axis, with every row kind the east-ui `<Plan>`
+  drew beside them: rows over `data` and its series, measures, rollups and
+  links.
+- **Where.** Plan moves to e3 whole. Its wire types, factories, JSX tags,
+  examples and skill text go to e3-ui (`libs/east-ui/packages/e3-ui/src/plan/`),
+  on one carrier, `Plan`. Its React renderer, with its DOM tests and test
+  utilities, goes to e3-ui-components (`src/plan/`), which registers it. Its slot recipes stay in east-ui-components' theme,
+  as Studio's and the query builder's do, and the shared building blocks the
+  renderer imports reach e3-ui-components through
+  `@elaraai/east-ui-components/internal`.
+- **Slots.** `resources={{ … }}`: one entry per resource kind, rows read
+  through accessors. `events={{ … }}`: one entry per event kind, each its own
+  record bound with its patch mutation. Both are `Schedule` values, the very
+  ones a Calendar takes. Beside them, `data` and its `series` as the east-ui
+  `<Plan>` took them, and `rows`, read only (#1191).
+- **Draws.** `BuilderFrame`: one toolbar (the slice's rail, range and
+  resolution, grain, overlaps, and the history item with Undo, Redo, Discard
+  and Save); the library in the start pane, its tabs the ones
+  `library` lists (Events · Backlog · Series, and the author's own); the
+  canvas in main; the inspector in the end pane when it is given `inspector`;
+  the status footer.
+- **Built in.** Drag and drop: templates and backlog rows onto rows, moving
+  and resizing along and across resources, and back to the backlog. Undo and
+  redo across kinds, Save per kind, overlap warnings. The app wires none of it.
+- **Keeps.** Everything Plan draws: span, buckets, cards and event rows,
+  chart, heat and table rows, groups, rollups, links, the horizon brush, the
+  now line, the cursor readout, grains, paging.
+
+## 2. Decisions
+
+These are settled; the proposal was approved on 2026-10-04.
+
+1. **Plan moves to e3 whole**: its wire types, factories, tags, examples,
+   specs and skill text to e3-ui, and its React renderer with its tests to
+   e3-ui-components, on a carrier (one, `Plan`, since decision 16). east-ui
+   and east-ui-components keep nothing of Plan: east-ui loses
+   its arm, and east-ui-components keeps only Plan's slot recipes in its theme
+   (as it keeps Studio's) and the shared building blocks the renderer imports,
+   exported through `/internal`. The Calendar's shared time parts (#1148) are
+   cut from Plan's renderer in e3-ui-components, where both renderers live.
+2. **Resources and events are one shared contract, `Schedule`**, used by the
+   Calendar and Plan, so the same records drive both. The Calendar's kinds
+   (#1149) are built in that shape, and `Calendar.resources` and
+   `Calendar.events` stay as aliases.
+3. **The builder edits events that are rows of their own records**, one
+   record per kind, as the Calendar does, never items inside another row's
+   array.
+4. **The east-ui `<Plan>`'s surface is kept**, its `data` + `series` and its
+   in-entry editing included, so nothing written against it is lost — on
+   `<Plan>` itself since decision 16.
+5. **Each kind draws one way** (`draw`): bars, tiles, chips or marks. A
+   resource shows one row per way its kinds draw, and kinds that draw alike
+   share it.
+6. **Measures are ordinary series, read only**: `Plan.series.heat`, `table` or
+   `chart` over a resource kind's rows (`measures`), or any series over a
+   dataset beside the resources (`rows`). No series type changes. A series
+   that declares `edit` or `review` is refused there, since the builder's
+   edits go through event records.
+   *Amended (2026-10-07, #1260):* a series' `review` and `approval` go with
+   the rest of review (decision 7): a series given either is refused at
+   build, naming the removal.
+7. **Review is per event**: each reviewed kind names its verdict field, and a
+   row's decision column, Approve all and Reject all act on its events.
+   *Removed (2026-10-07, the user's ruling, #1260):* a Plan approves and
+   rejects nothing. Its changes are drafts of its session, undone, redone,
+   discarded or saved together, so a verdict on top of them asked twice.
+   The decision column, Approve all and Reject all, the verdict on an
+   element and in the inspector, and every `review` option are gone, each
+   refused at build naming the removal.
+8. **Overlaps** are per kind: `warn` by default, or `allow` for kinds that run
+   in parallel; they never block Save.
+9. **The library pane** is three tabs: Events (every kind's templates, by
+   kind), Backlog, and Series (today's Series popover moved into the pane,
+   show and hide only). The builder's toolbar has no Series button.
+   *Amended (2026-10-05, the ruling for every builder, made on the Sheet's
+   #1186):* the library is the author's. `library` lists its tabs, in order,
+   each a `Plan.library.*` call — the three, and tabs of the author's own
+   cards — and left out, or `[]`, there is no pane (#1195).
+10. **One toolbar holds every control**: the slice's rail as its toolbar items
+    (folding first), the grain and resolution segments, the overlaps chip,
+    Approve all and Reject all, and the history item with Undo, Redo, Discard
+    and Apply at its end. Nothing draws a second row; the horizon brush stays
+    in main.
+    *Amended (2026-10-07, #1260):* there is no Approve all or Reject all, and
+    the history item's commit is Save, as every builder's is.
+11. **Links stay data**, read-only ribbons between events.
+12. **Event kinds need a time axis**, as events' times are `DateTime`s. A
+    Plan of `data` and `rows` alone takes any axis (decision 16).
+13. **No new hi-fi mock**: the canvas follows `Plan Spec.html` and the chrome
+    follows the Calendar's spec.
+14. **Sample data is a print works** (presses in halls, print jobs, plate
+    changes and services, crew shifts) with synthetic names. Nothing names a
+    client or a client's trade, in the examples, the showcase or the tests.
+15. **Every example uses bound sources** (§2a): Plan's examples, moved and
+    new, bind e3 inputs and records, so each runs on e3-web in the
+    showcase.
+16. **One Plan** (ruled 2026-10-05, #1191): `<Plan>` is the only Plan, and it
+    renders in its `BuilderFrame` wherever it is used — in an app, in the
+    showcase, in a test. Its library and inspector are optional props: no
+    prop, no pane. It takes what `Plan.View` took — rows of every kind over
+    `data`, every axis, series over a dataset and in-entry editing (#880) —
+    and the event kinds over records beside them. Nothing is refused for
+    being `Plan.View`'s: a Plan with no event kinds is a Plan over its rows,
+    and only a number or ordinal axis with event kinds is refused, naming
+    both. `Plan.View` and `Plan.Builder` go, and one payload rides one
+    carrier, `Plan`.
+
+## 2a. Example data idiom
+
+Every example binds its data from e3, so it runs on e3-web in the showcase:
+`e3.input` and `e3.record` declarations at module scope, with small literal
+defaults (`no-compile-time-seed-data`), bound in the East body with
+`Data.bind`, `Data.bindPaged` or `Record.bind`. Writes go through a record's
+patch mutation (`Record.onApply`). Never `State.bind` for data, and never an
+inline collection as a component's data; `State` holds only a viewer's own
+state (a picked entry, saved views kept per viewer).
+
+Other values an example needs (registers' rows, a template's lines, a status
+table) are East values bound once with `$.let(value, Type)` inside the East
+body, and their variables reused; never a module-scope TypeScript constant,
+and never a TypeScript helper that builds one (`no-host-in-east-block`,
+`no-module-scope-east-macro`).
+
+A builder's example seeds the records its panes read, so none is empty: the
+rows, the members and templates its library lists, an event or a row for the
+inspector to show, and a draft its check flags for the Issues tab.
+
+## 3. The authoring surface
+
+### 3.1 The records an app declares
+
+Resources and events are the app's own records, as the Calendar's are:
+nothing in them is a Plan type except the lifecycle an event may carry,
+which is east-ui's shared vocabulary.
+
+```ts
+// records.ts
+import { ArrayType, DateTimeType, DictType, FloatType, NullType, OptionType, StringType, StructType, VariantType, variant } from "@elaraai/east";
+import { EventStateType } from "@elaraai/east-ui";
+import e3 from "@elaraai/e3";
+import { Plan } from "@elaraai/e3-ui";
+
+// Resources: the canvas's rows. Read only.
+export const PressType = StructType({ name: StringType, hall: StringType, sheets_per_hour: FloatType });
+export const CrewType  = StructType({ name: StringType, hall: StringType });
+export const presses = e3.record("presses", DictType(StringType, PressType), new Map());
+export const crews   = e3.record("crews",   DictType(StringType, CrewType),  new Map());
+
+// Events: one record per kind, each placed on a resource by a field.
+export const JobType = StructType({
+    title:    StringType,
+    start:    OptionType(DateTimeType),     // none: not scheduled yet, so the job is in the backlog
+    end:      OptionType(DateTimeType),
+    press:    OptionType(StringType),       // a key of `presses`
+    state:    EventStateType,               // estimated, proposed, confirmed, in progress, actual
+    sheets:   FloatType,                    // the run's quantity
+    customer: StringType,
+    stock:    VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
+    due:      OptionType(DateTimeType),
+});
+export const StopType  = StructType({ title: StringType, at: DateTimeType, press: StringType,
+                                      kind: VariantType({ plate_change: NullType, service: NullType }) });
+export const ShiftType = StructType({ title: StringType, start: DateTimeType, end: DateTimeType,
+                                      crew: StringType, state: EventStateType });
+
+export const jobs   = e3.record("jobs",   DictType(StringType, JobType),   new Map());
+export const stops  = e3.record("stops",  DictType(StringType, StopType),  new Map());
+export const shifts = e3.record("shifts", DictType(StringType, ShiftType), new Map());
+export const jobsPatch   = e3.mutation.patch(jobs);
+export const stopsPatch  = e3.mutation.patch(stops);
+export const shiftsPatch = e3.mutation.patch(shifts);
+
+// Measures: what the canvas shows beside the plan, from the app's dataflow. Read only.
+export const utilisation = e3.input("utilisation", DictType(StringType, ArrayType(Plan.Types.HeatCell)), variant("value", new Map()));
+export const output      = e3.input("output", ArrayType(StructType({ day: DateTimeType, sheets: FloatType })), variant("value", []));
+
+// The customers, for the library's own tab (#1195). Read only.
+export const CustomerType = StructType({ name: StringType, district: StringType, trade: StringType });
+export const customers    = e3.record("customers", DictType(StringType, CustomerType), new Map());
+```
+
+### 3.2 The smallest Plan of event kinds
+
+```tsx
+// press-plan.tsx
+import { East } from "@elaraai/east";
+import { Reactive, UIComponentType } from "@elaraai/east-ui";
+import { Plan, Record, Schedule, ui } from "@elaraai/e3-ui";
+import * as d from "./records.js";
+
+export const pressPlan = ui("press_plan", [], East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const presses = $.let(Record.bind(d.presses, []));
+        const jobs    = $.let(Record.bind(d.jobs, [d.jobsPatch]));
+        const axis    = $.let(Plan.axis({
+            window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+            resolution: "day",
+        }));
+        return (
+            <Plan
+                axis={axis}
+                resources={{
+                    presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
+                }}
+                events={{
+                    job: Schedule.events(jobs, {
+                        name: "Print job", icon: "file-lines",
+                        title: "title", start: "start", end: "end",
+                        resource: { field: "press", of: "presses" },
+                    }),
+                }}
+            />
+        );
+    }}</Reactive>
+)));
+```
+
+That is a working editor: a row per press, each job a bar on its press. Jobs
+move and resize along a press and between presses, and Save commits the
+drafts as one patch through `jobsPatch`. It lists no `library` and is given
+no `inspector`, so it has neither pane: the toolbar, the canvas and the
+footer. Given them, its unscheduled jobs wait in the Backlog tab, and every
+other field of a job shows in the inspector with the editor its East type
+gives it. The two `Schedule` values are exactly what `<Calendar.Builder>`
+takes.
+
+### 3.3 The print works
+
+Two resource kinds grouped by hall, three event kinds drawn three ways, a
+utilisation heat row under each press, a pinned output chart, and
+the library: every kind's templates, the backlog, the series and the
+customers (#1195).
+
+```tsx
+// print-works.tsx
+import { East, none, some, variant } from "@elaraai/east";
+import { Chart, Reactive, UIComponentType } from "@elaraai/east-ui";
+import { Data, Plan, Record, Schedule, ui } from "@elaraai/e3-ui";
+import * as d from "./records.js";
+
+export const printWorks = ui("print_works", [], East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const presses = $.let(Record.bind(d.presses, []));
+        const crews   = $.let(Record.bind(d.crews, []));
+        const jobs    = $.let(Record.bind(d.jobs, [d.jobsPatch]));
+        const stops   = $.let(Record.bind(d.stops, [d.stopsPatch]));
+        const shifts  = $.let(Record.bind(d.shifts, [d.shiftsPatch]));
+        const customers = $.let(Record.bind(d.customers, []));
+        const util    = $.let(Data.bind(d.utilisation));
+        const output  = $.let(Data.bind(d.output));
+        const axis    = $.let(Plan.axis({
+            window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+            resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
+        }));
+        return (
+            <Plan
+                axis={axis}
+                resources={{
+                    presses: Schedule.resources(presses.read(), {
+                        name: "Presses", icon: "print",
+                        label: p => p.name, group: p => p.hall,
+                        sub: p => some(East.str`${p.sheets_per_hour.printFixed(0n)} sheets/h`),
+                        // A row under each press, from the dataflow's utilisation: an ordinary
+                        // heat series over the press rows, read only.
+                        measures: [
+                            Plan.series.heat(d.PressType, { key: "util", title: "Utilisation", label: () => "Utilisation",
+                                cells: (_p, key) => Plan.heatCells(util.read().get(key), { min: 0, max: 100, warnAt: 95 }) }),
+                        ],
+                    }),
+                    crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: c => c.name, group: c => c.hall }),
+                }}
+                events={{
+                    job: Schedule.events(jobs, {
+                        name: "Print job", icon: "file-lines", draw: "span",
+                        title: "title", start: "start", end: "end",
+                        resource: { field: "press", of: "presses" },
+                        state: "state",
+                        quantity: { field: "sheets", unit: "sheets" },
+                        backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
+                        fields: {
+                            customer: Schedule.field.text({ label: "Customer" }),
+                            stock:    Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
+                            sheets:   Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
+                        },
+                        templates: [
+                            { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
+                              values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
+                                        customer: "", stock: variant("coated", null), due: none } },
+                        ],
+                    }),
+                    stop: Schedule.events(stops, {
+                        name: "Stop", icon: "screwdriver-wrench", draw: "marks",
+                        title: "title", at: "at",
+                        resource: { field: "press", of: "presses" },
+                        templates: [
+                            { key: "plates", name: "Plate change", group: "Stops",
+                              values: { title: "Plate change", kind: variant("plate_change", null) } },
+                        ],
+                    }),
+                    shift: Schedule.events(shifts, {
+                        name: "Crew shift", icon: "user-clock", draw: "cards",
+                        title: "title", start: "start", end: "end",
+                        resource: { field: "crew", of: "crews" }, state: "state",
+                        templates: [
+                            { key: "early", name: "Early shift", group: "Shifts", at: { hour: 6n, minute: 0n }, duration: variant("hours", 8.0),
+                              values: { title: "Early", state: variant("confirmed", null) } },
+                        ],
+                    }),
+                }}
+                rows={[
+                    Plan.chart({ key: "output", label: "SHEETS / DAY", id: true, pinned: true, height: "spark", expandable: true,
+                                 layers: [Chart.Column(output.read(), { x: r => r.day, y: r => r.sheets })] }),
+                ]}
+                grain="resource"
+                library={[
+                    Plan.library.events(),
+                    Plan.library.backlog(),
+                    Plan.library.series(),
+                    // The customers, by district: a card dropped on a job sets its customer.
+                    Plan.library.tab(customers.read(), {
+                        name: "Customers", icon: "building",
+                        label: c => c.name, meta: c => some(c.trade), group: c => c.district,
+                        drop: c => Schedule.patch(d.JobType, { customer: c.name }),
+                    }),
+                ]}
+            />
+        );
+    }}</Reactive>
+)));
+```
+
+## 4. The options
+
+### 4.1 `Schedule.events(record, config)`: an event kind
+
+`Schedule.events` is the Calendar's `Calendar.events` (`Calendar Spec.md`
+§4.1), with Plan's options beside it. An option a builder has no use for is
+accepted and ignored there.
+
+| Option | Takes | Used by | What it does |
+|---|---|---|---|
+| `name`, `icon` | string | both | The kind's name and icon: its library cards, its elements and the inspector. |
+| `title` | a `String` field | both | The event's label: a bar's, a tile's, a chip's or a mark's. |
+| `start`, `end` | `DateTime` fields, or their `Option`s | both | When it runs. A move or a resize writes them; Options give the kind a backlog. |
+| `at` | a `DateTime` field | Plan | One instant, in place of `start` and `end`, for a kind drawn as tiles or marks. |
+| `resource` | `{ field, of }` | both | The resource it is on: a key field of one kind, or a variant field with a kind per case. A move across rows writes it. |
+| `status` | `{ field, cases }` | both | A status variant with a label and a tone per case. On a Plan, a warning tone rings the element. |
+| `draw` | `"span"`, `"buckets"`, `"cards"`, `"marks"` | Plan | How the kind draws: bars, tiles in bucket cells, chips spanning whole buckets, or marks at instants. `span` by default, `marks` for an `at` kind. |
+| `state` | an `EventStateType` field | Plan | The lifecycle the element wears: estimated, proposed, confirmed, in progress, actual or rejected. Confirmed when omitted. |
+| `quantity` | `{ field, unit?, format? }` | Plan | A `Float` field the bar prints and a parent's rollup sums, unit by unit. |
+| `lane` | a `String` field | Plan | The lane a tile sits in (AM, PM), for `draw: "buckets"` with lanes. |
+| `overlaps` | `"warn"`, `"allow"` | both | Whether two events of the kind on one resource at once are a conflict. `warn` by default. |
+| `backlog` | `{ duration, due? }` | both | For Option times: how long an unscheduled row takes, and when it is due. |
+| `fields`, `templates`, `ready`, `window`, `backlogWindow` | as the Calendar's | both | The inspector's editors (`Schedule.field` is `Fields`, #1147), the library's presets, the app's check on a draft, and reads by day index. |
+| `entries` | `Data.bindPaged` over the kind's record | both | Beside `window`, which requires it (#1199): one event read by its key — the inspector's, a gesture's, a Save's read back, a conflict's — so the record is never read whole. |
+| `inspector` | `(row, update) => UIComponentType` | Plan | The kind's own inspector for one event, in place of the form over its `fields` (PB60, #1197): an East function over the event's row and a writer of the edited row, passed through untouched and called only where the pane draws it. A function over another row type, or with no writer, is refused at build. |
+
+### 4.2 `Schedule.resources(source, config)`: a resource kind
+
+The resources are a `Dict` — a record's `read()`, a dataset's — or a paged
+read of them, `Data.bindPaged(record)`, told apart by its East type (#1199).
+A paged read pages the kind (§9.11): its resources keyed by String, with no
+`group` or `parent`, its types its page's `Dict`'s. The Calendar reads a
+kind's resources whole and refuses a paged read at build, naming the `Dict`
+form. The `window` option is gone: refused at build, naming
+`Schedule.resources(Data.bindPaged(record), { … })`.
+
+| Option | Takes | Used by | What it does |
+|---|---|---|---|
+| `name`, `icon`, `label`, `meta` | as the Calendar's | both | The kind and each resource's name and second line. |
+| `group` | `(row, key) => String` | Plan | Groups the kind's rows under strips (a hall), which the grain folds to their summary. |
+| `parent` | `(row, key) => Option<String>` | Plan | Nests a resource under another of its kind: a hall's presses under the hall, whose bar rolls theirs up. |
+| `sub`, `value`, `status` | accessors returning `Option`s | Plan | The gutter's sub line, value slot and status dot. |
+| `rollup`, `collapsed` | as `Plan.series.span`'s | Plan | How a parent's bands roll its children's events up, and whether it starts folded. |
+| `measures` | `Plan.series.heat`, `table` or `chart` values over the resource's row type | Plan | Read-only rows under each resource, in order: ordinary series, laid out as `Plan.series.views` lays an entry out today. A series that declares `edit` is refused here. |
+
+### 4.3 `<Plan>`'s props
+
+As built (#1191). A prop keeps one meaning: the first design's `view` and
+`density` are the east-ui `<Plan>`'s `grain`, `date` and `style.density`.
+
+| Prop | Takes | What it does |
+|---|---|---|
+| `axis` | `Plan.axis(…)`, `Plan.axis.number(…)` or `Plan.axis.ordinal(…)` | The shared axis, as today: a window, a resolution and its options, the now line. Event kinds need a time axis: with a number or ordinal one they are refused at build, naming the axis and the kinds; an axis held in a variable is refused in the same words as the Plan is evaluated. |
+| `data`, `series`, `pick`, `editing`, `ui`, `popover`, `hover`, `expandRender`, `expandGutter`, `sources`, `onSelect`, `onElementClick`, `onGroupToggle`, `onGrainChange`, `footer`, `style` | as the east-ui `<Plan>`'s | Rows over `data`, laid out by its series and edited in their entries (#880), as `Plan Spec.md` has them. `data` is optional beside event kinds or `rows`; a Plan with no rows from any source is refused. |
+| `resources` | `{ [kind]: Schedule.resources(…) }` | The rows events are placed on, kind by kind in this order, ahead of `data`'s. Refused without `events`. |
+| `events` | `{ [kind]: Schedule.events(…) }` | The event kinds, at least one when given. |
+| `rows` | hand-built rows, and `Plan.over(data, [series…])` | Rows beside the resources, as today's canvas builds them: a pinned KPI chart (`Plan.chart`), or a block of `Plan.series.*` over a dataset, read only. Pinned rows sit under the ruler; the rest follow the resources' rows and `data`'s. A series that declares `edit` is refused at build with a message naming `Schedule.events`. |
+| `links` | `Array<Plan.Types.Link>` | Quantity ribbons, as today, each end a row and a run on it (`Plan.ref`), or an event, `Plan.eventRef("job", key)`, wherever it draws. A link naming a kind `events` has not is refused at build, or, when its kind is not known there, as the Plan is evaluated. |
+| `applyMode` | `"batch"`, `"auto"` | When the event kinds' ready drafts go: on Save (the default), or as each gesture lands, as the Sheet's does. `data`'s session takes `editing.mode`; `applyMode` with no event kinds is refused. |
+| `slice` | `{ slice, affordances? }` | The bound slice. Its chrome (cohort, filter, search, range, resolution) folds into the one toolbar. |
+| `grain`, `date` | `"group"` or `"resource"`; a `DateTime` | The first grain and the date brought into view. The viewer's own changes persist per Plan. |
+| `canDrop` | `Fn(DragEvent) → Boolean`, or `Fn(Schedule.Types.Candidate) → Option<String>` | The drop veto, its arm read from its type: over a card or an element dragged onto `data`'s rows, or over an event kind's drop, its message on the ghost, as the Calendar's. A candidate's veto with no event kinds is refused. |
+| `library` | `Plan.library.*` calls (§4.4) | The start pane's tabs, in order (#1195): left out, or `[]`, no pane. |
+| `inspector` | `true` | The end pane: what is selected (§9.8, #1197). `false`, or left out, no pane; refused on a Plan with no event kinds. |
+| `id` | string | Names the Plan when a surface holds two: its viewer state's storage key (the panes' state and the series it hides among it), its library's drag-source id and its drop target. A `<Library>` beside the Plan reaches it by its `id` and `sources`; its own panel's cards need neither (#1259). |
+
+### 4.4 `Plan.library`: the library's tabs
+
+As built (#1195). The library is the author's: `library` lists its tabs, in
+order, each a `Plan.library.*` call returning the one tab type.
+
+| Tab | Holds |
+|---|---|
+| `Plan.library.events()` | Every event kind's templates, under the kind's name and then the template's `group`. |
+| `Plan.library.backlog()` | Every event kind's unscheduled events, by when they are due. |
+| `Plan.library.series()` | What the canvas shows that a viewer can hide, each with an eye: each resource kind and its measures, the event kinds, `data`'s series when they are picked (`pick`), and the Plan's `rows`. |
+| `Plan.library.tab(rows, { name, icon?, label, meta?, group?, drop? })` | A card per row of a `Dict<K, R>`, read as `Schedule.resources` reads its rows, with accessors `(row, key)`: `label` (`String`), `meta` (`Option<String>`) and `group` (`String`). `drop` returns what a card dropped on an event sets: `Schedule.patch(R, { … })` over an event kind's row type, beside `Schedule.field` and built as `Sheet.patch` is (`Schedule.Types.Patch(R)`, every field an `Option`, the fields left out `none`). The patch's type picks the kind whose events take the drop (#1196). Its cards drag onto the rows of `data` whose series makes an item of a card (`edit.create`, #1259) — the same `add` a `<Library>`'s card makes, so `canDrop` and `create` read it unchanged — and the Plan takes them with no `id` or `sources`. |
+
+Templates stay code, declared with their kind. Refused at build, naming the
+tab: a tab listed twice (an author's by its name); the Events or Backlog tab
+on a Plan with no event kinds; the Series tab on a Plan with nothing a viewer
+can hide; an author's rows that are not a `Dict`; and a `drop` patch over no
+event kind's row type, or over one two kinds share.
+
+## 5. The East types
+
+### 5.1 What an app author meets
+
+```ts
+// Shared: Schedule.Types (the Calendar's, which keeps its names as aliases)
+Schedule.Types.ResourceRef = StructType({ kind: StringType, key: StringType });   // a resource: its kind, its key's text
+Schedule.Types.EventRef    = StructType({ kind: StringType, key: StringType });   // an event: its kind, its record key's text
+Schedule.Types.Status      = StructType({ label: StringType, tone: StatusTokenType, ring: BooleanType });
+Schedule.Types.StatusCases(V)                                                     // one Status per case of a status variant V
+Schedule.Types.Clock       = StructType({ hour: IntegerType, minute: IntegerType });
+Schedule.Types.Duration    = TimeStepType;
+Schedule.Types.Candidate   = StructType({                                         // what canDrop is asked about
+    kind: StringType,
+    from: VariantType({ template: StringType, backlog: StringType, event: StringType }),
+    start: DateTimeType, end: DateTimeType,
+    resource: OptionType(ResourceRef),
+});
+
+// Plan's own, beside today's Plan.Types
+Plan.Types.Draw = VariantType({ span: NullType, buckets: NullType, cards: NullType, marks: NullType });
+// Every existing type stays, unchanged: Axis, Instant, Series(R, K), Row, RowKind, Blocks, Run, Chip, EventMark,
+// HeatCell, Link, UiState, … A resource kind's measures are Plan.Types.Series(R, K) values over its rows.
+```
+
+### 5.2 What the renderer receives: the payload
+
+Each event kind is the Calendar's closed kind: its row type sits behind East
+functions over beast2 bytes (`items`, `unscheduled`, `write`, the shared
+editing session, `history`), so the payload is one type whatever the records
+hold. The resources' rows are derived by one East function from the
+resources, the events with their drafts in place, and the measures: the very
+`Plan.Types.Blocks` the canvas draws.
+
+The payload holds a whole `PlanRootType`, the root the canvas draws, rather
+than a copy of its parts: a component made of parts reuses the parts'
+interface types. Its axis, links, slice, grain, `id` and the rest ride
+in it, with its rows over `data` and then `rows` as fixed blocks, which a
+paged canvas serves with every window. As built (#1191):
+
+```ts
+PlanPayloadType = StructType({
+    plan:      PlanRootType,                     // the canvas whole: the axis, the rows over `data` then `rows`, links, the slice, `data`'s session
+    resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, its measures' keys (#1197), and its rows resolved (label, group, parent, gutter),
+                                                 // or, paged, none and a resource read by its key (`byKey`, #1199)
+    events:    ArrayType(PlanEventKindType),     // the Calendar's closed kind + draw and the state, quantity and lane roles,
+                                                 // one event by its key (`planEvent`) and the kind's own inspector, over bytes (#1197),
+                                                 // and its record read by key when it is read a window at a time (`entries`, #1199)
+    blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType)),
+                                        ArrayType(StringType)],
+                                       OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192), what the viewer hides left out (#1195)
+    paged:     OptionType(PlanEventPagedType),   // a paged resource kind's rows, a window of its resources at a time (#1199)
+    canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),   // the event kinds' drop veto
+    settings:  PlanSettingsType,                 // the event kinds' apply mode, and the date brought into view first
+    library:   ArrayType(PlanLibraryTabType),    // the library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
+    inspector: BooleanType,                      // whether the Plan has its inspector pane (#1197)
+});
+
+PlanLibraryTabType = VariantType({
+    events:  NullType,                           // read off the kinds: their templates
+    backlog: NullType,                           // read off the kinds: their unscheduled events
+    series:  StructType({
+        kinds: ArrayType(Pick.Types.Item),       // each resource kind, then its measures; then the event kinds
+        rows:  ArrayType(StructType({ item: Pick.Types.Item, hides: VariantType({ series: ArrayType(StringType), rows: StringType }) })),
+    }),
+    tab:     StructType({
+        name: StringType, icon: OptionType(StringType),
+        drop: OptionType(StringType),            // the event kind a card lands on: named by the drop patch's type
+        cards: ArrayType(StructType({
+            key: StringType, label: StringType, meta: OptionType(StringType), group: OptionType(StringType),
+            sets: ArrayType(StructType({ path: ArrayType(StringType), value: BlobType })),   // each field the patch sets, as the kind's field write
+        })),
+    }),
+});
+
+PlanEventPagedType = StructType({                // a paged resource kind's rows (#1199)
+    kind:     StringType,                        // its slot
+    id:       StringType,                        // its window's identity: the dataset it pages
+    placed:   FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, ArrayType(StringType)],
+                           OptionType(PlanEventPlacedType)),   // the events on its resources over the range drawn, by draw and resource key
+    rows:     FunctionType([IntegerType, IntegerType, PlanEventPlacedType, ArrayType(StringType)],
+                           OptionType(Plan.Types.Blocks)),     // a window of its resources, the events placed on them: one block, not fixed
+    total:    FunctionType([], OptionType(IntegerType)),       // its window's size, key search and snapshot
+    seek:     OptionType(FunctionType([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh:  FunctionType([OptionType(StringType)], NullType),
+});
+
+PlanComponent = EastUI.component("Plan", PlanPayloadType, { optional: true });
+```
+
+## 6. What moves, and how the builder relates to the Calendar
+
+| Today | After | Notes |
+|---|---|---|
+| east-ui `Plan`: the IR in `src/collections/plan/` | e3-ui `Plan` in `src/plan/` | The nine files move whole: `Plan.axis`, `Plan.series.*`, `Plan.run`, `Plan.pick`, `Plan.Types` and the rest keep their names and their types; none of the eleven series types changes. |
+| `<Plan>`, the `Plan` arm of `UIComponentType` | e3-ui's `<Plan>`, in its frame, on an `EastUI.component` carrier, `Plan` (#1191) | The same canvas props over `data`, the event kinds and `rows` beside them, and the panes as optional props. An app changes its import. |
+| east-ui-components `collections/plan/` (21,701 lines) and its DOM tests, registered for the arm | e3-ui-components `src/plan/`, registered for the carrier | The renderer moves whole. Its slot recipes stay in east-ui-components' theme. What it imports from east-ui-components is exported through `/internal`. The Calendar's shared time parts (#1148) are cut from it there. |
+| east-ui's Plan specs and examples (4,083 lines of examples), the skill text | e3-ui's | They test and document the namespace, imported from `@elaraai/e3-ui`. The showcase's Plan pages and their responsive specs stay in the showcase, which already loads e3-ui's components. |
+
+Nothing else in east-ui depends on Plan: Dock, the pick contract and
+`shared/tree` only mention it in comments. The Sheet borrows one helper from
+Plan's builders, `resolveTag`, which is generic: it moves to east-ui's
+`shared/`.
+
+| Part | Calendar (#1144) | `<Plan>` |
+|---|---|---|
+| Resource kinds | `Schedule.resources`, read only | The same, plus groups, nesting, the gutter, measures and paging |
+| Event kinds | `Schedule.events`, a record each | The same, plus how each draws, its lifecycle, quantity and lane |
+| Templates and backlog | Library tabs Templates · Backlog | Events (every kind's templates) · Backlog · Series |
+| The inspector's form | `Fields` (#1147) | `Fields` |
+| Editing | A session per kind, one history (#1151) | The same |
+| The toolbar | The shared `Toolbar` and its history item | The same, with the slice's rail as its items |
+| Time on screen | Day, week and month grids, resource columns, the timeline | Plan's canvas: any resolution, rows of eight kinds, the horizon brush |
+| The time parts | Shared from Plan's renderer (#1148) | Their source |
+| Large records | A day index per kind (`Calendar.days`) | The same index, and paged resources |
+
+| A canvas that… | Uses |
+|---|---|
+| shows data, or edits the items inside its entries | `<Plan>` with `data` and `series` |
+| plans events kept as records of their own | `<Plan>` with `resources` and `events` |
+| offers templates, the backlog and the series to show, or shows what is selected | `<Plan>` with `library`, or `inspector` |
+| shows the same events by day, week or month, or by resource column | `Calendar.Builder`, over the same `Schedule` values |
+
+The Roster (#1160) stays its own builder: its slots are a day, a group and a
+shift, not instants, and its record is the roster's own. It shares the frame,
+`Fields`, the library parts and the editing session, not `Schedule`.
+
+## 7. Layout in BuilderFrame
+
+```
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│ Filter Search · Group Resource · Range · Week Day · 3 overlaps · ↶ ↷ ✕ Save       │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│ banners: a Save's refusals and conflicts, by kind                                 │
+├──────────────┬────────────────────────────────────────────────┬───────────────────┤
+│ LIBRARY      │ HORIZON  brush strip                           │ INSPECTOR         │
+│ Events       │ RULER    W41  W42  W43  W44            NOW     │ one event: header,│
+│ Backlog      │ pinned   SHEETS / DAY chart                    │  schedule, state, │
+│ Series       │ Hall 1   ▸ Press A   [job][job]   ◆            │  fields           │
+│ search       │            utilisation ▓▓▒▒░░                  │ several: bulk edit│
+│ cards (drag) │ Crews    ▸ Crew 1    [early][late]             │ a row: its facts  │
+├──────────────┴────────────────────────────────────────────────┴───────────────────┤
+│ footer: 64 events · 9 in backlog · 4 pending · saved 14:02                        │
+└───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Region | Holds |
+|---|---|
+| Toolbar | Every control Plan draws outside its canvas, as items of the shared `Toolbar` (§7.1). |
+| Banners | A Save's refusals and conflicts, by kind; a kind out of date; a write whose outcome is unknown. |
+| Start pane "Library" | The tabs `library` lists — Events · Backlog · Series and the author's own (§4.4, §9.6); none, no pane. |
+| Main | The canvas, unchanged: the horizon brush, the ruler and now line, pinned rows, the gutter, every row kind, the cursor readout, links, virtualised and paged as today; below 480px, its narrow layout's tabs and cards. |
+| End pane "Inspector" | The selection (§9.8), when the Plan is given `inspector`; none, no pane. |
+| Footer | `64 events · 9 in backlog · 4 pending · saved 14:02`. |
+
+The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
+overlaid with a rail and a scrim at 560px and narrower, and slid off main
+during a drag. Below 480px of main the canvas keeps its narrow layout, the
+Groups · Rows · Measures tabs over cards under the shared ruler, and the
+panes overlay it on their rails (the user's ruling, 2026-10-06, #1193). The
+builder fills its parent and draws no border of its own. Every style is a
+slot recipe's.
+
+### 7.1 The toolbar's items
+
+| Item | Side | Under width pressure |
+|---|---|---|
+| The slice's narrowing: cohort · filter · search | start | Folds first, as every rail does: clause chips into `+M more`, the affordances into summary chips, one chip naming what is set, then the icon. Each opens the slice editor popover. |
+| Scope badge: `loaded rows only`, while a paged canvas is narrowed | start | Shown while it applies |
+| Key search, on a paged keyed source | start | Folds to its icon, which opens the box in the edit popover (#1193); it replaces the narrowing's search |
+| Grain: Group · Resource | start | Its own steps, after the rail's |
+| The slice's range | start | Folds with the rail |
+| Resolution: Week · Day | start | Its own steps, after the rail's |
+| Overlaps: `3 overlaps` | end | A click selects the first pair |
+| The history item: status line · issues · Undo · Redo · Discard · Save | end | Folds last, to its buttons |
+
+The rail's two clusters, the narrowing and the range, come from
+`useSliceToolbarItems(slice, [{ key: "cluster", kinds }, { key: "range",
+kinds: ["range"] }])`, the hook today's Plan toolbar already uses, between the
+grain and resolution segments as today. `HOST_RANK` keeps every other item
+folding after the rail. The history item is the shared `historyToolbarItem`
+(#988). The Series button and its popover go, since the Series tab replaces
+them.
+
+## 8. Anatomy
+
+- **The canvas** is `Plan Spec.md`'s, unchanged.
+- **The frame, the panes, the library's cards and the inspector** are
+  `Calendar Spec.md` §8's: the library 272px and the inspector 320px open,
+  44px as rails, a pane's tab row 44px, the library's search band padding
+  12px 14px on paper-2 around a 32px input; an Events card a grip, its kind's
+  icon tile, its name and `Print job · 6 h · presses`; a Backlog card
+  `6 h · Press A · due Fri 16`; an author's card its label, its meta and the
+  tab's icon tile (#1195).
+- **A Series row** is `Pick.Panel`'s: its kind's icon, its title and subtitle,
+  an eye; a hidden row is dimmed. The panel lies frameless in the pane, and
+  on a touch screen its search is a 44px field (#1195).
+- **An element of a drafted event** is tinted brand with a brand border, as
+  the Calendar's blocks are; one in an overlap pair has a warn ring.
+- **A selected element** wears a 1.5px brand ring just outside it (#1197, the
+  Calendar's B10): an outline, so it rides every look and never moves the
+  element, under a keyboard focus's ring.
+
+## 9. Behaviour
+
+Every rule is numbered. Each sub-issue lists the rules it owns, and each rule
+has a test there. `Plan Spec.md`'s own rules keep holding in the canvas.
+
+### 9.1 The move to e3-ui (owner: Plan moves to e3-ui)
+
+- **PB1.** The moved Plan takes every prop the east-ui `<Plan>` took and
+  builds the same root, `PlanRootType`. Since #1191 that Plan is `<Plan>`
+  itself: an app changes its import (`@elaraai/e3-ui`), and nothing else.
+- **PB2.** east-ui's `Plan` arm leaves `UIComponentType`. The IR is e3-ui's,
+  and the canvas renderer e3-ui-components', which registers it for the
+  `Plan` carrier (#1191); east-ui and east-ui-components export nothing of Plan.
+  `resolveTag` moves to east-ui's `shared/`.
+- **PB3.** Every Plan test, example and responsive spec passes after the
+  move with only its imports and tag changed, and the canvas keeps its
+  editing (#880, #825). Since #1191 its tag is `<Plan>`, and its own toolbar,
+  Series button and popover and review foot give way to the frame's
+  (decision 16).
+
+### 9.2 `Schedule` (owner: `Schedule`, shared with the Calendar)
+
+- **PB4.** `Schedule.resources(rows, config)` and `Schedule.events(record,
+  config)` are one e3-ui contract (`src/schedule/`), with `Schedule.field`
+  (`Fields`), `Schedule.days` and `Schedule.unscheduled`. `Calendar.resources`,
+  `Calendar.events`, `Calendar.field`, `Calendar.days` and the shared
+  `Calendar.Types` are aliases of them.
+- **PB5.** Plan's options (§4.1, §4.2) are accepted by `Schedule.events` and
+  `Schedule.resources`; a builder ignores the ones it has no use for, and the
+  Calendar draws exactly as it did.
+- **PB6.** Every field name is checked against the record's row type at
+  compile time where the type allows (`at` a `DateTime` field, `quantity.field`
+  a `Float` field, `lane` a `String` field, `state` an `EventStateType`
+  field), and at build time otherwise, naming itself.
+- **PB7.** A `measures` series that declares `edit` is refused at build,
+  naming `Schedule.events`.
+
+### 9.3 Types and factories (owner: the Plan's types and factories)
+
+- **PB8.** `<Plan>` takes the props of §4.3: everything the east-ui `<Plan>`
+  took, and the event kinds. Only a number or ordinal `axis` with event kinds
+  is refused, naming the axis and the kinds (decision 16), and so is a Plan
+  with no rows from any source.
+- **PB9.** `rows` takes hand-built rows and `Plan.over(data, [series…])`,
+  read only; a series in it that declares `edit` is refused at build, naming
+  `Schedule.events`. Pinned rows sit under the ruler, the rest
+  after the resources' rows and `data`'s.
+- **PB10.** `Plan.eventRef(kind, key)` names an event for a link's end; a
+  link naming an unknown kind is refused at build, or, when its kind is not
+  known there (a list held in a variable or built in East, an event end held
+  in a variable), in the same words as the Plan is evaluated.
+- **PB11.** The payload is `PlanPayloadType` (§5.2) on the `Plan`
+  carrier. Each event kind's row type is closed behind East
+  functions over beast2 bytes, so the payload is one type whatever the records
+  hold.
+
+### 9.4 Events into rows (owner: events into rows)
+
+- **PB12.** A resource is a row block: one row per way its kinds draw, in the
+  order span, buckets, cards, marks. Kinds that draw alike share the row, each
+  element marked with its kind's icon.
+- **PB13.** Its measures follow it in declared order, each the measure series
+  applied to the resource's row; a measure row's id is its series' key and the
+  resource's path.
+- **PB14.** `group` gives group strips that the group grain folds to their
+  summary. `parent` nests a resource under another of its kind, whose rows roll
+  their children's events up: `×k` concurrency, quantities summed by unit, the
+  least certain state.
+- **PB15.** A row's id is `entry { series: "<kind>.<draw>", path: [group?,
+  …parents, key] }`. Selection, collapse, links, focus and the drag grammar
+  address rows by it.
+- **PB16.** An event whose kind has no `resource`, or whose resource is none,
+  draws on an Unassigned row of its kind at the end of the resources, one per
+  draw style.
+- **PB17.** The rows are derived with every kind's drafts in place, so a draft
+  draws as Save would leave it.
+- **PB18.** *Removed (#1260):* no row carries a decision column, and no
+  element a verdict.
+
+As built (#1192):
+
+- The rows are the payload's `blocks`, `(from, to, drafts, hidden) →
+  Option<Plan.Types.Blocks>`: one block per resource kind, then the Unassigned
+  rows' block, every block fixed, so a paged canvas serves them with every
+  window and draws them once. `hidden` is what the viewer hides in the
+  library's Series tab (#1195, PB29). The canvas reads them over its window and the
+  periods it lays out beyond each edge, again when a record they read
+  commits, and keeps the last rows while a read is in flight or has failed;
+  a failure is said on the toolbar.
+- A resource kind's rows are a `Plan.series.views` over its resources, keyed
+  by its slot: a member per draw (`<slot>.<draw>`), then the measures. `group`
+  puts strips (`<slot>.group`) over it. `parent` nests; a parent naming no
+  resource of the kind, or a resource on a cycle of parents, draws at the top.
+- An element's key is its event's `Schedule.Types.EventRef` as East prints
+  it. A link's event end (`Plan.eventRef`) is found where the event draws, and
+  its ribbon meets the element: a bar's or a chip's end, a tile's bucket, a
+  mark's instant.
+- An event whose resource names a resource its kind does not have draws on
+  the Unassigned row too. A kind's Unassigned row is `entry { series:
+  "<kind>.unassigned", path: [draw] }`, labelled "Unassigned" with the kind's
+  name as its sub line, while the kind has such events in the window.
+- Refused at build: a resource kind no event kind is placed on and with no
+  measures, and a key the event rows take that a measure, a `data` series or a
+  `Plan.over` series also has (a measure keyed with its slot's name included).
+
+### 9.5 Frame and toolbar (owner: the Plan's frame and toolbar)
+
+- **PB19.** The Plan is a `BuilderFrame` (toolbar, banners, the library as
+  its start pane when it is given `library`, main, the inspector as its end
+  pane when it is given `inspector`, the footer). It fills its parent and
+  draws no border.
+- **PB20.** The toolbar is one row of the shared `Toolbar`, its items in
+  §7.1's order.
+- **PB21.** Under width pressure the rail's clusters fold first, then the
+  grain and resolution segments by their own steps, and the history item
+  last, to its buttons. No item wraps or goes to a second row, and there is no
+  Series button.
+- **PB22.** Main is today's canvas, unchanged.
+- **PB23.** The footer counts the events, the backlog and the pending
+  changes, and gives the last commit's time.
+- **PB24.** The banners: a Save's conflict by kind, naming its events and who
+  changed the record last; a refusal, with its reason; an unknown outcome, with
+  Retry; a kind out of date, with Discard. A banner leaves when what it reports
+  does.
+- **PB25.** The panes are `BuilderFrame`'s, and their open tab and collapsed
+  state persist under the builder's `id`.
+
+As built (#1193):
+
+- The frame is e3-ui-components' `src/plan/frame/`. The canvas is a hook,
+  `usePlanCanvas` (`src/plan/canvas.tsx`), handing the frame main and the
+  facts its toolbar, banners and footer are drawn from; the frame lays them
+  out in `BuilderFrame` with the canvas's contexts around all of them.
+- The toolbar's items are §7.1's, the overlaps chip with overlaps (#1198).
+  After the rail's steps the summary shortens, the resolution and then the
+  grain fold into their one-chip menus, and the summary hides. One more step
+  lets a phone's row hold every item: the key search folds into its icon,
+  which opens the box in the edit popover with the focus in it. The key
+  search stays in the row, only narrower, and keeps its form while a query is
+  typed. The history item folds last, to its buttons. The two items are
+  east-ui-components' shared parts: `historyToolbarItem` and
+  `useKeySearchToolbarItem`. (#1260 took the review's items out: its summary,
+  and its buttons with the Review menu they folded into.)
+- On a touch screen the history item's buttons keep their size and take a 44px
+  tap target from the halo, as every icon button does (the user's ruling,
+  2026-10-06). Grown to 44 × 44 they made the item 200px of a phone's 292px
+  row. #1221 brought the rest of the row to the same rule: the rail's chips,
+  the grain and resolution segments — whose halos grow their height alone, as
+  they sit edge to edge — and their menus, the key search's icon and its box's
+  suggestions toggle; a search box is a 44px field, its input filling it. The
+  paged Sheet's key search folds as the Plan's does.
+- The banners are each session's: `data`'s, then each event kind's, titled
+  with the kind's name (#1194, §9.9).
+- The footer leads with the counts: the event kinds' events in the window and
+  their backlog, the changes pending across the history — `data`'s session's
+  and every event kind's (#1194) — and the newest commit of an event kind's
+  record, as its time today
+  or its date and time; then the author's `footer` and the transport line. The
+  last counts stay while a read is in flight or has failed.
+- A declared `height` or `maxHeight` is the whole Plan's: the frame's wrapper
+  takes it and the canvas fills main. With none, a host that gives the frame a
+  height bounds the canvas once its rows outgrow main, and the canvas then
+  fills main and scrolls there; a host that gives none lets it grow with its
+  rows.
+- The narrow layout stays in main below 480px (the user's ruling, 2026-10-06;
+  §7, §11): its chip row's items are the toolbar's, its footer is the frame's,
+  and the GROUP · RESOURCE segment leaves the toolbar there, since the tabs
+  own the grain. Its root is a column in a bounded frame, so its list scrolls
+  inside main (it ran past it). The list's insets above and below ride inside
+  what it scrolls, so a frame short of room — a phone's footer on two lines —
+  never runs it past main (#1194).
+- There is no Series button; its tests move to the Series tab (#1195). PB25 is
+  tested with the first pane (#1195).
+
+### 9.6 The library pane (owner: the library pane)
+
+- **PB26.** The library holds the tabs `library` lists, in its order, each with
+  its count and a search. Collapsed, it is a rail with the backlog's count, or
+  the first tab's when Backlog isn't listed.
+- **PB27.** Events holds every kind's templates, grouped under each kind's icon
+  and name, then by a template's `group`. A kind with no templates has nothing
+  to drop; its events still move and resize.
+- **PB28.** Backlog holds every kind's unscheduled events (the kinds whose times
+  are Options), grouped by due: Due this week, Due next week, Later, No date.
+- **PB29.** Series lists each resource kind, event kind, measure and extra row,
+  with its icon, title and an eye. Hiding an event kind hides its elements
+  everywhere, a resource kind its rows, a measure or an extra row that row.
+  The order on screen is the order declared, and what is hidden persists per
+  viewer.
+- **PB30.** An empty tab says so: `Backlog clear: every event is scheduled`,
+  `Nothing in Customers` for an author's tab with no rows, or `No matches:
+  nothing matches "q"`.
+- **PB61.** `library` is optional: left out, or `[]`, the builder draws no
+  start pane. A tab listed twice is refused at build, naming it.
+- **PB62.** `Plan.library.tab(rows, { name, icon, label, meta?, group?, drop? })`
+  lists one card per row, as the Sheet's does (SB60): its label and meta,
+  grouped by `group`, searched by key, label and meta, each a drag source —
+  onto `data`'s rows (PB64), and with `drop` onto an event (#1196). `drop`'s
+  patch is checked at build: its type is one event kind's row type, or the
+  build fails naming the tab, as it does for a type two kinds share.
+- **PB63.** A card of an author's tab dropped on an event of its patch's kind
+  sets the fields the patch sets on that event, as one `drop` transaction, as
+  the Sheet's cards set a row's (SB61). The ghost names the card and the event
+  (`Harbour Arts Society → Spring catalogue`). Refused: anywhere but an event
+  (`Drop a customer onto an event`), or an event of another kind (`Stops take
+  no customer`).
+- **PB64.** An author's tab's cards drag onto the rows of `data` whose series
+  declares `edit.create`, by the pointer or carried from the keyboard, as a
+  `<Library>`'s card beside the Plan does (#1259): the drop is the same `add`,
+  `from.library` the tab's and `from.key` the card's row key as text, so
+  `canDrop` vets it and `create` builds the item unchanged. The Plan takes its
+  own panel's cards with no `id` or `sources`. A tab's cards drag while a row
+  of the canvas takes one; a Plan with none, or in its narrow layout, which
+  draws no row to drop on, drags nothing from its panel.
+
+As built (#1195):
+
+- The library is e3-ui-components' `src/plan/frame/library.tsx`, the frame's
+  start pane: 272px open, its open tab and its collapsed state kept per viewer
+  under the Plan's `id` (PB25); below 560px of frame it opens from its rail
+  over main. The payload carries the tabs (`library`, §5.2).
+- Events: each card's head is its kind's name, then the template's `group`
+  (`Print job · Jobs`) — the library groups one level, so the two make one
+  head. A card's line is the kind's name, how long the template runs (an
+  instant kind's runs no time), and the resource kinds it is placed on,
+  lowercased and joined by `/`, as the Calendar's mock has them.
+- Backlog: read through each kind's `planUnscheduled` seam, as the footer
+  counts it, and read again when its record commits. A due date falls in a
+  UTC week from Monday, as the ruler's ISO weeks do, counted from the week the
+  axis's `now` is in, else the week the Plan mounted in; an overdue event is
+  due this week, as the Calendar's mock has it. A card's line is its duration
+  (hours and minutes), its resource's name — `Unassigned` on none — and `due`
+  with its weekday and day. The shared part, `src/shared/schedule/due.ts`,
+  is the Calendar's to take for its backlog (B20).
+- Series: `Pick.Panel` at editor density, frameless in the pane, over one
+  pick of every line: the tab's own — each resource kind then its measures,
+  the event kinds, the Plan's `rows` — with the canvas's own pick between
+  them. A toggle writes the canvas's pick for `data`'s series and the
+  viewer's set for the rest. The viewer's set is ids (`resources.<slot>`,
+  `events.<slot>`, `measures.<key>`, `rows.<key>`, `series.<key>`) kept per
+  viewer under `planKeys(id).series`, and only while the library lists the
+  tab, as nothing else could show them again. The event kinds' rows leave
+  them out through the `blocks` seam: a hidden kind is not read, so its
+  elements draw nowhere, its Unassigned row with them, and a row only hidden
+  kinds draw on goes too — but a resource's first row is its own and stays;
+  a hidden resource kind draws no rows, its events staying its own; a hidden
+  measure draws no row. The canvas leaves out the Plan's own `rows` the
+  viewer hides: a hand-built row and the rows under it by its key, a
+  `Plan.over` series' rows by their keys, its nested series' with them. On a
+  touch screen the panel's search is a 44px field.
+- An author's tab: as the Sheet's — a click selects a card, and a click on
+  the selected card lets it go. Its cards drag when the tab has a `drop`, or
+  while a row of the canvas takes a card (#1259), from the library
+  `planKeys(id).library` + `:tab:<name>`, each keyed by its row's key as text. The templates and the backlog's events drag from
+  `…:events` and `…:backlog`, each card keyed by its kind and key as East
+  prints a `Schedule.Types.EventRef`. A drop's patch crosses the closed
+  payload as the kind's field writes — each field it sets, its path and its
+  value as bytes at the field's type — which #1196 writes through the kind's
+  own `write`.
+- The empty Events tab says `No templates`; an empty Series tab, which only
+  a pick of no series can make, `No series`.
+
+As built (#1259):
+
+- The canvas's drop target (`root/drop.ts`) takes the author's tabs' library
+  ids as its sources whether or not the Plan declares an `id`, beside the
+  `sources` of a Library its `id` names. The canvas tells the frame whether a
+  row takes a card — one of the kinds that holds discrete objects, its series
+  making an item of a card, placed, outside the narrow layout — and the
+  library lets an author's tab's cards drag by it.
+- planRowDrop is the palette's example: the cards in a `Plan.library.tab`,
+  runs moving and resizing, a hall's presses drafting the hall, `ready` and
+  the gesture journal in the footer. No Plan example draws a `<Library>` or a
+  `<Dock>` beside its Plan.
+
+### 9.7 Drag and drop (owner: drag and drop)
+
+- **PB31.** A drag starts after 4px and snaps to the resolution, as today's
+  moves do. A ghost says what lands where (`Brochure run · Press A · Mon 12
+  Oct`) or, in red, why it can't (`Needs a press`, or `canDrop`'s message).
+- **PB32.** A template card dropped on a resource's row creates an event of its
+  kind at the bucket under the pointer, for its duration, selected, as one
+  `drop` transaction. Refused when the row's resource is of a kind the event
+  kind doesn't take, or `canDrop` refuses.
+- **PB33.** A backlog card dropped on a row schedules it: its start, its end
+  (from its duration) and its resource. The same refusals.
+- **PB34.** A bar, tile, chip or mark moves along its row, or onto another
+  resource's row, writing the resource field; moving a selected element moves
+  the selection. Refused onto a resource of a kind it doesn't take.
+- **PB35.** A bar's or a chip's edge resizes it, never shorter than one snap.
+- **PB36.** An event dropped on the Backlog tab is unscheduled: its times are
+  set to none. Refused when its kind's times are not Options.
+- **PB37.** It runs on the drag grammar Plan uses today (`LibraryRef`,
+  `CellRef` with the row id's text and the snapped instant) and the drag
+  machine the Calendar shares with it (#1148). The panes slide off main during
+  a drag.
+
+As built (#1196):
+
+- The event kinds' drag is e3-ui-components' `src/plan/edit/event-drag.ts`,
+  on the canvas's one drop target (`root/drop.ts`) and #825's machinery: the
+  rows' cells (`rows/RowShell.tsx`), the elements' handles and edges
+  (`edit/movable.tsx`), the landing (`edit/store.ts`) and the keyboard's carry
+  (`edit/use-carry.ts`). Each gesture is one step of the Plan's one history
+  through the kinds' recorder (`edit/events.ts`, §9.9): a template's drop
+  `create`s under a key from `mint` (a String key the template's, made unique:
+  `brochure-2`), a backlog card's drop and a move or a resize `place`, an
+  unschedule `unplace`, an author's card its patch's `sets` as `field`
+  gestures in one call.
+- Where: an event kind's row stands for a resource — a resource kind's row of a
+  way its kinds draw, at the resource's path — or for its kind's events on none
+  (the Unassigned row). A card lands on any of a resource's rows: a stop's
+  template dropped on a press's bars lands on the press, drawn on its marks.
+  The keyboard carries an element along its kind's own rows, ↑ / ↓ passing a
+  resource's other rows.
+- The verdict, asked where the drag rests and again of the drop: the kind takes
+  a gesture now (its record read, no Save of it under way); it is placed on the
+  row's resource kind, or, on its own Unassigned row, its field takes none; its
+  own `write` takes the gesture; and `canDrop` over `Schedule.Types.Candidate`
+  — `from` the template's key, the backlog event's or the moved event's —
+  returns none. A `canDrop` that throws lets the drop land, said in the
+  console, as the data rows' veto does.
+- The ghost's caption (#1187): what lands where — `Brochure run · Press A1 ·
+  Mon, Oct 12, 2026`, the start's time after its day when it has one, `3 events`
+  for a selection moving together — or, in red, why not: `Needs presses` (the
+  resource kinds the kind is placed on, lowercased and joined by `or`, as its
+  template cards name them — a kind carries no singular name), `canDrop`'s
+  message, `Print job can't change now`, or `Can't go here` (a write that
+  refuses otherwise). The keyboard's carry says the same refusal after its
+  words. The landing band spans what the drop makes: a template's event for
+  its duration, a backlog event for its own, the event an author's card lands
+  on.
+- A template's event starts at the bucket's start — on a day or a longer
+  bucket, at the template's `at` — and runs the template's duration (an
+  instant kind's none); it is selected, on the row it draws on. A backlog
+  event starts at the bucket's start and runs its own duration, on the row's
+  resource.
+- A move: a bar, a chip, or an instant kind's tile or mark lands where its row
+  put it; any other's tile or mark moves its event's own times by the units
+  the element moved. Across rows it writes the row's resource. A selected
+  element moves the selection with it, one step: the others by the same
+  units, those on its resource onto the row's; one refused refuses the whole
+  move. An event the move leaves where it was — a selected one on a resource
+  of its own, carried across at the same time — is no part of the step and
+  stays undrafted, and an element let go where it stands records nothing.
+  PB35's resize is #825's: an end never closer to the other than one unit (a
+  day at day resolution; under Shift, an hour).
+- PB36: the canvas names the Backlog tab's library as the one its elements
+  return to — the drag layer's `returns`, with `kinds.trash: false`
+  (east-ui-components): a return is vetted and captioned there
+  (`Spring catalogue → Backlog`; refused, `Stops have no backlog`), and no trash
+  zone shows. It unschedules the dragged event alone. The tab's frame takes the
+  drop while the tab is open.
+- PB63: the coordinate names the event under the pointer (`CellRef.event`);
+  the caption names the patch's fields and, for another kind's event, the
+  kind's name in the plural.
+- What drags: the Events and Backlog tabs' cards while the canvas draws an
+  event kind's row (`PlanChrome.takesEvents`), an author's tab's while a row of
+  `data`'s takes a card (#1259) or an event of its patch's kind is on the canvas
+  (`PlanChrome.patchKinds`); in the narrow layout, nothing.
+- The library's Backlog tab reads every kind's drafts, as the footer counts
+  them: a card scheduled leaves it, an event unscheduled joins it at once.
+- §8's drafted look: a bar, a tile, a chip or a mark of an event its drafts
+  changed carries `data-draft`, and the `plan` recipe draws it
+  (`planElementDrafted`, `slot-recipes/plan/focus.ts`): the brand tint in a
+  1.5px brand border in its lifecycle look's place, under the rings — a mark
+  the tint's ring round its glyph. A tile's border sits inside its box, so
+  its parts keep to what is left of its room (#1266).
+
+### 9.8 The inspector (owner: the inspector)
+
+- **PB38.** One event: its kind, title and state; its resource, its start and
+  end (or its instant) and its lane; its quantity; overlaps as a banner; then
+  the kind's fields through `Fields` (#1147); Duplicate and Delete.
+- **PB39.** Several events: the list, and a bulk edit of the state, the
+  resource and a shift in time (−1 d, −1 h, +1 h, +1 d).
+- **PB40.** A row: the resource's name and meta, its events in the window
+  (count, hours, quantity by unit), its measures at the selected bucket, and
+  its overlaps.
+- **PB41.** Nothing selected: the window's totals and three hints.
+- **PB42.** A field the drafts changed is tinted against what the record holds,
+  and an edit in the inspector is one transaction.
+- **PB60.** With the kind's `inspector` given (§4.1), one event of the kind
+  shows what it returns for the event's draft in place of the kind's `Fields`
+  form, and its `update(edited)` is one transaction (PB42). The header, the
+  schedule, the state, the quantity, the overlaps banner,
+  Duplicate and Delete stay the builder's, as do several events, a row and
+  nothing selected.
+
+As built (#1197; amended 2026-10-06, the user's ruling: the inspector edits
+with #1194):
+
+- The selection is the canvas's (the Calendar's B15). A click on an event
+  kind's element — a bar, a tile, a chip or a mark whose key reads back as a
+  `Schedule.Types.EventRef` of one of the Plan's kinds — selects the event and
+  its row; Shift, ⌘ or Ctrl adds the event to the selection or takes it out,
+  and Shift+Enter does from the keyboard. A selected element wears the ring
+  (§8) and is a pressed toggle to a reader, and the live region says how many
+  events are selected. A click on a row's name selects the row in place of
+  the events; a click in its plot also names the bucket under the pointer
+  (PB40's). The esc ladder's deselect rung clears the row, its bucket and the
+  events at once, as a grain change does. A record's commit keeps the events
+  selected, a changed declared grain takes them, and the bucket goes with its
+  row; a host's `ui` state selecting another row clears both. An element of a
+  row no event kind draws selects its row, as it always has.
+- The pane is e3-ui-components' `src/plan/frame/inspector.tsx`, the frame's
+  end pane: 320px open, its collapsed state kept per viewer under the Plan's
+  `id`, its rail naming what is selected — the event's title, `3 events`, or
+  the row's name. Its styles are the `planInspector` recipe's, beside the
+  parts it shares with the Sheet's (`slot-recipes/inspector.ts`).
+- One event is read through its kind's `planEvent(id, drafts)` seam — the
+  event as Plan draws it, and its row — tracked, so a commit reads it again; an
+  event no longer there is left out, and the pane shows its row. PB38's
+  overlaps banner is #1198's (PB53). The kind's form is its `fields` less the
+  fields its roles read, which have their own lines.
+- PB39's bulk edit is the state (a choice of the lifecycle's words), the
+  resource (the resources the selected kinds are placed on) and a shift of a
+  day or an hour either way.
+- PB40: a row stands for a resource by its id — a way its kinds draw
+  (`<slot>.<draw>`) or one of its measures, whose keys the resource kinds
+  carry — at the resource's path. Its events in the window are the kinds'
+  `planItems` on it; its measures at the bucket are what the canvas draws
+  there, folded to the period, in the words a reader hears. An Unassigned row
+  stands for its kind's events on no resource, and any other row shows what
+  it draws at the bucket. Its overlaps are #1198's.
+- PB41: the window's events, their hours and the backlog, as the footer
+  counts them, then three hints.
+- PB42, and PB60's `update`, as built (#1194): the form's fields, the bulk
+  edit, Duplicate and Delete, and a kind's own inspector sit in one
+  fieldset, on while every selected kind takes a gesture. Each edit is one
+  transaction of the Plan's history (§9.9): a field of the form, written
+  through the kind's own `write`, and tinted while the drafts hold it
+  otherwise than the record does (a new event's every field); the kind's own
+  inspector's `update`, the edited event whole; Duplicate, a copy of each
+  event under a new key, the copies then selected; Delete; and the bulk edit
+  over every selected event that takes it, across kinds — the state into
+  each kind that reads one, a resource onto each kind placed on its kind,
+  the shift onto each scheduled event. The bulk edit's state and resource
+  show what the selected events share, and Not set where they differ.
+- `inspector` on a Plan with no event kinds is refused at build. A kind's own
+  `inspector` is checked when the kind is declared; the Calendar takes no
+  notice of it, and nor does a Plan without `inspector`.
+
+### 9.9 Editing, undo and Save (owner: the Plan's editing)
+
+- **PB43.** Each event kind is one session of the shared `Editing` contract
+  (#879) over its record. Every gesture (a move, a resize, a drop, a schedule
+  or an unschedule, an inspector edit) is a draft and one undoable
+  transaction.
+- **PB44.** The history item holds one history across kinds (the Calendar's,
+  #1151): its status line, the issues button, then Undo, Redo, Discard and
+  Save. Undo and Redo step through the gestures in the order they were made,
+  whatever their kind, and Discard drops every kind's drafts. ⌘Z undoes, and
+  ⇧⌘Z or ⌘Y redoes, never while typing.
+- **PB45.** Save is on when every kind's drafts pass its `ready` and there is
+  a change. It commits each kind with drafts as one patch through its record's
+  patch mutation (`Record.onApply(record, { keyed: true })`), checked against
+  what its drafts began from.
+- **PB46.** A kind whose record moved since is refused as a conflict: its
+  drafts stay, a banner names its events and who changed the record last, and
+  the other kinds commit. A refused write is a banner too.
+- **PB47.** A write with no answer leaves that kind unknown: Save turns into
+  Retry for it, which resends the same request, its id unchanged.
+- **PB48.** Drafts retire when the events read back as the commit left them. A
+  record moving under a kind's pending drafts marks that kind out of date, and
+  a banner offers Discard.
+- **PB49.** *Removed (#1260):* a Plan approves and rejects nothing, so there
+  is no verdict to draft.
+- **PB50.** `applyMode: "auto"` commits each ready gesture as it lands, through
+  the same protocol; drafts outlive a remount, kept in the UI store per record.
+
+As built (#1194):
+
+- The history across kinds is the shared editing layer's (east-ui-components
+  `src/editing/`): `EditHistory`, one history over several sessions, and
+  `useEditHistory`, a session per keyed source read whole, kept in the UI
+  store as `useEditSession` keeps one, with the history kept per view. The
+  Calendar's editing (#1151) takes the same. Each step is tagged with the
+  sessions its gesture recorded in: a gesture across kinds, as a bulk edit
+  is, is one step, a transaction in each kind's session. A new gesture drops
+  what Redo could replay in every session. A session whose own history goes
+  — discarded, its record moving under no draft, a commit read back with
+  another write's field beside it — leaves the steps.
+- `data`'s session (#880) joins the same history beside the kinds': its
+  gestures are steps of it, and Undo, Redo, Discard and Save are the
+  history's.
+- The gestures go through one recorder (`src/plan/edit/events.ts`): an
+  event's change through its kind's own `write` — a move, a resize or a
+  schedule (`place`), an unschedule (`unplace`, its times none, its resource
+  kept), a drop (`create`), a field — its new row whole, or its deletion. A
+  write the kind refuses leaves its event as it was. The drag (#1196) drives
+  the first five.
+- Every seam reads the drafts: the `blocks`, the footer's counts and the
+  overlaps, and the inspector's events and a row's facts — and, since #1196,
+  the library's Backlog tab, which a schedule and an unschedule move an event
+  out of and into.
+- Save is on while every kind's drafts pass their checks and one kind has a
+  change it can send. A kind in conflict, refused or out of date holds no
+  other kind's Save. While a kind's write has no answer, Save is Retry, which
+  resends that kind's request alone.
+- The banners are each kind's (`SessionBanners`' `name`), titled
+  `Print job: Save stopped — 1 conflict with the source`; a conflict's lines
+  name each event by its title. A banner's Retry and Discard act on its kind
+  alone; the history item's Discard drops every kind's drafts.
+- A new event's key is its event's own made unique with `-2`, `-3` for a
+  String key, the first past the largest for an Integer key; a kind keyed
+  by anything else has no Duplicate.
+
+### 9.10 Overlaps (owner: overlaps)
+
+- **PB51.** Two events of a kind with `overlaps: "warn"` on one resource whose
+  times overlap are an overlap pair; both are flagged with a warn ring.
+- **PB52.** The toolbar's overlaps chip counts the pairs; a click selects the
+  first pair, earliest first, and brings it into view.
+- **PB53.** The inspector's banner lists what the selected event overlaps, and
+  a click on one selects it. Overlaps never block Save.
+
+As built (#1198):
+
+- The pairs are e3-ui-components' `scheduleOverlaps`
+  (`src/shared/schedule/overlaps.ts`), which the Calendar's built-in conflict
+  (#1155) shares. Events pair within a group — on a Plan, each kind whose
+  `overlaps` is `warn`, so events of two kinds never pair — per resource, its
+  kind and its key together. Spans are half-open, as the lanes' are: two
+  events that only meet never pair, and nor does an instant, an event with no
+  time or one on no resource. The pairs come earliest first: by the earlier
+  event's start, then the later's, then their keys, each compared as East
+  compares it. The footer's counts sweep the window's events (#1193).
+- The ring is `data-overlap` on each mark an event draws — a bar, a tile, a
+  card chip, a milestone and a mark's icon — and the Plan recipe's 1.5px warn
+  ring (`PLAN_OVERLAP_RING`, `slot-recipes/plan/focus.ts`). A confirmed mark
+  keeps its inset brand ring inside it, and a danger tile its own ring, the
+  worse. An exception's triangle is the warn mark already, and draws none.
+  The selected outline and a keyboard focus's ring are outlines, and ride over
+  it.
+- The chip is the toolbar's warn chip (the `chip` recipe's `warn` tone: the
+  warning wash, a `status.warn` edge, `fg.warning` ink), at the row's end after
+  the summary: `⚠ 3 overlaps`, folding to `⚠ 3` at the summary's rank, a 44px
+  target by its halo on a coarse pointer. Its click selects both events of the
+  first pair, opens the folded groups over their row and the resource grain,
+  scrolls the row into view and puts the tab stop on it, and the live region
+  says how many events are selected. In the narrow layout it opens the Rows
+  tab at the row's group, shows the row's page and scrolls its card into view.
+- One event's banner sits under its head, outside the fieldset its edits are
+  drawn in, so a line selects while the edits are disabled: each event it
+  overlaps, its span and its title. A row's banner lists its resource's pairs,
+  each over when the two overlap, from the later start to the earlier end; a
+  click selects the pair.
+- An overlap raises no issue and no banner of the session's, and Save stays
+  on.
+
+### 9.11 Windowed reads (owner: windowed reads)
+
+- **PB54.** A kind with a `window` (a `Data.bindPaged` over its day index,
+  `Schedule.days`) reads only the days in view, and with a `backlogWindow` its
+  unscheduled rows, as the Calendar's do (#1156); with `entries`, one event by
+  its key, so its record is never read whole.
+- **PB55.** A resource kind given a paged read of its resources pages its rows
+  as today's paged canvas does: blocks come a window at a time as the canvas
+  scrolls, and the key search seeks a resource by its key.
+
+As built (#1199):
+
+- The window reader is the shared layer's (e3-ui `src/schedule/window.ts`),
+  so the Calendar's windowed reads (#1156) take it with their own wiring
+  alone. A kind's `window` reads the days `[from, to)` through its day index:
+  the first day's midnight is sought (a `range` from its `.east` text), and the
+  index's pages are read from the start of the page that row is in, each to
+  the next page's start at the reader's 256 entries, until an entry filed under
+  a day past the window, or the index's end. `backlogWindow` reads every page
+  of its backlog index from its start. An event filed under several days is
+  kept once, by its key.
+- The drafts go over what a window read as over the record whole (#1156): a
+  draft moved into the days draws even when the record holds the event on a
+  day the window never read, one moved out of them leaves, a deleted one
+  leaves and a new one draws. While the search or a page is in flight the
+  read is `none`: the canvas keeps the rows it drew, and the footer its
+  counts. A pan seeks the day it brings in, and the page it reads is the
+  runtime's already when a read before it read that page.
+- The seams that read through the windows: the events over a window (the
+  `blocks`, the footer's counts and overlaps, a row's facts in the
+  inspector) and the backlog (the library's Backlog tab, the footer's
+  backlog).
+- Refused at build: a window that is not an index window of the kind's own
+  record, named by what it serves; a `backlogWindow` on plain times; a
+  `window` over Option times without a `backlogWindow`, as the backlog would
+  read the record whole; a `window` without `entries`, `entries` without a
+  `window`, and `entries` that are not a paged read of the record's own
+  entries naming its snapshot. A window that reads the index alone (`join`
+  not given) is refused as it is read, naming `join: true`: the handle's type
+  cannot say.
+- One event, by its key: the kind's `planEvent` takes the range the canvas
+  reads, and looks for the event first among the rows the windows hold there
+  — where a gesture's event is drawn — and its backlog's, then reads it by its
+  key through `entries`: the key sought by its `.east` text, and a one-row
+  page read from the row it lands on; `none` while either is in flight. The
+  inspector's events are read so, and a row's facts through the windows.
+- The editing (#1194) of a kind read a window at a time is a session over its
+  record's revision, never its snapshot: the kind's `editing` carries none.
+  An event's version before its first gesture is read where the canvas holds
+  it, or by its key; a new event's — a template's, a duplicate's — is absent,
+  read nowhere. Save sends the drafts' patch, each change checked by the
+  record against what it began from, and the session reads each entry back by
+  its key at the revision the Save committed. A new String key is made past
+  the keys the drafts hold, and the record checks it at Save (an insert of a
+  key it holds is a conflict); a new Integer key past the record's largest,
+  read by its key order and kept current.
+- A Save's conflict, by the batch's base: over a snapshot, `Record.onApply`
+  reads the record and names the entries another write moved, as it always
+  has. At a revision it never reads the record: it answers the record's own
+  issue — what the record said of the write, and who changed it last
+  (`history()`) — and each entry the batch changed, in the words a moved one
+  takes. Once its source reads at another revision, the session reads each of
+  those entries there by its key — the seek and the one-row page its
+  reconcile reads — and names each its change no longer applies to (East's
+  patch apply, the record's own check, so they are the entries a snapshot's
+  conflict names) in the record's words; the record's own issue stays only
+  when it names none. The paged Sheet's session and `data`'s over a paged
+  record name their rows so too.
+- A record bound with `Record.bind` and read with `Data.bindPaged` too is in
+  a `ui()` task's `records` and `pages`, not its `paths`: it is never
+  preloaded or polled whole. A commit's or a conflict's refresh polls the
+  workspace's status, which fetches the content of the paths the task
+  preloads alone; the record's windows hear its new hash.
+- A paged resource kind lists no rows on the wire. Its place among the event
+  kinds' blocks is one block that is not fixed, which the payload's `paged`
+  (§5.2) fills a window of resources at a time: `placed` reads the events on
+  its resources over the range the canvas draws, with the `blocks`, and `rows`
+  draws a window of the resources with those events on them; its size, key
+  search and snapshot are its window's. The canvas pages one wrapper over it,
+  each window the event kinds' blocks with that block filled, then the root's
+  own rows, fixed. New events placed, a new set of what the viewer hides or
+  new rows of the root's are a new revision of the wrapper: its windows are
+  read again, the rows standing in until they land. A window waits in flight
+  until the events are placed. The wrapper names the snapshot of the kind's
+  resources — their window's revision — apart from its own: a new revision
+  over the same snapshot leaves a standing key search as it is, its text, its
+  matches and the view. A new snapshot of the resources asks the search again
+  there (the control's `requery`), its text kept and the view where it is.
+  So does a paged `data`, beside event kinds (#1192) or alone, whose own
+  revision is its snapshot: where a new revision of it dropped a standing
+  search (#821), the canvas asks it again there. The canvas keeps the one
+  wrapper while the payload's `paged` is the same from one evaluation to the
+  next: handles bound with `$.const`; over handles bound with `$.let` the
+  seams are new each time the Reactive body runs, as every function
+  capturing a variable is, and the canvas takes a new wrapper, its windows
+  read again from what the paged runtime holds.
+- Refused at build: a paged kind keyed by anything but a String, as the key
+  search seeks by text; one given `group` or `parent`, which gather resources
+  from anywhere in the record; two paged kinds; a paged kind beside a paged
+  `data`, as a canvas pages one source; and `window`, which is gone, naming
+  `Schedule.resources(Data.bindPaged(record), { … })`.
+- A paged kind's resources by name: a link's end on one of its rows is named
+  by the row's id, `entry { series: "<slot>.<draw>", path: [key] }`, from the
+  events placed on its resources, never looked for in a window; the inspector
+  and the library's backlog cards read each resource they name by its key
+  (`byKey`: the window's key search, then a one-row page), its key standing in
+  until the read lands; the ghost names one by its row on the canvas.
+- What a paged kind does not do, as only a window of its resources is read:
+  an event on a resource the kind does not have draws on no row, where a kind
+  read whole draws it on the Unassigned row; and the bulk edit's resource
+  offers none of its resources, which it does not list.
+- The Calendar takes no paged resource kind: it reads a kind's resources
+  whole, and refuses a paged read at build, naming the `Dict` form.
+
+### 9.12 Showcase and docs (owner: the Plan builder's showcase and docs)
+
+- **PB56.** The print works (§3.3) runs on e3-web in the showcase with its
+  records seeded, and Save commits to them.
+- **PB57.** Responsive specs measure the frame, the toolbar's fold order at
+  desktop and phone widths, both themes, the panes, a drop and a resize.
+- **PB58.** The e3-ui skill documents `<Plan>` and `Schedule` with tested
+  examples, and the plugin indexes are regenerated.
+
+### 9.13 Examples on bound sources (owner: Plan's examples on bound sources)
+
+- **PB59.** Every Plan example that shows data binds it from e3 (§2a): an
+  `e3.input` or `e3.record` bound with `Data.bind`, `Data.bindPaged` or
+  `Record.bind`, its writes (an editable series' Save) through the record's
+  patch mutation, and runs on e3-web in the showcase.
+
+## 10. Drag and drop, as a table
+
+| Drag | Onto | Does | Refused when |
+|---|---|---|---|
+| A template card | a resource's row | Creates an event of its kind at the bucket it lands in (PB32) | the row's resource is of a kind the event kind doesn't take, or `canDrop` refuses |
+| A backlog card | a resource's row | Schedules the row: its start, end and resource (PB33) | as above |
+| A bar, tile, chip or mark | along its row, or another resource's | Moves it; across rows it writes the resource field (PB34) | a resource of a kind it doesn't take |
+| A bar's or a chip's edge | along the axis | Resizes it (PB35) | it would be shorter than one snap |
+| An event | the Backlog tab | Unschedules it (PB36) | its kind's times are not Options |
+| An author's card | an event of its patch's kind | Sets the fields its patch sets (PB63) | it is not on an event, or the event is of another kind |
+
+## 11. What changes from today's Plan, and what is lost
+
+| Today | `<Plan>` | Why, and what is lost |
+|---|---|---|
+| The canvas's own toolbar and review foot | The frame's one toolbar | A component has one toolbar. Nothing is lost. |
+| Review: the decision column, Approve all and Reject all, a verdict on each element | Gone (#1260) | The changes are drafts the session saves together, so a verdict on them asked twice. What is lost: a sign-off per row, which an app keeps as a field of its own record, edited like any other. |
+| The Series button and its popover | The Series tab | The pane holds it. A Plan with no library has no series to hide. |
+| Cards reaching a Plan from a separate `<Library>` through `id`, `sources` and `edit.create` | The Events tab's templates, and an author's tab's cards onto `data`'s rows (#1259) | Data, declared with their kind. `data`'s series take the panel's cards through `edit.create`, with no `id` or `sources`; a `<Library>` beside the Plan still reaches them by both. |
+| Items inside each entry's array (`edit.items`) | Events as rows of their own records | `data`'s series keep in-entry editing. |
+| Number and ordinal axes | A time axis, with event kinds | Events' times are `DateTime`s; a Plan of `data` and `rows` keeps the others. |
+| The narrow layout's chip row and footer | The frame's toolbar items and footer | One toolbar and one footer. The tabs and cards stay in main below 480px, the panes overlaying them on their rails (#1193). Nothing is lost. |
+
+## 12. Wires
+
+- **UI.** east-ui's `Plan` arm leaves `UIComponentType`; packages are
+  re-exported (`WIRE_MIGRATION.md`). `<Plan>` rides an `EastUI.component`
+  carrier, `Plan` (#1191), as `StudioBuilder` does.
+- **Stored state.** None new: the records are the app's own types, and Plan's
+  stored `UiState` and picks don't change. What a viewer hides in the Series
+  tab is the viewer's own, kept in their browser under the Plan's `id`, as
+  the panes' state is (#1195).
+- **Payload.** The library's tabs ride the payload (#1195): a field of a UI
+  task's output, carried by the packages, as the Sheet's library is (#1186) —
+  no repository upgrade step. So do the inspector's flag, each event kind's
+  own inspector and its by-key read, and each resource kind's measures' keys
+  (#1197).
+- **Windowed reads (#1199).** The payload's `paged`, a paged resource kind's
+  rows, rides a UI task's output, carried by the packages, as do an event
+  kind's `entries` and a resource kind's `byKey`: no stored form changes, and
+  no repository upgrade step.
+- **Review removed (#1260).** The root's `review`, a series' `review` and
+  `approval`, a row's `approval` and an event kind's `review` role leave the
+  payload, a UI task's output the packages carry: no stored form changes,
+  and no repository upgrade step.
+
+## 13. Plan's sub-issues, in landing order
+
+1. The specs (this file and `Sheet Builder Spec.md`).
+2. Plan moves to e3: its IR to e3-ui and its renderer to e3-ui-components.
+3. Plan's examples on bound sources.
+4. `Schedule`, shared with the Calendar (after the Calendar's kinds, #1149).
+5. The Plan's types and factories: one `<Plan>` (#1191).
+6. Events into rows.
+7. The frame and the toolbar.
+8. The library pane.
+9. The inspector (after `Fields`, #1147, which the Sheet's builder lands first).
+10. Editing, undo and Save (after the Calendar's editing, #1151).
+11. Drag and drop (after the Calendar's shared time parts, #1148).
+12. Overlaps.
+13. Windowed reads (after the Calendar's, #1156).
+14. The showcase on e3-web, the skill and examples.
+
+The frame, the library and the inspector are pushed together, so the builder
+first appears with both panes full of the examples' seeded records.

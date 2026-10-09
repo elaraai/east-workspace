@@ -101,7 +101,15 @@ Reads from captured reactive state are tracked, so changing a limit also updates
 Apply availability. Callbacks must be synchronous and free of side effects.
 A callback failure blocks Apply and reports an issue.
 
-Review `sheetReadiness` in the showcase. Its paired compiled example verifies the
-public declaration; `readiness.dom.test.tsx` exercises real East callbacks and the
-editing session, including Apply results, Undo/Redo, reordered children, and
-reactive rule changes without screenshots.
+Review `sheetWeeks` (a row rule: a quantity must be positive) and
+`sheetBatches` (a group rule: a batch must be named) in the showcase. Their
+paired compiled examples verify the public declarations; `readiness.dom.test.tsx`
+exercises real East callbacks and the editing session, including Apply results,
+Undo/Redo, reordered children, and reactive rule changes without screenshots.
+
+Every DOM test mounts the Sheet as an app gets it, in its frame (#1216): the
+toolbar, the banners, the grid in main and the footer, with the panes its
+payload declares. jsdom lays nothing out, so a test that renders one gives the
+frame the rows scroll in a height (`boundFrame` in
+`e3-ui-components/src/sheet/frame.test-utils.ts`), and one that jumps or
+moves past the rows in view lets it scroll (`frameScrolls`).

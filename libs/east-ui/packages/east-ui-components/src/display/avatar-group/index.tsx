@@ -7,7 +7,7 @@ import { memo, useMemo } from "react";
 import { AvatarGroup as ChakraAvatarGroup, Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { AvatarGroup } from "@elaraai/east-ui/internal";
-import { toChakraAvatar } from "../avatar";
+import { AvatarFallback, toChakraAvatar } from "../avatar";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
@@ -52,7 +52,7 @@ export const EastChakraAvatarGroup = memo(function EastChakraAvatarGroup({ value
                 const memberDensity = getSomeorUndefined(av.density)?.type ?? density;
                 return (
                     <ChakraAvatar.Root key={i} {...props} {...(memberDensity !== undefined ? ({ density: memberDensity } as AvatarRootProps) : {})}>
-                        <ChakraAvatar.Fallback name={name} />
+                        <AvatarFallback name={name} />
                         {src && <ChakraAvatar.Image src={src} />}
                     </ChakraAvatar.Root>
                 );

@@ -8,9 +8,11 @@
  * (`Sheet Spec.md` §7, B§11), every value a semantic token so the dark theme
  * comes for free.
  *
- *   - Card: `bg.surface`, no border of its own (the host frames a component,
- *     as with Plan); 120 px bottom pad. One rule per seam: toolbar and
- *     header `border.strong` below, strip and footer `border.subtle` above.
+ *   - Root and card: the sheet fills its frame's main region, and the card
+ *     the room the strip leaves, its rows scrolling there (#1216).
+ *     `bg.surface`, no border of its own (the host frames a component, as
+ *     with Plan); 120 px bottom pad. One rule per seam: the header
+ *     `border.strong` below, the strip and the footer `border.subtle` above.
  *   - Header: sticky, two lines — label mono 10/600/.16em uppercase
  *     `fg.subtle`; sub mono 9 `fg.subtle` ellipsised; 1 px `border.subtle`
  *     column dividers; `border.strong` bottom.
@@ -46,7 +48,8 @@
  *     ink; counts `fg.subtle`; dirty dot 5 px brand; × 14 px → neg;
  *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600. A tab, `+n` and
  *     `+ TAB` reached by the keyboard take a 2 px brand ring inside
- *     themselves — the strip clips its overflow (#860).
+ *     themselves — the strip clips its overflow sideways (#860). Folded into
+ *     one chip (#1221), the strip is the open view's tab with a caret.
  *   - Context switch: r-md, options mono 10, active brandTint; a focused
  *     option a 2 px brand ring (#860).
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
@@ -57,8 +60,8 @@
  *     a row that could not be drawn is one row of `fg.danger` mono on the
  *     invalid row's wash.
  *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
- *     `border.subtle` below (`border.strong` when folded); a 10 px stroke
- *     chevron, ink-3; count mono 10; title
+ *     `border.subtle` below (`border.strong` when folded); Font Awesome's
+ *     chevron-right in a 10 px square (#1263), ink-3; count mono 10; title
  *     body 13/600 `fg` over the eyebrow mono 9.5 uppercase .08em
  *     `fg.subtle`; band cells mono 11 `fg.muted`. Membership is shown by
  *     markers and rails in the gutter.
@@ -102,28 +105,49 @@
  *     ink-5 in capitals like the resolution tags; a delta (`+1d` · `−3h`)
  *     keeps its lowercase, late warn, early info.
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
- *     a gutter that stays put (`position: sticky`), the toolbar keeps its one
- *     row through its ladder, and on a coarse pointer the small controls grow
- *     (gutter buttons, ✓ take, × close, the band's controls, the context
- *     options, the strip's chips), the editor's type goes to 16 px so a
+ *     a gutter that stays put (`position: sticky`), the frame's toolbar keeps
+ *     its one row through its ladder — on a coarse pointer its controls (the
+ *     tabs, `+n`, `+ TAB`, the active tab's ×, the context options) keep their
+ *     size and take a 44 px tap target from their halos (#1221) — and in the
+ *     grid the small controls grow (gutter buttons, ✓ take, the band's
+ *     controls, the strip's chips), the editor's type goes to 16 px so a
  *     phone never zooms into it, and the band's controls — hover-revealed on
  *     a desktop — stay open where nothing can hover (`_hoverNone`).
+ *   - Drag and drop (#1187): a grip leads the actions column — a
+ *     14 px `grip-vertical` in the faintest ink, shown on the row's hover
+ *     and always where nothing hovers, a 32 px halo on a coarse pointer; the
+ *     row it lifts takes a 1 px brand inset ring, and its ghost is the
+ *     library card's (13/600 on the paper in a brand ring). No row lights as
+ *     a candidate: where a template or a moved row would land, the 2 px
+ *     brand insertion line runs along the seam (`data-drop-seam`); the row
+ *     an author's card lands on takes the brand wash and the layer's 2 px
+ *     frame; a row that refuses the drop, the invalid wash and the layer's
+ *     red frame. The row a drag rests on takes no hover — not its cells,
+ *     its gutter, its checkbox or its grip — so what it says is the drop's.
+ *   - A folded gutter (#1215): on a coarse pointer, a frame too narrow for
+ *     the touch gutter beside a cell folds it to rail 28 · number 36 · one
+ *     44 px row-actions button (`data-gutter="folded"` on the card) — a
+ *     `ellipsis-vertical` ghost, brand on the copilot's anchor and while its
+ *     menu is open, and the row's grip at once: it takes no scroll gesture.
+ *     The seam lines start at the gutter's edge wherever it is
+ *     (`--sheet-gutter`, the renderer's geometry).
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
-        "toolbar", "toolbarRail", "toolbarCount", "toolbarBadge",
-        "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
+        "toolbarRail", "toolbarCount", "toolbarBadge",
+        "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabMenu", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
-        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar",
+        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
         "cell", "cellIssue", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellRes", "cellGhost", "cellDot",
         "ring", "rangeWash", "hatch", "nextTarget", "takeButton",
         "editor", "editorField", "editorMirror", "editorGhost", "editorInput", "editorResolve", "editorBadge", "editorError",
@@ -142,17 +166,19 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
     ],
     base: {
+        // The sheet fills its frame's main region (#1216).
         root: {
             display: "flex",
             flexDirection: "column",
+            height: "100%",
             minWidth: "0",
             fontFamily: "body",
             color: "fg",
             fontFeatureSettings: '"tnum" 1',
             // Every z-index inside the sheet stays inside it, wherever it is mounted.
             isolation: "isolate",
-            // the insertion line: 2 px brand on the row boundary, always from the gutter edge (128) to the right edge — it never enters the gutter, whichever side the chips take.
-            "& [data-row][data-insert-preview]::after": { content: '""', position: "absolute", left: "128px", right: "0", top: "-1px", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8" },
+            // the insertion line: 2 px brand on the row boundary, always from the gutter edge (`--sheet-gutter`, 128 by default) to the right edge — it never enters the gutter, whichever side the chips take.
+            "& [data-row][data-insert-preview]::after": { content: '""', position: "absolute", left: "var(--sheet-gutter, 128px)", right: "0", top: "-1px", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8" },
             // A picked row is one `brandTint` surface — the cells' own range wash would double it.
             "& [data-row][data-picked] [data-slot=rangeWash]": { display: "none" },
             "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
@@ -166,6 +192,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 transition: "transform 240ms cubic-bezier(0.2, 0, 0, 1)",
                 "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             },
+            // A drag over the rows (#1187): none lights as a candidate — the
+            // seam line, or the row a card lands on, says where.
+            "& [data-row][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before": { content: "none" },
+            "& [data-row][data-drop-active][data-drop-at=seam]::before": { content: "none" },
+            // Where a template or a moved row would land: the insertion line along the seam the drop marks, while a row takes the drag.
+            "&:has([data-drop-active]) [data-row][data-drop-seam]::after": {
+                content: '""', position: "absolute", left: "var(--sheet-gutter, 128px)", right: "0", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8",
+            },
+            "&:has([data-drop-active]) [data-row][data-drop-seam=top]::after": { top: "-1px" },
+            "&:has([data-drop-active]) [data-row][data-drop-seam=bottom]::after": { bottom: "-1px" },
         },
         // The seam: a 16 px hit strip centred on the row boundary across the
         // gutter. It draws nothing; hovering it shows the chips in the layer.
@@ -207,7 +243,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             minHeight: "0",
         },
+        // The card takes the room the strip leaves, and its rows scroll there.
         card: {
+            display: "flex",
+            flexDirection: "column",
+            flex: "1 1 auto",
             background: "bg.surface",
             overflow: "hidden",
             outline: "none",
@@ -216,28 +256,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         body: {
             paddingBottom: "120px",
-        },
-        // ONE row, always: nothing wraps and nothing scrolls. The band holds
-        // the shared toolbar's row (#952), which folds on one ladder: the
-        // rail to its icon first, then the tabs into their `+n` menu, then
-        // the count, the context label, the `+ TAB` label and the
-        // whole-sheet count (the strip's `data-strip="compact"`), the tab
-        // names (`capped`), and last the context switch, the strip closing
-        // up and dropping every count (`closed`).
-        // `clip`, not `hidden`: a scroll container's minimum height is 0,
-        // and in a fixed-height frame the column flex would squash the row.
-        toolbar: {
-            display: "flex",
-            flexWrap: "nowrap",
-            alignItems: "center",
-            gap: "{spacing.3}",
-            paddingX: "20px",
-            paddingY: "8px",
-            background: "bg.surface",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
-            overflow: "clip",
-            flexShrink: "0",
         },
         // The rail's forms, each wrapped so the tabs can claim the keys its
         // search box takes — a wrapper that lays out nothing of its own.
@@ -267,14 +285,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         // The strip never scrolls: the toolbar folds its trailing tabs into a
-        // `+n` menu, then closes it up (`data-strip`, #952).
+        // `+n` menu, then closes it up (`data-strip`, #952). It clips sideways
+        // alone, so its controls' touch halos reach above and below it (#1221).
         tabs: {
             display: "flex",
             alignItems: "stretch",
             gap: "16px",
             minWidth: "0",
             flex: "0 1 auto",
-            overflow: "hidden",
+            overflowX: "clip",
             // The toolbar's last rung: the strip closes up and its counts go.
             "&[data-strip='closed']": { gap: "10px" },
         },
@@ -293,7 +312,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
             gap: "7px",
             height: "30px",
-            _coarse: { height: "40px" },
+            ...coarseHitArea({ position: true }),
             paddingX: "2px",
             flex: "none",
             color: "fg.subtle",
@@ -308,7 +327,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _hover: { color: "fg.muted" },
             "&[data-active]": { boxShadow: "inset 0 -2px 0 var(--chakra-colors-fg)", color: "fg", cursor: "default" },
             // A tab of the tablist (#860), reached by the keyboard. The strip clips
-            // its overflow, so the ring is drawn inside the tab.
+            // its overflow sideways, so the ring is drawn inside the tab.
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
         },
         // The name ellipsises past 200px, and past 72px once the toolbar's
@@ -318,7 +337,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             maxWidth: "200px",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            "[data-strip='capped'] &, [data-strip='closed'] &": { maxWidth: "72px" },
+            "[data-strip='capped'] &, [data-strip='closed'] &, [data-strip='menu'] &": { maxWidth: "72px" },
         },
         tabCount: {
             color: "fg.subtle",
@@ -333,6 +352,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.full}",
             background: "brand.solid",
         },
+        // The × keeps its 14px box. On a coarse pointer it is the active or
+        // the focused tab's alone, so its 44px halo never takes a tap that
+        // switches to a tab (#1221).
         tabClose: {
             display: "inline-flex",
             alignItems: "center",
@@ -343,7 +365,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             fontSize: "9px",
             _hover: { color: "fg.danger" },
-            _coarse: { width: "24px", height: "24px", fontSize: "12px" },
+            ...coarseHitArea({ position: true }),
+            "[data-slot=tab]:not([data-active], :focus-visible) > &": { _coarse: { visibility: "hidden" } },
         },
         tabAdd: {
             flex: "none",
@@ -371,7 +394,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             userSelect: "none",
             _hover: { borderColor: "brand.solid", color: "brand.solid" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
-            _coarse: { height: "32px", paddingX: "10px" },
+            ...coarseHitArea({ position: true }),
             // Icon-only once the strip closes up at all; the title still says what it does.
             "[data-strip] &": { gap: "0", paddingX: "5px", "& > [data-slot=tabAddLabel]": { display: "none" } },
         },
@@ -381,7 +404,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
             gap: "5px",
             height: "30px",
-            _coarse: { height: "40px" },
+            ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
             flex: "none",
@@ -396,6 +419,35 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             userSelect: "none",
             _hover: { color: "fg.muted" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
+        },
+        // The strip folded into one chip, the toolbar's last rung for it
+        // (#1221): the open view's tab — its name capped, the active tab's
+        // ink and underline — and a caret, opening a menu of every view and
+        // `+ TAB`.
+        tabMenu: {
+            display: "inline-flex",
+            alignItems: "center",
+            lineHeight: "1",
+            gap: "6px",
+            height: "30px",
+            ...coarseHitArea({ position: true }),
+            paddingX: "2px",
+            paddingY: "0",
+            flex: "none",
+            border: "none",
+            background: "transparent",
+            boxShadow: "inset 0 -2px 0 var(--chakra-colors-fg)",
+            color: "fg",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+            userSelect: "none",
+            "& [data-slot=tabMenuCaret]": { fontSize: "8px", opacity: "0.7" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
         },
         tabRename: {
@@ -417,7 +469,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // the switch is the `+ TAB` button's size and idiom
         // (22 px, r-sm, `border.strong`, mono 9.5/600 uppercase), not a taller
-        // box of its own.
+        // box of its own — on a coarse pointer too, where its options take
+        // their touch target from their halos (#1221).
         contextSwitch: {
             display: "flex",
             alignItems: "center",
@@ -429,7 +482,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
             background: "bg.surface",
-            _coarse: { height: "32px" },
         },
         // the label and the options share ONE line box (the
         // same font size, a 20 px line, no vertical padding) so their
@@ -448,8 +500,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.1em",
             color: "fg.subtle",
             textTransform: "uppercase",
-            _coarse: { height: "26px", lineHeight: "26px" },
         },
+        // An option sits two pixels from the next: its halo grows its height alone.
         contextOption: {
             display: "inline-flex",
             alignItems: "center",
@@ -457,7 +509,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "16px",
             paddingX: "6px",
             paddingY: "0",
-            _coarse: { height: "26px", lineHeight: "26px", paddingX: "10px" },
+            ...coarseHitArea({ position: true, axis: "block" }),
             border: "none",
             background: "transparent",
             borderRadius: "{radii.sm}",
@@ -536,10 +588,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            _hover: { background: "bg.panel" },
+            // The pointer's hover — but the row a drag rests on says what the drop does instead (#1187).
+            "&:is(:hover, [data-hover]):not([data-drop-active], [data-drop-invalid])": { background: "bg.panel" },
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-picked]": { background: "brandTint" },
+            // The row an author's card lands on (#1187); a row that refuses the drag.
+            "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
+            "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
+            // The row a grip lifts — or a folded gutter's row-actions button (#1215): a 1 px brand inset ring, as the design system's dragged row.
+            "&:has([data-slot=rowGrip][data-dragging], [data-slot=rowActions][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
             // an open line's copy under the group's band while its sub rows scroll under it: the band copy's `border.strong` edge, where the sticking stops.
             "&[data-slot=stickyLine]": { borderBottomColor: "border.strong" },
             "&[data-proposed]": {
@@ -573,12 +631,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightColor: "border.strong",
             cursor: "pointer",
             userSelect: "none",
-            "[data-row]:hover > &": { background: "bg.panel" },
+            "[data-row]:hover:not([data-drop-active], [data-drop-invalid]) > &": { background: "bg.panel" },
             "[data-band-row] > &": { background: "bg.panel" },
-            "[data-band-row]:hover > &": { background: "bg.muted" },
+            "[data-band-row]:hover:not([data-drop-active], [data-drop-invalid]) > &": { background: "bg.muted" },
             "[data-row][data-draft] > &": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-surface))" },
             "[data-row][data-invalid] > &": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "[data-row][data-picked] > &": { background: "brandTint" },
+            // The row an author's card lands on, and one that refuses the drag (#1187): the gutter is sticky, so it washes too.
+            "[data-row][data-drop-active][data-drop-at=row] > &": { background: "brandTint" },
+            "[data-row][data-drop-invalid] > &": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
         },
         // The rail: the connector runs behind the checkbox, centred in the 28 px column.
         rail: {
@@ -620,10 +681,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontSize: "9px",
             lineHeight: "1",
             cursor: "pointer",
-            "[data-row]:hover &": { borderColor: "fg.muted", background: "bg.panel" },
+            "[data-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { borderColor: "fg.muted", background: "bg.panel" },
             "[data-band-row] &": { background: "bg.panel" },
-            "[data-band-row]:hover &": { background: "bg.muted" },
+            "[data-band-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { background: "bg.muted" },
             "[data-row][data-picked] &": { background: "brandTint" },
+            // On the row a card lands on, and one that refuses the drag, the fill is their wash (#1187).
+            "[data-row][data-drop-active][data-drop-at=row] &": { background: "brandTint" },
+            "[data-row][data-drop-invalid] &": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-mixed], [data-row]:hover &[data-mixed]": { borderColor: "fg.subtle" },
             "&[aria-pressed=true], [data-row]:hover &[aria-pressed=true]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
@@ -662,9 +726,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-kind=accept]:hover": { color: "status.pos", background: "color-mix(in oklch, var(--chakra-colors-status-pos) 8%, transparent)" },
             "&[data-kind=reject]:hover, &[data-kind=discard]:hover": { color: "status.neg", background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, transparent)" },
             "&[data-kind=apply]:hover": { color: "brand.solid", background: "brandTint" },
-            // the header's fold-all: a disclosure, not a decision — the chevrons' ink-3, ink on hover, no hue. Its double chevron turns like theirs: right while every group is folded, down otherwise.
+            // the header's fold-all: a disclosure, not a decision — the chevrons' ink-3, ink on hover, no hue. Its double chevron — Font Awesome's angles-right in the chevrons' 10 px square (#1263) — turns like theirs: right while every group is folded, down otherwise.
             "&[data-kind=fold]": {
                 color: "fg.muted",
+                fontSize: "10px",
+                "--fa-width": "1em",
                 "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
                 "&[aria-expanded=true] svg": { transform: "rotate(90deg)" },
             },
@@ -681,6 +747,67 @@ export const sheetSlotRecipe = defineSlotRecipe({
             pointerEvents: "none",
             zIndex: "4",
         },
+        // A row's grip (#1187): the faintest ink, shown on the row's hover —
+        // always where nothing hovers — and the drag's touch handle at once,
+        // no hold (`data-drag-grip`), with a 32 px halo on a coarse pointer.
+        // On the copilot's anchor row its fill and discard take the column.
+        rowGrip: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "none",
+            width: "14px",
+            height: "24px",
+            color: "fg.faint",
+            fontSize: "10px",
+            cursor: "grab",
+            touchAction: "none",
+            opacity: "0",
+            ...coarseHitArea({ position: true, size: 32 }),
+            _hover: { color: "fg.muted" },
+            "&[data-dragging], &:focus-visible, [data-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { opacity: "1" },
+            _hoverNone: { opacity: "1" },
+            "[data-row][data-anchor] &": { display: "none" },
+        },
+        // A folded gutter's one control (#1215): the row's actions in a 44 px
+        // ghost — its menu on a tap, its grip on a drag (`data-drag-grip="tap"`
+        // waits for travel), so it takes no scroll gesture. Brand while its
+        // menu is open, and on the copilot's anchor, whose fill waits in it.
+        rowActions: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "none",
+            width: "44px",
+            height: "44px",
+            padding: "0",
+            borderRadius: "{radii.sm}",
+            color: "fg.subtle",
+            background: "transparent",
+            fontSize: "14px",
+            cursor: "pointer",
+            touchAction: "none",
+            userSelect: "none",
+            _hover: { color: "fg", background: "bg.muted" },
+            "[data-row][data-anchor] &": { color: "brand.solid" },
+            "&[data-state=open]": { color: "brand.solid", background: "brandTint" },
+            "&[data-dragging]": { cursor: "grabbing" },
+        },
+        // What a grip carries (#1187): the row's name, as the library's card ghost draws a card.
+        dragGhost: {
+            width: "max-content",
+            fontSize: "{fontSizes.body}",
+            fontWeight: "600",
+            color: "fg",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "brand.solid",
+            borderRadius: "{radii.md}",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.1}",
+            whiteSpace: "nowrap",
+        },
         cell: {
             position: "relative",
             minHeight: "36px",
@@ -693,7 +820,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             minWidth: "0",
-            _hover: { background: "bg.panel" },
+            // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
+            "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
             "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))", "& [data-slot=cellText]": { color: "fg.danger" } },
         },
         cellIssue: {
@@ -1254,13 +1382,17 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.panel",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            _hover: { background: "bg.muted" },
+            "&:is(:hover, [data-hover]):not([data-drop-active], [data-drop-invalid])": { background: "bg.muted" },
             "&[data-picked]": { background: "brandTint" },
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-panel))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-panel))" },
             "&[data-folded]": { borderBottomColor: "border.strong" },
             // The copy under the header while the group's lines scroll (G1).
             "&[data-slot=stickyBand]": { borderBottomColor: "border.strong" },
+            // The band an author's group card lands on; a band that refuses the drag; the band a grip lifts (#1187).
+            "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
+            "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-panel))" },
+            "&:has([data-slot=rowGrip][data-dragging], [data-slot=rowActions][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
         },
         groupChevron: {
             display: "inline-flex",
@@ -1273,8 +1405,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             border: "none",
             background: "transparent",
             borderRadius: "{radii.sm}",
-            // the chevron: 10 px stroke, ink-3; it turns down as the group opens.
+            // the chevron: Font Awesome's chevron-right in a 10 px square (#1263), ink-3; it turns down as the group opens.
             color: "fg.muted",
+            fontSize: "10px",
+            "--fa-width": "1em",
             cursor: "pointer",
             _hover: { color: "fg" },
             "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
@@ -1694,7 +1828,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             whiteSpace: "nowrap",
         },
-        // The chevron before a line's number (10 px stroke, ink-3): a disclosure — ink on hover, no hue.
+        // The chevron before a line's number (Font Awesome's chevron-right in a 10 px square, #1263; ink-3): a disclosure — ink on hover, no hue.
         subRowChevron: {
             position: "absolute",
             left: "0",
@@ -1712,6 +1846,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.muted",
             cursor: "pointer",
             zIndex: "2",
+            fontSize: "10px",
+            "--fa-width": "1em",
             _hover: { color: "fg", background: "bg.muted" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-1px" },
             // It turns down as the line opens.

@@ -114,7 +114,7 @@ export const EastChakraPickPanel = memo(function EastChakraPickPanel({ value }: 
     // is a surprise rather than a discovery.
     const search = (
         <Box css={styles.search} data-slot="pickSearch">
-            <Box as="span" css={frame.searchPill}>
+            <Box as="span" css={[frame.searchPill, styles.searchPill]}>
                 <FontAwesomeIcon icon={faMagnifyingGlass} style={{ fontSize: "10px" }} />
                 <chakra.input
                     css={styles.searchInput}

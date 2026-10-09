@@ -5,10 +5,11 @@
 
 /**
  * The Plan recipe's NARROW layout (§10 / #570) — below 480px of container width
- * the canvas is a review tool: chips, tabs, the shared ruler and the card list.
+ * the canvas is a review tool: tabs, the shared ruler and the card list. Its
+ * chips are the frame's toolbar's items (#1193).
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */
@@ -17,10 +18,10 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 
 /** The slots this part styles. */
 export const narrowSlots = [
-    "narrowRoot", "narrowChips", "narrowTabCount", "narrowRuler", "narrowRulerTrack",
+    "narrowRoot", "narrowTabCount", "narrowRuler", "narrowRulerTrack",
     "narrowRulerTick", "narrowSection", "narrowSectionTitle", "narrowSectionGo", "narrowScope",
     "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList", "narrowCard",
-    "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody", "narrowCardFoot",
+    "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
     "narrowRender", "narrowTicks", "narrowMore", "narrowEmpty",
 ] as const;
 
@@ -37,24 +38,18 @@ export const narrowBase = {
     narrowRoot: {
         display: "flex",
         flexDirection: "column",
+        // The root is the tab strip's own (`<Tabs.Root asChild>`), whose
+        // recipe makes a horizontal root a block, in a rule of its own after
+        // this one's — and a block holds no column: in a bounded frame the
+        // list ran past it instead of scrolling (#1193). The narrow root's
+        // own attribute outranks it.
+        "&[data-plan-narrow][data-orientation]": { display: "flex" },
         minWidth: 0,
         background: "bg.panel",
-        // A bounded frame: the header (chips · tabs · ruler) stays put
+        // A bounded frame: the header (tabs · ruler) stays put
         // and the LIST scrolls inside the frame (see `narrowList`); an
         // unbounded one grows with its list.
         "&[data-plan-fill]": { flex: 1, minHeight: 0 },
-    },
-    // The slice chips + the resolution chip — one wrapping row on the
-    // page. No fill and no rule of its own: the tab strip below carries
-    // the header's one baseline (the `tabs` recipe's), so the header is
-    // chips · tabs on the page, not a ladder of filled bands.
-    narrowChips: {
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        gap: "8px",
-        padding: "10px 12px 8px",
-        flexShrink: 0,
     },
     // The plain mono numeral beside a tab label (the spec's "counts":
     // never a tinted pill). It inherits the trigger's ink — active reads
@@ -98,9 +93,12 @@ export const narrowBase = {
         alignItems: "stretch",
     },
     // One bucket: its separator on the right edge (every bucket has one,
-    // labelled or not), its label centred over it when it carries one —
-    // wider than the cell at day resolution, so it may overflow into the
-    // unlabelled neighbours on purpose.
+    // labelled or not), its label centred over it, whole, on the ruler's
+    // paper (`rulerLabel`, the desktop ruler's) — wider than the cell at day
+    // resolution, so it may run into the neighbours beside it, which draw
+    // none: where the columns are narrower than their labels the ruler draws
+    // every k-th (#1269, `data-thinned` on the rest), and the first and the
+    // last sit against the track's ends (`data-align`).
     narrowRulerTick: {
         position: "relative",
         display: "flex",
@@ -116,6 +114,9 @@ export const narrowBase = {
         borderRightWidth: "1px",
         borderRightColor: "border.subtle",
         "&:last-of-type": { borderRightWidth: 0 },
+        "&[data-align='start']": { justifyContent: "flex-start" },
+        "&[data-align='end']": { justifyContent: "flex-end" },
+        "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },
         // A 28px band has no lane for the NOW chip, and a chip laid over
         // the labels hides the two it straddles. The now BUCKET's label
         // wears the brand instead — the line beneath it says the rest.
@@ -144,8 +145,13 @@ export const narrowBase = {
         textOverflow: "ellipsis",
         minWidth: 0,
     },
+    // The section's go mark: Font Awesome's chevron (#1263), the size the
+    // text `›` it replaced drew at, and its own width, not Font Awesome's
+    // fixed 1.25em.
     narrowSectionGo: {
-        fontSize: "14px",
+        "--fa-width": "auto",
+        display: "inline-flex",
+        fontSize: "10px",
         lineHeight: 1,
         color: "fg.subtle",
     },
@@ -211,8 +217,18 @@ export const narrowBase = {
         touchAction: "pan-y",
         // In a bounded frame the list is what scrolls — the header above
         // it stays put (it used to be the whole root that scrolled, and a
-        // flex column with a scrolling root shrank the ruler to 0px).
-        "[data-plan-fill] &": { flex: 1, minHeight: 0, overflowY: "auto" },
+        // flex column with a scrolling root shrank the ruler to 0px). Its
+        // insets above and below — the 16px the tab panel draws over the
+        // ruler, the 14px under the last card — ride inside what it
+        // scrolls, as its first and last children's margins: as padding
+        // they floored its height, and a frame short of room (a phone's
+        // footer on two lines) ran the list past main (#1194).
+        "[data-plan-fill] &": {
+            flex: 1, minHeight: 0, overflowY: "auto",
+            paddingTop: 0, paddingBottom: 0,
+            "& > :first-child": { marginTop: "16px" },
+            "& > :last-child": { marginBottom: "14px" },
+        },
         // A scrolling flex column must not SHRINK its cards to fit (an
         // `overflow: hidden` card has no content floor, so it collapsed
         // to a sliver instead of overflowing) — they keep their size and
@@ -274,11 +290,6 @@ export const narrowBase = {
         margin: "0 12px 10px",
         overflow: "hidden",
         minWidth: 0,
-    },
-    narrowCardFoot: {
-        display: "flex",
-        justifyContent: "flex-end",
-        padding: "0 12px 10px",
     },
     // A drilled card's render region (§10: ~148pt in place).
     narrowRender: {

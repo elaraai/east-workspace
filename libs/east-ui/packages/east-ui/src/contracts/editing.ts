@@ -12,7 +12,7 @@
  * the base the drafts began from, which {@link applyEditing} applies to a
  * collection atomically.
  *
- * The Sheet was first to speak it, and keeps its names for it —
+ * e3-ui's Sheet was first to speak it, and keeps its names for it —
  * `Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`, `Sheet.apply` is
  * `Editing.apply`. What only a sheet has (a new row's destination among a
  * group's children, the `newRow` / `newGroup` contexts) stays the Sheet's.
@@ -106,7 +106,7 @@ export const EditingBatchReadinessType = VariantType({
  * @property remove - An entry removed
  * @property resize - An element's extent changed (#879 — a Plan run's start or end)
  * @property drop - Something dropped onto the collection from elsewhere (#879)
- * @property verdict - A review verdict (#879 — Approve, Reject, and their "all" forms)
+ * @property verdict - A review verdict (#879). No collection makes one since the Plan's review went (#1260); the case stays so a journal of earlier events still reads
  * @property undo - Undo
  * @property redo - Redo
  * @property discard - Drafts discarded
@@ -204,7 +204,7 @@ export function EditingDraftGroupTypeFor<G extends StructType, F extends Editing
  * and {@link EditingPatchEventTypeFor} find it without being told again.
  *
  * @remarks
- * The Sheet names it `Sheet.Types.Entry`; the example below uses that name.
+ * e3-ui's Sheet names it `Sheet.Types.Entry`.
  *
  * @typeParam G - The group struct
  * @typeParam F - Its Array-of-structs child field
@@ -215,27 +215,27 @@ export function EditingDraftGroupTypeFor<G extends StructType, F extends Editing
  * @example
  * ```ts
  * import { ArrayType, East, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
- * import { Sheet } from "@elaraai/east-ui";
+ * import { Editing } from "@elaraai/east-ui";
  *
  * const reordered = East.function([], ArrayType(StringType), ($) => {
  *     const TaskType = StructType({ id: StringType, task: StringType });
  *     const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
- *     const Entry = Sheet.Types.Entry(PackageType, "tasks");
- *     const before = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
- *         { id: "t1", task: "Machine blanks" }, { id: "t2", task: "Inspect lots" },
+ *     const Entry = Editing.Types.Entry(PackageType, "tasks");
+ *     const before = $.const(variant("group", { id: "p1", name: "C-18 nesting", tasks: [
+ *         { id: "t1", task: "Cut panels" }, { id: "t2", task: "Inspect batches" },
  *     ] }), Entry);
- *     const after = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
- *         { id: "t2", task: "Inspect lots" }, { id: "t1", task: "Machine blanks" },
+ *     const after = $.const(variant("group", { id: "p1", name: "C-18 nesting", tasks: [
+ *         { id: "t2", task: "Inspect batches" }, { id: "t1", task: "Cut panels" },
  *     ] }), Entry);
- *     const loose = $.const(variant("row", { id: "t9", task: "Pack for shipping" }), Entry);
+ *     const loose = $.const(variant("row", { id: "t9", task: "Pack for delivery" }), Entry);
  *     const entries = $.const([before, loose], ArrayType(Entry));
  *     const oldEntry = $.const(some(before), OptionType(Entry));
  *     const newEntry = $.const(some(after), OptionType(Entry));
  *     const batch = $.const({
- *         requestId: "reorder-roughing", base: variant("snapshot", entries), label: "Move a task",
+ *         requestId: "reorder-nesting", base: variant("snapshot", entries), label: "Move a task",
  *         changes: [{ id: "p1", patch: East.diff(oldEntry, newEntry), place: none }],
- *     }, Sheet.Types.ChangeSet(Entry));
- *     const apply = $.const(Sheet.apply(Entry, "id"));
+ *     }, Editing.Types.ChangeSet(Entry));
+ *     const apply = $.const(Editing.apply(Entry, "id"));
  *     const applied = $.const(apply(entries, batch, none).unwrap("applied"));
  *     return applied.map((_$, entry) => entry.match({
  *         group: (_$2, p) => East.str`${p.name}: ${p.tasks.map((_$3, t) => t.task).stringJoin(" → ")}`,
@@ -468,19 +468,19 @@ type KeyedBatchOf<E extends EastType, K extends EastType> = ReturnType<typeof Ed
  * const applied = East.function([], DictType(StringType, KeyedJob), ($) => {
  *     const jobs = $.const(new Map([
  *         ["a", { task: "Cut", qty: 2n }],
- *         ["c", { task: "Weld", qty: 1n }],
+ *         ["c", { task: "Glue", qty: 1n }],
  *     ]), DictType(StringType, KeyedJob));
  *     const cut = $.const(some({ task: "Cut", qty: 2n }), OptionType(KeyedJob));
  *     const cutMore = $.const(some({ task: "Cut", qty: 3n }), OptionType(KeyedJob));
- *     const weld = $.const(some({ task: "Weld", qty: 1n }), OptionType(KeyedJob));
- *     const paint = $.const(some({ task: "Paint", qty: 4n }), OptionType(KeyedJob));
+ *     const glue = $.const(some({ task: "Glue", qty: 1n }), OptionType(KeyedJob));
+ *     const spray = $.const(some({ task: "Spray", qty: 4n }), OptionType(KeyedJob));
  *     const absent = $.const(none, OptionType(KeyedJob));
  *     const batch = $.const({
  *         requestId: "keyed-request", base: variant("snapshot", jobs), label: "Edit jobs",
  *         changes: [
  *             { id: "a", patch: East.diff(cut, cutMore), place: none },
- *             { id: "b", patch: East.diff(absent, paint), place: some(variant("keyOrder", null)) },
- *             { id: "c", patch: East.diff(weld, absent), place: none },
+ *             { id: "b", patch: East.diff(absent, spray), place: some(variant("keyOrder", null)) },
+ *             { id: "c", patch: East.diff(glue, absent), place: none },
  *         ],
  *     }, Editing.Types.ChangeSet(KeyedJob, StringType));
  *     const apply = $.const(Editing.apply(DictType(StringType, KeyedJob)));
@@ -980,7 +980,7 @@ export interface EditingNamespace {
  * The editing contract (#879) — the one transaction session every editable
  * collection speaks: drafts, one undoable transaction per gesture reported as a
  * `PatchEvent`, and Apply as one checked, idempotent `ChangeSet` applied with
- * `Editing.apply`. The Sheet keeps its names for it (`Sheet.Types.ChangeSet`,
+ * `Editing.apply`. e3-ui's Sheet keeps its names for it (`Sheet.Types.ChangeSet`,
  * `Sheet.apply`, …) — the same values.
  */
 export const Editing: EditingNamespace = {

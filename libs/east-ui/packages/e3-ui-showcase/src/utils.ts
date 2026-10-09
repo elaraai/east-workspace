@@ -22,8 +22,9 @@ export const DEFAULT_RUNNER: Runner = { runtime: 'east-c', platforms: ['east-c-s
 /** Root directory for exported zips. Override per call if needed. */
 export const DEFAULT_OUT_DIR = '/tmp/east-ui-showcase';
 
-/** An entry in an `examples.*` barrel — only `fn` is required here. */
+/** An `example()` in an `examples.*` barrel — its `fn` is the UI. */
 export interface ExampleLike {
+    keywords: unknown;
     fn: unknown;
 }
 
@@ -43,20 +44,41 @@ export interface BuildOptions {
     outDir?: string;
     /**
      * Extra package members (e3.input, pre-built tasks) prepended to the
-     * generated `ui()` calls. Used when a barrel also re-exports inputs.
+     * generated `ui()` calls. Used when a barrel also re-exports inputs —
+     * {@link definitionsOf} collects every one it exports.
      */
     extras?: readonly unknown[];
 }
 
-function hasFn(x: unknown): x is ExampleLike {
-    return typeof x === "object" && x !== null && "fn" in x;
+/** Whether a barrel entry is an `example()` — a reduce mutation carries an
+ *  `fn` too, its reducer, so `fn` alone does not say. */
+function isExample(x: unknown): x is ExampleLike {
+    return typeof x === "object" && x !== null && "fn" in x && "keywords" in x;
+}
+
+/** The kinds of e3 definition a package carries, as the SDK tags them. */
+const DEFINITION_KINDS: ReadonlySet<string> = new Set(["dataset", "task", "function", "mutation", "recordIndex", "migration"]);
+
+/**
+ * The e3 definitions an examples barrel exports — its inputs, records and
+ * their mutations and indexes, the tasks that generate rows, functions — in
+ * export order, for `opts.extras`: the package then carries every dataset the
+ * examples bind, with no hand list to drift from the barrel.
+ *
+ * @param examples - The barrel
+ * @returns Its e3 definitions
+ */
+export function definitionsOf(examples: Record<string, unknown>): unknown[] {
+    return Object.values(examples).filter((value) =>
+        typeof value === "object" && value !== null && "kind" in value
+        && typeof value.kind === "string" && DEFINITION_KINDS.has(value.kind));
 }
 
 /**
  * Turn an examples barrel into an array of `ui()` tasks. Task names come from
  * `opts.rename` if present, otherwise `toSnakeCase(camelName)`. Barrel entries
- * without a `.fn` property (e.g. `e3.input` re-exports) are skipped
- * automatically so callers only pass them via `opts.extras`.
+ * that are not an `example()` (e.g. `e3.input` re-exports, or a mutation) are
+ * skipped automatically so callers only pass them via `opts.extras`.
  */
 export function tasksFromExamples(
     examples: Record<string, unknown>,
@@ -65,7 +87,7 @@ export function tasksFromExamples(
     const runner = opts.runner ?? DEFAULT_RUNNER;
     const skip = new Set(opts.skip ?? []);
     return Object.entries(examples)
-        .filter(([name, ex]) => !skip.has(name) && hasFn(ex))
+        .filter(([name, ex]) => !skip.has(name) && isExample(ex))
         .map(([name, ex]) =>
             ui(opts.rename?.[name] ?? toSnakeCase(name), [], (ex as ExampleLike).fn as never, { runner }),
         );

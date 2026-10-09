@@ -22,7 +22,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { openExample, rowSel } from "./plan-page";
+import { PLAN_EXAMPLES, openExample, rowSel } from "./plan-page";
 import { settled } from "./settle";
 
 /** A box on the page, in CSS px. */
@@ -62,9 +62,9 @@ async function paintedLines(page: Page, at: Box): Promise<number[]> {
 
 /** The Plan examples that draw a ruler over rows. */
 const RULED = [
-    "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
-    "planFold", "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
-    "planLibraryDnd", "planRowDrop", "planFill", "planReview", "planEditing", "planUiState", "planExpand",
+    "planTargetState", "planSpanRows", "planBucketRows", "planMeasures",
+    "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
+    "planLibraryDnd", "planRowDrop", "planFill", "planUiState", "planExpand",
     "planNumberAxis", "planOrdinalAxis",
 ];
 
@@ -73,25 +73,28 @@ const RULED = [
 const BARE_KINDS = ["span", "events", "table", "cards"];
 
 /**
- * The ruler's scan line and a bare body row's, across the plot and the
- * gutter's edge — 3px above each band's bottom rule, clear of every label and
- * mark.
+ * The ruler's scan line or a bare body row's, across the plot and the
+ * gutter's edge — 3px above its band's bottom rule, clear of every label and
+ * mark — brought into view first, as far as it needs: a pixel row is read off
+ * the screen, and a tall Plan's first bare row can lie below it. The two read
+ * one after the other, the plot's columns where they are whatever the scroll.
  */
-async function scanLines(entry: Locator): Promise<{ ruler: Box; row: Box } | undefined> {
-    return entry.evaluate((root, kinds) => {
+async function scanLine(entry: Locator, line: "ruler" | "row"): Promise<Box | undefined> {
+    return entry.evaluate((root, { kinds, line }) => {
         const body = root.querySelector("[data-plan-body]")!;
         const ruler = body.querySelector("[data-slot='ruler']")!;
-        const track = ruler.children[1]!.getBoundingClientRect();
         const rowEl = kinds.map((k) => body.querySelector(`[data-plan-row][data-plan-kind='${k}']`)).find((el) => el !== null);
         if (rowEl === undefined || rowEl === null) return undefined;
+        (line === "ruler" ? ruler : rowEl).scrollIntoView({ block: "nearest" });
+        const track = ruler.children[1]!.getBoundingClientRect();
         const plot = rowEl.querySelector("[data-plan-plot]")!.getBoundingClientRect();
-        const r = ruler.getBoundingClientRect();
-        const row = rowEl.getBoundingClientRect();
         // From just inside the gutter, so the gutter's edge is read too.
         const x = plot.left - 3;
         const width = plot.right - x;
-        return { ruler: { x, y: r.bottom - 3, width }, row: { x: Math.max(x, track.left - 3), y: row.bottom - 3, width } };
-    }, BARE_KINDS);
+        return line === "ruler"
+            ? { x, y: ruler.getBoundingClientRect().bottom - 3, width }
+            : { x: Math.max(x, track.left - 3), y: rowEl.getBoundingClientRect().bottom - 3, width };
+    }, { kinds: BARE_KINDS, line });
 }
 
 /**
@@ -240,8 +243,8 @@ async function violations(entry: Locator): Promise<string[]> {
             type(el, "span label", { size: 11, weight: "600", mono: true });
             for (const part of el.querySelectorAll("span")) type(part, "span label part", { weight: "600" });
         }
-        // ── 8 · Nothing pill-shaped in the toolbar ──
-        const bar = body.querySelector("[data-slot='toolbar']");
+        // ── 8 · Nothing pill-shaped in the toolbar — the Plan's frame's (#1193) ──
+        const bar = root.querySelector("[data-builder-frame] [data-frame-slot='toolbar']");
         if (bar !== null) {
             for (const el of bar.querySelectorAll("*")) {
                 const r = el.getBoundingClientRect();
@@ -296,10 +299,15 @@ async function violations(entry: Locator): Promise<string[]> {
             if (last === undefined) return;
             // A member's first mark — its caret when it is a parent itself, else
             // its name — starts where the group's label text does: one level
-            // of indent is the caret and its gap, so a tree steps in by it.
+            // of indent is the caret and its gap, so a tree steps in by it. A
+            // caret turned to say its row is folded is read by its slot: its
+            // centre, which the turn keeps, less half its laid-out width.
             const first = rows[gi + 1]!;
             const gl = g.querySelector("[data-plan-gutter='label']")?.getBoundingClientRect().left;
-            const ml = first.querySelector("[data-plan-gutter='name']")?.firstElementChild?.getBoundingClientRect().left;
+            const mark = first.querySelector("[data-plan-gutter='name'] > :first-child");
+            const mr = mark?.getBoundingClientRect();
+            const ml = !(mark instanceof HTMLElement) || mr === undefined ? undefined
+                : cs(mark).transform === "none" ? mr.left : (mr.left + mr.right) / 2 - mark.offsetWidth / 2;
             if (gl !== undefined && ml !== undefined && Math.abs(gl - ml) > 0.5) bad.push(`group "${name(g)}": member starts at ${ml.toFixed(1)}, label at ${gl.toFixed(1)}`);
             // The group's end is marked — when its last member and what follows are both mounted.
             if (j < rows.length && cs(last).borderBottomColor !== T.strong) bad.push(`group "${name(g)}": its last member has no closing rule`);
@@ -329,30 +337,35 @@ test.describe("Visual invariants — the Plan", () => {
     for (const theme of ["light", "dark"] as const) {
         for (const name of RULED) {
             test(`${name} (${theme}): the ruler's lines are the rows' lines — every bucket edge, the now line and the gutter's edge on the same pixels`, async ({ page }) => {
-                const entry = await openExample(page, name, "collections/plan", theme);
-                const at = await scanLines(entry);
-                test.skip(at === undefined, "no bare row to read against");
-                const read = { ruler: await paintedLines(page, at!.ruler), row: await paintedLines(page, at!.row) };
+                const entry = await openExample(page, name, PLAN_EXAMPLES, theme);
+                const ruler = await scanLine(entry, "ruler");
+                test.skip(ruler === undefined, "no bare row to read against");
+                await settled(page);
+                const rulerLines = await paintedLines(page, ruler!);
+                const row = await scanLine(entry, "row");
+                await settled(page);
+                const read = { ruler: rulerLines, row: await paintedLines(page, row!) };
                 // Something was read: a canvas's plot has at least its gutter edge.
                 expect(read.row.length, "the row's lines").toBeGreaterThan(0);
                 expect(read.ruler).toEqual(read.row);
             });
 
             test(`${name} (${theme}): what the eye checks — one gutter voice, legible labels, whole periods, token fills, aligned values`, async ({ page }) => {
-                const entry = await openExample(page, name, "collections/plan", theme);
+                const entry = await openExample(page, name, PLAN_EXAMPLES, theme);
                 expect(await violations(entry)).toEqual([]);
             });
         }
 
         test(`planNumberAxis (${theme}): the horizon is an overview with a lens, its steps counted once; the range reads inclusive; the footer says plain summaries`, async ({ page }) => {
-            const entry = await openExample(page, "planNumberAxis", "collections/plan", theme);
+            const entry = await openExample(page, "planNumberAxis", PLAN_EXAMPLES, theme);
             const read = await entry.evaluate((root) => {
                 const body = root.querySelector("[data-plan-body]")!;
                 const plot = body.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
                 const lens = body.querySelector("[data-slot='horizon'] [data-plan-lens]");
                 const lr = lens?.getBoundingClientRect();
                 const bars = [...body.querySelectorAll("[data-slot='horizon'] [data-brush-bar]")].map((b) => Math.round(b.getBoundingClientRect().height));
-                const range = body.querySelector("[data-slice-range-label]");
+                // The toolbar and the footer are the frame's, around the canvas (#1193).
+                const range = root.querySelector("[data-frame-slot='toolbar'] [data-slice-range-label]");
                 const rs = range !== null ? getComputedStyle(range) : undefined;
                 const count = (sel: string) => body.querySelectorAll(sel).length;
                 return {
@@ -372,14 +385,14 @@ test.describe("Visual invariants — the Plan", () => {
                         now: count("[data-plan-row] [data-plan-now]"),
                         nowChip: count("[data-plan-nowchip]"),
                         tableCells: count("[data-plan-kind='table'] [data-plan-bucket]"),
-                        addFilter: count("[data-slot='toolbar'] [data-slice-add='filter']"),
+                        addFilter: root.querySelectorAll("[data-frame-slot='toolbar'] [data-slice-add='filter']").length,
                     },
                     lens: lr === undefined ? null : { left: Math.round(lr.left - plot.left), width: Math.round(lr.width - plot.width) },
                     barsEven: bars.length > 0 && bars.every((h) => h === bars[0]),
                     range: range?.textContent ?? null,
                     rangeType: rs === undefined ? null : { size: Number.parseFloat(rs.fontSize), mono: /mono/i.test(rs.fontFamily) },
-                    footer: [...body.querySelectorAll("[data-slot='footer'] > :not([data-slot='footerTransport'])")].map((el) => (el as HTMLElement).innerText),
-                    summary: (body.querySelector("[data-slot='toolbarSummary']") as HTMLElement | null)?.innerText ?? null,
+                    footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-slot='footerTransport'])")].map((el) => (el as HTMLElement).innerText),
+                    summary: (root.querySelector("[data-frame-slot='toolbar'] [data-slot='toolbarSummary']") as HTMLElement | null)?.innerText ?? null,
                 };
             });
             for (const [hook, n] of Object.entries(read.seen)) expect(n, `the ${hook} hook`).toBeGreaterThan(0);
@@ -395,33 +408,84 @@ test.describe("Visual invariants — the Plan", () => {
             expect(read.summary).toMatch(/^\d+ OF \d+ ROWS · \d+ FILTERS?$/);
         });
 
-        test(`planSpanRows (${theme}): a links focus paints in the theme's brand — its bands, their heads and the off-window fade`, async ({ page }) => {
-            const entry = await openExample(page, "planSpanRows", "collections/plan", theme);
-            await entry.locator(`${rowSel("detail", "L1-M09")} [data-plan-control="links"]`).click();
-            await expect(entry.locator('[data-plan-linkfade="right"]')).toHaveCount(1);
-            const read = await entry.evaluate((root) => {
-                const probe = document.createElement("div");
-                probe.style.color = "var(--chakra-colors-brand-solid)";
-                root.appendChild(probe);
-                const brand = getComputedStyle(probe).color;
-                probe.remove();
-                const fade = root.querySelector('[data-plan-linkfade="right"]')!;
-                const id = /url\(#(.*)\)/u.exec(fade.getAttribute("fill") ?? "")?.[1] ?? "";
-                const stops = [...root.querySelectorAll(`[id="${id}"] stop`)].map((s) => {
-                    const cs = getComputedStyle(s);
-                    return { color: cs.stopColor, opacity: cs.stopOpacity };
-                });
+        test(`planSpanRows (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
+            const entry = await openExample(page, "planSpanRows", PLAN_EXAMPLES, theme);
+            await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
+            await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
+            await page.mouse.move(0, 0);
+            const T = {
+                muted: await tokenColour(page, "--chakra-colors-fg-muted"),
+                strong: await tokenColour(page, "--chakra-colors-fg-strong"),
+                subtle: await tokenColour(page, "--chakra-colors-fg-subtle"),
+                paper: await tokenColour(page, "--chakra-colors-bg-surface"),
+                paper2: await tokenColour(page, "--chakra-colors-bg-canvas"),
+                paper3: await tokenColour(page, "--chakra-colors-bg-subtle"),
+                rule: await tokenColour(page, "--chakra-colors-border-subtle"),
+                link: await tokenColour(page, "--chakra-colors-link"),
+                tint: await tokenColour(page, "--chakra-colors-brand-tint"),
+                pressed: await tokenColour(page, "--chakra-colors-brand-pressed"),
+            };
+            /** Every distinct computed look among what a selector matches. */
+            const looks = () => entry.evaluate((root) => {
+                const all = (sel: string, look: (s: CSSStyleDeclaration) => string) =>
+                    [...new Set([...root.querySelectorAll(sel)].map((el) => look(getComputedStyle(el))))].sort();
+                const one = (sel: string, look: (s: CSSStyleDeclaration) => string) => all(sel, look)[0] ?? "absent";
                 return {
-                    brand,
-                    band: getComputedStyle(root.querySelector("[data-plan-ribbon-band]")!).stroke,
-                    head: getComputedStyle(root.querySelector("[data-plan-ribbon-head]")!).fill,
-                    stops,
+                    band: all(":scope [data-plan-link]:not([data-lit]) [data-plan-ribbon-band]", (s) => s.stroke),
+                    head: all(":scope [data-plan-link]:not([data-lit]) [data-plan-ribbon-head]", (s) => s.fill),
+                    casing: all("[data-plan-casing='band']", (s) => `${s.stroke} ${s.fill}`),
+                    casingHead: all("[data-plan-casing='head']", (s) => `${s.fill} ${s.stroke} ${s.strokeWidth}`),
+                    knockout: all("[data-plan-ribbon-knockout]", (s) => s.fill),
+                    caption: all("[data-plan-ribbon-caption]", (s) => `${s.fill} ${s.fontSize} ${s.fontWeight} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
+                    slot: all("[data-plan-linkslot]", (s) => `${s.stroke} ${s.strokeWidth} ${s.strokeDasharray} ${s.fill}`),
+                    litBand: all("[data-plan-link][data-lit] [data-plan-ribbon-band]", (s) => s.stroke),
+                    litHead: all("[data-plan-link][data-lit] [data-plan-ribbon-head]", (s) => s.fill),
+                    halo: all("[data-plan-linkend]", (s) => `${s.stroke} ${s.strokeWidth} ${s.fill}`),
+                    focusBand: one("[data-plan-focusbar]", (s) => s.backgroundColor),
+                    back: one("[data-plan-focusback]", (s) => `${s.color} ${s.fontSize} ${s.fontWeight}`),
+                    focusCaption: one("[data-plan-focusbar] > :last-child", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
+                    tag: all("[data-plan-focustag]", (s) => `${s.backgroundColor} ${s.color} ${s.borderTopWidth} ${s.borderTopColor} ${s.borderTopLeftRadius} ${s.fontSize} ${s.fontWeight}`),
+                    pressed: one("[data-plan-control='links'][aria-pressed='true']", (s) => `${s.backgroundColor} ${s.color}`),
                 };
             });
-            expect(read.band).toBe(read.brand);
-            expect(read.head).toBe(read.brand);
-            // Clear inside the window, strongest at its edge — in the brand.
-            expect(read.stops).toEqual([{ color: read.brand, opacity: "0" }, { color: read.brand, opacity: "0.3" }]);
+            const rest = await looks();
+            expect(rest).toEqual({
+                band: [T.muted],
+                head: [T.muted],
+                casing: [`${T.paper} none`],
+                casingHead: [`${T.paper} ${T.paper} 2px`],
+                knockout: [T.paper],
+                caption: [`${T.muted} 10px 500 mono`],
+                slot: [`${T.subtle} 1px 4px, 4px none`],
+                litBand: [],
+                litHead: [],
+                halo: [],
+                focusBand: T.paper2,
+                back: `${T.link} 12.5px 500`,
+                focusCaption: `${T.subtle} 10px 600 uppercase mono`,
+                tag: [`${T.paper3} ${T.muted} 1px ${T.rule} 4px 10px 500`],
+                pressed: `${T.tint} ${T.pressed}`,
+            });
+            // Lit: the pointer on a link's band.
+            const at = await entry.locator('[data-link="2"]').evaluate((path: SVGPathElement) => {
+                const p = path.getPointAtLength(path.getTotalLength() / 2);
+                const svg = path.ownerSVGElement!.getBoundingClientRect();
+                return { x: svg.left + p.x, y: svg.top + p.y };
+            });
+            await page.mouse.move(at.x, at.y);
+            await expect(entry.locator('[data-plan-link="2"]')).toHaveAttribute("data-lit", "");
+            const lit = await looks();
+            expect({ band: lit.band, head: lit.head, litBand: lit.litBand, litHead: lit.litHead, halo: lit.halo }).toEqual({
+                band: [T.muted], head: [T.muted],
+                litBand: [T.strong], litHead: [T.strong],
+                halo: [`${T.strong} 1px none`],
+            });
+            // A rail and a gap band, hovered, step to the third paper.
+            for (const sel of ["[data-plan-rail]", "[data-plan-gap]"]) {
+                const target = entry.locator(sel).first();
+                await target.hover();
+                await expect(target, sel).toHaveCSS("background-color", T.paper3);
+            }
         });
     }
 });
@@ -679,20 +743,32 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * example that mounts it, and the viewport widths it is swept across — each
  * host's own range: the Plan's wide layout holds down to 850px (below it the
  * showcase's column is under its narrow breakpoint), its resolution folding
- * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box.
+ * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box;
+ * a Plan with editing over a keyed paged source, its palette its library
+ * (#1193, #1259), is swept through its narrow layout, which its library's rail
+ * brings on at 800px: there its grain segment goes, and the items that stay
+ * fold no less than they did wider, its history last. The SnapGrid editor and Studio's
+ * builder fold their zoom into the View chip as their widths hide, and Studio
+ * its Save as template, Preview and Publish into the ⋯ chip, each one move
+ * (#1229). The Flowchart's frame (#1245) folds its slice's rail first, then
+ * its freshness chip goes, LR · TD folds into its chip and find state into its
+ * icon.
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
-    { name: "Plan", route: "collections/plan/planTargetState", widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
-    { name: "Plan (narrow)", route: "collections/plan/planNarrow", widths: [1600, 1200, 900], nudge: [1200] },
-    { name: "Sheet", route: "collections/sheet/sheetLens", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
+    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
+    { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Slice.Rail", route: "slice/slice/sliceRail", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
-    { name: "Flowchart", route: "collections/flowchart/flowchartPlant", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["rail"], ladder: () => FLOWCHART_LADDER },
     { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
+    { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
 ];
 
 /** What the toolbar says it folded: each item's form of its forms (`data-toolbar-state`). */
@@ -701,30 +777,65 @@ type ToolbarState = ReadonlyMap<string, { form: number; forms: number }>;
 /** A host's own fold steps after its rail, in order — `[item, form]`, applied once the item is at that form. */
 type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
 
-/** The Plan's own order (the user's decision, #952): the summary shortens to
- *  its count, the resolution then the grain segment fold into their menus,
- *  and last the summary hides. */
-const PLAN_LADDER: ReadonlyArray<readonly [string, number]> = [["summary", 1], ["resolution", 1], ["grain", 1], ["summary", 2]];
+/** The Plan's own order (the user's decision, #952; its frame's toolbar,
+ *  #1193, PB21): the summary shortens to its count, the resolution then the
+ *  grain segment fold into their menus, the summary hides, the key search
+ *  folds into its icon, and the history item folds last, to its buttons —
+ *  each step where its item has it to take. */
+function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
+    const summary = state.get("summary")?.forms ?? 0;
+    return [
+        ...(summary === 3 ? [["summary", 1] as const] : []),
+        ["resolution", 1], ["grain", 1],
+        ...(summary > 1 ? [["summary", summary - 1] as const] : []),
+        ["seek", 1],
+        ["history", 1],
+    ];
+}
 
 /** The Library's own order: the caption goes, the secondary facts and the
  *  filter fold to their icons, then the grouping does, and last the search
  *  box narrows and drops its key cap. */
 const LIBRARY_LADDER: ReadonlyArray<readonly [string, number]> = [["hint", 1], ["dims", 1], ["filter", 1], ["group", 1], ["search", 1], ["search", 2]];
 
+/** The SnapGrid editor's own order (#1229): the grid chip goes, then the width
+ *  readout, the widths fold to their icons, then the zoom folds into the View
+ *  chip as the widths hide into its menu — one move — then the example's start
+ *  item goes, and the history item folds last. */
+const SNAP_GRID_LADDER: ReadonlyArray<readonly [string, number]> = [
+    ["grid", 1], ["readout", 1], ["widths", 1], ["zoom", 1], ["widths", 2], ["start-0", 1], ["history", 1],
+];
+
+/** Studio's builder's own order (#1229): its canvas's steps, then Save as
+ *  template, Preview and Publish fold into the ⋯ chip — one move — then the
+ *  page's status goes, and the history item folds last. */
+const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
+    ["grid", 1], ["readout", 1], ["widths", 1], ["zoom", 1], ["widths", 2],
+    ["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1], ["status", 1], ["history", 1],
+];
+
+/** The Flowchart's own order (#1245, FB9): the freshness chip goes, LR · TD
+ *  folds into its chip, find state into its icon, and the history item folds
+ *  last, to its buttons, where the flowchart edits through its session — over
+ *  a record of flows (#1246; `flowchart-flows.spec.ts` sweeps that row). */
+const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
+
 /** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
  *  count goes, the context label, the strip's `+ TAB` label and whole-sheet
- *  count, its names cap, and last it closes up and the context switch goes. */
+ *  count, its names cap, it closes up and the context switch goes; and last
+ *  the strip folds into one chip, the open view's tab (#1221, SB20). */
 function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const tabs = state.get("tabs");
-    const maxFold = tabs === undefined ? 0 : tabs.forms - 4;
+    const maxFold = tabs === undefined ? 0 : tabs.forms - 5;
     return [
         ...Array.from({ length: maxFold }, (_x, k) => ["tabs", k + 1] as const),
         ["count", 1], ["context", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3], ["context", 2],
+        ["tabs", maxFold + 4],
     ];
 }
 
 /** The first toolbar in an example: the shared toolbar's row, or (before it) a host's own band. */
-const TOOLBAR = "[data-toolbar], [data-slot='toolbar'], [data-slot='narrowChips'], [data-flowchart-eyebrow]";
+const TOOLBAR = "[data-toolbar], [data-slot='toolbar']";
 
 /** One sample of what a toolbar painted: its row's width, and what it showed. */
 interface Painted { row: number; sig: string }
@@ -737,6 +848,8 @@ interface ToolbarWindow {
     /** The width of the example's shared toolbar row, or -1 when it has none. */
     __toolbarRow: (root: Element) => number;
     __painted: Painted[];
+    /** The latest delivery in the frame under way: what that frame paints, unless a later one supersedes it. */
+    __paintPending: Painted | null;
     __paintFrame: number;
     __paintObserver: ResizeObserver;
 }
@@ -790,10 +903,14 @@ async function toolbarAtRest(entry: Locator): Promise<string> {
  * Samples what the toolbar paints, until {@link stopPainting}: as each frame
  * begins, and as its row's resize is delivered. The sampler's observer is
  * younger than the toolbar's own, so it is delivered after it — it reads what
- * that frame will paint, the toolbar having answered the width. A frame begun
- * while a resize is still to be delivered (its row not at the width last
- * delivered) paints only after the toolbar has answered, so that sample is
- * dropped.
+ * that frame will paint, the toolbar having answered the width. A frame's
+ * deliveries can come in more than one pass — a container's breakpoint
+ * crossed in one observer's delivery moves the row, and the toolbar answers
+ * its new width in the next pass (#1259) — and the frame paints once, after
+ * the last: so a frame's sample is its last delivery, taken as the next frame
+ * begins. A frame begun while a resize is still to be delivered (its row not
+ * at the width last delivered) paints only after the toolbar has answered, so
+ * that sample is dropped.
  */
 async function startPainting(entry: Locator): Promise<void> {
     await entry.evaluate((root) => {
@@ -801,14 +918,18 @@ async function startPainting(entry: Locator): Promise<void> {
         const take = (): Painted => ({ row: w.__toolbarRow(root), sig: w.__toolbarSig(root) });
         let delivered = Number.NaN;
         w.__painted = [];
+        w.__paintPending = null;
         w.__paintObserver = new ResizeObserver(() => {
             const s = take();
             delivered = s.row;
-            w.__painted.push(s);
+            w.__paintPending = s;
         });
         const row = root.querySelector("[data-toolbar]");
         if (row !== null) w.__paintObserver.observe(row);
         const tick = () => {
+            // What the frame before painted: its last delivery.
+            if (w.__paintPending !== null) w.__painted.push(w.__paintPending);
+            w.__paintPending = null;
             const s = take();
             if (Math.abs(s.row - delivered) <= 0.5) w.__painted.push(s);
             w.__paintFrame = requestAnimationFrame(tick);
@@ -823,6 +944,8 @@ async function stopPainting(entry: Locator): Promise<Painted[]> {
         const w = window as unknown as ToolbarWindow;
         cancelAnimationFrame(w.__paintFrame);
         w.__paintObserver.disconnect();
+        if (w.__paintPending !== null) w.__painted.push(w.__paintPending);
+        w.__paintPending = null;
         return w.__painted;
     });
 }
@@ -878,7 +1001,7 @@ test.describe("Visual invariants — toolbars", () => {
             const up = [...host.widths].reverse();
             // Down, up, and across — each width reached from both sides and from far away.
             const order = [...down, ...up, down[down.length - 1]!, down[0]!, down[Math.floor(down.length / 2)]!];
-            const folds: { row: number; folds: number }[] = [];
+            const folds: { row: number; state: ToolbarState }[] = [];
             for (const width of order) {
                 await startPainting(entry);
                 await page.setViewportSize({ width, height: 900 });
@@ -908,10 +1031,10 @@ test.describe("Visual invariants — toolbars", () => {
                 const wrong = [...new Set(painted.filter((p) => Math.abs(p.row - read.row) <= 0.5 && p.sig !== sig).map((p) => p.sig))];
                 if (wrong.length > 0) bad.add(`at ${width}px: painted ${wrong.map((s) => `"${s.slice(0, 60)}"`).join(", ")} before resting on "${sig.slice(0, 60)}"`);
                 if (read.clipped.length > 0) bad.add(`at ${width}px: clipped at the row's edge — ${read.clipped.join(", ")}`);
-                folds.push({ row: read.row, folds: read.folds });
                 // What it folded is a prefix of its ladder: each item at the form
                 // the ladder's first `folds` steps put it.
                 const state = parseState(read.state);
+                folds.push({ row: read.row, state });
                 const ladder = parseLadder(read.ladder);
                 const prefix = ladder.slice(0, read.folds);
                 for (const [key, { form }] of state) {
@@ -934,12 +1057,18 @@ test.describe("Visual invariants — toolbars", () => {
                     });
                 }
             }
-            // Monotone: a narrower row never folds less than a wider one.
+            // Monotone, item by item: a narrower row never shows an item less
+            // folded than a wider row does, nor an item the wider row has not —
+            // a Plan's narrow layout draws fewer items, never more (#1259). Over
+            // one set of items, this is its fold count never falling.
             const sorted = [...folds].sort((a, b) => b.row - a.row);
             sorted.forEach((f, i) => {
                 const wider = sorted[i - 1];
-                if (wider !== undefined && wider.row > f.row + 0.5 && f.folds < wider.folds) {
-                    bad.add(`a ${f.row.toFixed(0)}px row folds ${f.folds} steps, fewer than the ${wider.row.toFixed(0)}px row's ${wider.folds}`);
+                if (wider === undefined || wider.row <= f.row + 0.5) return;
+                for (const [key, { form }] of f.state) {
+                    const was = wider.state.get(key);
+                    if (was === undefined) bad.add(`a ${f.row.toFixed(0)}px row draws ${key}, which the ${wider.row.toFixed(0)}px row does not`);
+                    else if (form < was.form) bad.add(`a ${f.row.toFixed(0)}px row has ${key} at form ${form}, less folded than the ${wider.row.toFixed(0)}px row's ${was.form}`);
                 }
             });
             expect([...bad]).toEqual([]);
@@ -1062,6 +1191,160 @@ test.describe("Visual invariants — the palette", () => {
             const read = await paint(page, button);
             expect(read).toEqual(PRIMARY[theme]);
             expect(contrast(read.label, read.fill), "its label on its fill").toBeGreaterThanOrEqual(4.5);
+        });
+    }
+});
+
+/**
+ * Where a catalog Pagination's parts sit, in CSS px from the content box of
+ * the element that holds it — the room it is given — and what it draws
+ * between prev and next.
+ */
+interface PagerRead {
+    /** The holder's content-box width: the room. */
+    room: number;
+    /** The root (its `nav`): its x and its width. */
+    root: [number, number];
+    /** The bar — prev, the strip or the readout, next: its x and y. */
+    bar: [number, number];
+    /** How far the bar's centre sits from the room's, across. */
+    barOffCentre: number;
+    /** Prev's and next's boxes: x, y, width, height. */
+    prev: [number, number, number, number];
+    next: [number, number, number, number];
+    /** What it draws between them: the page strip (its items and ellipses), or the readout and its text. */
+    form: "strip" | "readout" | "neither";
+    readout: string | null;
+    /** The space after prev and before next, and the bar's gap they should each be. */
+    spaces: [number, number];
+    gap: number;
+    /** How far any part's centre sits from the bar's, up or down. */
+    offLine: number;
+}
+
+/** A Pagination example's entry in the catalog, at rest, its pagination drawn. */
+async function openPagination(page: Page, name: string, theme: "light" | "dark"): Promise<Locator> {
+    const route = `collections/pagination/${name}`;
+    await page.goto(`/?theme=${theme}#${route}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("nav[data-scope='pagination']")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+/** Reads a catalog Pagination ({@link PagerRead}). */
+async function readPager(entry: Locator): Promise<PagerRead> {
+    return entry.evaluate((root): PagerRead => {
+        const r = (n: number) => Math.round(n * 100) / 100;
+        const px = (v: string) => Number.parseFloat(v);
+        const nav = root.querySelector("nav[data-scope='pagination']")!;
+        const holder = nav.parentElement!;
+        const hs = getComputedStyle(holder);
+        const h = holder.getBoundingClientRect();
+        const left = h.left + px(hs.borderLeftWidth) + px(hs.paddingLeft);
+        const top = h.top + px(hs.borderTopWidth) + px(hs.paddingTop);
+        const room = holder.clientWidth - px(hs.paddingLeft) - px(hs.paddingRight);
+        const bar = nav.firstElementChild!;
+        const b = bar.getBoundingClientRect();
+        const prev = nav.querySelector("[data-part='prev-trigger']")!.getBoundingClientRect();
+        const next = nav.querySelector("[data-part='next-trigger']")!.getBoundingClientRect();
+        const strip = [...nav.querySelectorAll("[data-part='item'], [data-part='ellipsis']")].map((el) => el.getBoundingClientRect());
+        const readout = nav.querySelector("[aria-live='polite']");
+        const between = readout !== null ? [readout.getBoundingClientRect()] : strip;
+        const start = Math.min(...between.map((p) => p.left));
+        const end = Math.max(...between.map((p) => p.right));
+        const centre = (p: DOMRect) => p.top + p.height / 2;
+        const box = (p: DOMRect): [number, number, number, number] => [r(p.left - left), r(p.top - top), r(p.width), r(p.height)];
+        return {
+            room: r(room),
+            root: [r(nav.getBoundingClientRect().left - left), r(nav.getBoundingClientRect().width)],
+            bar: [r(b.left - left), r(b.top - top)],
+            barOffCentre: r(b.left + b.width / 2 - (left + room / 2)),
+            prev: box(prev),
+            next: box(next),
+            form: readout !== null ? (strip.length > 0 ? "neither" : "readout") : (strip.length > 0 ? "strip" : "neither"),
+            readout: readout?.textContent ?? null,
+            spaces: [r(start - prev.right), r(next.left - end)],
+            gap: px(getComputedStyle(bar).columnGap),
+            offLine: r(Math.max(...[prev, ...between, next].map((p) => Math.abs(centre(p) - centre(b))))),
+        };
+    });
+}
+
+/** Sets what holds an example's pagination: each style given — its width, its display, its justification — `""` giving back its own. */
+async function holdIn(page: Page, entry: Locator, style: { width?: string; display?: string; justifyContent?: string }): Promise<void> {
+    await entry.evaluate((root, s) => {
+        const holder = root.querySelector("nav[data-scope='pagination']")!.parentElement as HTMLElement;
+        if (s.width !== undefined) holder.style.width = s.width;
+        if (s.display !== undefined) holder.style.display = s.display;
+        if (s.justifyContent !== undefined) holder.style.justifyContent = s.justifyContent;
+    }, style);
+    await settled(page);
+}
+
+test.describe("Visual invariants — the Pagination", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`paginationBasic (${theme}): its form follows the room it is given, never what it draws — at the desktop width the page strip, in a container narrowed under 360px the readout, widened again the strip; prev and next keep their places, the bar where the root sat (#1268)`, async ({ page }) => {
+            const entry = await openPagination(page, "paginationBasic", theme);
+            /** Every place a part keeps, whatever the form: the root across the room, the bar at its start, the parts on one line, 4px apart as the root's were. */
+            const placed = (read: PagerRead) => ({ root: read.root, bar: read.bar, prev: read.prev.slice(0, 2), spaces: read.spaces, offLine: read.offLine <= 0.5 });
+            const wide = await readPager(entry);
+            expect(wide.room, "the room at the desktop width").toBeGreaterThanOrEqual(360);
+            expect({ form: wide.form, readout: wide.readout }).toEqual({ form: "strip", readout: null });
+            expect(placed(wide)).toEqual({ root: [0, wide.room], bar: [0, 0], prev: [0, 0], spaces: [4, 4], offLine: true });
+
+            await holdIn(page, entry, { width: "320px" });
+            const narrow = await readPager(entry);
+            expect(narrow.room, "the room narrowed").toBeLessThan(360);
+            expect({ form: narrow.form, readout: narrow.readout }).toEqual({ form: "readout", readout: "1 / 25" });
+            expect(placed(narrow)).toEqual({ root: [0, narrow.room], bar: [0, 0], prev: [0, 0], spaces: [4, 4], offLine: true });
+            expect(narrow.prev, "prev keeps its place").toEqual(wide.prev);
+
+            await holdIn(page, entry, { width: "" });
+            expect(await readPager(entry), "widened again: as it was").toEqual(wide);
+        });
+
+        test(`paginationVariants (${theme}): in the configurator's stage — a flex box that centres it — its root takes the stage's room and its bar sits centred, where the stage centred the root; a strip wider than 360px never holds the root open, so a stage narrowed under 360px draws the readout, as a grid's track does (#1268)`, async ({ page }) => {
+            const entry = await openPagination(page, "paginationVariants", theme);
+            /** The root across the stage's room, the bar centred in it, the parts on one line, 4px apart. */
+            const placed = (read: PagerRead) => ({ root: read.root, centred: Math.abs(read.barOffCentre) <= 0.5, spaces: read.spaces, offLine: read.offLine <= 0.5 });
+            const rest = await readPager(entry);
+            expect(rest.room, "the stage's room").toBeLessThan(360);
+            expect({ form: rest.form, readout: rest.readout }).toEqual({ form: "readout", readout: "6 / 50" });
+            expect(placed(rest)).toEqual({ root: [0, rest.room], centred: true, spaces: [4, 4], offLine: true });
+
+            // Four siblings either side of the page: a strip wider than 360px.
+            const more = entry.locator("[data-scope='number-input'][data-part='increment-trigger']").first();
+            for (let i = 0; i < 3; i++) await more.click();
+            await holdIn(page, entry, { width: "640px" });
+            const wide = await readPager(entry);
+            expect(wide.room, "the stage widened").toBeGreaterThanOrEqual(360);
+            expect(wide.form).toBe("strip");
+            expect(wide.next[0] + wide.next[2] - wide.prev[0], "the strip, prev to next").toBeGreaterThan(360);
+            expect(placed(wide)).toEqual({ root: [0, wide.room], centred: true, spaces: [4, 4], offLine: true });
+
+            await holdIn(page, entry, { width: "320px" });
+            const narrow = await readPager(entry);
+            expect(narrow.room, "the stage narrowed").toBeLessThan(360);
+            expect({ form: narrow.form, readout: narrow.readout }).toEqual({ form: "readout", readout: "6 / 50" });
+            expect(placed(narrow)).toEqual({ root: [0, narrow.room], centred: true, spaces: [4, 4], offLine: true });
+
+            // A grid's track is as narrow as its item lets it be: there, too, the strip drawn never holds the root open.
+            await holdIn(page, entry, { width: "640px", display: "grid", justifyContent: "normal" });
+            const track = await readPager(entry);
+            expect({ form: track.form, root: track.root }, "in a grid, widened").toEqual({ form: "strip", root: [0, track.room] });
+            await holdIn(page, entry, { width: "320px" });
+            const tight = await readPager(entry);
+            expect({ form: tight.form, readout: tight.readout, root: tight.root }, "in a grid, narrowed")
+                .toEqual({ form: "readout", readout: "6 / 50", root: [0, tight.room] });
+
+            await holdIn(page, entry, { width: "", display: "", justifyContent: "" });
+            const back = await readPager(entry);
+            expect({ room: back.room, form: back.form }).toEqual({ room: rest.room, form: "readout" });
         });
     }
 });

@@ -159,21 +159,6 @@ import {
     MapLabelType,
 } from "./collections/map/types.js";
 import { BlendRootType } from "./collections/blend/types.js";
-import { SheetRootType } from "./collections/sheet/types.js";
-import {
-    FlowchartStateType,
-    FlowchartLinkType,
-    FlowchartLaneType,
-    FlowchartTriggerType,
-    FlowchartFreshnessType,
-    FlowchartOrientationType,
-    FlowchartLinkModeType,
-    FlowchartLinkCreateEventType,
-    FlowchartLaneRenameEventType,
-    FlowchartStateAddEventType,
-    FlowchartStateEditEventType,
-    FlowchartStateMoveEventType,
-} from "./collections/flowchart/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
@@ -188,7 +173,7 @@ import { SliceBreakdownPickerType } from "./slice/breakdown/types.js";
 import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
 import { SliceChromeType, SliceRailType } from "./platform/slice/index.js";
-import { PickBindType, PickPanelType } from "./contracts/pick.js";
+import { PickPanelType } from "./contracts/pick.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
@@ -212,19 +197,6 @@ import {
     TableAggregateType,
     TableRowsCollectionType,
 } from "./collections/table/types.js";
-import {
-    PlanAxisType,
-    PlanGrainType,
-    PlanLinkType,
-    PlanRowsType,
-    PlanElementRefType,
-    PlanRowIdType,
-    PlanGroupToggleEventType,
-    PlanFooterItemType,
-    PlanStyleType,
-    PlanUiBindType,
-    PlanEditingType,
-} from "./collections/plan/types.js";
 import {
     TableRowClickEventType,
     TableCellClickEventType,
@@ -589,11 +561,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     /**
-     * EmptyState — placeholder UI for zero-state sections.
+     * EmptyState — placeholder UI for zero-state sections. Its one mark is
+     * `icon`, a Font Awesome solid icon; its text `glyph` is removed (#1263).
      */
     EmptyState: StructType({
         icon: OptionType(IconType),
-        glyph: OptionType(StringType),
         title: node,
         description: OptionType(node),
         actions: OptionType(node),
@@ -960,70 +932,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         style: OptionType(TableStyleType),
     }),
 
-    // Plan — the axis-aligned composite canvas: one shared axis
-    // ({ time | number | ordinal }, #631) over heterogeneous rows — span runs, bucket
-    // lanes, chart layers, heat / table cells, chips and event marks — the
-    // series' BLOCKS, one after another (#823), each an ordered row stream with
-    // typed ids (#822). Rows are PURE DATA (`PlanRowType` — no UI, no
-    // functions; pageable), so the arm references the named types directly;
-    // only the root's resolver slots (`popover` / `hover` / `expandRender` /
-    // `expandGutter`) and the review summary ride the recursion `node`.
-    // `PlanRootType` (`collections/plan/ir.ts`) is this arm's named twin — the
-    // renderer decodes through it — and `test/collections/plan.spec.ts` holds
-    // the two to one East type (#814).
-    Plan: StructType({
-        // Inline blocks OR the derived paged source of them (§3.8, #823) —
-        // pure data both ways.
-        rows: PlanRowsType,
-        // Mirror `PlanRootType.links` — the R1 link graph.
-        links: ArrayType(PlanLinkType),
-        axis: PlanAxisType,
-        grain: OptionType(PlanGrainType),
-        // The generalized element resolvers (Plan Data Interface.md §3.3),
-        // over one element-ref variant — every ref carries the row's id.
-        // Resolved lazily at interaction time; a `none` result opens no
-        // surface. Naming per the Schematic / Flowchart `*Hover` resolver
-        // convention (`on*` stays the action callbacks below).
-        popover: OptionType(FunctionType([PlanElementRefType], OptionType(node))),
-        hover: OptionType(FunctionType([PlanElementRefType], OptionType(node))),
-        // The R2 developer render for rows declaring `expand` (the row keeps
-        // the `{ height, axis }` declaration; the render is ONE function).
-        expandRender: OptionType(FunctionType([PlanRowIdType], node)),
-        // The R2 gutter render — the expanded row's gutter grows with it, and
-        // what fills the new space is the author's.
-        expandGutter: OptionType(FunctionType([PlanRowIdType], node)),
-        // Optional review chrome — mirror `PlanReviewType` (#880: the
-        // column's label, the foot's summary and Rerun; a verdict is a gesture
-        // of the editing session), `summary` on the recursion `node`.
-        review: OptionType(StructType({
-            columnLabel: StringType,
-            summary: OptionType(node),
-            onRerun: OptionType(FunctionType([], NullType)),
-            rerunLabel: StringType,
-        })),
-        // The editing session (#880) — closed: entries cross as bytes.
-        editing: OptionType(PlanEditingType),
-        // The series library (#590) — chrome, like the slice rail. The
-        // NON-generic contract only: an arm must be a closed East type, so the
-        // author's typed handle stays outside and only its `pick` half rides.
-        pick: OptionType(PickBindType),
-        slice: OptionType(SliceChromeType),
-        footer: ArrayType(PlanFooterItemType),
-        // DnD target role — the shared grammar (`contracts/drag.ts`); no id,
-        // no drop target (#824). A drop is a gesture of the editing session.
-        id: OptionType(StringType),
-        sources: ArrayType(StringType),
-        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        // Selection + the one element click (#824).
-        onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
-        onElementClick: OptionType(FunctionType([PlanElementRefType], NullType)),
-        onGroupToggle: OptionType(FunctionType([PlanGroupToggleEventType], NullType)),
-        onGrainChange: OptionType(FunctionType([PlanGrainType], NullType)),
-        // The bound interaction state (#824) — `State.bind`'s handle.
-        ui: OptionType(PlanUiBindType),
-        style: OptionType(PlanStyleType),
-    }),
-
     // Roster — people × days-of-week shift grid (drag & drop target role).
     // Spelled inline since #265 (the review config's `summary` rides the
     // recursion `node`) — mirror `RosterRootType` in `collections/roster/index.ts`.
@@ -1143,45 +1051,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
     }),
 
-    // Flowchart — state-transition flowchart (states in ordered phase
-    // lanes, H/V-routed links, optional per-link decision triggers).
-    // The `*Hover` builders return arbitrary UI via the recursion `node`;
-    // mirror this shape with `FlowchartRootType` in
-    // `collections/flowchart/index.ts` (which spells those fields with the
-    // resolved `UIComponentType`).
-    Flowchart: StructType({
-        states: ArrayType(FlowchartStateType),
-        links: ArrayType(FlowchartLinkType),
-        lanes: ArrayType(FlowchartLaneType),
-        triggers: ArrayType(FlowchartTriggerType),
-        orientation: OptionType(FlowchartOrientationType),
-        freshness: OptionType(FlowchartFreshnessType),
-        minimap: OptionType(BooleanType),
-        legend: OptionType(BooleanType),
-        density: OptionType(DensityType),
-        height: OptionType(StringType),
-        maxHeight: OptionType(StringType),
-        slice: OptionType(SliceChromeType),
-        stateHover: OptionType(FunctionType([StringType], node)),
-        linkHover: OptionType(FunctionType([StringType], node)),
-        triggerHover: OptionType(FunctionType([StringType], node)),
-        onSelectState: OptionType(FunctionType([StringType], NullType)),
-        onSelectLink: OptionType(FunctionType([StringType], NullType)),
-        onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
-        onTracePath: OptionType(FunctionType([StringType], NullType)),
-        linkMode: OptionType(FlowchartLinkModeType),
-        onCreateLink: OptionType(FunctionType([FlowchartLinkCreateEventType], NullType)),
-        onDeleteLink: OptionType(FunctionType([StringType], NullType)),
-        canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
-        onAddLane: OptionType(FunctionType([], NullType)),
-        onRenameLane: OptionType(FunctionType([FlowchartLaneRenameEventType], NullType)),
-        onDeleteLane: OptionType(FunctionType([StringType], NullType)),
-        onAddState: OptionType(FunctionType([FlowchartStateAddEventType], NullType)),
-        onEditState: OptionType(FunctionType([FlowchartStateEditEventType], NullType)),
-        onMoveState: OptionType(FunctionType([FlowchartStateMoveEventType], NullType)),
-        readOnly: OptionType(BooleanType),
-    }),
-
     // Map — interactive geographic basemap + H3 / area overlay. The
     // `overlays` slot hosts arbitrary UIComponent children via the
     // recursion `node`; mirror this shape with `MapRootType` in
@@ -1220,12 +1089,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Blend — assembly surface for blending / batching decisions
     Blend: BlendRootType,
-
-    // Sheet — the planning spreadsheet (docs/proposals/Sheet Spec.md). Rows
-    // are the host's structs projected into CLOSED wire rows by the factory
-    // and every author function is bridged into a closed twin, so the arm
-    // references the named root type directly (the Calendar / Blend rule).
-    Sheet: SheetRootType,
 
     // Disclosure
     /**

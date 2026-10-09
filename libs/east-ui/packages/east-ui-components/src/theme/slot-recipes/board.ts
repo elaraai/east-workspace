@@ -7,11 +7,12 @@
  * Board slot recipe — the single-day areas × shifts assignment grid per the
  * `board` pattern: mono eyebrow shift headers (label + time-window
  * sublabel), area rows with muted sublabels, and person chips carrying the
- * event-state grammar (committed outline · `+` added tint · struck removed ·
- * dashed model ghost). Coverage renders as `n/required` numerals with
- * under / over tones plus dashed `⊕` open-slot placeholders — numerals,
- * glyphs and tones only, never words. Drop indicators come from the shared
- * drag-layer data attributes.
+ * event-state grammar (committed outline · added tint · struck removed ·
+ * dashed model ghost; a proposal to add leads with Font Awesome's plus).
+ * Coverage renders as `n/required` numerals with under / over tones plus
+ * dashed open-slot placeholders, each Font Awesome's circle-plus — numerals,
+ * icons and tones only, never words, and never a text glyph (#1263). Drop
+ * indicators come from the shared drag-layer data attributes.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -23,7 +24,7 @@ export const boardSlotRecipe = defineSlotRecipe({
         "root", "grid", "headerCell", "headerSublabel",
         "areaCell", "areaLabel", "areaSublabel",
         "cell", "coverage", "coverageCount",
-        "chip", "chipGrip", "chipAction",
+        "chip", "chipGrip", "chipSign", "chipAction",
         "openSlot", "overflowChip", "overflowContent", "dragGhost",
         "strip", "stripSummary",
     ],
@@ -184,6 +185,15 @@ export const boardSlotRecipe = defineSlotRecipe({
             touchAction: "none",
             ...coarseHitArea({ position: true, size: 32 }),
         },
+        /* A proposal to add leads with Font Awesome's plus (#1263), in the
+         * chip's ink, the size the text `+` it replaced drew at, and its own
+         * width, not Font Awesome's fixed 1.25em. */
+        chipSign: {
+            "--fa-width": "auto",
+            display: "inline-flex",
+            flexShrink: "0",
+            fontSize: "8px",
+        },
         /* Hover action buttons — accept (check) on ghosts, remove (bin) on
          * proposals. First action pushes to the chip's right edge. */
         chipAction: {
@@ -204,8 +214,10 @@ export const boardSlotRecipe = defineSlotRecipe({
             "&:hover": { color: "fg" },
             "&[data-danger]:hover": { color: "fg.danger" },
         },
-        /* Dashed open-slot placeholder — a drop hint and `onAddAt` target. */
+        /* Dashed open-slot placeholder — a drop hint and `onAddAt` target; its
+         * circle-plus (#1263) its own width, not Font Awesome's fixed 1.25em. */
         openSlot: {
+            "--fa-width": "auto",
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-start",

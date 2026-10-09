@@ -1,0 +1,462 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * ONE overlay layer for the whole canvas (#816) — a popover, a hover card and a
+ * tooltip, each a single Zag machine that exists only while it is open, however
+ * many elements the canvas mounts.
+ *
+ * Elements are plain DOM. Every element kind already names itself —
+ * `data-run`, `data-event`, `data-chip`, `data-mark`, `data-cell` (the cell's
+ * instant, `instantKey`-encoded) — and its row names it (`data-plan-row`, or a
+ * narrow card's `data-plan-card`: the row's key, its id's canonical text), so
+ * the element ref a resolver is called with is read back from the DOM, its row
+ * parsed back to the typed id (#822). The canvas body listens once:
+ *
+ * - a click opens the popover (and a second click on the same element closes
+ *   it) — in the CAPTURE phase, because the elements stop their clicks from
+ *   reaching the row, and selection and `onElementClick` keep working as
+ *   before. A link ribbon (#824) names its ref in its hit path's attributes
+ *   (`data-link-key` and its two run refs) — a ribbon belongs to no row — and
+ *   opens the popover the same way;
+ * - Enter on a focused element opens the popover, and Esc closes it and hands
+ *   focus back to the element — that Esc is the popover's, never also a rung
+ *   of the canvas's esc ladder (the popover's layer takes it first and
+ *   prevents it, and the canvas skips a prevented key);
+ * - hovering an element opens the hover card after a short delay, on devices
+ *   that can hover; leaving it closes the card unless the pointer moved into
+ *   the card;
+ * - hovering a labelled port, cell marker, link ribbon (#818) or row control
+ *   (#1258) shows its `aria-label` as a tooltip — a ribbon opens no hover
+ *   card: its caption is what hovering it says;
+ * - hovering a bar, a chip, a tile or a rollup band whose label is hidden (too
+ *   narrow for a letter and the ellipsis) or ellipsized, or a heat or table
+ *   cell whose number its column has no room for, shows the whole label as a
+ *   tooltip (#1264, #1266, #1269) — read from what the page draws as the hover
+ *   lands — and a hover card open on the element says more, so the tooltip
+ *   gives way to it.
+ *
+ * The open element and its resolved body live in the controller; the DOM node
+ * a surface anchors to lives here, out of the store. A surface anchors with
+ * `positioning.getAnchorElement`, so it follows the element while the canvas
+ * scrolls — and closes once the element leaves the viewport, or the canvas.
+ *
+ * @packageDocumentation
+ */
+
+import { useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
+import { HoverCard, Popover, Portal, Tooltip } from "@chakra-ui/react";
+import { equalFor, variant } from "@elaraai/east";
+import { Plan } from "@elaraai/e3-ui/internal";
+import { EastChakraComponent, useHoverCapable } from "@elaraai/east-ui-components";
+import type { PlanElementRefValue } from "../context.js";
+import { instantKey, instantOfKey } from "../instant.js";
+import { rowIdOfKey, rowKeyOf } from "../row-key.js";
+import { usePlanController, usePlanSelector } from "../controller/react.js";
+import type { PlanController, PlanSnapshot } from "../controller/index.js";
+import { PlanPartBoundary } from "../rows/PartBoundary.js";
+
+type Styles = Record<string, Record<string, unknown>>;
+
+/** The elements a popover or hover card opens from — every element kind's own attribute. */
+export const PLAN_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],[data-mark],[data-cell]";
+/** A link ribbon's hit path (#824) — a click opens its popover; hovering it
+ *  shows its caption as a tooltip, never a hover card. */
+export const PLAN_LINK_SELECTOR = "[data-link-key]";
+/** The labelled marks a tooltip reads — their `aria-label` is its text: ports,
+ *  cell markers, link ribbons (#818) and a row's focus controls (#1258). */
+export const PLAN_TIP_SELECTOR =
+    "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label]";
+/** The elements whose label (`data-plan-label`) a tooltip says while it is
+ *  hidden or ellipsized: a bar, a chip and a rollup band (#1264), a tile
+ *  (#1266), and a heat or table cell's number (#1269). */
+export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-event],[data-plan-band],[data-cell]";
+
+/** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
+const OPEN_DELAY_MS = 150;
+/** Grace before a card closes, so the pointer can travel into it. */
+const CLOSE_DELAY_MS = 120;
+
+const refEqual = equalFor(Plan.Types.ElementRef);
+
+/** Where the open surfaces anchor, and the hover timers — DOM facts, kept out of the store. */
+export interface PlanOverlayAnchors {
+    popover: HTMLElement | null;
+    hover: HTMLElement | null;
+    tooltip: HTMLElement | null;
+    hoverOpen: ReturnType<typeof setTimeout> | undefined;
+    hoverClose: ReturnType<typeof setTimeout> | undefined;
+    tipOpen: ReturnType<typeof setTimeout> | undefined;
+    /** Set by Esc: the closing popover hands focus back to its element. */
+    returnFocus: boolean;
+}
+
+/**
+ * A canvas's anchor record — created once per mount.
+ *
+ * @returns An empty record
+ */
+export function createOverlayAnchors(): PlanOverlayAnchors {
+    return {
+        popover: null, hover: null, tooltip: null,
+        hoverOpen: undefined, hoverClose: undefined, tipOpen: undefined,
+        returnFocus: false,
+    };
+}
+
+/** The element `target` sits in, when it belongs to THIS canvas — a canvas
+ *  nested in an expand render or a popover body answers for its own. */
+function elementIn(body: HTMLElement | null, target: EventTarget | null, selector: string): HTMLElement | null {
+    if (body === null || !(target instanceof Element)) return null;
+    const el = target.closest<HTMLElement>(selector);
+    if (el === null || !body.contains(el)) return null;
+    return el.closest("[data-plan-body]") === body ? el : null;
+}
+
+/**
+ * The element ref a DOM element names — its kind attribute and its row, or a
+ * link ribbon's key and its two run refs.
+ *
+ * @param el - An element matching {@link PLAN_ELEMENT_SELECTOR} or {@link PLAN_LINK_SELECTOR}
+ * @returns The ref, or `undefined` when the element names none
+ */
+export function refOfElement(el: Element): PlanElementRefValue | undefined {
+    const linkKey = el.getAttribute("data-link-key");
+    if (linkKey !== null) {
+        const from = rowIdOfKey(el.getAttribute("data-link-from") ?? "");
+        const to = rowIdOfKey(el.getAttribute("data-link-to") ?? "");
+        const fromRun = el.getAttribute("data-link-from-run");
+        const toRun = el.getAttribute("data-link-to-run");
+        if (from === undefined || to === undefined || fromRun === null || toRun === null) return undefined;
+        return variant("link", { key: linkKey, from: { row: from, run: fromRun }, to: { row: to, run: toRun } }) as PlanElementRefValue;
+    }
+    const holder = el.closest("[data-plan-row],[data-plan-card]");
+    const key = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
+    const row = key !== null && key !== undefined ? rowIdOfKey(key) : undefined;
+    if (row === undefined) return undefined;
+    const run = el.getAttribute("data-run");
+    if (run !== null) return variant("run", { row, run }) as PlanElementRefValue;
+    const event = el.getAttribute("data-event");
+    if (event !== null) return variant("event", { row, event }) as PlanElementRefValue;
+    const chip = el.getAttribute("data-chip");
+    if (chip !== null) return variant("chip", { row, chip }) as PlanElementRefValue;
+    const mark = el.getAttribute("data-mark");
+    if (mark !== null) return variant("mark", { row, mark }) as PlanElementRefValue;
+    const cell = el.getAttribute("data-cell");
+    const at = cell !== null ? instantOfKey(cell) : undefined;
+    return at !== undefined ? variant("cell", { row, at }) as PlanElementRefValue : undefined;
+}
+
+/** A labelled mark's identity — its row and the mark's own attribute; a link
+ *  ribbon's, its index in the root's links. */
+function tipOf(el: Element): { key: string; text: string } | undefined {
+    const text = el.getAttribute("aria-label");
+    if (text === null) return undefined;
+    // A ribbon spans rows, so it belongs to none — the link is its identity.
+    const link = el.getAttribute("data-link");
+    if (link !== null) return { key: `link|${link}`, text };
+    const holder = el.closest("[data-plan-row],[data-plan-card]");
+    const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
+    if (row === null || row === undefined) return undefined;
+    const control = el.getAttribute("data-plan-control");
+    if (control !== null) return { key: `${row}|control|${control}`, text };
+    const port = el.getAttribute("data-port");
+    return { key: port !== null ? `${row}|port|${port}` : `${row}|marker|${el.getAttribute("data-marker") ?? ""}`, text };
+}
+
+/**
+ * The tooltip an element's label makes (#1264, #1266, #1269): its whole text,
+ * while the page draws it hidden — too narrow for a letter and the ellipsis:
+ * not displayed, or, in a tile or a cell, moved off its line below it — or
+ * ellipsized; read as the hover lands. A table cell's numerals are its label
+ * together, said one after another.
+ *
+ * @param el - A bar, a chip, a tile, a rollup band or a cell ({@link PLAN_LABELLED_SELECTOR})
+ * @returns Its identity and its label's text, or `undefined` while the label shows whole
+ */
+function labelTipOf(el: Element): { key: string; text: string } | undefined {
+    const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]");
+    const parts = label === null ? [] : [...label.children].map((part) => (part.textContent ?? "").trim()).filter((t) => t !== "");
+    const text = parts.length > 0 ? parts.join(" · ") : label?.textContent?.trim() ?? "";
+    if (label === null || text === "") return undefined;
+    // A label moved off its element's line lies wholly below it — below the
+    // inside of its border, where the element clips.
+    const drawn = label.getBoundingClientRect();
+    const inside = el.getBoundingClientRect().bottom - (Number.parseFloat(getComputedStyle(el).borderBottomWidth) || 0);
+    const offLine = drawn.height > 0 && drawn.top >= inside - 0.5;
+    if (getComputedStyle(label).display !== "none" && !offLine && label.scrollWidth <= label.clientWidth) return undefined;
+    const holder = el.closest("[data-plan-row],[data-plan-card]");
+    const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
+    if (row === null || row === undefined) return undefined;
+    // A band has no key of its own: its place among its row's bands names it. A cell, its instant.
+    const cell = el.getAttribute("data-cell");
+    const id = el.getAttribute("data-run") ?? el.getAttribute("data-chip") ?? el.getAttribute("data-event")
+        ?? (cell !== null ? `cell${cell}` : `band${[...(el.parentElement?.querySelectorAll(":scope > [data-plan-band]") ?? [])].indexOf(el)}`);
+    return { key: `${row}|label|${id}`, text };
+}
+
+/** A stable identity for an open surface — its element's kind, row and key
+ *  (a link's, its own key: it belongs to no row). */
+function refKey(ref: PlanElementRefValue): string {
+    switch (ref.type) {
+        case "run": return `run|${rowKeyOf(ref.value.row)}|${ref.value.run}`;
+        case "event": return `event|${rowKeyOf(ref.value.row)}|${ref.value.event}`;
+        case "chip": return `chip|${rowKeyOf(ref.value.row)}|${ref.value.chip}`;
+        case "mark": return `mark|${rowKeyOf(ref.value.row)}|${ref.value.mark}`;
+        case "cell": return `cell|${rowKeyOf(ref.value.row)}|${instantKey(ref.value.at)}`;
+        case "link": return `link|${ref.value.key}`;
+    }
+}
+
+/** What the root's element interactions can open. */
+export interface PlanOverlayPresence {
+    /** The root declares a popover resolver. */
+    popover: boolean;
+    /** The root declares a hover resolver. */
+    hover: boolean;
+}
+
+/** The body's delegated listeners. */
+export interface PlanOverlayHandlers {
+    onClickCapture: (e: MouseEvent<HTMLElement>) => void;
+    onPointerOver: (e: PointerEvent<HTMLElement>) => void;
+    onPointerOut: (e: PointerEvent<HTMLElement>) => void;
+    /** Enter on a focused element opens its popover, and Esc closes an open
+     *  one; `true` when the key was the layer's (the canvas then ignores it). */
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => boolean;
+    /** Open an element's popover as Enter does — never a toggle, so a second
+     *  press keeps it open. The keyboard's activation of an element (#819);
+     *  `true` when the root declares a popover and the element names a ref. */
+    openAt: (el: HTMLElement) => boolean;
+}
+
+/**
+ * The canvas body's delegated overlay listeners.
+ *
+ * @param bodyRef - The canvas body (the one element listening)
+ * @param controller - The canvas controller (the open surfaces' state)
+ * @param anchors - This canvas's anchor record
+ * @param presence - Which resolvers the root declares
+ * @returns The listeners to spread on the body
+ */
+export function usePlanOverlayHandlers(
+    bodyRef: RefObject<HTMLElement | null>,
+    controller: PlanController,
+    anchors: PlanOverlayAnchors,
+    presence: PlanOverlayPresence,
+): PlanOverlayHandlers {
+    const hoverCapable = useHoverCapable();
+    const { popover: hasPopover, hover: hasHover } = presence;
+    useEffect(() => () => {
+        clearTimeout(anchors.hoverOpen);
+        clearTimeout(anchors.hoverClose);
+        clearTimeout(anchors.tipOpen);
+    }, [anchors]);
+    return useMemo<PlanOverlayHandlers>(() => {
+        const openPopover = (el: HTMLElement, toggle: boolean): boolean => {
+            const ref = refOfElement(el);
+            if (ref === undefined) return false;
+            const open = controller.getSnapshot().overlay.popover;
+            if (toggle && open !== null && refEqual(open.ref, ref)) {
+                controller.overlayIntent("popover", open.ref, false);
+                return true;
+            }
+            anchors.popover = el;
+            clearTimeout(anchors.hoverOpen);
+            controller.overlayIntent("popover", ref, true);
+            return true;
+        };
+        return {
+            onClickCapture: (e) => {
+                if (!hasPopover) return;
+                const el = elementIn(bodyRef.current, e.target, PLAN_ELEMENT_SELECTOR)
+                    ?? elementIn(bodyRef.current, e.target, PLAN_LINK_SELECTOR);
+                if (el !== null) openPopover(el, true);
+            },
+            onKeyDown: (e) => {
+                if (e.key === "Escape") {
+                    // An open popover is the ladder's top rung. Its own layer
+                    // listens on the document, so it takes the Escape first and
+                    // prevents it, and the canvas skips a prevented key — except
+                    // in the popover's first frame, before the layer listens.
+                    // This closes that one.
+                    const open = controller.getSnapshot().overlay.popover;
+                    if (open === null) return false;
+                    e.preventDefault();
+                    controller.overlayIntent("popover", open.ref, false);
+                    anchors.popover?.focus({ preventScroll: true });
+                    return true;
+                }
+                if (e.key !== "Enter" || !hasPopover) return false;
+                const el = elementIn(bodyRef.current, e.target, PLAN_ELEMENT_SELECTOR);
+                if (el === null || !openPopover(el, false)) return false;
+                e.preventDefault();
+                return true;
+            },
+            openAt: (el) => hasPopover && openPopover(el, false),
+            onPointerOver: (e) => {
+                const body = bodyRef.current;
+                // A labelled mark says its `aria-label`; else a bar, a chip or a
+                // band says a label it draws cut (#1264).
+                const mark = elementIn(body, e.target, PLAN_TIP_SELECTOR);
+                const tip = mark ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
+                if (tip !== null && anchors.tooltip !== tip) {
+                    clearTimeout(anchors.tipOpen);
+                    anchors.tipOpen = setTimeout(() => {
+                        const open = mark !== null ? tipOf(mark) : labelTipOf(tip);
+                        if (open === undefined || !tip.isConnected) return;
+                        anchors.tooltip = tip;
+                        controller.tooltipIntent(open);
+                    }, OPEN_DELAY_MS);
+                }
+                if (!hasHover || !hoverCapable) return;
+                const el = elementIn(body, e.target, PLAN_ELEMENT_SELECTOR);
+                if (el === null) return;
+                clearTimeout(anchors.hoverClose);
+                if (anchors.hover === el && controller.getSnapshot().overlay.hover !== null) return;
+                clearTimeout(anchors.hoverOpen);
+                anchors.hoverOpen = setTimeout(() => {
+                    const ref = refOfElement(el);
+                    if (ref === undefined || !el.isConnected) return;
+                    // A popover open on this element already says more.
+                    const pop = controller.getSnapshot().overlay.popover;
+                    if (pop !== null && refEqual(pop.ref, ref)) return;
+                    anchors.hover = el;
+                    controller.overlayIntent("hover", ref, true);
+                }, OPEN_DELAY_MS);
+            },
+            onPointerOut: (e) => {
+                const body = bodyRef.current;
+                const to = e.relatedTarget instanceof Node ? e.relatedTarget : null;
+                const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR) ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
+                if (tip !== null && (to === null || !tip.contains(to))) {
+                    clearTimeout(anchors.tipOpen);
+                    if (anchors.tooltip === tip) {
+                        anchors.tooltip = null;
+                        controller.tooltipIntent(null);
+                    }
+                }
+                const el = elementIn(body, e.target, PLAN_ELEMENT_SELECTOR);
+                if (el === null || (to !== null && el.contains(to))) return;
+                clearTimeout(anchors.hoverOpen);
+                const open = controller.getSnapshot().overlay.hover;
+                if (open === null || anchors.hover !== el) return;
+                // The pointer may be on its way into the card: give it a moment,
+                // which the card's own pointer-enter cancels.
+                clearTimeout(anchors.hoverClose);
+                anchors.hoverClose = setTimeout(() => controller.overlayIntent("hover", open.ref, false), CLOSE_DELAY_MS);
+            },
+        };
+    }, [bodyRef, controller, anchors, hasPopover, hasHover, hoverCapable]);
+}
+
+const selectOverlay = (s: PlanSnapshot) => s.overlay;
+
+/** Close a surface whose anchor left the viewport (or the canvas). */
+function useAnchorWatch(anchor: HTMLElement | null, open: boolean, close: () => void): void {
+    const closeRef = useRef(close);
+    useLayoutEffect(() => { closeRef.current = close; });
+    // An element that is gone takes its surface with it — checked after every
+    // render of the layer, which follows every change to what is open.
+    useLayoutEffect(() => {
+        if (open && anchor !== null && !anchor.isConnected) closeRef.current();
+    });
+    useEffect(() => {
+        if (!open || anchor === null || typeof IntersectionObserver === "undefined") return undefined;
+        const io = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.target === anchor && !entry.isIntersecting)) closeRef.current();
+        });
+        io.observe(anchor);
+        return () => io.disconnect();
+    }, [anchor, open]);
+}
+
+/**
+ * The layer's surfaces — mount once, inside the canvas's controller.
+ *
+ * @param props - The anchor record, the `plan` recipe styles and the storage prefix
+ * @returns The open surfaces (nothing when none is open)
+ */
+export function PlanOverlays({ anchors, styles, storageKey }: {
+    anchors: PlanOverlayAnchors;
+    styles: Styles;
+    storageKey: string;
+}) {
+    const controller = usePlanController();
+    const { popover, hover, tooltip } = usePlanSelector(selectOverlay);
+    const closePopover = () => { if (popover !== null) controller.overlayIntent("popover", popover.ref, false); };
+    const closeHover = () => { if (hover !== null) controller.overlayIntent("hover", hover.ref, false); };
+    useAnchorWatch(popover !== null ? anchors.popover : null, popover !== null, closePopover);
+    useAnchorWatch(hover !== null ? anchors.hover : null, hover !== null, closeHover);
+    useAnchorWatch(tooltip !== null ? anchors.tooltip : null, tooltip !== null, () => controller.tooltipIntent(null));
+    return (
+        <>
+            {popover !== null && (
+                <Popover.Root
+                    key={refKey(popover.ref)}
+                    open
+                    modal={false}
+                    positioning={{ placement: "top", getAnchorElement: () => anchors.popover }}
+                    // A click on its own element toggles it (the body's click
+                    // handler) — that is not a click OUTSIDE.
+                    persistentElements={[() => anchors.popover]}
+                    onEscapeKeyDown={() => { anchors.returnFocus = true; }}
+                    onOpenChange={(d) => {
+                        if (d.open) return;
+                        closePopover();
+                        if (anchors.returnFocus) anchors.popover?.focus({ preventScroll: true });
+                        anchors.returnFocus = false;
+                    }}
+                >
+                    <Portal>
+                        <Popover.Positioner>
+                            <Popover.Content css={styles.elementOverlay} data-plan-overlay="popover">
+                                <Popover.Body padding={0}>
+                                    <PlanPartBoundary part={{ kind: "popover" }} resetKey={popover.body} styles={styles}>
+                                        <EastChakraComponent value={popover.body} storageKey={`${storageKey}.popover`} />
+                                    </PlanPartBoundary>
+                                </Popover.Body>
+                            </Popover.Content>
+                        </Popover.Positioner>
+                    </Portal>
+                </Popover.Root>
+            )}
+            {hover !== null && (
+                <HoverCard.Root
+                    key={refKey(hover.ref)}
+                    open
+                    closeDelay={CLOSE_DELAY_MS}
+                    positioning={{ placement: "top", getAnchorElement: () => anchors.hover }}
+                    onOpenChange={(d) => { if (!d.open) closeHover(); }}
+                >
+                    <Portal>
+                        <HoverCard.Positioner>
+                            <HoverCard.Content css={styles.elementOverlay} data-plan-overlay="hover"
+                                // The pointer made it into the card: keep it.
+                                onPointerEnter={() => clearTimeout(anchors.hoverClose)}>
+                                <PlanPartBoundary part={{ kind: "hoverCard" }} resetKey={hover.body} styles={styles}>
+                                    <EastChakraComponent value={hover.body} storageKey={`${storageKey}.hover`} />
+                                </PlanPartBoundary>
+                            </HoverCard.Content>
+                        </HoverCard.Positioner>
+                    </Portal>
+                </HoverCard.Root>
+            )}
+            {/* A hover card open on the tooltip's element says more: the tooltip gives way (#1264). */}
+            {tooltip !== null && !(hover !== null && anchors.hover !== null && anchors.hover === anchors.tooltip) && (
+                <Tooltip.Root
+                    key={tooltip.key}
+                    open
+                    positioning={{ placement: "top", getAnchorElement: () => anchors.tooltip }}
+                    onOpenChange={(d) => { if (!d.open) controller.tooltipIntent(null); }}
+                >
+                    <Portal>
+                        <Tooltip.Positioner>
+                            <Tooltip.Content data-plan-overlay="tooltip">{tooltip.text}</Tooltip.Content>
+                        </Tooltip.Positioner>
+                    </Portal>
+                </Tooltip.Root>
+            )}
+        </>
+    );
+}

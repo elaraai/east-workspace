@@ -87,6 +87,16 @@ line.
 East type. The wire does not change. See
 [Paged data is bound-only (#849)](#paged-data-is-bound-only-849) below.
 
+**#1260 takes review off the Plan**: a Plan approves and rejects nothing. Its
+changes are drafts its editing session undoes, redoes, discards or saves
+together, so the decision column, Approve all and Reject all and the verdict
+on each element go. `PlanReviewType` and the root's `review`, a row's
+`approval`, the gesture's `verdict` arm and a row's `verdict` edit leave the
+Plan's payload, and an event kind's `review` role and its events' `verdict`
+leave e3-ui's `Schedule`. The payload is a UI task's output, carried by its
+package: no repository upgrade step. See
+[Review removed (#1260)](#review-removed-1260) below.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -122,7 +132,7 @@ same rows whether its data is inline or paged.
 | drag `CellRef.row` | the row key | still a `String` — the row id's canonical `.east` text (`East.print(Plan.ref(…))`), so the shared drag grammar is unchanged in shape |
 
 A path segment is an entry's key: at the top the source key — the String
-itself, or its `.east` text for any other key type (`3`, `(line="L1", bin=3)`)
+itself, or its `.east` text for any other key type (`3`, `(hall="H1", bin=3)`)
 — and below that a `Dict` child's key or an `Array` child's index. A section
 header adds no segment: its id is `section { series, path }` at its parent's
 path.
@@ -131,12 +141,12 @@ path.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `groupBy: [r => r.top, r => r.program]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
+| `groupBy: [r => r.top, r => r.contract]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
 | `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planGroupedRows`, `planNarrow` |
 | `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState`, `planLibraryDnd` |
-| `keySuffix` (`"m03"` → `"m03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
-| numbered keys to force a layout (`"10-line1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
-| `Plan.link({ from: "m03", to: "m04", … })` | `Plan.link({ from: Plan.ref("machines", "m03"), to: Plan.ref("machines", "m04"), … })` | `planSpanRows` |
+| `keySuffix` (`"p03"` → `"p03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
+| numbered keys to force a layout (`"10-hall1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
+| `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planSpanRows` |
 | `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState`, `planExpand` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
 | `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planPick`, `planLibraryDnd` |
@@ -150,8 +160,8 @@ path.
 
 - **Order.** A canvas's order is its series list's. Examples whose old order
   was accidental key order now follow their series (`planChartRows`,
-  `planExpand`); `planGroupedRows` became one strip per line (a
-  `groupToDicts` group per entry); `planNarrow`'s coverage KPI is a hand-built
+  `planExpand`); `planGroupedRows` became one strip per hall (a
+  `groupToDicts` group per entry); `planNarrow`'s on-time KPI is a hand-built
   row placed by `Plan.series.rows`.
 - **Paged canvases.** A paged canvas reads its windows in window order, each
   window its entries' rows with their whole subtrees. (#823 lays several
@@ -160,8 +170,8 @@ path.
   section's member count and strip print `~`-marked — its members are entries
   the windows share out. Every other parent's numbers are exact, so it draws
   exactly as it does inline.
-- **e3-ui.** `dataBindPagedPlan` groups its ops dataset by line
-  (`Dict<String, OpsLine>`); the `Data.bindPaged` TypeDoc example follows it.
+- **e3-ui.** `dataBindPagedPlan` groups its ops dataset by hall
+  (`Dict<String, OpsHall>`); the `Data.bindPaged` TypeDoc example follows it.
 
 ### Renderer (`@elaraai/east-ui-components`)
 
@@ -281,9 +291,9 @@ host.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `Plan.run({ qty: 12, quantity: "12 t" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "t", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planSeriesData`, `planSpanRows` |
-| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 t" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "t" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planSpanRows`, `planTargetState` |
-| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 t · 12 h`) | `planSpanRows` |
+| `Plan.run({ qty: 12, quantity: "12 k sheets" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "k sheets", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planSeriesData`, `planSpanRows` |
+| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 k sheets" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "k sheets" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planSpanRows`, `planTargetState` |
+| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 k sheets · 12 h`) | `planSpanRows` |
 | `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` / `onCellClick` | `onElementClick` over `Plan.Types.ElementRef`: `$.match(ref, { run: …, cell: … })` answers only the arms it names, and a ribbon click is the `link` arm | `planVariants` |
 | `Plan.Types.RunClickEvent` … `CellClickEvent` | the arms of `Plan.Types.ElementRef`; a run's is `Plan.Types.RunRef` | — |
 | a group given both `summary` and `summaryAggregate` | one or the other; both is refused at build | `planGroupedRows` |
@@ -388,13 +398,15 @@ history bar or the keyboard, and applied as one checked batch.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `review={{ onApprove, onReject }}` | name the entry's `ApprovalStateType` field on the reviewed series — `review: { verdict: "approval" }` — and give the root `editing`. Approve / Reject draft the entry with the field set, and the row shows the field as its approval | `planReview`, `planEditing` |
+| `review={{ onApprove, onReject }}` | name the entry's `ApprovalStateType` field on the reviewed series — `review: { verdict: "approval" }` — and give the root `editing`. Approve / Reject draft the entry with the field set, and the row shows the field as its approval | `planReview` |
 | `review={{ onApproveAll, onRejectAll }}` | nothing more: Approve all / Reject all is one gesture over every row the canvas holds that takes a verdict — on a paged canvas the loaded rows, and the foot says how many | `planReview` |
-| `onDrag={fn(DragEvent)}` | `edit: { items, create }` on each series a card may land on (span / buckets / cards / events): `items` names the entry's `Array` field, and `create` builds the item from the `Plan.Types.Drop`, the entry and its key. `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop`, `planEditing` |
+| `onDrag={fn(DragEvent)}` | `edit: { items, create }` on each series a card may land on (span / buckets / cards / events): `items` names the entry's `Array` field, and `create` builds the item from the `Plan.Types.Drop`, the entry and its key. `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop` |
 | a callback writing the verdict or the dropped item into `State` | `editing={{ onUpdate: handle.write }}` with `data={handle}` — the inline adapter applies each batch over the handle's latest `Dict` — or `onApply` for a host transaction | `planReview`, `planRowDrop` |
 | `approval: r => some(r.approval)` feeding the buttons of a verdict the canvas takes | `review: { verdict: "approval" }`; `approval` stays for a verdict the canvas only shows. Giving both fails the build | `planReview` |
 
-Each removed callback throws at build, naming its replacement.
+Each removed callback throws at build, naming its replacement. Since #1260
+there is no review at all: the rows above that name `review` or `approval`
+give way to [Review removed (#1260)](#review-removed-1260).
 
 ### Behaviour
 
@@ -418,7 +430,7 @@ Each removed callback throws at build, naming its replacement.
   any depth drafts the entry the row came from, and the series that made the
   row writes it. The write reaches a nested row through the series'
   `children`, which must read a field of the entry (`r => r.children`,
-  `Plan.children(r => r.lines, …)`) or be the entry itself (`g => g`). A
+  `Plan.children(r => r.halls, …)`) or be the entry itself (`g => g`). A
   computed collection fails the build.
 - **Without `editing` the canvas takes no gesture.** The decision buttons are
   disabled, the foot has no batch, no card lands, and there is no history bar.
@@ -471,9 +483,9 @@ A series whose elements move names, beside `items`, the item's key field and
 the instant fields a gesture writes:
 
 ```ts
-Plan.series.span(Machine, {
-    key: "machines", title: "Machines", label: (m) => m.name,
-    runs: (m) => m.jobs.map(($, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.name, state: j.state })),
+Plan.series.span(Press, {
+    key: "presses", title: "Presses", label: (p) => p.name,
+    runs: (p) => p.jobs.map(($, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.name, state: j.state })),
     edit: { items: "jobs", key: "key", start: "start", end: "end", create },
 })
 ```
@@ -485,7 +497,7 @@ Plan.series.span(Machine, {
   repeats a key the list holds is refused, and so is a move onto a row whose
   list already holds the moved item's key; the drag shows the ⊘ stage there.
   So `key` is the item's identity across every row it can move to: a job's
-  own id, not its place in one machine's list.
+  own id, not its place in one press's list.
 - `start` and `end` (span, cards), or `at` (buckets, events), name the
   instant fields the move writes. A field may be one of:
   - a `DateTime`;
@@ -534,7 +546,8 @@ Plan.series.span(Machine, {
 - **Discard.** Discard drops every draft and clears the history, as on the
   Sheet; it is not itself undone.
 - **No `id` needed.** The canvas's own elements move whether or not the root
-  declares an `id`; a Library's card still lands only on a canvas that does.
+  declares an `id`; a Library's card beside the Plan still lands only on a
+  canvas that does (its own library panel's cards need none, #1259).
 - **Narrow layout.** The card layout takes no moves. Drops and verdicts are
   unchanged.
 
@@ -548,6 +561,72 @@ Plan.series.span(Machine, {
 - The shared drag layer (#608) takes a payload-aware drop cell:
   `useDropCell`'s options gain `accepts(payload)`, and `resolveCoord`,
   `onHover` and `name` receive the payload.
+
+## Review removed (#1260)
+
+Before #1260 a Plan's changes were drafts of its editing session (#880), and a
+verdict sat on top of them: a decision column, Approve all and Reject all, and
+Approve and Reject on each event. It was a second way to say yes or no to what
+the history item already commits. Now the history item is the one way: Undo,
+Redo, Discard and Save.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanReviewType` (`Plan.Types.Review`) | `{ columnLabel, summary, onRerun, rerunLabel }` | removed |
+| the root's `review` | `Option<PlanReviewType>` | removed |
+| `PlanRowType.approval` | `Option<ApprovalState>` | removed |
+| `PlanGestureType` (`Plan.Types.Gesture`) | `verdict(ApprovalState) \| drop(PlanDrop) \| move(PlanMove)` | `drop(PlanDrop) \| move(PlanMove)` |
+| `PlanRowEditsType` (`Plan.Types.RowEdits`) | `{ verdict: Boolean, drop: Boolean, move: Option<PlanMoveEdits> }` | `{ drop: Boolean, move: Option<PlanMoveEdits> }` |
+| an event kind's roles (e3-ui `Schedule`) | `{ state, quantity, lane, review }` | `{ state, quantity, lane }` |
+| an event as a Plan draws it | its roles' values and `verdict: Option<ApprovalState>` | its roles' values |
+
+`Editing.Types.Origin` keeps its `verdict` case. Nothing makes one now; the
+case stays so a journal of earlier patch events still reads.
+
+### Removals
+
+| Removed | What to do |
+|---|---|
+| `<Plan review={…}>` | leave it out: the history item saves the drafts. A sign-off an app keeps is a field of its own record, edited like any other |
+| a series' `review` and `approval` | leave them out; a row's `status` still shows its dot |
+| a hand-built row's `approval` | leave it out |
+| `Schedule.events(record, { review })` | leave it out; the inspector edits the field through the kind's `fields`, like any other |
+| the `planReview` example | `planRowDrop`: every change a draft, saved together |
+
+Each is refused at build, naming the removal.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+- `PlanMessages` loses the review's words: `approve`, `reject`, `approveAll`,
+  `rejectAll`, `approveLoaded`, `rejectLoaded`, `reviewMenu`,
+  `inspectorVerdict` and `footerToReview`.
+- The toolbar loses the review item, the inspector its verdict, and the
+  footer its count of the events to review.
+- The history item's commit reads Save (`EditingMessages.apply`), as it does
+  in every builder: the Plan, the Sheet, the SnapGrid's editing canvas and the
+  query builder.
+
+## The library panel is the palette (#1259)
+
+An author's tab (`Plan.library.tab`) is a palette: its cards drag onto the
+rows of `data` whose series makes an item of a card (`edit.create`), by the
+pointer or carried from the keyboard, as a `<Library>`'s card beside the Plan
+does. The drop is the same `add` — `from.library` the tab's
+(`plan.library:tab:<name>`, or `plan.library.<id>:tab:<name>` under an `id`)
+and `from.key` the card's row key as text — so `canDrop` and `create` read it
+unchanged. The Plan takes
+its own panel's cards with no `id` or `sources`; a Library beside it still
+reaches it by both. A tab's cards drag while a row of the canvas takes one,
+outside the narrow layout, which draws no row to drop on. The wire does not
+change.
+
+| Before | Now | Example |
+|---|---|---|
+| a `<Library>` above the Plan, its cards reaching it by `id` and `sources` | `library={[Plan.library.tab(cards, { name, label, meta?, group? })]}` — the Plan's own panel | `planRowDrop` |
+| the `planEditing` example | `planRowDrop`: the panel's cards, moves and resizes, a hall's presses drafting the hall, `ready` and the gesture journal in the footer | `planRowDrop` |
+| the `planEventRefs` example | `planEventLinks`: links between events, beside a read-only table over a dataset | `planEventLinks` |
 
 ## Paged data is bound-only (#849)
 
@@ -668,16 +747,14 @@ domain id, never an index.
   declaration once it names the item's key and instant fields
   (`edit: { items, key, start, end }`, #825). `onTaskProgressChange` has no
   equivalent.
-- **Review**: the same chrome, but a verdict is a draft (#880). Name the
-  entry's `ApprovalStateType` field on the series
-  (`review: { verdict: "approval" }`) and give the root `editing`. There are
-  no per-row callbacks, and nothing is addressed by `{ rowIndex }`.
+- **Review**: none (#1260). A Plan's changes are drafts its history item
+  saves together; a sign-off an app keeps is a field of its own record.
 
 ### `<Planner.Point>` → `<Plan>` with a buckets series
 
 ```tsx
 Plan.series.buckets(Row, {
-  key: "dock", title: "Dock", label: r => r.name,
+  key: "vans", title: "Vans", label: r => r.name,
   lanes: r => [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
   events: r => r.slots.map((_$, s) => Plan.event({ key: s.key, at: s.at, lane: some(s.lane), state: s.state })),
   markers: r => r.markers,
@@ -747,16 +824,18 @@ gutter-imposing stack container any more.
 |---|---|
 | `ganttBasic` | `planSeriesData`, `planSpanRows` |
 | `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planSpanRows` (lifecycle flavours), `planFill` (fill + 200-row stress), `planTargetState` |
-| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Apply writes the State handle); `planEditing` (runs move and resize, #825) |
-| `ganttReview` | `planReview` |
+| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft, and runs move and resize, #825; Save commits them) |
+| `ganttReview` | none: review is removed (#1260) |
 | `ganttLibraryDnd` | `planRowDrop` |
 | `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |
 | `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
-| `plannerReview` | `planReview` |
-| `plannerLibraryDnd` (add + veto + review loop) | `planEditing` (drops and verdicts in one session), `planRowDrop` + `planReview` |
+| `plannerReview` | none: review is removed (#1260) |
+| `plannerLibraryDnd` (add + veto + review loop) | `planRowDrop` (drops from the Plan's library panel, moves and resizes in one session) |
 | `plannerSpan` | `planSpanRows` |
 | `plannerFill` | `planFill` |
 | `alignedStackAll` | `planTargetState` (all kinds, one axis), `planChartRows` (chart compositions) |
-| `alignedStackLibraryDnd` | `planRowDrop`; `dockBesidePlan` (source panel beside the target) |
+| `alignedStackLibraryDnd` | `planRowDrop` |
 
-`sliceGanttChrome` → `slicePlanChrome`; `dockBesidePlanner` → `dockBesidePlan`.
+`sliceGanttChrome` → `slicePlanChrome`. `dockBesidePlanner`, a `<Dock>` beside the
+canvas, became `dockBesidePlan` and is removed (#1258): the Plan renders in its
+frame, whose panes it holds.

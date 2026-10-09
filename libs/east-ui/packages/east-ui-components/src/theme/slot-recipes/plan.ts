@@ -12,15 +12,16 @@
  * `plan/rows.ts` (the alignment contract, gutter, focus, groups),
  * `plan/elements.ts` (marks at an instant), `plan/cells.ts` (what is quantised
  * to a bucket) and `plan/narrow.ts` (the §10 layout) — with the lifecycle
- * axis shared from `plan/states.ts` and the keyboard focus rings from
- * `plan/focus.ts` (#819).
+ * axis shared from `plan/states.ts`, the keyboard focus rings from
+ * `plan/focus.ts` (#819), and the now line from the time part every canvas
+ * that marks now shares (`time/now.ts`, #1148).
  *
  * Every height the model also computes — rows, rails, gap bands, strips and
  * their marks, bars, tiles, chips, the chrome bands — is read from the
  * canvas's geometry variables (`--plan-row-h`, `--plan-rail-h`, …), which the
- * canvas writes once from the ONE geometry table (`collections/plan/geometry.ts`)
- * that `rowHeight` computes from. Density is geometry, so the recipe has no
- * density variant.
+ * canvas writes once from the ONE geometry table (e3-ui-components'
+ * `plan/geometry.ts`, where the Plan renders since #1177) that `rowHeight`
+ * computes from. Density is geometry, so the recipe has no density variant.
  *
  * Run-state styling is the §4.3 truth table, driven by the `data-state`
  * attribute (obs / appr / prop / propRemoved / estimated / rejected) +
@@ -37,9 +38,10 @@ import { rowsBase, rowsSlots } from "./plan/rows.js";
 import { elementsBase, elementsSlots } from "./plan/elements.js";
 import { cellsBase, cellsSlots } from "./plan/cells.js";
 import { narrowBase, narrowSlots } from "./plan/narrow.js";
+import { nowBase, nowSlots } from "./time/now.js";
 
 export const planSlotRecipe = defineSlotRecipe({
     className: "elara-plan",
-    slots: [...shellSlots, ...rowsSlots, ...elementsSlots, ...cellsSlots, ...narrowSlots],
-    base: { ...shellBase, ...rowsBase, ...elementsBase, ...cellsBase, ...narrowBase },
+    slots: [...shellSlots, ...nowSlots, ...rowsSlots, ...elementsSlots, ...cellsSlots, ...narrowSlots],
+    base: { ...shellBase, ...nowBase, ...rowsBase, ...elementsBase, ...cellsBase, ...narrowBase },
 });

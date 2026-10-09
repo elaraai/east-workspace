@@ -6,11 +6,11 @@
  *
  * One formatter (#850), rendered: under `I18nProvider locale="de-DE"` every
  * component family prints German numbers and dates — Numeric and Stat, the
- * Table's cells and pager, a Chart's axes, a Deck's metrics, the Slice
- * summary, and the Sheet's own counts. Every value is built by the east-ui
- * factory and COMPILED, so the renderer reads what an author's program
- * produces. The date-bearing families run under timezones either side of UTC
- * and print the UTC day in each.
+ * Table's cells and pager, a Chart's axes, a Deck's metrics and the Slice
+ * summary (the Sheet's own counts are e3-ui-components', #1179). Every value
+ * is built by the east-ui factory and COMPILED, so the renderer reads what an
+ * author's program produces. The date-bearing families run under timezones
+ * either side of UTC and print the UTC day in each.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -22,7 +22,7 @@ import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, LiteralValueType, NullType, StringType, StructType,
     decodeBeast2For, encodeBeast2For, none, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Chart, Deck, Format, Numeric, Sheet, Stat, Table, UIComponentType } from "@elaraai/east-ui/internal";
+import { Chart, Deck, Format, Numeric, Stat, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
@@ -30,9 +30,6 @@ import { getRegisteredPlatformImplementations } from "../platform/registry.js";
 import { EastChakraComponent } from "../component.js";
 import { EastChakraStat, type StatValue } from "../display/stat/index.js";
 import { EastChakraSliceSummary, type SliceSummaryValue } from "../slice/summary/index.js";
-import { SheetFooter } from "../collections/sheet/Footer.js";
-import { SheetBandRow, SheetGapRow } from "../collections/sheet/Rows.js";
-import { SheetTabs } from "../collections/sheet/Tabs.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -200,55 +197,6 @@ describe("the Slice (#850)", () => {
         const words = texts(container);
         expect(words).toContain("1.284");
         expect(words).toContain("of 50.000");
-    });
-});
-
-// ── The Sheet's own counts ──────────────────────────────────────────────────
-
-describe("the Sheet's counts (#850)", () => {
-    const styles = {} as Record<string, Record<string, unknown>>;
-
-    test("the transport line, an unloaded band and a lens gap", () => {
-        const { container } = german(
-            <>
-                <SheetFooter styles={styles} items={[]} hint="" message="" transport={{ loaded: 600, total: 5000, loading: false }} />
-                <SheetBandRow styles={styles} band={{ at: "tail", from: 600, to: 4999, px: 100 }} loading={false} colCount={2} />
-                <SheetGapRow styles={styles} gap={{ key: "g", from: 10, to: 1509, hidden: 1500, first: false, last: false }}
-                    reach={{ top: 1, bottom: 3, both: 10 }} onReveal={() => {}} colCount={2} />
-            </>,
-        );
-        const words = texts(container);
-        expect(words).toContain("600 loaded of 5.000");
-        expect(words).toContain("4.400 not loaded");
-        expect(words).toContain("1.500 hidden");
-    });
-
-    test("the view tabs' counts", () => {
-        const { container } = german(
-            <SheetTabs styles={styles} views={[{ id: "v", name: "PAINT", count: 1234, title: "" }]} wholeCount={5000}
-                active={null} dirty={false} hasQuery={false} renaming={null} renameVal=""
-                onSwitch={() => {}} onCreate={() => {}} onClose={() => {}} onRenameStart={() => {}}
-                onRenameChange={() => {}} onRenameCommit={() => {}} onRenameCancel={() => {}} onReorder={() => {}} />,
-        );
-        const words = texts(container);
-        expect(words).toContain("5.000");
-        expect(words).toContain("1.234");
-    });
-
-    test("a grouped sheet's summary and a band's line count", () => {
-        const TaskType = StructType({ task: StringType });
-        const PlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(TaskType) });
-        const plans = [{ id: "p1", name: "Week 8", lines: Array.from({ length: 1234 }, (_, i) => ({ task: `Task ${i}` })) }];
-        const { container } = component(compile(East.function([], UIComponentType, ($) => {
-            const data = $.const(plans, ArrayType(PlanType));
-            // Folded, so the unbounded body is the band alone — the summary still counts every line.
-            return Sheet.Root(data, { task: Sheet.column.text(TaskType, { header: "Task" }) }, {
-                id: "id",
-                group: Sheet.group(PlanType, "lines", { title: "name", folded: (_p) => true, noun: { singular: "plan", plural: "plans" } }),
-            });
-        })), "fmt-sheet");
-        expect(container.querySelector('[data-slot="footerSummary"]')?.textContent).toBe("1 plan · 1.234 lines");
-        expect(container.querySelector('[data-slot="groupCount"]')?.textContent).toBe("1.234");
     });
 });
 

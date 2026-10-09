@@ -127,6 +127,17 @@ export {
     type EastChakraFileUploadProps,
 } from "./file-upload/index.js";
 
+// FieldForm — a typed form over an East struct from `Fields.specs` (#1147):
+// each field the shared Field around the shared input its type takes
+export {
+    FieldForm,
+    fieldFormMessages,
+    type FieldFormProps,
+    type FieldOption,
+    type FieldFormMessages,
+    type FieldFormWords,
+} from "./field-form/index.js";
+
 // ClauseBuilder — shared field → operator → value authoring row + clause chip
 export {
     ClauseBuilder,

@@ -1,0 +1,934 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * The Plan kind factories — `span` / `buckets` / `chart` / `heat` / `table` /
+ * `cards` / `events` / `group` — the vocabulary for rows no dataset holds,
+ * placed on a canvas by a `Plan.series.rows` entry. Each returns its row's
+ * STREAM (`PlanRowsValue` — the row, then its nested rows), so factories
+ * compose: a nested `rows:` input is other factories' results, placed under
+ * the parent in order (#822). A nesting parent DECLARES its rollup / aggregate
+ * / subtotal; the renderer derives the values from the subtree.
+ *
+ * The per-kind constructors ({@link spanKind} … {@link groupKind}) are shared
+ * with the data-driven series, so a hand-built row and a row made from a
+ * source entry carry the same kind for the same input.
+ *
+ * @packageDocumentation
+ */
+
+import {
+    type ExprType,
+    type SubtypeExprOrValue,
+    East,
+    Expr,
+    ArrayType,
+    BooleanType,
+    FloatType,
+    OptionType,
+    StringType,
+    variant,
+    some,
+    none,
+} from "@elaraai/east";
+
+import {
+    ChartXType,
+    TableAggregateType,
+    TickFormatType,
+    resolveTag,
+    type AxisOptions,
+    type ChartLayer,
+    type RefBandOptions,
+    type RefDotOptions,
+    type RefLineOptions,
+    type TableAggregateLiteral,
+} from "@elaraai/east-ui/internal";
+import {
+    type PlanRollupLiteral,
+    type PlanAggregateLiteral,
+    PlanAggregateType,
+    type PlanTableEmphasisLiteral,
+    PlanTableEmphasisType,
+    PlanTableSeriesType,
+    PlanTableSplitType,
+    type PlanTableSplitLiteral,
+    PlanChartAxisType,
+    PlanChartHeightType,
+    type PlanChartHeightLiteral,
+    PlanHeatCellsType,
+    PlanTableCellType,
+    PlanPortType,
+    PlanCellMarkerType,
+    PlanChartPointType,
+    PlanChartBandPointType,
+    PlanChartLayerType,
+    PlanAxisSideType,
+    type PlanAxisSideLiteral,
+    PlanBreachType,
+    PlanRollupType,
+    PlanRunType,
+    PlanDecisionMarkType,
+    PlanBucketEventType,
+    PlanChipType,
+    PlanEventMarkType,
+    PlanLaneType,
+    PlanRowKindType,
+    PlanInstantType,
+    PlanHeatScaleType,
+    PlanGroupSummaryType,
+    type PlanInstantLikeType,
+    type PlanRowsValue,
+    type PlanAxisKindLiteral,
+    type PlanElementsInput,
+    type PlanHeatCellsInput,
+    type PlanTableCellsInput,
+} from "./types.js";
+import {
+    createHeatCells, createHeatScale, resolveFold, resolveInstant,
+    type PlanFoldInput, type PlanHeatScaleInput,
+} from "./builders.js";
+import {
+    type PlanRowBaseInput,
+    type PlanRowsInput,
+    makeRow,
+    assembleNested,
+} from "./assemble.js";
+
+// ============================================================================
+// Chart-layer consumption — Chart builders in, data-only layers out
+// ============================================================================
+
+/**
+ * The Plan-only channels a chart layer can carry via {@link Plan.layer}.
+ *
+ * @property axis - Which y-axis the layer scales against (default `"left"`)
+ * @property breach - Breach threshold (`{ above }` / `{ below }`) — beyond it, marks render warn
+ * @property series - Stack series id for column layers (stacked columns pair by it)
+ * @property fold - How a line, area or column layer folds the points in one bucket (#824)
+ */
+export interface PlanLayerChannels {
+    /** Which y-axis the layer scales against (default `"left"`; left ticks print in the gutter edge). */
+    axis?: PlanAxisSideLiteral;
+    /** Breach threshold — marks beyond it render in the warn tone. */
+    breach?: { above: SubtypeExprOrValue<FloatType> | number } | { below: SubtypeExprOrValue<FloatType> | number };
+    /** Stack series id for column layers. */
+    series?: SubtypeExprOrValue<StringType>;
+    /** How a line, area or column layer folds the points in one bucket at a coarser resolution than
+     *  theirs — `"sum"` / `"mean"` / `"min"` / `"max"` / `"last"` / `"count"` (default: a column's
+     *  `"sum"`, a line's or an area's `"mean"`, #824). Scatter and band layers draw every point. */
+    fold?: PlanFoldInput;
+}
+
+/** A Chart layer wrapped with Plan-only channels — see {@link Plan.layer}. */
+export interface PlanWrappedLayer {
+    /** Discriminant. */
+    plan: true;
+    /** The wrapped Chart layer builder result. */
+    layer: ChartLayer;
+    /** The Plan-only channels. */
+    channels: PlanLayerChannels;
+}
+
+/** A chart-row layer input — a bare Chart layer builder result or a {@link Plan.layer} wrap. */
+export type PlanChartLayerInput = ChartLayer | PlanWrappedLayer;
+
+/**
+ * Wraps a Chart layer builder result with the Plan-only channels (axis side,
+ * breach threshold, stack series, and how a coarser bucket folds its points).
+ *
+ * @param layer - The `Chart.Line` / `Column` / `Area` / `Scatter` / `Band` / `ref*` builder result
+ * @param channels - The Plan-only channels ({@link PlanLayerChannels})
+ * @returns The wrapped layer for `Plan.chart`'s `layers`
+ */
+export function createLayer(layer: ChartLayer, channels: PlanLayerChannels): PlanWrappedLayer {
+    return { plan: true, layer, channels };
+}
+
+/** Resolve an axis side literal into a `PlanAxisSideType` value. */
+function axisSide(side: PlanAxisSideLiteral | undefined): ExprType<PlanAxisSideType> {
+    return East.value(variant(side ?? "left", null), PlanAxisSideType);
+}
+
+/** Envelope the optional breach channel. */
+function breachOpt(breach: PlanLayerChannels["breach"]): ExprType<OptionType<PlanBreachType>> {
+    if (breach === undefined) return East.value(none, OptionType(PlanBreachType));
+    const arm = "above" in breach
+        ? variant("above", breach.above)
+        : variant("below", breach.below);
+    return East.value(some(arm), OptionType(PlanBreachType));
+}
+
+/**
+ * A consumed layer point's x coordinate as a canvas instant (#631). The
+ * Chart builder already typed the coordinate by the accessor's STATIC type
+ * (`ChartXType`: `time` / `number` / `category` — `scaleFor`), so the arm
+ * is known here without an East match: a `DateTimeType` x is a `time`
+ * instant, a numeric x a `number` instant, a `StringType` x an `ordinal`
+ * one. Which arm the canvas accepts is the root axis's; the renderer holds
+ * every row against it.
+ */
+function pointInstant(x: ExprType<ChartXType>, xScale: "band" | "linear" | "time"): ExprType<PlanInstantType> {
+    switch (xScale) {
+        case "time":   return East.value(variant("time", x.unwrap("time")), PlanInstantType);
+        case "linear": return East.value(variant("number", x.unwrap("number")), PlanInstantType);
+        default:       return East.value(variant("ordinal", x.unwrap("category")), PlanInstantType);
+    }
+}
+
+/**
+ * Consumes one chart-row layer input into `ArrayType(PlanChartLayerType)`
+ * arms (one per series for multi-series layers).
+ */
+function consumeLayer(input: PlanChartLayerInput): ExprType<ArrayType<PlanChartLayerType>> {
+    const wrapped = (input as PlanWrappedLayer).plan === true;
+    const layer = wrapped ? (input as PlanWrappedLayer).layer : (input as ChartLayer);
+    const channels: PlanLayerChannels = wrapped ? (input as PlanWrappedLayer).channels : {};
+
+    if (layer.kind === "ref") {
+        const side = axisSide(channels.axis);
+        if (layer.refKind === "line") {
+            const o = layer.refOptions as RefLineOptions;
+            if (o.y === undefined) {
+                throw new Error("Plan.chart: vertical (x) refLines are not supported — instants are event marks (Plan.events) or the axis now-line");
+            }
+            return East.value([East.value(variant("refLine", {
+                y: o.y, axis: side,
+                label: o.label !== undefined ? some(o.label) : none,
+            }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
+        }
+        if (layer.refKind === "band") {
+            const o = layer.refOptions as RefBandOptions;
+            if (o.x === undefined) {
+                throw new Error("Plan.chart: refBand needs x bounds (two instants) — y-range refBands are not supported on chart rows");
+            }
+            return East.value([East.value(variant("refBand", {
+                from:  resolveInstant(o.x[0] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                to:    resolveInstant(o.x[1] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                label: o.label !== undefined ? some(o.label) : none,
+            }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
+        }
+        if (layer.refKind === "dot") {
+            const o = layer.refOptions as RefDotOptions;
+            return East.value([East.value(variant("refDot", {
+                t: resolveInstant(o.x as SubtypeExprOrValue<PlanInstantLikeType>, "refDot x"), y: o.y, axis: side,
+                label: o.label !== undefined ? some(o.label) : none,
+            }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
+        }
+        throw new Error("Plan.chart: unsupported annotation layer");
+    }
+
+    if (layer.kind === "band") {
+        const xScale = layer.xScale;
+        const side = axisSide(channels.axis ?? layer.style.axis);
+        return layer.data.map((_$, s) => East.value(variant("band", {
+            points: s.points.map((_$2, p) => East.value({
+                t: pointInstant(p.x, xScale), lo: p.low, hi: p.high,
+            }, PlanChartBandPointType)),
+            axis: side,
+        }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
+    }
+
+    // Series layer — line / column / area / scatter. The shared channels are
+    // built fresh per use so no East expression is spliced twice.
+    if (layer.orientation === "horizontal") {
+        throw new Error("Plan.chart: Chart.Bar (horizontal) flips the frame the shared axis owns — use Chart.Column (vertical)");
+    }
+    const xScale = layer.xScale;
+    const stacked = layer.style.stack !== undefined;
+    if (layer.mark === "line") {
+        return layer.data.map((_$, s) => East.value(variant("line", {
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
+            axis: axisSide(channels.axis ?? layer.style.axis), breach: breachOpt(channels.breach),
+            // A line is a level: a bucket folds its points to their mean (#824).
+            fold: resolveFold(channels.fold, "mean"),
+        }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
+    }
+    if (layer.mark === "area") {
+        return layer.data.map((_$, s) => East.value(variant("area", {
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
+            axis: axisSide(channels.axis ?? layer.style.axis),
+            fold: resolveFold(channels.fold, "mean"),
+        }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
+    }
+    if (layer.mark === "scatter") {
+        return layer.data.map((_$, s) => East.value(variant("scatter", {
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
+            axis: axisSide(channels.axis ?? layer.style.axis),
+        }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
+    }
+    return layer.data.map((_$, s) => East.value(variant("column", {
+        points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
+        axis:   axisSide(channels.axis ?? layer.style.axis),
+        series: channels.series !== undefined
+            ? East.value(some(channels.series), OptionType(StringType))
+            : (stacked
+                ? East.value(some(s.key), OptionType(StringType))
+                : East.value(none, OptionType(StringType))),
+        breach: breachOpt(channels.breach),
+        // A column is an amount: a bucket folds its points to their sum (#824).
+        fold: resolveFold(channels.fold, "sum"),
+    }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
+}
+
+/** Concatenate the consumed layers of a chart row. */
+export function consumeLayers(inputs: PlanChartLayerInput | PlanChartLayerInput[]): ExprType<ArrayType<PlanChartLayerType>> {
+    const list = Array.isArray(inputs) ? inputs : [inputs];
+    return list.reduce<ExprType<ArrayType<PlanChartLayerType>>>(
+        (acc, l) => acc.concat(consumeLayer(l)) as ExprType<ArrayType<PlanChartLayerType>>,
+        East.value([], ArrayType(PlanChartLayerType)),
+    );
+}
+
+/**
+ * Pins a chart row to an explicit height (composed charts — §4·K3's 120px
+ * OUT + DEFECTS row), a CSS px size like every component height.
+ *
+ * @param size - The CSS px size (`"120px"`)
+ * @returns A `PlanChartHeightType` expression with the `fixed` arm
+ */
+export function createFixedHeight(size: SubtypeExprOrValue<StringType>): ExprType<PlanChartHeightType> {
+    return East.value(variant("fixed", size), PlanChartHeightType);
+}
+
+/**
+ * A chart-row y-axis input — the `Chart.Root` axis vocabulary
+ * ({@link AxisOptions}), restricted to the members a Plan chart row's
+ * value axis supports: `domain` (`[min, max]`), `tickValues` and `format`.
+ * Same names, same types, same guards as a `Chart.Root` y-axis — temporal
+ * domains / tick positions are a build-time error (the time axis is the
+ * shared canvas scale, `Plan.axis`).
+ */
+export type PlanChartAxisInput = Pick<AxisOptions, "domain" | "tickValues" | "format">;
+
+/** Whether a domain bound is temporal — mirrors `Chart.Root`'s `isTemporalBound`. */
+function isTemporalBound(bound: NonNullable<AxisOptions["domain"]>[0]): boolean {
+    if (bound instanceof Date) return true;
+    if (typeof bound === "number") return false;
+    return (Expr.type(bound as Expr) as unknown as { type: string }).type === "DateTime";
+}
+
+/** Whether explicit tick positions are temporal — mirrors `Chart.Root`'s `isTemporalTickValues`. */
+function isTemporalTickValues(tv: AxisOptions["tickValues"]): boolean {
+    if (tv === undefined) return false;
+    const expr = East.value(tv as SubtypeExprOrValue<ArrayType<FloatType>>) as ExprType<ArrayType<FloatType>>;
+    return (Expr.type(expr) as unknown as ArrayType).value.type === "DateTime";
+}
+
+/** Envelope a chart-row y-axis input (`Chart.Root`'s y-axis rules — value axes are numeric). */
+function buildChartAxis(a: PlanChartAxisInput, side: "left" | "right"): ExprType<PlanChartAxisType> {
+    if (a.domain !== undefined && isTemporalBound(a.domain[0])) {
+        throw new Error(`Plan.chart: the ${side} axis is a numeric value axis — a temporal extent belongs to the shared time axis (Plan.axis window)`);
+    }
+    if (isTemporalTickValues(a.tickValues)) {
+        throw new Error(`Plan.chart: Date tickValues are only valid on a time axis — the ${side} axis is numeric; pass float tick positions`);
+    }
+    return East.value({
+        domain: a.domain !== undefined
+            ? some(variant("number", { min: a.domain[0] as SubtypeExprOrValue<FloatType>, max: a.domain[1] as SubtypeExprOrValue<FloatType> }))
+            : none,
+        tickValues: a.tickValues !== undefined
+            ? some(variant("number", a.tickValues as SubtypeExprOrValue<ArrayType<FloatType>>))
+            : none,
+        format: a.format !== undefined ? some(a.format) : none,
+    }, PlanChartAxisType);
+}
+
+// ============================================================================
+// Kind constructors — shared by the literal factories and the data series
+// ============================================================================
+
+/**
+ * The parts of a span row's kind. A band's sums come from the runs'
+ * quantities, unit by unit — each quantity carries its own unit (#824).
+ *
+ * @typeParam K - The axis kind the parts' instants ride
+ * @property runs - The row's own runs
+ * @property decisions - Decision diamonds on run transitions
+ * @property ports - Quantity in/out glyphs
+ */
+export interface PlanSpanParts<K extends PlanAxisKindLiteral = never> {
+    /** The row's own runs (`Plan.run` values — their kind brands the row). */
+    runs?: PlanElementsInput<PlanRunType, K>;
+    /** Decision diamonds on run transitions (`Plan.decision` values). */
+    decisions?: PlanElementsInput<PlanDecisionMarkType, K>;
+    /** Quantity in/out glyphs (`Plan.port` values). */
+    ports?: PlanElementsInput<typeof PlanPortType, K>;
+}
+
+/**
+ * A span row's kind.
+ *
+ * @param parts - The row's runs, decisions and ports
+ * @param rollup - The declared rollup — `some` on a row whose subtree rolls up into its bands
+ * @returns The kind
+ */
+export function spanKind(
+    parts: PlanSpanParts<PlanAxisKindLiteral>,
+    rollup: SubtypeExprOrValue<OptionType<PlanRollupType>>,
+): ExprType<PlanRowKindType> {
+    return East.value(variant("span", {
+        runs:      East.value((parts.runs ?? []) as SubtypeExprOrValue<ArrayType<PlanRunType>>, ArrayType(PlanRunType)),
+        decisions: East.value((parts.decisions ?? []) as SubtypeExprOrValue<ArrayType<PlanDecisionMarkType>>, ArrayType(PlanDecisionMarkType)),
+        ports:     East.value((parts.ports ?? []) as SubtypeExprOrValue<ArrayType<typeof PlanPortType>>, ArrayType(PlanPortType)),
+        rollup,
+    }), PlanRowKindType);
+}
+
+/**
+ * The parts of a bucket row's kind.
+ *
+ * @typeParam K - The axis kind the parts' instants ride
+ * @property lanes - Per-row sub-slot lanes
+ * @property events - The row's tiles
+ * @property markers - Cell status rings
+ */
+export interface PlanBucketsParts<K extends PlanAxisKindLiteral = never> {
+    /** Per-row sub-slot lanes (`PlanLaneType` values — `{ key, label: some("AM") }`); omitted ⇒ unbucketed. */
+    lanes?: SubtypeExprOrValue<ArrayType<PlanLaneType>>;
+    /** The row's tiles (`Plan.event` values — their kind brands the row). */
+    events?: PlanElementsInput<PlanBucketEventType, K>;
+    /** Cell status rings (`Plan.marker` values). */
+    markers?: PlanElementsInput<typeof PlanCellMarkerType, K>;
+}
+
+/**
+ * A bucket row's kind.
+ *
+ * @param parts - The row's lanes, tiles and markers
+ * @returns The kind
+ */
+export function bucketsKind(parts: PlanBucketsParts<PlanAxisKindLiteral>): ExprType<PlanRowKindType> {
+    return East.value(variant("buckets", {
+        lanes:   East.value(parts.lanes ?? [], ArrayType(PlanLaneType)),
+        events:  East.value((parts.events ?? []) as SubtypeExprOrValue<ArrayType<PlanBucketEventType>>, ArrayType(PlanBucketEventType)),
+        markers: East.value((parts.markers ?? []) as SubtypeExprOrValue<ArrayType<typeof PlanCellMarkerType>>, ArrayType(PlanCellMarkerType)),
+    }), PlanRowKindType);
+}
+
+/**
+ * The parts of a chart row's kind.
+ *
+ * @property layers - The Chart layer builders, consumed as data
+ * @property left - The left y-axis
+ * @property right - The right y-axis
+ * @property height - The height mode
+ * @property expandedHeight - The height the expanded state opens to
+ * @property expandable - Spark ↔ expanded toggle
+ */
+export interface PlanChartParts {
+    /** The Chart layer builders, consumed as data. The x accessor's static type picks the
+     *  instant arm (`DateTimeType` ⇒ `time`, numeric ⇒ `number`, `StringType` ⇒ `ordinal`) and
+     *  must match the canvas axis at render; `Chart.Bar` is a build-time error. */
+    layers: PlanChartLayerInput | PlanChartLayerInput[];
+    /** The left y-axis (ticks print inside the gutter's right edge). */
+    left?: PlanChartAxisInput;
+    /** The right y-axis (ticks at the plot's right edge). */
+    right?: PlanChartAxisInput;
+    /** Height mode — `"spark"` (32px, default) / `"expanded"` (88px) / `Plan.fixed(px)`. */
+    height?: PlanChartHeightLiteral | SubtypeExprOrValue<PlanChartHeightType>;
+    /** Height the EXPANDED state opens to (default 88px) — a CSS px size (`"120px"`, the shared
+     *  component-height type). Pairs with `expandable` so a spark can toggle open to a custom
+     *  composition height; also applies when `height: "expanded"` is declared. */
+    expandedHeight?: SubtypeExprOrValue<StringType>;
+    /** Spark ↔ expanded toggle (caret; default `false`). */
+    expandable?: SubtypeExprOrValue<BooleanType> | boolean;
+}
+
+/**
+ * A chart row's kind — Chart layers consumed AS DATA.
+ *
+ * @param parts - The row's layers and axes ({@link PlanChartParts})
+ * @returns The kind
+ */
+export function chartKind(parts: PlanChartParts): ExprType<PlanRowKindType> {
+    const heightMode = parts.height === undefined
+        ? East.value(variant("spark", null), PlanChartHeightType)
+        : (typeof parts.height === "string"
+            ? East.value(variant(parts.height, null), PlanChartHeightType)
+            : East.value(parts.height, PlanChartHeightType));
+    return East.value(variant("chart", {
+        layers:     consumeLayers(parts.layers),
+        left:       parts.left !== undefined ? some(buildChartAxis(parts.left, "left")) : none,
+        right:      parts.right !== undefined ? some(buildChartAxis(parts.right, "right")) : none,
+        height:     heightMode,
+        expandedHeight: parts.expandedHeight !== undefined ? some(parts.expandedHeight) : none,
+        expandable: parts.expandable ?? false,
+    }), PlanRowKindType);
+}
+
+/**
+ * The parts of a heat row's kind.
+ *
+ * @typeParam K - The axis kind the cells' instants ride
+ * @property cells - The row's cells
+ * @property scale - The scale a parent's derived cells paint on
+ */
+export interface PlanHeatParts<K extends PlanAxisKindLiteral = never> {
+    /** The row's cells (`Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells` — their kind brands the row). */
+    cells?: PlanHeatCellsInput<K>;
+    /** The scale a parent's DERIVED cells paint on (min / max / warn threshold) — the row's own, not an
+     *  empty cells arm's (#824). A row's own cells paint on their arm's scale (`Plan.heatCells(cells, { min, max })`). */
+    scale?: PlanHeatScaleInput;
+}
+
+/**
+ * A heat row's kind.
+ *
+ * @param parts - The row's cells and the scale its derived cells paint on
+ * @param aggregate - The declared aggregate — how a parent with no cells of its own derives them from its children
+ * @returns The kind
+ */
+export function heatKind(
+    parts: PlanHeatParts<PlanAxisKindLiteral>,
+    aggregate: SubtypeExprOrValue<OptionType<PlanAggregateType>>,
+): ExprType<PlanRowKindType> {
+    const cells = parts.cells as SubtypeExprOrValue<PlanHeatCellsType> | undefined;
+    return East.value(variant("heat", {
+        cells: cells !== undefined ? East.value(cells, PlanHeatCellsType) : createHeatCells([]),
+        aggregate,
+        scale: parts.scale !== undefined
+            ? East.value(some(createHeatScale(parts.scale)), OptionType(PlanHeatScaleType))
+            : East.value(none, OptionType(PlanHeatScaleType)),
+    }), PlanRowKindType);
+}
+
+/**
+ * The parts of a table row's kind.
+ *
+ * @typeParam K - The axis kind the cells' instants ride
+ * @property cells - The row's cells (sugar for one plain series)
+ * @property series - Multi-series cells
+ * @property split - Part layout when several series render
+ * @property format - Numeral format for the row's values and derived subtotals
+ * @property emphasis - Row emphasis
+ * @property fold - How a bucket folds the `cells` sugar's cells at a coarser resolution
+ */
+export interface PlanTableParts<K extends PlanAxisKindLiteral = never> {
+    /** The row's cells (`Plan.tableCells` result — its kind brands the row) — sugar for ONE unstyled series. */
+    cells?: PlanTableCellsInput<K>;
+    /** How a bucket folds the `cells` at a coarser resolution than theirs (default `"sum"`, #824) — a
+     *  `series` entry declares its own (`Plan.tableSeries({ fold })`). */
+    fold?: PlanFoldInput;
+    /** Multi-series cells — one `Plan.tableSeries` per value position (exclusive with `cells`). */
+    series?: PlanElementsInput<PlanTableSeriesType, K>;
+    /** Part layout when several series render — `"horizontal"` (default) / `"vertical"` (stacked lines; the row grows). */
+    split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
+    /** Numeral format for the row's values + derived subtotals — a `Format.*` spec (the shared `TickFormatType`). */
+    format?: SubtypeExprOrValue<TickFormatType>;
+    /** Row emphasis — `"body"` (default) / `"header"` / `"footer"` (2px top rule). */
+    emphasis?: SubtypeExprOrValue<PlanTableEmphasisType> | PlanTableEmphasisLiteral;
+}
+
+/**
+ * A table row's kind — its value series (`cells` wraps into one unstyled
+ * series, so the renderer has a single representation).
+ *
+ * @param parts - The row's cells or series, split, format, emphasis and the cells' fold
+ * @param aggregate - The declared subtotal mode — how a parent with no values of its own derives them from its children
+ * @returns The kind
+ * @throws {Error} When both `cells` and `series` are given, or `fold` with `series` (each series declares its own)
+ */
+export function tableKind(
+    parts: PlanTableParts<PlanAxisKindLiteral>,
+    aggregate: SubtypeExprOrValue<OptionType<TableAggregateType>>,
+): ExprType<PlanRowKindType> {
+    if (parts.cells !== undefined && parts.series !== undefined) {
+        throw new Error("Plan.table: pass `cells` (sugar for one plain series) OR `series` — not both");
+    }
+    if (parts.fold !== undefined && parts.series !== undefined) {
+        throw new Error("Plan.table: `fold` goes with `cells` — each `Plan.tableSeries` declares its own fold");
+    }
+    const series = parts.series !== undefined
+        ? East.value(parts.series as SubtypeExprOrValue<ArrayType<PlanTableSeriesType>>, ArrayType(PlanTableSeriesType))
+        : (parts.cells !== undefined
+            ? East.value([East.value({
+                cells:  East.value(parts.cells as SubtypeExprOrValue<ArrayType<PlanTableCellType>>, ArrayType(PlanTableCellType)),
+                format: none, tone: none, strong: false, rollup: false,
+                fold:   resolveFold(parts.fold, "sum"),
+            }, PlanTableSeriesType)], ArrayType(PlanTableSeriesType))
+            : East.value([], ArrayType(PlanTableSeriesType)));
+    return East.value(variant("table", {
+        series,
+        split:     resolveTag(parts.split ?? "horizontal", PlanTableSplitType),
+        aggregate,
+        format:    parts.format !== undefined ? some(East.value(parts.format, TickFormatType)) : none,
+        emphasis:  resolveTag(parts.emphasis ?? "body", PlanTableEmphasisType),
+    }), PlanRowKindType);
+}
+
+/**
+ * A cards row's kind.
+ *
+ * @param chips - The row's shift chips
+ * @returns The kind
+ */
+export function cardsKind(chips: PlanElementsInput<PlanChipType, PlanAxisKindLiteral> | undefined): ExprType<PlanRowKindType> {
+    return East.value(variant("cards", {
+        chips: East.value((chips ?? []) as SubtypeExprOrValue<ArrayType<PlanChipType>>, ArrayType(PlanChipType)),
+    }), PlanRowKindType);
+}
+
+/**
+ * An event row's kind.
+ *
+ * @param marks - The row's marks
+ * @returns The kind
+ */
+export function eventsKind(marks: PlanElementsInput<PlanEventMarkType, PlanAxisKindLiteral> | undefined): ExprType<PlanRowKindType> {
+    return East.value(variant("events", {
+        marks: East.value((marks ?? []) as SubtypeExprOrValue<ArrayType<PlanEventMarkType>>, ArrayType(PlanEventMarkType)),
+    }), PlanRowKindType);
+}
+
+/**
+ * A group strip's ONE summary declaration (#824) — explicit cells, a declared
+ * aggregate, or a plain band — from the two inputs an author writes it with.
+ *
+ * @param cells - Explicit collapsed-strip cells, if given
+ * @param aggregate - The declared strip aggregation over the members' heat cells, if given
+ * @param where - Who is asking, for the message
+ * @returns The summary
+ * @throws {Error} When both are given — a strip shows one or the other
+ */
+export function groupSummary(
+    cells: SubtypeExprOrValue<PlanHeatCellsType> | undefined,
+    aggregate: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral | undefined,
+    where: string,
+): ExprType<PlanGroupSummaryType> {
+    if (cells !== undefined && aggregate !== undefined) {
+        throw new Error(
+            `${where}: give \`summary\` (explicit strip cells) OR \`summaryAggregate\` (cells derived from the ` +
+            "members) — a collapsed strip shows one or the other");
+    }
+    if (cells !== undefined) return East.value(variant("cells", East.value(cells, PlanHeatCellsType)), PlanGroupSummaryType);
+    if (aggregate !== undefined) return East.value(variant("aggregate", resolveTag(aggregate, PlanAggregateType)), PlanGroupSummaryType);
+    return East.value(variant("none", null), PlanGroupSummaryType);
+}
+
+/**
+ * A group strip's kind.
+ *
+ * @param summary - What the collapsed strip shows ({@link groupSummary})
+ * @returns The kind
+ */
+export function groupKind(summary: SubtypeExprOrValue<PlanGroupSummaryType>): ExprType<PlanRowKindType> {
+    return East.value(variant("group", { summary }), PlanRowKindType);
+}
+
+// ============================================================================
+// Kind factories — each returns its row stream
+// ============================================================================
+
+/**
+ * Input for {@link Plan.span} — a state-run row, optionally nesting child
+ * rows whose runs the renderer rolls up into the parent's bands.
+ *
+ * @typeParam K - The axis kind inferred from the runs / decisions / ports / nested rows
+ * @property runs - The row's own runs (`Plan.run` values)
+ * @property decisions - Decision diamonds on run transitions
+ * @property ports - Quantity in/out glyphs
+ * @property rollup - Rollup mode when `rows` nest (default `"union"`; bands sum the runs' quantities per unit)
+ * @property rows - Nested child streams (other kind factories' results)
+ */
+export interface PlanSpanInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput, PlanSpanParts<K> {
+    /** Rollup mode when `rows` nest — `"union"` (default) / `"byStatus"` / `"sum"`, or a `PlanRollupType` expression. */
+    rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
+    /** Nested child streams (other kind factories' results). */
+    rows?: PlanRowsInput<K>;
+}
+
+/**
+ * Creates a span row (the Gantt surface) — continuous state-run bars. With
+ * nested `rows` it DECLARES a rollup (default `"union"`), and the renderer
+ * derives the parent's union / byStatus bands from the subtree's runs (`×k`
+ * peak concurrency, quantities summed unit by unit, pessimistic certainty).
+ *
+ * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
+ * @param input - The span configuration ({@link PlanSpanInput})
+ * @returns The row stream — the span row, then every nested row under it — branded with its kind
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
+ * import { ArrayType, DateTimeType, DictType, East, IntegerType, StringType, StructType, variant } from "@elaraai/east";
+ * import { EventStateType, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Plan } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const LiteralJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+ * export const LiteralPress = StructType({ jobs: ArrayType(LiteralJob) });
+ * export const planLiteralPresses = e3.input("plan_literal_presses", DictType(StringType, LiteralPress), variant("value", new Map([
+ *     ["H1-P03", { jobs: [{ ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
+ *     ["H1-P04", { jobs: [{ ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
+ * ])));
+ *
+ * const canvas = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const presses = $.let(Data.bind(planLiteralPresses));
+ *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+ *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+ *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+ *             return w1.addWeeks(n.subtract(1n));
+ *         }));
+ *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+ *         return (
+ *             <Plan
+ *                 axis={axis}
+ *                 data={presses}
+ *                 series={[
+ *                     Plan.series.span(LiteralPress, {
+ *                         key: "presses", title: "Presses",
+ *                         label: (_r, k) => k, id: true,
+ *                         runs: r => r.jobs.map((_$, j) => Plan.run({
+ *                             key: j.ticket, start: j.start, end: j.end,
+ *                             label: East.str`RUN · ${j.ticket}`, state: j.state,
+ *                         })),
+ *                     }),
+ *                     // Rows no dataset holds — the planned shutdown, written out once.
+ *                     // `Plan.span` nests: the parent DECLARES its rollup and the canvas
+ *                     // derives the band from its two rows' runs. The series list is the
+ *                     // layout, so this block sits below the presses.
+ *                     Plan.series.rows(LiteralPress, { key: "works", title: "Planned works", subtitle: "literal rows" }, [
+ *                         Plan.span({
+ *                             key: "shutdown", label: "Shutdown", rollup: "union", rows: [
+ *                                 Plan.span({ key: "elec", label: "Electrical", runs: [
+ *                                     Plan.run({ key: "iso", start: week(33n), end: week(34n), label: "ISOLATE", state: "confirmed" }),
+ *                                 ] }),
+ *                                 Plan.span({ key: "mech", label: "Mechanical", runs: [
+ *                                     Plan.run({ key: "rollers", start: week(34n), end: week(36n), label: "ROLLERS", state: "recommended" }),
+ *                                 ] }),
+ *                             ],
+ *                         }),
+ *                     ]),
+ *                 ]}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
+ * ```
+ */
+export function createSpan<K extends PlanAxisKindLiteral = never>(input: PlanSpanInput<K>): PlanRowsValue<K> {
+    if (input.rows === undefined) {
+        const rollup = input.rollup !== undefined ? some(resolveTag(input.rollup, PlanRollupType)) : none;
+        return makeRow(input, spanKind(input, rollup)) as PlanRowsValue<K>;
+    }
+    // Nesting declares the rollup (default union); the RENDERER derives the
+    // bands from the subtree's runs — never precomputed expressions.
+    return assembleNested(input, input.rows, spanKind(input, some(resolveTag(input.rollup ?? "union", PlanRollupType)))) as PlanRowsValue<K>;
+}
+
+/**
+ * Input for {@link Plan.buckets} — a discrete-slot allocation row (the
+ * Planner surface).
+ *
+ * @typeParam K - The axis kind inferred from the events / markers
+ * @property lanes - Per-row sub-slot lanes (`[]` / omitted ⇒ unbucketed — one slot per column)
+ * @property events - The row's tiles (`Plan.event` values)
+ * @property markers - Cell status rings (`Plan.marker` values)
+ */
+export interface PlanBucketsInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput, PlanBucketsParts<K> {}
+
+/**
+ * Creates a bucket row (the Planner surface, verbatim) — allocation tiles in
+ * discrete slots, optionally sub-divided into lanes (AM/PM). WEEK resolution
+ * folds lanes into week cells; DAY re-splits — same data, slice-driven.
+ *
+ * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
+ * @param input - The buckets configuration ({@link PlanBucketsInput})
+ * @returns A one-row stream, branded with its kind
+ */
+export function createBuckets<K extends PlanAxisKindLiteral = never>(input: PlanBucketsInput<K>): PlanRowsValue<K> {
+    return makeRow(input, bucketsKind(input)) as PlanRowsValue<K>;
+}
+
+/**
+ * Input for {@link Plan.chart} — a measure row consuming Chart layer
+ * builders as data.
+ *
+ * @property layers - `Chart.Line` / `Column` / `Area` / `Scatter` / `Band` / `ref*` builder results, bare or `Plan.layer`-wrapped
+ * @property left - The left y-axis (ticks print inside the gutter's right edge)
+ * @property right - The right y-axis (ticks at the plot's right edge)
+ * @property height - `"spark"` (32px, default) / `"expanded"` (88px) / `Plan.fixed(px)`
+ * @property expandable - Spark ↔ expanded toggle (caret)
+ */
+export interface PlanChartInput extends Omit<PlanRowBaseInput, "height">, PlanChartParts {}
+
+/**
+ * Creates a chart row — Chart layers consumed AS DATA (reified `{t, y}`
+ * points on the axis arm the x accessor's type implies), drawn by the canvas
+ * itself on the shared scale. Never an embedded `<Chart>`; `Chart.Bar` is a
+ * build-time error.
+ *
+ * @param input - The chart configuration ({@link PlanChartInput})
+ * @returns A one-row stream
+ */
+export function createChart(input: PlanChartInput): PlanRowsValue {
+    // Base-input `height` is the row-height override; the chart's own height
+    // mode is the `height` field here — spelled apart deliberately.
+    const kind = chartKind(input);
+    const { height: _rowHeight, ...base } = input;
+    return makeRow(base as PlanRowBaseInput, kind);
+}
+
+/**
+ * Input for {@link Plan.heat} — a per-bucket cell row (heat depth, weight
+ * bars, or segment compositions), optionally nesting child heat rows.
+ *
+ * @typeParam K - The axis kind inferred from the cells / nested rows
+ * @property cells - The row's cells; omit with `rows` + `aggregate` to compute from children
+ * @property aggregate - Parent derivation mode (`"mean"` / `"max"` / `"sum"`)
+ * @property scale - Heat scale + warn threshold for computed parent cells
+ * @property rows - Nested child streams
+ */
+export interface PlanHeatInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput, PlanHeatParts<K> {
+    /** Parent derivation mode over children (`"mean"` / `"max"` / `"sum"`, or a `PlanAggregateType` expression). */
+    aggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+    /** Nested child streams. */
+    rows?: PlanRowsInput<K>;
+}
+
+/**
+ * Creates a heat row (the Matrix cell recipes on the shared axis) — colour
+ * depth, weight bars or segment compositions. With `rows` and no explicit
+ * `cells`, the renderer derives the parent's cells — the per-bucket
+ * `aggregate` of its direct children's heat cells; the warn ring stays on
+ * the breaching child.
+ *
+ * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
+ * @param input - The heat configuration ({@link PlanHeatInput})
+ * @returns The row stream — the heat row, then every nested row under it — branded with its kind
+ */
+export function createHeat<K extends PlanAxisKindLiteral = never>(input: PlanHeatInput<K>): PlanRowsValue<K> {
+    if (input.rows === undefined) {
+        const aggregate = input.aggregate !== undefined ? some(resolveTag(input.aggregate, PlanAggregateType)) : none;
+        return makeRow(input, heatKind({ ...(input.cells !== undefined ? { cells: input.cells } : {}) }, aggregate)) as PlanRowsValue<K>;
+    }
+    // A nesting parent DECLARES its aggregation (default mean) and the scale
+    // its derived cells paint on (#824); its cells stay empty and the
+    // renderer derives the per-bucket values from the children.
+    return assembleNested(input, input.rows,
+        heatKind(input, some(resolveTag(input.aggregate ?? "mean", PlanAggregateType)))) as PlanRowsValue<K>;
+}
+
+/**
+ * Input for {@link Plan.table} — a bucketed-numeral row, optionally nesting
+ * child rows subtotalled per bucket.
+ *
+ * @typeParam K - The axis kind inferred from the cells / series / nested rows
+ * @property cells - The row's cells (`Plan.tableCells`); omit with `rows` + `aggregate` to compute subtotals
+ * @property aggregate - Subtotal mode (the Table #317 vocabulary)
+ * @property format - Numeral format for the row's values and derived subtotals (a `Format.*` spec)
+ * @property emphasis - Row emphasis (`"body"` / `"header"` / `"footer"`)
+ * @property rows - Nested child streams
+ */
+export interface PlanTableInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput, PlanTableParts<K> {
+    /** Subtotal mode over children — `"sum"` / `"mean"` / `"min"` / `"max"` / `"count"`, or a `TableAggregateType` expression. */
+    aggregate?: SubtypeExprOrValue<TableAggregateType> | TableAggregateLiteral;
+    /** Nested child streams. */
+    rows?: PlanRowsInput<K>;
+}
+
+/**
+ * Creates a table row (bucketed numerals under the shared time-bucket columns).
+ * With `rows` and no explicit `cells`, the parent prints per-bucket
+ * subtotals via `aggregate` — a collapsed parent reads as its subtotal line.
+ *
+ * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
+ * @param input - The table configuration ({@link PlanTableInput})
+ * @returns The row stream — the table row, then every nested row under it — branded with its kind
+ */
+export function createTable<K extends PlanAxisKindLiteral = never>(input: PlanTableInput<K>): PlanRowsValue<K> {
+    if (input.rows === undefined) {
+        const aggregate = input.aggregate !== undefined ? some(resolveTag(input.aggregate, TableAggregateType)) : none;
+        return makeRow(input, tableKind(input, aggregate)) as PlanRowsValue<K>;
+    }
+    // A nesting parent DECLARES its subtotal mode + format; the renderer
+    // derives the per-bucket cells from the children.
+    return assembleNested(input, input.rows,
+        tableKind(input, some(resolveTag(input.aggregate ?? "sum", TableAggregateType)))) as PlanRowsValue<K>;
+}
+
+/**
+ * Input for {@link Plan.cards} — a Roster-chip assignment row.
+ *
+ * @typeParam K - The axis kind inferred from the chips
+ * @property chips - The row's shift chips (`Plan.chip` values)
+ */
+export interface PlanCardsInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput {
+    /** The row's shift chips (`Plan.chip` values — their kind brands the row). */
+    chips?: PlanElementsInput<PlanChipType, K>;
+}
+
+/**
+ * Creates a cards row (the Roster surface on the shared axis) — shift chips
+ * spanning whole buckets.
+ *
+ * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
+ * @param input - The cards configuration ({@link PlanCardsInput})
+ * @returns A one-row stream, branded with its kind
+ */
+export function createCards<K extends PlanAxisKindLiteral = never>(input: PlanCardsInput<K>): PlanRowsValue<K> {
+    return makeRow(input, cardsKind(input.chips)) as PlanRowsValue<K>;
+}
+
+/**
+ * Input for {@link Plan.events} — an instant-mark row.
+ *
+ * @typeParam K - The axis kind inferred from the marks
+ * @property marks - The row's marks (`Plan.mark` values)
+ */
+export interface PlanEventsInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput {
+    /** The row's marks (`Plan.mark` values — their kind brands the row). */
+    marks?: PlanElementsInput<PlanEventMarkType, K>;
+}
+
+/**
+ * Creates an event row — ● milestone / ◇◆ decision / ▲ exception marks at
+ * their instants on the shared scale (Gantt milestones live here).
+ *
+ * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
+ * @param input - The events configuration ({@link PlanEventsInput})
+ * @returns A one-row stream, branded with its kind
+ */
+export function createEvents<K extends PlanAxisKindLiteral = never>(input: PlanEventsInput<K>): PlanRowsValue<K> {
+    return makeRow(input, eventsKind(input.marks)) as PlanRowsValue<K>;
+}
+
+/**
+ * Input for {@link Plan.group} — the heterogeneous canvas container.
+ *
+ * @typeParam K - The axis kind inferred from the summary cells / member rows
+ * @property summary - Explicit collapsed-strip heat cells (exclusive with `summaryAggregate`)
+ * @property summaryAggregate - DECLARED strip aggregation over the members' heat rows (the renderer derives the cells)
+ * @property rows - The group's member streams (any kinds)
+ */
+export interface PlanGroupInput<K extends PlanAxisKindLiteral = never> extends PlanRowBaseInput {
+    /** Explicit collapsed-strip cells (`PlanHeatCellsType` — a `Plan.heatCells` result's kind brands the strip);
+     *  exclusive with `summaryAggregate`. */
+    summary?: PlanHeatCellsInput<K>;
+    /** DECLARED strip aggregation over the members' heat rows — `"mean"`/`"max"`/`"sum"` or a `PlanAggregateType` expression. */
+    summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+    /** The group's member streams (any row kinds — their axis kinds union into the group's). */
+    rows?: PlanRowsInput<K>;
+}
+
+/**
+ * Creates a group strip — the canvas-level heterogeneous container. Collapsed
+ * it rests as its summary heat strip — explicit `summary` cells, or the
+ * renderer-derived `summaryAggregate` declaration (neither ⇒ a plain band);
+ * expanding swaps the strip for the member rows in place.
+ *
+ * @typeParam K - The axis kind the group's instants ride (inferred; `never` when erased)
+ * @param input - The group configuration ({@link PlanGroupInput})
+ * @returns The row stream — the group strip, then every member under it — branded with its kind
+ * @throws {Error} When both `summary` and `summaryAggregate` are given
+ */
+export function createGroup<K extends PlanAxisKindLiteral = never>(input: PlanGroupInput<K>): PlanRowsValue<K> {
+    const kind = groupKind(groupSummary(
+        input.summary as SubtypeExprOrValue<PlanHeatCellsType> | undefined, input.summaryAggregate, "Plan.group"));
+    if (input.rows === undefined) return makeRow(input, kind) as PlanRowsValue<K>;
+    return assembleNested(input, input.rows, kind) as PlanRowsValue<K>;
+}

@@ -6,8 +6,9 @@
  *
  * Behaviour guard for the adaptive contract (#346):
  *   - `useContainerBelow` / `useContainerBreakpoint` re-derive from the
- *     observed element's width and fall back to desktop defaults when
- *     `ResizeObserver` is unavailable,
+ *     observed element's width — a crossing committed inside the observer's
+ *     own delivery, before the frame at the new width paints (#1259) — and
+ *     fall back to desktop defaults when `ResizeObserver` is unavailable,
  *   - `useCoarsePointer` / `useHoverCapable` mirror `matchMedia` and fall
  *     back to fine-pointer defaults when it is unavailable.
  */
@@ -39,10 +40,6 @@ function stubResizeObserver(width: () => number): () => void {
         disconnect() { /* noop */ }
     }
     vi.stubGlobal("ResizeObserver", RO);
-    // Return 0 so the hook's `frame` latch re-arms after the synchronous run
-    // (the hook treats 0 as "no pending frame").
-    vi.stubGlobal("requestAnimationFrame", (fn: () => void) => { fn(); return 0; });
-    vi.stubGlobal("cancelAnimationFrame", () => { /* noop */ });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() =>
         ({ width: width(), height: 100, top: 0, left: 0, right: width(), bottom: 100, x: 0, y: 0, toJSON: () => ({}) } as DOMRect));
     return () => { if (callback) callback(); };
@@ -96,6 +93,23 @@ describe("useContainerBelow", () => {
         w = 560;
         act(() => fire());
         expect(seen).toBe(false);
+    });
+
+    test("a crossing commits inside the observer's own delivery — before the frame at the new width paints, never a frame later", () => {
+        let w = 559;
+        const fire = stubResizeObserver(() => w);
+        // No frame ever begins: whatever waits for one never lands.
+        vi.stubGlobal("requestAnimationFrame", () => 1);
+        let seen = false;
+        render(<BelowProbe px={560} report={(b) => { seen = b; }} />);
+        expect(seen).toBe(true);
+
+        w = 600;
+        act(() => {
+            fire();
+            // Read inside the delivery, before act flushes anything of its own.
+            expect(seen).toBe(false);
+        });
     });
 
     test("defaults to false without ResizeObserver", () => {

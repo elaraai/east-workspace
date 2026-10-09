@@ -96,6 +96,12 @@ have none, so the brand's would be inherited from `html`.
 `scripts` and the configs — vite and vitest strip types without checking
 them, so this is the only gate that sees a type error (#589).
 
+The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
+external: each is a context the host and the sibling renderer packages share.
+Bundled, the package would hold a copy of its own, and a host's one
+`I18nProvider` would reach it or e3-ui-components' renderers, never both
+(#1206).
+
 ## Architecture
 
 ### Rendering pipeline
@@ -118,7 +124,7 @@ src/
   component.tsx              # Top-level variant dispatcher
   hooks/usePersistedState.ts # localStorage persistence hook
   platform/                  # East state management (UIStore, DatasetStore)
-  collections/               # Table, Plan, Matrix, TreeView, DataList
+  collections/               # Table, Matrix, TreeView, DataList (the Plan's, the Sheet's and the Flowchart's renderers are e3-ui-components')
   disclosure/                # Tabs, Accordion, Carousel
   layout/                    # Box, Flex, Grid, Stack, Splitter, Separator
   forms/                     # Input, Select, Checkbox, Switch, Slider, etc.
@@ -161,14 +167,27 @@ component, nothing in east-ui.
   only when given. `storageKey` is where each pane keeps its open tab, and
   its collapsed state when it persists; `minMain` (480px by default) is the
   narrowest main may get beside pinned panes; `label` is the frame's
-  accessible name; `ref` is its root (the bounds of a popover inside it);
-  `onKeyDown` hears keys from anywhere in the frame, the panes included.
+  accessible name; `ref` is its root (the bounds of a popover inside it), and
+  `toolbarRef` its toolbar's element (where a host finds its items' controls:
+  the search box a key focuses); `onKeyDown` hears keys from anywhere in the
+  frame, the panes included.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
-  a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs`, `tab` /
-  `onTabChange`, `icon`, `badge`, `detail`, `active`, `size` — 320px by
-  default — `mode`, `collapsed` / `defaultCollapsed` / `onCollapsedChange`,
-  `persist`, `collapsible`), or `{ element }`, placed as it is and pinned at
-  its side (a SnapGrid's East `Dock` pane, which draws itself).
+  a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
+  `count`, when given, follows its name, the Calendar's and the Sheet
+  builder's `ROWS 11` — `tab` / `onTabChange`, `icon`, `badge`, `detail`,
+  `active`, `size` — 320px by default — `mode`, `collapsed` /
+  `defaultCollapsed` / `onCollapsedChange`, `persist`, `collapsible`), or
+  `{ element }`, placed as it is and pinned at its side (a SnapGrid's East
+  `Dock` pane, which draws itself). A pane tab that lists cards is a
+  `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
+  `empty` words say what an empty tab shows; a search or a filter that
+  hides every card says `No matches` itself, in the shared empty state.
+- **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
+  row first, kept in each tab's name; then the trailing tabs fold into a
+  `+n` menu after the last that fits, the open tab always on the row, so no
+  tab runs under the collapse control. The row measures its tabs drawn whole
+  before it paints, again when its room or its tabs change or fonts arrive;
+  the decision is `fitTabs` (`src/layout/dock/fold.ts`), a pure function.
 - **Modes.** `pinned`: in the flow; opening it pushes main aside over the
   design system's `--dur-base` on `--ease-in-out`. `overlay`: its 44px rail
   stays in the flow, so main never moves; open, the pane floats over main
@@ -184,7 +203,9 @@ component, nothing in east-ui.
   width, not the window's (`placePanes`, a pure function). An `auto` pane
   that starts to overlay closes, and opens again once it is pinned again,
   unless it was opened or closed meanwhile. A pane that never collapses is
-  always pinned.
+  always pinned. A pane that persists (`persist`) keeps only the viewer's own
+  collapse or opening: what the frame does for lack of room is never
+  written, so a reload restores the viewer's choice at any width.
 - **The scrim** covers main while an overlay pane is open for lack of room —
   an `auto` pane overlaying, or any overlay pane at 560px and narrower — in
   the theme's `overlay.backdrop`; main takes no pointer, and a tap on the
@@ -198,6 +219,71 @@ component, nothing in east-ui.
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
   host's own recipe keeps what is the host's (the snap grid's canvas column,
   the query builder's status line).
+- **Shared toolbar items.** The items more than one builder's toolbar takes
+  live here, each with a narrower form for a row short of room: the history
+  item (`historyToolbarItem`, folding last, to its buttons; its commit reads
+  Save in every builder, #1260), the review's batch verbs
+  (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons fold
+  into one menu — no builder takes it since the Plan's review went, #1260) and
+  the key search over a keyed source's `seek`
+  (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
+  edit popover, and keeps its form while a query is typed; `focusKeySearch`
+  brings a host's key for it, the Sheet's ⌘F, to it in either form). Controls
+  that fold into one chip (#1229) fold into the shared `ChipMenu`, whose menu
+  does what they do: their steps and the chip's share a `bundle`, so the chip
+  draws in the step that hides them, and a popover one of them opens hangs
+  from the chip (`SliceEditPopover`'s `anchor`), its item `held` while it is
+  open — as the SnapGrid editor's View chip and Studio's and the query
+  builder's ⋯ chips do. On a
+  coarse pointer a control in the row is a 44px tap target by its box or by its
+  halo (`coarseHitArea`, #346), never by growing the row (#1193, #1221): a
+  segment whose neighbours sit edge to edge takes the halo on the block axis
+  alone (`axis: "block"`), and its strip clips nothing that would cut it; a
+  search box is a 44px field, its input filling it.
+- **One history over several sessions** (`src/editing/history.ts`, #1194).
+  A builder whose sources each keep their own editing session — the Plan's
+  event kinds, a record each — puts them under one `EditHistory`: each step
+  names the sessions a gesture drafted, so Undo and Redo walk the gestures
+  in the order they were made whatever their source, Discard drops every
+  session's drafts, and Save applies each session that can, a Retry
+  resending only the ones whose answer never came. The history reads as one
+  session does, so the history item and the keys take it as they take a
+  session; each session keeps its own banners (`SessionBanners`' `name`
+  titles them by their source). `useEditHistory` keeps it in the UI store
+  per view, beside each source's kept session.
+
+## Field form
+
+A builder's inspector shows the selection as a typed form: east-ui's
+`Fields.specs(R, hints)` resolves a struct's fields into specs, and
+`FieldForm` (`src/forms/field-form/`, #1147) draws each one as the shared
+`Field` around the shared input its East type takes (`isTypeEqual`) —
+`StringInput`, `IntegerInput` / `FloatInput`, `Checkbox`, `DateTimeInput`,
+`Select`, `TagsInput` — each mounted with a payload built from East's
+`defaultValue` of its type, never a control of its own. What is typed is one
+edit when the focus leaves the field or on Enter, and Esc puts it back; a
+choice is an edit at once. A field that differs from `baseline` is tinted
+(`data-dirty`; the `fieldForm` recipe lays the fields out). It is a React part
+for renderers, as `BuilderFrame` is. Inside a `Field`, the shared date input
+takes the field's label and read-only as the Ark inputs do.
+
+Every field is one column (#1220): its label, its control's line — the
+input filling it, an Option's Set or Clear at its end (`data-field-line`,
+`data-field-side`) — and its help line. Each input is the design system's
+Input size, so every kind stands on one 32px line (44px on a coarse
+pointer); fields sit 16px apart, a nested struct's head 8px over its first
+field. A text or a printed value longer than its box ends in an ellipsis, its
+control titled with the whole (#1250). The showcase's `inspector-form.spec.ts`
+measures it in the Sheet's, the Plan's and the Flowchart's inspectors.
+
+The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
+`fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
+bordered box (the input, the select's trigger, the number's root, the date's
+shell, the tags' control) with what it holds centred. Chakra's default
+recipes merge beneath ours and give their sizes a `textStyle` (14px on 20px)
+that outranks a size's own `fontSize`: a size variant that sets a font clears
+it (`textStyle: "none"`). `field-heights.spec.ts` holds every kind to its
+size's line.
 
 ## Platform function registration
 
@@ -482,7 +568,7 @@ When adding persistence to Chakra components that support both
 )}
 ```
 
-### Virtualization (Table, Plan)
+### Virtualization (Table, and the Plan and the Sheet in e3-ui-components)
 
 Row virtualization via `@tanstack/react-virtual`:
 
@@ -514,6 +600,14 @@ avoid re-creation.
 All public components and types are exported from `src/index.ts`. When
 adding a new component or hook, add it to the appropriate section in the
 barrel export.
+
+Two more entries serve the sibling renderer packages, never apps:
+`src/internal.ts` (`@elaraai/east-ui-components/internal`) re-exports the
+renderers' shared building blocks a component made of the same parts needs
+(e3-ui-components' Plan, Sheet and Flowchart, #1177, #1179, #1243), and `src/testing.ts` (`/testing`) the
+renderer tests' DOM helpers — React's `act` and the DOM, no test framework —
+and the editing words (`editingMessages`), which a browser spec names the
+history item's controls by: unlike the package's own entry, it loads in Node.
 
 ## See also
 

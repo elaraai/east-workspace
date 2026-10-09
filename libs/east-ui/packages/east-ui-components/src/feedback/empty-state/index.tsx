@@ -6,11 +6,17 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { EmptyState as ChakraEmptyState, Box as ChakraBox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { library } from "@fortawesome/fontawesome-svg-core";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+import { fas } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { EmptyState } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+
+// An empty state's icon is a Font Awesome name; register the free-solid set so
+// it resolves by name (idempotent).
+library.add(fas);
 
 const emptyStateEqual = equivalentFor(EmptyState.Types.EmptyState);
 
@@ -34,7 +40,6 @@ export const EastChakraEmptyState = memo(function EastChakraEmptyState({ value, 
     return (
         <EmptyStateView
             icon={icon}
-            glyph={getSomeorUndefined(value.glyph)}
             size={style ? (getSomeorUndefined(style.size)?.type as "sm" | "md" | "lg" | undefined) : undefined}
             color={style ? getSomeorUndefined(style.color) : undefined}
             background={style ? getSomeorUndefined(style.background) : undefined}
@@ -55,10 +60,8 @@ export interface EmptyStateViewProps {
     description?: ReactNode;
     /** Its actions, under the body. */
     actions?: ReactNode;
-    /** A Font Awesome icon, above the title. */
+    /** Its one mark, above the title: a Font Awesome solid icon, `{ prefix: "fas", name: "inbox" }` — never a text glyph (#1263). */
     icon?: { prefix: string; name: string } | undefined;
-    /** A mono glyph above the title, in place of an icon. */
-    glyph?: string | undefined;
     /** Its size preset. */
     size?: "sm" | "md" | "lg" | undefined;
     /** Its text colour. */
@@ -67,20 +70,21 @@ export interface EmptyStateViewProps {
     background?: string | undefined;
     /** Its border colour, which draws its border. */
     borderColor?: string | undefined;
-    /** The icon's or the glyph's colour. */
+    /** The icon's colour. */
     iconColor?: string | undefined;
 }
 
 /**
  * The empty state as React — the EmptyState's renderer, and the empty state a
- * host renderer draws with words of its own: an icon or a glyph, a title, a
- * body and actions, on Chakra v3's EmptyState compound.
+ * host renderer draws with words of its own: an icon, a title, a body and
+ * actions, on Chakra v3's EmptyState compound. Its icon is Font Awesome's,
+ * sized and coloured by the `emptyState` recipe's indicator.
  *
  * @param props - What it says, and how ({@link EmptyStateViewProps})
  * @returns The empty state
  */
 export function EmptyStateView({
-    title, description, actions, icon, glyph, size, color, background, borderColor, iconColor,
+    title, description, actions, icon, size, color, background, borderColor, iconColor,
 }: EmptyStateViewProps) {
     return (
         <ChakraEmptyState.Root
@@ -93,18 +97,7 @@ export function EmptyStateView({
             paddingBlock="36px"
         >
             <ChakraEmptyState.Content>
-                {glyph !== undefined ? (
-                    <ChakraBox
-                        fontFamily="mono"
-                        fontSize="36px"
-                        letterSpacing="0.1em"
-                        color={iconColor ?? "border.strong"}
-                        mb="3"
-                        lineHeight="1"
-                    >
-                        {glyph}
-                    </ChakraBox>
-                ) : icon ? (
+                {icon ? (
                     <ChakraEmptyState.Indicator
                         {...(iconColor !== undefined ? { color: iconColor } : {})}
                     >
