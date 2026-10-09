@@ -8,3 +8,6 @@ export { InMemoryMachineIdentityStore } from '../identity/in-memory-identity-sto
 export { InMemoryRackRegistry } from '../registry/rack-registry.js';
 export { leaseStoreContract } from './lease-store-contract.js';
 export { wireSamples } from '../protocol/wire-samples.js';
+export { TestRackAgent, type TestRackAgentOptions, type TestRackAgentFaults } from './test-rack-agent.js';
+export { InMemoryRackStorageBridge, RecordingLogStore } from './in-memory.js';
+export { rackProtocolSuite, type RackProtocolFixture } from './protocol-suite.js';
