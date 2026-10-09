@@ -143,9 +143,11 @@ accept a runner factory; they do not import Node-only hub code.
 If `rack status` reports a listener error, confirm the configured VPN/LAN
 address is present on this machine and the port is free. After a VPN address
 changes, update `e3 rack config --listen <new-ip>:7331` and the agent's API URL.
-If a rack is incompatible, update that instance with the pinned e3 release
-and required tiers; the first use of a new release may need runtime images to
-be built or fetched. Check its systemd journal while waiting. If a task stays
+If a rack is incompatible, install an agent executable whose bundled e3 is
+at least the project's release, then select that release and the required
+tiers. `--e3-version` selects runtime images; it cannot upgrade the decoder
+compiled into an older agent. The first use of a new release may need runtime
+images to be built or fetched. Check its systemd journal while waiting. If a task stays
 local, inspect `rack policy show`, the task's runner/platforms and host-access
 dependencies; `--rack-only` cannot override eligibility.
 
@@ -159,6 +161,9 @@ This implementation targets e3-cloud main at
 per-object uploads. Protocol golden fixtures come from that pinned source;
 the test rack agent executes real e3 runners and exercises the transfer path.
 Those tests do not establish KVM/hardware acceptance for the deployed agent.
+The pinned cloud source bundles e3 1.0.85, while current workspace main is
+1.0.86. Rebuild/release the companion agent against e3 1.0.86 or newer before
+delegating from this workspace release; an older bundle falls back locally.
 Cloud #193 still needs request deadlines and durable completion retry for
 intermittent connectivity. The explicit installer flags above avoid relying
 on the unsafe multi-instance defaults tracked by cloud #192.

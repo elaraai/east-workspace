@@ -16,6 +16,11 @@ intervening release-only main commit. The new package follows that existing
 release; cloud's pinned protocol remains unchanged. Enrollment requests the
 session's current e3 release explicitly through `--e3-version`, and older
 agents whose bundled release cannot boot it are excluded from delegation.
+The pinned cloud source still bundles e3 1.0.85: its agent must be rebuilt
+against e3 1.0.86 or newer for this release-aligned branch. The installer's
+`--e3-version` selects runtime images; it does not update the e3 decoder
+compiled into the agent executable. This is an additional companion release
+prerequisite, not a change to the v2 rack protocol.
 
 The topology and scope stand: one machine-local hub, direct rack-to-machine
 traffic over a private network, repository access in sessions, opt-in task
