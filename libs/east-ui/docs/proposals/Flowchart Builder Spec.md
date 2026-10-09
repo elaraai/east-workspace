@@ -127,7 +127,7 @@ screenshot.
 9. **Sample data is a parcel depot** (ruled 2026-10-07): parcels through intake,
    sort, hold, load and dispatch, delivered or returned; decisions such as route
    and customs check; volumes in parcels — in the examples, tests, the showcase,
-   docs, the mock and its PNG alike. Nothing names a client or a client's trade.
+   docs, the mock and its PNG alike.
 10. **The session is the shared `Editing` session**, its rows the flows by name:
     every gesture is one transaction over the open flow, the history item undoes,
     redoes, discards and saves, and Save commits through `Record.onApply`.
@@ -332,7 +332,7 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 | `flow` | String | Over many flows, the one opened first. A flow opened later, from the Flows tab, takes its place. Refused over one flow (`data` of `Flowchart.Types.Flow`). |
 | `library` | `Flowchart.library.*` calls | The library's tabs, in order (§4.2); left out, or `[]`, no library pane. |
 | `inspector` | `true`, `false`, or `{ state?, transition? }` | The inspector pane (§9.9), on by default: left out, or `true`, it shows; `false` takes it away. `{ state, transition }` gives a state or a transition the author's own Details in place of its form, each an East function over the row and its writer, `($, row, update) => UIComponentType`, `update` writing the edited row back as one transaction (FB45). |
-| `orientation`, `minimap`, `legend`, `density`, `freshness` | as today's | Unchanged. LR · TD is the viewer's, kept under `name`. |
+| `orientation`, `minimap`, `legend`, `freshness` | as today's | Unchanged. LR · TD is the viewer's, kept under `name`. |
 | `onSelectState`, `onSelectLink`, `onSelectTrigger`, `onTracePath` | as today's | Unchanged: told after the canvas selects. |
 | `canConnect` | as today's | Unchanged: vetoes a pair before the draft snaps. |
 | `slice`, `affordances` | as today's | Over `data` only (§3.4); its rail is toolbar items. |
@@ -344,7 +344,10 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 `maxHeight` go (§11): the tag's props type none of them, and each is refused at
 build, naming the remedy (§4.4). So do `stateHover`, `linkHover` and
 `triggerHover` (decision 15, FB46): the inspector, on by default, shows what is
-selected, and each is refused at build naming it.
+selected, and each is refused at build naming it. `density` goes too (#1251,
+ruled by the user on 2026-10-09: "Remove it"): the canvas draws at one rhythm,
+the anatomy's 116×40 cards in their lanes (§8), so it never drew by it; it is
+refused at build, naming that rhythm.
 
 ### 4.2 `Flowchart.library`: the library's tabs
 
@@ -415,6 +418,8 @@ Each names the prop and the remedy:
 - a record of any other type than `Flowchart.Types.Flows`, or one not bound
   with its patch mutation;
 - `"brush"` among the affordances (today's);
+- `density` (#1251): the canvas draws at one rhythm, the anatomy's 116×40
+  state cards in their lanes, and the remedy is to leave it out;
 - a library that lists a tab twice (an author's by its name), `flows()` over
   one flow (`data` of `Flowchart.Types.Flow`), a data tab whose rows are
   neither an Array nor a `Dict<String, T>`, a `states` drop over another type
@@ -843,6 +848,7 @@ has a test there. Today's canvas behaviour keeps holding.
 | Click-to-drill into a host's `Drawer` | The inspector; `onSelect*` still tells the host | Nothing is lost. |
 | Hover cards by key (`stateHover`, `linkHover`, `triggerHover`) | The inspector, on by default; a state's or a transition's own Details (`inspector={{ state, transition }}`) | A card under the pointer goes: what is selected shows in the pane, its fields editable (decision 15). |
 | A click on a lane's header renames it | A click selects the lane; a double-click renames it in place | The inspector shows a lane, and ⏎ on a lane's card drops onto it (decision 16). |
+| `density`, which nothing drew by | The canvas's one rhythm: 116×40 cards in their lanes | Nothing is lost: no density ever changed what the canvas drew (#1251). |
 | One flowchart | Many flows in a record, one open | New. |
 | No library, no inspector | Flows, state and transition templates from bound data, the author's tabs; Details · Issues | New. |
 

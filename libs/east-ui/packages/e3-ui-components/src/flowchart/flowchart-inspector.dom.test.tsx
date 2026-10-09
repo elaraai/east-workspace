@@ -145,7 +145,7 @@ async function mountSort(props: Parameters<typeof mountRecord>[0] = SORT_OPEN): 
 function payload(source: FlowchartValue["source"], options: Partial<Pick<FlowchartValue, "inspector" | "readOnly">> = {}): FlowchartValue {
     return {
         canvas: {
-            orientation: none, freshness: none, minimap: none, legend: some(false), density: none, slice: none,
+            orientation: none, freshness: none, minimap: none, legend: some(false), slice: none,
             onSelectState: none, onSelectLink: none, onSelectTrigger: none, onTracePath: none, canConnect: none,
         },
         source,

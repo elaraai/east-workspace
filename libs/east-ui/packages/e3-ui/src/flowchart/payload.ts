@@ -355,6 +355,13 @@ const TABLES = ["states", "links", "lanes", "triggers", "state", "link", "lane",
 /** The sizes the flowchart took before it filled the box it is given (#1245). */
 const SIZES = ["height", "maxHeight"] as const;
 
+/**
+ * The refusal of `density`, which the flowchart took and never drew by (#1251,
+ * ruled by the user on 2026-10-09: "Remove it"): the canvas draws at one
+ * rhythm, the spec's.
+ */
+const DENSITY = "Flowchart: `density` is not a prop — the canvas draws at one rhythm, the spec's 116×40 state cards in their lanes; leave `density` out";
+
 /** The callbacks the flowchart took for its edits before each gesture was a transaction of its editing session (#1247, FB24). */
 const EDIT_CALLBACKS = ["linkMode", "onCreateLink", "onDeleteLink", "onAddLane", "onRenameLane", "onDeleteLane", "onAddState", "onEditState", "onMoveState"] as const;
 
@@ -588,7 +595,8 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  *   which `Flowchart.over` takes; `height` or `maxHeight`, which the box the
  *   flowchart fills sets; a callback for an edit, or `linkMode`, which the
  *   editing session's gestures replace; a hover card's builder (`stateHover`,
- *   `linkHover`, `triggerHover`), which the inspector replaces; an `inspector`
+ *   `linkHover`, `triggerHover`), which the inspector replaces; `density`,
+ *   which the canvas's one rhythm replaces; an `inspector`
  *   of another kind than a Boolean or `{ state, transition }`, a key other
  *   than those two, or a kind's own Details of another type than `(Row, (Row)
  *   => Null) => UIComponentType`; and each of the library's refusals
@@ -609,6 +617,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
             throw new Error(`Flowchart: \`${size}\` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … /></Box>`);
         }
     }
+    if ("density" in canvas) throw new Error(DENSITY);
     for (const callback of EDIT_CALLBACKS) {
         if (callback in canvas) {
             throw new Error(`Flowchart: \`${callback}\` is not a prop — every gesture is a transaction of the flowchart's editing session, and Save commits them as one patch: over \`record\`, through its patch mutation; over \`data\`, through the host's \`onApply\``);

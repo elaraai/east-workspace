@@ -31,7 +31,9 @@
  * inspector's (#1250): on by default, `false` taking it away, a kind's own
  * Details crossing the wire over bytes — its `update` writing the edited row
  * back — the canvas carrying no hover card, and each hover prop and each
- * misuse of `inspector` refused at build, naming the remedy.
+ * misuse of `inspector` refused at build, naming the remedy; and the
+ * showcase's (#1251): the canvas carrying no density — it draws at one rhythm,
+ * the user ruled on 2026-10-09 — and `density` refused at build.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -64,11 +66,10 @@ const flowsEqual = equalFor(FlowsType);
 describeEast("Flowchart", (test) => {
     Assert.examples(test, {
         flowchartFlows: ex.flowchartFlows,
+        flowchartVariants: ex.flowchartVariants,
         flowchartLibrary: ex.flowchartLibrary,
-        flowchartHandover: ex.flowchartHandover,
-        flowchartMinimal: ex.flowchartMinimal,
         flowchartDepot: ex.flowchartDepot,
-        flowchartBuilder: ex.flowchartBuilder,
+        flowchartHandover: ex.flowchartHandover,
         flowchartDetail: ex.flowchartDetail,
     });
 }, { platformFns: TestImpl });
@@ -560,13 +561,13 @@ describe("the payload (FB6)", () => {
         }
     });
 
-    hostTest("the canvas carries today's options, none for every one left out — and no height: the flowchart fills its box (#1245); no hover card: the inspector shows what is selected (#1250)", () => {
-        assert.deepEqual(Object.keys(FlowchartCanvasType.fields).filter((field) => /height|hover/iu.test(field)), []);
+    hostTest("the canvas carries today's options, none for every one left out — and no height: the flowchart fills its box (#1245); no hover card: the inspector shows what is selected (#1250); no density: it draws at one rhythm (#1251)", () => {
+        assert.deepEqual(Object.keys(FlowchartCanvasType.fields).filter((field) => /height|hover|density/iu.test(field)), []);
         const payload = carried((_$) => PublicFlowchart({ data: INBOUND_VALUE }));
         const canvas = payload.canvas;
         for (const [field, value] of Object.entries(canvas)) assert.deepEqual(value, none, `canvas.${field} is none`);
         const given = carried(($) => PublicFlowchart({
-            data: INBOUND_VALUE, orientation: "TD", legend: false, minimap: true, density: "compact",
+            data: INBOUND_VALUE, orientation: "TD", legend: false, minimap: true,
             freshness: { label: "scans-2026.09" }, onSelectState: $.const(East.function([StringType], NullType, (_$2) => null)),
         }));
         assert.deepEqual([given.canvas.orientation, given.canvas.legend, given.canvas.minimap, given.canvas.freshness],
@@ -933,6 +934,10 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `height` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … \/><\/Box>$/],
         ["`maxHeight`, which the box the flowchart fills sets (#1245)", (_$) => ({ data: INBOUND_VALUE, maxHeight: "560px" }),
             /^Error: Flowchart: `maxHeight` is not a prop — the flowchart fills the box it is given/],
+        ["`density` over the host's flow: the canvas draws at one rhythm (#1251, the user's ruling, 2026-10-09)", (_$) => ({ data: INBOUND_VALUE, density: "compact" }),
+            /^Error: Flowchart: `density` is not a prop — the canvas draws at one rhythm, the spec's 116×40 state cards in their lanes; leave `density` out$/],
+        ["`density` over a record: the canvas draws at one rhythm (#1251)", ($) => ({ record: $.let(flowsRecord()), density: "comfortable" }),
+            /^Error: Flowchart: `density` is not a prop — the canvas draws at one rhythm, the spec's 116×40 state cards in their lanes; leave `density` out$/],
         ["the Flows tab over one flow (#1246, FB16)", (_$) => ({ data: INBOUND_VALUE, library: [Flowchart.library.flows()] }),
             /^Error: Flowchart: Flowchart\.library\.flows\(\) lists flows by name, and this `data` is one flow, Flowchart\.Types\.Flow — leave the Flows tab out of `library`, or pass the flows by name$/],
         ["the Flows tab listed twice (#1246)", ($) => ({ record: $.let(flowsRecord()), library: [Flowchart.library.flows(), Flowchart.library.flows()] }),
@@ -1057,6 +1062,8 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ data: INBOUND_VALUE, states: STATE_ROWS });
             // @ts-expect-error — the flowchart fills the box it is given: no height of its own (#1245)
             PublicFlowchart({ data: INBOUND_VALUE, height: "560px" });
+            // @ts-expect-error — the canvas draws at one rhythm: no density (#1251)
+            PublicFlowchart({ record: flows, density: "compact" });
             // @ts-expect-error — every gesture is the editing session's: no callback for an edit (#1247, FB24)
             PublicFlowchart({ record: flows, onAddState: $.const(East.function([StructType({ lane: StringType, key: StringType, label: StringType })], NullType, (_$2) => null)) });
             // @ts-expect-error — connecting is the session's whenever the flowchart edits: no link mode (#1247, FB24)

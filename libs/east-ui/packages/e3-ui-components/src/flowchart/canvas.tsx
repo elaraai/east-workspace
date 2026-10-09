@@ -42,7 +42,8 @@
  *
  * The canvas fills main and scrolls both ways inside it: its lanes run the
  * whole of main's height, and a flow larger than main scrolls in its own box,
- * the frame's toolbar and footer staying put. Its toolbar's items and its
+ * the frame's toolbar and footer staying put — and the minimap with them, in
+ * main's corner over the canvas (#1251). Its toolbar's items and its
  * footer are the frame's (`toolbar.tsx`, `footer.tsx`): the model and the
  * orientation come from the frame, and a state find state picks comes as a
  * `reveal`, which selects the state and scrolls it into view.
@@ -1274,19 +1275,20 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                 </Box>
                             </Box>
                         )}
-
-                        {/* minimap */}
-                        {showMinimap && (
-                            <Box css={styles.minimap} data-flowchart-minimap>
-                                <svg width={96} height={64} viewBox={`0 0 ${layout.width} ${layout.height}`} preserveAspectRatio="xMidYMid meet">
-                                    {[...layout.nodes.values()].map(r => (
-                                        <rect key={r.key} x={r.x} y={r.y} width={r.w} height={r.h} rx={8}
-                                            fill="none" stroke={INK_3} strokeWidth={6} />
-                                    ))}
-                                </svg>
-                            </Box>
-                        )}
                     </Box>
+                </Box>
+            )}
+            {/* The minimap (#1251): over the canvas in main's corner, where it
+                stays while the canvas scrolls under it — never in the drawing,
+                whose far corner a wide or a tall flow scrolls out of view. */}
+            {layout !== null && !empty && showMinimap && (
+                <Box css={styles.minimap} data-flowchart-minimap>
+                    <svg width={96} height={64} viewBox={`0 0 ${layout.width} ${layout.height}`} preserveAspectRatio="xMidYMid meet">
+                        {[...layout.nodes.values()].map(r => (
+                            <rect key={r.key} x={r.x} y={r.y} width={r.w} height={r.h} rx={8}
+                                fill="none" stroke={INK_3} strokeWidth={6} />
+                        ))}
+                    </svg>
                 </Box>
             )}
         </Box>
