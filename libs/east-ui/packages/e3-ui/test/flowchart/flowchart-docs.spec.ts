@@ -22,7 +22,7 @@ test("every Flowchart @example is the verbatim fn of a tested example, imported 
     assert.ok(carries("index.ts", "flowchartFlows"), "<Flowchart> carries an @example: a record of flows by name");
     assert.ok(carries("values.ts", "flowchartFlows"), "Flowchart.values carries an @example: the record of flows it writes");
     assert.ok(carries("values.ts", "flowchartHandover"), "Flowchart.value carries an @example: one flow, a bound input's value");
-    assert.ok(carries("over.ts", "flowchartMinimal"), "Flowchart.over carries an @example: the smallest flowchart, over the host's tables");
+    assert.ok(carries("over.ts", "flowchartDepot"), "Flowchart.over carries an @example: a flow from the host's tables, each an e3 input, narrowed by a slice (#1251)");
     assert.ok(carries("library.ts", "flowchartFlows"), "Flowchart.library.flows carries an @example: the Flows tab over a record of flows");
     assert.ok(carries("library.ts", "flowchartLibrary"), "Flowchart.library.states carries an @example: the library's tabs, each over its own rows (#1248)");
     assert.deepEqual(failures, []);

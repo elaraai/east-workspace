@@ -312,7 +312,9 @@ const MEMBERS = {
  *   `slice` or `affordances` over a record; `flow` over one flow; a record of
  *   one flow, or of another type, or not bound with its patch mutation;
  *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
- *   it fills sets; a callback for an edit (`onAddState`, `onCreateLink`, …)
+ *   it fills sets; `density`, which nothing drew by — the canvas draws at one
+ *   rhythm, the spec's 116×40 cards in their lanes (#1251); a callback for an
+ *   edit (`onAddState`, `onCreateLink`, …)
  *   or `linkMode`, which the session's gestures replace; a hover card's
  *   builder (`stateHover`, `linkHover`, `triggerHover`), which the inspector
  *   replaces; an `inspector` of another kind than a Boolean or `{ state,

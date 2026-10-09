@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1250,
+    "totalEntries": 1249,
     "totalFiles": 206,
     "packages": {
       "east": 569,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 335,
-      "e3-ui": 103,
+      "e3-ui": 102,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -41551,8 +41551,8 @@
         "New flow"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import {",
+        "import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -41560,6 +41560,54 @@
         "tsx"
       ],
       "source": "// A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first and the Flows tab listing every flow\n// inputs: []\nexport const depotFlows = e3.record(\"flowchart_depot_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Inbound parcels\": {\n        description: \"From the trailer to the van\",\n        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"load\", label: \"Load\" }],\n        states: [\n            { key: \"ARV\", label: \"Arrived\", lane: \"intake\" },\n            { key: \"SCN\", label: \"Scanned\", lane: \"intake\" },\n            { key: \"CH*\", label: \"Sort chutes\", lane: \"sort\", members: 12n },\n            { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        ],\n        links: [\n            { from: \"ARV\", to: \"SCN\" },\n            { from: \"SCN\", to: \"CH*\", trigger: \"route\" },\n            { from: \"CH*\", to: \"LDD\" },\n            { from: \"SCN\", to: \"SCN\", kind: \"observed\" },\n        ],\n        triggers: [{ key: \"route\", label: \"route\", owner: \"sort-planner\" }],\n    },\n    \"Returns\": {\n        description: \"From the counter back to the sender\",\n        lanes: [{ key: \"counter\", label: \"Counter\" }, { key: \"check\", label: \"Check\" }, { key: \"out\", label: \"Out\" }],\n        states: [\n            { key: \"RCV\", label: \"Received\", lane: \"counter\" },\n            { key: \"INS\", label: \"Inspected\", lane: \"check\" },\n            { key: \"RSD\", label: \"Resent\", lane: \"out\" },\n        ],\n        links: [{ from: \"RCV\", to: \"INS\" }, { from: \"INS\", to: \"RSD\" }, { from: \"INS\", to: \"BIN\", kind: \"observed\" }],\n    },\n}));\n\nexport const depotFlowsPatch = e3.mutation.patch(depotFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));\n            return (\n                <Box height=\"500px\">\n                    <Flowchart record={flows} flow=\"Inbound parcels\" library={[Flowchart.library.flows()]} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:flowchart.examples.tsx:flowchartVariants",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
+      "suite": "",
+      "test": "Flowchart configurator — the legend, the minimap and read only, each expression-fed into one live flowchart in its frame over the host's flows by name (data, from the depot's e3 record), its Flows tab over them, Save committed by the host's onApply through the record's patch mutation; onSelectState, onSelectLink, onSelectTrigger and onTracePath heard in the aside, with no inspector",
+      "keywords": [
+        "Flowchart",
+        "configurator",
+        "Configurator",
+        "legend",
+        "minimap",
+        "readOnly",
+        "read only",
+        "onSelectState",
+        "onSelectLink",
+        "onSelectTrigger",
+        "onTracePath",
+        "selection",
+        "trace",
+        "callbacks",
+        "data",
+        "onApply",
+        "commit",
+        "Record.bind",
+        "commit.patch",
+        "Editing.Types.ApplyResult",
+        "Flows tab",
+        "Flowchart.library.flows",
+        "many flows",
+        "inspector={false}",
+        "library",
+        "Switch",
+        "State",
+        "Reactive"
+      ],
+      "imports": [
+        "import {",
+        "import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Flowchart configurator — the legend, the minimap and read only, each expression-fed into one live flowchart in its frame over the host's flows by name (data, from the depot's e3 record), its Flows tab over them, Save committed by the host's onApply through the record's patch mutation; onSelectState, onSelectLink, onSelectTrigger and onTracePath heard in the aside, with no inspector\n// inputs: []\nexport const depotFlows = e3.record(\"flowchart_depot_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Inbound parcels\": {\n        description: \"From the trailer to the van\",\n        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"load\", label: \"Load\" }],\n        states: [\n            { key: \"ARV\", label: \"Arrived\", lane: \"intake\" },\n            { key: \"SCN\", label: \"Scanned\", lane: \"intake\" },\n            { key: \"CH*\", label: \"Sort chutes\", lane: \"sort\", members: 12n },\n            { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        ],\n        links: [\n            { from: \"ARV\", to: \"SCN\" },\n            { from: \"SCN\", to: \"CH*\", trigger: \"route\" },\n            { from: \"CH*\", to: \"LDD\" },\n            { from: \"SCN\", to: \"SCN\", kind: \"observed\" },\n        ],\n        triggers: [{ key: \"route\", label: \"route\", owner: \"sort-planner\" }],\n    },\n    \"Returns\": {\n        description: \"From the counter back to the sender\",\n        lanes: [{ key: \"counter\", label: \"Counter\" }, { key: \"check\", label: \"Check\" }, { key: \"out\", label: \"Out\" }],\n        states: [\n            { key: \"RCV\", label: \"Received\", lane: \"counter\" },\n            { key: \"INS\", label: \"Inspected\", lane: \"check\" },\n            { key: \"RSD\", label: \"Resent\", lane: \"out\" },\n        ],\n        links: [{ from: \"RCV\", to: \"INS\" }, { from: \"INS\", to: \"RSD\" }, { from: \"INS\", to: \"BIN\", kind: \"observed\" }],\n    },\n}));\n\nexport const depotFlowsPatch = e3.mutation.patch(depotFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));\n            // The host's commit: the open flow's patch through the record's patch mutation, e3's outcome as Save's answer.\n            const onApply = $.const(East.asyncFunction([PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, patch) => {\n                const outcome = $2.let(flows.commit.patch(\"\", patch));\n                const answer = $2.let(variant(\"rejected\", [{ entry: \"\", row: none, field: none, message: \"The write was refused\" }]), Editing.Types.ApplyResult);\n                $2.match(outcome, {\n                    committed: ($3, done) => { $3.assign(answer, variant(\"applied\", { revision: some(done.stateHash) })); },\n                    invalid: ($3, refused) => { $3.assign(answer, variant(\"rejected\", [{ entry: \"\", row: none, field: none, message: refused.message }])); },\n                    failed: ($3, refused) => { $3.assign(answer, variant(\"rejected\", [{ entry: \"\", row: none, field: none, message: East.str`The write failed: ${refused.stderr}` }])); },\n                    timed_out: ($3, refused) => { $3.assign(answer, variant(\"rejected\", [{ entry: \"\", row: none, field: none, message: East.str`The write ran out of time after ${refused.ms} ms and wrote nothing` }])); },\n                    conflict: ($3, lost) => {\n                        const why = $3.let(lost.detail.match({ some: (_$4, detail) => detail, none: (_$4) => \"Another write changed the flows first\" }));\n                        $3.assign(answer, variant(\"conflict\", [{ entry: \"\", row: none, field: none, message: why }]));\n                    },\n                    // A write sent without a request id may have landed: Save says so, and a reload shows whether it did.\n                    transport: ($3, lost) => { $3.assign(answer, variant(\"rejected\", [{ entry: \"\", row: none, field: none, message: East.str`The write got no answer, so it may have landed — reload to see: ${lost.message}` }])); },\n                });\n                return answer;\n            }));\n\n            const legendBind   = $.let(State.bind([BooleanType], \"flowchart_variants_legend\", true));\n            const minimapBind  = $.let(State.bind([BooleanType], \"flowchart_variants_minimap\", false));\n            const readOnlyBind = $.let(State.bind([BooleanType], \"flowchart_variants_readonly\", false));\n            const heardBind    = $.let(State.bind([StringType], \"flowchart_variants_heard\", \"\"));\n\n            const legendOn = $.let(legendBind.read());\n            const minimapOn = $.let(minimapBind.read());\n            const readOnly = $.let(readOnlyBind.read());\n            const heard = $.let(heardBind.read());\n\n            const onLegend   = $.const(East.function([BooleanType], NullType, ($2, next) => { $2(legendBind.write(next)); }));\n            const onMinimap  = $.const(East.function([BooleanType], NullType, ($2, next) => { $2(minimapBind.write(next)); }));\n            const onReadOnly = $.const(East.function([BooleanType], NullType, ($2, next) => { $2(readOnlyBind.write(next)); }));\n\n            // What the host hears: a state, a transition or a decision selected, and a path ⌥-clicked.\n            const onSelectState   = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectState: ${key}`)); }));\n            const onSelectLink    = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectLink: ${key}`)); }));\n            const onSelectTrigger = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onSelectTrigger: ${key}`)); }));\n            const onTracePath     = $.const(East.function([StringType], NullType, ($2, key) => { $2(heardBind.write(East.str`onTracePath: ${key}`)); }));\n\n            return (\n                <Configurator\n                    controls={[\n                        Configurator.Slot(\"Canvas\",\n                            <HStack gap=\"5\" align=\"center\" wrap=\"wrap\">\n                                <Switch checked={legendOn} label=\"Legend\" onChange={onLegend} />\n                                <Switch checked={minimapOn} label=\"Minimap\" onChange={onMinimap} />\n                                <Switch checked={readOnly} label=\"Read-only\" onChange={onReadOnly} />\n                            </HStack>),\n                    ]}\n                    preview={\n                        <Box width=\"100%\" height=\"480px\">\n                            <Flowchart\n                                data={flows.read()}\n                                flow=\"Inbound parcels\"\n                                onApply={onApply}\n                                library={[Flowchart.library.flows()]}\n                                inspector={false}\n                                legend={legendOn}\n                                minimap={minimapOn}\n                                readOnly={readOnly}\n                                onSelectState={onSelectState}\n                                onSelectLink={onSelectLink}\n                                onSelectTrigger={onSelectTrigger}\n                                onTracePath={onTracePath}\n                                name=\"variants\"\n                            />\n                        </Box>\n                    }\n                    aside={{\n                        label: \"Heard · Reactive\",\n                        body: (\n                            <Badge colorPalette=\"brand\" variant=\"outline\">\n                                {East.equal(heard.length(), 0n).ifElse((_$2) => \"Select a state, a transition or a decision\", (_$2) => heard)}\n                            </Badge>\n                        ),\n                    }}\n                    spec={[\n                        Configurator.Spec(\"Legend\", legendOn.ifElse((_$2) => \"shown\", (_$2) => \"hidden\")),\n                        Configurator.Spec(\"Minimap\", minimapOn.ifElse((_$2) => \"shown\", (_$2) => \"hidden\")),\n                        Configurator.Spec(\"Read only\", readOnly.ifElse((_$2) => \"yes\", (_$2) => \"no\")),\n                        Configurator.Spec(\"Flows\", East.str`${flows.read().size()} by name`),\n                    ]}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:flowchart.examples.tsx:flowchartLibrary",
@@ -41586,8 +41634,8 @@
         "Flowchart.patch"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import {",
+        "import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -41597,40 +41645,12 @@
       "source": "// A record of flows with its library — the Flows tab, step types from an input's rows, transition types from a record's rows by name, and the author's own cards — each tab its own bound data, each card a drag source a click selects\n// inputs: []\nexport const depotFlows = e3.record(\"flowchart_depot_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Inbound parcels\": {\n        description: \"From the trailer to the van\",\n        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"load\", label: \"Load\" }],\n        states: [\n            { key: \"ARV\", label: \"Arrived\", lane: \"intake\" },\n            { key: \"SCN\", label: \"Scanned\", lane: \"intake\" },\n            { key: \"CH*\", label: \"Sort chutes\", lane: \"sort\", members: 12n },\n            { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        ],\n        links: [\n            { from: \"ARV\", to: \"SCN\" },\n            { from: \"SCN\", to: \"CH*\", trigger: \"route\" },\n            { from: \"CH*\", to: \"LDD\" },\n            { from: \"SCN\", to: \"SCN\", kind: \"observed\" },\n        ],\n        triggers: [{ key: \"route\", label: \"route\", owner: \"sort-planner\" }],\n    },\n    \"Returns\": {\n        description: \"From the counter back to the sender\",\n        lanes: [{ key: \"counter\", label: \"Counter\" }, { key: \"check\", label: \"Check\" }, { key: \"out\", label: \"Out\" }],\n        states: [\n            { key: \"RCV\", label: \"Received\", lane: \"counter\" },\n            { key: \"INS\", label: \"Inspected\", lane: \"check\" },\n            { key: \"RSD\", label: \"Resent\", lane: \"out\" },\n        ],\n        links: [{ from: \"RCV\", to: \"INS\" }, { from: \"INS\", to: \"RSD\" }, { from: \"INS\", to: \"BIN\", kind: \"observed\" }],\n    },\n}));\n\nexport const depotFlowsPatch = e3.mutation.patch(depotFlows);\n\nexport const StepTemplate = StructType({ code: StringType, name: StringType, kind: StringType, slots: OptionType(IntegerType) });\n\nexport const stepTemplates = e3.input(\"flowchart_step_templates\", ArrayType(StepTemplate), variant(\"value\", [\n    { code: \"ARV\", name: \"Arrived\", kind: \"Intake\", slots: none },\n    { code: \"SCN\", name: \"Scanned\", kind: \"Intake\", slots: none },\n    { code: \"CH*\", name: \"Sort chutes\", kind: \"Sort\", slots: some(12n) },\n    { code: \"HLD\", name: \"Held\", kind: \"Hold\", slots: none },\n    { code: \"LDD\", name: \"Loaded\", kind: \"Load\", slots: none },\n]));\n\nexport const MoveTemplate = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType), note: StringType });\n\nexport const moveTemplates = e3.record(\"flowchart_move_templates\", DictType(StringType, MoveTemplate), new Map([\n    [\"Observed\", { kind: variant(\"observed\", null), decision: none, note: \"Mined from the scans\" }],\n    [\"Planned\", { kind: variant(\"planned\", null), decision: none, note: \"The designed path\" }],\n    [\"Routed\", { kind: variant(\"planned\", null), decision: some(\"route\"), note: \"Governed by the route decision\" }],\n]));\n\nexport const DecisionOwner = StructType({ role: StringType, name: StringType, desk: StringType });\n\nexport const decisionOwners = e3.input(\"flowchart_decision_owners\", ArrayType(DecisionOwner), variant(\"value\", [\n    { role: \"sort-planner\", name: \"Sort planner\", desk: \"Sort hall\" },\n    { role: \"customs-desk\", name: \"Customs desk\", desk: \"Hold bay\" },\n]));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));\n            const steps = $.let(Data.bind(stepTemplates));\n            const moves = $.let(Record.bind(moveTemplates, []));\n            const owners = $.let(Data.bind(decisionOwners));\n            return (\n                <Box height=\"560px\">\n                    <Flowchart\n                        record={flows}\n                        flow=\"Inbound parcels\"\n                        name=\"depot\"\n                        library={[\n                            Flowchart.library.flows(),\n                            // Step types, an input's rows: a card dropped on a lane adds a state seeded with what its drop sets.\n                            Flowchart.library.states(steps.read(), {\n                                name: \"Steps\", icon: \"box\",\n                                key: s => s.code, label: s => s.name, meta: s => some(s.code), group: s => s.kind,\n                                drop: s => Flowchart.patch(Flowchart.Types.State, { key: s.code, label: some(s.name), members: s.slots }),\n                            }),\n                            // Transition types, a record's rows by name: a card dropped on a transition retypes it.\n                            Flowchart.library.transitions(moves.read(), {\n                                icon: \"arrow-right\",\n                                key: (_m, name) => name, label: (_m, name) => name, meta: m => some(m.note),\n                                drop: m => Flowchart.patch(Flowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),\n                            }),\n                            // The author's own cards: a role dropped on a decision owns it.\n                            Flowchart.library.tab(owners.read(), {\n                                name: \"Owners\", icon: \"user-tie\",\n                                key: o => o.role, label: o => o.name, meta: o => some(o.desk),\n                                drop: o => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(o.role) }),\n                            }),\n                        ]}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
-      "id": "e3-ui:flowchart.examples.tsx:flowchartHandover",
+      "id": "e3-ui:flowchart.examples.tsx:flowchartDepot",
       "skill": "e3-ui",
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
       "suite": "",
-      "test": "One flow of the host's — the hand-over from the last scan to the door — an input bound with Data.bind and shown read only",
-      "keywords": [
-        "Flowchart",
-        "data",
-        "Flow",
-        "Flowchart.value",
-        "Data.bind",
-        "one flow",
-        "e3.input",
-        "read only"
-      ],
-      "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// One flow of the host's — the hand-over from the last scan to the door — an input bound with Data.bind and shown read only\n// inputs: []\nexport const handoverFlow = e3.input(\"flowchart_handover\", Flowchart.Types.Flow, variant(\"value\", Flowchart.value({\n    description: \"From the last scan to the driver's signature\",\n    lanes: [{ key: \"load\", label: \"Load\" }, { key: \"road\", label: \"Road\" }, { key: \"door\", label: \"Door\" }],\n    states: [\n        { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        { key: \"DSP\", label: \"Dispatched\", lane: \"road\" },\n        { key: \"DLV\", label: \"Delivered\", lane: \"door\" },\n        { key: \"RTN\", label: \"Returned\", lane: \"door\" },\n    ],\n    links: [\n        { from: \"LDD\", to: \"DSP\" },\n        { from: \"DSP\", to: \"DLV\", trigger: \"attempt\" },\n        { from: \"DSP\", to: \"RTN\", kind: \"observed\", trigger: \"attempt\" },\n    ],\n    triggers: [{ key: \"attempt\", label: \"attempt\", owner: \"driver\" }],\n})));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const handover = $.let(Data.bind(handoverFlow));\n            return <Box height=\"500px\"><Flowchart data={handover} /></Box>;\n        }}</Reactive>\n    ))"
-    },
-    {
-      "id": "e3-ui:flowchart.examples.tsx:flowchartMinimal",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
-      "suite": "",
-      "test": "Minimal flowchart — one flow over the host's tables: six states across three phase lanes, one observed transition",
+      "test": "Parcel-depot flowchart over the host's tables, each an e3 input bound with Data.bind and built into one flow by Flowchart.over, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, the freshness chip, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition",
       "keywords": [
         "Flowchart",
         "Flowchart.over",
@@ -41638,34 +41658,18 @@
         "states",
         "links",
         "lanes",
+        "tables",
+        "row mappers",
         "minimal",
         "planned",
-        "observed"
-      ],
-      "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// Minimal flowchart — one flow over the host's tables: six states across three phase lanes, one observed transition\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const states = $.const([\n            { code: \"ARV\", name: \"Arrived\", phase: \"intake\" },\n            { code: \"SCN\", name: \"Scanned\", phase: \"intake\" },\n            { code: \"SRT\", name: \"Sorting\", phase: \"sort\" },\n            { code: \"SRD\", name: \"Sorted\", phase: \"sort\" },\n            { code: \"LDD\", name: \"Loaded\", phase: \"dispatch\" },\n            { code: \"DSP\", name: \"Dispatched\", phase: \"dispatch\" },\n        ]);\n        const planned = variant(\"planned\", null);\n        const observed = variant(\"observed\", null);\n        const links = $.const([\n            { src: \"ARV\", dst: \"SCN\", kind: planned },\n            { src: \"SCN\", dst: \"SRT\", kind: planned },\n            { src: \"SRT\", dst: \"SRD\", kind: planned },\n            { src: \"SRD\", dst: \"LDD\", kind: planned },\n            { src: \"LDD\", dst: \"DSP\", kind: observed },\n        ]);\n        return (\n            <Box height=\"500px\">\n                <Flowchart\n                    data={Flowchart.over(states, {\n                        state: s => ({ key: s.code, label: s.name, lane: s.phase }),\n                        links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),\n                        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"dispatch\", label: \"Dispatch\" }],\n                    })}\n                />\n            </Box>\n        );\n    })"
-    },
-    {
-      "id": "e3-ui:flowchart.examples.tsx:flowchartDepot",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
-      "suite": "",
-      "test": "Parcel-depot flowchart over the host's tables, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition",
-      "keywords": [
-        "Flowchart",
-        "Flowchart.over",
+        "observed",
         "triggers",
         "evidence",
         "slice",
+        "Slice.rows",
+        "Data.bind",
+        "e3.input",
+        "scans",
         "inspector",
         "Details",
         "Issues",
@@ -41676,27 +41680,65 @@
         "freshness"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import {",
+        "import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// Parcel-depot flowchart over the host's tables, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const KindType = Flowchart.Types.Kind;\n            const LinkRow = StructType({\n                id: StringType, src: StringType, dst: StringType, kind: KindType,\n                trigger: OptionType(StringType), parcels: OptionType(FloatType), n: OptionType(IntegerType),\n                at: DateTimeType, service: StringType, units: ArrayType(StringType),\n            });\n            const states = $.const([\n                { code: \"ARV\", name: \"Arrived\", phase: \"intake\", slots: none },\n                { code: \"SCN\", name: \"Scanned\", phase: \"intake\", slots: none },\n                { code: \"IND\", name: \"Inducting\", phase: \"induct\", slots: none },\n                { code: \"LBL\", name: \"Labelled\", phase: \"induct\", slots: none },\n                { code: \"CH*\", name: \"Sort chutes (class)\", phase: \"sort\", slots: some(14n) },\n                { code: \"SRD\", name: \"Sorted\", phase: \"sort\", slots: none },\n                { code: \"HLD\", name: \"Held\", phase: \"hold\", slots: none },\n                { code: \"CLR\", name: \"Cleared\", phase: \"hold\", slots: none },\n                { code: \"LDD\", name: \"Loaded\", phase: \"dispatch\", slots: none },\n                { code: \"DSP\", name: \"Dispatched\", phase: \"dispatch\", slots: none },\n            ], ArrayType(StructType({\n                code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType),\n            })));\n            const stamp = new Date(\"2026-06-30T00:00:00Z\");\n            const planned = variant(\"planned\", null);\n            const observed = variant(\"observed\", null);\n            const links = $.const([\n                { id: \"l1\", src: \"ARV\", dst: \"SCN\", kind: planned, trigger: none, parcels: some(18460.0), n: some(412n), at: stamp, service: \"standard\", units: [\"C\"] },\n                { id: \"l2\", src: \"SCN\", dst: \"IND\", kind: planned, trigger: none, parcels: some(7720.0), n: some(171n), at: stamp, service: \"standard\", units: [\"C\"] },\n                { id: \"l3\", src: \"IND\", dst: \"IND\", kind: planned, trigger: none, parcels: none, n: some(2n), at: stamp, service: \"standard\", units: [\"C\"] },\n                { id: \"l4\", src: \"IND\", dst: \"CH*\", kind: planned, trigger: some(\"route\"), parcels: some(17350.0), n: some(386n), at: stamp, service: \"standard\", units: [\"C\", \"T\"] },\n                { id: \"l5\", src: \"CH*\", dst: \"SRD\", kind: planned, trigger: none, parcels: some(17210.0), n: some(383n), at: stamp, service: \"standard\", units: [\"T\"] },\n                { id: \"l6\", src: \"SRD\", dst: \"HLD\", kind: observed, trigger: none, parcels: some(1080.0), n: some(24n), at: stamp, service: \"express\", units: [\"T\"] },\n                { id: \"l7\", src: \"HLD\", dst: \"CLR\", kind: planned, trigger: some(\"customs\"), parcels: some(8350.0), n: some(186n), at: stamp, service: \"standard\", units: [\"T\"] },\n                { id: \"l8\", src: \"CLR\", dst: \"LDD\", kind: planned, trigger: none, parcels: some(8240.0), n: some(183n), at: stamp, service: \"standard\", units: [\"T\"] },\n                { id: \"l9\", src: \"LDD\", dst: \"DSP\", kind: planned, trigger: none, parcels: some(8160.0), n: some(181n), at: stamp, service: \"standard\", units: [] },\n                { id: \"l10\", src: \"DSP\", dst: \"DLV\", kind: planned, trigger: none, parcels: none, n: none, at: stamp, service: \"standard\", units: [] },\n            ], ArrayType(LinkRow));\n            const cfg = Slice.config(LinkRow, {\n                fields: {\n                    service: { label: \"Service\" },\n                    src: { label: \"From\" },\n                    dst: { label: \"To\" },\n                },\n                searchFieldIds: [\"src\", \"dst\"],\n            });\n            const slice = $.let(Slice.bind([LinkRow], \"flowchart-depot\", cfg, Slice.state({}), links, none));\n            const triggers = $.const([\n                { id: \"route\", name: \"route\", who: \"sort-planner\" },\n                { id: \"customs\", name: \"customs\", who: \"customs-desk\" },\n            ]);\n            return (\n                <Box height=\"600px\">\n                    <Flowchart\n                        data={Flowchart.over(states, {\n                            state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),\n                            links: Slice.rows([LinkRow], slice),\n                            link: l => ({\n                                key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,\n                                evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: \"parcels\" },\n                            }),\n                            lanes: [\n                                { key: \"intake\", label: \"Intake\" }, { key: \"induct\", label: \"Induct\" },\n                                { key: \"sort\", label: \"Sort\" }, { key: \"hold\", label: \"Hold\" },\n                                { key: \"dispatch\", label: \"Dispatch\" },\n                            ],\n                            triggers,\n                            trigger: t => ({ key: t.id, label: t.name, owner: t.who }),\n                        })}\n                        slice={slice} affordances={[\"filter\", \"search\"]}\n                        freshness={{ label: \"evidence-2026.06\", date: stamp }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Parcel-depot flowchart over the host's tables, each an e3 input bound with Data.bind and built into one flow by Flowchart.over, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, the freshness chip, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition\n// inputs: []\nexport const DepotState = StructType({ code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType) });\n\nexport const depotStates = e3.input(\"flowchart_depot_states\", ArrayType(DepotState), variant(\"value\", [\n    { code: \"ARV\", name: \"Arrived\", phase: \"intake\", slots: none },\n    { code: \"SCN\", name: \"Scanned\", phase: \"intake\", slots: none },\n    { code: \"IND\", name: \"Inducting\", phase: \"induct\", slots: none },\n    { code: \"LBL\", name: \"Labelled\", phase: \"induct\", slots: none },\n    { code: \"CH*\", name: \"Sort chutes (class)\", phase: \"sort\", slots: some(14n) },\n    { code: \"SRD\", name: \"Sorted\", phase: \"sort\", slots: none },\n    { code: \"HLD\", name: \"Held\", phase: \"hold\", slots: none },\n    { code: \"CLR\", name: \"Cleared\", phase: \"hold\", slots: none },\n    { code: \"LDD\", name: \"Loaded\", phase: \"dispatch\", slots: none },\n    { code: \"DSP\", name: \"Dispatched\", phase: \"dispatch\", slots: none },\n]));\n\nexport const ScanTransition = StructType({\n    id: StringType, src: StringType, dst: StringType, kind: Flowchart.Types.Kind,\n    trigger: OptionType(StringType), parcels: OptionType(FloatType), n: OptionType(IntegerType),\n    at: DateTimeType, service: StringType, units: ArrayType(StringType),\n});\n\nexport const scanTransitions = e3.input(\"flowchart_depot_scans\", ArrayType(ScanTransition), variant(\"value\", [\n    { id: \"l1\", src: \"ARV\", dst: \"SCN\", kind: variant(\"planned\", null), trigger: none, parcels: some(18460.0), n: some(412n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"C\"] },\n    { id: \"l2\", src: \"SCN\", dst: \"IND\", kind: variant(\"planned\", null), trigger: none, parcels: some(7720.0), n: some(171n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"C\"] },\n    { id: \"l3\", src: \"IND\", dst: \"IND\", kind: variant(\"planned\", null), trigger: none, parcels: none, n: some(2n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"C\"] },\n    { id: \"l4\", src: \"IND\", dst: \"CH*\", kind: variant(\"planned\", null), trigger: some(\"route\"), parcels: some(17350.0), n: some(386n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"C\", \"T\"] },\n    { id: \"l5\", src: \"CH*\", dst: \"SRD\", kind: variant(\"planned\", null), trigger: none, parcels: some(17210.0), n: some(383n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"T\"] },\n    { id: \"l6\", src: \"SRD\", dst: \"HLD\", kind: variant(\"observed\", null), trigger: none, parcels: some(1080.0), n: some(24n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"express\", units: [\"T\"] },\n    { id: \"l7\", src: \"HLD\", dst: \"CLR\", kind: variant(\"planned\", null), trigger: some(\"customs\"), parcels: some(8350.0), n: some(186n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"T\"] },\n    { id: \"l8\", src: \"CLR\", dst: \"LDD\", kind: variant(\"planned\", null), trigger: none, parcels: some(8240.0), n: some(183n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [\"T\"] },\n    { id: \"l9\", src: \"LDD\", dst: \"DSP\", kind: variant(\"planned\", null), trigger: none, parcels: some(8160.0), n: some(181n), at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [] },\n    { id: \"l10\", src: \"DSP\", dst: \"DLV\", kind: variant(\"planned\", null), trigger: none, parcels: none, n: none, at: new Date(\"2026-06-30T00:00:00Z\"), service: \"standard\", units: [] },\n]));\n\nexport const DepotDecision = StructType({ id: StringType, name: StringType, who: StringType });\n\nexport const depotDecisions = e3.input(\"flowchart_depot_decisions\", ArrayType(DepotDecision), variant(\"value\", [\n    { id: \"route\", name: \"route\", who: \"sort-planner\" },\n    { id: \"customs\", name: \"customs\", who: \"customs-desk\" },\n]));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const states = $.let(Data.bind(depotStates));\n            const scans = $.let(Data.bind(scanTransitions));\n            const decisions = $.let(Data.bind(depotDecisions));\n            const cfg = Slice.config(ScanTransition, {\n                fields: {\n                    service: { label: \"Service\" },\n                    src: { label: \"From\" },\n                    dst: { label: \"To\" },\n                },\n                searchFieldIds: [\"src\", \"dst\"],\n            });\n            const slice = $.let(Slice.bind([ScanTransition], \"flowchart-depot\", cfg, Slice.state({}), scans.read(), none));\n            return (\n                <Box height=\"600px\">\n                    <Flowchart\n                        data={Flowchart.over(states.read(), {\n                            state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),\n                            links: Slice.rows([ScanTransition], slice),\n                            link: l => ({\n                                key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,\n                                evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: \"parcels\" },\n                            }),\n                            lanes: [\n                                { key: \"intake\", label: \"Intake\" }, { key: \"induct\", label: \"Induct\" },\n                                { key: \"sort\", label: \"Sort\" }, { key: \"hold\", label: \"Hold\" },\n                                { key: \"dispatch\", label: \"Dispatch\" },\n                            ],\n                            triggers: decisions.read(),\n                            trigger: t => ({ key: t.id, label: t.name, owner: t.who }),\n                        })}\n                        slice={slice} affordances={[\"filter\", \"search\"]}\n                        freshness={{ label: \"evidence-2026.06\", date: new Date(\"2026-06-30T00:00:00Z\") }}\n                        name=\"scans\"\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
-      "id": "e3-ui:flowchart.examples.tsx:flowchartBuilder",
+      "id": "e3-ui:flowchart.examples.tsx:flowchartHandover",
       "skill": "e3-ui",
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
       "suite": "",
-      "test": "A record of one flow edited on the canvas — + LANE, lane rename and ×, the + STATE ghost, double-click edit, cross-lane drag, handle-drag connecting and Del — each gesture a draft the history item undoes, and Save one commit through the record's patch mutation; a canConnect veto keeps transitions out of the booking",
+      "test": "One flow of the host's — the hand-over from the last scan to the door — an input bound with Data.bind and shown read only, top down, with no pane: its toolbar, its canvas and its footer",
+      "keywords": [
+        "Flowchart",
+        "data",
+        "Flow",
+        "Flowchart.value",
+        "Data.bind",
+        "one flow",
+        "e3.input",
+        "read only",
+        "orientation",
+        "TD",
+        "top down",
+        "inspector={false}",
+        "no pane",
+        "toolbar",
+        "footer"
+      ],
+      "imports": [
+        "import {",
+        "import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// One flow of the host's — the hand-over from the last scan to the door — an input bound with Data.bind and shown read only, top down, with no pane: its toolbar, its canvas and its footer\n// inputs: []\nexport const handoverFlow = e3.input(\"flowchart_handover\", Flowchart.Types.Flow, variant(\"value\", Flowchart.value({\n    description: \"From the last scan to the driver's signature\",\n    lanes: [{ key: \"load\", label: \"Load\" }, { key: \"road\", label: \"Road\" }, { key: \"door\", label: \"Door\" }],\n    states: [\n        { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        { key: \"DSP\", label: \"Dispatched\", lane: \"road\" },\n        { key: \"DLV\", label: \"Delivered\", lane: \"door\" },\n        { key: \"RTN\", label: \"Returned\", lane: \"door\" },\n    ],\n    links: [\n        { from: \"LDD\", to: \"DSP\" },\n        { from: \"DSP\", to: \"DLV\", trigger: \"attempt\" },\n        { from: \"DSP\", to: \"RTN\", kind: \"observed\", trigger: \"attempt\" },\n    ],\n    triggers: [{ key: \"attempt\", label: \"attempt\", owner: \"driver\" }],\n})));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const handover = $.let(Data.bind(handoverFlow));\n            return (\n                <Box height=\"500px\">\n                    <Flowchart data={handover} orientation=\"TD\" inspector={false} name=\"handover\" />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:flowchart.examples.tsx:flowchartDetail",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
+      "suite": "",
+      "test": "A record's one flow — the collections, from the booking to the depot's door — edited on the canvas: + LANE, lane rename and ×, the + STATE ghost, double-click edit, cross-lane drag, handle-drag connecting and Del, each a draft the history item undoes and Save commits through the record's patch mutation, a canConnect veto keeping transitions out of the booking; and the inspector's own Details by kind — a state's, whose button gives it one more member, and a transition's, whose button marks it observed — each in place of its form, each button's update one transaction",
       "keywords": [
         "Flowchart",
         "record",
         "Record.bind",
+        "one flow",
+        "one entry",
+        "lone flow",
         "editing",
         "builder",
         "Save",
@@ -41712,28 +41754,7 @@
         "move",
         "authoring",
         "interactive",
-        "edit"
-      ],
-      "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A record of one flow edited on the canvas — + LANE, lane rename and ×, the + STATE ghost, double-click edit, cross-lane drag, handle-drag connecting and Del — each gesture a draft the history item undoes, and Save one commit through the record's patch mutation; a canConnect veto keeps transitions out of the booking\n// inputs: []\nexport const collectionFlows = e3.record(\"flowchart_collection_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Collections\": {\n        description: \"From the booking to the depot's door\",\n        lanes: [{ key: \"book\", label: \"Book\" }, { key: \"van\", label: \"Van\" }, { key: \"depot\", label: \"Depot\" }],\n        states: [\n            { key: \"BKD\", label: \"Booked\", lane: \"book\" },\n            { key: \"CLD\", label: \"Collected\", lane: \"van\" },\n            { key: \"RCV\", label: \"Received\", lane: \"depot\" },\n        ],\n        links: [{ key: \"BKD→CLD\", from: \"BKD\", to: \"CLD\" }, { key: \"CLD→RCV\", from: \"CLD\", to: \"RCV\" }],\n    },\n}));\n\nexport const collectionFlowsPatch = e3.mutation.patch(collectionFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(collectionFlows, [collectionFlowsPatch]));\n            // The connection veto: nothing comes back to the booking, though a\n            // drop on BKD from BKD is its in-place transition.\n            const canConnect = $.const(East.function([StringType, StringType], BooleanType,\n                (_$, from, to) => East.equal(to, \"BKD\").not().or(() => East.equal(from, to))));\n            return (\n                <Box height=\"420px\">\n                    <Flowchart record={flows} canConnect={canConnect} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
-    },
-    {
-      "id": "e3-ui:flowchart.examples.tsx:flowchartDetail",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
-      "suite": "",
-      "test": "The inspector's own Details by kind, over a record of flows — a state's, whose button gives it one more member, and a transition's, whose button marks it observed — each in place of its form, each button's update one transaction of the open flow's session",
-      "keywords": [
-        "Flowchart",
+        "edit",
         "inspector",
         "Details",
         "own Details",
@@ -41742,20 +41763,18 @@
         "state",
         "transition",
         "Button",
-        "record",
-        "Record.bind",
         "Issues"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Box, Button, Reactive, Slice, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import {",
+        "import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Flowchart, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// The inspector's own Details by kind, over a record of flows — a state's, whose button gives it one more member, and a transition's, whose button marks it observed — each in place of its form, each button's update one transaction of the open flow's session\n// inputs: []\nexport const depotFlows = e3.record(\"flowchart_depot_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Inbound parcels\": {\n        description: \"From the trailer to the van\",\n        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"load\", label: \"Load\" }],\n        states: [\n            { key: \"ARV\", label: \"Arrived\", lane: \"intake\" },\n            { key: \"SCN\", label: \"Scanned\", lane: \"intake\" },\n            { key: \"CH*\", label: \"Sort chutes\", lane: \"sort\", members: 12n },\n            { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        ],\n        links: [\n            { from: \"ARV\", to: \"SCN\" },\n            { from: \"SCN\", to: \"CH*\", trigger: \"route\" },\n            { from: \"CH*\", to: \"LDD\" },\n            { from: \"SCN\", to: \"SCN\", kind: \"observed\" },\n        ],\n        triggers: [{ key: \"route\", label: \"route\", owner: \"sort-planner\" }],\n    },\n    \"Returns\": {\n        description: \"From the counter back to the sender\",\n        lanes: [{ key: \"counter\", label: \"Counter\" }, { key: \"check\", label: \"Check\" }, { key: \"out\", label: \"Out\" }],\n        states: [\n            { key: \"RCV\", label: \"Received\", lane: \"counter\" },\n            { key: \"INS\", label: \"Inspected\", lane: \"check\" },\n            { key: \"RSD\", label: \"Resent\", lane: \"out\" },\n        ],\n        links: [{ from: \"RCV\", to: \"INS\" }, { from: \"INS\", to: \"RSD\" }, { from: \"INS\", to: \"BIN\", kind: \"observed\" }],\n    },\n}));\n\nexport const depotFlowsPatch = e3.mutation.patch(depotFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));\n            // A state's own Details: its key, its label and its lane, and one more member — the edited state goes back through `update`.\n            const state = $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($2, s, update) => {\n                const label = $2.let(s.label.match({ none: () => s.key, some: (_$3, l) => l }));\n                const members = $2.let(s.members.match({ none: () => 1n, some: (_$3, n) => n.add(1n) }));\n                const grow = $2.const(East.function([], NullType, ($3) => {\n                    // East has no struct spread: the state, rebuilt with its new members.\n                    const edited = $3.const({ key: s.key, label: s.label, lane: s.lane, members: some(members), notes: s.notes }, Flowchart.Types.State);\n                    $3(update(edited));\n                }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text fontFamily=\"mono\" fontWeight=\"bold\">{East.str`${s.key} · ${label}`}</Text>\n                        <Text color=\"fg.muted\">{East.str`In the ${s.lane} lane`}</Text>\n                        <Button variant=\"outline\" onClick={grow}>One more member</Button>\n                    </VStack>\n                );\n            }));\n            // A transition's own Details: its ends and its kind, and a mark of it observed — the edited transition goes back through `update`.\n            const transition = $.const(East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($2, l, update) => {\n                const kind = $2.let(l.kind.match({ none: () => \"planned\", some: (_$3, k) => k.getTag() }));\n                const observe = $2.const(East.function([], NullType, ($3) => {\n                    const edited = $3.const({ key: l.key, from: l.from, to: l.to, kind: some(variant(\"observed\", null)), trigger: l.trigger, evidence: l.evidence }, Flowchart.Types.Link);\n                    $3(update(edited));\n                }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text fontFamily=\"mono\" fontWeight=\"bold\">{East.str`${l.from} → ${l.to}`}</Text>\n                        <Text color=\"fg.muted\">{East.str`Its kind: ${kind}`}</Text>\n                        <Button variant=\"outline\" onClick={observe}>Mark it observed</Button>\n                    </VStack>\n                );\n            }));\n            return (\n                <Box height=\"560px\">\n                    <Flowchart record={flows} flow=\"Inbound parcels\" name=\"detail\" inspector={{ state, transition }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// A record's one flow — the collections, from the booking to the depot's door — edited on the canvas: + LANE, lane rename and ×, the + STATE ghost, double-click edit, cross-lane drag, handle-drag connecting and Del, each a draft the history item undoes and Save commits through the record's patch mutation, a canConnect veto keeping transitions out of the booking; and the inspector's own Details by kind — a state's, whose button gives it one more member, and a transition's, whose button marks it observed — each in place of its form, each button's update one transaction\n// inputs: []\nexport const collectionFlows = e3.record(\"flowchart_collection_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Collections\": {\n        description: \"From the booking to the depot's door\",\n        lanes: [{ key: \"book\", label: \"Book\" }, { key: \"van\", label: \"Van\" }, { key: \"depot\", label: \"Depot\" }],\n        states: [\n            { key: \"BKD\", label: \"Booked\", lane: \"book\" },\n            { key: \"CLD\", label: \"Collected\", lane: \"van\" },\n            { key: \"RCV\", label: \"Received\", lane: \"depot\" },\n        ],\n        links: [{ key: \"BKD→CLD\", from: \"BKD\", to: \"CLD\" }, { key: \"CLD→RCV\", from: \"CLD\", to: \"RCV\" }],\n    },\n}));\n\nexport const collectionFlowsPatch = e3.mutation.patch(collectionFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(collectionFlows, [collectionFlowsPatch]));\n            // The connection veto: nothing comes back to the booking, though a\n            // drop on BKD from BKD is its in-place transition.\n            const canConnect = $.const(East.function([StringType, StringType], BooleanType,\n                (_$2, from, to) => East.equal(to, \"BKD\").not().or(() => East.equal(from, to))));\n            // A state's own Details: its key, its label and its lane, and one more member — the edited state goes back through `update`.\n            const state = $.const(East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($2, s, update) => {\n                const label = $2.let(s.label.match({ none: () => s.key, some: (_$3, l) => l }));\n                const members = $2.let(s.members.match({ none: () => 1n, some: (_$3, n) => n.add(1n) }));\n                const grow = $2.const(East.function([], NullType, ($3) => {\n                    // East has no struct spread: the state, rebuilt with its new members.\n                    const edited = $3.const({ key: s.key, label: s.label, lane: s.lane, members: some(members), notes: s.notes }, Flowchart.Types.State);\n                    $3(update(edited));\n                }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text fontFamily=\"mono\" fontWeight=\"bold\">{East.str`${s.key} · ${label}`}</Text>\n                        <Text color=\"fg.muted\">{East.str`In the ${s.lane} lane`}</Text>\n                        <Button variant=\"outline\" onClick={grow}>One more member</Button>\n                    </VStack>\n                );\n            }));\n            // A transition's own Details: its ends and its kind, and a mark of it observed — the edited transition goes back through `update`.\n            const transition = $.const(East.function([Flowchart.Types.Link, FunctionType([Flowchart.Types.Link], NullType)], UIComponentType, ($2, l, update) => {\n                const kind = $2.let(l.kind.match({ none: () => \"planned\", some: (_$3, k) => k.getTag() }));\n                const observe = $2.const(East.function([], NullType, ($3) => {\n                    const edited = $3.const({ key: l.key, from: l.from, to: l.to, kind: some(variant(\"observed\", null)), trigger: l.trigger, evidence: l.evidence }, Flowchart.Types.Link);\n                    $3(update(edited));\n                }));\n                return (\n                    <VStack gap=\"2\" align=\"stretch\">\n                        <Text fontFamily=\"mono\" fontWeight=\"bold\">{East.str`${l.from} → ${l.to}`}</Text>\n                        <Text color=\"fg.muted\">{East.str`Its kind: ${kind}`}</Text>\n                        <Button variant=\"outline\" onClick={observe}>Mark it observed</Button>\n                    </VStack>\n                );\n            }));\n            return (\n                <Box height=\"560px\">\n                    <Flowchart record={flows} canConnect={canConnect} inspector={{ state, transition }} name=\"detail\" />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:ontology.examples.tsx:supplyChainOntology",

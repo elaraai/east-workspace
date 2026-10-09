@@ -33,38 +33,12 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
-
-const HASH = "e3/flowchart/flowchart/flowchartLibrary";
+import { boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, sizeTo } from "./flowchart-page";
 
 /** Open the depot's flows with their library, at rest, and return the flowchart's root. */
 async function openLibrary(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
-    await page.goto(`/?theme=${theme}#${HASH}`);
-    await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${HASH}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    await expect(entry.locator("[data-builder-frame] [data-flowchart-node]").first()).toBeVisible({ timeout: 20_000 });
-    await settled(page);
-    return entry.locator("[data-flowchart-root]").first();
+    return (await openFlowchart(page, "flowchartLibrary", theme)).root;
 }
-
-/**
- * Size the flowchart's box and centre it in the window, at rest — wholly inside
- * it, clear of the 48px at each edge where a card carried there scrolls the
- * page, so nothing it measures moves under the drag.
- */
-async function sizeTo(page: Page, root: Locator, width: number): Promise<void> {
-    await root.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-    await settled(page);
-    await root.evaluate((el) => { el.scrollIntoView({ block: "center" }); });
-    await settled(page);
-    expect(await root.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        return r.left >= 48 && r.top >= 48 && r.right <= innerWidth - 48 && r.bottom <= innerHeight - 48;
-    }), "the flowchart stands inside the window, clear of its edges").toBe(true);
-}
-
-/** The library's open width (`Flowchart Builder Spec.md` §8). */
-const PANE = 272;
 
 /**
  * A frame wide enough to pin the library beside main's 480px, inside the
@@ -76,74 +50,6 @@ const PINNED = 900;
 
 /** A frame too narrow to pin the library — it opens over main from its rail — whose canvas the page leaves wholly uncovered. */
 const OVERLAID = 700;
-
-/** Boxes of the flowchart's elements, read at one moment. */
-function boxesOf(root: Locator, selectors: readonly string[]): Promise<{ x: number; y: number; width: number; height: number }[]> {
-    return root.evaluate((el, sels) => sels.map((sel) => {
-        const r = el.querySelector(sel)!.getBoundingClientRect();
-        return { x: r.x, y: r.y, width: r.width, height: r.height };
-    }), selectors);
-}
-
-/** Open the library pane where it rests on its rail, and wait for it to stand open in its mode, at its whole width: its tab row folded for the room it keeps. */
-async function paneOpen(page: Page, root: Locator, mode: "pinned" | "overlay"): Promise<void> {
-    if (await root.locator("[data-frame-slot='start']").getAttribute("data-collapsed") !== null) {
-        await root.getByRole("button", { name: "Expand Library" }).click();
-        await settled(page);
-    }
-    await expect.poll(() => root.evaluate((el) => {
-        const slot = el.querySelector("[data-frame-slot='start']")!;
-        return [slot.getAttribute("data-pane-mode"), slot.hasAttribute("data-collapsed"), Math.round(slot.firstElementChild!.getBoundingClientRect().width * 10) / 10];
-    })).toEqual([mode, false, PANE]);
-}
-
-/** Opens a library tab by its name: on the row, or from the `+n` menu. */
-async function openTab(page: Page, root: Locator, name: string): Promise<void> {
-    const onRow = root.locator("[data-frame-slot='start'] [role='tab']", { hasText: new RegExp(`^${name}( |$)`) });
-    if (await onRow.count() > 0) await onRow.click();
-    else {
-        await root.locator("[data-frame-slot='start'] [data-dock-more]").click();
-        await page.getByRole("menuitem", { name: new RegExp(`^${name}( |$)`) }).click();
-        await expect(page.locator("[role='menu']")).toHaveCount(0);
-    }
-    await settled(page);
-}
-
-/** A card of the open tab, by its key. */
-const cardOf = (root: Locator, key: string) => root.locator(`[data-frame-slot='start'] [role='tabpanel']:not([hidden]) [data-library-item="${key}"]`);
-
-/** A locator's box — it must be laid out. */
-async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-    const box = await locator.boundingBox();
-    if (box === null) throw new Error("not laid out");
-    return box;
-}
-
-/** Press a card and carry it past the drag threshold — the drag is in flight. */
-async function pickUp(page: Page, card: Locator): Promise<{ x: number; y: number }> {
-    const box = await boxOf(card);
-    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    await page.mouse.move(at.x, at.y);
-    await page.mouse.down();
-    await page.mouse.move(at.x + 12, at.y + 12, { steps: 3 });
-    await expect(card).toHaveAttribute("data-dragging", "");
-    return at;
-}
-
-/** Carry the picked-up card to a point of the canvas — once main holds it, no pane and nothing of the page over it — and let it rest there. */
-async function carryTo(page: Page, root: Locator, at: { x: number; y: number }, steps = 8): Promise<void> {
-    await expect.poll(() => root.evaluate((el, p) => el.querySelector("[data-frame-slot='main']")!.contains(document.elementFromPoint(p.x, p.y)), at),
-        `main holds (${Math.round(at.x)}, ${Math.round(at.y)})`).toBe(true);
-    await page.mouse.move(at.x, at.y, { steps });
-}
-
-/** What the ghost says, and whether it says why not. */
-async function captionOf(page: Page): Promise<{ text: string; refused: boolean } | null> {
-    return page.evaluate(() => {
-        const el = document.querySelector("[data-drag-caption]");
-        return el === null ? null : { text: el.textContent ?? "", refused: el.hasAttribute("data-refused") };
-    });
-}
 
 /** A token's colour as the page resolves it. */
 function inkOf(page: Page, token: string): Promise<string> {
@@ -167,16 +73,6 @@ function ruleOf(page: Page, width: string): Promise<string> {
         probe.remove();
         return drawn;
     }, width);
-}
-
-/** A point halfway along a transition's line, in client px. */
-function midLine(root: Locator, key: string): Promise<{ x: number; y: number }> {
-    return root.evaluate((el, k) => {
-        const path = el.querySelector<SVGPathElement>(`[data-flowchart-link="${k}"]`)!;
-        const svg = path.ownerSVGElement!.getBoundingClientRect();
-        const at = path.getPointAtLength(path.getTotalLength() / 2);
-        return { x: svg.left + at.x, y: svg.top + at.y };
-    }, key);
 }
 
 /** The frame's region at a point — `main`, or a pane's side — or `null` outside the frame. */

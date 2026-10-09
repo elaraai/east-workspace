@@ -590,7 +590,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
                 edit={canvasEdit} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey} />;
 
     return (
-        <Box css={styles.root} data-flowchart-root="" data-density={getSomeorUndefined(canvas.density)?.type}>
+        <Box css={styles.root} data-flowchart-root="">
             <BuilderFrame
                 storageKey={keys.frame}
                 toolbar={items}

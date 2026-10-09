@@ -271,7 +271,11 @@ function flowValue(flow: FlowchartFlowInput, where: string): FlowValue {
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const handover = $.let(Data.bind(handoverFlow));
- *         return <Box height="500px"><Flowchart data={handover} /></Box>;
+ *         return (
+ *             <Box height="500px">
+ *                 <Flowchart data={handover} orientation="TD" inspector={false} name="handover" />
+ *             </Box>
+ *         );
  *     }}</Reactive>
  * ));
  * ```

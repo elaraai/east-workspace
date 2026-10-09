@@ -15,7 +15,8 @@
  * canvas draws the flow its source holds (#1244): the host's one flow, the
  * host's flows by name, a record of flows read where the flowchart renders —
  * a lone flow its one entry — over many flows the one `open` names, else the
- * first by name. jsdom has no layout: the body measures 0×0 once as it mounts
+ * first by name; and the minimap, shown from 25 states unless the payload
+ * says (#1251). jsdom has no layout: the body measures 0×0 once as it mounts
  * and the ResizeObserver stub reports nothing after, so the canvas lays out
  * at that size, and the toolbar folds nothing.
  */
@@ -97,7 +98,6 @@ const CANVAS: FlowchartCanvasValue = {
     freshness: some({ label: "evidence-2026.06", date: some(new Date("2026-06-30T00:00:00Z")) }),
     minimap: none,
     legend: some(true),
-    density: none,
     slice: none,
     onSelectState: none,
     onSelectLink: none,
@@ -258,6 +258,31 @@ describe("LR · TD and find state (#1245)", () => {
         fireEvent.click(screen.getByText("IND · IND label"));
         await waitFor(() => expect(container.querySelector('[data-flowchart-node="IND"]')!.hasAttribute("data-selected")).toBe(true));
         expect(container.querySelector('[data-flowchart-node="SRD"]')!.hasAttribute("data-selected")).toBe(false);
+    });
+});
+
+describe("the minimap (#1251)", () => {
+    /** A flow of `n` states over two lanes, and no transition. */
+    const crowded = (n: number): FlowchartFlowValue => ({
+        description: none,
+        lanes: [{ key: "sort", label: some("Sort") }, { key: "load", label: some("Load") }],
+        states: Array.from({ length: n }, (_x, i) => state(`CH${i + 1}`, i % 2 === 0 ? "sort" : "load")),
+        links: [],
+        triggers: [],
+    });
+    /** The minimap, over the canvas in main. */
+    const minimap = (container: HTMLElement): Element | null => container.querySelector("[data-frame-slot='main'] [data-flowchart-body] [data-flowchart-minimap]");
+
+    it("left out, it shows once a flow has 25 states: 24 draw none, and 25 draw it", () => {
+        expect(minimap(mount(payload(hostFlow(crowded(24)))).container)).toBeNull();
+        cleanup();
+        expect(minimap(mount(payload(hostFlow(crowded(25)))).container)).not.toBeNull();
+    });
+
+    it("given, it holds whatever the count: `false` draws none at 25 states, and `true` draws it over a flow of three", () => {
+        expect(minimap(mount({ ...payload(hostFlow(crowded(25))), canvas: { ...CANVAS, minimap: some(false) } }).container)).toBeNull();
+        cleanup();
+        expect(minimap(mount({ ...payload(hostFlow(sortFlow())), canvas: { ...CANVAS, minimap: some(true) } }).container)).not.toBeNull();
     });
 });
 

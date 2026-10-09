@@ -150,7 +150,7 @@ function captured(read: () => Flows, replies: Reply[] = []) {
 function payload(source: FlowchartValue["source"], canConnect?: (from: string, to: string) => boolean): FlowchartValue {
     return {
         canvas: {
-            orientation: none, freshness: none, minimap: none, legend: some(false), density: none, slice: none,
+            orientation: none, freshness: none, minimap: none, legend: some(false), slice: none,
             onSelectState: none, onSelectLink: none, onSelectTrigger: none,
             onTracePath: none, canConnect: canConnect === undefined ? none : some(canConnect),
         },

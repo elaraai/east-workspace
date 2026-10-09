@@ -200,40 +200,87 @@ function kindOption(
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { East, variant } from "@elaraai/east";
- * import { Box, UIComponentType } from "@elaraai/east-ui";
- * import { Flowchart } from "@elaraai/e3-ui";
+ * import { ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Flowchart } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
  *
- * const flowchart = East.function([], UIComponentType, ($) => {
- *     const states = $.const([
- *         { code: "ARV", name: "Arrived", phase: "intake" },
- *         { code: "SCN", name: "Scanned", phase: "intake" },
- *         { code: "SRT", name: "Sorting", phase: "sort" },
- *         { code: "SRD", name: "Sorted", phase: "sort" },
- *         { code: "LDD", name: "Loaded", phase: "dispatch" },
- *         { code: "DSP", name: "Dispatched", phase: "dispatch" },
- *     ]);
- *     const planned = variant("planned", null);
- *     const observed = variant("observed", null);
- *     const links = $.const([
- *         { src: "ARV", dst: "SCN", kind: planned },
- *         { src: "SCN", dst: "SRT", kind: planned },
- *         { src: "SRT", dst: "SRD", kind: planned },
- *         { src: "SRD", dst: "LDD", kind: planned },
- *         { src: "LDD", dst: "DSP", kind: observed },
- *     ]);
- *     return (
- *         <Box height="500px">
- *             <Flowchart
- *                 data={Flowchart.over(states, {
- *                     state: s => ({ key: s.code, label: s.name, lane: s.phase }),
- *                     links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
- *                     lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
- *                 })}
- *             />
- *         </Box>
- *     );
+ * export const DepotState = StructType({ code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType) });
+ * export const depotStates = e3.input("flowchart_depot_states", ArrayType(DepotState), variant("value", [
+ *     { code: "ARV", name: "Arrived", phase: "intake", slots: none },
+ *     { code: "SCN", name: "Scanned", phase: "intake", slots: none },
+ *     { code: "IND", name: "Inducting", phase: "induct", slots: none },
+ *     { code: "LBL", name: "Labelled", phase: "induct", slots: none },
+ *     { code: "CH*", name: "Sort chutes (class)", phase: "sort", slots: some(14n) },
+ *     { code: "SRD", name: "Sorted", phase: "sort", slots: none },
+ *     { code: "HLD", name: "Held", phase: "hold", slots: none },
+ *     { code: "CLR", name: "Cleared", phase: "hold", slots: none },
+ *     { code: "LDD", name: "Loaded", phase: "dispatch", slots: none },
+ *     { code: "DSP", name: "Dispatched", phase: "dispatch", slots: none },
+ * ]));
+ * export const ScanTransition = StructType({
+ *     id: StringType, src: StringType, dst: StringType, kind: Flowchart.Types.Kind,
+ *     trigger: OptionType(StringType), parcels: OptionType(FloatType), n: OptionType(IntegerType),
+ *     at: DateTimeType, service: StringType, units: ArrayType(StringType),
  * });
+ * export const scanTransitions = e3.input("flowchart_depot_scans", ArrayType(ScanTransition), variant("value", [
+ *     { id: "l1", src: "ARV", dst: "SCN", kind: variant("planned", null), trigger: none, parcels: some(18460.0), n: some(412n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C"] },
+ *     { id: "l2", src: "SCN", dst: "IND", kind: variant("planned", null), trigger: none, parcels: some(7720.0), n: some(171n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C"] },
+ *     { id: "l3", src: "IND", dst: "IND", kind: variant("planned", null), trigger: none, parcels: none, n: some(2n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C"] },
+ *     { id: "l4", src: "IND", dst: "CH*", kind: variant("planned", null), trigger: some("route"), parcels: some(17350.0), n: some(386n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["C", "T"] },
+ *     { id: "l5", src: "CH*", dst: "SRD", kind: variant("planned", null), trigger: none, parcels: some(17210.0), n: some(383n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["T"] },
+ *     { id: "l6", src: "SRD", dst: "HLD", kind: variant("observed", null), trigger: none, parcels: some(1080.0), n: some(24n), at: new Date("2026-06-30T00:00:00Z"), service: "express", units: ["T"] },
+ *     { id: "l7", src: "HLD", dst: "CLR", kind: variant("planned", null), trigger: some("customs"), parcels: some(8350.0), n: some(186n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["T"] },
+ *     { id: "l8", src: "CLR", dst: "LDD", kind: variant("planned", null), trigger: none, parcels: some(8240.0), n: some(183n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: ["T"] },
+ *     { id: "l9", src: "LDD", dst: "DSP", kind: variant("planned", null), trigger: none, parcels: some(8160.0), n: some(181n), at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: [] },
+ *     { id: "l10", src: "DSP", dst: "DLV", kind: variant("planned", null), trigger: none, parcels: none, n: none, at: new Date("2026-06-30T00:00:00Z"), service: "standard", units: [] },
+ * ]));
+ * export const DepotDecision = StructType({ id: StringType, name: StringType, who: StringType });
+ * export const depotDecisions = e3.input("flowchart_depot_decisions", ArrayType(DepotDecision), variant("value", [
+ *     { id: "route", name: "route", who: "sort-planner" },
+ *     { id: "customs", name: "customs", who: "customs-desk" },
+ * ]));
+ *
+ * const flowchart = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const states = $.let(Data.bind(depotStates));
+ *         const scans = $.let(Data.bind(scanTransitions));
+ *         const decisions = $.let(Data.bind(depotDecisions));
+ *         const cfg = Slice.config(ScanTransition, {
+ *             fields: {
+ *                 service: { label: "Service" },
+ *                 src: { label: "From" },
+ *                 dst: { label: "To" },
+ *             },
+ *             searchFieldIds: ["src", "dst"],
+ *         });
+ *         const slice = $.let(Slice.bind([ScanTransition], "flowchart-depot", cfg, Slice.state({}), scans.read(), none));
+ *         return (
+ *             <Box height="600px">
+ *                 <Flowchart
+ *                     data={Flowchart.over(states.read(), {
+ *                         state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
+ *                         links: Slice.rows([ScanTransition], slice),
+ *                         link: l => ({
+ *                             key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
+ *                             evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
+ *                         }),
+ *                         lanes: [
+ *                             { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
+ *                             { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
+ *                             { key: "dispatch", label: "Dispatch" },
+ *                         ],
+ *                         triggers: decisions.read(),
+ *                         trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
+ *                     })}
+ *                     slice={slice} affordances={["filter", "search"]}
+ *                     freshness={{ label: "evidence-2026.06", date: new Date("2026-06-30T00:00:00Z") }}
+ *                     name="scans"
+ *                 />
+ *             </Box>
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function flowchartOver<

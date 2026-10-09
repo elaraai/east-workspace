@@ -1612,8 +1612,8 @@ builder's `id` (`name`), `onViewsChange` (`views` is a bind handle) and
 phase lanes — its layout derived from the lanes and the links, never from
 coordinates — H/V-routed transition arrows, optional per-link decision
 triggers (lettered diamonds) and evidence-weighted strokes. The dim-ladder
-highlight and the selection grammar are built in, what is selected shows in
-its inspector, and view lenses are saved slice cohorts. Where east-ui's
+highlight and the selection grammar are built in, and what is selected shows
+in its inspector. Where east-ui's
 `<Schematic>` places items at
 world coordinates, the Flowchart lays its states out itself, for reading a
 process flow.
@@ -1715,40 +1715,70 @@ const flowchart = East.function([], UIComponentType, _$ => (
 ));
 ```
 
-One flow from the app's own tables, through their row mappers:
+One flow from the app's own tables, each an e3 input, through their row
+mappers — read only, as the host gives no `onApply`:
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
-import { East, variant } from '@elaraai/east';
-import { Box, UIComponentType } from '@elaraai/east-ui';
-import { Flowchart } from '@elaraai/e3-ui';
+import { ArrayType, East, StringType, StructType, variant } from '@elaraai/east';
+import { Box, Reactive, UIComponentType } from '@elaraai/east-ui';
+import { Data, Flowchart } from '@elaraai/e3-ui';
+import e3 from '@elaraai/e3';
 
-const flowchart = East.function([], UIComponentType, ($) => {
-    const states = $.const([
-        { code: "ARV", name: "Arrived", phase: "intake" },
-        { code: "SRT", name: "Sorting", phase: "sort" },
-        { code: "LDD", name: "Loaded", phase: "dispatch" },
-    ]);
-    const links = $.const([
-        { src: "ARV", dst: "SRT", kind: variant("planned", null) },
-        { src: "SRT", dst: "LDD", kind: variant("observed", null) },
-    ]);
-    return (
-        <Box height="500px">
-            <Flowchart
-                data={Flowchart.over(states, {
-                    state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-                    links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
-                    lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
-                })}
-            />
-        </Box>
-    );
-});
+// The app's own tables: its steps by phase, and the moves between them.
+export const Step = StructType({ code: StringType, name: StringType, phase: StringType });
+export const steps = e3.input("steps", ArrayType(Step), variant("value", [
+    { code: "ARV", name: "Arrived", phase: "intake" },
+    { code: "SRT", name: "Sorting", phase: "sort" },
+    { code: "LDD", name: "Loaded", phase: "dispatch" },
+]));
+export const Move = StructType({ src: StringType, dst: StringType, kind: Flowchart.Types.Kind });
+export const moves = e3.input("moves", ArrayType(Move), variant("value", [
+    { src: "ARV", dst: "SRT", kind: variant("planned", null) },
+    { src: "SRT", dst: "LDD", kind: variant("observed", null) },
+]));
+
+const flowchart = East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const states = $.let(Data.bind(steps));
+        const links = $.let(Data.bind(moves));
+        return (
+            <Box height="500px">
+                <Flowchart
+                    data={Flowchart.over(states.read(), {
+                        state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                        links: links.read(), link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
+                        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
+                    })}
+                    name="steps"
+                />
+            </Box>
+        );
+    }}</Reactive>
+));
+```
+
+The host's flows, edited, and committed by the host: Save hands `onApply`
+one patch of the flows — the open flow's insert, update or delete by name —
+which the host commits through a record's patch mutation, answering with what
+e3 said (`flowchartVariants` maps every outcome):
+
+```tsx
+const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+const onApply = $.const(East.asyncFunction([PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, patch) => {
+    const outcome = $2.let(flows.commit.patch("", patch));
+    const answer = $2.let(variant("rejected", [{ entry: "", row: none, field: none, message: "The write was refused" }]), Editing.Types.ApplyResult);
+    $2.match(outcome, {
+        committed: ($3, done) => { $3.assign(answer, variant("applied", { revision: some(done.stateHash) })); },
+        // invalid, failed and timed_out → rejected with their words; conflict → conflict; transport → rejected: it may have landed
+    });
+    return answer;
+}));
+<Flowchart data={flows.read()} flow="Inbound parcels" onApply={onApply} library={[Flowchart.library.flows()]} inspector={false} name="host" />
 ```
 
 ```
-<Flowchart record={…} | data={…} /> — state-transition flowchart in its builder frame: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); dim-ladder highlight built in; the inspector, on by default, shows what is selected; view lenses are saved slice cohorts
+<Flowchart record={…} | data={…} /> — state-transition flowchart in its builder frame: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); dim-ladder highlight built in; the inspector, on by default, shows what is selected
 ├─ The frame (#1245): ONE toolbar holding every control the flowchart has — find state (a search over the open flow's states by key and by label; a pick selects the state and scrolls it into view), LR · TD, the freshness chip and, at its end over `data` with a slice, the slice's rail, and where it edits the history item (#1246, #1247: the open flow's session — its status, its issues, Undo, Redo, Discard and Save). It is one row at every width: the rail folds first, then the freshness chip goes, LR · TD folds into one chip naming the orientation (its menu both) and find state's box into its icon (which opens the box in a popover, the focus in it), and the history item last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — the open flow's session's: a Save's conflict or refusal, an unknown outcome and a failed confirmation read, each with Retry, and the source changed under its drafts, with Discard; and a `flow` the flowchart doesn't hold, named with the flow shown in its place (`Gone isn't a flow here — showing Inbound parcels`) until the viewer opens a flow or the record gains that name. Main — the canvas, filling it and scrolling both ways inside it, its lanes running main's whole height; over flows by name with none — an empty record — the shared empty state, with "+ New flow" where it edits. The footer — the counts: over many flows the open flow's name first, the transitions (narrowed from how many while the slice narrows them) and their planned · observed · unresolved split, where it edits the changes waiting on Save (`3 pending` — each lane, state, transition and decision the drafts add, change or remove), and over a record its last save. The start pane is `library`'s, an optional prop; the end pane is the inspector, on by default. The flowchart fills its parent and draws no border: give it a box of its own height
 ├─ Its flows — ONE of two sources (both, or neither, is refused):
 │   ├─ record — Record.bind(r, [e3.mutation.patch(r)]): r of Flowchart.Types.Flows, flows by name (the canvas opens the flow the viewer opened last, kept in the UI store under `name`; else `flow`; else the first by name). Each flow keeps its own session (#1246): its drafts stay while another flow is open, and Save sends the open flow's as ONE patch through the record's patch mutation — `Record.onApply(record, { keyed: true })`, the flow's insert, update or delete by name; the drafts retire once the record reads it back. A record always holds flows by name — e3's patch mutation writes only keyed records — so a lone flow is a record of one entry, or `data`; a record of one flow is refused
@@ -1763,14 +1793,14 @@ const flowchart = East.function([], UIComponentType, ($) => {
 │   └─ link `evidence` { volume?, count?, measuredAt?, unit? } — stroke weight (log 1.6 / 2 / 2.5 px, floor 1.4) + paper-filled run badges whose chrome inherits the link class (imported, never hand-authored)
 ├─ Props:
 │   ├─ orientation (optional) — "LR" (default) | "TD" initial; the toolbar's LR · TD toggles it (view state, never a filter chip; TD swaps the handle axes) — the viewer's pick kept in the UI store under `name`, so a remount keeps it, the payload's value showing until they pick (#1246); freshness (optional) — the toolbar's chip { label, date? }
-│   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states
+│   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states, drawn in main's corner over the canvas, where it stays while the canvas scrolls
 │   ├─ slice + affordances (optional, over data) — the slice's rail at the toolbar's end (default ["filter","search"], narrowing the transitions); the host feeds Flowchart.over's links through Slice.rows; the footer derives `N links · narrowed from M · −%` + the planned/observed split
 │   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
 │   ├─ canConnect (optional) — fn(from, to) => Boolean: vetoes a pair BEFORE the connect draft snaps, and fails OPEN
 │   ├─ readOnly (optional) — no gesture edits — no "+ LANE", lane ×, ghost, connect, move, Del, "+ New flow" or history item — the selection and hover staying (inspecting isn't editing), the inspector printing every field and editing none; feed it a permission or published-mode flag
 │   ├─ library (optional, #1246) — the start pane's tabs, in order, each a `Flowchart.library.*` call: `flows()` — every flow by name, over a record or `data`'s flows by name, each card its name and under it its description, or with none its counts (`4 lanes · 9 states · 11 transitions`), the open flow's card placed and a flow with drafts marked Pending; a click opens a flow; the tab's search reads names and descriptions; where the flowchart edits, "+ New flow" under the cards names a new flow in a popover hanging from it — a name the flowchart holds refused there, with the reason — and opens it with one lane, a draft insert Save commits and Discard drops; `states(rows, { name?, icon?, key, label, meta?, group?, drop })` (#1248) — state templates: one card per row of the tab's OWN rows, an Array or a `Dict<String, T>` an input or a record binds (its key the accessors' second argument, an Array's index printed; a key that repeats keeps its first card), apart from the flows and from the other tabs — its label, its meta under it and the tab's icon, grouped by `group`, searched by key, label and meta, each card a drag source that a click selects and a second click lets go; `drop: (row, key) => Flowchart.patch(Flowchart.Types.State, …)` is the fields of the state a card dropped on a lane adds; unnamed, the tab is `States`, in the flowchart's words; `transitions(rows, { …, drop })` — transition templates, the same, `drop` a `Flowchart.patch(Flowchart.Types.Link, …)` that retypes the transition a card lands on — its kind, its decision and its other fields, never its key, from or to (refused as the tab's cards are read); unnamed, `Transitions`; `tab(rows, { name, icon?, key, label, meta?, group?, drop? })` — the author's own cards, each a drag source when the tab declares `drop`, the patch's type naming what a card lands on (`State` a state, `Link` a transition, `Lane` a lane's header, `Trigger` a decision); what a dropped card does is the Drag and drop branch's, below (#1249). An empty tab says so in the shared empty state — `No flows`, `No templates`, `Nothing in <name>`, and `No matches` for a search that hides every card. Left out, or empty, no library pane; collapsed, the pane is a rail with the first tab's count. `flows()` over one flow (`data` of Flowchart.Types.Flow), a tab listed twice (the Flows tab or a template tab, or two of the author's tabs of one name), a data tab's rows of neither an Array nor a `Dict<String, T>`, and a `drop` over another row's patch than its tab's are refused at build, naming the tab
 │   ├─ inspector (optional, #1250) — the frame's end pane, ON BY DEFAULT: left out, or `true`, it shows — pinned beside main with room, over main from its rail without — and `inspector={false}` takes it away. Its tabs Details and Issues, Issues with its count; collapsed, a rail with its icon, the issue count and what is selected. Details shows what is selected, every field through the shared form (east-ui's `Fields`, each by the input its type takes), each edit ONE transaction of the open flow's session, a field the drafts changed tinted and the head's chip Pending (New for a row the record holds none of): a state — key (a new key rekeys its transitions' ends and the decisions' queues), label, lane, members (Set and Clear), notes; its transitions in and out, each a link that selects it; Duplicate and Delete — an end no state stands for saying so, with its transitions, Delete taking them away; a transition — from and to, kind, decision (or none), key; its evidence read only (volume and unit, count, when measured); Delete; a decision — key, label, letter, owner, queue (tags over the flow's states), outcomes; the transitions it governs; Delete, clearing it from them; a lane, which a click on its header selects — key (a new key moves its states), label; how many states it holds; Delete, off while it holds any, saying why; several states (a shift-click puts one in or takes it out) — how many, a lane every one moves to, Delete; nothing — the open flow: over many flows its name (a new name renames it, one transaction, refused for a name the flowchart holds) and description, Duplicate and Delete, over one its description; its counts, its transitions' planned · observed · unresolved split, over a record its last save and who made it, and three hints. A key or a name left empty is refused, the footer saying why. `inspector={{ state?, transition? }}` gives a state or a transition the author's own Details in place of its form — `East.function([Flowchart.Types.State, FunctionType([Flowchart.Types.State], NullType)], UIComponentType, ($, state, update) => …)`, `Flowchart.Types.Link`'s for a transition — `update(edited)` writing the edited row back as ONE transaction (read only, nothing); every other kind's Details are its form. Issues lists the open flow's issues — two of one key, which hold Save off; a state naming a lane the flow has none of; a transition naming a state it has none of; a decision's queue naming one; a Save's conflict or refusal — each a click selecting what it names. Read only — over `data` with no `onApply`, or with `readOnly` — Details shows every field and edits none; name (optional) — names the flowchart when a surface holds two: its open flow, LR · TD, its panes' open tab and collapsed state are kept under it
-│   └─ density (optional) — rhythm. There is no `height` or `maxHeight`: the flowchart fills the box it is given, and either is refused at build
+│   └─ No `height`, `maxHeight` or `density`: the flowchart fills the box it is given and draws at one rhythm, the spec's 116×40 cards in their lanes — each is refused at build
 ├─ Editing (#1247) — over a record, and over `data` given `onApply`, every gesture is ONE transaction of the open flow's session: "+ LANE" (Font Awesome's plus over its word, at the band row's tail) adds a lane keyed `lane-<n>`, labelled `Lane <n>`; a lane's header, double-clicked, is renamed in place (⏎ / blur commits, Esc cancels) — a click selects the lane, as the user ruled on 2026-10-08: "a click on a lane's header selects the lane, and a double-click renames it in place, as a state's double-click opens its editor"; a lane's × (Font Awesome's xmark beside its header) deletes it — off while it holds states, its tooltip saying why (`Move its 2 states first`); the "+ STATE" ghost (Font Awesome's plus) under a hovered lane opens the inline editor (key, then label; ⏎ commits, Esc dismisses) and adds the state at the end of its lane; a state double-clicked opens the same editor — a new key rekeys its transitions' ends and the decisions' queues in the same transaction; a state dragged across lanes moves (candidate bands highlight); a handle dragged to a state connects them — a transition of the default type (planned, no decision, no evidence) keyed `<from>→<to>`, made unique — the drop on the source its ↻ in-place transition, a drop that would repeat one pulsing it; Del (or Backspace) in the canvas deletes the selection — a state with its transitions, several states, a transition, a decision, cleared from the transitions it governs, or a lane that holds no state — never in a field being typed into. ⌘Z undoes and ⇧⌘Z / ⌘Y redo from anywhere in the frame but a field. Save is on while the open flow has a change and no two lanes, states, keyed transitions or decisions share a key; a Save's conflict or refusal keeps every draft under its banner, and a write with no answer turns Save into Retry, which resends the same request
 ├─ Drag and drop (#1249) — a library card carried over the canvas (picked up after 4px; on a touch screen after a 300ms hold): the ghost's caption says where it lands — `after CH* in Sort`, `at the start of Sort`, `in Hold`, `onto CH* → LDD` — or, red, why it can't: `Drop onto a lane`, `Drop onto a transition`, `Drop onto a state`, `Drop onto a lane's header`, `Drop onto a decision`, `The flowchart is read only`. A state template dropped on a lane adds a state there, at the row under the pointer — after the states above it — the lane washed in the brand's tint and a brand line where it lands: seeded with its drop's fields over a state's defaults, in that lane, its key the drop's where the flow doesn't hold it, else made unique (`HLD-2`), else minted (`state-<n>`), and selected. A transition template dropped on a transition retypes it — the transition taking the brand wash — its key and its ends kept. An author's card sets its fields on what its drop's type names: a state, a transition, a lane by its header, a decision by its diamond (a new key followed as an edit's is — a state's into its transitions' ends and the decisions' queues, a lane's by its states, a decision's onto the transitions it governs). ⏎ on a card does what a drop on the canvas's selection would — a state template after the selected state, in its lane, at the end of a selected lane, or at the end of the first lane with nothing selected; any other card on what is selected, when it lands there — a lane's card on the lane its header selected — and where that is refused the footer says why; on a touch screen a tap on the selected card does the same, the card staying selected. Each drop is ONE transaction of the open flow's session; the library pane over main slides off it while a card is carried
 └─ Factories: Flowchart.values / Flowchart.value / Flowchart.over / Flowchart.patch(T, { … }) (a row patch over State | Link | Lane | Trigger, every field an Option) / Flowchart.library.flows() / states(rows, cfg) / transitions(rows, cfg) / tab(rows, cfg) (the library's tabs); closed-set fields are typed values via Flowchart.Types.* — Flow, Flows, State, Link, Lane, Trigger, Evidence, Kind, Orientation, Patch(T)
@@ -1783,15 +1813,24 @@ const flowchart = East.function([], UIComponentType, ($) => {
 | `library={[…, Flowchart.library.states(rows, {…}), Flowchart.library.transitions(rows, {…}), Flowchart.library.tab(rows, {…})]}` **❗** | The library's template and author's tabs (#1248): one card per row of each tab's own bound rows — an Array or a `Dict<String, T>`, apart from the flows and from the other tabs — its label, its meta and the tab's icon, grouped and searched; each template card a drag source, and an author's when its tab declares a `drop`, whose patch's type names what it lands on; a click selects a card, a second lets it go. | `flowchartLibrary` |
 | a library card dropped on the canvas, or ⏎ on it **❗** | Drag and drop (#1249): a state template adds a state on the lane at the row under the pointer, its key the drop's, made unique or minted; a transition template retypes the transition it lands on; an author's card sets its fields on what its drop's type names. ⏎ drops a card on the canvas's selection, and on a touch screen a tap on the selected card does too; refused, the ghost — or, for ⏎, the footer — says why. Each drop is one transaction. | `flowchartLibrary` |
 | `<Flowchart data={Data.bind(input)} />`, `Flowchart.value({ … })` | One flow of the host's, an input's value, read only. | `flowchartHandover` |
-| `<Flowchart data={Flowchart.over(states, { state, links, link, lanes })} />` | One flow from the app's own tables through their row mappers. | `flowchartMinimal` |
+| `<Flowchart data={Flowchart.over(states, { state, links, link, lanes })} />` | One flow from the app's own tables — each an e3 input — through their row mappers. | `flowchartDepot` |
+| `<Flowchart data={flows} onApply={…} />` **❗** | The host's flows by name, or one flow, edited: Save hands `onApply` one patch of the value — over flows by name the open flow's insert, update or delete by name, over one flow the flow's own patch — which the host commits, through a record's patch mutation (`commit.patch`) or as it keeps them, answering with what happened. Over flows by name the Flows tab lists them and "+ New flow" starts one. | `flowchartVariants` |
 | `Flowchart.over`'s `triggers` + `trigger`, a link's `trigger` / `evidence`, `slice` + `affordances`, `freshness` | Decision diamonds, evidence-weighted strokes and badges, the slice's rail and the freshness chip on the toolbar. | `flowchartDepot` |
 | the frame (#1245) | One toolbar — find state, LR · TD, the freshness chip, the rail — one row at every width, the rail folding first, then the chip, LR · TD into its chip and find state into its icon; the canvas filling main, scrolling both ways; the footer's counts, the open flow's name first over many, the last save over a record. | `flowchartDepot`, `flowchartFlows` |
-| `<Flowchart record={…} canConnect={…} />` **❗** | Editing (#1247): every gesture on the canvas — "+ LANE", a lane renamed or deleted, the "+ STATE" ghost, a state edited (rekeying its transitions) or moved, a handle dragged to connect, Del on the selection — one transaction of the open flow's session; Undo, Redo and Discard, and one checked Save through the record's patch mutation. `canConnect` vetoes a pair. Over `data`, the same with `onApply`. | `flowchartBuilder` |
-| `inspector` (on by default) / `inspector={false}` **❗** | The end pane (#1250): Details for what is selected through the shared form — a state, a transition, a decision, a lane its header selects, several states, or the open flow — each edit one transaction, tinted against the record; Issues, each a click selecting what it names. `false` takes it away. Read only, every field printed. | `flowchartDepot`, `flowchartFlows` |
+| `<Flowchart record={…} canConnect={…} />` **❗** | Editing (#1247): every gesture on the canvas — "+ LANE", a lane renamed or deleted, the "+ STATE" ghost, a state edited (rekeying its transitions) or moved, a handle dragged to connect, Del on the selection — one transaction of the open flow's session; Undo, Redo and Discard, and one checked Save through the record's patch mutation. `canConnect` vetoes a pair. A record's lone flow is its one entry. Over `data`, the same with `onApply`. | `flowchartDetail`, `flowchartFlows` |
+| `inspector` (on by default) / `inspector={false}` **❗** | The end pane (#1250): Details for what is selected through the shared form — a state, a transition, a decision, a lane its header selects, several states, or the open flow — each edit one transaction, tinted against the record; Issues, each a click selecting what it names. `false` takes it away. Read only, every field printed. | `flowchartDepot`, `flowchartFlows`; `false`: `flowchartHandover`, `flowchartVariants` |
 | `inspector={{ state, transition }}` **❗** | A state's or a transition's own Details, in place of its form: an East function over the row and its writer, `update(edited)` one transaction of the open flow's session. | `flowchartDetail` |
-| `onSelectState` / `onSelectLink` / `onSelectTrigger` / `onTracePath` | Clicks the host hears, after the canvas selects. | — |
-| `record` and `data` together, or neither; `onApply`, `slice` or `affordances` over a record; `flow` over one flow; a record of one flow, or of another type, or bound without its patch mutation; `affordances: ["brush"]`; `states=`, `links=`, … on the tag; `height` / `maxHeight`; a callback for an edit (`onAddState`, `onCreateLink`, …) or `linkMode`; `Flowchart.library.flows()` over one flow; a tab listed twice — the Flows tab or a template tab, or two of the author's tabs of one name; a data tab's rows of neither an Array nor a `Dict<String, T>`; a `drop` over another row's patch than its tab's; a `library` that is not a list of `Flowchart.library.*` calls; a hover card's prop — `stateHover`, `linkHover`, `triggerHover`; an `inspector` neither a Boolean nor `{ state, transition }`; and a kind's own Details over another row, or returning no UI **❗** | Refused at build, each naming the prop and the remedy; a transition card whose `drop` sets its transition's key, from or to is refused as the tab's cards are read. | — |
-| `Flowchart.patch(Flowchart.Types.State, { key: "HLD", label: some("Held") })` | A patch over one of a flow's rows: the fields it sets, the rest `none`. | — |
+| `onSelectState` / `onSelectLink` / `onSelectTrigger` / `onTracePath` | What the host hears, after the canvas selects: a state's key, a transition's, a decision's, and a transition ⌥-clicked. | `flowchartVariants` |
+| `legend` / `minimap` / `readOnly` | The legend, on by default; the minimap, shown from 25 states unless given, in main's corner over the canvas; read only — no gesture, no drop, no history item, every field printed. Each a Boolean or an expression the host changes. | `flowchartVariants` |
+| `orientation="TD"` | Opens top down; after that LR · TD on the toolbar is the viewer's, kept under `name`. | `flowchartHandover` |
+| `name` | Names the flowchart when a surface holds two: its open flow, LR · TD, its panes' open tab and collapsed state, its library's cards and its drop target are kept under it. | every example but `flowchartFlows` |
+| `record` and `data` together, or neither; `onApply`, `slice` or `affordances` over a record; `flow` over one flow; a record of one flow, or of another type, or bound without its patch mutation; `affordances: ["brush"]`; `states=`, `links=`, … on the tag; `height` / `maxHeight`; a callback for an edit (`onAddState`, `onCreateLink`, …) or `linkMode`; `Flowchart.library.flows()` over one flow; a tab listed twice — the Flows tab or a template tab, or two of the author's tabs of one name; a data tab's rows of neither an Array nor a `Dict<String, T>`; a `drop` over another row's patch than its tab's; a `library` that is not a list of `Flowchart.library.*` calls; a hover card's prop — `stateHover`, `linkHover`, `triggerHover`; an `inspector` neither a Boolean nor `{ state, transition }`; a kind's own Details over another row, or returning no UI; and `density` **❗** | Refused at build, each naming the prop and the remedy; a transition card whose `drop` sets its transition's key, from or to is refused as the tab's cards are read. | — |
+| `Flowchart.patch(Flowchart.Types.State, { key: "HLD", label: some("Held") })` | A patch over one of a flow's rows: the fields it sets, the rest `none`. | `flowchartLibrary` |
+
+Between the examples, every pane combination: none (`flowchartHandover`), a
+library (`flowchartVariants`), an inspector (`flowchartDepot`, read only;
+`flowchartDetail`, its own Details), and both (`flowchartFlows`,
+`flowchartLibrary`).
 
 Removed with #1245: the canvas's eyebrow (its controls are the toolbar's
 items) and `height` / `maxHeight` (the flowchart fills its box).
@@ -1809,6 +1848,10 @@ Removed with #1250: the hover cards — `stateHover`, `linkHover` and
 is selected (ruled by the user on 2026-10-08); and a click on a lane's header
 renaming it: a click selects the lane, and a double-click renames it in
 place.
+
+Removed with #1251: `density`, which the canvas never drew by — it draws at
+one rhythm, the spec's 116×40 cards in their lanes (ruled by the user on
+2026-10-09) — refused at build.
 
 ## Rendering surfaces in an app — `<E3Provider>`
 
@@ -1963,20 +2006,23 @@ Tested examples live in `test/*.examples.tsx`:
 - `sheet/sheet-transactions.examples.ts` — `Sheet.apply` over rows, and over
   entries of groups and loose rows.
 - `flowchart/flowchart.examples.tsx` — `<Flowchart>`, each in its frame, in
-  a box of its own height: a record of the depot's flows by name, its value from `Flowchart.values`, with its Flows tab (`flowchartFlows`);
-  the same flows with the library — the Flows tab, step types from an input's
-  rows, transition types from a record's rows by name and the author's own
-  cards, each tab its own bound data, each card dropped on the canvas
-  (`flowchartLibrary`);
-  one flow of the host's, an input's value from `Flowchart.value`
-  (`flowchartHandover`); the smallest, over the host's tables
-  (`flowchartMinimal`); the parcel depot's, with decision triggers, evidence,
-  a ×14 state class, an in-place loop, an unresolved ghost, a bound slice and
-  its inspector, read only (`flowchartDepot`); a record of one flow edited on
-  the canvas — every gesture a draft, Save one commit through the record, a
-  `canConnect` veto (`flowchartBuilder`); and the inspector's own Details by
-  kind, a state's and a transition's, each button's `update` one transaction
-  (`flowchartDetail`).
+  a box of its own height, its flows bound from e3: a record of the depot's
+  flows by name, its value from `Flowchart.values`, with its Flows tab
+  (`flowchartFlows`); the configurator — the legend, the minimap and read only
+  over the host's flows, Save committed by the host's `onApply` through the
+  record's patch mutation, and what is selected heard in its aside
+  (`flowchartVariants`); the depot's flows with the library — the Flows tab,
+  step types from an input's rows, transition types from a record's rows by
+  name and the author's own cards, each tab its own bound data, each card
+  dropped on the canvas (`flowchartLibrary`); a flow from the host's tables,
+  each an input — decision triggers, evidence, a ×14 state class, an in-place
+  loop, an unresolved ghost, a bound slice and its inspector, read only
+  (`flowchartDepot`); one flow of the host's, an input's value from
+  `Flowchart.value`, top down with no pane (`flowchartHandover`); and a
+  record's one flow edited on the canvas — every gesture a draft, Save one
+  commit, a `canConnect` veto — with a state's and a transition's own Details
+  (`flowchartDetail`). Between them, every pane combination: none, a library,
+  an inspector, and both.
 - `query/query.examples.tsx` — queries as a solution writes them: the shared
   fixture's datasets; the saved queries record, its value seven queries from
   `Query.value`; the builder open on three of them and over an empty record; an
