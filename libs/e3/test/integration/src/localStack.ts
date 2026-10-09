@@ -103,6 +103,8 @@ const NPM_PACKAGES = [
   'e3/packages/e3',
   'e3/packages/e3-core',
   'e3/packages/e3-api-client',
+  'e3/packages/e3-api-server',
+  'e3/packages/e3-rack',
   'e3/packages/e3-cli',
 ] as const;
 

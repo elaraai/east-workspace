@@ -19,6 +19,7 @@
     "@elaraai/e3-api-tests": "workspace:*",
     "@elaraai/e3-cli": "workspace:*",
     "@elaraai/e3-core": "workspace:*",
+    "@elaraai/e3-rack": "workspace:*",
     "@elaraai/e3-types": "workspace:*",
     "@elaraai/e3-web": "workspace:*",
     "@elaraai/east": "workspace:*",
