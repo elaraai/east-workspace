@@ -14,4 +14,8 @@ export * from './registry/rack-registry.js';
 export * from './registry/file-rack-registry.js';
 export * from './paths.js';
 export * from './version.js';
+export * from './server/dispatch.js';
+export * from './server/rack-routes.js';
+export * from './server/storage-bridge.js';
+export * from './server/env-publication.js';
 export * from './lease/coordinator.js';
