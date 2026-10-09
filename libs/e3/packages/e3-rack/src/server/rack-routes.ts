@@ -34,6 +34,7 @@
 
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
+import { rackBodyLimit } from './body-limit.js';
 import { BooleanType, none, some, variant } from '@elaraai/east';
 import { isObjectHash, uuidv7, type LogStore } from '@elaraai/e3-core';
 import {
@@ -278,6 +279,9 @@ export function createRackRoutes(
   app.use('/api/rack/complete', auth);
   app.use('/api/rack/storage', auth);
   app.use('/api/rack/logs', auth);
+  for (const route of ['enroll', 'lease', 'heartbeat', 'lease/extend', 'complete', 'storage', 'logs']) {
+    app.use(`/api/rack/${route}`, rackBodyLimit(route === 'enroll' ? 64 * 1024 : 2 * 1024 * 1024));
+  }
 
   /**
    * Resolve a lease the caller actively holds — the scope gate for the
