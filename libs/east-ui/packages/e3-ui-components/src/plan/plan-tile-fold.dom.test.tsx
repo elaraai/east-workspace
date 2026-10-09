@@ -11,8 +11,11 @@
  * is out of the row's walk, which reaches the chip in its place. The fold is
  * measured again as the room changes, and an open menu stays open through it.
  * A cell with no room beside the chip for a kept tile's floor shows the kept
- * tile alone until it is let go. jsdom lays nothing out: the tiles, the
- * chip's stand-in and the room measure as the stand-in layout below says.
+ * tile alone until it is let go. A cell with no room for one tile draws none:
+ * its chip alone, across the cell, lists every tile, and a pick opens the
+ * tile's popover hung from the chip (#1276). jsdom lays nothing out: the
+ * tiles, the chip's stand-in and the room measure as the stand-in layout below
+ * says.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -90,9 +93,11 @@ let room = 200;
 const observers: Array<{ callback: () => void; targets: Element[] }> = [];
 /** The page's fonts: jsdom has none, so a cell hears this stand-in's `loadingdone`. */
 let fonts = new EventTarget();
+/** What the canvas's IntersectionObservers watch — an open popover's anchor among them. */
+const watched: Element[] = [];
 /** Every IntersectionObserver the canvas creates — a popover watches its anchor with one. */
 class IntersectionObserverStub {
-    observe() {}
+    observe(target: Element) { watched.push(target); }
     unobserve() {}
     disconnect() {}
     takeRecords() { return []; }
@@ -108,6 +113,7 @@ beforeEach(() => {
     room = 200;
     widths = WIDTHS;
     observers.length = 0;
+    watched.length = 0;
     fonts = new EventTarget();
     Object.defineProperty(document, "fonts", { configurable: true, value: fonts });
     (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = IntersectionObserverStub;
@@ -187,7 +193,7 @@ const pick = async (name: RegExp) => {
 };
 
 describe("a bucket cell with more tiles than room (#1267)", () => {
-    test("a cell its tiles fit draws every tile and no chip; a lone tile never folds", () => {
+    test("a cell its tiles fit draws every tile and no chip; a lone tile with room for it never folds", () => {
         const { container } = renderPlan("plan-1267-fit");
         expect(cellOf(container)).toEqual({ shown: ["a", "b", "c"], folded: [], chip: null, measuring: false });
         room = 10;
@@ -282,6 +288,26 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
         room = 95;
         await resized();
         expect(menu()).toEqual({ open: "true", items });
+    });
+
+    test("a cell with no room for one tile draws none: its chip alone, across the cell, lists every tile; a pick opens the tile's popover, hung from the chip (#1276)", async () => {
+        room = 0;
+        const { container } = renderPlan("plan-1276-no-room");
+        // Jul 6's three tiles, and DELTA alone in Jul 20's cell: every one folds, kept or not.
+        expect(cellOf(container)).toEqual({
+            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 more events, Week of Jul 6, 2026"], measuring: false,
+        });
+        const lone = container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="3:0"]`)!;
+        const chip = lone.querySelector<HTMLElement>("[data-tile-more]")!;
+        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["+1", "1 more event, Week of Jul 20, 2026"]);
+        expect([chip.hasAttribute("data-no-room"), tileOf(container, "d").hasAttribute("data-folded")]).toEqual([true, true]);
+        await act(async () => { fireEvent.click(chip); });
+        expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["DELTA, Week of Jul 20, 2026, confirmed"]);
+        await pick(/^DELTA/);
+        expect(await screen.findByText("POP · d")).toBeTruthy();
+        // DELTA, which cannot draw, stays folded; its popover watches the chip, which it hangs from.
+        expect(tileOf(container, "d").hasAttribute("data-folded")).toBe(true);
+        expect(watched.at(-1)).toBe(chip);
     });
 
     test("with no room beside the chip for a kept tile's floor, the kept tile shows alone; let go, it folds and hands the focus to the chip", async () => {

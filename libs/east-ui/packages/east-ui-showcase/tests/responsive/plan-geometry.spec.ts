@@ -869,6 +869,27 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
         await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
     });
 
+    /** A room narrower than a tile's padding (#1276) — a phone's week cell may leave its tiles a few pixels: the
+     *  padding gives way, so the tile, a ✓ (a0) or a proposal in its 1.5px dashed ring (a2), takes the room and stays
+     *  in it. */
+    for (const key of ["a0", "a2"] as const) {
+        test(`planBucketRows: a cell narrower inside than a tile's padding holds tile ${key} inside it, the tile its width (#1276)`, async ({ page }) => {
+            const entry = await openExample(page, "planBucketRows");
+            // The cell 16px wide, 4px inside its padding.
+            await page.addStyleTag({ content: `[data-plan-cell]:has([data-event=${JSON.stringify(key)}]) { width: 16px !important; min-width: 0 !important; }` });
+            const held = () => entry.locator(`[data-plan-row] [data-event=${JSON.stringify(key)}]`).evaluate((el) => {
+                const cell = el.closest("[data-plan-cell]")!;
+                const cs = getComputedStyle(cell);
+                const c = cell.getBoundingClientRect();
+                const [left, right] = [c.left + Number.parseFloat(cs.paddingLeft), c.right - Number.parseFloat(cs.paddingRight)];
+                const t = el.getBoundingClientRect();
+                return { cell: Math.round(c.width), inside: t.left >= left - 0.5 && t.right <= right + 0.5, width: Math.round(t.width * 10) / 10 };
+            });
+            await expect.poll(held).toEqual({ cell: 16, inside: true, width: 4 });
+            await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+        });
+    }
+
     test("planEventLinks: its narrowest bars draw no text, and a hover shows each one's label in the canvas's tooltip", async ({ page }) => {
         const entry = await openExample(page, "planEventLinks", PLAN_EVENT_EXAMPLES);
         for (const [job, label] of [["J-2015", "Night run"], ["J-2020", "Card stock"], ["J-2016", "Store flyers"]] as const) {
@@ -1200,6 +1221,85 @@ test.describe("Plan bucket cells' +n (#1267)", () => {
     });
 });
 
+/** A cell at its floor — 12px, its padding — in planBucketRows: Van 1's first week (its ✓, a0), or Van 2's PM lane in
+ *  its fourth (the truck, m5, captioned "PM", which opens a popover). */
+const floorCell = (key: string) => `[data-plan-row] [data-plan-cell]:has([data-event=${JSON.stringify(key)}])`;
+
+/** Narrows a cell to its 12px floor. */
+const toFloor = (page: Page, key: string) =>
+    page.addStyleTag({ content: `${floorCell(key)} { width: 12px !important; min-width: 0 !important; }` });
+
+/** A cell at its floor as it draws: the tiles that show, its chip's words, whether it says its count and spans the
+ *  cell, and whether it lies inside the cell. */
+const floorDrawn = (cell: Element) => {
+    const c = cell.getBoundingClientRect();
+    const chip = cell.querySelector("[data-tile-more]");
+    const m = chip?.getBoundingClientRect();
+    return {
+        shown: [...cell.querySelectorAll("[data-event]")].filter((t) => getComputedStyle(t).display !== "none").map((t) => t.getAttribute("data-event")),
+        chip: chip === null ? null : {
+            words: chip.textContent,
+            label: chip.getAttribute("aria-label"),
+            count: getComputedStyle(chip.querySelector("[data-tile-more-count]")!).display !== "none",
+            spans: m !== undefined && Math.abs(m.left - c.left) <= 0.5 && Math.abs(m.right - c.right) <= 0.5,
+            inside: m !== undefined && m.left >= c.left - 0.5 && m.right <= c.right + 0.5 && m.top >= c.top - 0.5 && m.bottom <= c.bottom + 0.5,
+        },
+    };
+};
+
+/**
+ * A cell with no room for one whole tile (#1276, the user's ruling "Fold into
+ * +n"): at its 12px floor its padding leaves the tiles nothing, so it draws no
+ * tile and shows its `+n` alone, across the whole cell — its padding and its
+ * caption too — its menu listing every tile, a pick doing what the tile's
+ * click does. A popover the pick opens hangs from the chip, the tile having no
+ * box.
+ */
+test.describe("Plan bucket cells with no room for a tile (#1276)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's width");
+
+    test("planBucketRows: a cell at its 12px floor draws no tile — its +1 alone, across the cell and inside it — and its menu lists the tile; a pick does what its click does, Van 1 selected", async ({ page }) => {
+        const entry = await openExample(page, "planBucketRows");
+        await toFloor(page, "a0");
+        const cell = entry.locator(floorCell("a0"));
+        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
+            shown: [],
+            chip: { words: "+1", label: "1 more event, Week of Jun 29, 2026", count: false, spans: true, inside: true },
+        });
+        await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+        await cell.locator("[data-tile-more]").click();
+        const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
+        await expect(items).toHaveText(["Event, Week of Jun 29, 2026, confirmed"]);
+        await items.first().click();
+        await expect(entry.locator(rowSel("local", "van1"))).toHaveAttribute("data-selected", "");
+        // The tile, which cannot draw, stays in the chip.
+        await expect.poll(() => cell.evaluate(floorDrawn)).toMatchObject({ shown: [] });
+    });
+
+    test("planBucketRows: a captioned cell at its floor draws its +1 across the cell, over its caption; a pick opens the tile's popover, hung from the chip, and it stays open", async ({ page }) => {
+        const entry = await openExample(page, "planBucketRows");
+        await toFloor(page, "m5");
+        const cell = entry.locator(floorCell("m5"));
+        await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
+            shown: [],
+            chip: { words: "+1", label: "1 more event, Week of Jul 20, 2026, PM", count: false, spans: true, inside: true },
+        });
+        const chip = cell.locator("[data-tile-more]");
+        await chip.click();
+        await page.locator("[data-tile-more-menu]").getByRole("menuitem").first().click();
+        const pop = page.locator('[data-plan-overlay="popover"]');
+        await expect(pop).toHaveText("Load 41 · 8 pallets");
+        // Over the chip, which it hangs from, and still open once the page is at rest.
+        await settled(page);
+        await expect(pop).toBeVisible();
+        const read = async () => {
+            const [p, m] = [await pop.boundingBox(), await chip.boundingBox()];
+            return p !== null && m !== null && p.y + p.height <= m.y + 0.5 && p.x <= m.x + m.width && p.x + p.width >= m.x;
+        };
+        await expect.poll(read).toBe(true);
+    });
+});
+
 /**
  * A cell's `+n` under a touch pointer (#1267): its tap target is its 44px
  * halo, held to its cell, less the tiles in it — so a tile beside it, or in
@@ -1247,6 +1347,22 @@ test.describe("Plan bucket cells' +n on touch (#1267)", () => {
         const read = await cell.locator("[data-tile-more]").evaluate(tapFaults);
         expect(read.bad).toEqual([]);
         expect(read.onTile, "the halo's taps on the ✓").toBeGreaterThan(0);
+    });
+
+    test("planBucketRows on a touch screen 1920px wide: a cell at its 12px floor is its +1 alone, its 44px halo held inside the cell — a tap anywhere in it lands on the chip, one just outside it never does, and every tile of the row keeps its own (#1276)", async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 900 });
+        const entry = await openExample(page, "planBucketRows");
+        await toFloor(page, "a0");
+        const chip = entry.locator(`${floorCell("a0")} [data-tile-more]`);
+        await expect(chip).toHaveAttribute("data-no-room", "");
+        await expect.poll(() => chip.evaluate(tapFaults)).toEqual({ bad: [], onTile: 0 });
+        const outside = () => chip.evaluate((el) => {
+            const c = el.closest("[data-plan-cell]")!.getBoundingClientRect();
+            const [mx, my] = [(c.left + c.right) / 2, (c.top + c.bottom) / 2];
+            return ([[c.left - 2, my, "left"], [c.right + 2, my, "right"], [mx, c.top - 2, "above"], [mx, c.bottom + 2, "below"]] as const)
+                .flatMap(([x, y, side]) => { const hit = document.elementFromPoint(x, y); return hit !== null && el.contains(hit) ? [`a tap 2px ${side} the cell lands on the chip`] : []; });
+        });
+        expect(await outside()).toEqual([]);
     });
 });
 

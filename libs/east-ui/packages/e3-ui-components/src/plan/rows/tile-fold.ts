@@ -11,7 +11,12 @@
  * Every tile that fits shows. A cell with more than one tile and too little
  * room shows the longest run of its tiles, in their order, that fits beside a
  * `+n` chip counting the rest; when none fits beside it, the chip alone counts
- * them all. A lone tile never folds — it fits its cell as #1266 draws it.
+ * them all. A lone tile fits its cell as #1266 draws it, shrunk to the room.
+ *
+ * A cell with no room for one tile — less than the least a tile draws, its
+ * padding given way — draws none of them: its chip alone counts them all,
+ * across the cell, and lists every one (#1276). Nothing a cell holds goes
+ * unseen.
  *
  * The tile the cell keeps — the selected one, the one whose popover is open,
  * or the one just picked from the chip's menu — never folds: it takes its
@@ -35,6 +40,8 @@ export interface TileCellMeasure {
     readonly more: number;
     /** The narrowest a tile draws: its floor (#1266). */
     readonly floor: number;
+    /** The narrowest a tile draws at all, its padding given way (#1276): less room than this holds no tile. */
+    readonly least: number;
 }
 
 /** Which of a cell's tiles show, by index in order; the rest fold into its chip. */
@@ -45,6 +52,8 @@ export interface TileCellFit {
     readonly folded: number;
     /** Whether the chip shows: tiles fold, and a kept tile left it the room. */
     readonly chip: boolean;
+    /** Whether the cell has no room for one tile (#1276): every tile folds, and the chip is the cell's one part. */
+    readonly noRoom: boolean;
 }
 
 /** A width within a hundredth of a pixel of the room fits it: the measures are fractional, and summed. */
@@ -60,14 +69,19 @@ const SLACK = 0.01;
 export function fitTiles(measure: TileCellMeasure, kept: number | undefined): TileCellFit {
     const count = measure.tiles.length;
     const all = Array.from({ length: count }, (_, i) => i);
+    // No room for one tile, at the least it draws — or its whole width, were that less: the chip alone, kept tile or
+    // not, for a tile that cannot draw is no tile to act on.
+    if (count > 0 && measure.tiles.every((w) => Math.min(w, measure.least) > measure.room + SLACK)) {
+        return { shown: [], folded: count, chip: true, noRoom: true };
+    }
     const across = measure.tiles.reduce((sum, w) => sum + w, 0) + measure.gap * Math.max(0, count - 1);
-    if (count <= 1 || across <= measure.room + SLACK) return { shown: all, folded: 0, chip: false };
+    if (count <= 1 || across <= measure.room + SLACK) return { shown: all, folded: 0, chip: false, noRoom: false };
     const keep = kept !== undefined && kept >= 0 && kept < count ? kept : undefined;
     // The room beside the chip.
     const room = measure.room - measure.more;
     // No room there even for the kept tile's floor: it shows alone, and the chip waits.
     if (keep !== undefined && Math.min(measure.tiles[keep]!, measure.floor) > room + SLACK) {
-        return { shown: [keep], folded: count - 1, chip: false };
+        return { shown: [keep], folded: count - 1, chip: false, noRoom: false };
     }
     // The tiles beside the chip: the kept one first, then the run from the
     // first while they fit — the first that doesn't fit folds, and every tile
@@ -84,5 +98,5 @@ export function fitTiles(measure: TileCellMeasure, kept: number | undefined): Ti
         if (used + (shown.length > 0 ? measure.gap : 0) + measure.tiles[i]! > room + SLACK) break;
         take(i);
     }
-    return { shown: shown.sort((a, b) => a - b), folded: count - shown.length, chip: true };
+    return { shown: shown.sort((a, b) => a - b), folded: count - shown.length, chip: true, noRoom: false };
 }

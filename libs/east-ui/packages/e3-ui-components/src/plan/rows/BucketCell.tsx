@@ -23,14 +23,19 @@
  * when fonts arrive, and when its room changes — taken in the ResizeObserver's
  * delivery, as the shared toolbar takes one, so no frame paints a fold the
  * cell does not rest on. While it measures again the chip keeps the last fold,
- * so an open menu stays open (#1235). A cell with one tile, or a context
- * strip's (R2), never folds.
+ * so an open menu stays open (#1235). A context strip's cell (R2) never folds.
+ *
+ * A cell with no room for one tile, its padding given way (#1276), draws none
+ * of them: its chip alone, across the whole cell (`data-no-room`), lists every
+ * tile, and a pick does what the tile's click does — its popover, the tile
+ * having no box, hangs from the chip.
  *
  * The renderer sets data attributes and nothing else: `data-tile-measure` on
  * the tiles' box while it measures, `data-folded` on a folded tile,
- * `data-tile-more` on the chip, `data-tile-more-count` on its count and
+ * `data-tile-more` on the chip, `data-tile-more-count` on its count,
  * `data-cramped` on a chip wider than the room, which shrinks to it and draws
- * no count. Its styles are the Plan recipe's.
+ * no count, and `data-no-room` on a chip a cell with no room for a tile draws
+ * across itself. Its styles are the Plan recipe's.
  *
  * @packageDocumentation
  */
@@ -76,7 +81,7 @@ export interface BucketCellProps {
     readonly tiles: readonly BucketCellTile[];
     /** Its marker's corner icon, drawn last. */
     readonly marker: ReactNode;
-    /** Whether the cell folds: more than one tile, and not a context strip's. */
+    /** Whether the cell folds: it holds a tile, and is not a context strip's. */
     readonly folds: boolean;
     /** The bucket's left edge, as a fraction of the window — the chip's place in the row's walk. */
     readonly frac: number;
@@ -125,7 +130,8 @@ export function BucketCell(props: BucketCellProps) {
 
     // ── The fold, measured before paint ──
     const [measuring, setMeasuring] = useState(folds);
-    const [measure, setMeasure] = useState<TileCellMeasure | undefined>(undefined);
+    // What the cell measured, and its own width: a chip it draws across itself has that room (#1276).
+    const [measure, setMeasure] = useState<(TileCellMeasure & { readonly cell: number }) | undefined>(undefined);
     // Other tiles, or a cell that folds again, measure again.
     useLayoutEffect(() => { if (folds) setMeasuring(true); }, [signature, folds]);
     // So does a change of the room, before the cell paints at it. The box is
@@ -166,9 +172,11 @@ export function BucketCell(props: BucketCellProps) {
             gap,
             more: width(box.querySelector(":scope > [data-tile-more-measure]")) + gap,
             floor: Math.min(geometry.tileMinWidth, room),
+            least: geometry.tileLeastWidth,
+            cell: width(box.parentElement),
         });
         setMeasuring(false);
-    }, [measuring, folds, signature, geometry.tileMinWidth]);
+    }, [measuring, folds, signature, geometry.tileMinWidth, geometry.tileLeastWidth]);
     // The fold the last measure gave; the cell draws every tile whole while it
     // measures again, and the chip keeps that fold meanwhile, so an open menu
     // stays open (#1235).
@@ -178,8 +186,10 @@ export function BucketCell(props: BucketCellProps) {
     const shown = measuring || measured === undefined ? undefined : new Set(measured.shown);
     const folded = measured === undefined || !measured.chip ? [] : tiles.filter((_, i) => !measured.shown.includes(i));
     // A room narrower than the chip itself cramps it: it shrinks to the room, its count off its line, its name
-    // still saying what it holds — as a tile's parts go (#1266).
-    const cramped = measure !== undefined && measure.more - measure.gap > measure.room + 0.01;
+    // still saying what it holds — as a tile's parts go (#1266). Drawn across a cell with no room for a tile, its
+    // room is the cell's (#1276).
+    const noRoom = measured?.noRoom === true;
+    const cramped = measure !== undefined && measure.more - measure.gap > (noRoom ? measure.cell : measure.room) + 0.01;
 
     // A focused tile that folds hands the focus to the chip, which holds it now.
     useLayoutEffect(() => {
@@ -234,6 +244,7 @@ export function BucketCell(props: BucketCellProps) {
                         <ChakraMenu.Trigger asChild>
                             <chakra.button ref={chipRef} type="button" css={styles.tileMore} data-tile-more=""
                                 data-cramped={cramped ? "" : undefined}
+                                data-no-room={noRoom ? "" : undefined}
                                 // In the row's walk where the tiles it folds would be (#819).
                                 data-plan-frac={frac.toFixed(4)} tabIndex={-1}
                                 aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane })}

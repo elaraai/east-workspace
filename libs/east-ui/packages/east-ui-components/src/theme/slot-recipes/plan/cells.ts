@@ -206,7 +206,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // `plan` form); removed / estimated / rejected extend the §4.3 table.
     //
     // A tile is never wider than its cell (#1266): it shrinks to the room
-    // the cell leaves it, its 20px floor where the cell has that. Its parts
+    // the cell leaves it, its 20px floor where the cell has that, and in a
+    // room narrower than its padding the padding gives way, down to its rings
+    // (`--plan-tile-least-w`, #1276) — a cell with less room than that draws
+    // no tile, and shows its `+n` alone. Its parts
     // sit on ONE line of its own height, which the strut before them holds,
     // and a part with no room on that line wraps below it, where the tile
     // clips it whole: its icon goes once the tile is narrower inside than
@@ -229,7 +232,11 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         overflow: "hidden",
         whiteSpace: "nowrap",
         boxSizing: "border-box",
-        padding: "0 5px",
+        // 5px either side, or what the room leaves beside the widest ring a
+        // state draws (a proposal's 1.5px, half the least a tile draws): a
+        // percentage here is of the tiles' box, the room.
+        paddingBlock: 0,
+        paddingInline: "min(5px, calc(50% - var(--plan-tile-least-w) / 2))",
         // The strut: the line's height, and no width.
         "&::before": { content: '""', height: "100%" },
         // Its parts 4px apart — a margin, which the strut, being no element,
@@ -310,7 +317,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // a tile squeezed beside it gives the room — but in a cell narrower than
     // the chip (`data-cramped`) it shrinks to the room and draws no count, its
     // name still saying what it holds. The stand-in a cell measures beside its
-    // tiles is never seen.
+    // tiles is never seen. A cell with no room for one tile (`data-no-room`,
+    // #1276) draws the chip alone across the whole cell — its padding and its
+    // caption too — so what the cell holds is never unseen; its menu lists
+    // every tile.
     //
     // On a coarse pointer its tap target is its cell, less the tiles in it
     // (#346's halo, held to the cell): the halo lies beneath the tiles in their
@@ -341,6 +351,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             minWidth: 0,
             padding: 0,
             "& > [data-tile-more-count]": { display: "none" },
+        },
+        // No room for a tile: across the cell, out of its tiles' box, so the
+        // room the cell measures never changes with it.
+        "&[data-no-room]": {
+            position: "absolute",
+            insetInline: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
         },
         "&[data-tile-more-measure]": { visibility: "hidden" },
         ...coarseHitArea(),

@@ -27,7 +27,8 @@
  * A cell with more tiles than it has room for shows the tiles that fit, each
  * drawn whole, and a `+n` chip whose menu lists the rest (#1267,
  * `BucketCell.tsx`): a folded tile is out of the row's walk, which reaches the
- * chip in its place.
+ * chip in its place. A cell with no room for one tile shows its chip alone,
+ * listing every tile (#1276).
  *
  * On a row whose series declares a move's fields (#825) a tile moves to
  * another bucket, or another row of its item type; it has one instant, so no
@@ -296,8 +297,9 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
                             <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
                         </Box>
                     ) : null}
-                    // A context strip's tiles are marks with no text: they never fold.
-                    folds={events.length > 1 && ctx !== true}
+                    // A context strip's tiles are marks with no text: they never fold. Any other cell's tiles
+                    // fold where they have no room — a lone tile too, where its cell has none for it (#1276).
+                    folds={events.length > 0 && ctx !== true}
                     frac={b.x0} bucket={scale.bucketText(b)} lane={caption} words={words}
                     onClick={() => dispatch({ t: "row.select", key: rowKey })}
                     signature={signature} />

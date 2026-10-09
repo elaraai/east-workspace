@@ -39,7 +39,9 @@
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
  * `positioning.getAnchorElement`, so it follows the element while the canvas
- * scrolls — and closes once the element leaves the viewport, or the canvas.
+ * scrolls — and closes once the element leaves the viewport, or the canvas. A
+ * tile its cell folds has no box to anchor to: its popover — a pick from the
+ * cell's `+n` menu opens it — hangs from that chip (#1276).
  *
  * @packageDocumentation
  */
@@ -145,6 +147,19 @@ export function refOfElement(el: Element): PlanElementRefValue | undefined {
     const cell = el.getAttribute("data-cell");
     const at = cell !== null ? instantOfKey(cell) : undefined;
     return at !== undefined ? variant("cell", { row, at }) as PlanElementRefValue : undefined;
+}
+
+/**
+ * What a surface opened on an element anchors to: the element — or, for a tile
+ * its cell folds, which draws no box, the cell's `+n` chip that lists it
+ * (#1276).
+ *
+ * @param el - The element the surface opened on
+ * @returns The element to anchor to
+ */
+function anchorOf(el: HTMLElement): HTMLElement {
+    if (!el.hasAttribute("data-folded")) return el;
+    return el.closest("[data-plan-cell]")?.querySelector<HTMLElement>(":scope > [data-plan-cell-tiles] > [data-tile-more]") ?? el;
 }
 
 /** A labelled mark's identity — its row and the mark's own attribute; a link
@@ -261,7 +276,7 @@ export function usePlanOverlayHandlers(
                 controller.overlayIntent("popover", open.ref, false);
                 return true;
             }
-            anchors.popover = el;
+            anchors.popover = anchorOf(el);
             clearTimeout(anchors.hoverOpen);
             controller.overlayIntent("popover", ref, true);
             return true;

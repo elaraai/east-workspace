@@ -93,6 +93,8 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("bar").minWidth).toBe(v("barMinWidth"));
         expect(slot("cardChip").minWidth).toBe(v("chipMinWidth"));
         expect(slot("cell").minWidth).toBe(v("cellMinWidth"));
+        // A tile's padding gives way to its room down to the least a tile draws, which the fold reads too (#1276).
+        expect(String(slot("tile").paddingInline)).toContain(v("tileLeastWidth"));
         // Each mark's glyph: the dot, an event row's diamond, the triangle (its
         // borders are its size), and the icon's box.
         expect([slot("milestoneDot").width, slot("milestoneDot").height]).toEqual([v("markDotWidth"), v("markDotWidth")]);
