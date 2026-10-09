@@ -49,7 +49,7 @@ test.describe("a bounded frame opens at its first row (#944)", () => {
 
     for (const [file, name] of [
         [PLAN_EXAMPLES, "planRowDrop"],
-        [PLAN_EXAMPLES, "planFill"],
+        [PLAN_EXAMPLES, "planTargetState"],
         ["e3/sheet/sheet", "sheetBatches"],
         ["e3/sheet/sheet", "sheetStress"],
     ] as const) {

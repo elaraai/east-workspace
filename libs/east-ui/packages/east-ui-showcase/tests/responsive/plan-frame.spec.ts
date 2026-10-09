@@ -39,15 +39,16 @@ import { settled } from "./settle";
 const EVENTS = "e3/plan/plan-events";
 
 /** Plans of every source and chrome, each by its examples file and the panes
- *  it is given: a slice; editing over a keyed paged source, its palette the
- *  library; event kinds, with and without a library; the narrow layout's box. */
-const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly string[] }> = [
-    { name: "planTargetState", file: PLAN_EXAMPLES },
+ *  it is given: a slice, its series picked in the library; editing over a keyed
+ *  paged source, its palette the library; event kinds, with and without a
+ *  library; and the narrow layout, the flagship's box 360px wide. */
+const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly string[]; box?: number }> = [
+    { name: "planTargetState", file: PLAN_EXAMPLES, panes: ["start"] },
     { name: "planRowDrop", file: PLAN_EXAMPLES, panes: ["start"] },
     { name: "planEvents", file: EVENTS },
     { name: "planPrintWorks", file: EVENTS, panes: ["start", "end"] },
     { name: "planLibrary", file: EVENTS, panes: ["start"] },
-    { name: "planNarrow", file: PLAN_EXAMPLES },
+    { name: "planTargetState", file: PLAN_EXAMPLES, panes: ["start"], box: 360 },
 ];
 
 /** The canvas's own scroller in main: the rows' bounded viewport, or the narrow layout's list. */
@@ -113,9 +114,10 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
 
 test.describe("the Plan's frame (#1193)", () => {
     for (const theme of ["light", "dark"] as const) {
-        for (const { name, file, panes } of FRAMED) {
-            test(`${name} (${theme}): a BuilderFrame with no border, the panes it is given and no other; one toolbar row, its history last`, async ({ page }) => {
+        for (const { name, file, panes, box } of FRAMED) {
+            test(`${name}${box === undefined ? "" : ` in a ${box}px box`} (${theme}): a BuilderFrame with no border, the panes it is given and no other; one toolbar row, its history last`, async ({ page }) => {
                 const entry = await openExample(page, name, file, theme);
+                if (box !== undefined) await sizeBox(page, planBox(entry), box);
                 expect((await frameFaults(entry, panes)).bad).toEqual([]);
             });
         }
@@ -136,7 +138,7 @@ test.describe("the Plan's frame (#1193)", () => {
     });
 
     test("a declared fill is the whole Plan's: the frame takes its host's height, and the canvas scrolls its own rows in main", async ({ page }) => {
-        const entry = await openExample(page, "planFill");
+        const entry = await openExample(page, "planTargetState");
         const read = await entry.evaluate((root, scroller) => {
             const wrapper = root.querySelector("[data-plan-frame]")!;
             const host = wrapper.parentElement!.getBoundingClientRect();
@@ -149,7 +151,7 @@ test.describe("the Plan's frame (#1193)", () => {
                 scrolls: rows !== null && rows.scrollHeight > rows.clientHeight,
             };
         }, SCROLLER);
-        expect(read).toEqual({ bound: true, frame: read.host, host: 240, scrolls: true });
+        expect(read).toEqual({ bound: true, frame: read.host, host: 720, scrolls: true });
     });
 
     test("a host that gives the frame a height bounds a canvas that declares none: it fills main and scrolls its own rows there", async ({ page }) => {

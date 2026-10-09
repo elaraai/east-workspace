@@ -350,7 +350,7 @@ describe("an author's tab (PB62)", () => {
         // The cards a search leaves keep their groups, in the order the cards come.
         await search(container, "arts");
         expect(heads(container)).toEqual([["North Quay", "2"], ["Old Town", "1"]]);
-        expect(cards(container).map(([name]) => name)).toEqual(["Driftwood Museum", "Harbour Arts Society", "Hollow Oak Theatre"]);
+        expect(cards(container).map(([name]) => name)).toEqual(["Driftwood Museum", "Harbour Arts Society", "Heathfield Theatre"]);
         await search(container, "northwind");
         expect(cards(container).map(([name]) => name)).toEqual(["Northwind Outfitters"]);
         // Its key alone finds a card: neither its label nor its meta holds it.

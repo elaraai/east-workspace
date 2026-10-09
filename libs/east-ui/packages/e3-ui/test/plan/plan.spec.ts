@@ -41,22 +41,8 @@ describeEast("Plan", (test) => {
     Assert.examples(test, {
         planTargetState: ex.planTargetState,
         planVariants: ex.planVariants,
-        planSpanRows: ex.planSpanRows,
-        planBucketRows: ex.planBucketRows,
         planMeasures: ex.planMeasures,
-        planCardRows: ex.planCardRows,
-        planEventRows: ex.planEventRows,
-        planGroupedRows: ex.planGroupedRows,
-        planSeriesData: ex.planSeriesData,
-        planLiteralRows: ex.planLiteralRows,
-        planPick: ex.planPick,
-        planLibraryDnd: ex.planLibraryDnd,
         planRowDrop: ex.planRowDrop,
-        planFill: ex.planFill,
-        planUiState: ex.planUiState,
-        // Was never wired — the example shipped without ever being executed.
-        planExpand: ex.planExpand,
-        planNarrow: ex.planNarrow,
         planNumberAxis: ex.planNumberAxis,
         planOrdinalAxis: ex.planOrdinalAxis,
         // From east-ui's Slice examples, which drove a Plan (#1177).

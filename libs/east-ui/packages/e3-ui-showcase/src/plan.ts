@@ -9,9 +9,9 @@
  * its examples come from `@elaraai/e3-ui`, not the east-ui collections barrel.
  *
  * Every example binds its data from e3 (#1178): the barrel's inputs, its
- * records with their patch doors, and the tasks that generate the horizons
- * and the fill canvas's units are forwarded as `extras`, so the deployed
- * workspace has them at render time.
+ * records with their patch doors, and the tasks that generate the slices'
+ * horizons are forwarded as `extras`, so the deployed workspace has them at
+ * render time.
  *
  * Run via `make start-plan` or `make plan`.
  */

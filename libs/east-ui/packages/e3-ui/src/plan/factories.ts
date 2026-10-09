@@ -646,69 +646,13 @@ export interface PlanSpanInput<K extends PlanAxisKindLiteral = never> extends Pl
  * derives the parent's union / byStatus bands from the subtree's runs (`×k`
  * peak concurrency, quantities summed unit by unit, pessimistic certainty).
  *
+ * The data flagship, `planTargetState`, places a planned shutdown this way:
+ * a `Plan.series.rows` entry holding one `Plan.span` whose two nested trades
+ * roll up into its band.
+ *
  * @typeParam K - The axis kind the row's instants ride (inferred; `never` when erased)
  * @param input - The span configuration ({@link PlanSpanInput})
  * @returns The row stream — the span row, then every nested row under it — branded with its kind
- *
- * @example
- * ```tsx
- * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, DictType, East, IntegerType, StringType, StructType, variant } from "@elaraai/east";
- * import { EventStateType, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Data, Plan } from "@elaraai/e3-ui";
- * import e3 from "@elaraai/e3";
- *
- * export const LiteralJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
- * export const LiteralPress = StructType({ jobs: ArrayType(LiteralJob) });
- * export const planLiteralPresses = e3.input("plan_literal_presses", DictType(StringType, LiteralPress), variant("value", new Map([
- *     ["H1-P03", { jobs: [{ ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
- *     ["H1-P04", { jobs: [{ ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
- * ])));
- *
- * const canvas = East.function([], UIComponentType, (_$) => (
- *     <Reactive>{$ => {
- *         const presses = $.let(Data.bind(planLiteralPresses));
- *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
- *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
- *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
- *             return w1.addWeeks(n.subtract(1n));
- *         }));
- *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
- *         return (
- *             <Plan
- *                 axis={axis}
- *                 data={presses}
- *                 series={[
- *                     Plan.series.span(LiteralPress, {
- *                         key: "presses", title: "Presses",
- *                         label: (_r, k) => k, id: true,
- *                         runs: r => r.jobs.map((_$, j) => Plan.run({
- *                             key: j.ticket, start: j.start, end: j.end,
- *                             label: East.str`RUN · ${j.ticket}`, state: j.state,
- *                         })),
- *                     }),
- *                     // Rows no dataset holds — the planned shutdown, written out once.
- *                     // `Plan.span` nests: the parent DECLARES its rollup and the canvas
- *                     // derives the band from its two rows' runs. The series list is the
- *                     // layout, so this block sits below the presses.
- *                     Plan.series.rows(LiteralPress, { key: "works", title: "Planned works", subtitle: "literal rows" }, [
- *                         Plan.span({
- *                             key: "shutdown", label: "Shutdown", rollup: "union", rows: [
- *                                 Plan.span({ key: "elec", label: "Electrical", runs: [
- *                                     Plan.run({ key: "iso", start: week(33n), end: week(34n), label: "ISOLATE", state: "confirmed" }),
- *                                 ] }),
- *                                 Plan.span({ key: "mech", label: "Mechanical", runs: [
- *                                     Plan.run({ key: "rollers", start: week(34n), end: week(36n), label: "ROLLERS", state: "recommended" }),
- *                                 ] }),
- *                             ],
- *                         }),
- *                     ]),
- *                 ]}
- *             />
- *         );
- *     }}</Reactive>
- * ));
- * ```
  */
 export function createSpan<K extends PlanAxisKindLiteral = never>(input: PlanSpanInput<K>): PlanRowsValue<K> {
     if (input.rows === undefined) {

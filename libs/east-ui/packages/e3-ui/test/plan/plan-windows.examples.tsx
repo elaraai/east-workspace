@@ -34,8 +34,7 @@ import { PrintJob, PrintPress } from "./plan-events.examples.js";
 // in view, and one on the jobs with no start (`Schedule.unscheduled`), through
 // which its backlog is read (`Schedule.events`' `window` and `backlogWindow`);
 // one job is read by its key through the record's own entries (`entries`), and
-// every edit is a draft of a session over the record's revision. The customers
-// are made up.
+// every edit is a draft of a session over the record's revision.
 
 // ============================================================================
 // The presses — generated where data is made
@@ -87,7 +86,7 @@ export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType,
     ["W-0011", { title: "Gift boxes", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T12:00:00Z")), press: some("P-1333"), state: variant("confirmed", null), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
     ["W-0012", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("P-1401"), state: variant("in-progress", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
     ["W-0013", { title: "Magazine run", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-16T18:00:00Z")), press: some("P-1460"), state: variant("proposed", variant("added", null)), sheets: 180000.0, customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
-    ["W-0014", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T08:00:00Z")), press: some("P-1001"), state: variant("estimated", null), sheets: 24000.0, customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+    ["W-0014", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T08:00:00Z")), press: some("P-1001"), state: variant("estimated", null), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
     ["W-0015", { title: "Wall calendars", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T18:00:00Z")), press: some("P-1002"), state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
     ["W-0016", { title: "Exhibition book", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T12:00:00Z")), press: some("P-1470"), state: variant("estimated", null), sheets: 54000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
     ["W-0017", { title: "Order forms", start: none, end: none, press: none, state: variant("estimated", null), sheets: 40000.0, customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],

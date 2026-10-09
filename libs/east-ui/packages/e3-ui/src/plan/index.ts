@@ -862,121 +862,146 @@ const PLAN_MEMBERS = {
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, variant } from "@elaraai/east";
- * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { ArrayType, BooleanType, DictType, East, FloatType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { Chart, EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const SeriesJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, sheets: FloatType, state: EventStateType });
- * export const SeriesShift = StructType({ key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType });
- * export const SeriesOpsRow = StructType({
- *     hall: StringType,
- *     kind: VariantType({
- *         press: StructType({ jobs: ArrayType(SeriesJob) }),
- *         crew:    StructType({ shifts: ArrayType(SeriesShift) }),
- *     }),
+ * export const OrdinalJob = StructType({ key: StringType, label: StringType, start: StringType, end: StringType, state: EventStateType });
+ * export const OrdinalAlloc = StructType({ key: StringType, phase: StringType, state: EventStateType });
+ * export const OrdinalShift = StructType({ key: StringType, from: StringType, to: StringType, label: StringType, state: EventStateType });
+ * export const OrdinalMark = StructType({ key: StringType, phase: StringType, label: StringType, exception: BooleanType });
+ * export const OrdinalPoint = StructType({ phase: StringType, n: FloatType });
+ * export const OrdinalReading = StructType({ at: StringType, value: OptionType(FloatType) });
+ * export const OrdinalOrderRow = StructType({
+ *     series: StringType, label: StringType, value: OptionType(StringType), sub: OptionType(StringType),
+ *     jobs: ArrayType(OrdinalJob), allocations: ArrayType(OrdinalAlloc), shifts: ArrayType(OrdinalShift),
+ *     marks: ArrayType(OrdinalMark), points: ArrayType(OrdinalPoint), counts: ArrayType(OrdinalReading),
+ *     cells: ArrayType(Plan.Types.HeatCell),
  * });
- * export const planSeriesOps = e3.input("plan_series_ops", DictType(StringType, SeriesOpsRow), variant("value", new Map([
- *     ["H1-P03", { hall: "Hall 1", kind: variant("press", { jobs: [
- *         { ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), sheets: 96.0, state: variant("in-progress", null) },
- *         { ticket: "J-4663", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), sheets: 88.0, state: variant("proposed", variant("recommended", null)) },
- *     ] }) }],
- *     ["H1-P04", { hall: "Hall 1", kind: variant("press", { jobs: [
- *         { ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), sheets: 112.0, state: variant("actual", null) },
- *     ] }) }],
- *     ["H2-P11", { hall: "Hall 2", kind: variant("press", { jobs: [
- *         { ticket: "J-4723", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), sheets: 92.0, state: variant("confirmed", null) },
- *     ] }) }],
- *     ["crewA", { hall: "Hall 1", kind: variant("crew", { shifts: [
- *         { key: "s1", from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), hours: 80.0, state: variant("confirmed", null) },
- *         { key: "s2", from: new Date("2026-07-27T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z"), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
- *     ] }) }],
+ * export const planOrdinalOrders = e3.input("plan_ordinal_orders", DictType(StringType, OrdinalOrderRow), variant("value", new Map([
+ *     ["j6188", { series: "job", label: "J-6188", value: some("96 k sheets"), sub: none,
+ *       allocations: [], shifts: [], marks: [], points: [], counts: [], cells: [],
+ *       jobs: [
+ *           { key: "plates", label: "PLATES", start: "PREPRESS", end: "PLATES", state: variant("actual", null) },
+ *           { key: "print", label: "PRINT · J-4642", start: "PRINT", end: "FINISH", state: variant("in-progress", null) },
+ *           { key: "deliver", label: "BIND + DELIVER", start: "BIND", end: "DELIVER", state: variant("proposed", variant("recommended", null)) },
+ *       ] }],
+ *     ["j6204", { series: "job", label: "J-6204", value: some("54 k sheets"), sub: none,
+ *       allocations: [], shifts: [], marks: [], points: [], counts: [], cells: [],
+ *       jobs: [
+ *           { key: "prepress", label: "PREPRESS", start: "PREPRESS", end: "PREPRESS", state: variant("actual", null) },
+ *           { key: "print", label: "PRINT · J-4663", start: "PLATES", end: "BIND", state: variant("proposed", variant("recommended", null)) },
+ *       ] }],
+ *     ["bindery", { series: "bindery", label: "Bindery 2", value: none, sub: some("slots"),
+ *       jobs: [], shifts: [], marks: [], points: [], counts: [], cells: [],
+ *       allocations: [
+ *           { key: "a1", phase: "PLATES", state: variant("confirmed", null) }, { key: "a2", phase: "PRINT", state: variant("confirmed", null) },
+ *           { key: "a3", phase: "PRINT", state: variant("proposed", variant("recommended", null)) }, { key: "a4", phase: "BIND", state: variant("proposed", variant("recommended", null)) },
+ *       ] }],
+ *     // Heat cells as STORED records — the phase spelled on the `ordinal` arm.
+ *     ["load", { series: "load", label: "Phase load", value: none, sub: none,
+ *       jobs: [], allocations: [], shifts: [], marks: [], points: [], counts: [],
+ *       cells: [
+ *           { at: variant("ordinal", "PREPRESS"), value: some(35.0), label: some("35") },
+ *           { at: variant("ordinal", "PLATES"), value: some(66.0), label: some("66") },
+ *           { at: variant("ordinal", "PRINT"), value: some(37.0), label: some("37") },
+ *           { at: variant("ordinal", "FINISH"), value: some(68.0), label: some("68") },
+ *           { at: variant("ordinal", "BIND"), value: some(39.0), label: some("39") },
+ *           { at: variant("ordinal", "DELIVER"), value: some(70.0), label: some("70") },
+ *       ] }],
+ *     ["wip", { series: "wip", label: "WIP · jobs", value: some("31"), sub: none,
+ *       jobs: [], allocations: [], shifts: [], marks: [], counts: [], cells: [],
+ *       points: [
+ *           { phase: "PREPRESS", n: 4.0 }, { phase: "PLATES", n: 11.0 }, { phase: "PRINT", n: 18.0 },
+ *           { phase: "FINISH", n: 5.0 }, { phase: "BIND", n: 12.0 }, { phase: "DELIVER", n: 19.0 },
+ *       ] }],
+ *     ["count", { series: "count", label: "Jobs in phase", value: none, sub: none,
+ *       jobs: [], allocations: [], shifts: [], marks: [], points: [], cells: [],
+ *       counts: [
+ *           { at: "PREPRESS", value: some(12.0) }, { at: "PLATES", value: some(23.0) }, { at: "PRINT", value: some(34.0) },
+ *           { at: "FINISH", value: some(15.0) }, { at: "BIND", value: none }, { at: "DELIVER", value: some(37.0) },
+ *       ] }],
+ *     ["crew", { series: "crew", label: "Crew B", value: none, sub: none,
+ *       jobs: [], allocations: [], marks: [], points: [], counts: [], cells: [],
+ *       shifts: [
+ *           { key: "s1", from: "PREPRESS", to: "PLATES", label: "prepress crew", state: variant("confirmed", null) },
+ *           { key: "s2", from: "PRINT", to: "DELIVER", label: "+ bindery crew", state: variant("proposed", variant("recommended", null)) },
+ *       ] }],
+ *     ["gates", { series: "gates", label: "Gates", value: none, sub: none,
+ *       jobs: [], allocations: [], shifts: [], points: [], counts: [], cells: [],
+ *       marks: [
+ *           { key: "g1", phase: "FINISH", label: "HOLD", exception: true },
+ *           { key: "g2", phase: "DELIVER", label: "RELEASE", exception: false },
+ *       ] }],
  * ])));
  *
  * const canvas = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         // The source, bound from e3 — its rows are what the dataset holds.
- *         const ops = $.let(Data.bind(planSeriesOps));
- *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
- *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
- *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
- *             return w1.addWeeks(n.subtract(1n));
- *         }));
- *         // Hierarchy is the DATA's (#822): one `groupToDicts` groups the rows
- *         // into the canvas's blocks — each press under its hall, the crews
- *         // under one "Crews" block. An entry of the result holds its rows.
- *         const blocks = $.let(ops.read().groupToDicts(
- *             ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.hall),
- *             ($, _r, k) => k));
- *         const Block = DictType(StringType, SeriesOpsRow);
- *         // The series — real East values bound in the body, typed by the
- *         // constructor. The list IS the layout: one block per series, top to
- *         // bottom. The accessors are where raw fields become canvas vocabulary:
- *         // labels, quantity displays and chip text all derive CLIENT-SIDE,
- *         // inside each series' `derive`.
+ *         const orders = $.let(Data.bind(planOrdinalOrders));
+ *         const PHASES = $.const(["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"], ArrayType(StringType));
+ *         const EXCEPTION = $.const(variant("exception", null), Plan.Types.EventMarkKind);
+ *         const MILESTONE = $.const(variant("milestone", null), Plan.Types.EventMarkKind);
  *         const series = $.const([
- *             // One row per hall, its presses stepped down into
- *             // (`Plan.children`) and their runs rolled up into its bands —
- *             // which sum the runs' quantities, unit by unit.
- *             Plan.series.span(Block, {
- *                 key: "halls", title: "Halls",
- *                 match: (_b, name) => name.equal("Crews").not(),
- *                 label: (_b, name) => name,
- *                 runs: _b => [],
- *                 rollup: "union",
- *                 children: Plan.children((b) => b, [
- *                     Plan.series.span(SeriesOpsRow, {
- *                         key: "presses", title: "Presses",
- *                         match: r => r.kind.hasTag("press"),
- *                         label: (_r, k) => k, id: true,
- *                         runs: r => r.kind.unwrap("press").jobs.map((_$, j) => Plan.run({
- *                             key: j.ticket, start: j.start, end: j.end,
- *                             label: East.str`RUN · ${j.ticket}`,
- *                             // A quantity is one value: the bar prints `96 k sheets`,
- *                             // and the hall's band sums the sheets.
- *                             quantity: Plan.quantity(j.sheets, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
- *                             state: j.state,
- *                         })),
- *                     }),
- *                 ]),
+ *             Plan.series.section(OrdinalOrderRow, { key: "job-block", title: "Jobs", meta: "2 rows" }, [
+ *                 Plan.series.span(OrdinalOrderRow, {
+ *                     key: "job", title: "Jobs",
+ *                     match: r => r.series.equal("job"),
+ *                     label: r => r.label, id: true, value: r => r.value,
+ *                     // `j.start` / `j.end` are StringType fields — the builder wraps them to the ordinal arm.
+ *                     runs: r => r.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: j.state })),
+ *                 }),
+ *             ]),
+ *             Plan.series.buckets(OrdinalOrderRow, {
+ *                 key: "bindery", title: "Bindery",
+ *                 match: r => r.series.equal("bindery"),
+ *                 label: r => r.label, sub: r => r.sub,
+ *                 events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.phase, state: a.state })),
  *             }),
- *             // One strip per matching block — here the one "Crews" block,
- *             // wearing its member count.
- *             Plan.series.group(Block, {
- *                 key: "crews", title: "Crews",
- *                 match: (_b, name) => name.equal("Crews"),
- *                 label: (_b, name) => name,
- *                 children: Plan.children((b) => b, [
- *                     Plan.series.cards(SeriesOpsRow, {
- *                         key: "crew-shifts", title: "Crew shifts",
- *                         match: r => r.kind.hasTag("crew"),
- *                         label: (_r, k) => k,
- *                         chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
- *                             const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
- *                             // `+` marks ADDED hours — a removed proposal keeps the
- *                             // plain figure (see planCardRows for the full ladder).
- *                             const label = $.let(s.state.match({
- *                                 proposed: (_$, p) => p.hasTag("removed").ifElse(
- *                                     () => East.str`${hrs}h`,
- *                                     () => East.str`+${hrs}h`),
- *                             }, _$ => East.str`${hrs}h`), StringType);
- *                             return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
- *                         }),
- *                     }),
- *                 ]),
+ *             Plan.series.heat(OrdinalOrderRow, {
+ *                 key: "load", title: "Phase load",
+ *                 match: r => r.series.equal("load"),
+ *                 label: r => r.label,
+ *                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 90 }),
  *             }),
- *             Plan.series.rows(Block, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
- *                 [Plan.events({ key: "ms", label: "Milestones", id: true, marks: [
- *                     Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
- *                     Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
- *                 ] })]),
- *         ], ArrayType(Plan.Types.Series(Block)));
- *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+ *             Plan.series.chart(OrdinalOrderRow, {
+ *                 key: "wip", title: "WIP",
+ *                 match: r => r.series.equal("wip"),
+ *                 label: r => r.label, id: true, value: r => r.value, height: "expanded",
+ *                 // A string x accessor lands the columns on the ordinal arm.
+ *                 layers: r => [Chart.Column(r.points, { x: p => p.phase, y: p => p.n })],
+ *             }),
+ *             Plan.series.table(OrdinalOrderRow, {
+ *                 key: "count", title: "Counts",
+ *                 match: r => r.series.equal("count"),
+ *                 label: r => r.label,
+ *                 cells: r => Plan.tableCells(r.counts),
+ *                 format: Format.Number({ maximumFractionDigits: 0n }),
+ *             }),
+ *             Plan.series.cards(OrdinalOrderRow, {
+ *                 key: "crew", title: "Crews",
+ *                 match: r => r.series.equal("crew"),
+ *                 label: r => r.label,
+ *                 chips: r => r.shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
+ *             }),
+ *             Plan.series.events(OrdinalOrderRow, {
+ *                 key: "gates", title: "Gates",
+ *                 match: r => r.series.equal("gates"),
+ *                 label: r => r.label, id: true,
+ *                 marks: r => r.marks.map((_$, m) => Plan.mark({
+ *                     key: m.key, at: m.phase, label: m.label,
+ *                     kind: m.exception.ifElse(() => EXCEPTION, () => MILESTONE),
+ *                 })),
+ *             }),
+ *         ], ArrayType(Plan.Types.Series(OrdinalOrderRow)));
+ *         // The declaration: the list IS the axis — one bucket per phase, `now` at PRINT.
+ *         const axis = $.const(Plan.axis.ordinal({ values: PHASES, now: "PRINT" }));
  *         return (
  *             <Plan
  *                 axis={axis}
- *                 data={blocks}
+ *                 data={orders}
  *                 series={series}
+ *                 footer={[{ text: "6 PHASES · NOW PRINT" }]}
  *             />
  *         );
  *     }}</Reactive>
@@ -1020,7 +1045,7 @@ const PLAN_MEMBERS = {
  *     ["J-1006", { title: "Tour brochure", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a2"), state: variant("actual", null), sheets: 80000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
  *     ["J-1007", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
  *     ["J-1008", { title: "Seed catalogue", start: some(new Date("2026-10-21T06:00:00Z")), end: some(new Date("2026-10-21T16:00:00Z")), press: some("a2"), state: variant("proposed", variant("added", null)), sheets: 100000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-24T00:00:00Z")) }],
- *     ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
+ *     ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
  *     ["J-1010", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
  *     ["J-1011", { title: "Stationery set", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 24000.0, customer: "Ivy Lane Studio", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
  *     ["J-1012", { title: "Gift boxes", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T12:00:00Z")), press: some("a3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
@@ -1031,7 +1056,7 @@ const PLAN_MEMBERS = {
  *     ["J-1017", { title: "Timetables", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T10:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 48000.0, customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
  *     ["J-1018", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
  *     ["J-1019", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
- *     ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+ *     ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
  *     ["J-1021", { title: "Handbook covers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
  *     ["J-1022", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
  *     ["J-1023", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],

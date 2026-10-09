@@ -287,7 +287,7 @@ export function librarySeries(): PlanLibraryTab {
  *     ["foxglove-gardens", { name: "Foxglove Gardens", district: "Riverside", trade: "Retail" }],
  *     ["granite-hall", { name: "Granite Hall", district: "Old Town", trade: "Events" }],
  *     ["harbour-arts", { name: "Harbour Arts Society", district: "North Quay", trade: "Arts" }],
- *     ["hollow-oak", { name: "Hollow Oak Theatre", district: "Old Town", trade: "Arts" }],
+ *     ["heathfield", { name: "Heathfield Theatre", district: "Old Town", trade: "Arts" }],
  *     ["ivy-lane", { name: "Ivy Lane Studio", district: "Riverside", trade: "Design" }],
  *     ["juniper-toys", { name: "Juniper Toys", district: "Riverside", trade: "Retail" }],
  *     ["kestrel-cycling", { name: "Kestrel Cycling Club", district: "Riverside", trade: "Sport" }],

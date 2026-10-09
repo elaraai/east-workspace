@@ -22,7 +22,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EXAMPLES, openExample, rowSel } from "./plan-page";
+import { PLAN_EXAMPLES, openExample, planBox, rowSel, sizeBox } from "./plan-page";
 import { settled } from "./settle";
 
 /** A box on the page, in CSS px. */
@@ -61,12 +61,7 @@ async function paintedLines(page: Page, at: Box): Promise<number[]> {
 }
 
 /** The Plan examples that draw a ruler over rows. */
-const RULED = [
-    "planTargetState", "planSpanRows", "planBucketRows", "planMeasures",
-    "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
-    "planLibraryDnd", "planRowDrop", "planFill", "planUiState", "planExpand",
-    "planNumberAxis", "planOrdinalAxis",
-];
+const RULED = ["planTargetState", "planMeasures", "planRowDrop", "planNumberAxis", "planOrdinalAxis"];
 
 /** The row kinds whose plot is bare along its bottom edge — nothing but the
  *  bucket lines, the now line and the gutter's edge crosses it there. */
@@ -320,12 +315,18 @@ async function violations(entry: Locator): Promise<string[]> {
             const mid = (Math.min(...parts.map((p) => p.left)) + Math.max(...parts.map((p) => p.right))) / 2;
             if (Math.abs(mid - (cr.left + cr.right) / 2) > 1.5) bad.push(`table value "${name(cell)}": off its column's centre by ${(mid - (cr.left + cr.right) / 2).toFixed(1)}px`);
         }
-        const heat = body.querySelector("[data-plan-row][data-plan-kind='heat']");
-        const span = body.querySelector("[data-plan-row][data-plan-kind='span']");
-        if (heat !== null && span !== null && !span.hasAttribute("data-expanded")) {
+        // A heat row draws as tall as a span row the model lays out at the
+        // same height (`data-plan-h`): a gutter's second line makes a row of
+        // either kind taller, so each heat row is held beside a span row of
+        // its own model height, never merely the first span row.
+        const spans = [...body.querySelectorAll("[data-plan-row][data-plan-kind='span']:not([data-expanded])")];
+        for (const heat of body.querySelectorAll("[data-plan-row][data-plan-kind='heat']:not([data-expanded])")) {
+            const h = heat.getAttribute("data-plan-h");
+            const span = spans.find((s) => s.getAttribute("data-plan-h") === h);
+            if (span === undefined) continue;
             const hh = heat.getBoundingClientRect().height;
             const sh = span.getBoundingClientRect().height;
-            if (Math.abs(hh - sh) > 0.5 && Number(span.getAttribute("data-plan-h")) === 32) bad.push(`heat row ${hh}px beside a ${sh}px row`);
+            if (Math.abs(hh - sh) > 0.5) bad.push(`heat row "${name(heat)}" ${hh}px beside a ${sh}px span row, both laid out at ${h}px`);
         }
         return bad;
     });
@@ -408,8 +409,8 @@ test.describe("Visual invariants — the Plan", () => {
             expect(read.summary).toMatch(/^\d+ OF \d+ ROWS · \d+ FILTERS?$/);
         });
 
-        test(`planSpanRows (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
-            const entry = await openExample(page, "planSpanRows", PLAN_EXAMPLES, theme);
+        test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
+            const entry = await openExample(page, "planTargetState", PLAN_EXAMPLES, theme);
             await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
             await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
             await page.mouse.move(0, 0);
@@ -743,7 +744,8 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * example that mounts it, and the viewport widths it is swept across — each
  * host's own range: the Plan's wide layout holds down to 850px (below it the
  * showcase's column is under its narrow breakpoint), its resolution folding
- * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box;
+ * into its menu under 900; its narrow layout is `planTargetState`'s in a 360px
+ * box, as a phone's;
  * a Plan with editing over a keyed paged source, its palette its library
  * (#1193, #1259), is swept through its narrow layout, which its library's rail
  * brings on at 800px: there its grain segment goes, and the items that stay
@@ -752,10 +754,10 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
  * (#1229).
  */
-const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
+const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; box?: number; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
-    { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
+    { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1200, 900], nudge: [1200], box: 360 },
     { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
@@ -860,8 +862,8 @@ async function installToolbarProbe(page: Page): Promise<void> {
     }, TOOLBAR);
 }
 
-/** A catalog example's entry, its toolbar in view. */
-async function openToolbarHost(page: Page, route: string, width: number): Promise<Locator> {
+/** A catalog example's entry, its toolbar in view — a Plan's box `box` wide, when given. */
+async function openToolbarHost(page: Page, route: string, width: number, box?: number): Promise<Locator> {
     await installToolbarProbe(page);
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/#${route}`);
@@ -870,6 +872,7 @@ async function openToolbarHost(page: Page, route: string, width: number): Promis
     await entry.scrollIntoViewIfNeeded();
     await expect(entry.locator(TOOLBAR).first()).toBeVisible({ timeout: 20_000 });
     await settled(page);
+    if (box !== undefined) await sizeBox(page, planBox(entry), box);
     return entry;
 }
 
@@ -965,7 +968,7 @@ test.describe("Visual invariants — toolbars", () => {
     for (const host of TOOLBAR_HOSTS) {
         test(`${host.name}: a toolbar never paints a fold it does not rest on — a 3px resize shows the configuration before it or after it, nothing between`, async ({ page }) => {
             test.setTimeout(120_000);
-            const entry = await openToolbarHost(page, host.route, host.nudge[0]!);
+            const entry = await openToolbarHost(page, host.route, host.nudge[0]!, host.box);
             const bad: string[] = [];
             for (const width of host.nudge) {
                 await page.setViewportSize({ width, height: 900 });
@@ -986,7 +989,7 @@ test.describe("Visual invariants — toolbars", () => {
 
         test(`${host.name}: the toolbar's configuration is a function of its width — the first frame at a width paints what it rests on, the same however it got there, one row that fits, folding further as it narrows, on its host's ladder`, async ({ page }) => {
             test.setTimeout(120_000);
-            const entry = await openToolbarHost(page, host.route, host.widths[0]!);
+            const entry = await openToolbarHost(page, host.route, host.widths[0]!, host.box);
             const byWidth = new Map<number, string>();
             const bad = new Set<string>();
             const down = [...host.widths];
