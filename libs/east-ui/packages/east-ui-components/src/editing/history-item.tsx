@@ -39,7 +39,7 @@ export function historyToolbarItem<W>(props: HistoryBarProps<W>): ToolbarItem {
         side: "end",
         forms: [<HistoryBar {...props} buttonsOnly={false} />, <HistoryBar {...props} buttonsOnly />],
         rank: HISTORY_RANK,
-        // The full form's width moves with its status line, its issue count and its error.
-        version: `${session.stale ? "stale" : session.status}|${issues}|${session.error ?? ""}`,
+        // The full form's width moves with its status line, its issue count and its error, when it shows one.
+        version: `${session.stale ? "stale" : session.status}|${issues}|${props.showError === false ? "" : session.error ?? ""}`,
     };
 }

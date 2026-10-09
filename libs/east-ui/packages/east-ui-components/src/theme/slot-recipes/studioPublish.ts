@@ -37,7 +37,7 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         "body", "main", "head", "eyebrow", "title", "frame",
         "aside", "asideHead", "asideTitle", "asideSub", "asideVersion", "asideBody", "listHead", "list",
         "change", "sign", "changeText", "changeLine", "changeName", "changeDetail",
-        "banner", "bannerGlyph", "bannerText", "facts", "fact", "factLabel", "factValue", "refusal", "foot",
+        "banner", "bannerIcon", "bannerText", "facts", "fact", "factLabel", "factValue", "refusal", "foot",
     ],
     base: {
         /* The preview's own panel, as tall as its host lets it be — no border
@@ -215,10 +215,12 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             borderTopColor: "border.subtle",
             "&:last-of-type": { borderBottomWidth: "1px", borderBottomColor: "border.subtle" },
         },
+        /* The sign: Font Awesome's plus, minus or plus-minus (#1263), on the
+         * change line's first line, in its tone's ink, its own width, not Font
+         * Awesome's fixed 1.25em. */
         sign: {
-            fontFamily: "mono",
+            "--fa-width": "auto",
             fontSize: "13px",
-            fontWeight: "700",
             lineHeight: "1.3",
             color: "link",
             "&[data-sign=added]": { color: "fg.success" },
@@ -229,8 +231,9 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         changeLine: { fontSize: "13px", color: "fg.strong", overflowWrap: "anywhere" },
         changeName: { fontWeight: "600", color: "fg" },
         changeDetail: { fontFamily: "mono", fontSize: "10.5px", color: "fg.subtle", overflowWrap: "anywhere" },
-        /* The design system's banner: its glyph, then its words; its ground
-           is the banner layer style its tone names. */
+        /* The design system's banner: its icon — the paired status icon of its
+           tone, Font Awesome's (#1263) — then its words; its ground is the
+           banner layer style its tone names. */
         banner: {
             display: "flex",
             alignItems: "flex-start",
@@ -240,10 +243,9 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             color: "fg",
             "&[data-tone=warning]": { color: "fg.strong" },
         },
-        bannerGlyph: {
+        bannerIcon: {
+            "--fa-width": "auto",
             flex: "none",
-            fontFamily: "mono",
-            fontWeight: "700",
             color: "link",
             "[data-tone=warning] > &": { color: "fg.warning" },
         },

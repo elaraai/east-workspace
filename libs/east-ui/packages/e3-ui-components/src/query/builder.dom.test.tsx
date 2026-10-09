@@ -11,8 +11,9 @@
  *
  * - **B1–B8**: the one toolbar and its fold; the pane, its tabs and its rail;
  *   the Query tab's parts — the source, the step cards and their rows, the
- *   shape lines, the foot; the slots' and the cards' states; the status line;
- *   the save popover and its description; no border.
+ *   shape lines, the foot; the slots' and the cards' states — a slot's caret
+ *   Font Awesome's (#1263); the status line; the save popover and its
+ *   description; no border.
  * - **U1**: a condition built by clicks, each pick opening the next slot; the
  *   autocomplete's keys, and ⌘⏎ running; a fix; the history over a pick.
  * - **U2**: Visual · jq and back — its notes and notices, a syntax error
@@ -20,15 +21,20 @@
  *   a stale entry's refusal at its commit and before it, and a new query
  *   named on its Apply; the steps while a save goes, which are the drafts it
  *   saves, never the query as it stood before them.
+ * - **The toolbar on a row short of room** (#1229): its ladder, Copy jq and
+ *   Save… folding into the ⋯ chip in one move; the chip's menu; the save
+ *   popover hung from the chip, the focus back on it; and the chip held while
+ *   the popover is open.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { East, JqType, PatchType, checkJq, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
+import { faIcons } from "@elaraai/east-ui-components/testing";
 import { Query } from "@elaraai/e3-ui/internal";
 import {
-    RECORD, ROOT, WORKSPACE, commits as committed, mountBuilder, offlineCall, openQuery, press, readRecord as recordOf, recordHarness, savedQuery,
+    act, RECORD, ROOT, WORKSPACE, commits as committed, mountBuilder, offlineCall, openQuery, press, readRecord as recordOf, recordHarness, savedQuery,
     savedRecord, settle, type RecordHarness,
 } from "./query.test-utils.js";
 
@@ -169,9 +175,10 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect([run.textContent, run.querySelector("kbd")?.textContent]).toEqual(["Run⌘⏎", "⌘⏎"]);
     }, 30_000);
 
-    test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, then the history item; the results' band, Download to its icon, then Table · Tree to its icons", async () => {
+    test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, then Copy jq and Save… into the ⋯ chip in one move (#1229), then the history item; the results' band, Download to its icon, then Table · Tree to its icons", async () => {
         const { container } = await mountBuilder(offlineCall().call);
-        expect(builderOf(container).querySelector("[data-frame-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
+        expect(builderOf(container).querySelector("[data-frame-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder"))
+            .toBe("run>1 copy>1 copy>2 save>1 more>1 history>1");
         expect(container.querySelector("[data-query-results-bar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("download>1 result-view>1");
     }, 30_000);
 
@@ -236,7 +243,8 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         const card = cardsOf(container)[1]!;
         expect([titleOf(card), card.hasAttribute("data-unfinished"), card.textContent!.endsWith("Not in the query until it's finished.")]).toEqual(["Sort", true, true]);
         const slot = card.querySelector<HTMLElement>("[aria-haspopup=listbox]")!;
-        expect([slot.hasAttribute("data-empty"), slot.textContent]).toEqual([true, "field▾"]);
+        // Its caret is Font Awesome's, never a written ▾ (#1263).
+        expect([slot.hasAttribute("data-empty"), slot.textContent, faIcons(slot, "caret-down").length]).toEqual([true, "field", 1]);
         expect([slot.hasAttribute("data-open"), popoverLabel()]).toEqual([true, "Sort by"]);
         expect(statusOf(container).check).toEqual(["warning", "1 to finish"]);
     }, 30_000);
@@ -583,5 +591,203 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(programEqual(savedProgramOf("First ten orders"), checkJq(".orders\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"First ten orders"`);
         expect(statusOf(container).save).toEqual(["saved", "Saved", "First ten orders"]);
+    }, 30_000);
+});
+
+// ─── The toolbar on a row short of room (#1229) ──────────────────────────────
+
+describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () => {
+    // jsdom lays nothing out: a toolbar row's box is `row.px`, an item's width is
+    // its form's in FORM_PX (a hidden form has no box), and the gap is 10px. The
+    // rows' ResizeObservers are captured, so a test moves the width as a browser does.
+    const row = { px: 0 };
+    /** Each item's width in each of its forms, widest first — none for a form that hides it. */
+    const FORM_PX: Readonly<Record<string, ReadonlyArray<number | undefined>>> = {
+        history: [220, 136], copy: [80, 32], save: [65], more: [undefined, 32], run: [110, 72],
+    };
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element> }[] = [];
+    class CapturingObserver {
+        private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element> };
+        constructor(cb: ResizeObserverCallback) { this.entry = { cb, targets: new Set() }; observers.push(this.entry); }
+        observe(el: Element) { this.entry.targets.add(el); }
+        unobserve(el: Element) { this.entry.targets.delete(el); }
+        disconnect() { this.entry.targets.clear(); }
+    }
+    const widthOf = (el: Element): number => {
+        if (el.hasAttribute("data-toolbar")) return row.px;
+        const key = el.getAttribute("data-toolbar-item");
+        return key === null ? 0 : FORM_PX[key]?.[Number(el.getAttribute("data-toolbar-form"))] ?? 0;
+    };
+    const realRect = Element.prototype.getBoundingClientRect;
+    const realObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    beforeAll(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = CapturingObserver;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const width = widthOf(this);
+            return { x: 0, y: 0, left: 0, top: 0, width, height: 30, right: width, bottom: 30, toJSON() { return {}; } } as DOMRect;
+        };
+    });
+    beforeEach(() => {
+        const computed = window.getComputedStyle.bind(window);
+        vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element, pseudo?: string | null) => {
+            const style = computed(el, pseudo);
+            if (!el.hasAttribute("data-toolbar")) return style;
+            return new Proxy(style, { get: (target, prop) => (prop === "columnGap" ? "10px" : Reflect.get(target, prop)) });
+        });
+    });
+    afterEach(() => { vi.restoreAllMocks(); });
+    afterAll(() => {
+        Element.prototype.getBoundingClientRect = realRect;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realObserver;
+    });
+
+    /** Move the rows' width and deliver it as the browser does. */
+    function resize(px: number) {
+        row.px = px;
+        act(() => {
+            for (const o of observers) {
+                const rowEl = [...o.targets].find((t) => t.hasAttribute("data-toolbar") && t.isConnected);
+                if (rowEl !== undefined) o.cb([{ target: rowEl } as ResizeObserverEntry], {} as ResizeObserver);
+            }
+        });
+    }
+    /** The builder's toolbar row. */
+    const bar = (c: HTMLElement) => builderOf(c).querySelector<HTMLElement>("[data-frame-slot=toolbar] [data-toolbar]")!;
+    /** Each item's form of its forms, as the toolbar says it folded them. */
+    const stateOf = (c: HTMLElement) => new Map(bar(c).getAttribute("data-toolbar-state")!.split(";").map((part) => {
+        const [key, of] = part.split("=");
+        return [key!, Number(of!.split("/")[0])] as const;
+    }));
+    /** The items the row draws, by key, in order. */
+    const drawn = (c: HTMLElement) => [...bar(c).querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+    /** The row a configuration needs: every drawn form's width, and a 10px gap between drawn items. */
+    function needs(forms: ReadonlyMap<string, number>): number {
+        const widths = [...forms].flatMap(([key, form]) => {
+            const px = FORM_PX[key]![form];
+            return px === undefined ? [] : [px];
+        });
+        return widths.reduce((a, b) => a + b, 0) + 10 * Math.max(0, widths.length - 1);
+    }
+    /** The ladder, move by move — the ⋯ chip's bundle one move of three steps. */
+    const MOVES: ReadonlyArray<ReadonlyArray<readonly [string, number]>> = [
+        [["run", 1]], [["copy", 1]], [["copy", 2], ["save", 1], ["more", 1]], [["history", 1]],
+    ];
+    /** The ⋯ chip, while the row draws it. */
+    const chipOf = (c: HTMLElement) => bar(c).querySelector<HTMLElement>("[data-query-more]");
+    /** The menu a chip opens. */
+    const menuOf = (chip: HTMLElement) => document.getElementById(chip.getAttribute("aria-controls")!)!;
+    /** A chip's menu's items, by their words. */
+    const menuItems = (chip: HTMLElement) => [...menuOf(chip).querySelectorAll<HTMLElement>("[role=menuitem]")];
+    /** Opens a chip's menu. */
+    async function openMenu(chip: HTMLElement) {
+        await act(async () => { fireEvent.click(chip); });
+        await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("true"));
+    }
+    /** Picks an item of a chip's menu as a pointer does: pressed on it, then its click. */
+    async function pick(chip: HTMLElement, words: string) {
+        const item = menuItems(chip).find((el) => el.textContent === words);
+        if (item === undefined) throw new Error(`no item “${words}”`);
+        await act(async () => { fireEvent.pointerDown(item); });
+        await act(async () => { fireEvent.click(item); });
+        await settle();
+    }
+    /** Waits the frames in which a popover opened starts to hear Esc and a click outside: Zag defers that a frame. */
+    const frames = () => act(async () => { await new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }); });
+
+    test("one ladder: Run's keys, Copy jq to its icon, then Copy jq and Save… into the ⋯ chip in one move, the history item last — each configuration holding in the row it needs", async () => {
+        row.px = 4000;
+        const { container } = await mountBuilder(offlineCall().call);
+        expect(bar(container).getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 copy>2 save>1 more>1 history>1");
+        let forms = new Map([["history", 0], ["copy", 0], ["save", 0], ["more", 0], ["run", 0]]);
+        expect(stateOf(container)).toEqual(forms);
+        // Each configuration holds in exactly the row it needs, and a pixel less takes the next move — and only that.
+        for (const move of MOVES) {
+            const room = needs(forms);
+            resize(room);
+            expect(stateOf(container), `${room}px`).toEqual(forms);
+            forms = new Map(forms);
+            for (const [key, form] of move) forms.set(key, form);
+            resize(room - 1);
+            expect(stateOf(container), `${room - 1}px, ${move.map(([k, f]) => `${k}→${f}`).join(" + ")}`).toEqual(forms);
+        }
+        // Folded all the way: the history item's buttons, the ⋯ chip — the save popover's anchor — and Run without its keys.
+        expect(drawn(container)).toEqual(["history", "more", "run"]);
+        expect([chipOf(container)!.getAttribute("aria-label"), chipOf(container)!.parentElement!.getAttribute("data-part")]).toEqual(["More", "anchor"]);
+        expect([bar(container).querySelector("[data-query-copy]"), bar(container).querySelector("[data-query-save-open]")]).toEqual([null, null]);
+        expect(bar(container).querySelector("[data-query-run]")!.textContent).toBe("Run");
+    }, 30_000);
+
+    test("the ⋯ chip's menu holds Copy jq and Save…: Copy jq copies the program and shows its check, the menu staying open", async () => {
+        const copied: string[] = [];
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
+        try {
+            row.px = 1;
+            const { container } = await mountBuilder(offlineCall().call);
+            await openQuery(variant("saved", BIG.name));
+            const chip = chipOf(container)!;
+            await openMenu(chip);
+            expect(menuItems(chip).map((el) => el.textContent)).toEqual(["Copy jq", "Save…"]);
+            await pick(chip, "Copy jq");
+            expect(copied).toEqual([".orders\n| map(select(.total >= 1000))"]);
+            const copy = menuItems(chip)[0]!;
+            expect([copy.textContent, copy.hasAttribute("data-copied"), chip.getAttribute("aria-expanded")]).toEqual(["Copied", true, "true"]);
+        } finally {
+            Reflect.deleteProperty(navigator, "clipboard");
+        }
+    }, 30_000);
+
+    test("the ⋯ chip's Copy jq copies the query as it stands — in the jq view, the jq as typed", async () => {
+        const copied: string[] = [];
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
+        try {
+            row.px = 1;
+            const { container } = await mountBuilder(offlineCall().call);
+            await openQuery(variant("saved", BIG.name));
+            await act(async () => { fireEvent.click(viewButton("jq")); });
+            await settle();
+            await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "jq query" }), { target: { value: ".orders | length" } }); });
+            await openMenu(chipOf(container)!);
+            await pick(chipOf(container)!, "Copy jq");
+            expect(copied).toEqual([".orders | length"]);
+        } finally {
+            Reflect.deleteProperty(navigator, "clipboard");
+        }
+    }, 30_000);
+
+    test("the ⋯ chip's Save… opens the save popover hung from the chip: its save is the query's one patch, and the focus is back on the chip", async () => {
+        row.px = 1;
+        const { container } = await mountBuilder(offlineCall().call);
+        await openQuery(variant("saved", BIG.name));
+        await quickAdd("Keep the first");
+        await openMenu(chipOf(container)!);
+        await pick(chipOf(container)!, "Save…");
+        await frames();
+        const dialog = within(screen.getByRole("dialog"));
+        // The popover hangs from the chip, whose menu has closed.
+        expect([chipOf(container)!.parentElement!.getAttribute("data-part"), chipOf(container)!.getAttribute("aria-expanded")]).toEqual(["anchor", "false"]);
+        expect(dialog.getByText("Save query ·").textContent).toBe("Save query · Big orders");
+        await act(async () => { fireEvent.change(dialog.getByRole("textbox", { name: "What the query answers, in one sentence" }), { target: { value: "The first ten big orders." } }); });
+        await press("Save", screen.getByRole("dialog"));
+        await closed();
+        expect(await committed(harness)).toEqual(["patch", "$init"]);
+        const saved = recordOf(harness).get("Big orders")!;
+        expect(programEqual(saved.program, checkJq(".orders\n| map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
+        expect(saved.description).toEqual(some("The first ten big orders."));
+        await waitFor(() => expect(document.activeElement).toBe(chipOf(container)));
+    }, 30_000);
+
+    test("while the save popover hangs from the ⋯ chip, the chip and what folded into it keep their forms as the row widens — Run and the history item unfold around it; closed, the row unfolds", async () => {
+        row.px = 1;
+        const { container } = await mountBuilder(offlineCall().call);
+        await openMenu(chipOf(container)!);
+        await pick(chipOf(container)!, "Save…");
+        await frames();
+        resize(4000);
+        expect(stateOf(container)).toEqual(new Map([["history", 0], ["copy", 2], ["save", 1], ["more", 1], ["run", 0]]));
+        expect(chipOf(container)!.parentElement!.getAttribute("data-part")).toBe("anchor");
+        await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" })); });
+        await closed();
+        await waitFor(() => expect(stateOf(container)).toEqual(new Map([["history", 0], ["copy", 0], ["save", 0], ["more", 0], ["run", 0]])));
+        expect(await committed(harness)).toEqual(["$init"]);
     }, 30_000);
 });

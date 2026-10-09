@@ -6,14 +6,18 @@
 import { memo, useState, useMemo, useCallback } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Combobox as ChakraCombobox, createListCollection } from "@chakra-ui/react";
-import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Combobox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useValueSync } from "../../hooks/useValueSync";
+import { closedText, useListClosesOnFocusOutside } from "./close-on-focus-outside.js";
 
 // Pre-define equality function at module level
 const comboboxRootEqual = equivalentFor(Combobox.Types.Root);
 const comboboxRootDataEqual = equalFor(Combobox.Types.Root);
+const stringEqual = equalFor(StringType);
 
 /** East Combobox Root value type */
 export type ComboboxRootValue = ValueTypeOf<typeof Combobox.Types.Root>;
@@ -56,7 +60,16 @@ export interface EastChakraComboboxProps {
 }
 
 /**
- * Renders an East UI Combobox value using Chakra UI Combobox component.
+ * Renders an East UI Combobox value using Chakra UI Combobox component. Its
+ * clear, its chevron and a picked item's check are Font Awesome's xmark,
+ * chevron-down and check, never Chakra's own icons (#1263). Its
+ * list closes when the focus moves to anything outside the list, the box and
+ * its triggers — on a touch screen too, where Zag leaves it open (#1228,
+ * `close-on-focus-outside.ts`), closed there as Zag closes it on a desktop:
+ * text no item holds, where custom values are refused, reverted by the
+ * selection behaviour, and the host told. A blur to nothing — the phone's
+ * keyboard dismissed — moves the focus nowhere, and closes nothing, on any
+ * device.
  */
 export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
@@ -102,14 +115,30 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
         }
     }, [onInputValueChangeFn]);
 
+    // A list the combobox closes on a touch screen, the focus moved outside it, closed as Zag's outside interaction
+    // closes one: text no item holds, where custom values are refused, reverted by the selection behaviour (Zag's
+    // default: "clear" for a multiple, "replace" otherwise) against the selected items' labels, as Zag joins them;
+    // the host told of the text, then of the close — Zag, started again, says neither.
+    const closedOutside = useCallback(() => {
+        const selected = createListCollection({ items: allItems }).stringifyMany(props.value);
+        const text = closedText(inputValue, selected, selectionBehavior ?? (isMultiple === true ? "clear" : "replace"), props.allowCustomValue === true);
+        if (!stringEqual(text, inputValue)) handleInputValueChange({ inputValue: text });
+        if (onOpenChangeFn) {
+            queueMicrotask(() => onOpenChangeFn(false));
+        }
+    }, [props.value, props.allowCustomValue, allItems, inputValue, selectionBehavior, isMultiple, handleInputValueChange, onOpenChangeFn]);
+    const { epoch, onOpenChange: trackOpen, box } = useListClosesOnFocusOutside(closedOutside);
+
     const handleOpenChange = useCallback((details: { open: boolean }) => {
+        trackOpen(details);
         if (onOpenChangeFn) {
             queueMicrotask(() => onOpenChangeFn(details.open));
         }
-    }, [onOpenChangeFn]);
+    }, [trackOpen, onOpenChangeFn]);
 
     return (
         <ChakraCombobox.Root
+            key={epoch}
             {...props}
             {...(selectionBehavior !== undefined && { selectionBehavior })}
             collection={collection}
@@ -119,10 +148,10 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
             onOpenChange={handleOpenChange}
         >
             <ChakraCombobox.Control>
-                <ChakraCombobox.Input placeholder={placeholder ?? "Search..."} />
+                <ChakraCombobox.Input ref={box} placeholder={placeholder ?? "Search..."} />
                 <ChakraCombobox.IndicatorGroup>
-                    <ChakraCombobox.ClearTrigger />
-                    <ChakraCombobox.Trigger />
+                    <ChakraCombobox.ClearTrigger><FontAwesomeIcon icon={faXmark} /></ChakraCombobox.ClearTrigger>
+                    <ChakraCombobox.Trigger><FontAwesomeIcon icon={faChevronDown} /></ChakraCombobox.Trigger>
                 </ChakraCombobox.IndicatorGroup>
             </ChakraCombobox.Control>
             <Portal>
@@ -132,7 +161,7 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
                         {collection.items.map((item) => (
                             <ChakraCombobox.Item key={item.value} item={item}>
                                 {item.label}
-                                <ChakraCombobox.ItemIndicator />
+                                <ChakraCombobox.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraCombobox.ItemIndicator>
                             </ChakraCombobox.Item>
                         ))}
                     </ChakraCombobox.Content>

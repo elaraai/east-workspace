@@ -1,0 +1,180 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * React integration for a sheet's editing — the shared editing session's hook
+ * (`useEditSession`, #879) with the sheet's own gestures (its wire edits,
+ * composed into one transaction, with any writes to the drafts' fields a
+ * builder's inspector makes beside them, #1188, and the seeds a dropped
+ * template's new entry takes, #1187) and its local layer over the resident
+ * rows.
+ *
+ * @packageDocumentation
+ */
+import { useCallback, useMemo } from "react";
+import { OptionType, StringType, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
+import { useEditSession } from "@elaraai/east-ui-components";
+import { authorReadiness } from "./readiness.js";
+import { prepareCreation } from "./creation.js";
+import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
+import type { SheetEditValue, SheetPagedSourceValue, SheetRowValue } from "./values.js";
+
+type Editing = ValueTypeOf<typeof SheetEditingType>;
+const stringEqual = equalFor(StringType);
+const encodeWire = encodeBeast2For(Sheet.Types.Row);
+const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
+/** A wire row's id — the entry it projects. */
+const sheetRowId = (row: SheetRowValue): string => row.id;
+
+/** A projection of the transaction session over currently resident source rows. */
+export interface LocalLayer {
+    edits: ReadonlyMap<string, SheetRowValue>;
+    appended: readonly SheetRowValue[];
+    removed: ReadonlySet<string>;
+    placements: ReadonlyMap<string, Placement>;
+}
+export const EMPTY_LAYER: LocalLayer = { edits: new Map(), appended: [], removed: new Set(), placements: new Map() };
+
+/**
+ * One entry, rewritten in the gesture that writes its cells (#1188) — given
+ * the entry's version as the gesture's wire events left it, its new version:
+ * a field no column shows, set on its draft; a duplicate's whole draft
+ * copied, beside the wire row it was copied with.
+ */
+export type DraftEdit = (version: EntryVersion) => EntryVersion;
+
+/**
+ * The seeds a gesture's new entries take in place of `newRow`'s and
+ * `newGroup`'s (#1187): a dropped template's — the constructor's defaults with
+ * the template's fields over them, built by the same code.
+ */
+export interface SheetSeeds {
+    /** A new row's (a new line's) seed. */
+    newRow?: Editing["newRow"] | undefined;
+    /** A new group's seed, with its lines. */
+    newGroup?: Editing["newGroup"] | undefined;
+}
+
+/** What {@link useSheetEditing} hands a sheet: its session, the layer over its rows, and its gesture recorder. */
+export interface SheetEditingResult {
+    /** The session. */
+    session: SheetTransactions;
+    /** The session's edits over the resident rows. */
+    layer: LocalLayer;
+    /**
+     * Aggregate a gesture's wire edits, the draft edits beside them (by
+     * entry), and the seeds its new entries take, into one transaction.
+     * Answers whether the session recorded it.
+     */
+    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds) => boolean;
+    /** An entry's version before any gesture: the session's, else the source's, lifted into its draft. */
+    original: (id: string) => EntryVersion;
+    /** Each drafted entry's draft, encoded. */
+    drafts: Map<string, Uint8Array>;
+    /** Editing is available now. */
+    available: boolean;
+    /** The session's version. */
+    version: number;
+}
+
+/**
+ * Bind decoded callbacks and retain unresolved requests through remounts.
+ *
+ * @param editing - The decoded editing declaration
+ * @param source - The windowed source — a session edits it only when it is pinned
+ * @param rows - The source's resident rows
+ * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
+ * @param storageKey - The view's key
+ * @param mint - On a sheet with loose rows between its groups (#846), mints a new line's id field — the field a loose row is identified by
+ * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
+ */
+export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string): SheetEditingResult {
+    const ready = useMemo(() => authorReadiness(editing, rows, positions, source !== undefined), [editing, rows, positions, source]);
+    // Only a PINNED source names the revision a session's base is (#880): an
+    // unpinned one leaves the session without a base, so nothing is drafted —
+    // and the factory refuses such a source an apply.
+    const pinned = useMemo(() => {
+        if (source === undefined) return undefined;
+        const { revision, refresh } = source;
+        return revision !== undefined && refresh !== undefined ? { ...source, revision, refresh } : undefined;
+    }, [source]);
+    const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
+        useEditSession<SheetRowValue>(editing, pinned, rows, positions, storageKey, { idOf: sheetRowId, ready });
+
+    /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
+    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds): boolean => {
+        if ((!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
+        session.observeBase(observed.base);
+        // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
+        const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
+        const updates = new Map<string, EntryUpdate>();
+        const inputs = new Map<string, SheetRowValue>();
+        let origin: Origin = "typed";
+        const update = (id: string, row: SheetRowValue | undefined, placement?: Placement) => {
+            const before = updates.get(id)?.before ?? original(id);
+            const current = updates.get(id)?.after ?? before;
+            const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, seeded, draftType, mint);
+            if (row !== undefined) inputs.set(id, row);
+            const after: EntryVersion = prepared === undefined ? absent : {
+                draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)))),
+                wire: prepared.row, place: placement ?? current.place,
+            };
+            updates.set(id, { id, before, after });
+        };
+        for (const event of events) {
+            switch (event.type) {
+                case "remove": origin = "remove"; for (const id of event.value.rowIds) update(id, undefined); break;
+                case "insert": {
+                    origin = event.value.source.type;
+                    const place: Placement = placements?.get(event.value.row.id) ?? (editing.keyType.type === "some" ? some(variant("keyOrder", null)) : some(variant("ordered", event.value.afterRowId.type === "some" ? variant("after", event.value.afterRowId.value) : variant("end", null))));
+                    update(event.value.row.id, event.value.row, place); break;
+                }
+                case "lineRemove": origin = "remove"; update(event.value.rowId, event.value.row); break;
+                default: origin = event.value.source.type; update(event.value.rowId, event.value.row);
+            }
+        }
+        // The draft edits, over each entry as the wire events left it: a field no column shows, a duplicate's copy.
+        for (const [id, edit] of draftEdits ?? []) {
+            const before = updates.get(id)?.before ?? original(id);
+            const current = updates.get(id)?.after ?? before;
+            if (current.draft === undefined) continue;
+            updates.set(id, { id, before, after: edit(current) });
+        }
+        const gestureOrigin = originOverride ?? origin;
+        const label = gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
+            : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
+        return session.record([...updates.values()], gestureOrigin, label);
+    }, [session, observed, original, codecs, editing, draftType, mint]);
+    const layer = useMemo<LocalLayer>(() => {
+        const edits = new Map<string, SheetRowValue>();
+        const appended: SheetRowValue[] = [];
+        const removed = new Set<string>();
+        const placements = new Map<string, Placement>();
+        const samePlace = equalFor(OptionType(Sheet.Types.EntryPlacement));
+        for (const [id, entry] of session.entries) {
+            const before = session.originals.get(id) ?? absent;
+            const same = codecs.draftEqual(before.draft === undefined ? none : some(before.draft), entry.draft === undefined ? none : some(entry.draft));
+            if (same && samePlace(before.place, entry.place)) {
+                // The acknowledged source uses fresh positional child keys.
+                // Preserve the session's internal keys by position at this
+                // checked base, so the next edit still finds its hidden fields.
+                const at = rowIndex.get(id);
+                const authoritative = at !== undefined ? rows[at] : undefined;
+                if (authoritative && entry.wire && authoritative.lines.some((line, i) => !stringEqual(line.key, entry.wire!.lines[i]?.key ?? line.key))) {
+                    edits.set(id, { ...authoritative, lines: authoritative.lines.map((line, i) => ({ ...line, key: entry.wire!.lines[i]?.key ?? line.key })) });
+                }
+                continue;
+            }
+            if (entry.wire === undefined) { removed.add(id); continue; }
+            if (before.draft === undefined) appended.push(entry.wire); else edits.set(id, entry.wire);
+            if (!samePlace(before.place, entry.place)) placements.set(id, entry.place);
+        }
+        return { edits, appended, removed, placements };
+        // The version tracks mutations to the session's maps.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session, codecs, version, rows, rowIndex]);
+    return { session, layer, record, original, drafts, available, version };
+}

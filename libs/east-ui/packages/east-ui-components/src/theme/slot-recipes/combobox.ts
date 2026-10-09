@@ -8,12 +8,18 @@
  *
  * Trigger inherits the input shape (4 px radius, 1 px border.subtle).
  * Content listbox is a `frame.flat` 6 px popup, bordered, with no shadow.
+ * The clear, the chevron and a picked item's check are Font Awesome's
+ * (#1263), each in the square Chakra's icon took, the size's
+ * `--combobox-indicator-size`: Font Awesome's own height is 1em, outranking
+ * the `_icon` size, so the part's font is the icon's size, and `--fa-width`
+ * its width.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const comboboxSlotRecipe = defineSlotRecipe({
     className: "elara-combobox",
@@ -36,6 +42,10 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             width: "100%",
             paddingInline: "0",
             paddingBlock: "0",
+            /* Touch (#346): the 44px floor is the bordered box's, as the plain
+             * input's is — on the inner input it made the control 46px with
+             * its border, standing out of a 44px toolbar band (#1221). */
+            _coarse: { minHeight: "44px" },
             _focusWithin: fieldFocusRing,
         },
         input: {
@@ -48,8 +58,8 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             background: "transparent",
             border: "none",
-            /* Touch (#346): 44px input row + 16px text (iOS zoom guard). */
-            _coarse: { minHeight: "44px", fontSize: TOUCH_FONT_FLOOR },
+            /* Touch (#346): 16px text (iOS zoom guard); the 44px row is the control's. */
+            _coarse: { fontSize: TOUCH_FONT_FLOOR },
             paddingInline: "10px",
             paddingBlock: "7px",
             fontFamily: "body",
@@ -68,15 +78,29 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             flexShrink: 0,
         },
+        /* Touch (#346, #1221): the icons keep their size and take a 44px tap
+         * target from their halos, as the icon button does. */
         trigger: {
             paddingX: "{spacing.2}",
             color: "fg.muted",
             cursor: "pointer",
+            fontSize: "var(--combobox-indicator-size)",
+            "--fa-width": "1em",
+            ...coarseHitArea({ position: true }),
         },
         clearTrigger: {
+            display: "inline-flex",
+            alignItems: "center",
             paddingX: "{spacing.1}",
             color: "fg.muted",
             cursor: "pointer",
+            fontSize: "var(--combobox-indicator-size)",
+            "--fa-width": "1em",
+            ...coarseHitArea({ position: true }),
+        },
+        itemIndicator: {
+            fontSize: "var(--combobox-indicator-size)",
+            "--fa-width": "1em",
         },
         content: {
             background: "bg.surface",
@@ -117,6 +141,15 @@ export const comboboxSlotRecipe = defineSlotRecipe({
                     _focusVisible: { outline: "none", boxShadow: "none" },
                 },
             },
+        },
+        // Chakra's own sizes give the trigger a text style, which outranks a
+        // font size: each size clears it, so the chevron takes the size's
+        // `--combobox-indicator-size`.
+        size: {
+            xs: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
+            sm: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
+            md: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
+            lg: { trigger: { textStyle: "none", fontSize: "var(--combobox-indicator-size)" } },
         },
     },
 });

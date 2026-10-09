@@ -16,5 +16,3 @@ export {
     DateSegment as TimeSegment,
     Label as TimeLabel,
 } from "./TimeField";
-
-export { DateField } from "./DateField";

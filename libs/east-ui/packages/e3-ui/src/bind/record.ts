@@ -192,7 +192,9 @@ export type RecordOutcomeType = typeof RecordOutcomeType;
  *   is a write without one. It runs on `mutate`'s channel, so `pending` /
  *   `status` / `error` show it too, and a conflict reads the record and its
  *   history again before the outcome settles — `read` and `history` then show
- *   what the write lost to.
+ *   what the write lost to. A record also bound with `Data.bindPaged` is read
+ *   a window at a time and never whole (#1199): its UI task holds no value of
+ *   it for `read` to serve, and its windows follow the record's revision.
  * @property start - Launch the workspace dataflow without mutating, so tasks
  *   that consume this record recompute against its latest committed state.
  *   The standalone "Run" affordance — a mutation refreshes the record's own
@@ -459,9 +461,11 @@ export interface RecordApplyOptions {
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type
- * @typeParam C - The collection's row type
+ * @typeParam C - The collection's row type: a row struct, or the entries of
+ *   groups and loose rows a Sheet edits (`Editing.Types.Entry(G, "lines")`),
+ *   every arm carrying `idField`
  */
-export interface RecordApplyInsideOptions<K extends EastType, V extends EastType, C extends StructType> {
+export interface RecordApplyInsideOptions<K extends EastType, V extends EastType, C extends EastType> {
     /** The key of the entry the collection lives in. */
     entry: SubtypeExprOrValue<K>;
     /** The collection, read out of the entry. */
@@ -526,16 +530,22 @@ const settleWrite = East.function(
  *   Each change is its entry's insert, update or delete: the batch's own
  *   entry patches, restated by key.
  * - **Over a collection inside one entry** (`{ entry, get, set, idField }`):
- *   the rows of one entry's Array field. The batch is applied to the rows it
- *   began from, and the patch is the diff of that entry before and after —
- *   it reaches the rows and nothing else.
+ *   the rows of one entry's Array field — row structs, or a Sheet's entries of
+ *   groups and loose rows, as `Editing.apply` takes them. The batch is applied
+ *   to the rows it began from, and the patch is the diff of that entry before
+ *   and after — it reaches the rows and nothing else.
  *
  * Every patch carries what the entries were when the edit began, and the
  * record checks it: an entry another write moved is a `conflict` naming it
- * and who changed the record last, and nothing is overwritten. A commit is
- * `applied` at the state it wrote; an invalid, failed or timed-out write is
- * `rejected`. A write that got no answer throws, and the session's retry
- * resolves to its commit, if it made one, through the batch's request id.
+ * and who changed the record last, and nothing is overwritten. A batch drafted
+ * over the record read a window at a time — at a revision, not a snapshot
+ * (#1199) — never reads the record whole: its conflict names the record, with
+ * what the record said of the write, and each entry the batch changed in the
+ * words a moved one takes; the editing session reads them at the record's new
+ * revision and keeps those another write moved. A commit is `applied` at the
+ * state it wrote; an invalid, failed or timed-out write is `rejected`. A write
+ * that got no answer throws, and the session's retry resolves to its commit,
+ * if it made one, through the batch's request id.
  *
  * The handle must be bound with the patch mutation — `Record.bind(record,
  * [e3.mutation.patch(record)])` — and the record must be a `Dict`.
@@ -553,8 +563,8 @@ const settleWrite = East.function(
  * @example
  * ```tsx
  * import { DictType, East, IntegerType, StringType, StructType } from "@elaraai/east";
- * import { Reactive, Sheet, UIComponentType } from "@elaraai/east-ui";
- * import { Data, Record } from "@elaraai/e3-ui";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
  * const JobType = StructType({ task: StringType, qty: IntegerType });
@@ -567,15 +577,16 @@ const settleWrite = East.function(
  *         const rows = $.let(Data.bindPaged(jobs));
  *         const record = $.let(Record.bind(jobs, [jobsPatch]));
  *         return (
- *             <Sheet
- *                 data={rows}
- *                 columns={{
- *                     task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
- *                     qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
- *                 }}
- *                 onApply={Record.onApply(record)}
- *                 style={{ height: "360px" }}
- *             />
+ *             <Box height="360px">
+ *                 <Sheet
+ *                     data={rows}
+ *                     columns={{
+ *                         task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+ *                         qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                     onApply={Record.onApply(record)}
+ *                 />
+ *             </Box>
  *         );
  *     }}</Reactive>
  * ));
@@ -603,18 +614,18 @@ function applyToRecord<K extends EastType, V extends EastType>(
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type
- * @typeParam C - The collection's row type
+ * @typeParam C - The collection's row type: a row struct, or entries of groups and loose rows
  * @param handle - The record, bound with its patch mutation
  * @param options - The entry, how its rows are read and replaced, and their identity field
  * @returns An async East function over `Editing.Types.ChangeSet(C)`
  */
-function applyToRecord<K extends EastType, V extends EastType, C extends StructType>(
+function applyToRecord<K extends EastType, V extends EastType, C extends EastType>(
     handle: KeyedRecordHandle<K, V>,
     options: RecordApplyInsideOptions<K, V, C>,
 ): RecordApplyFunction<ReturnType<typeof Editing.Types.ChangeSet<C>>>;
 function applyToRecord(
     handle: KeyedRecordHandle<EastType, EastType>,
-    options: RecordApplyOptions | RecordApplyInsideOptions<EastType, EastType, StructType> = {},
+    options: RecordApplyOptions | RecordApplyInsideOptions<EastType, EastType, EastType> = {},
 ): ExprType<AsyncFunctionType> {
     const fields = (Expr.type(handle as unknown as Expr) as StructType).fields;
     const recordType = (fields["read"] as FunctionType).output as EastType;
@@ -653,11 +664,15 @@ function applyToRecord(
         const entryType = recordType.value;
         const get = East.value(options.get as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const read = Expr.type(get as unknown as Expr) as EastType;
-        if (read.type !== "Function" || read.inputs.length !== 1 || !isTypeEqual(read.inputs[0]!, entryType)
-            || read.output.type !== "Array" || read.output.value.type !== "Struct") {
-            throw new Error("Record.onApply: `get` must be an East function from the record's entry to an Array of row structs");
+        // The rows are structs, or entries whose every arm is one — a Sheet's
+        // groups and loose rows — as `Editing.apply` addresses them.
+        const element = read.type === "Function" && read.output.type === "Array" ? read.output.value as EastType : undefined;
+        if (read.type !== "Function" || read.inputs.length !== 1 || !isTypeEqual(read.inputs[0]!, entryType) || element === undefined
+            || !(element.type === "Struct" || (element.type === "Variant"
+                && Object.values(element.cases as Record<string, EastType>).every((arm) => arm.type === "Struct")))) {
+            throw new Error("Record.onApply: `get` must be an East function from the record's entry to an Array of rows — row structs, or entries of groups and loose rows");
         }
-        const rowType = read.output.value as StructType<Record<never, never>>;
+        const rowType = element;
         const rowsType = ArrayType(rowType);
         const set = East.value(options.set as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const replace = Expr.type(set as unknown as Expr) as EastType;
@@ -767,21 +782,42 @@ function applyToRecord(
         const outcome = $.const(commit(batch.requestId, variant("patch", ops)));
         const conflicts = $.let([], ArrayType(Editing.Types.Issue));
         $.match(outcome, {
-            conflict: ($) => {
-                // The entries whose change no longer applies to the record as it
-                // stands are the ones another write moved.
-                const current = $.const(bound.read());
+            conflict: ($, lost) => {
                 const by = $.const(changedBy());
-                $.for(batch.changes, ($, change) => {
-                    const key = $.const(keyFrom(change.id));
-                    $.try(($) => {
-                        $(East.applyPatch(current.tryGet(key), change.patch));
-                    }).catch(($) => {
-                        $(conflicts.pushLast({ entry: change.id, row: none, field: none, message: East.str`Changed since this edit began${by}` }));
-                    });
-                });
-                $.if(conflicts.size().equal(0n), ($) => {
-                    $(conflicts.pushLast({ entry: "", row: none, field: none, message: East.str`The record changed since this edit began${by}` }));
+                // Either batch's base, a snapshot of the record or a revision of it: its arm alone is read.
+                const base = batch.base as unknown as ExprType<VariantType<{ revision: StringType; snapshot: EastType }>>;
+                $.match(base, {
+                    // A session over the record read whole: the entries whose change no
+                    // longer applies to the record as it stands are the ones another write moved.
+                    snapshot: ($) => {
+                        const current = $.const(bound.read());
+                        $.for(batch.changes, ($, change) => {
+                            const key = $.const(keyFrom(change.id));
+                            $.try(($) => {
+                                $(East.applyPatch(current.tryGet(key), change.patch));
+                            }).catch(($) => {
+                                $(conflicts.pushLast({ entry: change.id, row: none, field: none, message: East.str`Changed since this edit began${by}` }));
+                            });
+                        });
+                        $.if(conflicts.size().equal(0n), ($) => {
+                            $(conflicts.pushLast({ entry: "", row: none, field: none, message: East.str`The record changed since this edit began${by}` }));
+                        });
+                    },
+                    // A session over the record a window at a time (#1199): it is never read
+                    // here. The record's own issue — what it said of the write, and who changed
+                    // it last — and each entry the batch changed in the words one another write
+                    // moved is named in: the session reads them at the record's new revision,
+                    // and names those it finds moved.
+                    revision: ($) => {
+                        const said = $.const(lost.detail.match({
+                            some: (_$2, detail) => East.str`: ${detail}`,
+                            none: (_$2) => East.str``,
+                        }));
+                        $(conflicts.pushLast({ entry: "", row: none, field: none, message: East.str`The record changed since this edit began${said}${by}` }));
+                        $.for(batch.changes, ($, change) => {
+                            $(conflicts.pushLast({ entry: change.id, row: none, field: none, message: East.str`Changed since this edit began${by}` }));
+                        });
+                    },
                 });
             },
         });

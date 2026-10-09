@@ -42,6 +42,10 @@ export interface StudioMessages {
     statusTemplate: () => string;
     /** The builder toolbar's Publish. */
     publish: () => string;
+    /** The ⋯ chip a row short of room folds Save as template, Preview and Publish into (#1229) — its accessible name. */
+    more: () => string;
+    /** Save as template in the ⋯ chip's menu, which opens its popover. */
+    saveAsTemplateItem: () => string;
     /** The builder with no page of the project open — its heading. */
     noPageOpen: () => string;
     /** Under it, what to do. */
@@ -241,6 +245,8 @@ export const studioMessages: StudioMessages = {
     statusLiveEdited: () => "Live · edited",
     statusTemplate: () => "Template",
     publish: () => "Publish",
+    more: () => "More",
+    saveAsTemplateItem: () => "Save as template…",
     noPageOpen: () => "No page open",
     noPageOpenHint: ({ project, page }) =>
         `${project} has no page ${page}. Open a page from the palette's Pages tab, or start one from the page library.`,

@@ -14,7 +14,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType, ColorSchemeType } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid } from "../../display/icon/types.js";
 import type { IconPayload } from "../button/types.js";
 import {
     IconButtonStyleType,
@@ -46,6 +46,8 @@ export {
  * @param options - A single flat options bag. `prefix` / `name` (icon identity)
  *   and `label` (a11y) are required; state / behaviour / visual fields sit flat.
  * @returns An East expression representing the IconButton component
+ * @throws When its icon or its `loadingIcon` is not a Font Awesome solid icon
+ *   — East UI draws the solid set only (#1263)
  *
  * @remarks
  * IconButton renders an icon-only button — useful for toolbar actions, close
@@ -78,6 +80,8 @@ export {
 function createIconButton(
     options: IconButtonOptions,
 ): ExprType<UIComponentType> {
+    refuseNonSolid("IconButton", options);
+    refuseNonSolid("IconButton loadingIcon", options.loadingIcon);
     const { prefix, name, label, loadingIcon, loading, disabled, onClick, badge, badgeColorPalette, attention, ...visual } = options;
     const styleValue = Object.values(visual).some(field => field !== undefined)
         ? buildIconButtonStyle(visual)
@@ -177,6 +181,8 @@ export const IconButton = {
      * @param options - A single flat options bag; `prefix` / `name` / `label`
      *   are required, plus optional state / behaviour / visual fields.
      * @returns An East expression representing the IconButton component
+     * @throws When its icon or its `loadingIcon` is not a Font Awesome solid
+     *   icon — East UI draws the solid set only (#1263)
      *
      * @remarks
      * The renderer emits `label` as the button's `aria-label`. Omitting it is a
@@ -216,7 +222,7 @@ export const IconButton = {
          * `label` is REQUIRED — the renderer emits it verbatim as the button's
          * `aria-label`. See {@link IconButtonType} for the full field reference.
          *
-         * @property prefix - Font Awesome prefix
+         * @property prefix - Font Awesome prefix: `"fas"`, the solid set (#1263)
          * @property name - Font Awesome icon name
          * @property label - Required aria-label
          * @property loadingIcon - Icon swapped in when `loading` is true

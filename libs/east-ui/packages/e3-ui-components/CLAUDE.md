@@ -3,7 +3,21 @@
 React Query hooks and preview React components for the e3 API.
 Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `DatasetPreview`, `EastValueViewer`, `InputPreview`,
-`VirtualizedLogViewer`, plus the diff component family.
+`VirtualizedLogViewer`, the diff component family, the Plan's canvas
+(`src/plan/`, #1177) and the Sheet (`src/sheet/`, #1179), each registered
+against its e3-ui extension (`Plan`, `Sheet`) as the package
+loads. Each renders in its `BuilderFrame` wherever it is used — the Plan's
+(`src/plan/frame/`, #1193) around its canvas (`src/plan/canvas.tsx`, a hook
+handing the frame main and its chrome's facts), the Sheet's
+(`src/sheet/frame/`, #1216) around its grid: there is no frameless Plan or
+Sheet. Both build on east-ui-components' shared parts through its
+`./internal` entry, and their tests on `./testing`; their slot recipes
+stay in east-ui-components' theme. The time parts the Plan shares with
+the Calendar are in `src/shared/time/` (#1148): the scale (its engine and
+time arm), the move, draw and slot arithmetic, the now line, lane packing
+and weekend and off-hours shading. The now line's look is one part of the
+theme, merged into the recipe of each component that draws one
+(`slot-recipes/time/now.ts`).
 
 ## HARD RULE: East values through East
 
@@ -21,6 +35,10 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
   calls without the builder: the root, the one-shot call, the plan and its
   split call, the calls in memory — which loads no React and no renderer,
   so a host in Node uses it (`test/query/node-safe.spec.ts` guards that).
+  The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
+  external, as east-ui-components' does: each is a context the host shares
+  with every renderer package, so one `I18nProvider` reaches them all
+  (#1206, `src/locale.dom.test.tsx`, `test/one-locale.spec.ts`).
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —

@@ -16,7 +16,8 @@
  * - a function's result comes back from a unit worker;
  * - a record mutation commits, and every reader of the record follows;
  * - an edit staged against the e3 lives as long as the page, as the e3 does;
- * - a doc row the list mounts again shows its example at once;
+ * - a doc row the list mounts again shows its example at once, on every e3
+ *   category's page;
  * - the isolated-file route starts the same e3;
  * - the page fetches its package at the URL the bundle carries, named by its
  *   content;
@@ -33,6 +34,13 @@
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { openExample, rowId } from "./plan-page";
+import { catalogPathKeys } from "./routes";
+
+/** The e3 section's categories — each its own catalog page, an e3 examples
+ *  file's first directory (`catalog.ts`) — each with a file that opens it. */
+const E3_CATEGORIES = [...new Map(catalogPathKeys()
+    .filter((key) => key.startsWith("e3/"))
+    .map((key) => [key.split("/")[1]!, key] as const)).entries()];
 
 /** One example's entry in the doc list. */
 function entryOf(page: Page, file: string, name: string): Locator {
@@ -238,33 +246,41 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await expect(page.getByText(".some 1.05", { exact: true }).first()).toBeVisible();
     });
 
-    test("a doc row the list mounts again renders its example in its first paint — never the starting line", async ({ page }) => {
-        // Every e3 example, one after another: the doc list mounts a row as it
-        // nears the view, and unmounts it once it is far.
-        await page.goto("/?theme=light#all-e3-components");
-        await page.waitForSelector("header", { timeout: 20_000 });
-        await settled(page);
-        /** Scrolls the doc list to its end — and back, when asked — a view at
-         *  a time, and counts the starting lines in every frame. A step of the
-         *  list's own height brings every row into view on the fewest frames:
-         *  the sweep's time grows with the e3 catalog, which it walks whole. */
-        const sweep = (back: boolean) => page.evaluate(async (back) => {
-            // The doc list scrolls the first doc row's grandparent.
-            const list = document.querySelector("[data-index]")!.parentElement!.parentElement!;
-            const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-            let starting = 0;
-            const count = () => { starting += document.querySelectorAll('[data-e3-start="starting"]').length; };
-            const step = list.clientHeight;
-            for (let y = 0; y <= list.scrollHeight; y += step) { list.scrollTop = y; await frame(); count(); }
-            if (back) for (let y = list.scrollHeight; y >= 0; y -= step) { list.scrollTop = y; await frame(); count(); }
-            return starting;
-        }, back);
-        // The first sweep, down the list, mounts every example, and loads what each reads.
-        await sweep(false);
-        await settled(page);
-        // Every row the second sweep mounts again, down and back, shows its example at once.
-        expect(await sweep(true)).toBe(0);
+    // Every e3 example, one category's page at a time: each page's work is
+    // its own category's, and grows with no other — the whole e3 section on
+    // one page came to outlast a test as the section grew (#1177).
+    test("the e3 section's categories are found, each a page to sweep", () => {
+        expect(E3_CATEGORIES.length).toBeGreaterThan(5);
     });
+
+    for (const [category, file] of E3_CATEGORIES) {
+        test(`${category}: a doc row the list mounts again renders its example in its first paint — never the starting line`, async ({ page }) => {
+            // The category's examples, one after another: the doc list mounts
+            // a row as it nears the view, and unmounts it once it is far.
+            await page.goto(`/?theme=light#${file}`);
+            await page.waitForSelector("header", { timeout: 20_000 });
+            await settled(page);
+            /** Scrolls the doc list to its end — and back, when asked — a view at
+             *  a time, and counts the starting lines in every frame. A step of the
+             *  list's own height brings every row into view on the fewest frames. */
+            const sweep = (back: boolean) => page.evaluate(async (back) => {
+                // The doc list scrolls the first doc row's grandparent.
+                const list = document.querySelector("[data-index]")!.parentElement!.parentElement!;
+                const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                let starting = 0;
+                const count = () => { starting += document.querySelectorAll('[data-e3-start="starting"]').length; };
+                const step = list.clientHeight;
+                for (let y = 0; y <= list.scrollHeight; y += step) { list.scrollTop = y; await frame(); count(); }
+                if (back) for (let y = list.scrollHeight; y >= 0; y -= step) { list.scrollTop = y; await frame(); count(); }
+                return starting;
+            }, back);
+            // The first sweep, down the list, mounts every example, and loads what each reads.
+            await sweep(false);
+            await settled(page);
+            // Every row the second sweep mounts again, down and back, shows its example at once.
+            expect(await sweep(true)).toBe(0);
+        });
+    }
 
     test("the page fetches its package at the URL the bundle carries — the zip named by its content", async ({ page }) => {
         const fetched: { path: string; status: number }[] = [];

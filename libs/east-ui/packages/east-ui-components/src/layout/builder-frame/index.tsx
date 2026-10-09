@@ -29,6 +29,12 @@
  *   that starts to overlay for lack of room closes, and opens again once it
  *   is pinned again, unless it was opened or closed in between.
  *
+ * A pane that persists keeps only what the viewer chose: its own collapse or
+ * opening. What the frame does — a pane closed for lack of room and opened
+ * again, or closed so that one overlay pane is open at a time — is never
+ * written, so a reload restores the viewer's choice whatever width the frame
+ * had when it closed the pane.
+ *
  * While an overlay pane is open for lack of room — an `auto` pane
  * overlaying, or any overlay pane at 560px and narrower — the scrim covers
  * main, and a tap on it, in the strip beside the pane, closes the pane; a
@@ -99,6 +105,8 @@ export interface BuilderFrameProps {
     label?: string | undefined;
     /** The root element: the bounds of popovers inside the frame, say. */
     ref?: Ref<HTMLDivElement> | undefined;
+    /** The toolbar's element: where a host finds its own items' controls — the search box a key puts the focus on, say. */
+    toolbarRef?: Ref<HTMLDivElement> | undefined;
     /** Keys pressed anywhere in the frame, its panes included: the host's shortcuts. */
     onKeyDown?: ((event: KeyboardEvent<HTMLDivElement>) => void) | undefined;
 }
@@ -112,8 +120,8 @@ export interface BuilderFrameDock {
     label: string;
     /** What it holds, when it has no tabs: one body. */
     body?: ReactNode;
-    /** What it holds: tabs, each with its own body. */
-    tabs?: ReadonlyArray<{ key: string; label: string; body: ReactNode }> | undefined;
+    /** What it holds: tabs, each with its own body and, after its label, any count of what it holds. */
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | undefined; body: ReactNode }> | undefined;
     /** The open tab: the host's; omitted, the pane's own, kept under the frame's storage key. */
     tab?: string | undefined;
     /** Told each time a tab is opened from the pane, with its key. */
@@ -136,7 +144,7 @@ export interface BuilderFrameDock {
     defaultCollapsed?: boolean | undefined;
     /** Told each time the pane collapses or opens. */
     onCollapsedChange?: ((collapsed: boolean) => void) | undefined;
-    /** Whether its own collapsed state outlives a reload: `none` by default. */
+    /** Whether the viewer's own collapse or opening of it outlives a reload: `none` by default. What the frame does for lack of room is never kept. */
     persist?: "none" | "local" | "session" | undefined;
     /** `false`: it never collapses — no rail, no toggle — and so is always pinned. `true` by default. */
     collapsible?: boolean | undefined;
@@ -194,15 +202,19 @@ function storeOf(persist: "local" | "session"): Storage {
 interface PaneCollapse {
     /** Whether it is collapsed — never, for a pane that does not collapse. */
     readonly collapsed: boolean;
-    /** Collapses or opens it: its own state, persisted when it persists, and its host told. */
-    readonly set: (next: boolean) => void;
+    /**
+     * Collapses or opens it: its own state, and its host told. The viewer's
+     * change persists, when the pane persists; the frame's own does not.
+     */
+    readonly set: (next: boolean, by: "viewer" | "frame") => void;
 }
 
 /**
  * A described pane's collapsed state, on the interactive-state pattern: local
  * state seeded from `collapsed` / `defaultCollapsed`; a host-driven
- * `collapsed` pushes into it; every change is the pane's own state —
- * persisted, when it persists — and told to the host through a microtask.
+ * `collapsed` pushes into it; every change is the pane's own state, told to
+ * the host through a microtask — and, when the pane persists and the viewer
+ * made the change, persisted.
  *
  * @param key - The pane's storage key
  * @param dock - The pane, when the frame draws one
@@ -235,9 +247,9 @@ function usePaneCollapse(key: string, dock: BuilderFrameDock | undefined, onHost
         // Mount-only hydrate, as DockPane's.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    const set = useCallback((next: boolean) => {
+    const set = useCallback((next: boolean, by: "viewer" | "frame") => {
         setOwn(next);
-        if (prop === undefined && persist !== "none") {
+        if (by === "viewer" && prop === undefined && persist !== "none") {
             try {
                 storeOf(persist).setItem(persistKey, String(next));
             } catch { /* storage unavailable */ }
@@ -292,7 +304,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, onKeyDown } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, toolbarRef, onKeyDown } = props;
     const minMain = props.minMain ?? MIN_MAIN;
     const styles = useSlotRecipe({ key: "builderFrame" })() as Styles;
     const dragging = useDragLayerOptional()?.active ?? false;
@@ -313,11 +325,11 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const startCollapse = usePaneCollapse(`${storageKey}.start`, startDock, (collapsed) => onHost("start", collapsed));
     const endCollapse = usePaneCollapse(`${storageKey}.end`, endDock, (collapsed) => onHost("end", collapsed));
     const collapseOf = (side: Side) => (side === "start" ? startCollapse : endCollapse);
-    /** A pane collapsed or opened from the pane, by Esc, or by the scrim. */
+    /** A pane collapsed or opened from the pane, by Esc, or by the scrim: the viewer's doing. */
     const toggled = (side: Side, collapsed: boolean) => {
         autoClosed.current.delete(side);
         if (!collapsed) lastOpened.current = side;
-        collapseOf(side).set(collapsed);
+        collapseOf(side).set(collapsed, "viewer");
     };
 
     // ── What the frame measures of itself ───────────────────────────────
@@ -403,18 +415,18 @@ export function BuilderFrame(props: BuilderFrameProps) {
             if (placement[side] === "overlay" && was[side] !== "overlay" && !collapsed[side]) {
                 autoClosed.current.add(side);
                 collapsed[side] = true;
-                collapseOf(side).set(true);
+                collapseOf(side).set(true, "frame");
             } else if (placement[side] === "pinned" && was[side] === "overlay" && autoClosed.current.has(side)) {
                 autoClosed.current.delete(side);
                 collapsed[side] = false;
-                collapseOf(side).set(false);
+                collapseOf(side).set(false, "frame");
             }
         }
         if (placement.start === "overlay" && placement.end === "overlay" && startDock !== undefined && endDock !== undefined
             && !collapsed.start && !collapsed.end) {
             const close: Side = lastOpened.current === "end" ? "start" : "end";
             autoClosed.current.delete(close);
-            collapseOf(close).set(true);
+            collapseOf(close).set(true, "frame");
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- a change of place or of a pane's state is what this answers.
     }, [placement.start, placement.end, startCollapse.collapsed, endCollapse.collapsed]);
@@ -514,7 +526,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (
-                <Box css={styles.toolbar} data-frame-slot="toolbar">
+                <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar">
                     <Toolbar items={toolbar} />
                 </Box>
             )}

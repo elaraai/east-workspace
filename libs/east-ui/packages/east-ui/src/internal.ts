@@ -50,6 +50,10 @@ export {
 // its closed wire and the inline adapter.
 export * from "./contracts/editing.js";
 
+// Fields contract (#1147) — `Fields`, its hints and the closed spec a form
+// renderer reads.
+export * from "./contracts/fields.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
@@ -89,25 +93,18 @@ export type {
     NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesInput, RouteInput,
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
+// East UI draws Font Awesome's solid set only (#1263): the one prefix an icon
+// takes, and the build-time refusal of another, which e3-ui's builders share.
+export { SOLID_PREFIX, refuseNonSolid, type SolidIconPrefix } from "./display/icon/solid.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
-export type {
-    PlanConfig, PlanRowBaseInput, PlanSpanInput, PlanBucketsInput, PlanChartInput,
-    PlanHeatInput, PlanTableInput, PlanCardsInput, PlanEventsInput, PlanGroupInput,
-    PlanRunInput, PlanDecisionInput, PlanPortInput, PlanBucketEventInput,
-    PlanCellMarkerInput, PlanChipInput, PlanEventMarkInput, PlanSegmentInput,
-    PlanTableSeriesInput, PlanExpandInput, PlanLinkInput,
-    PlanIconInput, PlanLayerChannels,
-    PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
-    PlanReviewConfig, PlanEditingConfig, PlanBindHandle, PlanReviewInput, PlanEditInput, PlanRowsInput,
-    PlanRowsValue,
-    PlanSeriesArm, PlanSeriesValue, PlanSeriesInput, PlanSeriesIdentity,
-    PlanEntryExpr, PlanAccessor, PlanChildren, PlanChildrenInput, PlanSeriesRowConfig,
-    PlanSpanSeriesConfig, PlanHeatSeriesConfig, PlanTableSeriesOfConfig,
-    PlanBucketsSeriesConfig, PlanCardsSeriesConfig, PlanEventsSeriesConfig,
-    PlanChartSeriesConfig, PlanGroupSeriesConfig, PlanSectionSeriesConfig, PlanViewsSeriesConfig,
-} from "./collections/index.js";
-export { Chart } from "./charts/chart/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+// The chart layer builders' TS faces and the spec vocabulary a composite
+// consumes Chart layers through — e3-ui's Plan reads them as data (#1177).
+export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
+export { ChartXType, ChartDomainType, ChartTickValuesType } from "./charts/spec/index.js";
+export { MatrixFillType, type MatrixFillLiteral } from "./collections/matrix/types.js";
+export { ColorSchemeType, type ColorSchemeLiteral } from "./style/scheme.js";
+export { ValueFormatType } from "./contracts/format.js";
 export { Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Story, Tabs } from "./disclosure/index.js";
 export { Tooltip, Menu, Dialog, dialog_open, Drawer, drawer_open, Popover, HoverCard, ActionBar, ToggleTip, CommandPalette } from "./overlays/index.js";
@@ -128,8 +125,11 @@ export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, S
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 // Row-source contract (#567) — the contract's types, and the resolution every
 // collection shares.
-export { Paged, PagedSourceType, PinnedSourceType, RowSourceType, type PagedSource, type PinnedSource, type RowSource, resolveRowSource, buildRowSource } from "./contracts/source.js";
-export { PickStateType, PickItemType, PickBindType, PickPanelType } from "./contracts/pick.js";
+export {
+    Paged, PagedSourceType, PinnedSourceType, RowSourceType, type PagedSource, type PinnedSource, type RowSource,
+    resolveRowSource, buildRowSource, buildPagedWindow, type ResolvedRowSource,
+} from "./contracts/source.js";
+export { PickStateType, PickItemType, PickBindType, PickPanelType, pickActive, createPickBind, pickItems } from "./contracts/pick.js";
 export { Pick } from "./pick/index.js";
 export {
     Slice,
@@ -147,6 +147,7 @@ export * from "./layout/box/types.js";
 export * from "./layout/stack/types.js";
 export * from "./shared/plot-gutter.js";
 export { reifyAccessor } from "./shared/reify.js";
+export { resolveTag } from "./shared/resolve-tag.js";
 export * from "./layout/grid/types.js";
 export * from "./layout/separator/types.js";
 export * from "./layout/splitter/types.js";
@@ -174,12 +175,8 @@ export * from "./collections/data-list/types.js";
 export * from "./collections/value-tree/flatten.js";
 export * from "./collections/value-tree/key-search.js";
 export * from "./collections/table/types.js";
-export * from "./collections/sheet/types.js";
-export * from "./collections/sheet/transactions.js";
-export * from "./collections/sheet/drafts.js";
-export * from "./collections/sheet/editing-types.js";
-// The Plan's editing wire (#880) — what the renderer's session is handed.
-export { PlanEditingType, PlanWriteRequestType, PlanReadyEntryType, PLAN_PAGE_SIZE } from "./collections/plan/types.js";
+// The row type a collection's `data` holds — e3-ui's Sheet types its tag with it (#1179).
+export type { DataRowType } from "./collections/table/index.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";

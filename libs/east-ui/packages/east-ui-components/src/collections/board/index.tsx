@@ -6,7 +6,7 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, Popover, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faCirclePlus, faGripVertical, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -15,6 +15,7 @@ import { VirtualRows } from "../virtual-rows.js";
 import { useDragMessages, useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
 import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, ReviewFoot } from "../shared/review";
+import { useAssignmentMessages, type AssignmentMessages } from "../shared/assignment-messages.js";
 import { useValueSync } from "../../hooks/useValueSync";
 
 const boardEqual = equivalentFor(Board.Types.Board);
@@ -52,15 +53,20 @@ function cellRef(surface: string, area: string, shift: string, event?: string): 
     return { surface, row: area, slot: shift, event: event !== undefined ? some(event) : none };
 }
 
-/** The chip face per state — glyph decorations only, never words. */
-function chipText(label: string, assignment: BoardAssignmentValue): string {
+/**
+ * A chip's accessible name when its face marks a proposal to add — an
+ * operator's, or a model's suggestion — with Font Awesome's plus (#1263): the
+ * plus is drawn, never written, so the name says it. Any other chip is named
+ * by its label alone.
+ */
+function chipName(label: string, assignment: BoardAssignmentValue, words: AssignmentMessages): string | undefined {
     return match(assignment.state, {
-        committed: () => label,
-        rejected: () => label,
+        committed: () => undefined,
+        rejected: () => undefined,
         proposed: (flavour) => match(flavour, {
-            added: () => `+${label}`,
-            removed: () => label,
-            model: () => `+${label}`,
+            added: () => words.added({ label }),
+            removed: () => undefined,
+            model: () => words.suggested({ label }),
         }),
     });
 }
@@ -106,6 +112,9 @@ interface BoardChipProps {
 function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled, styles, onSelect, onAccept, onRemove }: BoardChipProps) {
     const state = stateAttr(assignment);
     const ghost = state === "model";
+    // A proposal to add draws the plus before its label, and says so in its name.
+    const words = useAssignmentMessages();
+    const name = chipName(label, assignment, words);
     // Only proposed assignments are draggable, and only in edit mode.
     const draggable = edit && !dragDisabled && (state === "added" || state === "removed" || state === "model");
 
@@ -133,6 +142,7 @@ function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled
             css={styles.chip}
             data-state={state}
             {...drag}
+            {...(name !== undefined ? { "aria-label": name } : {})}
             onClick={handleClick}
             {...(draggable && drag ? { "data-draggable": "" } : {})}
         >
@@ -141,7 +151,12 @@ function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}
-            {chipText(label, assignment)}
+            {name !== undefined && (
+                <Box as="span" css={styles.chipSign} data-chip-sign="" aria-hidden="true">
+                    <FontAwesomeIcon icon={faPlus} />
+                </Box>
+            )}
+            {label}
             {ghost && onAccept && (
                 <Box
                     as="button"
@@ -284,7 +299,7 @@ function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, ca
                     aria-label="Open slot"
                     onClick={handleAdd}
                 >
-                    ⊕
+                    <FontAwesomeIcon icon={faCirclePlus} />
                 </Box>
             ))}
         </Box>
@@ -301,8 +316,9 @@ function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, ca
  * accept `add` drops from the declared Libraries, proposed chips drag
  * (`move` / `remove`), and every completed drag funnels through `onDrag`.
  * Dropping a person onto a cell that already holds them is a no-op (the
- * duplicate-person guard). Renders no built-in user-facing copy — numerals,
- * glyphs and tones only.
+ * duplicate-person guard). Renders no built-in visible copy — numerals,
+ * Font Awesome icons and tones only (#1263); a proposal's accessible name
+ * says its state in the assignment surfaces' words ({@link AssignmentMessages}).
  */
 export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey }: EastChakraBoardProps) {
     const styles = useSlotRecipe({ key: "board" })() as SlotStyles;

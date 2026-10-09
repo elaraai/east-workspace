@@ -104,7 +104,7 @@ test("the history item sits at the row's end, and folds to the buttons alone onl
     const folded = mount(309);
     expect(formOf(folded.container)).toBe("buttons");
     expect(folded.container.querySelector('[data-slot="historyIssues"]')).toBeNull();
-    for (const name of ["Undo", "Redo", "Discard", "Apply changes"]) {
+    for (const name of ["Undo", "Redo", "Discard", "Save"]) {
         expect(folded.container.querySelector(`button[aria-label="${name}"]`)).not.toBeNull();
     }
 });
@@ -118,4 +118,22 @@ test("the item is measured again when its status line, its issues or its error c
     expect(applying).not.toBe(idle);
     session.error = "Refused by the host";
     expect(version()).not.toBe(applying);
+});
+
+test("a host that shows the session's error in its banners takes the line from under the buttons (#1184)", () => {
+    row.px = 510;
+    const session = editSession();
+    session.error = "Refused by the host";
+    const item = (showError?: boolean) => historyToolbarItem({
+        session, words: WORDS, editing: false, onAction: noop, onIssue: noop, ...(showError === undefined ? {} : { showError }),
+    });
+    const kept = render(<ChakraProvider value={system}><Toolbar items={[item()]} /></ChakraProvider>);
+    expect(kept.container.querySelector('[role="alert"]')?.textContent).toBe("Refused by the host");
+    cleanup();
+    const left = render(<ChakraProvider value={system}><Toolbar items={[item(false)]} /></ChakraProvider>);
+    expect(left.container.querySelector('[role="alert"]')).toBeNull();
+    // Its width no longer moves with the error: another error measures nothing again.
+    const before = item(false).version;
+    session.error = "Another refusal";
+    expect(item(false).version).toBe(before);
 });

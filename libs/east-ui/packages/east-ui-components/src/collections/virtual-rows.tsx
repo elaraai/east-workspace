@@ -71,8 +71,11 @@
  * position follows before paint. A scroll not yet reported — a programmatic
  * one — wins. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
- * moving, and moves nothing (#944). Rows in flow (the unbounded frame below
- * scale) are the browser's to anchor.
+ * moving, and moves nothing (#944). An offset past where the view can go —
+ * rows moved from below the view to above it leave the content no taller —
+ * stops at the scroll's end, and the rows are drawn again there before paint
+ * (#1213). Rows in flow (the unbounded frame below scale) are the browser's
+ * to anchor.
  *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
@@ -96,7 +99,7 @@
  */
 
 import {
-    Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState,
+    Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
     type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
 } from "react";
 import { Box } from "@chakra-ui/react";
@@ -163,6 +166,12 @@ interface VirtualRowsBaseProps {
      * within that box. Omitted, the frame's DOM is unchanged; a collection whose
      * overlay comes and goes passes `null` while it has none, so the rows' box
      * — and every row mounted in it — stays put as the overlay appears.
+     *
+     * Over fixed rows (`measureRows: false`) it shares their stacking context
+     * in every mode, so its z-index sorts with theirs: an element a row raises
+     * above the overlay's paints over it (#1258). In a virtual window the box
+     * the frame draws it in takes no pointer (`pointer-events` inherits
+     * `none`), so the content says what does.
      */
     overlay?: ReactNode | undefined;
     /**
@@ -587,6 +596,20 @@ interface ScrollRequest {
 const FOLLOW_MS = 5_000;
 
 /**
+ * Test-only re-measure probe — lets "a height change re-measures, a selection
+ * never does" be asserted as the frame's own `measure()` calls (#812), which
+ * are every re-measure there is: TanStack never calls its own. A collection
+ * rendered from another package's bundle cannot reach the TanStack this one
+ * bundles to count them there (the Plan, in e3-ui-components, #1177).
+ * `undefined` outside tests.
+ */
+let measureProbe: (() => void) | undefined;
+/** Install (or clear) the test re-measure probe. Test use only. */
+export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
+    measureProbe = fn;
+}
+
+/**
  * @param props - see {@link VirtualRowsProps}
  * @returns the bounded virtual-scroll frame, the unbounded frame at scale
  *   (virtualized against its scrolling ancestor), or the unbounded
@@ -769,6 +792,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // that re-measure (`sizes`, `sizeVersion`): the anchor is taken where this
     // render drew the rows, so the re-measured render that follows finds it
     // moved.
+    //
+    // A scroll stops at its end (#1213). Rows moved from below the view to
+    // above it leave the content no taller, so the anchored offset can lie
+    // past where the view can go: the view rests short of it — where it was,
+    // when the content fits — and a view that did not move sends no scroll
+    // event. The virtualizer, which drew the rows for the offset asked for, is
+    // told where the view is, and they are drawn again there before paint.
+    const [, redraw] = useReducer((n: number) => n + 1, 0);
     useLayoutEffect(() => {
         if (!anchoring) {
             anchorRef.current = null;
@@ -780,6 +811,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             anchorTarget.current = null;
             if (onWindow) windowRows.options.scrollToFn(target, {}, windowRows);
             else elementRows.options.scrollToFn(target, {}, elementRows);
+            const live = liveOffset();
+            if (live !== undefined && Math.abs(live - target) >= 1) {
+                virtualizer.scrollOffset = live;
+                redraw();
+            }
         }
         const offset = virtualizer.scrollOffset ?? 0;
         anchorRef.current = anchorable === undefined ? null
@@ -857,6 +893,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // memo, which does not watch `estimateSize` (see `sizeVersion`).
     useEffect(() => {
         if (sizeVersion === undefined || !virtualized) return;
+        measureProbe?.();
         virtualizer.measure();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the trigger
     }, [sizeVersion]);
@@ -873,6 +910,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (before.length !== sizes.length) return;
         for (let i = 0; i < sizes.length; i++) {
             if (before[i] !== sizes[i]) {
+                measureProbe?.();
                 virtualizer.measure();
                 return;
             }
@@ -956,6 +994,16 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // Rows are translated inside the items container, less the scroll margin
     // their starts carry.
     const total = virtualized ? virtualizer.getTotalSize() : 0;
+    // The fixed-row window's ONE column, translated to its first row. An
+    // overlay is drawn INSIDE it, offset back to the rows' own origin: the
+    // column's transform makes it a stacking context, so an overlay beside it
+    // would paint over everything the rows draw, whatever their z-index, and
+    // inside it what the overlay draws interleaves with what the rows draw —
+    // the Plan's links under its row controls and its now line (#1258).
+    // Measured rows are translated one by one, a context apiece, so beside
+    // them, and while no row is mounted, the overlay stays the rows' sibling.
+    const columnTop = items.length > 0 ? items[0]!.start - margin : 0;
+    const overlayInColumn = !measureRows && items.length > 0;
     const virtualWindow = () => (
         <Box ref={setRows} position="relative" height={`${total}px`} minWidth={minWidth}
             // The extent, as data: the height compiles to a class, which jsdom
@@ -990,16 +1038,25 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                     top="0"
                     left="0"
                     width="100%"
-                    style={{ transform: `translateY(${items[0]!.start - margin}px)` }}
+                    style={{ transform: `translateY(${columnTop}px)` }}
                 >
                     {items.map((item) => (
                         <Box key={item.key} data-index={item.index}>
                             {renderRow(item.index)}
                         </Box>
                     ))}
+                    {overlay !== undefined && overlay !== null && (
+                        // The rows' box, in the column: back at the rows' top,
+                        // as tall as all of them. It takes no pointer — what the
+                        // overlay draws says what does.
+                        <Box position="absolute" left="0" width="100%" pointerEvents="none" data-virtual-overlay=""
+                            style={{ top: `${-columnTop}px`, height: `${total}px` }}>
+                            {overlay}
+                        </Box>
+                    )}
                 </Box>
             )}
-            {overlay}
+            {!overlayInColumn && overlay}
         </Box>
     );
     const reporter = onRangeChange !== undefined && virtualized && (

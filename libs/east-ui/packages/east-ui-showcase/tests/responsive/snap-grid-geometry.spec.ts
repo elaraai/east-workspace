@@ -13,7 +13,8 @@
  * page at rest; no screenshot is read.
  *
  * The editing canvas (#990), on the builder example: the column ruler and
- * the bands, the end zone and the stage a drag resting on it draws, a height
+ * the bands, the end zone and the stage a drag resting on it draws — its words
+ * led by Font Awesome's caret, centred on their line (#1263) — a height
  * drag snapping to a neighbour's edge (the guide) and to 40px steps, and a
  * span drag under a design width and a zoom — pointer gestures a real
  * browser lays out, where the DOM tests fake the layout.
@@ -317,7 +318,14 @@ test.describe("SnapGrid editing canvas (#990)", () => {
         await page.mouse.down();
         await page.mouse.move(tile.x + tile.w / 2 + 20, tile.y + tile.h / 2 + 20, { steps: 4 });
         await page.mouse.move(target.x + target.w / 2, target.y + target.h / 2, { steps: 8 });
-        await expect.poll(words).toEqual(["▾ Drop component here · snaps to a new 12-col row"]);
+        await expect.poll(words).toEqual(["Drop component here · snaps to a new 12-col row"]);
+        // The words lead with Font Awesome's caret, never a written ▾, centred on their line (#1263).
+        await expect.poll(() => zone.evaluate((z) => [...z.querySelectorAll("span")].filter((s) => getComputedStyle(s).display !== "none").map((s) => {
+            const caret = s.querySelector('svg[data-prefix="fas"][data-icon="caret-down"]');
+            if (caret === null) return null;
+            const c = caret.getBoundingClientRect(), line = s.getBoundingClientRect();
+            return { first: s.firstElementChild === caret, centred: Math.abs((c.top + c.bottom) / 2 - (line.top + line.bottom) / 2) <= 1 };
+        }))).toEqual([{ first: true, centred: true }]);
         expect(await box.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(rest);
         await page.mouse.up();
         await expect.poll(() => editor.evaluate((root) =>

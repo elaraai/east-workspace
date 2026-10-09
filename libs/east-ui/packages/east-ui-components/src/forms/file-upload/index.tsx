@@ -6,7 +6,7 @@
 import { memo, useMemo, useCallback } from "react";
 import { Box, Flex, FileUpload as ChakraFileUpload, type FileUploadRootProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpFromBracket } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpFromBracket, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { FileUpload } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -59,6 +59,7 @@ interface FileRejection {
 
 /**
  * Renders an East UI FileUpload value using Chakra UI FileUpload component.
+ * A file's delete is Font Awesome's xmark, never Chakra's own icon (#1263).
  */
 export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }: EastChakraFileUploadProps) {
     const props = useMemo(() => toChakraFileUpload(value), [value]);
@@ -128,7 +129,7 @@ export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }
                         <ChakraFileUpload.Item key={file.name} file={file}>
                             <ChakraFileUpload.ItemName />
                             <ChakraFileUpload.ItemSizeText />
-                            <ChakraFileUpload.ItemDeleteTrigger />
+                            <ChakraFileUpload.ItemDeleteTrigger><FontAwesomeIcon icon={faXmark} /></ChakraFileUpload.ItemDeleteTrigger>
                         </ChakraFileUpload.Item>
                     ))}
                 </ChakraFileUpload.Context>

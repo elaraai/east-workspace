@@ -14,7 +14,12 @@
  *
  * Paged sources land in their own `pages` list rather than `paths`: they are
  * declared (so a `ui()` task's reads stay manifest-scoped) but deliberately not
- * preloaded or polled as whole values.
+ * preloaded or polled as whole values. A record bound with `Record.bind` is
+ * preloaded and polled whole — its path in `paths` — unless it is also bound
+ * with `Data.bindPaged` (#1199): a record read a window at a time is never
+ * fetched whole, so it stays in `records` and `pages` alone, and its revision
+ * is followed through the paged runtime's watch. Its handle's `read()` is then
+ * served by nothing, which is why nothing over such a record calls it.
  *
  * Every such argument is required to be a JS-side constant — the public
  * factories enforce this through their TS signatures and `East.value`.
@@ -24,9 +29,9 @@
  * @packageDocumentation
  */
 
-import type { IR, PlatformIR } from '@elaraai/east';
+import type { IR, OptionType, PlatformIR, ValueTypeOf } from '@elaraai/east';
 import { variant, walkIR, constValueOf } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import type { TreePath, TreePathType } from '@elaraai/e3-types';
 import type { DataManifest } from './manifest.js';
 
 /** Platform-fn name we extract paths from. */
@@ -59,17 +64,15 @@ export function deriveManifest(
                 functions.push(constValueOf(platform.value.arguments[0] as IR) as string);
                 return;
             case RECORD_BIND: {
-                // Bind the record's name, and preload its `.records.<name>`
-                // path so the record's value is polled like any dataset.
-                const name = constValueOf(platform.value.arguments[0] as IR) as string;
-                records.push(name);
-                paths.push([variant('field', 'records'), variant('field', name)]);
+                // Bind the record's name; its `.records.<name>` path is
+                // preloaded below, unless the record is read paged too.
+                records.push(constValueOf(platform.value.arguments[0] as IR) as string);
                 return;
             }
             case DATA_BIND: {
                 // arg[0] source TreePath; arg[1] patch option<TreePath>.
                 paths.push(constValueOf(platform.value.arguments[0] as IR) as TreePath);
-                const patch = constValueOf(platform.value.arguments[1] as IR) as { type: string; value: TreePath };
+                const patch = constValueOf(platform.value.arguments[1] as IR) as ValueTypeOf<OptionType<TreePathType>>;
                 if (patch.type === 'some') paths.push(patch.value);
                 return;
             }
@@ -82,6 +85,13 @@ export function deriveManifest(
             }
         }
     });
+    // Each bound record's value is preloaded and polled like any dataset — but
+    // a record also bound paged, which is read a window at a time (#1199).
+    const paged = new Set(pages.map(pathKey));
+    for (const name of new Set(records)) {
+        const path: TreePath = [variant('field', 'records'), variant('field', name)];
+        if (!paged.has(pathKey(path))) paths.push(path);
+    }
     return {
         paths: dedupePaths(paths),
         functions: [...new Set(functions)],
@@ -90,11 +100,16 @@ export function deriveManifest(
     };
 }
 
+/** A path's identity, as the manifest dedupes and matches paths by. */
+function pathKey(path: TreePath): string {
+    return path.map(s => `${s.type}:${s.value}`).join('/');
+}
+
 function dedupePaths(paths: TreePath[]): TreePath[] {
     const seen = new Set<string>();
     const result: TreePath[] = [];
     for (const p of paths) {
-        const k = p.map(s => `${s.type}:${s.value}`).join('/');
+        const k = pathKey(p);
         if (seen.has(k)) continue;
         seen.add(k);
         result.push(p);

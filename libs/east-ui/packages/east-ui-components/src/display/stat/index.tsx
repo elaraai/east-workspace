@@ -7,6 +7,7 @@ import { memo, useMemo } from "react";
 import { Stat as ChakraStat, type StatRootProps, HStack, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
+import { faCaretDown, faCaretUp } from "@fortawesome/free-solid-svg-icons";
 import { BlobType, BooleanType, NullType, equivalentFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Stat } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
@@ -54,8 +55,9 @@ const SENTIMENT_PALETTE: Record<string, string> = {
  * - `value` → `Stat.ValueText`, coloured by `style.valueColor` when set.
  * - `baseline` → rendered as a secondary line beneath the value.
  * - `helpText` + `indicator` → `Stat.HelpText`; renderer chooses between
- *   Chakra's built-in Up / Down indicators driven by `indicator.direction`
- *   and, when `indicator.icon` is set, renders that explicit icon instead.
+ *   the Up / Down indicators driven by `indicator.direction` — each Font
+ *   Awesome's caret, never Chakra's own arrow (#1263) — and, when
+ *   `indicator.icon` is set, renders that explicit icon instead.
  *   Colour defaults to the palette derived from `indicator.sentiment`
  *   (positive → green, negative → red, neutral → grey), overridden by
  *   `style.indicatorColor`.
@@ -136,8 +138,8 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
                     <HStack gap="1" align="center">
                         {direction !== undefined && explicitIcon === undefined && (
                             <Box color={indicatorColor}>
-                                {direction === "up" && <ChakraStat.UpIndicator />}
-                                {direction === "down" && <ChakraStat.DownIndicator />}
+                                {direction === "up" && <ChakraStat.UpIndicator><FontAwesomeIcon icon={faCaretUp} /></ChakraStat.UpIndicator>}
+                                {direction === "down" && <ChakraStat.DownIndicator><FontAwesomeIcon icon={faCaretDown} /></ChakraStat.DownIndicator>}
                             </Box>
                         )}
                         {explicitIcon !== undefined && (

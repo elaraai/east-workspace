@@ -9,18 +9,18 @@
  * readout, and the event rows' marks.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
-import { planElementFocus } from "./focus.js";
+import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barQty", "rollBand", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -31,14 +31,31 @@ const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleOb
 /** Their base styles. */
 export const elementsBase = {
     // ── Span bars — base geometry; `data-state` drives the truth table ──
+    // The label holds the bar (#1258): the quantity shows beside it only when
+    // both fit whole. The bar is a wrapping row whose one line fills the box
+    // inside its border, so a quantity that does not fit wraps to a second
+    // line the bar clips, and the label, alone on the first, ellipsizes when
+    // it alone does not fit. Its height is the canvas's bar, or a collapsed
+    // parent's rollup bar (`data-rolled`). It is a size container, so its
+    // text's line is exactly the height inside its border as the page draws
+    // it (`100cqh`) — a lifecycle look's 1.5px dash is drawn 1px at 1×.
+    // A run too short for its padding draws the canvas's narrowest bar from
+    // its start, and a link leaves it where it ends as drawn (#1258).
     bar: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
+        height: "var(--plan-bar-h)",
+        minWidth: "var(--plan-bar-min-w)",
+        "&[data-rolled]": { height: "var(--plan-roll-bar-h)" },
+        containerType: "size",
         borderRadius: "2px",
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
-        gap: "4px",
+        alignContent: "flex-start",
+        columnGap: "4px",
+        rowGap: 0,
         padding: "0 7px",
         fontFamily: "mono",
         fontSize: "11px",
@@ -58,8 +75,14 @@ export const elementsBase = {
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "transparent", color: "fg.muted" },
         }),
+        // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
+        ...planElementDrafted,
         // over-dwell / flagged — the warn ring rides any state.
         "&[data-stuck]": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
+        // An event in an overlap pair (#1198) — the same warn ring; a
+        // confirmed bar keeps its inset brand ring inside it.
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
         // runs past the window — mask-fade right, never a fabricated end.
         "&[data-runoff]": {
             maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
@@ -79,20 +102,44 @@ export const elementsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1), padding 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementSelected,
         ...planElementFocus,
     },
+    // A span's label — whole, or ellipsized when it alone does not fit, its
+    // line the bar's inside height (#1258). Below a letter and the ellipsis
+    // it is not drawn at all, never a sliver of a glyph (#1264): in the bar's
+    // mono face every glyph, the ellipsis too, is one `ch` wide, and a
+    // container query reads `ch` in the bar's own font. Its hover then says
+    // it, in the canvas's tooltip.
+    barLabel: {
+        flex: "0 1 auto",
+        minWidth: 0,
+        lineHeight: "100cqh",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        "@container (width < 2ch)": { display: "none" },
+    },
     // A span's quantity — the label's own weight (#949: one weight per span).
+    // It never shrinks: when it does not fit beside the label it wraps out of
+    // the bar's line, whole (#1258).
     barQty: {
         opacity: 0.72,
         fontWeight: "semibold",
         flexShrink: 0,
+        lineHeight: "100cqh",
+        whiteSpace: "nowrap",
     },
-    // Parent rollup band — 12px, centred `×k · qty` caption.
+    // Parent rollup band — 12px, centred `×k · qty` caption (`rollBandLabel`).
+    // A size container, as a bar is: its caption reads the width inside it,
+    // and its line is the height inside its border (`100cqh`), so the 9.5px
+    // caption's line box never stands taller than the 12px band (#1264).
     rollBand: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
         height: "var(--plan-roll-bar-h)",
+        containerType: "size",
         borderRadius: "2px",
         display: "flex",
         alignItems: "center",
@@ -125,6 +172,18 @@ export const elementsBase = {
             borderColor: "border.strong",
         },
     },
+    // A rollup band's caption — centred while it fits; a band too narrow for it
+    // shows it from its start, ellipsized, and one too narrow for a letter and
+    // the ellipsis draws none (#1264), its hover saying it in the canvas's
+    // tooltip.
+    rollBandLabel: {
+        minWidth: 0,
+        lineHeight: "100cqh",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        "@container (width < 2ch)": { display: "none" },
+    },
     // Quantity in/out port glyph on a span row.
     port: {
         position: "absolute",
@@ -150,15 +209,19 @@ export const elementsBase = {
         zIndex: 4,
         "&[data-applied]": { background: "{colors.brand.solid}" },
         // An EVENT-ROW decision mark (K7 — the diamond carries `data-mark`)
-        // is 11px, the §8 sheet's "◇/◆ 11px rotate-45 r1"; a span row's
-        // decision diamond on a run transition stays the 9px above.
-        "&[data-mark]": { width: "11px", height: "11px" },
+        // is the canvas's mark diamond, the §8 sheet's "◇/◆ 11px rotate-45
+        // r1" — a link meets its corners (#1258); a span row's decision
+        // diamond on a run transition stays the 9px above.
+        "&[data-mark]": { width: "var(--plan-mark-diamond-w)", height: "var(--plan-mark-diamond-w)" },
         // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
         // Milestone / decision / exception are told apart BY OUTLINE, so
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
+        // An event's decision mark its drafts changed (#1196): the tint's ring round its own.
+        "&[data-draft]": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_DRAFT_HALO}` },
         ...grab,
+        ...planElementSelected,
         ...planElementFocus,
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
@@ -223,12 +286,12 @@ export const elementsBase = {
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
-        // An EXPANDED row pins its active ⤢ control to the band's corner
-        // (`rowControls[data-expanded]`: top 11px, right 6px, a 20px
-        // button in a 3px paper halo) — exactly where a 32px band's
-        // ticks sit. The ticks step left of the pill's footprint so the
-        // axis stays legible while the row has the canvas (#591).
-        "[data-expanded] &": { right: "36px" },
+        // A row's controls are always shown, at its gutter line's end
+        // (`rowControls`, #1258) — where the ticks sit. The ticks step left
+        // of them, so the axis stays legible (#591): the cell's 12px padding,
+        // the 24px buttons and a 4px gap.
+        "[data-plan-controls='1'] &": { right: "40px" },
+        "[data-plan-controls='2'] &": { right: "64px" },
     },
     chartTickRight: {
         position: "absolute",
@@ -283,10 +346,12 @@ export const elementsBase = {
         "&[data-kind='scatter']": { color: "accent.purple" },
     },
     // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
+    // Each glyph's size is the canvas's (`--plan-mark-…`), so a link meets a
+    // mark at the glyph's edges (#1258).
     milestoneDot: {
         position: "absolute",
-        width: "10px",
-        height: "10px",
+        width: "var(--plan-mark-dot-w)",
+        height: "var(--plan-mark-dot-w)",
         borderRadius: "full",
         background: "{colors.brand.solid}",
         transform: "translate(-50%, -50%)",
@@ -297,16 +362,31 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "5px", height: "5px"},
+        // An event its drafts changed (#1196): the tint's ring, round the dot.
+        "&[data-draft]": { boxShadow: PLAN_DRAFT_HALO },
+        // An event in an overlap pair (#1198): the warn ring, round the dot.
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         ...grab,
+        ...planElementSelected,
         ...planElementFocus,
     },
+    // An exception's triangle draws no overlap ring: it is the warn mark
+    // already, and a ring round a border-drawn triangle is its square box —
+    // nor a drafted one's (#1196), for the same box.
     exceptionTri: {
         position: "absolute",
         width: 0,
         height: 0,
-        borderLeft: "5px solid transparent",
-        borderRight: "5px solid transparent",
-        borderBottom: "9px solid {colors.status.warn}",
+        // The borders ARE the triangle: half its base either side, its height below.
+        borderLeftWidth: "calc(var(--plan-mark-triangle-w) / 2)",
+        borderLeftStyle: "solid",
+        borderLeftColor: "transparent",
+        borderRightWidth: "calc(var(--plan-mark-triangle-w) / 2)",
+        borderRightStyle: "solid",
+        borderRightColor: "transparent",
+        borderBottomWidth: "var(--plan-mark-triangle-h)",
+        borderBottomStyle: "solid",
+        borderBottomColor: "{colors.status.warn}",
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
@@ -318,15 +398,27 @@ export const elementsBase = {
             borderBottomWidth: "6px",
         },
         ...grab,
+        ...planElementSelected,
         ...planElementFocus,
     },
-    // K7 icon swap — hosts choose the glyph, never the geometry
-    // (12px, kind-coloured: brand default, warn for exceptions).
+    // K7 icon swap — hosts choose the glyph, never the geometry: the icon
+    // fits the canvas's square icon box (`--plan-mark-icon-w`), whatever its
+    // own proportions, so a link meets the box's edges (#1258);
+    // kind-coloured: brand default, warn for exceptions. Font Awesome's own
+    // rule sizes its svg — 1em tall, `--fa-width` wide — and outranks a
+    // recipe's, so the box's font is its size and the width 1em: the glyph
+    // fits the square whole (#1269; it drew 18×16 in 12px).
     markIcon: {
         position: "absolute",
         top: "50%",
         transform: "translate(-50%, -50%)",
-        fontSize: "12px",
+        width: "var(--plan-mark-icon-w)",
+        height: "var(--plan-mark-icon-w)",
+        fontSize: "var(--plan-mark-icon-w)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        "& svg": { width: "100%", height: "100%", "--fa-width": "1em" },
         lineHeight: 1,
         color: "{colors.brand.solid}",
         zIndex: 3,
@@ -338,7 +430,13 @@ export const elementsBase = {
         // (see `EventsRow`) and this element never mounts collapsed. The
         // rule stays as a backstop for any path that does mount one.
         "&[data-ctx]": { display: "none" },
+        // An event's mark wears its kind's icon (#1192): its drafts changed
+        // (#1196), the tint's ring round it; in an overlap pair (#1198), the
+        // warn ring.
+        "&[data-draft]": { boxShadow: PLAN_DRAFT_HALO },
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         ...grab,
+        ...planElementSelected,
         ...planElementFocus,
     },
     markLabel: {

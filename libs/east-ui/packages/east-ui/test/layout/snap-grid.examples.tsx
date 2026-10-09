@@ -168,10 +168,10 @@ export const snapGridWireframe = example({
 export const snapGridEditor = example({
     keywords: [
         "SnapGrid", "edit", "editing", "builder", "canvas", "drag", "drop", "move", "resize", "span", "height", "select",
-        "Library", "palette", "component library", "create", "onUpdate", "undo", "Apply", "guides", "ruler", "Studio",
+        "Library", "palette", "component library", "create", "onUpdate", "undo", "Save", "guides", "ruler", "Studio",
         "toolbar", "selection bar", "panes", "Dock", "zoom", "design width", "Desktop", "Tablet", "view", "viewState", "icon", "meta",
     ],
-    description: "The builder's canvas — an editable SnapGrid over the page's tiles in the builder's frame: one toolbar across it (a status, the grid chip, the width readout, the zoom, the history item and Desktop · Tablet), the component library in a pane beside the grid, and the selection bar naming the selected tile; a component dropped on the grid becomes a tile, and every move, resize and removal is a draft the history item undoes, redoes, discards and applies",
+    description: "The builder's canvas — an editable SnapGrid over the page's tiles in the builder's frame: one toolbar across it (a status, the grid chip, the width readout, the zoom, the history item and Desktop · Tablet), the component library in a pane beside the grid, and the selection bar naming the selected tile; a component dropped on the grid becomes a tile, and every move, resize and removal is a draft the history item undoes, redoes, discards and saves",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const Kind = VariantType({ kpis: NullType, breakdown: NullType, trend: NullType, orders: NullType, visits: NullType, board: NullType, roster: NullType });

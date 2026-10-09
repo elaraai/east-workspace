@@ -9,7 +9,7 @@
  * R2), the expand-in-place render, and the group band.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */
@@ -19,12 +19,15 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
-    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterSub",
+    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterLabel", "gutterNamed", "gutterSub",
     "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch", "caret", "statusDot",
     "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta",
     "stickyParent", "stickyPath",
 ] as const;
+
+/** A links-focus family tag's height (#1258), and the line it shares with its row's label (#1277). */
+const FOCUS_TAG_H = "20px";
 
 /** Their base styles. */
 export const rowsBase = {
@@ -210,6 +213,31 @@ export const rowsBase = {
             color: "fg.muted",
         },
     },
+    // The row's label — the one item of its line that gives way: it
+    // truncates before the value, the status and the row's controls (#1258).
+    gutterLabel: {
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+    },
+    // A family row's label and its links-focus tag (#1277), on one line of
+    // their own that the strut before them holds at the tag's height: the line
+    // gives way before the value, the status and the controls, and the tag
+    // gives way first — whole, ellipsized after a whole letter, or wrapped off
+    // the line where not even that fits, out of sight (#1264's rule; a hover
+    // says it). Only then does the label truncate.
+    gutterNamed: {
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        alignContent: "flex-start",
+        flex: "0 1 auto",
+        minWidth: 0,
+        height: FOCUS_TAG_H,
+        overflow: "hidden",
+        // The strut: the line's height, and no width.
+        "&::before": { content: '""', height: "100%" },
+    },
     // The unit / sub-line slot (#949) — mono 10 / 400 in the label ink.
     gutterSub: {
         fontFamily: "mono",
@@ -287,71 +315,77 @@ export const rowsBase = {
         "&[data-tone='neutral']": { background: "fg.subtle" },
         "&[data-ctx]": { width: "5px", height: "5px" },
     },
-    // ── Row focus (R1 links / R2 expand) — the row-scoped controls at
-    //    the gutter's right edge: 20px, borderless, revealed on hover and
-    //    pinned while active; always visible at touch densities. ──
-    // An absolute overlay pill at the gutter's right edge — hidden
-    // controls consume NO label space; revealed they wash over the value
-    // cluster for the hover's duration.
+    // ── Row focus (R1 links / R2 expand) — the row-scoped controls
+    //    (`Plan links.html`, #1258): sm ghost buttons at the end of the row's
+    //    gutter line, after its value and status. They are always shown —
+    //    ruled by the user over the spec's hover reveal, so a row says it has
+    //    links before it is hovered — and a pressed one wears the brand tint.
+    //    Never in a strip. ──
     rowControls: {
-        position: "absolute",
-        right: "6px",
-        top: "50%",
-        transform: "translateY(-50%)",
         display: "flex",
         alignItems: "center",
-        gap: "2px",
-        padding: "0 2px",
-        borderRadius: "3px",
-        background: "bg.surface",
-        boxShadow: "0 0 0 3px {colors.bg.surface}",
-        opacity: 0,
-        transition: "opacity 120ms",
-        zIndex: 2,
-        "[data-plan-row]:hover &": { opacity: 1 },
-        "&:has([data-active])": { opacity: 1 },
-        "@media (hover: none)": { opacity: 1 },
-        // A keyboard reader sees them too: on the focused row, and while one
-        // of them has focus (the row's Tab walk, #819).
-        "[data-plan-row]:focus-visible &": { opacity: 1 },
-        "&:focus-within": { opacity: 1 },
+        gap: 0,
+        flexShrink: 0,
+        // At the line's end: pushed there by its own margin, or the line's
+        // gap after the right cluster that already is.
+        marginLeft: "auto",
+        "[data-plan-gutter='right'] + &": { marginLeft: 0 },
+        // Over the links (z 5): a loopback turning in the gutter passes under them.
+        position: "relative",
+        zIndex: 6,
         // A strip is one click target — returning. Row controls inside it
         // would compete with that, and there is no room for them anyway.
         "&[data-ctx]": { display: "none" },
-        // An expanded row's gutter is TALL, and `top: 50%` in a tall cell
-        // parks the control halfway down a mostly-empty column, detached
-        // from the name it belongs to. Pin it to the row's own band.
-        "&[data-expanded]": { top: "11px", transform: "none" },
     },
+    // An sm ghost icon button: 24px, the muted ink; hovered the subtle paper
+    // and the ink; pressed the brand tint and the brand's pressed ink.
     rowControl: {
-        width: "20px",
-        height: "20px",
+        width: "24px",
+        height: "24px",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        border: "none",
+        border: "1px solid transparent",
         background: "transparent",
-        color: "fg.subtle",
-        borderRadius: "3px",
+        color: "fg.muted",
+        borderRadius: "md",
         cursor: "pointer",
-        fontSize: "10px",
+        fontSize: "14px",
         padding: 0,
-        "&:hover": { color: "fg.default", background: "bg.panel" },
-        "&[data-active]": { color: "brand.fg", background: "{colors.brandTint}" },
+        "&:hover": { color: "fg", background: "bg.subtle" },
+        "&[data-active]": { color: "{colors.brandPressed}", background: "{colors.brandTint}" },
         ...planElementFocus,
     },
-    // The UPSTREAM / DOWNSTREAM / LINKED tag on gathered family rows.
+    // The Upstream / Downstream / Linked Tag after a family row's name — the
+    // focused row has none. It fades in with the links, once the rows have
+    // gathered. It takes the room its line leaves after the label (#1277):
+    // from a letter and the ellipsis inside its padding and border up to its
+    // whole word; with less, it wraps off the line.
     focusTag: {
+        height: FOCUS_TAG_H,
+        boxSizing: "border-box",
+        display: "block",
+        // Its word centred inside its border.
+        lineHeight: `calc(${FOCUS_TAG_H} - 2px)`,
+        flex: "1 1 calc(2ch + 18px)",
+        minWidth: 0,
+        maxWidth: "max-content",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        // The line's 6px gap — a margin, which the strut, being no element, never takes.
+        marginInlineStart: "6px",
+        padding: "0 8px",
+        borderWidth: "1px",
+        borderStyle: "solid",
+        borderColor: "border.subtle",
+        borderRadius: "sm",
+        background: "bg.subtle",
         fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "semibold",
-        letterSpacing: "0.08em",
-        color: "brand.fg",
-        background: "{colors.brandTint}",
-        borderRadius: "2px",
-        padding: "1px 4px",
-        flexShrink: 0,
-        animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
+        fontSize: "label.sm",
+        fontWeight: "medium",
+        color: "fg.muted",
+        whiteSpace: "nowrap",
+        animation: "plan-settle-in {durations.normal} {easings.out} {durations.slow} backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
     },
     // An 11px rail — a collapsed, never-removed row (the return target).
@@ -363,7 +397,7 @@ export const rowsBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
         cursor: "pointer",
-        "&:hover": { background: "{colors.brandTint}" },
+        "&:hover": { background: "bg.subtle" },
         ...planRowFocus,
     },
     // R1 gap band — ONE double-height ⋯ band replacing a RUN of
@@ -377,7 +411,7 @@ export const rowsBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
         cursor: "pointer",
-        "&:hover": { background: "{colors.brandTint}" },
+        "&:hover": { background: "bg.subtle" },
         ...planRowFocus,
     },
     focusGapInner: {
@@ -394,54 +428,52 @@ export const rowsBase = {
             letterSpacing: "0.06em",
         },
     },
-    // ── R1 link ribbons (#818) — drawn over the rows in their own
-    //    coordinates (the frame's overlay box); settles in with the rails.
-    //    Geometry is the only thing the renderer writes: the paths, their
-    //    band width, each ribbon's quantity-share opacity. ──
+    // ── R1 links (`Plan links.html`, #1258) — drawn over the rows in
+    //    their own coordinates (the frame's overlay box, in the rows' own
+    //    stacking context), under the now line and the row controls; they
+    //    fade in once the rows have gathered.
+    //    Geometry is the only thing the renderer writes: the paths and each
+    //    link's weight. ──
     ribbons: {
         position: "absolute",
         inset: 0,
-        zIndex: 4,
+        zIndex: 5,
         pointerEvents: "none",
-        animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
+        animation: "plan-settle-in {durations.normal} {easings.out} {durations.slow} backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         "& svg": { display: "block", overflow: "visible" },
-        // The band and its heads, in the brand.
-        "& [data-plan-ribbon-band]": { fill: "none", stroke: "{colors.brand.solid}" },
-        "& [data-plan-ribbon-head]": { fill: "{colors.brand.solid}", stroke: "none" },
-        // The off-window landing's fade (#949) — the brand, clear at one end
-        // and strongest at the window edge; the renderer only names each
-        // stop's end.
-        "& stop": { stopColor: "{colors.brand.solid}" },
-        "& stop[data-fade='clear']": { stopOpacity: 0 },
-        "& stop[data-fade='edge']": { stopOpacity: 0.3 },
-        "& [data-plan-ribbon-ink]": {
-            transition: "opacity 120ms",
-            "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-        },
-        // A lit ribbon (hovered) stands out of the family's quantity shading.
-        "& [data-lit] [data-plan-ribbon-ink]": { opacity: 0.72 },
-        // The caption — mono, haloed in the surface so it reads over bars
-        // and grid (the stroke paints first).
+        // The casing: the paper one px either side of every link, under
+        // every link's ink — so a link reads over a bar it crosses.
+        "& [data-plan-casing='band']": { fill: "none", stroke: "bg.surface", strokeLinejoin: "round" },
+        "& [data-plan-casing='head']": { fill: "bg.surface", stroke: "bg.surface", strokeWidth: "2px", strokeLinejoin: "round" },
+        // The link and its heads, in the muted ink.
+        "& [data-plan-ribbon-band]": { fill: "none", stroke: "fg.muted" },
+        "& [data-plan-ribbon-head]": { fill: "fg.muted", stroke: "none" },
+        // A lit link (hovered): the strong ink, over the others.
+        "& [data-lit] [data-plan-ribbon-band]": { stroke: "fg.strong" },
+        "& [data-lit] [data-plan-ribbon-head]": { fill: "fg.strong" },
+        // The runs a lit link joins: a 1px halo in the strong ink.
+        "& [data-plan-linkend]": { fill: "none", stroke: "fg.strong", strokeWidth: "1px" },
+        // An end past the window: its slot, dashed in the subtle ink.
+        "& [data-plan-linkslot]": { fill: "none", stroke: "fg.subtle", strokeWidth: "1px", strokeDasharray: "4 4" },
+        // The caption — the edge label, mono 10/500 in the muted ink, on a
+        // paper knockout.
+        "& [data-plan-ribbon-knockout]": { fill: "bg.surface" },
         "& [data-plan-ribbon-caption]": {
             fontFamily: "mono",
-            fontSize: "9.5px",
-            fontWeight: "semibold",
+            fontSize: "label.sm",
+            fontWeight: "medium",
+            fontVariantNumeric: "tabular-nums",
             fill: "fg.muted",
-            paintOrder: "stroke",
-            stroke: "bg.surface",
-            strokeWidth: "3px",
         },
-        // The hit area: a wide transparent stroke along the centerline — the
-        // only part of the layer that takes the pointer.
+        // The hit area: the stroke and 5 either side — the only part of the
+        // layer that takes the pointer.
         "& [data-link]": {
             fill: "none",
             stroke: "transparent",
             pointerEvents: "stroke",
             cursor: "pointer",
         },
-        // The runs a lit ribbon joins — ringed in the brand.
-        "& [data-plan-linkend]": { fill: "none", stroke: "{colors.brand.solid}", strokeWidth: "2px" },
     },
     // The developer render region (R2) — fills the canvas below the
     // focused row (every other row hides for the focus); fades in once

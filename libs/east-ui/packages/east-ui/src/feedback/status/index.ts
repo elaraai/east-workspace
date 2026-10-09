@@ -17,7 +17,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid, type SolidIconPrefix } from "../../display/icon/types.js";
 import { Text } from "../../typography/text/index.js";
 import {
     StatusValueType,
@@ -111,8 +111,8 @@ export interface StatusOptions extends StatusStyle {
     label: StatusInput;
     /** Semantic classification — defaults to `"neutral"` if omitted */
     value?: StatusValueLiteral | SubtypeExprOrValue<StatusValueType>;
-    /** Explicit icon override (skips paired-icon default) */
-    icon?: { prefix: string; name: string } | SubtypeExprOrValue<IconType>;
+    /** Explicit icon override (skips paired-icon default): a Font Awesome solid icon — East UI draws no other (#1263) */
+    icon?: { prefix: SolidIconPrefix; name: string } | SubtypeExprOrValue<IconType>;
     /** Animate the indicator dot */
     pulsing?: SubtypeExprOrValue<BooleanType>;
     /** Draw the indicator as an open ring — a state not reached yet, such as a draft never published */
@@ -127,6 +127,8 @@ export interface StatusOptions extends StatusStyle {
  * @param options - Required `label`, optional `value` / `icon` / `pulsing` /
  *   `ring` / `showIcon` / visual style fields
  * @returns An East expression representing the Status component
+ * @throws When `icon` is not a Font Awesome solid icon — East UI draws the
+ *   solid set only (#1263)
  *
  * @remarks
  * The IR factory auto-injects the paired icon corresponding to `value` unless
@@ -147,6 +149,7 @@ export interface StatusOptions extends StatusStyle {
 function createStatusRoot(
     options: StatusOptions,
 ): ExprType<UIComponentType> {
+    refuseNonSolid("Status icon", options.icon);
     const { label, value, icon, pulsing, ring, showIcon, ...visual } = options;
 
     const labelExpr: ExprType<UIComponentType> = typeof label === "string"

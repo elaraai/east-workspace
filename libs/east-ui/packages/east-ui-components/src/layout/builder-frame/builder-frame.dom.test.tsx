@@ -23,7 +23,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
-import { pointAt } from "../../dnd/dnd.test-utils.js";
+import { pointAt } from "../../testing/drag-layer.js";
 import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
 
 // ── jsdom's layout, laid out by the test ────────────────────────────────────
@@ -281,6 +281,22 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         await press("Collapse Properties");
         frameAt(1440);
         expect(paneOf("end")).toEqual(["pinned", true]);
+    });
+
+    test("a persisted pane keeps only what the viewer chose: closed for lack of room, it is open on a wide frame after a remount (#1184)", async () => {
+        const narrow = mount({ start: library({ persist: "local" }), end: properties({ persist: "local" }) });
+        frameAt(700);
+        expect([paneOf("start"), paneOf("end")]).toEqual([["overlay", true], ["overlay", true]]);
+        // The frame closed them: nothing is written.
+        expect([localStorage.getItem("frame-test.start.dock.collapsed"), localStorage.getItem("frame-test.end.dock.collapsed")]).toEqual([null, null]);
+        narrow.unmount();
+
+        mount({ start: library({ persist: "local" }), end: properties({ persist: "local" }) });
+        frameAt(1440);
+        expect([paneOf("start"), paneOf("end")]).toEqual([["pinned", false], ["pinned", false]]);
+        // The viewer's own collapse is kept.
+        await press("Collapse Properties");
+        expect(localStorage.getItem("frame-test.end.dock.collapsed")).toBe("true");
     });
 
     test("a pane's width that is not a plain px length is measured as the browser lays it out", () => {

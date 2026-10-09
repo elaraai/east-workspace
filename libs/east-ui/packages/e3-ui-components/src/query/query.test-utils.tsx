@@ -14,13 +14,19 @@
  * and the query library (#1063) mounted the same way, alone or beside a
  * builder sharing its id.
  *
+ * Each test of a file that loads it runs alone (#1280,
+ * `test-runs.test-utils.ts`): once a test ends, the work it left in flight
+ * settles before the next begins, and a body its timeout abandoned starts
+ * nothing more. A test file takes `act` from here, never from Testing
+ * Library.
+ *
  * @packageDocumentation
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StrictMode } from "react";
-import { act, fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
+import { fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     BooleanType, East, NullType, OptionType, PatchType, SortedMap, StringType, applyFor, checkJq, compareFor, decodeBeast2, decodeBeast2For,
@@ -43,6 +49,7 @@ import {
     QueryCallProvider, QueryPlanOptionsProvider, QuerySourceStatusProvider, QuerySplitCallProvider,
     type QueryCall, type QuerySourceStatus, type QuerySplitCall, type QuerySplitCallOptions, type QuerySplitExplain,
 } from "./hooks.js";
+import { act, isolateRuns } from "../test-runs.test-utils.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall, type InMemoryDataset } from "./in-memory-call.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
@@ -60,6 +67,12 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
     matches: false, media: query, onchange: null,
     addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
 });
+
+// Each test of the file a run of its own (#1280): registered as the file is collected, which loads this module.
+isolateRuns();
+
+/** The `act` the query tests take: each scope its test's work, until it closes (#1280). */
+export { act };
 
 /** The saved queries record. */
 export type Saved = ValueTypeOf<typeof Query.Types.Saved>;

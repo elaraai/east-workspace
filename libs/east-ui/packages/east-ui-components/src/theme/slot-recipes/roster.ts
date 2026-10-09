@@ -7,8 +7,9 @@
  * Roster slot recipe — the people × days shift grid per the `roster`
  * pattern: mono eyebrow day headers, person rows with muted target
  * sublabels, and shift chips carrying the event-state grammar (committed
- * outline · `+` added tint · struck removed · dashed model ghost). Drop
- * indicators come from the shared drag-layer data attributes.
+ * outline · added tint, led by Font Awesome's plus · struck removed · dashed
+ * model ghost). Drop indicators come from the shared drag-layer data
+ * attributes.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -18,7 +19,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "grid", "headerCell",
         "personCell", "personLabel", "personSublabel",
-        "cell", "chip", "chipLabel", "chipGrip", "chipActions", "chipAction", "dragGhost",
+        "cell", "chip", "chipLabel", "chipGrip", "chipSign", "chipActions", "chipAction", "dragGhost",
         "strip", "stripSummary", "stripHint",
     ],
     base: {
@@ -163,6 +164,15 @@ export const rosterSlotRecipe = defineSlotRecipe({
             transition: "opacity {durations.fast}",
             "[data-draggable]:hover &": { opacity: "1" },
         },
+        /* An added shift leads with Font Awesome's plus (#1263), in the chip's
+         * ink, the size the text `+` it replaced drew at, and its own width, not
+         * Font Awesome's fixed 1.25em. */
+        chipSign: {
+            "--fa-width": "auto",
+            display: "inline-flex",
+            flexShrink: "0",
+            fontSize: "8px",
+        },
         /* Hover action cluster — pinned to the chip's right edge as an
          * ABSOLUTE overlay so it never steals width from the label (a narrow
          * day column has no room to reserve it in flow). Revealed on hover. */
@@ -220,13 +230,19 @@ export const rosterSlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             color: "fg.muted",
         },
+        /* The edit hint names each control by the Font Awesome icon it draws
+         * (#1263), in its words' ink and size — each icon on the line's text,
+         * as Font Awesome sets an icon beside words (the global reset sets it
+         * on the baseline for icons in boxes), each its own width. */
         stripHint: {
+            "--fa-width": "auto",
             marginLeft: "auto",
             fontFamily: "mono",
             fontSize: "10px",
             letterSpacing: "0.08em",
             textTransform: "uppercase",
             color: "fg.subtle",
+            "& svg": { verticalAlign: "-0.125em" },
         },
     },
 });

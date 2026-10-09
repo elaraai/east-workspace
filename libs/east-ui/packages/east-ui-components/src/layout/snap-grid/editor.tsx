@@ -26,6 +26,13 @@
  * value's East pane, placed as it is. The design width and the zoom are the
  * host's bound `view`, or the canvas's own.
  *
+ * A row short of room folds on one ladder (#1229): the grid chip, the readout
+ * and the saved time go, the widths fold to their icons, then the zoom folds
+ * into one View chip as the widths hide — its menu holding Zoom out, the zoom
+ * and Zoom in, then the widths as a choice of one — and last of the canvas's
+ * own steps the value's start items go; a host's own items fold from
+ * {@link SNAP_GRID_HOST_RANK}, and the history item last.
+ *
  * A pane beside the canvas asks it for a change through the bound `ui`
  * (#996): a request for a tile's span, row, height or alignment is taken as
  * one gesture, by the rules the handles and drags keep, and written back
@@ -42,10 +49,10 @@ import {
     type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent,
     type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from "react";
-import { Box, chakra, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { fas, faCaretDown, faCheck, faEye, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
@@ -53,6 +60,7 @@ import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
+import { ChipMenu } from "../../toolbar/chip-menu.js";
 import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
@@ -93,14 +101,25 @@ const ZOOM_MAX = 1.5;
 const ZOOM_STEP = 0.1;
 
 /**
- * The fold order of the canvas's own toolbar items (#995), lowest first: the
- * grid chip, then the width readout, then the saved time, then the widths to
- * their icons. The history item folds after them all, at its own rank.
+ * The fold order of the canvas's own toolbar items (#995, #1229), lowest
+ * first: the grid chip, then the width readout, then the saved time, then the
+ * widths to their icons; then the zoom into the View chip with the widths
+ * hidden into its menu, one bundle; then the value's start items. A host's own
+ * items fold after them, from {@link SNAP_GRID_HOST_RANK}, and the history
+ * item after all, at its own rank.
  */
 const RANK_GRID = 10;
 const RANK_READOUT = 20;
 const RANK_SAVED = 30;
 const RANK_WIDTHS = 40;
+const RANK_VIEW = 50;
+const RANK_START = 60;
+
+/** The first rank a host's own toolbar items fold at — after every step of the canvas's own, before the history item's. */
+export const SNAP_GRID_HOST_RANK = 70;
+
+/** The zoom's fold into the View chip and the widths' into its menu: one bundle, applied together. */
+const VIEW_BUNDLE = "snap-grid.view";
 
 /**
  * Why the drafts cannot land, in the canvas's words: the first issue the
@@ -383,8 +402,9 @@ const SnapGridGapCell = memo(function SnapGridGapCell(p: GapProps) {
             <Box ref={ref} css={styles.endZone} data-snap-grid-end="" data-snap-grid-gap={index}>
                 <Box css={styles.endZoneBox}>
                     <Box as="span" css={styles.endZoneRest}>{words.m.endZoneRest()}</Box>
-                    <Box as="span" css={styles.endZoneDragging}>{words.m.endZoneDragging()}</Box>
-                    <Box as="span" css={styles.endZoneTarget}>{words.m.endZoneTarget()}</Box>
+                    {/* Where a drop lands, pointed at by Font Awesome's caret (#1263). */}
+                    <Box as="span" css={styles.endZoneDragging}><FontAwesomeIcon icon={faCaretDown} />{words.m.endZoneDragging()}</Box>
+                    <Box as="span" css={styles.endZoneTarget}><FontAwesomeIcon icon={faCaretDown} />{words.m.endZoneTarget()}</Box>
                 </Box>
             </Box>
         );
@@ -443,6 +463,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const stepper = useMemo(() => stepperRecipe({ tone: "neutral", size: "sm" }) as Styles, [stepperRecipe]);
     const segRecipe = useSlotRecipe({ key: "seg" });
     const seg = useMemo(() => segRecipe() as Styles, [segRecipe]);
+    // The View chip's menu is the theme's: its items' leading icons and its group labels.
+    const menuRecipe = useSlotRecipe({ key: "menu" });
+    const menu = useMemo(() => menuRecipe() as Styles, [menuRecipe]);
     const editing = useSnapGridEditing(value, storageKey);
     const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, action: sessionAction } = editing;
 
@@ -893,10 +916,47 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             })}
         </Box>
     );
+    // The zoom and the widths folded into one chip (#1229): Zoom out, the zoom
+    // and Zoom in — which leave the menu open — then the widths as a choice of one.
+    const openWidth = String(value.widths.findIndex((preset) => parseCssSize(preset.width) === width));
+    const viewChip = (
+        <ChipMenu label={m.viewLabel()} icon={faEye} caret data="data-snap-grid-view" onSelect={(picked) => {
+            if (picked === "zoom-out") zoomTo(zoom - ZOOM_STEP);
+            else if (picked === "zoom-in") zoomTo(zoom + ZOOM_STEP);
+        }}>
+            <ChakraMenu.Item value="zoom-out" closeOnSelect={false} disabled={zoom <= ZOOM_MIN}>
+                <Box as="span" css={menu.itemIndicator}><FontAwesomeIcon icon={faMinus} /></Box>
+                {m.zoomOut()}
+            </ChakraMenu.Item>
+            <Box css={menu.itemGroupLabel} aria-live="polite" data-snap-grid-view-zoom="">{words.percent(zoom)}</Box>
+            <ChakraMenu.Item value="zoom-in" closeOnSelect={false} disabled={zoom >= ZOOM_MAX}>
+                <Box as="span" css={menu.itemIndicator}><FontAwesomeIcon icon={faPlus} /></Box>
+                {m.zoomIn()}
+            </ChakraMenu.Item>
+            {value.widths.length > 0 && (
+                <>
+                    <ChakraMenu.Separator />
+                    <Box css={menu.itemGroupLabel}>{m.widthsLabel()}</Box>
+                    <ChakraMenu.RadioItemGroup value={openWidth} onValueChange={(d) => {
+                        const preset = value.widths[Number(d.value)];
+                        if (preset !== undefined) setView({ width: some(preset.width), zoom: view.zoom });
+                    }}>
+                        {value.widths.map((preset, i) => (
+                            <ChakraMenu.RadioItem key={i} value={String(i)}>
+                                <Box as="span" css={menu.itemIndicator}>{String(i) === openWidth && <FontAwesomeIcon icon={faCheck} />}</Box>
+                                {preset.label}
+                            </ChakraMenu.RadioItem>
+                        ))}
+                    </ChakraMenu.RadioItemGroup>
+                </>
+            )}
+        </ChipMenu>
+    );
     const items: ReadonlyArray<ToolbarItem | false | null | undefined> = [
+        // The value's start items go last of the canvas's own steps (#1229).
         ...value.toolbar.start.map((node, i): ToolbarItem => ({
-            key: `start-${i}`, side: "start",
-            forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.start.${i}`} />],
+            key: `start-${i}`, side: "start", rank: RANK_START,
+            forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.start.${i}`} />, null],
         })),
         ...(toolbar?.start ?? []),
         { key: "grid", side: "start", forms: [<Box as="span" css={styles.chip} data-snap-grid-chip="">{m.gridChip()}</Box>, null], rank: RANK_GRID },
@@ -908,11 +968,14 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             key: "readout", side: "end", rank: RANK_READOUT, version: widthPx,
             forms: [<Box as="span" css={styles.readout} data-snap-grid-readout="">{m.widthReadout({ px: words.bare(widthPx) })}</Box>, null],
         },
-        { key: "zoom", side: "end", forms: [zoomControl], version: zoom },
+        { key: "zoom", side: "end", forms: [zoomControl, viewChip], rank: RANK_VIEW, bundle: VIEW_BUNDLE, version: zoom },
         { key: "rule", side: "end", forms: [<Box as="span" css={styles.divider} aria-hidden />] },
         ...(toolbarItems ?? []),
         history,
-        value.widths.length > 0 && { key: "widths", side: "end", forms: [widthsGroup(false), widthsGroup(true)], rank: RANK_WIDTHS, version: width },
+        value.widths.length > 0 && {
+            key: "widths", side: "end", forms: [widthsGroup(false), widthsGroup(true), null],
+            rank: [RANK_WIDTHS, RANK_VIEW], bundle: [undefined, VIEW_BUNDLE], version: width,
+        },
         ...value.toolbar.end.map((node, i): ToolbarItem => ({
             key: `end-${i}`, side: "end",
             forms: [<EastChakraComponent value={node} storageKey={`${storageKey}.toolbar.end.${i}`} />],

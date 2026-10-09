@@ -7,19 +7,20 @@
  * React integration for the editing session (#879): one session per source,
  * view and schema, kept in the UI store so it survives remounts; one
  * unresolved request per source across every view of it (the gate); and the
- * tracked reads that give a session its base and acknowledge an applied
- * request once the source reads back as the request left it.
+ * tracked reads that give a session its base, acknowledge an applied request
+ * once the source reads back as the request left it, and read a conflicting
+ * Save's entries at a paged source's new revision, which names them (#1199).
  *
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { ArrayType, DictType, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, toEastTypeValue, variant, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DictType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, toEastTypeValue, variant, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import type { EditingType } from "@elaraai/east-ui/internal";
 import { getStore } from "../platform/state-runtime.js";
-import type { UIStoreInterface } from "../platform/state-store.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
+import { bindingOf, gateOf, keptSession, sessionKeyOf, sourceSessionsOf } from "./kept.js";
 import { EditSession, type EditSessionBinding, type EntryVersion, type Placement } from "./session.js";
 
 /** A collection's editing declaration — the shared session's fields, and whatever else the collection carries. */
@@ -54,11 +55,7 @@ export interface EditSessionOptions<W> {
     ready?: EditSessionBinding<W>["ready"];
 }
 
-/** The views of one source: their sessions by view and schema (their projections may differ), and the one holding the source's request. */
-interface SourceSessions { sessions: Map<string, unknown>; owner: unknown }
-const stores = new WeakMap<UIStoreInterface, Map<string, SourceSessions>>();
 const entryOffsets = new WeakMap<object, Map<string, number>>();
-const sessionKey = printFor(StructType({ view: StringType, entry: EastTypeType, draft: EastTypeType }));
 const stringEqual = equalFor(StringType);
 const printString = printFor(StringType);
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
@@ -84,46 +81,22 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     const keyType = useMemo((): EastType | undefined =>
         editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) : undefined, [editing.keyType]);
     const sourceId = editing.sourceId;
-    const sourceSessions = useMemo(() => {
-        let sources = stores.get(store);
-        if (!sources) { sources = new Map(); stores.set(store, sources); }
-        let record = sources.get(sourceId);
-        if (!record) { record = { sessions: new Map(), owner: undefined }; sources.set(sourceId, record); }
-        return record;
-    }, [store, sourceId]);
-    const binding = useMemo<EditSessionBinding<W>>(() => ({
-        sourceId, entryType, draftType, keyType, ready,
-        idField: editing.idField.type === "some" ? editing.idField.value : undefined,
-        children: editing.children.type === "some" ? editing.children.value : undefined,
-        apply: editing.onApply.type === "some" ? editing.onApply.value.value : undefined,
-        patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
-        refresh: source?.refresh, auto: editing.mode.type === "auto",
-    }), [sourceId, entryType, draftType, keyType, editing, source, ready]);
-    const schemaKey = useMemo(() => sessionKey({ view: storageKey, entry: editing.entryType, draft: editing.draftType }), [storageKey, editing.entryType, editing.draftType]);
-    const session = useMemo(() => {
-        const previous = sourceSessions.sessions.get(schemaKey) as EditSession<W> | undefined;
-        if (previous) return previous;
+    const sourceSessions = useMemo(() => sourceSessionsOf(store, sourceId), [store, sourceId]);
+    const binding = useMemo(() => bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh),
+        [entryType, draftType, keyType, editing, source, ready]);
+    const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
+    const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);
-        sourceSessions.sessions.set(schemaKey, next);
         entryOffsets.set(next, new Map());
         return next;
-        // Binding callbacks change independently; the layout effect below
-        // updates future requests while an unresolved request keeps its closure.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sourceSessions, schemaKey]);
+    }),
+    // Binding callbacks change independently; the layout effect below
+    // updates future requests while an unresolved request keeps its closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sourceSessions, schemaKey]);
     const version = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
     useLayoutEffect(() => {
-        const siblingsChanged = () => {
-            for (const sibling of sourceSessions.sessions.values()) if (sibling !== session) (sibling as EditSession<unknown>).availabilityChanged();
-        };
-        session.bind({ ...binding, gate: {
-            available: () => sourceSessions.owner === undefined || sourceSessions.owner === session,
-            acquire: () => { sourceSessions.owner = session; siblingsChanged(); },
-            release: () => {
-                if (sourceSessions.owner === session) sourceSessions.owner = undefined;
-                siblingsChanged();
-            },
-        } });
+        session.bind({ ...binding, gate: gateOf(sourceSessions, session) });
     }, [session, binding, sourceSessions]);
     // Each resident row's place by its id, once per rows: a gesture's entries,
     // a reconcile's reads and the layer look rows up here, never by a scan of
@@ -140,7 +113,6 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // An inline source's whole collection — an Array, or a keyed source's Dict.
         decodeSnapshot: decodeBeast2For(toEastTypeValue(keyType !== undefined ? DictType(keyType, entryType) : ArrayType(entryType))),
         draftEqual: equalFor(toEastTypeValue(OptionType(draftType))),
-        entryEqual: equalFor(editing.entryType),
     }), [entryType, draftType, keyType, editing.entryType]);
     const read = useCallback(() => {
         // The author's checks run here, tracked: what they read (a State, a
@@ -148,36 +120,40 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // their fresh result as its readiness — derived here, not on every
         // read of it (#859).
         session.recheck(binding.ready, binding.ready?.(session.entries));
-        const matches = new Map<string, unknown>();
-        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), matches };
+        // The entries read at a revision: an Apply's, read back at the revision
+        // it committed; or a conflicting Save's, at the revision the source
+        // moved to (#1199) — each one's value, or `none` for one confirmed
+        // absent. The session judges them.
+        const reads = new Map<string, option<unknown>>();
+        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads };
         const revision = source?.revision();
-        if (revision?.type !== "some") return undefined;
-        if (session.status === "reconciling" && source !== undefined) {
-            for (const [id, entry] of session.entries) {
-                const resident = rowIndex.get(id);
-                let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
-                if (keyType !== undefined && source.seek.type === "some") {
-                    // A seek takes the key's `.east` literal: an id IS that
-                    // text for any key but a String, whose literal is quoted.
-                    const found = source.seek.value(variant("key", keyType.type === "String" ? printString(id) : id));
-                    if (found.type === "none") continue;
-                    at = Number(found.value.row);
-                }
-                if (at === undefined) continue;
-                // A loaded page distinguishes confirmed absence from an
-                // entry whose page has not arrived. Keep this read tracked.
-                const page = source.page(BigInt(at), 1n);
-                if (page.type === "none") continue;
-                const present = page.value.some(row => stringEqual(idOf(row), id));
-                if (entry.draft === undefined) {
-                    if (!present) matches.set(id, undefined);
-                } else if (present) {
-                    const raw = editing.readEntry(id, BigInt(at));
-                    if (raw.type === "some") matches.set(id, codecs.decodeEntry(raw.value));
-                }
+        if (revision?.type !== "some" || source === undefined) return undefined;
+        const naming = session.naming;
+        const ids = session.status === "reconciling" ? [...session.entries.keys()]
+            : naming !== undefined && !stringEqual(revision.value, naming.revision) ? naming.ids : [];
+        for (const id of ids) {
+            const resident = rowIndex.get(id);
+            let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
+            if (keyType !== undefined && source.seek.type === "some") {
+                // A seek takes the key's `.east` literal: an id IS that
+                // text for any key but a String, whose literal is quoted.
+                const found = source.seek.value(variant("key", keyType.type === "String" ? printString(id) : id));
+                if (found.type === "none") continue;
+                at = Number(found.value.row);
             }
+            if (at === undefined) continue;
+            // A loaded page distinguishes confirmed absence from an
+            // entry whose page has not arrived. Keep this read tracked.
+            const page = source.page(BigInt(at), 1n);
+            if (page.type === "none") continue;
+            if (!page.value.some(row => stringEqual(idOf(row), id))) {
+                reads.set(id, none);
+                continue;
+            }
+            const raw = editing.readEntry(id, BigInt(at));
+            if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
         }
-        return { base: variant("revision", revision.value), matches };
+        return { base: variant("revision", revision.value), reads };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
@@ -190,15 +166,12 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // evaluation, so a read that fails again after a Retry says so again.
         session.confirmFailed(result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error));
         if (!observed) return;
-        session.reconcile(observed.base, (id, expected) => {
-            // The session checks the complete inline target, including order.
-            if (observed.base.type === "snapshot") return true;
-            if (!observed.matches.has(id)) return false;
-            const actual = observed.matches.get(id);
-            return expected === undefined ? actual === undefined : actual !== undefined && codecs.entryEqual(actual, expected);
-        });
+        // An inline snapshot the session reads itself; at a revision, the entries read here —
+        // a commit's, read back, and a conflict's, which they name (#1199).
+        session.reconcile(observed.base, (id) => observed.reads.get(id));
+        session.nameConflicts(observed.base, (id) => observed.reads.get(id));
         session.observeBase(observed.base);
-    }, [session, result, observed, codecs]);
+    }, [session, result, observed]);
 
     const placeOf = useCallback((id: string): Placement => {
         if (keyType !== undefined) return some(variant("keyOrder", null));

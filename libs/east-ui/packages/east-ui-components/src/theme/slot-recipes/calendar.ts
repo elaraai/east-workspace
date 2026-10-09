@@ -208,7 +208,14 @@ export const calendarSlotRecipe = defineSlotRecipe({
         footerLead: { color: "fg.subtle" },
         footerSel: { color: "fg", fontWeight: "600" },
         footerValue: { fontFamily: "mono", fontWeight: "600", color: "fg" },
+        /* The delta: Font Awesome's caret, or its bar while flat, beside the
+         * signed figure (#1263) — the icon in the chip's ink, its size, and its
+         * own width, as the glyph it replaced, not Font Awesome's fixed 1.25em. */
         deltaChip: {
+            "--fa-width": "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
             fontFamily: "mono",
             fontSize: "11px",
             fontWeight: "600",

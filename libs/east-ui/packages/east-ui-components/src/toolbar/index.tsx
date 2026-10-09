@@ -30,7 +30,17 @@
  *
  * An item holding an open overlay (a popover or menu hanging from a trigger
  * inside it) keeps its form, and the row folds around it; so does an item an
- * author marks `held`.
+ * author marks `held`. An overlay's trigger turns its `data-state` in the
+ * overlay's own render, after the toolbar has chosen, so the toolbar watches
+ * its triggers' state and chooses again, before paint, when one opens or
+ * closes (#1231): a row left folded around an overlay that has closed would
+ * not be the configuration for its width.
+ *
+ * Steps of several items can make one BUNDLE (#1229), given as `rank` is: they
+ * apply together, so a chip that takes the place of other controls draws in
+ * the step that hides them (`./fold.ts`). A held item holds its bundles: every
+ * item sharing one with it keeps its form too, so the controls a chip's open
+ * menu holds never unfold beside it.
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -54,6 +64,10 @@ export interface ToolbarItem {
      *  from form `i` to `i + 1` is `rank[i]`). Lower folds first; defaults to
      *  {@link DEFAULT_RANK}. */
     rank?: number | ReadonlyArray<number> | undefined;
+    /** Each fold step's bundle, given as `rank` is (`undefined` for a step
+     *  with none): steps of several items that share one apply together. A
+     *  bundle's steps share one rank. */
+    bundle?: string | ReadonlyArray<string | undefined> | undefined;
     /** Keep the current form whatever the width — an overlay hangs from the
      *  item. (An open popover or menu inside the item holds it anyway.) */
     held?: boolean | undefined;
@@ -73,6 +87,9 @@ export interface ToolbarProps {
 
 /** An open overlay inside an item: a Zag popover's or menu's trigger, open. */
 const OPEN_OVERLAY = '[data-part="trigger"][data-state="open"]';
+
+/** An overlay's trigger, whose `data-state` says whether it hangs open. */
+const OVERLAY_TRIGGER = '[data-part="trigger"]';
 
 /** The most measure-and-choose passes one change may take — each measures a
  *  form it had not, so a real toolbar settles in a few. */
@@ -108,9 +125,17 @@ function ranksOf(it: ToolbarItem): number[] {
     return Array.from({ length: steps }, (_s, i) => r[i] ?? r[r.length - 1] ?? DEFAULT_RANK);
 }
 
+/** An item's per-step bundles. */
+function bundlesOf(it: ToolbarItem): (string | undefined)[] {
+    const steps = Math.max(0, it.forms.length - 1);
+    const b = it.bundle;
+    if (b === undefined || typeof b === "string") return Array.from({ length: steps }, () => b);
+    return Array.from({ length: steps }, (_s, i) => b[i]);
+}
+
 /** An item as the fold model sees it — keeping the form `held`, when it holds one. */
 function foldItemOf(it: ToolbarItem, held: number | undefined): FoldItem {
-    return { forms: it.forms.length, ranks: ranksOf(it), empty: it.forms.map(isEmptyForm), held };
+    return { forms: it.forms.length, ranks: ranksOf(it), empty: it.forms.map(isEmptyForm), held, bundles: bundlesOf(it) };
 }
 
 /**
@@ -167,9 +192,18 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         });
         observer.current = ro;
         if (rowRef.current !== null) ro.observe(rowRef.current);
+        // An overlay opening or closing inside an item moves what holds its
+        // form: chosen again before this frame paints, as a width change is.
+        const triggers = typeof MutationObserver === "undefined" ? null : new MutationObserver((records) => {
+            if (records.some((r) => r.target instanceof Element && r.target.matches(OVERLAY_TRIGGER))) flushSync(() => setTick((t) => t + 1));
+        });
+        if (triggers !== null && rowRef.current !== null) {
+            triggers.observe(rowRef.current, { subtree: true, attributes: true, attributeFilter: ["data-state"] });
+        }
         const seen = observed.current;
         return () => {
             ro.disconnect();
+            triggers?.disconnect();
             observer.current = null;
             seen.clear();
             if (frame.current !== 0) cancelAnimationFrame(frame.current);
@@ -213,6 +247,16 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         for (const el of observed.current) if (!onScreen.has(el)) observer.current?.unobserve(el);
         observed.current = onScreen;
         for (const it of list) if (it.held === true) held.set(it.key, formOf(it));
+        // A held item holds its bundles: each item sharing one keeps its form too.
+        for (let grew = true; grew;) {
+            grew = false;
+            const holding = new Set(list.filter((it) => held.has(it.key)).flatMap(bundlesOf).filter((b): b is string => b !== undefined));
+            for (const it of list) {
+                if (held.has(it.key) || !bundlesOf(it).some((b) => b !== undefined && holding.has(b))) continue;
+                held.set(it.key, formOf(it));
+                grew = true;
+            }
+        }
 
         const available = row.getBoundingClientRect().width;
         rowWidth.current = available;

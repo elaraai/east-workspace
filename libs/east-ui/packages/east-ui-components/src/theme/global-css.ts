@@ -40,7 +40,9 @@
  */
 
 import { defineGlobalStyles, type SystemStyleObject } from "@chakra-ui/react";
+import { faBan } from "@fortawesome/free-solid-svg-icons";
 import { headingStyles } from "./text-styles.js";
+import { iconMask } from "./icon-mask.js";
 
 /* Reduced-motion reset. Built via `Record<string, SystemStyleObject>` and
  * then narrowed to `SystemStyleObject`. Chakra v3's `SystemStyleObject` is
@@ -212,6 +214,31 @@ export const globalCss = defineGlobalStyles({
     ".east-drag-ghost": {
         pointerEvents: "none",
     },
+    /* The ghost's caption (#1187): a line under the ghost saying where the
+     * drop would land — mono, on the paper in a `--rule-strong` ring — or,
+     * red, why the cell under it refuses it. As wide as its words: the
+     * overlay is the size of what was picked up, a row's grip as much as a
+     * card. */
+    "[data-drag-caption]": {
+        width: "max-content",
+        marginTop: "{spacing.1}",
+        paddingInline: "{spacing.2}",
+        paddingBlock: "{spacing.1}",
+        fontFamily: "mono",
+        fontSize: "{fontSizes.label.md}",
+        lineHeight: "{lineHeights.tight}",
+        color: "fg.muted",
+        background: "bg.surface",
+        borderWidth: "1px",
+        borderStyle: "solid",
+        borderColor: "border.strong",
+        borderRadius: "{radii.sm}",
+        whiteSpace: "nowrap",
+    },
+    "[data-drag-caption][data-refused]": {
+        color: "fg.danger",
+        borderColor: "status.neg",
+    },
     /* A draggable is a keyboard control (#608): focused, Space / Enter picks
      * it up. The global reset below strips focus outlines, so it wears the
      * brand ring the moment the keyboard reaches it. */
@@ -318,9 +345,9 @@ export const globalCss = defineGlobalStyles({
         outlineOffset: "-3px",
     },
     /* A connected-but-vetoed cell (duplicate person, host `canAssign` veto)
-     * while hovered — red frame + the circle-with-cross badge, and the
-     * not-allowed cursor, per the Schematic connect-tool danger treatment.
-     * Outranks both stages above: a refusal must never read as an invitation. */
+     * while hovered — red frame + the ban badge, and the not-allowed cursor,
+     * per the Schematic connect-tool danger treatment. Outranks both stages
+     * above: a refusal must never read as an invitation. */
     "[data-drag-cell][data-drop-invalid]::before": {
         borderWidth: "2px",
         borderStyle: "solid",
@@ -329,15 +356,14 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-cell][data-drop-invalid]": {
         background: "bg.danger.subtle",
         cursor: "not-allowed",
-        /* The ⊘ is a mark: the valence base, as the state icons are. */
+        /* The badge is Font Awesome's solid ban, never a text glyph — the
+         * canvas's fonts lack one, and a fallback font drew it malformed
+         * (#1261). It is a mark: the valence base, as the state icons are. */
         "&::after": {
-            content: '"⊘"',
+            ...iconMask(faBan, "14px", "status.neg"),
             position: "absolute",
             top: "2px",
             right: "6px",
-            fontSize: "14px",
-            lineHeight: "1",
-            color: "status.neg",
             pointerEvents: "none",
             zIndex: 5,
         },

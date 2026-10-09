@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, IntegerType, NullType, StringType, DateTimeType, BlobType, FunctionType, AsyncFunctionType, StructType, OptionType, ArrayType, SetType, DictType, VariantType, RecursiveType, variant, some, none } from "../src/index.js";
+import { East, BooleanType, IntegerType, NullType, StringType, DateTimeType, BlobType, FunctionType, AsyncFunctionType, StructType, OptionType, ArrayType, SetType, DictType, VariantType, RecursiveType, variant, some, none } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./function.examples.js";
 
@@ -1490,6 +1490,66 @@ await describe("Function", (test) => {
         const decoded = $.let(blob.decodeBeast(FnType, 'v2'));
 
         $(assert.equal(decoded(), 42n));
+    });
+
+    test("async function awaiting inside an if, then matching the result, serialized and called", $ => {
+        const CheckType = VariantType({ ok: StringType, refused: NullType });
+        const FnType = AsyncFunctionType([BooleanType, StringType], StringType);
+
+        // An async check the greeting awaits: an empty name is refused
+        const check = $.let(East.asyncFunction([StringType], CheckType, ($, name) => {
+            $.if(East.equal(name, ""), $ => {
+                $.return(East.value(variant("refused", null), CheckType));
+            });
+            return East.value(variant("ok", name), CheckType);
+        }));
+
+        // Every statement after the await reads the check's result, not its promise
+        const greet = $.let(East.asyncFunction([BooleanType, StringType], StringType, ($, wanted, name) => {
+            const out = $.let("not asked");
+            $.if(wanted, $ => {
+                const checked = $.const(check(name));
+                $.match(checked, {
+                    ok: ($, who) => {
+                        $.assign(out, East.str`hello ${who}`);
+                    },
+                    refused: $ => {
+                        $.assign(out, "refused");
+                    },
+                });
+            });
+            return out;
+        }));
+
+        const blob = $.let(East.Blob.encodeBeast(greet, 'v2'));
+        const decoded = $.let(blob.decodeBeast(FnType, 'v2'));
+
+        $(assert.equal(decoded(true, "ada"), "hello ada"));
+        $(assert.equal(decoded(true, ""), "refused"));
+        $(assert.equal(decoded(false, "ada"), "not asked"));
+    });
+
+    test("function returning an async closure that awaits, then goes on, serialized and called", $ => {
+        const ScaledType = AsyncFunctionType([IntegerType], IntegerType);
+        const ScalerType = FunctionType([IntegerType], ScaledType);
+
+        const double = $.let(East.asyncFunction([IntegerType], IntegerType, (_$, x) => {
+            return x.multiply(2n);
+        }));
+
+        // Each closure awaits a doubling of its input, then adds the maker's n
+        const makeScaler = $.let(East.function([IntegerType], ScaledType, (_$, n) => {
+            return East.asyncFunction([IntegerType], IntegerType, ($, x) => {
+                const doubled = $.let(double(x));
+                return doubled.add(n);
+            });
+        }));
+
+        const blob = $.let(East.Blob.encodeBeast(makeScaler, 'v2'));
+        const decoded = $.let(blob.decodeBeast(ScalerType, 'v2'));
+
+        const addFive = $.let(decoded(5n));
+        $(assert.equal(addFive(10n), 25n)); // 10 * 2 + 5
     });
 
     test("deeply nested closures (A captures B captures C captures value)", $ => {

@@ -16,7 +16,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { toEastTypeValue, IntegerType, StringType, StructType } from "@elaraai/east";
@@ -198,6 +198,35 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(onInputChange).toHaveBeenLastCalledWith(""));
     });
 
+    test("a host's source moving to another snapshot asks the query held again — its text kept, the new answer counted; none held, nothing asked (#1199)", async () => {
+        let answer = { found: true, row: 100, count: 3 };
+        const onFind = vi.fn(async (_query: unknown, _again?: boolean) => answer);
+        const onListRange = vi.fn(async () => ["a", "b", "c"]);
+        const onJump = vi.fn();
+        const props = { keyType: StringKey, onFind, onListRange, onJump };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search keys") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
+        expect(onFind).toHaveBeenCalledTimes(1);
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" });
+        // The same snapshot again asks nothing.
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        expect(onFind).toHaveBeenCalledTimes(1);
+        // A new one: the query held, asked again — its text standing — and its answer the box's.
+        answer = { found: true, row: 98, count: 5 };
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={1} /></ChakraProvider>);
+        await waitFor(() => expect(screen.getByText("5 matches")).toBeTruthy());
+        expect(onFind).toHaveBeenCalledTimes(2);
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" }, true);
+        expect(input.value).toBe("a");
+        // Cleared, nothing is held: another snapshot asks nothing.
+        fireEvent.click(screen.getByLabelText("Clear search"));
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={2} /></ChakraProvider>);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(onFind).toHaveBeenCalledTimes(2);
+    });
+
     test("misses report No matches; the control is the shared combobox recipe", async () => {
         const onFind = vi.fn(async () => ({ found: false, row: 7, count: 0 }));
         const onListRange = vi.fn(async () => [] as string[]);
@@ -211,6 +240,57 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(screen.getByText("No matches")).toBeTruthy());
         expect(onListRange).not.toHaveBeenCalled();
         expect(screen.queryByLabelText("Next match")).toBeNull();
+    });
+});
+
+describe("DatasetKeySearch on a touch screen (#1228)", () => {
+    // A touch screen as Zag tells one: it then tracks no focus moving outside an open list.
+    beforeEach(() => { Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true }); });
+    afterEach(() => { delete (navigator as { maxTouchPoints?: number }).maxTouchPoints; });
+
+    /** The search beside a control outside it, its list open over three matches. */
+    async function openList(onJump = vi.fn()) {
+        const onFind = vi.fn(async () => ({ found: true, row: 100, count: 3 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => Array.from({ length: Math.min(limit, 3) }, (_, i) => `key-${row + i}`));
+        render(
+            <ChakraProvider value={system}>
+                <DatasetKeySearch keyType={StringKey} onFind={onFind} onListRange={onListRange} onJump={onJump} />
+                <button type="button">Elsewhere</button>
+            </ChakraProvider>,
+        );
+        const input = screen.getByPlaceholderText("Search keys") as HTMLInputElement;
+        await userEvent.type(input, "key");
+        await waitFor(() => expect(screen.getByText("key-100")).toBeTruthy());
+        expect(document.querySelector('[data-scope="combobox"][data-part="content"][data-state="open"]')).not.toBeNull();
+        return input;
+    }
+
+    /** The search's list, while it is open. */
+    const openContent = () => document.querySelector('[data-scope="combobox"][data-part="content"][data-state="open"]');
+    /** Two animation frames: the combobox looks at a focus a frame after it moves, as Zag does. */
+    const frames = () => act(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+
+    test("a focus moved to a control outside the list closes it, the key and its matches kept", async () => {
+        await openList();
+        act(() => { screen.getByRole("button", { name: "Elsewhere" }).focus(); });
+        await waitFor(() => expect(openContent()).toBeNull());
+        expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("key");
+        expect(screen.getByText("3 matches")).toBeTruthy();
+        // The focus stays where it went: a close that put it back in the box would do so a frame later.
+        await frames();
+        expect(screen.getByRole("button", { name: "Elsewhere" })).toBe(document.activeElement);
+    });
+
+    test("a focus moved into the list keeps it open; a match tapped there is still taken", async () => {
+        const onJump = vi.fn();
+        await openList(onJump);
+        const item = screen.getByText("key-101").closest<HTMLElement>('[data-part="item"]')!;
+        act(() => { item.focus(); });
+        await frames();
+        expect(openContent()).not.toBeNull();
+        fireEvent.pointerDown(item, { pointerType: "touch", button: 0 });
+        fireEvent.click(item);
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(101));
     });
 });
 

@@ -38,12 +38,11 @@
 >     --window-size=1000,10100 --screenshot="Sheet Behaviour.png" "file://$PWD/Sheet Behaviour.html"   # the whole contract
 > ```
 >
-> The prototype and its documents were genericised from a client design to a
-> discrete manufacturing plant — work orders moving parts between machines on
-> lines — with synthetic registers and rows. Keep every example in this repository
-> on that footing — no customer, site, product or upstream-system names, no
-> process jargon that would place the plant in an industry, and no operational
-> numbers copied from a real plan.
+> The prototype and its documents are set in a joinery workshop — work orders
+> moving panels between machines in bays — with synthetic registers and rows.
+> Keep every example in this repository on that footing — no customer, site,
+> product or upstream-system names, and no operational numbers copied from a
+> real plan.
 
 One sheet; typed columns; a copilot. `Sheet` is the planning spreadsheet: a sheet
 whose rows are the host's records, whose columns are **typed** (a date, a quantity
@@ -75,6 +74,17 @@ review of 2026-09-09: the inline arm is **positional** (keyed sources only when
 paged); a column header is **`header`** + `sub`; a Link column is searched through
 the slice's **`printFor` text or a `text` projection**; `ctx.row` is rebuilt over
 the **real row**; and **`selection`** may be controlled (§3.14).
+
+And on 2026-10-05 (#1216): the Sheet is **one component**, `<Sheet>`, and it
+renders in its builder frame wherever it is used — the toolbar, the banners, the
+grid in main with its strip docked under it, and the footer — its library and
+inspector panes optional props. Its rows come from an e3 record bound with its
+patch mutation (`record`, with `entry` or `window`) or are the host's (`data`).
+`<Sheet.View>`, `<Sheet.Builder>`, the frameless layout, its own toolbar row and
+the unbounded in-flow mode (#856) are gone: a sheet fills the box it is given and
+scrolls its own rows. The frame and the panes are
+[`Sheet Builder Spec.md`](./Sheet%20Builder%20Spec.md)'s; the listings below keep
+the props as they were designed.
 
 ---
 
@@ -163,8 +173,8 @@ and `D` never cross the IR except inside function captures.
 ## 3 · Authoring surface — the DX, by example
 
 `@jsxImportSource @elaraai/east-ui`. Every example below is complete enough to
-compile once the factories exist; the flagship (§3.11) is the first example in the
-corpus (`sheetPlan`). Fixtures are elided with `…` only where they repeat. The
+compile once the factories exist; the flagship (§3.11) was the corpus's
+`sheetPlan`, and since #1189 is `sheetWorkshop` (§8's note on the corpus). Fixtures are elided with `…` only where they repeat. The
 listings hoist types, fixtures and the typed constructors (`Ctx`, `Proposals`) to
 module scope and repeat them per section for reading; in the corpus every example
 function is self-contained — types, fixtures and constructors declared once inside
@@ -195,7 +205,7 @@ const JobType = StructType({
 export const sheetBasic = East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
         const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [
-            { id: "j1", start: none, task: "Machining", qty: none },
+            { id: "j1", start: none, task: "Routing", qty: none },
         ]));
         return (
             <Sheet
@@ -309,15 +319,15 @@ accessors take it as `d`, and providers receive it as `ctx.driver` (§3.5).
 ```tsx
 const ActivityType = StructType({ name: StringType, uom: StringType, rate: FloatType, fte: IntegerType, days: IntegerType,
                                   sides: Sheet.Types.Sides });                                  // both | from | to | in
-const MachineType  = StructType({ code: StringType, family: StringType, line: StringType, site: StringType });
-const LineType     = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
+const MachineType  = StructType({ code: StringType, family: StringType, bay: StringType, site: StringType });
+const BayType      = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
 const FamilyType   = StructType({ name: StringType, aliases: ArrayType(StringType) });
 const StatusType   = StructType({ word: StringType, tone: StatusValueType });
 
 // inside the <Reactive> body
 const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
 const machines   = $.const(MACHINES, ArrayType(MachineType));
-const lines      = $.const(LINES, ArrayType(LineType));
+const bays       = $.const(BAYS, ArrayType(BayType));
 const families   = $.const(FAMILIES, ArrayType(FamilyType));
 const sites      = $.const(SITES, ArrayType(StringType));
 const statuses   = $.const(STATUSES, ArrayType(StatusType));
@@ -326,10 +336,10 @@ driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.n
 registers={{
     stations: Sheet.register.concat([
         Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
-            meta: m => some(m.family), parent: m => some(m.line) }),
-        Sheet.register.members(lines, { kind: "line", key: l => l.name, label: l => l.name,
-            aliases: l => l.aliases, meta: l => some(East.str`line · ${l.machines}`) }),
-        // A countable-by-attribute kind: every distinct family is a member ("CNC lathe"), with the spellings a planner types.
+            meta: m => some(m.family), parent: m => some(m.bay) }),
+        Sheet.register.members(bays, { kind: "bay", key: b => b.name, label: b => b.name,
+            aliases: b => b.aliases, meta: b => some(East.str`bay · ${b.machines}`) }),
+        // A countable-by-attribute kind: every distinct family is a member ("CNC router"), with the spellings a planner types.
         Sheet.register.members(families, { kind: "family", key: f => f.name, label: f => f.name,
             aliases: f => f.aliases, meta: _f => some("family") }),
     ]),
@@ -354,9 +364,9 @@ on the host's row in one of three ways — chosen by the field's static types (t
 
 ```ts
 export const SheetMemberType = VariantType({
-    identified:  StructType({ key: StringType }),                    // "M2140" — a register code
-    range:       StructType({ from: StringType, to: StringType }),   // "M2140-45" — expands through the register
-    counted:     StructType({ n: IntegerType, key: StringType }),    // "4 × CNC lathe" — a count of a countable member
+    identified:  StructType({ key: StringType }),                    // "R2140" — a register code
+    range:       StructType({ from: StringType, to: StringType }),   // "R2140-45" — expands through the register
+    counted:     StructType({ n: IntegerType, key: StringType }),    // "4 × CNC router" — a count of a countable member
     placeholder: NullType,                                           // "TBC" — dashed
     text:        StringType,                                         // anything else — kept as typed, never blocked
 });
@@ -371,18 +381,18 @@ export const SheetLinkType = StructType({ from: ArrayType(SheetMemberType), to: 
 `Sheet.link.parse(text, members)` / `Sheet.link.print(link)` are exported East
 functions — the kind's parse / print pair (§3.9), resolved against a register's
 members (a token that names a key or alias is `identified`, `N x key` is
-`counted`, `M2140-45` a `range`, `TBC` the placeholder, anything else `text`) —
+`counted`, `R2140-45` a `range`, `TBC` the placeholder, anything else `text`) —
 so a task can round-trip a legacy string without the renderer.
 
 ```tsx
 stations: Sheet.column.link(PlanRowType, ActivityType, "stations", {                     // row type · driver row type · register · config
-    header: "Work centres", sub: "from → to · 4 x lathe · machine · line", width: "352px",
+    header: "Work centres", sub: "from → to · 4 x router · machine · bay", width: "352px",
     // form (b) — the column sits on one member-array field and names the other: `to: "toStations"`; omit for (a) or (c)
     members: [
         { kind: "machine", identified: true },                    // a register code; bare digits try the code prefix
-        { kind: "range", identified: true },                      // M2140-45 expands to every member in the span
-        { kind: "line", countable: true, resolvesTo: "machine" }, // "2 × Line 2" — a count of a kind, resolved later
-        { kind: "family", countable: true, resolvesTo: "machine" },   // "4 × CNC lathe" — countable by attribute
+        { kind: "range", identified: true },                      // R2140-45 expands to every member in the span
+        { kind: "bay", countable: true, resolvesTo: "machine" },  // "2 × Bay 2" — a count of a kind, resolved later
+        { kind: "family", countable: true, resolvesTo: "machine" },   // "4 × CNC router" — countable by attribute
     ],
     multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
     sides: { value: d => d.sides,                                                 // the DRIVER's row: both | from | to | in
@@ -396,7 +406,7 @@ stations: Sheet.column.link(PlanRowType, ActivityType, "stations", {            
 The arity rule is domain logic, so it is a function over the typed context
 (§3.5): given the row as it would be and the driver's row, how many members are
 implied and **which countable member** to propose when none are named (the
-`n × CNC lathe` form of B§4.5). The prototype's per-unit switch reads naturally:
+`n × CNC router` form of B§4.5). The prototype's per-unit switch reads naturally:
 
 ```tsx
 const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);                       // the typed context — §3.5
@@ -412,18 +422,18 @@ const impliedStations = $.const(East.function([Ctx], OptionType(Sheet.Types.Coun
     const whole = $.let(half.subtract(half.remainder(1.0)).toInteger());
     return ctx.driver.match({
         none: _$ => noCount,
-        some: (_$, d) => d.uom.equal("lots").ifElse(
-            _$ => some({ n: whole, key: "CNC lathe" }),                           // one lot per machine — the quantity IS the count
+        some: (_$, d) => d.uom.equal("batches").ifElse(
+            _$ => some({ n: whole, key: "CNC router" }),                           // one batch per machine — the quantity IS the count
             _$ => d.uom.equal("pcs").or(() => d.uom.equal("units")).ifElse(
                 _$ => qty.greater(0.0).ifElse(
-                    _$ => some({ n: needed, key: "CNC lathe" }),
+                    _$ => some({ n: needed, key: "CNC router" }),
                     _$ => noCount),
                 _$ => noCount)),                                                  // hours, cartons, pallets name no machines
     });
 }));
 ```
 
-The strip reads the result while the To half is edited (*4 × CNC lathe implied · 3
+The strip reads the result while the To half is edited (*4 × CNC router implied · 3
 named so far*, B§4.6). A `check` returns `some(message)` to flag a member (B§2
 `check`); it sees the typed row, the half and the resolved member. `exists` is
 the grammar's, the rest are the author's — reading their own data through a
@@ -476,7 +486,8 @@ for one sheet is refused on another — its payload at compile time, its context
 `Option<Null>`, always `none`. Every rule the prototype hard-codes
 — derive, history, sequence, default, phrase, capacity — is a few lines of East
 over `ctx.row.start`, `ctx.driver`, `ctx.rows`. Nothing is built in; these are
-the corpus examples (`sheetCopilot`):
+the corpus examples (once `sheetCopilot`; since #1189 the fills and proposers of
+`sheetWorkshop`):
 
 ```tsx
 const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
@@ -552,10 +563,10 @@ const phrase = $.const(East.function([Ctx], TextFill, ($, ctx) => {
         some: ($2, v) => { const k = $2.let(v.add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },   // round by hand — `toInteger` refuses a fraction
         none: _$ => 0n,
     }));
-    return ctx.row.activity.startsWith("Machining").ifElse(
-        _$ => some({ value: East.str`Machine ${n} P-40 blanks`, meta: "phrasing from past machining runs" }),
-        _$ => ctx.row.activity.startsWith("Painting").ifElse(
-            _$ => some({ value: East.str`Paint ${n} P-40 housings`, meta: "phrasing from past painting runs" }),
+    return ctx.row.activity.startsWith("Routing").ifElse(
+        _$ => some({ value: East.str`Nest ${n} C-18 panels`, meta: "phrasing from past routing runs" }),
+        _$ => ctx.row.activity.startsWith("Spraying").ifElse(
+            _$ => some({ value: East.str`Spray ${n} C-18 doors`, meta: "phrasing from past spraying runs" }),
             _$ => noFill));
 }));
 
@@ -620,23 +631,23 @@ takes a literal or an expression and an omitted one is `none`.
 ```tsx
 const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 
-// 1 · A domain pattern: a roughing run is followed by an inspection of its lots on the same days
-//     and a finishing pass at end +3…+7 d.
-const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
+// 1 · A domain pattern: a nesting run is followed by an inspection of its batches on the same days
+//     and a profiling pass at end +3…+7 d.
+const nestingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
     const empty = $.const([], Proposals);
     const n = $.let(impliedStations(ctx).match({ some: (_$, c) => c.n, none: _$ => 1n }));   // reuse the arity rule
-    return ctx.row.activity.equal("Machining - Roughing").and(() => ctx.row.end.hasTag("some")).ifElse(
+    return ctx.row.activity.equal("Routing - Nesting").and(() => ctx.row.end.hasTag("some")).ifElse(
         $ => {
             const endAt = $.let(ctx.row.end.unwrap("some"));
             return $.const([
                 { patch: Sheet.patch(PlanRowType, {
                       activity: "Inspection", start: ctx.row.start, end: ctx.row.end,
-                      qty: some(n.toFloat()), notes: East.str`Inspect ${n} roughing lots` }),
+                      qty: some(n.toFloat()), notes: East.str`Inspect ${n} nesting batches` }),
                   meta: "inspection · same days" },
                 { patch: Sheet.patch(PlanRowType, {
-                      activity: "Machining", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)),
-                      qty: ctx.row.qty, notes: "Finish the roughed blanks" }),
-                  meta: "finishing pass · end +3…+7 d" },
+                      activity: "Routing", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)),
+                      qty: ctx.row.qty, notes: "Profile the nested panels" }),
+                  meta: "profiling pass · end +3…+7 d" },
             ], Proposals);
         },
         _$ => empty);
@@ -675,7 +686,7 @@ const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, (_$, ctx) =>
 suggest={{
     ahead: 2n,                                                   // at most two proposed rows below the anchor (B§5.2)
     triggers: ["activity", "start", "end", "qty", "notes", "stations"],
-    propose: [roughingFollowUps, modelProposals, lastFollower],      // first that returns rows wins
+    propose: [nestingFollowUps, modelProposals, lastFollower],      // first that returns rows wins
 }}
 ```
 
@@ -759,11 +770,11 @@ const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), 
 ```
 
 Search over a non-String field goes through its `printFor` text by default — for a
-link, `(from=[.identified (key="M2140")], to=[.counted (n=4, key="CNC lathe")])`, so
-`M2140` and `CNC lathe` hit but the display form `4 x CNC lathe` misses and the `.east`
+link, `(from=[.identified (key="R2140")], to=[.counted (n=4, key="CNC router")])`, so
+`R2140` and `CNC router` hit but the display form `4 x CNC router` misses and the `.east`
 field names match every row — which is why a field spec may name a `text`
-projection: `Sheet.link.print` renders the grammar's display form, `M2140 > 4 x CNC
-lathe`. Both landed with P5 as the Slice's `text` field kind: `Slice.config` makes any
+projection: `Sheet.link.print` renders the grammar's display form, `R2140 > 4 x CNC
+router`. Both landed with P5 as the Slice's `text` field kind: `Slice.config` makes any
 non-primitive field a search-only `text` field (its `.east` print, or the `text`
 accessor), `sliceMatches` searches it through the projection, and `slice.fields()`
 never lists it — a text field has no operator set, so it is searched, never filtered.
@@ -789,9 +800,9 @@ locally at once (the interactive-state pattern).
 
 ```tsx
 const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "plan.views", [
-    { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [] },
+    { id: "spraying", name: "SPRAYING", narrowing: Slice.state({ search: some("spraying") }), context: 1n, reveals: [] },
 ]));
-<Sheet … slice={slice} affordances={["search"]} views={views.read()} onViewsChange={views.write} activeView={some("painting")} />
+<Sheet … slice={slice} affordances={["search"]} views={views.read()} onViewsChange={views.write} activeView={some("spraying")} />
 ```
 
 Without `slice` there is no search box, no lens and no tabs — the sheet is whole.
@@ -843,6 +854,10 @@ const cancelled = $.let(rows.filter((_$, r) => r.status.equal("CANCELLED")).leng
 
 ### 3.11 The flagship — everything together (`sheetPlan`)
 
+The listing is the flagship as designed. Since #1189 the corpus shows these
+features in the sheet's frame (#1216): the flagship is `sheetWorkshop`, and the
+column kinds and rules the workshop does not draw are `sheetWeeks`'s.
+
 ```tsx
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, some, none, variant } from "@elaraai/east";
@@ -853,8 +868,8 @@ const PlanRowType = StructType({
     qty: OptionType(FloatType), notes: StringType, stations: Sheet.Types.Link, setups: OptionType(IntegerType),
     fromSite: StringType, toSite: StringType, orderCode: StringType, status: StringType,
 });
-// ActivityType / MachineType / LineType / FamilyType / StatusType as in §3.3; PLAN_ROWS / ACTIVITIES / MACHINES /
-// LINES / FAMILIES / SITES / STATUSES / MACHINE_SITES are the synthetic fixtures the prototype ships with.
+// ActivityType / MachineType / BayType / FamilyType / StatusType as in §3.3; PLAN_ROWS / ACTIVITIES / MACHINES /
+// BAYS / FAMILIES / SITES / STATUSES / MACHINE_SITES are the synthetic fixtures the prototype ships with.
 const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
 const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 const recommend = East.asyncPlatform("plan_recommend", [Ctx], Proposals);
@@ -866,7 +881,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
         const rows  = $.let(plan.read());
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
         const machines = $.const(MACHINES, ArrayType(MachineType));
-        const lines = $.const(LINES, ArrayType(LineType));
+        const bays = $.const(BAYS, ArrayType(BayType));
         const families = $.const(FAMILIES, ArrayType(FamilyType));
         const sites = $.const(SITES, ArrayType(StringType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
@@ -877,7 +892,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
         });
         const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
         // impliedStations, siteMatches (§3.4) · endFromStart, lastSimilar, lastQuantity, lastStations, nextSlot, shiftQuantity,
-        // phrase, countedByQuantity (§3.5) · roughingFollowUps, lastFollower, modelProposals (§3.6)
+        // phrase, countedByQuantity (§3.5) · nestingFollowUps, lastFollower, modelProposals (§3.6)
         const planned = $.let(rows.filter((_$, r) => r.activity.length().greater(0n)).length());
 
         return (
@@ -896,9 +911,9 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                                    format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastQuantity, shiftQuantity] }),
                     notes:     Sheet.column.text(PlanRowType, { header: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
                     stations:  Sheet.column.link(PlanRowType, ActivityType, "stations", {
-                                   header: "Work centres", sub: "from → to · 4 x lathe · machine · line", width: "352px",
+                                   header: "Work centres", sub: "from → to · 4 x router · machine · bay", width: "352px",
                                    members: [{ kind: "machine", identified: true }, { kind: "range", identified: true },
-                                             { kind: "line", countable: true, resolvesTo: "machine" },
+                                             { kind: "bay", countable: true, resolvesTo: "machine" },
                                              { kind: "family", countable: true, resolvesTo: "machine" }],
                                    multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
                                    sides: { value: d => d.sides, locks: { from: { to: "external", in: "in place" }, to: { from: "external" } } },
@@ -912,7 +927,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                     status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "erp", width: "124px" }),
                 }}
                 suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty", "notes", "stations"],
-                           propose: [roughingFollowUps, modelProposals, lastFollower] }}
+                           propose: [nestingFollowUps, modelProposals, lastFollower] }}
                 slice={slice} affordances={["search", "filter"]}
                 views={views.read()} onViewsChange={views.write}
                 onUpdate={plan.write}
@@ -1029,12 +1044,12 @@ to `none` on an `Option` field and to the type's default value on a bare one
 ```ts
 export const SheetMemberType = VariantType({ identified: …, range: …, counted: …, placeholder: NullType, text: StringType });   // §3.4
 export const SheetRegisterMemberType = StructType({
-    key:     StringType,                     // what the grammar resolves ("M2140", "Line 2", "CNC lathe")
+    key:     StringType,                     // what the grammar resolves ("R2140", "Bay 2", "CNC router")
     label:   StringType,                     // what a chip prints
-    kind:    StringType,                     // "machine" | "line" | "family" | "activity" | "site" | …
-    aliases: ArrayType(StringType),          // "the 2 line", "lathe", "120t"
-    meta:    OptionType(StringType),         // chip meta ("CNC lathe", "line · 96"); shown when a half holds one chip
-    parent:  OptionType(StringType),         // a machine's line — countable → identified resolution and "enumerate"
+    kind:    StringType,                     // "machine" | "bay" | "family" | "activity" | "site" | …
+    aliases: ArrayType(StringType),          // "the 2 bay", "router", "3m"
+    meta:    OptionType(StringType),         // chip meta ("CNC router", "bay · 96"); shown when a half holds one chip
+    parent:  OptionType(StringType),         // a machine's bay — countable → identified resolution and "enumerate"
     tone:    OptionType(StatusValueType),    // an enum member's valence dot
 });
 export const SheetRegisterType = StructType({ members: ArrayType(SheetRegisterMemberType) });
@@ -1060,7 +1075,7 @@ export const SheetMultipleType   = StructType({ forms: ArrayType(StringType), op
 export const SheetSideLockType   = StructType({ half: SheetHalfType, when: SheetSidesValueType, label: StringType });
 export const SheetSidesType      = StructType({ byDriver: DictType(StringType, SheetSidesValueType),   // the `sides.value` accessor applied over the driver data
                                                 locks: ArrayType(SheetSideLockType) });
-export const SheetCountedType    = StructType({ n: IntegerType, key: StringType });                     // "4 × CNC lathe"
+export const SheetCountedType    = StructType({ n: IntegerType, key: StringType });                     // "4 × CNC router"
 export const SheetArityType      = StructType({ half: SheetHalfType, implied: FunctionType([SheetContextType], OptionType(SheetCountedType)) });
 export const SheetCheckContextType = StructType({ rowIndex: IntegerType, row: DictType(StringType, SheetCellType), half: SheetHalfType, member: SheetMemberType });
 export const SheetCheckType      = VariantType({ exists: NullType, custom: FunctionType([SheetCheckContextType], OptionType(StringType)) });
@@ -1251,16 +1266,16 @@ behaviour lives and how it is tested.
 | 1 | Dates: typed entry is the common date field — the segmented `dd / mm / yyyy` control the `Input` renderer uses; digits fill a segment, ↑ / ↓ step it, ⇥ leaves the last segment for the next cell, a printable key that opened the editor lands in the day segment. The B§3 grammar parses PASTED text — `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward — and every calendar form and printed form (display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span; clipboard `17/11/2026`) is an East datetime pattern through East's own printer and parser | `parse/date.ts` + `Editor.tsx` | unit table + DOM |
 | 2 | Quantities: typed entry is the common number field — digits, a decimal point, a leading minus; ↑ / ↓ and the stepper column step by one; the unit is the column's, never typed. The B§3 grammar parses PASTED text — an optional `k` / `m` magnitude suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate | `parse/quantity.ts` + `Editor.tsx` | unit table + DOM |
 | 3 | Candidate scoring: prefix (0) → word prefix (1) → initials (2) → substring (3), ties by sheet frequency; only a prefix match ghosts inline; a non-prefix match previews `→ replacement`; empty buffer arms nothing (menu of what the field accepts, driver column ranked by what follows the row above); ⌥]/⌥[/⌥↓/⌥↑ cycle (B§3.1) | `candidates.ts` | unit + DOM |
-| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`M2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`120t` / `120 T` — a number + unit the register knows, resolved by key or alias with the spacing normalised), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
+| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`R2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`3m` / `3 M` — a number + unit the register knows, resolved by key or alias with the spacing normalised), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
 | 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; the driver member's `sides` (the column's per-driver dictionary, §4.3) selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2); a `set` column edits as a single To half | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
 | 6 | Link display: `minmax(0,1fr) 16px minmax(0,1fr)`; chips mono 10.5 paper-3 r4; meta only for a single chip; dashed = text/placeholder/proposal; FROM/TO faint labels; lock tags warn-tinted when holding content; proposals as dashed chips over the hatch with a ✓ take on hover (B§4.3) | `cells/LinkCell.tsx` + recipe | DOM + shot |
-| 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4); `,` and the arrow resolve the buffer through the ARMED candidate (Tab's rule), so `m73,` lands `M7301` rather than a text chip | `Editor.tsx` + `sheet-state.ts` | DOM |
+| 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4); `,` and the arrow resolve the buffer through the ARMED candidate (Tab's rule), so `a73,` lands `A7301` rather than a text chip | `Editor.tsx` + `sheet-state.ts` | DOM |
 | 8 | Link autocomplete & prediction: candidate order (exact → code prefixes → countables with an enumerate alternative → other prefixes → other countables → placeholder), members never offered twice, a range shows its expansion; prediction only with an empty buffer, per half, never into a locked half, from the column's fill providers, as `Link` values (the prototype's history-then-counted order is the author's `[lastStations, countedByQuantity]`); withdrawn once a half has named members; from-only drivers propose into From (B§4.5); P3 wires the hook (`predictedMembers`), P4 supplies the fills | `link/predict.ts` | unit + DOM |
 | 9 | Arity: strip meta *n × kind implied · k named so far / named / more than the quantity needs* while the arity half is edited; named = identified once, counted by count; text/placeholders do not count (B§4.6); the bridged `implied` is called with the edited row's wire context, fail-open | `link/arity.ts` + `Strip.tsx` | unit + DOM |
 | 10 | Copilot runner: rebuilt against the row as it would be, after the kind's latency (150 / 1 100 ms); owned rows untouched; nothing into an occupied slot; first yielding provider wins — providers are the bridged wire functions of §4.8, the runner never sees `R`; provenance in the strip; fills as grey ghosts over the hatch; exactly one next Tab target (dotted underline); ✓ take on hover; gutter → fills the row (⌘⏎); memoised per (row, provisional row, column) (B§5, B§5.1); fills CHAIN in column order — a later column's providers and the proposers see the earlier fills as if taken (the prototype's `row.start \|\| fill.start`) | `suggest.ts` + `sheet-suggest-state.ts` | unit + DOM |
 | 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window — a later sync provider answers meanwhile and an earlier async one that lands replaces it (first that yields wins, by position); an in-flight promise is memoised so a re-run re-attaches instead of restarting | `suggest-async.ts` | unit (fake timers) + DOM |
 | 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2); a proposal lands in the blank slot below the anchor, else appended (blanks are padding) | `suggest.ts` + `Rows.tsx` | DOM |
-| 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); Home / End to the row's first or last column, ⌘Home / ⌘End to the sheet's first or last cell (the last row that is not blank padding), Page Up / Page Down a viewport of rows, ⇧ with any of them stretching the range (#860); on a paged sheet ↓ past the last resident row, ↑ above the first and ⌘Home / ⌘End toward an end not resident fetch the window there and the ring lands once it arrives — a gesture meanwhile keeps the ring where the viewer put it, and a key search meanwhile takes its place; a keyboard move keeps the ring's cell in view, sideways in every frame and down on a sheet whose rows render in flow; ⇥/⇧⇥ walk fills → take rows → move, and a ⇥ with nothing to do (the row's last column, nothing pending; ⇧⇥ on its first) is the browser's, so the focus leaves the grid; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` + `index.tsx` | transition table + DOM |
+| 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); Home / End to the row's first or last column, ⌘Home / ⌘End to the sheet's first or last cell (the last row that is not blank padding), Page Up / Page Down a viewport of rows, ⇧ with any of them stretching the range (#860); on a paged sheet ↓ past the last resident row, ↑ above the first and ⌘Home / ⌘End toward an end not resident fetch the window there and the ring lands once it arrives — a gesture meanwhile keeps the ring where the viewer put it, and a key search meanwhile takes its place; a keyboard move keeps the ring's cell in view — the frame brings its row in, the component its column; ⇥/⇧⇥ walk fills → take rows → move, and a ⇥ with nothing to do (the row's last column, nothing pending; ⇧⇥ on its first) is the browser's, so the focus leaves the grid; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` + `index.tsx` | transition table + DOM |
 | 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6). A date or number cell's ↑ / ↓ belong to its field (they step), so from those fields only ⏎, ⇥ and esc reach the machine | `sheet-state.ts` + `Editor.tsx` | DOM |
 | 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7). Blank rows are padding, not rows: typing into any blank row inserts one row AFTER the last real one (source order is the only order) and the ring follows it; the initial ring sits on the first blank row's driver column | `model.ts` | unit |
 | 16 | The lens over the slice: hit = the slice narrowing matches the row (`sliceMatches` over filters / cohorts / search — String fields directly, other fields through their `printFor` text or the field's `text` projection); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context — the context switch a radio group, one tab stop, ←/→ and Home/End moving and picking (#860); collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
@@ -1271,8 +1286,8 @@ behaviour lives and how it is tested.
 | 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident); the resident run is the stretch of windows that are in nearest the viewport's centre (#876): a failed window is a band where its rows would be (#853), and a window still loading ends the stretch, since a positional row space carries no hole — so a window loading beside the rows on screen never takes them off it, and landing it takes exactly its band's slot — a window is measured by what the body draws of its rows, an unvisited one at the rate the first window's rows drew (#855) — and one whose rows draw otherwise than that, landing above the rows on screen, leaves them where they are: a bounded frame anchors its scroll on a row, never on a band (#878); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (the jump rebases residency and owns the viewport until its target is shown, #854); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (sources built by hand at the contract's type, #849, and held-source fixtures) |
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
 | 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
-| 24 | Frames: a sheet with a `height` / `maxHeight` scrolls its own rows and pins its header, with the group band and the open line sticking under it. With neither, it grows with its content and its header scrolls with the page, as every unbounded collection's does — the sheet scrolls sideways inside its own box, which CSS cannot pin a header out of (the author gives it a height to pin one). At 400 body items or more (the Plan's threshold, `VIRTUALIZE_UNBOUNDED_AT`) an unbounded sheet mounts only what the page shows; below it every row renders in flow, as before. The chrome that follows a scroll or the view's width — a seam's chips going, a sub row's well — reads the frame's viewport (`onViewport`) in every mode and through a switch between them (#856) | `index.tsx` + `virtual-rows.tsx` | DOM |
-| 25 | What the viewer arranged survives a remount (#857). Under the sheet's `storageKey` the renderer keeps the fold overrides (a group's or a line's id → folded; a line's `false` opens its sub rows) with the tab they were left on, and where a bounded frame's scroll rests — an item, never pixels: its body key, the px scrolled past it, its index and, on a paged sheet, its source element. Both are read back through a shape check. Folds come back when the sheet opens on the tab they were left on, before the first body build; a host that moves `activeView` later opens each view's own, and a sheet no one folded records no tab. The anchor restores by key once its item is in the body — on a paged sheet after its window is fetched, the way a key search jumps, the element clamped to the source's count. A band is a place in one run, never an item: over one, the element the band draws there is what persists. An anchor whose item is gone lands in its place — on a paged sheet the first item at or past its element, else its index clamped to the body. An unbounded sheet's place is its page's: it neither restores nor jumps. Never the ring, nor the lens's context and reveals (they follow the narrowing, which the slice owns) | `persisted.ts` + `index.tsx` | unit + DOM |
+| 24 | Frames (#1216): the sheet renders in its builder frame and fills the box it is given; its rows scroll in main and its header stays pinned, with the group band and the open line sticking under it, and only the rows in view mount. There is no unbounded sheet: the in-flow mode (#856) went with the frameless layout, so a host gives a sheet a box of its own height. The chrome that follows a scroll or the view's width — a seam's chips going, a sub row's well — reads the frame's viewport (`onViewport`) | `index.tsx` + `frame/index.tsx` + `virtual-rows.tsx` | DOM |
+| 25 | What the viewer arranged survives a remount (#857). Under the sheet's `storageKey` the renderer keeps the fold overrides (a group's or a line's id → folded; a line's `false` opens its sub rows) with the tab they were left on, and where a bounded frame's scroll rests — an item, never pixels: its body key, the px scrolled past it, its index and, on a paged sheet, its source element. Both are read back through a shape check. Folds come back when the sheet opens on the tab they were left on, before the first body build; a host that moves `activeView` later opens each view's own, and a sheet no one folded records no tab. The anchor restores by key once its item is in the body — on a paged sheet after its window is fetched, the way a key search jumps, the element clamped to the source's count. A band is a place in one run, never an item: over one, the element the band draws there is what persists. An anchor whose item is gone lands in its place — on a paged sheet the first item at or past its element, else its index clamped to the body. Never the ring, nor the lens's context and reveals (they follow the narrowing, which the slice owns) | `persisted.ts` + `index.tsx` | unit + DOM |
 | 26 | The grid to assistive tech (#860): a WAI-ARIA grid, one tab stop, naming the ring's cell as its active descendant; `aria-rowcount` the sheet's rows and the header — on a flat sheet the source's count (a paged source's `total()`, `-1` until it has counted itself) and the blank padding, on a grouped sheet the body's items; every row its `aria-rowindex` — a flat sheet's source position, where an unloaded band, a lens gap or a failed window stands for the rows from its first, a grouped sheet's place in the body (#819's rule) — and its gutter the `rowheader` at column 1; every cell its `aria-colindex`, the ring's and the range's `aria-selected`; a band's title the cell over its span, described by its sub line; no control inside the grid in the tab order but a failed window's Retry; the copies that stick under the header hidden (§6.3) | `index.tsx` + `Rows.tsx` + `Header.tsx` | DOM |
 | 27 | The sheet's words (#861): every word, title and accessible name the sheet says itself — the toolbar and the view tabs, the header, the rows, bands and gap pills, the strip and the editor, the link cells, the footer and the history bar, the insertion chips, and the message each gesture leaves — comes from ONE typed message table (`sheetMessages`, the Plan's #820 twin), its counts in the locale the shared formatters read (#850); `SheetMessagesProvider` overrides any subset for a subtree, providers nesting. The machine leaves a message as DATA — an id, raw counts, a row as its number, a noun only where the host names one — and the footer words it as it shows, so the reducer knows no locale and a new table re-words a message already shown. A group's noun is the host's when it names one, else the table's: the wire carries none rather than an English default. What the author wrote is data (headers, subs, nouns, register labels and metas, lock tags, footer items); the date and link grammars keep their forms; the issues a patch event carries to the host stay canonical English, and the sheet shows them in its words | `messages.ts` + `words.ts` + every component | unit + DOM |
 | 28 | Loose rows between the groups (#846): a grouped sheet over `Sheet.Types.Entry(P, "lines")` entries — each a group or a row of the line type, the wire's `loose` flag — draws a row entry as a plain row: no band, no rail, numbered in the groups' sequence, its own cells (on the wire, a row with no band). The seam above a band, beside a loose row, or on an empty sheet inserts a loose row; below a band, at a line's seam or at a group's blank line it is still a line, and the group chip a group. Loose rows delete, paste and count on their own: a paste onto one fills the run of loose rows from it, then new loose rows after the last; a range over loose rows and a band's lines deletes both, the band's own second ⌫ unchanged; the footer counts them (*2 groups · 3 lines · 3 loose rows*). Fold-all folds the groups and finds the ring's loose row again by its id; the sticky walk stops at a loose row, so no band sticks over one. Proposals under a loose row are loose rows, taken in one write. A new line there gets its `id` field — the field a loose row is identified by, so the author names one of both types — minted unless `newRow` supplied it; a loose row's draft is `variant("row", …)`, a group's `variant("group", …)` | `model.ts` + `insertion-gesture.ts` + `creation.ts` + `index.tsx` | unit + DOM |
@@ -1288,7 +1303,10 @@ React second. Target layout (line budgets are ceilings):
 
 ```
 sheet/
-  index.tsx              ~300   EastChakraSheet: decode, providers, effect runner, layout (toolbar · header · rows · strip · footer)
+  index.tsx              ~300   the sheet's parts under one `SheetProvider`: decode, providers, effect runner — the toolbar's items, the grid (header · rows · strip), the footer
+  frame/index.tsx        ~250   EastChakraSheet (#1216): the sheet in its `BuilderFrame` — the toolbar, the banners, the panes, main and the footer
+  frame/library.tsx      ~350   the library pane: Rows, Columns and the author's tabs (`Sheet Builder Spec.md`)
+  frame/inspector.tsx    ~700   the inspector pane: Details and Issues (`Sheet Builder Spec.md`)
   sheet-state.ts         ~450   THE state machine's core — pure: selection, edit buffer, the commit, the sheet and editor keys; re-exports the vocabulary
   sheet-types.ts         ~280   the machine's vocabulary: the UI state, events, effects, the context a transition may ask (every state module imports from here — no cycles)
   sheet-link-state.ts    ~200   the link editor's transitions (the commit injected)
@@ -1317,7 +1335,7 @@ sheet/
   lens.ts                ~150   hits from the slice narrowing (the slice engine's `sliceMatches`), context bands, reveals, step escalation
   clipboard.ts           ~120   export / paste matrix
   *.test.ts                     the pure modules' input → output tables (date · quantity · candidates · clipboard · model)
-  Toolbar.tsx            ~150   tabs · context switch · match count · the slice rail (search / filter / cohort) · scope badge — a row of the shared toolbar (#952)
+  Toolbar.tsx            ~150   tabs · context switch · match count · the slice rail (search / filter / cohort) · scope badge — the items of the frame's toolbar (#952, #1216)
   Header.tsx             ~100   two-line sticky header
   Rows.tsx               ~250   virtualised rows, gutter (numbers, ✓ × → buttons), bands, proposal rows
   cells/Cell.tsx         ~200   scalar cell by kind: text / mono / num + unit / enum dot / stamped / ghost / proposal hatch / next-target
@@ -1331,7 +1349,7 @@ sheet/
   sheet-i18n.dom.test.tsx       every region speaks the message table; providers compose; a new table re-words the sheet (#861)
   sheet-scale.dom.test.tsx      a paste at scale reads each source row's id a bounded number of times (#859)
   sheet-loose.dom.test.tsx      loose rows between the groups: the body, insertion, edit, delete, paste, proposals, Apply, the sticky band (#846)
-  frame.test-utils.ts           the DOM tests' stand-ins for layout jsdom lacks: rows measured as they draw, a page that scrolls (#856)
+  frame.test-utils.ts           the DOM tests' stand-ins for layout jsdom lacks: rows measured as they draw, the frame the rows scroll in, laid out and scrolling (#856, #1216)
 theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + dark via semantic tokens
 ```
 
@@ -1415,7 +1433,7 @@ candidate, else the grammar's own reading — a text chip, never a refusal),
 `predicted` (the copilot's hook; P4 fills it) and `cell` (the groups as a `Link`
 cell, `null` when both halves are empty). The rules, unit-tested as a table:
 `,` and the arrow resolve the buffer through the ARMED candidate — Tab's rule,
-so `m73,` lands `M7301` and `m2140 >` hops with `M2140` named — where the
+so `a73,` lands `A7301` and `r2140 >` hops with `R2140` named — where the
 prototype re-read the raw token; an arrow in the From half hops to the To half
 (into a locked To it hops and warns), in the To half it is dropped; the ⇥
 ladder is armed candidate → one predicted chip → hop From → To skipping a
@@ -1505,10 +1523,10 @@ arm and a cast.
 
 `decode → paging.ts (resident rows, exhaustion) → model.ts (real rows + blanks,
 column index) → lens.ts (hits from the slice state, visible rows + bands) →
-VirtualRows(estimateSize by row: 36 min, link cells measured) → Rows`. Toolbar
-and header sticky in a bounded frame (an unbounded sheet's header scrolls with the
-page, and at 400 body items it mounts only what the page shows — §5 row 24, #856);
-strip and footer outside the scroll box; the editor overlays its
+VirtualRows(estimateSize by row: 36 min, link cells measured) → Rows`. The
+toolbar's items sit in the frame's toolbar and the footer in its footer (#1216);
+the header is sticky in the rows' frame, which scrolls in main (§5 row 24); the
+strip docks under it, outside the scroll box; the editor overlays its
 cell (position: absolute, z 10) and grows with wrapping chips. The whole sheet is
 one focusable region (`tabIndex=0`) that owns the keyboard; the editor stops
 propagation. Effects run in one place (`runEffects`); `useSliceReactivity(slice.key)`
@@ -1539,11 +1557,11 @@ never written.
 the register's members indexed by key and lower-cased alias, the column's
 member kinds (identified vs countable; the family kind resolved by
 attribute), the declared multiple ops and the code prefixes bare digits try —
-the register-aware TS twin of `Sheet.link.parse` / `print` (B§4.1: `120t` /
-`120 T` / `120  t` all read as the `120 t press` family — a number + unit is
+the register-aware TS twin of `Sheet.link.parse` / `print` (B§4.1: `3m` /
+`3 M` / `3  m` all read as the `3 m beam saw` family — a number + unit is
 tried against the keys and aliases with its spacing normalised; a counted
 member's chip reads *unassigned*, a count naming no one in particular;
-`M2140-45` only unspaced, a short upper bound completed; a qualifier after a counted member is its own text chip;
+`R2140-45` only unspaced, a short upper bound completed; a qualifier after a counted member is its own text chip;
 multiplying an identified member is text with the reason). A row's halves come
 from the column's per-driver `sides` dictionary and its lock rules
 (`halvesFor`): a locked half is never predicted into, Tab skips it, and content
@@ -1589,7 +1607,8 @@ position once its window is resident; the k-th match IS the row at `range.row + 
 
 **The toolbar under width pressure (P6 review; #952).** One row, always —
 nothing wraps and nothing scrolls. The toolbar is a row of the shared toolbar
-(`src/toolbar/`), which folds all its items on one ladder: each item has
+(`src/toolbar/`) — since #1216 the frame's one toolbar — which folds all its
+items on one ladder: each item has
 forms, widest first, and each step between two forms a rank. The rail gives
 way first (its ranks, 0–7): the filter's trailing clause chips fold into
 `+M more`, the affordances into summary chips, then one chip naming the
@@ -1620,10 +1639,21 @@ list: the grid scrolls sideways under a gutter that stays put (`position:
 sticky`), the toolbar keeps its row through the ladder above, and on a coarse
 pointer (`_coarse`, the adaptive contract of #346) the small controls grow —
 gutter buttons and ✓ take 26 px, × close 24 px, the tabs 40 px, `+ TAB` 32 px,
-the band's controls and the strip's chips padded — the gutter widens to 96 px
-so two buttons fit, the editor's type goes to 16 px so the phone never zooms
-into it, and the lens band's hover-revealed controls stay open where nothing
-can hover (`_hoverNone`).
+the band's controls and the strip's chips padded — the gutter widens to 254 px
+so the marker, the number and two 44 px actions take separate touch targets,
+the editor's type goes to 16 px so the phone never zooms into it, and the lens
+band's hover-revealed controls stay open where nothing can hover
+(`_hoverNone`). A frame too narrow for that gutter beside the first column —
+the frame's width decides, never the window's — FOLDS it (#1215, `gutter.ts`):
+rail 28 · number 36 · one 44 px row-actions button, 108 px. A tap on the
+button opens an anchored menu of what the gutter offers there, in the words of
+the controls it stands for: the row's decisions (Fill this row, Discard, a
+suggestion's add and reject), then the insertion strip's inserts at the row
+(Insert above, Insert below, a new group); the seams offer no chips. A drag
+on it moves the row, as the grip does: it is a grip that also taps
+(`data-drag-grip="tap"`), engaging a touch once it has travelled 4 px, so a
+tap stays a tap. The seam lines start at the gutter's edge wherever it is
+(`--sheet-gutter`).
 
 **Pointer and scroll (P4 follow-up).** A click never scrolls — the cell is under
 the pointer already, and centring it moved the sheet under a held button so the
@@ -1729,10 +1759,9 @@ open editor, abandons it. The driver holds one jump, so the sheet records who as
 it — a key's move, the key search, a remount's restore: a key's move gives way to a jump
 it did not ask for, and the search, which starts over on every new snapshot, drops only
 its own. After a keyboard move the ring's cell stays in view. The frame brings its row
-in wherever it virtualizes; the component brings in its column — the rows scroll
-sideways inside the card, and the column's header cell, always mounted, says where the
-column is, right of the sticky gutter — and, on a sheet whose rows render in flow, its
-row. The toolbar's view tabs are a WAI-ARIA tablist and its
+in; the component brings in its column — the rows scroll sideways inside the card, and
+the column's header cell, always mounted, says where the column is, right of the
+sticky gutter. The toolbar's view tabs are a WAI-ARIA tablist and its
 context switch a radio group, through `radioGroupKey` (`primitives/radio-group.ts`),
 which the Plan's segment control shares (#632).
 
@@ -1827,6 +1856,17 @@ fixtures and constructors inside the body, bulk data derived with
 merged examples keep the union of keywords and a feature-enumerating description.
 Fixtures are the prototype's synthetic registers and rows.
 
+**The corpus since #1189** is fewer, fuller examples (the audit is in #1189),
+and since #1216 every one is `<Sheet>` in its frame, declaring the panes it
+shows — between them none, a library, an inspector, and both:
+- `sheetBasic` (absorbing `sheetBuilder`), `sheetVariants` and `sheetStress`,
+  which absorbed `sheetLens`;
+- `sheetLibrary` and the flagship `sheetWorkshop` (absorbing `sheetPlan`,
+  `sheetCopilot` and `sheetRegisters`);
+- then `sheetWeeks` (`sheetRules`, `sheetReadiness`, `sheetWriteBack`),
+  `sheetBatches` (`sheetGrouped`, `sheetSubRows`), `sheetLoose`, and
+  `sheetPaged` (`sheetInsertion`).
+
 **P2 — renderer core** `model.ts`, `paging.ts` over the Plan stack, `parse/*`,
 `candidates.ts`, `sheet-state.ts` (+ tests), the controlled `selection` with
 scroll-into-view (§3.14), `Toolbar` (tabs placeholder + rail
@@ -1910,7 +1950,7 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
 | Column resize / reorder | Not in v1 (widths are config). The Table's header drag can be lifted later. |
 | `store: "canonical"` | Resolved 2026-09-09 (P3): the bridge prints the register's labels into a `String` field (identified members by label, the rest as the grammar prints them); `asTyped` writes the keys as typed. The renderer never sees the storage form. |
 | `check` validators | Author East functions (§3.4), evaluated at commit and on paste; the flag is the lock-warn treatment plus a strip line. Never a block. |
-| Narrow / mobile | Out of scope for the sheet; a phone review of a plan is a `<Plan>` or a `<Deck>`. |
+| Narrow / mobile | Resolved (#1215): the grid scrolls sideways under its sticky gutter, which folds its actions into one 44 px row-actions button where the frame cannot show the touch gutter beside a cell (§6.3, A phone). |
 | Fields of `R` with no column | Resolved 2026-09-09: `ctx.row` is rebuilt over the real row (`rowById`, §4.8), so unmapped fields keep their values. Still open: when `data` is a plain array VALUE rather than a bind, the shared `rowById` captures the whole collection — fine for example-sized sheets; a large plain array should be bound (`State.bind`) so the capture is a handle. |
 | Searching a Link column | Resolved 2026-09-09: the slice searches a non-String field through its `printFor` text by default, and a field spec's `text` accessor (`Sheet.link.print`) overrides it with the display form — the Slice's `text` field kind, landed in P5 (§3.8). |
 | A `types` registry override (B§1 `types`) | Covered by `Sheet.column.custom` per column; a reusable custom kind is an ordinary TS function returning the config. |

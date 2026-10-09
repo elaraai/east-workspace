@@ -24,7 +24,7 @@ import { Fragment, memo, useRef, useState, type KeyboardEvent, type ReactElement
 import { Box, Button, Portal, Tooltip, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library } from "@fortawesome/fontawesome-svg-core";
-import { fas, faCircleExclamation, faCircleInfo, faPlus, faTriangleExclamation, faXmark, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
+import { fas, faCaretDown, faCircleExclamation, faCircleInfo, faPlus, faTriangleExclamation, faXmark, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor } from "@elaraai/east";
 import { useValueSync } from "@elaraai/east-ui-components";
 import type { CardLine, CardPart, ProblemLine } from "./model/cards.js";
@@ -186,7 +186,7 @@ function Part({ part, ps, actions, ghost }: { part: CardPart; ps: PartStyles; ac
                     aria-haspopup="listbox" aria-expanded={open}
                     onClick={(event) => actions.onSlot(part.slot, event.currentTarget)}>
                     <Box as="span" css={styles.slotText}>{part.empty ? part.placeholder : part.text}</Box>
-                    <Box as="span" css={styles.slotCaret} aria-hidden>▾</Box>
+                    <Box as="span" css={styles.slotCaret} aria-hidden><FontAwesomeIcon icon={faCaretDown} /></Box>
                 </chakra.button>
             );
         }

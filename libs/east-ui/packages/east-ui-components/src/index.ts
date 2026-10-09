@@ -175,26 +175,10 @@ export {
     type TreeViewRootValue,
     type TreeNodeValue,
     type EastChakraTreeViewProps,
-    EastChakraPlan,
-    type PlanRootValue,
-    type PlanRowValue,
-    type EastChakraPlanProps,
-    // The Plan's words (#820)
-    PlanMessagesProvider,
-    planMessages,
-    type PlanMessages,
-    type PlanMessagesProviderProps,
-    type PlanAxisWord,
-    type PlanChartLayerWord,
-    type PlanFocusTagWord,
-    type PlanGrainWord,
-    type PlanHorizonUnit,
-    type PlanMarkWord,
-    type PlanPart,
-    type PlanStateWord,
     EastChakraLibrary,
     type LibraryValue,
     type LibraryItemValue,
+    type LibraryEmpty,
     type EastChakraLibraryProps,
     EastChakraRoster,
     type RosterValue,
@@ -223,22 +207,6 @@ export {
     type MapLineValue,
     type MapOverlayValue,
     type EastChakraMapProps,
-    EastChakraSheet,
-    type SheetRootValue,
-    type SheetRowValue,
-    type SheetCellValue,
-    type EastChakraSheetProps,
-    // The Sheet's words (#861)
-    SheetMessagesProvider,
-    sheetMessages,
-    type SheetMessages,
-    type SheetMessagesProviderProps,
-    type SheetArityWord,
-    type SheetHalfWord,
-    type SheetHistoryWord,
-    type SheetLevelWord,
-    type SheetScopeWord,
-    type SheetToneWord,
     EastChakraBlend,
     type BlendValue,
     type BlendTargetValue,
@@ -360,6 +328,13 @@ export {
     toChakraFileUpload,
     type FileUploadValue,
     type EastChakraFileUploadProps,
+    // FieldForm — a builder inspector's typed form (#1147)
+    FieldForm,
+    fieldFormMessages,
+    type FieldFormProps,
+    type FieldOption,
+    type FieldFormMessages,
+    type FieldFormWords,
     // ClauseBuilder
     ClauseBuilder,
     ClauseChip,
@@ -463,10 +438,19 @@ export {
     type CellCoord,
     type DragKinds,
     type DragMeta,
+    type DragReturns,
     type DragTargetConfig,
 } from "./dnd/drag-layer.js";
 // The drag layer's words (#608) — `<DragLayerProvider messages={…}>` overrides any subset.
 export { dragMessages, type DragMessages } from "./dnd/messages.js";
+// The assignment surfaces' words (#1263) — a Board's or a Roster's chip state,
+// as its accessible name says it; `<AssignmentMessagesProvider>` overrides any subset.
+export {
+    AssignmentMessagesProvider,
+    assignmentMessages,
+    type AssignmentMessages,
+    type AssignmentMessagesProviderProps,
+} from "./collections/shared/assignment-messages.js";
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
@@ -607,27 +591,52 @@ export { useSliceReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
 // surface's population filter (its population is an Array<SlicePredicate>).
 export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";
-export { SliceEditPopover, type SliceEditPopoverProps } from "./slice/edit";
+export { SliceEditPopover, type SliceEditPopoverProps, type SliceEditPopoverAnchor } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";
 export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js";
 // The one toolbar row every component lays its chrome in (#952), and a
 // gallery's Grid · List switch — for sibling renderer packages (e3-ui-components)
 // whose screens keep one toolbar over several galleries.
 export { Toolbar, DEFAULT_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
+// A toolbar's folded chip (#1229): one chip whose menu holds what a row short
+// of room folds into it — the SnapGrid editor's View, Studio's and the query
+// builder's ⋯ — and the first rank a SnapGrid editor's host's own items fold at.
+export { ChipMenu, type ChipMenuProps } from "./toolbar/chip-menu.js";
+export { SNAP_GRID_HOST_RANK } from "./layout/snap-grid/editor.js";
 export { LibraryLayoutSwitch } from "./collections/library";
+// The key search as one item of a builder's toolbar (#1193) — the box, folding
+// to its icon — over a keyed paged source's `seek`, as the Plan and the Sheet
+// have it, and a host's key for it, in either form (#1221).
+export {
+    useKeySearchToolbarItem, focusKeySearch, type KeySearchSource, type KeySearchToolbarOptions,
+} from "./collections/key-search/toolbar-item.js";
 // The editing session (#879) — for sibling renderer packages whose components
 // edit through it themselves, as the query builder does (#935): the session and
 // its React hook, a draft lifted from an entry, the history item for their one
-// toolbar, and the session's words — its error, too, in the surface's (#936).
+// toolbar and its keys, heard anywhere in a builder's frame but a field typed
+// into (#1185), the banners a builder shows its error in instead (#1184), and
+// the session's words — its error, too, in the surface's (#936). A builder
+// whose entries live in several sources keeps a session per source and one
+// history over them (#1194): the Plan's event kinds, the Calendar's.
 export {
     EditSession,
+    EditHistory,
     useEditSession,
+    useEditHistory,
+    historyKeyOf,
     liftDraft,
     historyToolbarItem,
     historyShortcut,
+    typedInto,
+    SessionBanners,
     editingMessages,
     sessionErrorText,
     type BatchReadiness,
+    type EditHistoryJoined,
+    type EditHistoryPaged,
+    type EditHistoryPart,
+    type EditHistorySource,
+    type EditHistoryState,
     type EditIssue,
     type EditingMessages,
     type EditingValue,
@@ -637,6 +646,8 @@ export {
     type EntryUpdate,
     type EntryVersion,
     type HistoryAction,
+    type HistoryBarProps,
     type Origin,
     type Placement,
+    type SessionBannersProps,
 } from "./editing/index.js";

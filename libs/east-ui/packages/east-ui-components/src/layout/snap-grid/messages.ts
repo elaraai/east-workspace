@@ -36,9 +36,9 @@ export interface SnapGridMessages extends EditingMessages {
     canvasLabel: () => string;
     /** The end zone at rest. */
     endZoneRest: () => string;
-    /** The end zone while a tile or a card that can land is dragged. */
+    /** The end zone while a tile or a card that can land is dragged — words only: the canvas draws Font Awesome's caret beside them (#1263). */
     endZoneDragging: () => string;
-    /** The end zone while a drop there would make a new row. */
+    /** The end zone while a drop there would make a new row — words only, the caret beside them. */
     endZoneTarget: () => string;
     /** The selected tile's remove button. */
     remove: () => string;
@@ -66,7 +66,7 @@ export interface SnapGridMessages extends EditingMessages {
     announceCleared: () => string;
     /** The toolbar's grid chip — `12 col · snap on`. */
     gridChip: () => string;
-    /** When the source last confirmed an Apply — `Saved · 14:32`; `time` is formatted for the locale. */
+    /** When the source last confirmed a Save — `Saved · 14:32`; `time` is formatted for the locale. */
     saved: (p: { time: string }) => string;
     /** The design width readout — `1440 px`; `px` is formatted for the locale. */
     widthReadout: (p: { px: string }) => string;
@@ -78,6 +78,8 @@ export interface SnapGridMessages extends EditingMessages {
     zoomIn: () => string;
     /** The design widths' accessible name. */
     widthsLabel: () => string;
+    /** The View chip a row short of room folds the zoom and the widths into (#1229) — its accessible name. */
+    viewLabel: () => string;
     /** The selection bar with nothing selected. */
     noSelection: () => string;
     /** Beside it, what to do. */
@@ -91,8 +93,8 @@ export const snapGridMessages: SnapGridMessages = {
     ...editingMessages,
     canvasLabel: () => "Page layout",
     endZoneRest: () => "Drag from the library · new 12-col row",
-    endZoneDragging: () => "▾ Drop between rows, beside a tile, or here",
-    endZoneTarget: () => "▾ Drop component here · snaps to a new 12-col row",
+    endZoneDragging: () => "Drop between rows, beside a tile, or here",
+    endZoneTarget: () => "Drop component here · snaps to a new 12-col row",
     remove: () => "Remove from page",
     spanHandle: () => "Drag to change span",
     heightHandle: () => "Drag to change height",
@@ -112,9 +114,10 @@ export const snapGridMessages: SnapGridMessages = {
     zoomOut: () => "Zoom out",
     zoomIn: () => "Zoom in",
     widthsLabel: () => "Design width",
+    viewLabel: () => "View",
     noSelection: () => "No selection",
     noSelectionHint: () => "Click a component on the grid to arrange it",
-    applyRefused: () => "The drafts could not be applied",
+    applyRefused: () => "The drafts could not be saved",
 };
 
 const SnapGridMessagesContext = createContext<SnapGridMessages>(snapGridMessages);

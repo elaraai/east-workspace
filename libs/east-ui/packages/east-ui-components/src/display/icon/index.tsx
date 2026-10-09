@@ -8,13 +8,12 @@ import { Box as ChakraBox, type BoxProps } from "@chakra-ui/react";
 import { FontAwesomeIcon, type FontAwesomeIconProps } from "@fortawesome/react-fontawesome";
 import { library, type IconName, type IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
-import { far } from "@fortawesome/free-regular-svg-icons";
-import { fab } from "@fortawesome/free-brands-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-library.add(fas, far, fab);
+// Font Awesome's solid set alone: East UI draws solid icons only (#1263).
+library.add(fas);
 
 const iconEqual = equivalentFor(Icon.Types.Icon);
 
@@ -132,9 +131,14 @@ export interface EastChakraIconProps {
 }
 
 /**
- * Renders an East UI Icon value using Font Awesome.
+ * Renders an East UI Icon value using Font Awesome's solid set.
  *
  * @remarks
+ * East UI draws solid icons only (#1263): the factories refuse another
+ * prefix at build, and the solid set is the one registered, so an icon of
+ * another set — one only an East expression could carry past the factory —
+ * draws nothing.
+ *
  * The §0.2 a11y contract is enforced here: absent `label` ⇒
  * `aria-hidden="true"` (decorative); present `label` ⇒ `title={label}`
  * which Font Awesome renders into a `<title>` SVG element so screen

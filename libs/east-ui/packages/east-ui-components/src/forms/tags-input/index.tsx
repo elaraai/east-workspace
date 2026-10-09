@@ -5,6 +5,8 @@
 
 import { memo, useMemo, useCallback, useState, useId } from "react";
 import { TagsInput as ChakraTagsInput, type TagsInputRootProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, some, none, type ValueTypeOf } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -54,6 +56,7 @@ export interface EastChakraTagsInputProps {
 
 /**
  * Renders an East UI TagsInput value using Chakra UI TagsInput component.
+ * A tag's delete is Font Awesome's xmark, never Chakra's own icon (#1263).
  */
 export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: EastChakraTagsInputProps) {
     const [props, setProps] = useState(toChakraTagsInput(value));
@@ -109,7 +112,7 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
                         <ChakraTagsInput.Item key={index} index={index} value={tag}>
                             <ChakraTagsInput.ItemPreview>
                                 <ChakraTagsInput.ItemText>{tag}</ChakraTagsInput.ItemText>
-                                <ChakraTagsInput.ItemDeleteTrigger />
+                                <ChakraTagsInput.ItemDeleteTrigger><FontAwesomeIcon icon={faXmark} /></ChakraTagsInput.ItemDeleteTrigger>
                             </ChakraTagsInput.ItemPreview>
                         </ChakraTagsInput.Item>
                     ))}

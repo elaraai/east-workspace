@@ -12,7 +12,8 @@
  * collapsed pane a 44px rail. The Query tab's band under its tab row, then the
  * source, a shape line after it and after every step, and the foot at the
  * pane's foot; the view shown in the brand. The toolbar folds by one ladder —
- * Run's keys, then Copy jq, then the history item. The states by their tokens:
+ * Run's keys, then Copy jq to its icon, then Copy jq and Save… into the ⋯
+ * chip in one move (#1229), then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
  * opens the 320px save popover with the name and the description. The history
  * item's Save shows the drafts it saves until the record reads back, never the
@@ -138,19 +139,23 @@ test.describe("Query builder (#940)", () => {
         });
     });
 
-    test("the toolbar folds by one ladder — Run's keys, Copy jq, the history item — a step each time the frame is narrower than the row's items", async ({ page }) => {
+    test("the toolbar folds by one ladder — Run's keys, Copy jq to its icon, Copy jq and Save… into the ⋯ chip in one move, the history item — a move each time the frame is narrower than the row's items", async ({ page }) => {
         const builder = await openBuilder(page);
         const toolbar = builder.locator("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]");
-        await expect.poll(() => toolbar.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
+        await expect.poll(() => toolbar.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 copy>2 save>1 more>1 history>1");
         // At the mock's 1240px frame nothing folds.
         await expect.poll(() => toolbar.getAttribute("data-toolbar-folds")).toBe("0");
-        const ladder = ["run", "copy", "history"];
-        const folded = async () => {
-            const keys = await toolbar.evaluate((row) => (row.getAttribute("data-toolbar-state") ?? "").split(";")
-                .map((s) => s.split("=")).filter(([, f]) => !f!.startsWith("0/")).map(([k]) => k!));
-            // The state lists the items in the row's order; they are put in the ladder's.
-            return keys.sort((a, b) => ladder.indexOf(a) - ladder.indexOf(b));
-        };
+        // The configurations the ladder passes through, move by move: the ⋯ chip's bundle is one move of three steps (#1229).
+        const MOVES = [
+            { history: 0, copy: 0, save: 0, more: 0, run: 0 },
+            { history: 0, copy: 0, save: 0, more: 0, run: 1 },
+            { history: 0, copy: 1, save: 0, more: 0, run: 1 },
+            { history: 0, copy: 2, save: 1, more: 1, run: 1 },
+            { history: 1, copy: 2, save: 1, more: 1, run: 1 },
+        ];
+        // Each item's form, by its key.
+        const folded = () => toolbar.evaluate((row) => Object.fromEntries((row.getAttribute("data-toolbar-state") ?? "").split(";")
+            .map((s) => s.split("=")).map(([k, f]) => [k!, Number(f!.split("/")[0])])));
         // The frame whose row is exactly as wide as its items, as they are drawn now: their widths and a gap between each two.
         const fitting = () => builder.evaluate((root) => {
             const row = root.querySelector("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]")!;
@@ -162,15 +167,18 @@ test.describe("Query builder (#940)", () => {
             await builder.evaluate((root, w) => { (root as HTMLElement).style.width = `${w}px`; }, frame);
             await settled(page);
         };
-        // Where each step falls is the fonts' to say, so the frames come from the items as measured: a frame
-        // the row's items fit keeps their forms, and one 2px narrower folds the ladder's next step.
-        for (let folds = 0; folds < ladder.length; folds++) {
+        // Where each move falls is the fonts' to say, so the frames come from the items as measured: a frame
+        // the row's items fit keeps their forms, and one 2px narrower takes the ladder's next move.
+        for (let move = 0; move + 1 < MOVES.length; move++) {
             const frame = await fitting();
             await frameTo(frame);
-            await expect.poll(folded, { message: `at ${frame.toFixed(2)}px, the row's items' width` }).toEqual(ladder.slice(0, folds));
+            await expect.poll(folded, { message: `at ${frame.toFixed(2)}px, the row's items' width` }).toEqual(MOVES[move]);
             await frameTo(frame - 2);
-            await expect.poll(folded, { message: `at ${(frame - 2).toFixed(2)}px` }).toEqual(ladder.slice(0, folds + 1));
+            await expect.poll(folded, { message: `at ${(frame - 2).toFixed(2)}px` }).toEqual(MOVES[move + 1]);
         }
+        // Folded all the way: the ⋯ chip, Save…'s popover's anchor, in place of Copy jq and Save….
+        await expect(toolbar.locator("[data-query-more]")).toBeVisible();
+        await expect(toolbar.locator("[data-query-copy], [data-query-save-open]")).toHaveCount(0);
     });
 
     test("a step not finished is dashed; a slot with a problem is in the danger ink, as its problem's line is", async ({ page }) => {
