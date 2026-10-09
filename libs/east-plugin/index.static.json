@@ -824,6 +824,29 @@
         "import { createWebE3 } from '@elaraai/e3-web';"
       ],
       "source": "// main.tsx — a deployed ui() task, every request it makes answered in the page\nconst e3 = await createWebE3(new Worker(new URL('./e3.worker.ts', import.meta.url), { type: 'module' }));\n\ncreateRoot(document.getElementById('root')!).render(\n  <ChakraProvider value={system}>\n    <E3Provider config={{ apiUrl: e3.apiUrl, repo: 'default', workspace: 'main', fetch: e3.fetch }}>\n      <ReactiveDatasetProvider>\n        <UITaskPreview task=\"dashboard\" />\n      </ReactiveDatasetProvider>\n    </E3Provider>\n  </ChakraProvider>,\n);"
+    },
+    {
+      "id": "e3:static:rack-delegation",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3 rack",
+      "test": "Enroll a private rack, select task bodies and run a local dataflow with shared rack capacity",
+      "keywords": [
+        "e3",
+        "rack",
+        "delegate",
+        "enroll",
+        "VPN",
+        "policy",
+        "spill",
+        "rack-only",
+        "dataflow",
+        "watch",
+        "e3-api-server"
+      ],
+      "imports": [],
+      "source": "# Local machine: bind a private address the rack host can reach.\ne3 rack enroll --listen 100.64.0.10:7331 --instance local-dev\n# Run the printed e3-rack install command ON THE RACK; it pins e3 and explicitly\n# sets --tiers node,py --max-vms 2 --gpus none. Instances share physical resources.\ne3 rack policy . set 'train_*' rack --size large\ne3 dataflow run . dev --rack -j 4 --memory 8G\ne3 watch src/main.ts . dev --start --rack\ne3 rack status\ne3 task logs . dev.train_model --follow\n# Placement preserves hashes/cache. Local planner and fallback retain the budget.\n# --rack-only waits for busy compatible capacity; infrastructure fallback remains.\n# Custom commands/environments and host-dependent calls stay local by default.\n# For a local API server with the matching optional @elaraai/e3-rack installed:\ne3-api-server --repos ./repos --rack"
     }
   ]
 }
