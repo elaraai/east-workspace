@@ -11,6 +11,12 @@ The implementation targets that current cloud protocol, as requested, rather
 than the historical protocol described by #863–#873. All ten child bodies
 were read; none had comments at the time of review.
 
+The PR review also integrates east-workspace `0327d2419` (1.0.86), the
+intervening release-only main commit. The new package follows that existing
+release; cloud's pinned protocol remains unchanged. Enrollment requests the
+session's current e3 release explicitly through `--e3-version`, and older
+agents whose bundled release cannot boot it are excluded from delegation.
+
 The topology and scope stand: one machine-local hub, direct rack-to-machine
 traffic over a private network, repository access in sessions, opt-in task
 routing, local planning, and local fallback for infrastructure failures.

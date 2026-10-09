@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-web-std",
-  "version": "1.0.85",
+  "version": "1.0.86",
   "description": "East Web - the standard platform functions for East programs in a browser",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
