@@ -201,24 +201,26 @@ export const flowchartFlows = example({
  * THE Flowchart configurator — ONE live flowchart in its frame; every axis is
  * an expression-fed prop on that single instance: the legend, the minimap and
  * read only. Its flows are the host's (`data`): the depot's flows, read from
- * their e3 record, and Save hands the open flow's patch to `onApply`, which
- * commits it through the record's patch mutation and answers with what e3
- * said — committed, refused, out of time, beaten by another write, or no
- * answer at all, which may have landed. The host hears what is selected — a
+ * their e3 record, and Save hands `onApply` the session's request id with the
+ * open flow's patch, which it commits through the record's patch mutation
+ * under that id and answers with what e3 said — committed, refused, out of
+ * time or beaten by another write. A write that got no answer throws, so the
+ * session's Retry sends the same request id again, and e3 answers it with the
+ * first write's commit rather than writing twice (#1275). The host hears what is selected — a
  * state, a transition, a decision — and a path ⌥-clicked in the reactive
  * aside, so it is given no inspector; its library is the Flows tab over the
  * host's flows. Its panes are fixed when it is built, so they are no axis
  * here. The configurator's axes are the viewer's own state.
  */
 export const flowchartVariants = example({
-    keywords: ["Flowchart", "configurator", "Configurator", "legend", "minimap", "readOnly", "read only", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "selection", "trace", "callbacks", "data", "onApply", "commit", "Record.bind", "commit.patch", "Editing.Types.ApplyResult", "Flows tab", "Flowchart.library.flows", "many flows", "inspector={false}", "library", "Switch", "State", "Reactive"],
-    description: "Flowchart configurator — the legend, the minimap and read only, each expression-fed into one live flowchart in its frame over the host's flows by name (data, from the depot's e3 record), its Flows tab over them, Save committed by the host's onApply through the record's patch mutation; onSelectState, onSelectLink, onSelectTrigger and onTracePath heard in the aside, with no inspector",
+    keywords: ["Flowchart", "configurator", "Configurator", "legend", "minimap", "readOnly", "read only", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "selection", "trace", "callbacks", "data", "onApply", "commit", "requestId", "request id", "Retry", "Record.bind", "commit.patch", "Editing.Types.ApplyResult", "Flows tab", "Flowchart.library.flows", "many flows", "inspector={false}", "library", "Switch", "State", "Reactive"],
+    description: "Flowchart configurator — the legend, the minimap and read only, each expression-fed into one live flowchart in its frame over the host's flows by name (data, from the depot's e3 record), its Flows tab over them, Save committed by the host's onApply through the record's patch mutation under the session's request id, a Retry safe to repeat; onSelectState, onSelectLink, onSelectTrigger and onTracePath heard in the aside, with no inspector",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
-            // The host's commit: the open flow's patch through the record's patch mutation, e3's outcome as Save's answer.
-            const onApply = $.const(East.asyncFunction([PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, patch) => {
-                const outcome = $2.let(flows.commit.patch("", patch));
+            // The host's commit: the open flow's patch through the record's patch mutation under the session's request id, e3's outcome as Save's answer.
+            const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, requestId, patch) => {
+                const outcome = $2.let(flows.commit.patch(requestId, patch));
                 const answer = $2.let(variant("rejected", [{ entry: "", row: none, field: none, message: "The write was refused" }]), Editing.Types.ApplyResult);
                 $2.match(outcome, {
                     committed: ($3, done) => { $3.assign(answer, variant("applied", { revision: some(done.stateHash) })); },
@@ -229,8 +231,8 @@ export const flowchartVariants = example({
                         const why = $3.let(lost.detail.match({ some: (_$4, detail) => detail, none: (_$4) => "Another write changed the flows first" }));
                         $3.assign(answer, variant("conflict", [{ entry: "", row: none, field: none, message: why }]));
                     },
-                    // A write sent without a request id may have landed: Save says so, and a reload shows whether it did.
-                    transport: ($3, lost) => { $3.assign(answer, variant("rejected", [{ entry: "", row: none, field: none, message: East.str`The write got no answer, so it may have landed — reload to see: ${lost.message}` }])); },
+                    // No answer: it may have committed, so the session's Retry sends the same request id, which resolves to that commit.
+                    transport: ($3, lost) => { $3.error(East.str`The write got no answer, so it may have committed — retry to find out: ${lost.message}`); },
                 });
                 return answer;
             }));

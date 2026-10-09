@@ -290,7 +290,9 @@ const MEMBERS = {
  *   item undoes and redoes (⌘Z, ⇧⌘Z or ⌘Y anywhere in the frame but a field
  *   being typed into), and Save sends the open flow's drafts as one commit:
  *   through the record's patch mutation, or as one patch of `data`'s value to
- *   the host's `onApply`. Two lanes, states, transitions or decisions of one
+ *   the host's `onApply`, handed the session's request id with it — the same
+ *   id on a Retry, so a host that keys its write by it writes once (#1275).
+ *   Two lanes, states, transitions or decisions of one
  *   key hold Save off. The footer counts the changes waiting on Save.
  * - **Its flows** are an e3 record's (`record`): `Flowchart.Types.Flows`,
  *   flows by name, bound with its patch mutation, the canvas showing `flow`,

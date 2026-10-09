@@ -33,7 +33,10 @@
  * back — the canvas carrying no hover card, and each hover prop and each
  * misuse of `inspector` refused at build, naming the remedy; and the
  * showcase's (#1251): the canvas carrying no density — it draws at one rhythm,
- * the user ruled on 2026-10-09 — and `density` refused at build.
+ * the user ruled on 2026-10-09 — and `density` refused at build; and the
+ * request id's (#1275): the host's `onApply` handed the batch's request id with
+ * its patch, and an `onApply` of the patch alone refused, by the tag's types
+ * and at build.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -458,7 +461,7 @@ describe("the payload (FB6)", () => {
     });
 
     hostTest("the host's flows — a value, an expression or a bind handle — are the data arm's flows, with the session's Save when the host gives onApply", () => {
-        const apply = East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$) => variant("applied", { revision: none }));
+        const apply = East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$) => variant("applied", { revision: none }));
         const asValue = carried((_$) => PublicFlowchart({ data: FLOWS, flow: "Inbound parcels" }));
         const asExpr = carried(($) => PublicFlowchart({ data: $.const(FLOWS, FlowsType), onApply: $.const(apply) }));
         const handle = East.function([], StructType({ read: FunctionType([], FlowsType) }), (_$) => ({ read: East.function([], FlowsType, (_$2) => FLOWS) }));
@@ -471,11 +474,11 @@ describe("the payload (FB6)", () => {
         assert.deepEqual(asValue.open, some("Inbound parcels"));
     });
 
-    hostTest("over the host's flows by name, the session's Save hands the host's onApply one patch of the flows, by name — an update, an insert, a delete — never the whole value replaced (#1247, FB22)", async () => {
-        // The host's commit answers with the patch it was handed, printed, as the revision.
+    hostTest("over the host's flows by name, the session's Save hands the host's onApply the batch's request id and one patch of the flows, by name — an update, an insert, a delete — never the whole value replaced (#1247, FB22, #1275)", async () => {
+        // The host's commit answers with the request id and the patch it was handed, printed, as the revision.
         const printPatch = printFor(PatchType(FlowsType));
-        const echo = East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult,
-            (_$, patch) => variant("applied", { revision: some(East.print(patch)) }));
+        const echo = East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult,
+            (_$, requestId, patch) => variant("applied", { revision: some(East.str`${requestId} ${East.print(patch)}`) }));
         const payload = carried(($) => PublicFlowchart({ data: FLOWS, onApply: $.const(echo) }));
         if (payload.source.type !== "data" || payload.source.value.type !== "flows") assert.fail("expected the data arm's flows");
         const save = payload.source.value.value.apply;
@@ -501,27 +504,27 @@ describe("the payload (FB6)", () => {
         // An update: the returns flow's lane renamed — its update by name, which reaches it alone.
         const renamed: Flow = { ...RETURNS_VALUE, lanes: [{ key: "counter", label: some("Front counter") }] };
         const update = flowsDiff(FLOWS, hostAfter("Returns", renamed));
-        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, renamed)), variant("applied", { revision: some(printPatch(update)) }));
+        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, renamed)), variant("applied", { revision: some(`r-Returns ${printPatch(update)}`) }));
         assert.equal(update.type, "patch");
         assert.ok(flowsEqual(applyFlows(FLOWS, update), hostAfter("Returns", renamed)));
 
         // An insert: a new flow by name.
         const night: Flow = { description: none, lanes: [{ key: "lane-1", label: some("Lane 1") }], states: [], links: [], triggers: [] };
         const insert = flowsDiff(FLOWS, hostAfter("Night shift", night));
-        assert.deepEqual(await save.value(batchOf("Night shift", undefined, night)), variant("applied", { revision: some(printPatch(insert)) }));
+        assert.deepEqual(await save.value(batchOf("Night shift", undefined, night)), variant("applied", { revision: some(`r-Night shift ${printPatch(insert)}`) }));
 
         // A delete: the flow by name — its one-flow snapshot emptied, whose own diff would replace the
         // host's whole value; the host's other flows stay.
         const removal = flowsDiff(FLOWS, hostAfter("Returns", undefined));
-        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, undefined)), variant("applied", { revision: some(printPatch(removal)) }));
+        assert.deepEqual(await save.value(batchOf("Returns", RETURNS_VALUE, undefined)), variant("applied", { revision: some(`r-Returns ${printPatch(removal)}`) }));
         assert.equal(removal.type, "patch");
         assert.deepEqual([...applyFlows(FLOWS, removal).keys()], ["Inbound parcels"]);
     });
 
-    hostTest("over the host's one flow, the session's Save hands the host's onApply the flow's own patch; adding or removing the flow is refused (#1247, FB22)", async () => {
+    hostTest("over the host's one flow, the session's Save hands the host's onApply the batch's request id and the flow's own patch; adding or removing the flow is refused (#1247, FB22, #1275)", async () => {
         const printPatch = printFor(PatchType(FlowType));
-        const echo = East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult,
-            (_$, patch) => variant("applied", { revision: some(East.print(patch)) }));
+        const echo = East.asyncFunction([StringType, PatchType(FlowType)], Editing.Types.ApplyResult,
+            (_$, requestId, patch) => variant("applied", { revision: some(East.str`${requestId} ${East.print(patch)}`) }));
         const payload = carried(($) => PublicFlowchart({ data: INBOUND_VALUE, onApply: $.const(echo) }));
         if (payload.source.type !== "data" || payload.source.value.type !== "flow") assert.fail("expected the data arm's flow");
         const save = payload.source.value.value.apply;
@@ -535,7 +538,7 @@ describe("the payload (FB6)", () => {
             changes: [{ id: "", patch: optionDiff(some(INBOUND_VALUE), some(moved)), place: none }],
         });
         const patch = diffFor(FlowType)(INBOUND_VALUE, moved);
-        assert.deepEqual(await save.value(batch), variant("applied", { revision: some(printPatch(patch)) }));
+        assert.deepEqual(await save.value(batch), variant("applied", { revision: some(`r-one ${printPatch(patch)}`) }));
         assert.ok(flowEqual(applyFor(FlowType)(INBOUND_VALUE, patch), moved));
         // One flow is changed in place: a batch removing it reaches no host.
         const removal = encodeBeast2For(ChangeSet)({
@@ -900,7 +903,7 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: takes its flows from `record` or from `data`, never both$/],
         ["flows from neither", (_$) => ({ legend: false }),
             /^Error: Flowchart: needs its flows — `record`, an e3 record of Flowchart\.Types\.Flows bound with its patch mutation, or `data`: flows by name or one flow/],
-        ["`onApply` over a record", ($) => ({ record: $.let(flowsRecord()), onApply: East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })) }),
+        ["`onApply` over a record", ($) => ({ record: $.let(flowsRecord()), onApply: East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })) }),
             /^Error: Flowchart: `onApply` commits `data`'s edits — a flowchart over `record` commits through the record's patch mutation; leave `onApply` out$/],
         ["`flow` over the host's one flow", (_$) => ({ data: INBOUND_VALUE, flow: "Inbound parcels" }),
             /^Error: Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart\.Types\.Flow — leave `flow` out$/],
@@ -924,8 +927,10 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `data` is Flowchart\.Types\.Flows, flows by name, or Flowchart\.Types\.Flow, one flow — a value, an expression or a bind handle of either; Flowchart\.over builds one flow from an app's tables — and this is \.Array/],
         ["a `data` value of neither flow type", (_$) => ({ data: [{ code: "ARV" }] }),
             /^Error: Flowchart: `data` is .* — and this value is neither$/],
-        ["an `onApply` over another patch", ($) => ({ data: INBOUND_VALUE, onApply: $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none }))) }),
-            /^Error: Flowchart: `onApply` commits `data`'s edits, one patch of the value at a time — an East\.asyncFunction from PatchType\(Flowchart\.Types\.Flow\) to Editing\.Types\.ApplyResult — and this one is/],
+        ["an `onApply` over another patch", ($) => ({ data: INBOUND_VALUE, onApply: $.const(East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none }))) }),
+            /^Error: Flowchart: `onApply` commits `data`'s edits, one patch of the value at a time — an East\.asyncFunction from the session's request id and PatchType\(Flowchart\.Types\.Flow\), \[StringType, PatchType\(Flowchart\.Types\.Flow\)\], to Editing\.Types\.ApplyResult; a Retry hands the same id again — and this one is/],
+        ["an `onApply` of the patch alone, with no request id (#1275)", ($) => ({ data: FLOWS, onApply: $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none }))) }),
+            /^Error: Flowchart: `onApply` commits `data`'s edits, one patch of the value at a time — an East\.asyncFunction from the session's request id and PatchType\(Flowchart\.Types\.Flows\), \[StringType, PatchType\(Flowchart\.Types\.Flows\)\], to Editing\.Types\.ApplyResult; a Retry hands the same id again — and this one is/],
         ["a table, which Flowchart.over takes", (_$) => ({ data: INBOUND_VALUE, states: STATE_ROWS }),
             /^Error: Flowchart: `states` is one of the tables, or the row mappers, Flowchart\.over builds a flow from — pass data=\{Flowchart\.over\(states, \{ … \}\)\}/],
         ["a row mapper, which Flowchart.over takes", (_$) => ({ data: INBOUND_VALUE, link: () => ({}) }),
@@ -1036,8 +1041,11 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             const one = $.let(flowRecord());
             const jobs = $.let(jobsRecord());
             const slice = $.let(depotSlice($));
-            const applyFlows = $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
-            const applyFlow = $.const(East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
+            const applyFlows = $.const(East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
+            const applyFlow = $.const(East.asyncFunction([StringType, PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
+            // The host's commit before #1275: the patch alone, no request id.
+            const patchOnlyFlows = $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
+            const patchOnlyFlow = $.const(East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             // Each form, as it is written.
             PublicFlowchart({ record: flows, flow: "Returns", inspector: true, name: "depot", library: [PublicFlowchart.library.flows()] });
             PublicFlowchart({ data: FLOWS, flow: "Returns", onApply: applyFlows, slice, affordances: ["search"], library: [PublicFlowchart.library.flows()] });
@@ -1056,6 +1064,10 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ data: INBOUND_VALUE, flow: "Returns" });
             // @ts-expect-error — one flow's onApply takes the flow's patch, never the flows'
             PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlows });
+            // @ts-expect-error — the host's onApply takes the session's request id with its patch (#1275)
+            PublicFlowchart({ data: FLOWS, onApply: patchOnlyFlows });
+            // @ts-expect-error — the host's onApply takes the session's request id with its one flow's patch (#1275)
+            PublicFlowchart({ data: INBOUND_VALUE, onApply: patchOnlyFlow });
             // @ts-expect-error — the flows come from one source
             PublicFlowchart({ record: flows, data: FLOWS });
             // @ts-expect-error — the tables are Flowchart.over's
