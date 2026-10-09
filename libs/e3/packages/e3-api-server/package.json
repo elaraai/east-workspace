@@ -67,7 +67,11 @@
     "hono": "^4.6.0"
   },
   "peerDependencies": {
+    "@elaraai/e3-rack": "workspace:*",
     "@elaraai/east": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@elaraai/e3-rack": { "optional": true }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1831,6 +1831,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): Promise<ExecutionResult> {
     const { options } = execution;
     const execOptions: TaskExecuteOptions = {
+      taskName,
       // Scoped as the task's own cache bypass is: under a filter, only the
       // target's units re-run.
       force: stepTaskForced(execution.state, taskName),
@@ -1887,6 +1888,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const startTime = Date.now();
 
     const execOptions: TaskExecuteOptions = {
+      taskName,
       // Scoped like the cache bypass in stepPrepareTask: a filtered run forces
       // only the target, so a launched dependency still honours its own cache.
       force: stepTaskForced(execution.state, taskName),

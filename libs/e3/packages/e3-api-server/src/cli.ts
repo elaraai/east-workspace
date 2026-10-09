@@ -6,7 +6,7 @@
 
 import { Command } from 'commander';
 import { resolveBudget, type Budget } from '@elaraai/e3-core';
-import { createServer } from './server.js';
+import { createServer, type DataflowRunnerFactory } from './server.js';
 
 const program = new Command();
 
@@ -19,6 +19,7 @@ program
   .option('-p, --port <port>', 'HTTP port', '3000')
   .option('-H, --host <host>', 'Bind address', 'localhost')
   .option('--cors', 'Enable CORS')
+  .option('--rack', 'Delegate eligible tasks to the rack enrolled with this machine (needs @elaraai/e3-rack)')
   .option('--oidc', 'Enable built-in OIDC authentication provider')
   .option('--token-expiry <duration>', 'Access token expiry (e.g., "5s", "15m", "1h")', '1h')
   .option('--refresh-token-expiry <duration>', 'Refresh token expiry (e.g., "1h", "7d", "90d")', '90d')
@@ -33,6 +34,7 @@ program
     port: string;
     host: string;
     cors?: boolean;
+    rack?: boolean;
     oidc?: boolean;
     tokenExpiry: string;
     refreshTokenExpiry: string;
@@ -81,6 +83,21 @@ program
         }
       : undefined;
 
+    let dataflowRunner: DataflowRunnerFactory | undefined;
+    if (options.rack) {
+      try {
+        // A dynamic optional peer keeps the ordinary server independent of
+        // rack. Resolve at runtime so the server also builds before its peer.
+        const moduleName = '@elaraai/e3-rack';
+        const rack = await import(moduleName) as { createDataflowRunnerFactory(options: { labelPrefix: string }): DataflowRunnerFactory };
+        dataflowRunner = rack.createDataflowRunnerFactory({ labelPrefix: 'e3-api-server' });
+      } catch (error) {
+        console.error('--rack needs @elaraai/e3-rack installed next to e3-api-server');
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
+    }
+
     const server = await createServer({
       reposDir: options.repos,
       singleRepoPath: options.repo,
@@ -90,6 +107,7 @@ program
       auth,
       oidc,
       budget,
+      dataflowRunner,
     });
 
     await server.start();

@@ -697,6 +697,47 @@ Outputs:
   dev.shout  16 B
 ```
 
+### Rack Delegation
+
+Keep a local repository and delegate selected task bodies to a rack reachable
+over a trusted LAN or VPN. First enroll a separate agent instance, then choose
+which task names may run there:
+
+```sh
+e3 rack enroll --listen <vpn-ip>:7331 --instance local-dev
+# Run the printed installer command on the rack host; enrollment waits for its heartbeat.
+e3 rack policy . set 'train_*' rack --size large
+e3 dataflow run . dev --rack
+e3 watch src/index.ts . dev --start --rack
+e3 rack status
+e3 task logs . dev.train_model --follow
+```
+
+The local planner checks caches and sends a task or split-task unit's complete
+input object graph to a compatible agent. The agent executes it and returns
+logs and output objects; the local session verifies the entire output graph
+before recording success. Task hashes and cache keys do not depend on placement.
+Local work and fallback retain the existing `-j` / `--memory` budget.
+
+Routing is disabled by default. `e3 rack policy . enable` enables it for future
+runs; `--no-rack` overrides that setting. Rules use whole-name `*` / `?` globs
+and the first match wins. Unmatched tasks stay local unless the policy mode is
+`auto`. Stock runtimes are supported; custom environments and commands remain
+local. Host-dependent platform calls remain local unless a rule explicitly
+uses `--allow-host-access`.
+
+Busy racks spill to local execution by default. `--rack-only` waits for
+compatible capacity, while retaining infrastructure fallback. Task failures,
+timeouts and cancellation do not automatically rerun locally. The policy can
+opt into retrying task failures. Rack flags are refused for remote URLs; on a
+local API server use `e3-api-server --repos ./repos --rack` with the optional
+matching `@elaraai/e3-rack` package installed.
+
+Use `e3 rack list`, `e3 rack remove <id-or-label>` and `e3 rack stop` to manage
+the shared hub. See the [rack setup guide](packages/e3-rack/README.md) for
+installer prerequisites, multi-instance resource sharing, policy commands,
+version compatibility and the outstanding cloud-agent reliability work.
+
 ### Ad-hoc Run
 
 ```bash

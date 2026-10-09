@@ -20,6 +20,7 @@ import { decodeBody } from '../beast2.js';
 import { DataflowRequestType } from '../types.js';
 import type { GetRunner } from './functions.js';
 import { badQuery, wholeQuery } from './query.js';
+import type { OpenDataflowRunner } from '../dataflow-runner.js';
 
 export type { RunnerBudget };
 
@@ -45,6 +46,8 @@ export interface DataflowSeams {
   /** The budget the runner holds, which the poll and the budget route serve;
    *  absent for a host whose runners hold none */
   budget?: RunnerBudget;
+  /** Opens an attachment for an in-process run, whose orchestrator.wait tracks its lifetime. */
+  dataflowRunner?: OpenDataflowRunner;
 }
 
 /**
@@ -76,6 +79,7 @@ export function createExecutionRoutes(
 
     return startDataflow(storage, seams.getOrchestrator(repoPath), repoPath, ws, {
       runner: seams.getRunner(repoPath),
+      dataflowRunner: seams.dataflowRunner,
       ...(seams.width !== undefined && { width: seams.width }),
       force: dataflowForceOption(body.force),
       filter,

@@ -17,6 +17,7 @@
  *   task      logs | list
  *   dataflow  run
  *   auth      login | logout | status | token | whoami
+ *   rack      enroll | list | remove | status | config | policy | hub | stop
  *   run       <pkg.task> <inputs...> -o <out>     (ad-hoc)
  *   call      <pkg.fn> [args...] [-o <out>]       (named functions)
  *   watch     <source> [<ws>]
@@ -53,6 +54,7 @@ import { findCommand } from './commands/find.js';
 import { convertCommand } from './commands/convert.js';
 import { watchCommand } from './commands/watch.js';
 import { createAuthCommand } from './commands/auth.js';
+import { createRackCommand } from './commands/rack.js';
 import { completionCommand } from './commands/completion.js';
 import { installCommand as completionInstall, uninstallCommand as completionUninstall } from './commands/completion-install.js';
 import { completeCommand } from './commands/complete.js';
@@ -314,6 +316,9 @@ program
       .option('--force-task <task>', 'Re-execute this task, by its exact name, even where the cache holds its result; repeat it for each task to force',
         (task: string, tasks: string[] | undefined): string[] => [...(tasks ?? []), task])
       .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
+      .option('--rack', 'Delegate eligible tasks to this machine\'s enrolled rack')
+      .option('--no-rack', 'Run locally even when the repository rack policy is enabled')
+      .option('--rack-only', 'Wait for rack capacity instead of spilling locally; infrastructure failures may fall back')
       .action(withDefaultRepo(startCommand))
   );
 
@@ -321,6 +326,7 @@ program
 // auth
 // ---------------------------------------------------------------------------
 program.addCommand(createAuthCommand());
+program.addCommand(createRackCommand());
 
 // ---------------------------------------------------------------------------
 // run (ad-hoc) — uses pkg.task dot syntax
@@ -419,6 +425,9 @@ program
   .argument('<repo>', 'Repository path or URL')
   .argument('<workspace>', 'Workspace name')
   .option('--start', 'Execute dataflow after each deploy')
+  .option('--rack', 'Delegate eligible tasks to this machine\'s enrolled rack (requires --start)')
+  .option('--no-rack', 'Run locally even when the repository rack policy is enabled')
+  .option('--rack-only', 'Wait for rack capacity instead of spilling locally (requires --start)')
   .option(...SCHEMA)
   .option(...JOBS)
   .option(...MEMORY)
