@@ -1,7 +1,11 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack… See the detailed scope below."
 ---
+
+## Detailed skill scope
+
+East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui().
 
 # East Execution Engine (e3)
 
@@ -72,12 +76,68 @@ What do you need?
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
 ├─ Operate it from the shell     → the e3 CLI (below): deploy, run, read and write datasets, mutate records, gc
+├─ Delegate local task bodies to a rack → e3 rack enroll + policy; dataflow run --rack, watch --start --rack
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client
     ├─ A local repository        → @elaraai/e3-core
     ├─ Serve repositories        → e3-api-server --repos <dir>, or createServer()
     └─ e3 in a browser, no server → @elaraai/e3-web: serveUnits, serveE3, createWebE3 ("Running e3 in a browser")
 ```
+
+## Rack delegation from a local repository
+
+**Setup and routing**
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `e3 rack enroll --listen <host:port> [--instance <name>]` | Starts the user-wide hub and prints a single-use companion installer command; waits for the agent's heartbeat. Use a trusted LAN/VPN address reachable from the rack. | `e3 rack enroll --listen 100.64.0.10:7331 --instance local-dev` |
+| `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards. Size: serverless, small, medium, large, xlarge. | `e3 rack policy . set 'train_*' rack --size large` |
+| `e3 rack policy [repo] enable\|disable\|mode <opt-in\|auto>` | Enable/disable saved opt-in; `mode auto` selects eligible unmatched tasks. Defaults: disabled, opt-in. | `e3 rack policy . enable` |
+| `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
+| `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
+| `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
+| `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity. ❗ Rack flags require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
+| `e3 rack status\|list\|remove <id-or-label>\|stop` | Inspect fleet, revoke a rack or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
+| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>]` | Configure the shared listener (off by default); zero idle-exit disables automatic shutdown. | `e3 rack config --listen 100.64.0.10:7331` |
+
+The local process owns graph planning, repository and cache. After a cache
+miss, eligible plain task, map and merge bodies can execute on the rack; input
+closures and every output object transfer by hash. The session verifies the
+whole output graph before success. Placement never changes task/cache hashes.
+Local bodies and fallback share the original cores/memory budget; rack bodies
+use remote capacity. Calls, mutations and intake stay local. Stock runner
+configurations qualify; commands, custom environments/platforms and unscannable
+IR stay local. Host file/environment/network access stays local unless a rule
+deliberately grants `--allow-host-access` and its resources exist on the rack.
+
+The printed command installs a separate `e3-rack-agent@<instance>` service on
+the Linux rack host. It pins the project's e3 version and explicitly selects
+`--tiers node,py --max-vms 2 --gpus none`; override these deliberately. Separate
+instances share physical resources: max-vms is a VM-count limit, not a CPU or
+memory reservation. GPU placement is opportunistic. Keep the private network
+connection available while work runs. Agent request deadlines and durable
+completion retry remain companion cloud #193 work; hardware acceptance is
+separate from the local real-runner test agent.
+
+Policy is `<repo>/rack/policy.beast2`; hub state is `~/.e3/rack` (or
+`E3_RACK_HOME`). The control schema currently requires protocol 1 exactly.
+Agents must report bundled e3 at least the project's release. Infrastructure
+failure falls back locally with a separate execution attempt; cancellation
+and timeout never do. One cancelled subscriber does not stop work shared by
+other sessions of the same canonical repository and e3 release.
+
+**Programmatic attachment** (`@elaraai/e3-rack`)
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
+| `createDataflowRunnerFactory(options?)` | Pass to `createServer({ dataflowRunner })`; one session per API dataflow, using the server's shared budget. Explicit server opt-in overrides policy.enabled; rules still apply. | `const server = await createServer({ reposDir: './repos', dataflowRunner: createDataflowRunnerFactory() });` |
+
+The API server's optional rack package is needed only for
+`e3-api-server --repos ./repos --rack`. Portable handlers receive a runner
+factory and do not import hub code. Custom environments, remote function
+delegation, automatic reconnect after hub restart and embedded UI integration
+are deferred.
 
 ## Authoring a package
 
