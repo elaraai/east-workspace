@@ -96,7 +96,7 @@ export type FlowchartHistoryType = typeof FlowchartHistoryType;
  * one commit and answered as the session's Save is: over a record, one patch
  * through its patch mutation by `Record.onApply(record, { keyed: true })`;
  * over the host's flows or flow, one patch of that value through the host's
- * `onApply`.
+ * `onApply`, handed the batch's request id with it (#1275).
  */
 export const FlowchartSessionApplyType = AsyncFunctionType([BlobType], Editing.Types.ApplyResult);
 
@@ -123,14 +123,24 @@ export const FlowchartFlowsHandleType = StructType({
 /** Type representing {@link FlowchartFlowsHandleType}. */
 export type FlowchartFlowsHandleType = typeof FlowchartFlowsHandleType;
 
-/** The host's commit of its flows' edits: one patch of the flows, as a record's would be, answered as the editing session's Save is. */
-export const FlowchartFlowsApplyType = AsyncFunctionType([PatchType(FlowchartFlowsType)], Editing.Types.ApplyResult);
+/**
+ * The host's commit of its flows' edits (#1247, #1275): the session's request
+ * id and one patch of the flows, as a record's patch write takes them, answered
+ * as the editing session's Save is. A Retry after a write with no answer hands
+ * the same id again, so a host that keys its write by it — as e3's `commit.patch`
+ * does — writes once.
+ */
+export const FlowchartFlowsApplyType = AsyncFunctionType([StringType, PatchType(FlowchartFlowsType)], Editing.Types.ApplyResult);
 
 /** Type representing {@link FlowchartFlowsApplyType}. */
 export type FlowchartFlowsApplyType = typeof FlowchartFlowsApplyType;
 
-/** The host's commit of its one flow's edits: one patch of the flow, answered as the editing session's Save is. */
-export const FlowchartFlowApplyType = AsyncFunctionType([PatchType(FlowchartFlowType)], Editing.Types.ApplyResult);
+/**
+ * The host's commit of its one flow's edits (#1247, #1275): the session's
+ * request id and the flow's own patch, answered as the editing session's Save
+ * is — a Retry handing the same id again.
+ */
+export const FlowchartFlowApplyType = AsyncFunctionType([StringType, PatchType(FlowchartFlowType)], Editing.Types.ApplyResult);
 
 /** Type representing {@link FlowchartFlowApplyType}. */
 export type FlowchartFlowApplyType = typeof FlowchartFlowApplyType;
@@ -138,7 +148,8 @@ export type FlowchartFlowApplyType = typeof FlowchartFlowApplyType;
 /**
  * The host's flows: its value, of either type, and — when the host takes the
  * flowchart's edits — the session's Save through the host's `onApply` (#1247,
- * FB22), which hands the host one patch of its own value's type.
+ * FB22), which hands the host the batch's request id and one patch of its own
+ * value's type (#1275).
  *
  * @property flows - Flows by name
  * @property flow - One flow
@@ -492,12 +503,12 @@ function dataValue(data: unknown): ExprType<EastType> {
     throw new Error("Flowchart: `data` is Flowchart.Types.Flows, flows by name, or Flowchart.Types.Flow, one flow — a value, an expression or a bind handle of either; Flowchart.over builds one flow from an app's tables — and this value is neither");
 }
 
-/** The host's `onApply`, checked against the patch of its flows' type. */
+/** The host's `onApply`, checked against a request id and the patch of its flows' type. */
 function applyOf(onApply: unknown, applyType: EastType, value: string): ExprType<EastType> {
     const apply = (onApply instanceof Expr ? onApply : East.value(onApply as SubtypeExprOrValue<EastType>, applyType)) as ExprType<EastType>;
     const type = Expr.type(apply as unknown as Expr) as EastType;
     if (!isTypeEqual(type, applyType)) {
-        throw new Error(`Flowchart: \`onApply\` commits \`data\`'s edits, one patch of the value at a time — an East.asyncFunction from PatchType(${value}) to Editing.Types.ApplyResult — and this one is ${printType(type)}`);
+        throw new Error(`Flowchart: \`onApply\` commits \`data\`'s edits, one patch of the value at a time — an East.asyncFunction from the session's request id and PatchType(${value}), [StringType, PatchType(${value})], to Editing.Types.ApplyResult; a Retry hands the same id again — and this one is ${printType(type)}`);
     }
     return apply;
 }
@@ -510,7 +521,9 @@ function applyOf(onApply: unknown, applyType: EastType, value: string): ExprType
  * update or delete by name, as `Record.onApply(record, { keyed: true })`
  * restates it for a record — never the whole value replaced, so the host's
  * other flows stay as they are; over one flow, its one change is the flow's
- * own patch. The host's `onApply` answers the session.
+ * own patch. The host's `onApply` is handed the batch's request id with it
+ * (#1275) — the same id on a Retry, which resends the same batch — and answers
+ * the session.
  */
 function dataArm(data: unknown, onApply: unknown): FlowchartArm {
     const value = dataValue(data);
@@ -522,7 +535,7 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
     if (onApply === undefined) return { many, source: variant("data", variant(many ? "flows" : "flow", { value, apply: none })) };
     // The host's commit, its patch opaque here, as in `Record.onApply`; its runtime type is exact.
     const host = applyOf(onApply, many ? FlowchartFlowsApplyType : FlowchartFlowApplyType, many ? "Flowchart.Types.Flows" : "Flowchart.Types.Flow") as
-        ExprType<AsyncFunctionType<[EastType], typeof Editing.Types.ApplyResult>>;
+        ExprType<AsyncFunctionType<[typeof StringType, EastType], typeof Editing.Types.ApplyResult>>;
     const batchType = Editing.Types.ChangeSet(FlowchartFlowType, StringType);
     const apply = many
         ? East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
@@ -552,7 +565,7 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
                     },
                 });
             });
-            return commit(variant("patch", ops));
+            return commit(batch.requestId, variant("patch", ops));
         })
         : East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
             const commit = $.const(host);
@@ -565,12 +578,12 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
                     replace: ($, swap) => {
                         $.match(swap.before, {
                             some: ($, before) => {
-                                $.match(swap.after, { some: ($, after) => { $.assign(result, commit(East.diff(before, after))); } });
+                                $.match(swap.after, { some: ($, after) => { $.assign(result, commit(batch.requestId, East.diff(before, after))); } });
                             },
                         });
                     },
                     patch: ($, entry) => {
-                        $.match(entry, { some: ($, update) => { $.assign(result, commit(update)); } });
+                        $.match(entry, { some: ($, update) => { $.assign(result, commit(batch.requestId, update)); } });
                     },
                 });
             });
@@ -590,8 +603,8 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  *   `data`, or from neither; `onApply`, `slice` or `affordances` over a
  *   record; `flow` over one flow; a record of one flow, or of another type
  *   than `Flowchart.Types.Flows`, or not bound with its patch mutation; `data`
- *   of neither flow type; an `onApply` that does not take the patch of
- *   `data`'s type; `"brush"` among the affordances; a table or row mapper,
+ *   of neither flow type; an `onApply` that does not take a request id and
+ *   the patch of `data`'s type; `"brush"` among the affordances; a table or row mapper,
  *   which `Flowchart.over` takes; `height` or `maxHeight`, which the box the
  *   flowchart fills sets; a callback for an edit, or `linkMode`, which the
  *   editing session's gestures replace; a hover card's builder (`stateHover`,

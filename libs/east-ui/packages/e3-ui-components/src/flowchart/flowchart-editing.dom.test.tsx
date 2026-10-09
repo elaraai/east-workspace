@@ -23,7 +23,9 @@
  * making them out of date, with Discard in its banner; and the commit itself:
  * over a record one patch through its patch mutation, and over the host's
  * flows — by name, or one — one patch of its value through its `onApply`, the
- * drafts retiring once each reads back as the commit left it.
+ * drafts retiring once each reads back as the commit left it; and the host's
+ * `onApply` handed the batch's request id with its patch (#1275): the same id
+ * on the Retry after a write with no answer, a new one on the next Save.
  *
  * jsdom lays nothing out: the canvas measures 0×0, so its lanes are 166px
  * wide from the left edge and its states sit where `layout.ts` puts them, and
@@ -34,7 +36,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest
 import { act, cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    BlobType, East, OptionType, PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, some, variant,
+    ArrayType, BlobType, East, OptionType, PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
@@ -613,7 +615,7 @@ describe("Save's commit (FB22, FB23)", () => {
     /** The host's flows by name in a State, which its onApply writes with the patch it is handed. */
     const hostFlows = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const flows = $.let(State.bind([Flowchart.Types.Flows], FLOWS_KEY, FLOWS));
-        const onApply = $.const(East.asyncFunction([PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, patch) => {
+        const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, _requestId, patch) => {
             $2(flows.write(East.applyPatch(flows.read(), patch)));
             return variant("applied", { revision: none });
         }));
@@ -623,12 +625,38 @@ describe("Save's commit (FB22, FB23)", () => {
     /** The host's one flow in a State, which its onApply writes with the patch it is handed. */
     const hostFlow = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const flow = $.let(State.bind([Flowchart.Types.Flow], FLOW_KEY, SORT));
-        const onApply = $.const(East.asyncFunction([PatchType(Flowchart.Types.Flow)], Editing.Types.ApplyResult, ($2, patch) => {
+        const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Types.Flow)], Editing.Types.ApplyResult, ($2, _requestId, patch) => {
             $2(flow.write(East.applyPatch(flow.read(), patch)));
             return variant("applied", { revision: none });
         }));
         return Flowchart({ data: flow.read(), onApply });
     }))), getRegisteredPlatformImplementations());
+
+    const IDS_KEY = "flowchart.editing.host-ids";
+
+    /**
+     * The host's flows by name in a State, whose onApply notes each request id
+     * it is handed, the first write getting no answer — it throws before it
+     * writes — and each one after writing the patch it is handed (#1275).
+     */
+    const hostFlowsOnce = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const flows = $.let(State.bind([Flowchart.Types.Flows], FLOWS_KEY, FLOWS));
+        const ids = $.let(State.bind([ArrayType(StringType)], IDS_KEY, []));
+        const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Types.Flows)], Editing.Types.ApplyResult, ($2, requestId, patch) => {
+            const seen = $2.let(ids.read());
+            $2(ids.write(seen.concat([requestId])));
+            $2.if(seen.size().equal(0n), ($3) => { $3.error("the write got no answer"); });
+            $2(flows.write(East.applyPatch(flows.read(), patch)));
+            return variant("applied", { revision: none });
+        }));
+        return Flowchart({ data: flows.read(), flow: "Sort", onApply });
+    }))), getRegisteredPlatformImplementations());
+
+    /** The request ids the host's onApply was handed, in order. */
+    const readIds = East.compile(East.function([], ArrayType(StringType), ($) => {
+        const ids = $.const(State.bind([ArrayType(StringType)], IDS_KEY, []));
+        return ids.read();
+    }), getRegisteredPlatformImplementations());
 
     const readHostFlows = East.compile(East.function([], Flowchart.Types.Flows, ($) => {
         const flows = $.const(State.bind([Flowchart.Types.Flows], FLOWS_KEY, FLOWS));
@@ -658,6 +686,29 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(flowsEqual(readHostFlows(), withFlow(FLOWS, "Sort", edits.deleteState(SORT, "CH*")))).toBe(true);
         await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
         expect([stateKeys(container), enabled(SAVE)]).toEqual([["IND", "SRD"], false]);
+    }, 30_000);
+
+    test("the host's onApply is handed the batch's request id with its patch: the Retry after a write with no answer hands the same id, and the next Save a new one (#1275)", async () => {
+        const { container } = await mountHost(hostFlowsOnce);
+        await addLane(container);
+        await press(SAVE);
+        // No answer: the drafts stay, and Save turns into Retry.
+        expect(container.querySelector("[data-session-banner='unknown']")).not.toBeNull();
+        await press(editingMessages.retryRequest());
+        await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
+        const retried = readIds();
+        expect(retried).toHaveLength(2);
+        expect(nameEqual(retried[0]!, "")).toBe(false);
+        expect(nameEqual(retried[1]!, retried[0]!), "the Retry hands the same request id").toBe(true);
+        // The next Save is a new request.
+        await addLane(container);
+        await press(SAVE);
+        await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
+        const all = readIds();
+        expect(all).toHaveLength(3);
+        expect(nameEqual(all[2]!, all[0]!), "a new Save hands a new request id").toBe(false);
+        // Written once each: the Retry's write and the next Save's, two lanes on the sort flow's three.
+        expect(readHostFlows().get("Sort")!.lanes).toHaveLength(5);
     }, 30_000);
 
     test("over the host's one flow, the flow's own patch through its onApply, and the drafts retire once it reads back", async () => {

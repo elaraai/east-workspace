@@ -52,14 +52,15 @@ export function FlowchartTag(
  * `<Flowchart data={flows} />` — the host's flows by name: a value, an
  * expression or a bind handle. Read only unless the host commits its edits
  * through `onApply`: then every gesture is a draft, and Save hands the host
- * one patch of the flows, the open flow's insert, update or delete by name.
+ * the session's request id and one patch of the flows, the open flow's insert,
+ * update or delete by name — a Retry the same id again (#1275).
  */
 export function FlowchartTag(
     props: {
         data: SubtypeExprOrValue<FlowchartFlowsType> | FlowchartBindHandle<FlowchartFlowsType>;
         /** Over many flows, the one opened first. */
         flow?: SubtypeExprOrValue<StringType>;
-        /** The host's commit: one patch of the flows, answered as the editing session's Save is. */
+        /** The host's commit: the session's request id and one patch of the flows, answered as the editing session's Save is; a Retry hands the same id. */
         onApply?: SubtypeExprOrValue<FlowchartFlowsApplyType>;
         /** The library pane's tabs, in order, each a `Flowchart.library.*` call; left out, or empty, no library pane. */
         library?: readonly FlowchartLibraryTab[];
@@ -69,13 +70,14 @@ export function FlowchartTag(
  * `<Flowchart data={Flowchart.over(states, { … })} />` — the host's one flow:
  * a value, an expression or a bind handle, `Flowchart.over` building it from
  * the host's tables. Read only unless the host commits its edits through
- * `onApply`: then every gesture is a draft, and Save hands the host one patch
- * of the flow. Its library lists no Flows tab: one flow has none to list.
+ * `onApply`: then every gesture is a draft, and Save hands the host the
+ * session's request id and one patch of the flow — a Retry the same id again
+ * (#1275). Its library lists no Flows tab: one flow has none to list.
  */
 export function FlowchartTag(
     props: {
         data: SubtypeExprOrValue<FlowchartFlowType> | FlowchartBindHandle<FlowchartFlowType>;
-        /** The host's commit: one patch of the flow, answered as the editing session's Save is. */
+        /** The host's commit: the session's request id and one patch of the flow, answered as the editing session's Save is; a Retry hands the same id. */
         onApply?: SubtypeExprOrValue<FlowchartFlowApplyType>;
         /** The library pane's tabs, in order — every tab but the Flows tab; left out, or empty, no library pane. */
         library?: readonly FlowchartOneFlowLibraryTab[];

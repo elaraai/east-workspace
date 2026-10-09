@@ -673,7 +673,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
 
     test("over one flow: its description alone — no name, no Duplicate, no Delete", async () => {
         const host = East.compile(East.function([], Flowchart.Types.Payload, (_$) => Flowchart.Payload({
-            data: SORT, onApply: East.asyncFunction([PatchType(Flowchart.Types.Flow)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })),
+            data: SORT, onApply: East.asyncFunction([StringType, PatchType(Flowchart.Types.Flow)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })),
         })), getRegisteredPlatformImplementations())() as FlowchartValue;
         const { container } = await mount(host);
         expect([showing(container), head(container)]).toEqual(["flow", ["Flow", null]]);

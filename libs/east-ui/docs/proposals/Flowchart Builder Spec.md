@@ -328,7 +328,7 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 |---|---|---|
 | `record` | `Record.bind(rec, [e3.mutation.patch(rec)])` | The flows the canvas shows and Save commits to. `rec`'s type is `Flowchart.Types.Flows`, flows by name; a lone flow is a record of one entry, and a record of one flow is refused (§4.4). A flowchart takes `record` or `data`, never both. |
 | `data` | `Flowchart.Types.Flows` or `Flowchart.Types.Flow`: a value, an expression or a bind handle | The host's flows by name or one flow, the value's type picking the arm: read only, unless `onApply` is given. |
-| `onApply` | `(patch) => Editing.Types.ApplyResult`, async | Over `data`, the host's commit: one patch of the value, as a record's would be — over flows by name, the open flow's insert, update or delete by name, never the whole value replaced. Its answer is Save's. |
+| `onApply` | `(requestId, patch) => Editing.Types.ApplyResult`, async: `East.asyncFunction([StringType, PatchType(T)], Editing.Types.ApplyResult, …)`, `T` the value's type | Over `data`, the host's commit: the session's request id and one patch of the value, as a record's patch write takes them — over flows by name, the open flow's insert, update or delete by name, never the whole value replaced. Its answer is Save's. A Retry after a write with no answer hands the same request id again, so a host that keys its write by it — as e3's `commit.patch` does — writes once (#1275). |
 | `flow` | String | Over many flows, the one opened first. A flow opened later, from the Flows tab, takes its place. Refused over one flow (`data` of `Flowchart.Types.Flow`). |
 | `library` | `Flowchart.library.*` calls | The library's tabs, in order (§4.2); left out, or `[]`, no library pane. |
 | `inspector` | `true`, `false`, or `{ state?, transition? }` | The inspector pane (§9.9), on by default: left out, or `true`, it shows; `false` takes it away. `{ state, transition }` gives a state or a transition the author's own Details in place of its form, each an East function over the row and its writer, `($, row, update) => UIComponentType`, `update` writing the edited row back as one transaction (FB45). |
@@ -466,7 +466,7 @@ FlowchartPayloadType = StructType({
     canvas:    FlowchartCanvasType,                    // today's root, less the tables, the callbacks and the hover cards that go: the drawing options, selection, canConnect, slice
     source:    VariantType({                           // where the flows come from
         record: StructType({ read, history, commit: StructType({ patch }), apply }),   //   a record of flows by name, bound with its patch: Record.bind's handle, and `apply`, its session's Save — Record.onApply(record, { keyed: true }) over the batch (#1246)
-        data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked, and `apply`, its session's Save through the host's onApply (#1247)
+        data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked, and `apply`, its session's Save through the host's onApply (#1247), handed the batch's request id with its patch (#1275)
             flows: StructType({ value: Flowchart.Types.Flows, apply: OptionType(FlowchartSessionApplyType) }),   //   the batch as one patch of the flows, by name
             flow:  StructType({ value: Flowchart.Types.Flow,  apply: OptionType(FlowchartSessionApplyType) }),   //   the batch's one change as the flow's own patch
         }),
@@ -738,8 +738,10 @@ has a test there. Today's canvas behaviour keeps holding.
   or delete by name; over `data`, one flow or many, one patch of the value
   through the host's `onApply` — over flows by name the open flow's insert,
   update or delete by name, never the whole value replaced; over one flow, the
-  flow's own patch. Save over one flow exists only through `data`'s `onApply`:
-  a record always holds flows by name (decision 3).
+  flow's own patch — handed with the batch's request id, as the record's patch
+  write is, so a Retry hands the same id again (#1275). Save over one flow
+  exists only through `data`'s `onApply`: a record always holds flows by name
+  (decision 3).
 - **FB23.** A conflict or a refusal keeps every draft and shows its banner; a
   write with no answer turns Save into Retry, which resends the same request.
   After a commit the drafts retire once the flow reads back as the commit left
