@@ -510,12 +510,15 @@ export function RowShell({
                             <FontAwesomeIcon icon={faCaretDown} />
                         </Box>
                     )}
-                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
                     {/* The links-focus family tag (R1) — settles in after the
-                        gather choreography. */}
-                    {focusTag !== undefined && (
-                        <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
-                    )}
+                        gather choreography — on its own line with the label,
+                        where it gives its room up first (#1277). */}
+                    {focusTag !== undefined ? (
+                        <Box css={styles.gutterNamed} data-plan-gutter="named">
+                            <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
+                            <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
+                        </Box>
+                    ) : <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>}
                     {/* §3 gutter anatomy: meta (an `.of` parent's aggregate
                         tag), then value right-aligned, status dot rightmost —
                         inline after the flex spacer so the label truncates. */}

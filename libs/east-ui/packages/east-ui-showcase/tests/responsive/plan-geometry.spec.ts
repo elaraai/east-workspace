@@ -264,6 +264,29 @@ const rowControlsLaidOut = (root: Element): string[] => {
     return out;
 };
 
+/**
+ * How each links-focus tag draws (#1277), by its row: `whole`; `ellipsized`,
+ * a letter and the ellipsis at least inside its padding; or `hidden`, wrapped
+ * off its line, out of sight — by #1264's rule. Anything else is said in words.
+ */
+const tagStates = (root: Element): { row: string; state: string }[] => [...root.querySelectorAll("[data-plan-gutter='named']")].map((line) => {
+    const row = line.closest("[data-plan-row]")!.getAttribute("data-plan-row")!;
+    const tag = line.querySelector<HTMLElement>(":scope > [data-plan-focustag]")!;
+    if (tag.getBoundingClientRect().top >= line.getBoundingClientRect().bottom - 0.5) return { row, state: "hidden" };
+    if (tag.scrollWidth <= tag.clientWidth) return { row, state: "whole" };
+    const cs = getComputedStyle(tag);
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.cssText = `position: fixed; visibility: hidden; white-space: pre; font: ${cs.font}; letter-spacing: ${cs.letterSpacing}`;
+    probe.textContent = "00";
+    const twoCh = probe.getBoundingClientRect().width;
+    probe.remove();
+    const inside = tag.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
+    return { row, state: inside + 0.5 >= twoCh ? "ellipsized" : `cut to ${inside.toFixed(1)}px, under a letter and the ellipsis (${twoCh.toFixed(1)}px)` };
+});
+
+/** The ways #1264's rule lets a tag draw. */
+const TAG_DRAWN = ["whole", "ellipsized", "hidden"];
+
 /** The row kinds among the entry's measured rows. */
 async function kindsMeasured(entry: Locator): Promise<string[]> {
     return entry.evaluate((root) => [...new Set(
@@ -611,6 +634,35 @@ test.describe("Plan links focus (#818, #1258)", () => {
         // Off the band: it is unlit again.
         await page.mouse.move(at.x, at.y + 40);
         await expect(g).not.toHaveAttribute("data-lit", "");
+    });
+
+    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every family row's controls end inside its gutter cell after its label, value and status, and its tag is whole, ellipsized after a whole letter or off its line — H1-P04's, with no room for a letter, off it, its word said on hover (#1277)", async ({ page }) => {
+        const entry = await focusLinks(page, FOCUSES[1], 1280);
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        const states = () => entry.evaluate(tagStates);
+        await expect.poll(async () => (await states()).filter((t) => !TAG_DRAWN.includes(t.state))).toEqual([]);
+        expect((await states()).find((t) => t.row === rowId("presses", "H1-P04"))?.state).toBe("hidden");
+        await entry.locator(`${rowSel("presses", "H1-P04")} [data-plan-gutter='named']`).hover();
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("Downstream");
+    });
+
+    test("planSpanRows: in H1-P09's links focus, H1-P07's controls end inside its line with its value shown and its label whole — its tag gives its room up first, whole, ellipsized after a whole letter or off its line (#1277)", async ({ page }) => {
+        const entry = await focusLinks(page, FOCUSES[0], 1280);
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        await expect.poll(async () => (await entry.evaluate(tagStates)).filter((t) => !TAG_DRAWN.includes(t.state))).toEqual([]);
+        const row = entry.locator(rowSel("flavours", "H1-P07"));
+        const read = () => row.evaluate((el) => {
+            const line = el.querySelector("[data-plan-gutter='name']")!.getBoundingClientRect();
+            const value = el.querySelector<HTMLElement>("[data-plan-gutter='value']")!;
+            const v = value.getBoundingClientRect();
+            const label = el.querySelector<HTMLElement>("[data-plan-gutter='label']")!;
+            return {
+                value: value.textContent,
+                valueShown: getComputedStyle(value).display !== "none" && v.left >= line.left - 0.5 && v.right <= line.right + 0.5,
+                labelWhole: label.scrollWidth <= label.clientWidth,
+            };
+        });
+        await expect.poll(read).toEqual({ value: "8k/h", valueShown: true, labelWhole: true });
     });
 });
 

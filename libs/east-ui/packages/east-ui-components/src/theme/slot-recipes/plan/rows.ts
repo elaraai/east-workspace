@@ -19,12 +19,15 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
-    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterLabel", "gutterSub",
+    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterLabel", "gutterNamed", "gutterSub",
     "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch", "caret", "statusDot",
     "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta",
     "stickyParent", "stickyPath",
 ] as const;
+
+/** A links-focus family tag's height (#1258), and the line it shares with its row's label (#1277). */
+const FOCUS_TAG_H = "20px";
 
 /** Their base styles. */
 export const rowsBase = {
@@ -217,6 +220,24 @@ export const rowsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
     },
+    // A family row's label and its links-focus tag (#1277), on one line of
+    // their own that the strut before them holds at the tag's height: the line
+    // gives way before the value, the status and the controls, and the tag
+    // gives way first — whole, ellipsized after a whole letter, or wrapped off
+    // the line where not even that fits, out of sight (#1264's rule; a hover
+    // says it). Only then does the label truncate.
+    gutterNamed: {
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        alignContent: "flex-start",
+        flex: "0 1 auto",
+        minWidth: 0,
+        height: FOCUS_TAG_H,
+        overflow: "hidden",
+        // The strut: the line's height, and no width.
+        "&::before": { content: '""', height: "100%" },
+    },
     // The unit / sub-line slot (#949) — mono 10 / 400 in the label ink.
     gutterSub: {
         fontFamily: "mono",
@@ -337,12 +358,22 @@ export const rowsBase = {
     },
     // The Upstream / Downstream / Linked Tag after a family row's name — the
     // focused row has none. It fades in with the links, once the rows have
-    // gathered.
+    // gathered. It takes the room its line leaves after the label (#1277):
+    // from a letter and the ellipsis inside its padding and border up to its
+    // whole word; with less, it wraps off the line.
     focusTag: {
-        height: "20px",
+        height: FOCUS_TAG_H,
         boxSizing: "border-box",
-        display: "inline-flex",
-        alignItems: "center",
+        display: "block",
+        // Its word centred inside its border.
+        lineHeight: `calc(${FOCUS_TAG_H} - 2px)`,
+        flex: "1 1 calc(2ch + 18px)",
+        minWidth: 0,
+        maxWidth: "max-content",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        // The line's 6px gap — a margin, which the strut, being no element, never takes.
+        marginInlineStart: "6px",
         padding: "0 8px",
         borderWidth: "1px",
         borderStyle: "solid",
@@ -352,10 +383,8 @@ export const rowsBase = {
         fontFamily: "mono",
         fontSize: "label.sm",
         fontWeight: "medium",
-        lineHeight: 1,
         color: "fg.muted",
         whiteSpace: "nowrap",
-        flexShrink: 0,
         animation: "plan-settle-in {durations.normal} {easings.out} {durations.slow} backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
     },

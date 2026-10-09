@@ -34,7 +34,9 @@
  *   cell whose number its column has no room for, shows the whole label as a
  *   tooltip (#1264, #1266, #1269) — read from what the page draws as the hover
  *   lands — and a hover card open on the element says more, so the tooltip
- *   gives way to it.
+ *   gives way to it;
+ * - hovering a family row's label and links-focus tag, whose line draws the
+ *   tag ellipsized or out of sight, shows the tag's whole word (#1277).
  *
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
@@ -73,6 +75,10 @@ export const PLAN_TIP_SELECTOR =
  *  hidden or ellipsized: a bar, a chip and a rollup band (#1264), a tile
  *  (#1266), and a heat or table cell's number (#1269). */
 export const PLAN_LABELLED_SELECTOR = "[data-run],[data-chip],[data-event],[data-plan-band],[data-cell]";
+
+/** A family row's label and its links-focus tag, on their own line (#1277): a hover over them says the tag's word
+ *  while the line draws it ellipsized or out of sight. */
+export const PLAN_TAGGED_SELECTOR = "[data-plan-gutter='named']";
 
 /** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
 const OPEN_DELAY_MS = 150;
@@ -210,6 +216,24 @@ function labelTipOf(el: Element): { key: string; text: string } | undefined {
     return { key: `${row}|label|${id}`, text };
 }
 
+/**
+ * The tooltip a family row's links-focus tag makes (#1277): its word, while its
+ * line draws it ellipsized or wrapped off the line, out of sight; read as the
+ * hover lands.
+ *
+ * @param el - A row's label and tag line ({@link PLAN_TAGGED_SELECTOR})
+ * @returns Its identity and the tag's word, or `undefined` while the tag shows whole
+ */
+function tagTipOf(el: Element): { key: string; text: string } | undefined {
+    const tag = el.querySelector<HTMLElement>(":scope > [data-plan-focustag]");
+    const text = tag?.textContent?.trim() ?? "";
+    if (tag === null || text === "") return undefined;
+    const offLine = tag.getBoundingClientRect().top >= el.getBoundingClientRect().bottom - 0.5;
+    if (!offLine && tag.scrollWidth <= tag.clientWidth) return undefined;
+    const row = el.closest("[data-plan-row]")?.getAttribute("data-plan-row");
+    return row === null || row === undefined ? undefined : { key: `${row}|tag`, text };
+}
+
 /** A stable identity for an open surface — its element's kind, row and key
  *  (a link's, its own key: it belongs to no row). */
 function refKey(ref: PlanElementRefValue): string {
@@ -311,14 +335,16 @@ export function usePlanOverlayHandlers(
             openAt: (el) => hasPopover && openPopover(el, false),
             onPointerOver: (e) => {
                 const body = bodyRef.current;
-                // A labelled mark says its `aria-label`; else a bar, a chip or a
-                // band says a label it draws cut (#1264).
+                // A labelled mark says its `aria-label`; a family row's line the
+                // tag it draws cut (#1277); else a bar, a chip or a band says a
+                // label it draws cut (#1264).
                 const mark = elementIn(body, e.target, PLAN_TIP_SELECTOR);
-                const tip = mark ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
+                const tagged = mark === null ? elementIn(body, e.target, PLAN_TAGGED_SELECTOR) : null;
+                const tip = mark ?? tagged ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
                 if (tip !== null && anchors.tooltip !== tip) {
                     clearTimeout(anchors.tipOpen);
                     anchors.tipOpen = setTimeout(() => {
-                        const open = mark !== null ? tipOf(mark) : labelTipOf(tip);
+                        const open = mark !== null ? tipOf(mark) : tagged !== null ? tagTipOf(tagged) : labelTipOf(tip);
                         if (open === undefined || !tip.isConnected) return;
                         anchors.tooltip = tip;
                         controller.tooltipIntent(open);
@@ -343,7 +369,8 @@ export function usePlanOverlayHandlers(
             onPointerOut: (e) => {
                 const body = bodyRef.current;
                 const to = e.relatedTarget instanceof Node ? e.relatedTarget : null;
-                const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR) ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
+                const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR) ?? elementIn(body, e.target, PLAN_TAGGED_SELECTOR)
+                    ?? elementIn(body, e.target, PLAN_LABELLED_SELECTOR);
                 if (tip !== null && (to === null || !tip.contains(to))) {
                     clearTimeout(anchors.tipOpen);
                     if (anchors.tooltip === tip) {
