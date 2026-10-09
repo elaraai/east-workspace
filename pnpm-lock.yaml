@@ -323,6 +323,49 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  libs/e3/packages/e3-rack:
+    dependencies:
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../e3
+      '@elaraai/e3-api-server':
+        specifier: workspace:*
+        version: link:../e3-api-server
+      '@elaraai/e3-core':
+        specifier: workspace:*
+        version: link:../e3-core
+      '@elaraai/e3-types':
+        specifier: workspace:*
+        version: link:../e3-types
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../../../east
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.12(hono@4.12.10)
+      hono:
+        specifier: ^4.6.0
+        version: 4.12.10
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8.47.0
+        version: 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^8.47.0
+        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
+      eslint:
+        specifier: ^9.0.0
+        version: 9.39.4
+      eslint-plugin-headers:
+        specifier: ^1.3.3
+        version: 1.3.4(eslint@9.39.4)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   libs/e3/packages/e3-types:
     dependencies:
       '@elaraai/east':

@@ -8,7 +8,7 @@ const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under BSL 1.1. 
 // Dual AGPL-3.0 / Commercial packages: e3, e3-types
 const agplHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.';
 
-const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-web'];
+const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-rack', 'e3-web'];
 const agplPackages = ['e3', 'e3-types'];
 
 const baseRules = {
