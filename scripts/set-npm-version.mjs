@@ -59,6 +59,7 @@ const PKGS = [
   'libs/e3/packages/e3-core/package.json',
   'libs/e3/packages/e3-cli/package.json',
   'libs/e3/packages/e3-api-server/package.json',
+  'libs/e3/packages/e3-rack/package.json',
   'libs/e3/packages/e3-api-tests/package.json',
   'libs/e3/packages/e3-web/package.json',
   'libs/east-ui/packages/east-ui/package.json',
