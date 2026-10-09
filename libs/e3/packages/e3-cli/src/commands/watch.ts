@@ -35,8 +35,10 @@ import { loadPackageFile } from './load-package.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { recordPlanLine, schemaPolicy } from './workspace.js';
 import { formatSize } from '../format.js';
+import { openRackRunner, type RackRunnerHandle } from '@elaraai/e3-rack';
+import { rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
 
-interface WatchOptions extends BudgetFlags {
+interface WatchOptions extends BudgetFlags, RackFlags {
   start?: boolean;
   abortOnChange?: boolean;
   /** What each deploy does with a record it cannot keep as it is. */
@@ -64,6 +66,8 @@ export async function watchCommand(
   workspace: string,
   options: WatchOptions
 ): Promise<void> {
+  refuseRemoteRack(repoArg, options);
+  if ((options.rack !== undefined || options.rackOnly) && !options.start) exitError('--rack requires --start for e3 watch');
   const repoPath = await openRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
   const schema = schemaPolicy(options.schema);
@@ -92,6 +96,10 @@ export async function watchCommand(
   let isExecuting = false;
   let pendingReload = false;
   let currentAbortController: AbortController | null = null;
+  let rack: RackRunnerHandle | undefined;
+  let rackOpened = false;
+  let currentRun: Promise<void> | undefined;
+  let stopping = false;
 
   /**
    * Load, export, import, and deploy the package
@@ -196,9 +204,17 @@ export async function watchCommand(
     const orchestrator = new LocalOrchestrator(stateStore);
 
     try {
+      if (!rackOpened) {
+        rackOpened = true;
+        if (await rackEnabled(repoPath, options)) {
+          rack = await openRackRunner({ repoPath, workspace, storage, budget, label: `e3 watch ${workspace} (pid ${process.pid})`,
+            rackOnly: options.rackOnly, onPlacement: printRackPlacement, log: console.log });
+          console.log(`Rack: ${rack.describe()}`);
+        }
+      } else await rack?.refreshSlots();
       const handle = await orchestrator.start(storage, repoPath, workspace, {
-        runner,
-        width: budget.cores,
+        runner: rack?.runner ?? runner,
+        width: budget.cores + (rack?.rackSlots ?? 0),
         signal,
         onTaskStart: (name) => {
           console.log(`  [START] ${name}`);
@@ -235,13 +251,14 @@ export async function watchCommand(
    * Handle a file change event
    */
   async function handleChange(): Promise<void> {
+    if (stopping) return;
     if (isExecuting) {
+      pendingReload = true;
       if (options.abortOnChange && currentAbortController) {
         console.log(`[${timestamp()}] File changed, aborting current execution...`);
         currentAbortController.abort();
       } else {
         console.log(`[${timestamp()}] File changed (queued, execution in progress)`);
-        pendingReload = true;
       }
       return;
     }
@@ -257,7 +274,8 @@ export async function watchCommand(
       setupWatchers(deployed.watchedFiles);
       if (options.start) {
         currentAbortController = new AbortController();
-        await runDataflow(currentAbortController.signal);
+        currentRun = runDataflow(currentAbortController.signal);
+        await currentRun;
         currentAbortController = null;
       }
     }
@@ -267,7 +285,7 @@ export async function watchCommand(
     isExecuting = false;
 
     // Process queued reload if any
-    if (pendingReload) {
+    if (pendingReload && !stopping) {
       console.log(`[${timestamp()}] Processing queued reload...`);
       await handleChange();
     } else {
@@ -280,6 +298,7 @@ export async function watchCommand(
   let debounceTimer: NodeJS.Timeout | null = null;
 
   function setupWatchers(files: string[]) {
+    if (stopping) return;
     // Close all existing watchers — fs.watch on Linux breaks after
     // atomic saves (write-to-temp + rename) because the inode changes.
     for (const [, watcher] of watchers) {
@@ -306,6 +325,24 @@ export async function watchCommand(
     }
   }
 
+  // Install handlers before the first run so a rack claim during the initial
+  // deploy receives the same cancellation and session cleanup as later runs.
+  const cleanup = () => {
+    if (stopping) return;
+    stopping = true;
+    console.log('\nStopping watch...');
+    for (const watcher of watchers.values()) watcher.close();
+    if (debounceTimer !== null) clearTimeout(debounceTimer);
+    currentAbortController?.abort();
+    void (async () => {
+      try { await currentRun; } finally { await rack?.close(); }
+      process.exit(0);
+    })().catch((error: unknown) => exitError(formatError(error)));
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+  process.on('SIGHUP', cleanup);
+
   // Initial load
   console.log(`[${timestamp()}] Initial load...`);
   isExecuting = true;
@@ -316,7 +353,8 @@ export async function watchCommand(
     setupWatchers(deployed.watchedFiles);
     if (options.start) {
       currentAbortController = new AbortController();
-      await runDataflow(currentAbortController.signal);
+      currentRun = runDataflow(currentAbortController.signal);
+      await currentRun;
       currentAbortController = null;
     }
   } else {
@@ -325,25 +363,9 @@ export async function watchCommand(
   }
 
   isExecuting = false;
+  if (pendingReload && !stopping) await handleChange();
   console.log(`[${timestamp()}] Ready. Waiting for changes...`);
   console.log('');
-
-  // Handle signals for graceful shutdown
-  const cleanup = () => {
-    console.log('');
-    console.log('Stopping watch...');
-    for (const watcher of watchers.values()) {
-      watcher.close();
-    }
-    if (currentAbortController) {
-      currentAbortController.abort();
-    }
-    process.exit(0);
-  };
-
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-  process.on('SIGHUP', cleanup);
 
   // Debug: show what files are being watched
   console.log(`Watching ${watchers.size} files:`);
