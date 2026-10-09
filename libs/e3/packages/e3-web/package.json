@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-web",
-  "version": "1.0.85",
+  "version": "1.0.86",
   "type": "module",
   "description": "East Execution Engine in the browser - e3 in a page: its storage over IndexedDB, OPFS and Web Locks, its units on Web Workers, and its API answered in the page",
   "main": "dist/src/index.js",
