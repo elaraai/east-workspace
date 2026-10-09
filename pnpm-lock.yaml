@@ -153,6 +153,9 @@ importers:
       '@elaraai/e3-core':
         specifier: workspace:*
         version: link:../e3-core
+      '@elaraai/e3-rack':
+        specifier: workspace:*
+        version: link:../e3-rack
       '@elaraai/e3-types':
         specifier: workspace:*
         version: link:../e3-types

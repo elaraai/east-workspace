@@ -29,6 +29,20 @@ import { createDataEndpoints } from './routes/data.js';
 import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
 import { localDataflow } from './local-dataflow.js';
+import type { DataflowRunnerLease } from './dataflow-runner.js';
+
+export type { DataflowRunnerLease } from './dataflow-runner.js';
+
+/** Supplies the server's existing runtime collaborators to a per-run factory. */
+export interface DataflowRunnerContext {
+  /** The backend used by every route in this server. */
+  storage: StorageBackend;
+  /** The same budget used by dataflows, calls, mutations and intake. */
+  budget: Budget;
+}
+
+/** Opens a runner for one dataflow; undefined or a thrown error uses the local runner. */
+export type DataflowRunnerFactory = (repoPath: string, workspace: string, context: DataflowRunnerContext) => Promise<DataflowRunnerLease | undefined>;
 
 export type { AuthConfig } from './middleware/auth.js';
 export type { OidcConfig } from './auth/index.js';
@@ -74,6 +88,8 @@ export interface ServerConfig {
    *  `E3_JOBS` and `E3_MEMORY`, else what the process may use); settings
    *  that do not resolve make `createServer` throw a `RangeError`. */
   budget?: Budget | BudgetSettings;
+  /** Opens a per-run runner attachment, closed when the run ends. */
+  dataflowRunner?: DataflowRunnerFactory;
 }
 
 /**
@@ -294,6 +310,8 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // and the state store it writes
   app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
     getRunner, ...localDataflow(storage), width: budget.cores, budget,
+    dataflowRunner: config.dataflowRunner === undefined ? undefined
+      : (repoPath, workspace) => config.dataflowRunner!(repoPath, workspace, { storage, budget }),
   }));
 
   // Object routes: /api/repos/:repo/objects/:hash — a large object is answered

@@ -13,6 +13,9 @@ all: build
 ## Build all packages (in dependency order)
 build:
 	@echo "Building all packages..."
+	# pnpm counts the server's optional rack peer as a graph cycle. Build the
+	# dependency side first so a clean tree never needs the peer's stale dist.
+	pnpm --filter @elaraai/e3-api-server... --filter '!@elaraai/e3-rack' run build
 	pnpm -r --filter='./packages/*' --filter='./test/*' run build
 
 ## Run all tests
