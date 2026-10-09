@@ -296,55 +296,63 @@ export function librarySeries(): PlanLibraryTab {
  *     ["northwind", { name: "Northwind Outfitters", district: "North Quay", trade: "Retail" }],
  *     ["orchard-market", { name: "Orchard Street Market", district: "Old Town", trade: "Markets" }],
  * ]));
- * export const planLibraryJobs = e3.record("plan_library_jobs", DictType(StringType, PrintJob), new Map([
- *     ["J-3001", { title: "Shop catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 64000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
- *     ["J-3002", { title: "Gallery guide", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T10:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 32000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
- *     ["J-3003", { title: "Term timetable", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
- *     ["J-3004", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
- *     ["J-3005", { title: "Gift tags", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
- *     ["J-3006", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 4000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+ * export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, PrintJob), new Map([
+ *     ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+ *     ["J-3002", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+ *     ["J-3003", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-3004", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+ *     ["J-3005", { title: "Store flyers", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T16:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 150000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-3006", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+ *     ["J-3007", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+ *     ["J-3008", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+ *     ["J-3009", { title: "Ticket books", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T09:00:00Z")), press: none, state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "Heathfield Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+ *     ["J-3010", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+ *     ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
  * ]));
- * export const planLibraryJobsPatch = e3.mutation.patch(planLibraryJobs);
+ * export const planEventJobsPatch = e3.mutation.patch(planEventJobs);
  *
- * const planLibrary = East.function([], UIComponentType, (_$) => (
+ * const planEvents = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const presses = $.let(Record.bind(planPrintPresses, []));
- *         const jobs = $.let(Record.bind(planLibraryJobs, [planLibraryJobsPatch]));
+ *         const jobs = $.let(Record.bind(planEventJobs, [planEventJobsPatch]));
  *         const customers = $.let(Record.bind(planPrintCustomers, []));
  *         const axis = $.let(Plan.axis({
- *             window: { min: new Date("2026-10-12T00:00:00Z"), max: new Date("2026-10-26T00:00:00Z") },
+ *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
  *             resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
  *         }));
  *         return (
  *             <Plan
+ *                 id="jobs"
  *                 axis={axis}
  *                 resources={{
- *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall }),
+ *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
  *                 }}
  *                 events={{
  *                     job: Schedule.events(jobs, {
  *                         name: "Print job", icon: "file-lines",
  *                         title: "title", start: "start", end: "end",
  *                         resource: { field: "press", of: "presses" },
+ *                         state: "state",
+ *                         // A job with no start waits in the backlog: placed, it runs as long as its sheets take at
+ *                         // 8,000 an hour.
  *                         backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
- *                         templates: [
- *                             { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
- *                               values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
- *                                         customer: "", stock: variant("coated", null), due: none } },
- *                         ],
+ *                         fields: {
+ *                             customer: Schedule.field.text({ label: "Customer" }),
+ *                             stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
+ *                         },
  *                     }),
  *                 }}
  *                 library={[
- *                     Plan.library.events(),
  *                     Plan.library.backlog(),
- *                     Plan.library.series(),
- *                     // The author's own cards: a customer apiece, by district.
+ *                     // The customers, by district: a card dropped on a job sets its customer.
  *                     Plan.library.tab(customers.read(), {
  *                         name: "Customers", icon: "building",
  *                         label: c => c.name, meta: c => some(c.trade), group: c => c.district,
  *                         drop: c => Schedule.patch(PrintJob, { customer: c.name }),
  *                     }),
  *                 ]}
+ *                 inspector
  *             />
  *         );
  *     }}</Reactive>

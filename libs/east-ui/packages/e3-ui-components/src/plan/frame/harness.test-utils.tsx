@@ -133,7 +133,7 @@ export function planHarness(): PlanHarness {
         initializeReactiveDatasetCache(harness.cache);
         harness.memory = createInMemoryRecordApi(harness.cache, WORKSPACE, [
             patchable(ex.planPrintPresses), patchable(ex.planPrintCrews), patchable(ex.planPrintJobs), patchable(ex.planPrintStops),
-            patchable(ex.planPrintShifts), patchable(ex.planPrintCustomers), patchable(ex.planLibraryJobs), patchable(ex.planLinkJobs),
+            patchable(ex.planPrintShifts), patchable(ex.planPrintCustomers), patchable(ex.planEventJobs), patchable(ex.planLinkJobs),
             patchable(ex.planLinkSetters), patchable(ex.planLinkLines), patchable(ex.planLinkBays), patchable(ex.planLinkPlates),
             patchable(ex.planLinkCaseJobs), patchable(ex.planLinkBindings), patchable(ex.planLinkDeliveries),
         ]);

@@ -20,7 +20,7 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { East, none, some, type ValueTypeOf } from "@elaraai/east";
+import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -60,6 +60,10 @@ const announced = (c: HTMLElement) => c.querySelector("[data-plan-announce]")!.t
 const key = (node: HTMLElement) => node.getAttribute("data-run") ?? node.getAttribute("data-chip") ?? node.getAttribute("data-mark");
 /** A row's id's text. */
 const rowKey = (c: HTMLElement, id: ReturnType<typeof entry>) => c.querySelector(rowAt(id))!.getAttribute("data-plan-row");
+
+/** The print works' four weeks, for a test's own Plan. */
+const FIRST = new Date("2026-10-05T00:00:00Z");
+const LAST = new Date("2026-11-02T00:00:00Z");
 
 // ============================================================================
 // Selecting events on the canvas (the Calendar's B15)
@@ -166,8 +170,6 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     });
 
     test("an element of a row no event kind draws — a run of a series over a dataset — is no toggle: its click selects its row", async () => {
-        const FIRST = new Date("2026-10-05T00:00:00Z");
-        const LAST = new Date("2026-11-02T00:00:00Z");
         const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
@@ -411,9 +413,27 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(detail()).toBe("Press A2");
     });
 
-    test("a Plan given no inspector has no end pane", async () => {
-        const { container } = mount(programOf(ex.planEvents));
+    test("a Plan given no inspector has no end pane: given a library, its start pane is all it draws beside main", async () => {
+        const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const presses = $.let(Record.bind(ex.planPrintPresses, []));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
+            return Plan({
+                axis,
+                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                events: {
+                    job: Schedule.events(jobs, {
+                        name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                        resource: { field: "press", of: "presses" },
+                        backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                    }),
+                },
+                library: [Plan.library.backlog()],
+            });
+        }))), getRegisteredPlatformImplementations());
+        const { container } = mount(program);
         await settle();
+        expect(slot(container, "start")).not.toBeNull();
         expect(slot(container, "end")).toBeNull();
     });
 });

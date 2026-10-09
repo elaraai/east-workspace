@@ -29,7 +29,7 @@ import { oneBlock, rowId } from "../plan.test-utils.js";
 import {
     SEED, banner, dropJob, history, historyButton, jobsDrawn, mountCanvas, releaseCanvases, statusLine,
 } from "../plan-editing.test-utils.js";
-import { act, mount, planHarness, programOf, settle, slot } from "./harness.test-utils.js";
+import { act, mount, planHarness, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
 // The canvases the #880 tests mount go after the DOM they drew.
@@ -74,8 +74,8 @@ const COUNTED = new Map<string, Job>([
     ["J-4", job("Labels")],
 ]) as unknown as Jobs;
 
-/** A Plan of the presses and their jobs, with a backlog. */
-const countedJobs = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+/** A Plan of the presses and their jobs, with a backlog — given no `library` and no `inspector`, so no pane. */
+const bareJobs = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -135,7 +135,7 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
         const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
         jobs.set("J-1019", { ...jobs.get("J-1019")!, start: some(at("2026-10-20T13:00:00Z")), end: some(at("2026-10-20T16:00:00Z")) });
         await h.commit(ex.planPrintJobs, jobs);
-        const { container } = mount(programOf(ex.planEvents));
+        const { container } = mount(bareJobs);
         await settle();
         const frame = container.querySelector("[data-builder-frame]");
         expect(frame).not.toBeNull();
@@ -206,7 +206,7 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
 describe("the footer (PB23)", () => {
     test("it counts the event kinds' events in the window and their backlog, and says when a record was last saved; a commit moves the counts", async () => {
         await h.commit(ex.planPrintJobs, COUNTED);
-        const { container } = mount(countedJobs);
+        const { container } = mount(bareJobs);
         await settle();
         expect(count(container, "events")).toBe("2 events");
         expect(count(container, "backlog")).toBe("1 in backlog");

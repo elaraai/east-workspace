@@ -40,14 +40,14 @@ const EVENTS = "e3/plan/plan-events";
 
 /** Plans of every source and chrome, each by its examples file and the panes
  *  it is given: a slice, its series picked in the library; editing over a keyed
- *  paged source, its palette the library; event kinds, with and without a
- *  library; and the narrow layout, the flagship's box 360px wide. */
+ *  paged source, its palette the library; event kinds — the smallest builder
+ *  and the print works — each with its library and its inspector; and the
+ *  narrow layout, the flagship's box 360px wide. */
 const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly string[]; box?: number }> = [
     { name: "planTargetState", file: PLAN_EXAMPLES, panes: ["start"] },
     { name: "planRowDrop", file: PLAN_EXAMPLES, panes: ["start"] },
-    { name: "planEvents", file: EVENTS },
+    { name: "planEvents", file: EVENTS, panes: ["start", "end"] },
     { name: "planPrintWorks", file: EVENTS, panes: ["start", "end"] },
-    { name: "planLibrary", file: EVENTS, panes: ["start"] },
     { name: "planTargetState", file: PLAN_EXAMPLES, panes: ["start"], box: 360 },
 ];
 

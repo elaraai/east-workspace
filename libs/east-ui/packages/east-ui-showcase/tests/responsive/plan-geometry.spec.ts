@@ -681,7 +681,7 @@ const TEXT_EXAMPLES: readonly { name: string; file: string; box?: number; tab?: 
     ...["planTargetState", "planVariants", "planRowDrop", "planNumberAxis", "planOrdinalAxis", "slicePlanChrome", "planMeasures",
     ].map((name) => ({ name, file: PLAN_EXAMPLES })),
     { name: "planTargetState", file: PLAN_EXAMPLES, box: 360, tab: "rows" },
-    ...["planEvents", "planPrintWorks", "planLibrary", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
+    ...["planEvents", "planPrintWorks", "planEventLinks"].map((name) => ({ name, file: PLAN_EVENT_EXAMPLES })),
 ];
 
 /** One frame of a ruler as it painted: its track's width, and the labels it drew, by index. */

@@ -164,8 +164,10 @@ describe("the tabs `library` lists (PB26, PB61)", () => {
     });
 
     test("a Plan whose library lists no tab has no pane; without a Backlog tab, the rail counts the first tab's cards", async () => {
-        const bare = mount(programOf(ex.planEvents), DRAG);
+        const bare = mount(jobsPlan([]), DRAG);
         await settle();
+        // The frame is drawn, main beside no pane.
+        expect(slot(bare.container, "main")).not.toBeNull();
         expect(slot(bare.container, "start")).toBeNull();
         cleanup();
         const { container } = mount(jobsPlan(["customers", "events"]), DRAG);

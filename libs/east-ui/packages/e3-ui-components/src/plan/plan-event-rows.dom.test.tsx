@@ -43,13 +43,15 @@ const drawn = (container: HTMLElement): string[] =>
 
 type Jobs = ValueTypeOf<typeof ex.planPrintJobs.type>;
 type Presses = ValueTypeOf<typeof ex.planPrintPresses.type>;
+/** The print works' jobs, and the smallest builder's own. */
 const JOBS = ex.planPrintJobs.default as Jobs;
+const EVENT_JOBS = ex.planEventJobs.default as Jobs;
 const PRESSES = ex.planPrintPresses.default as Presses;
 
-/** The jobs with one changed. */
-function jobsWith(key: string, change: (job: ValueTypeOf<typeof ex.PrintJob>) => ValueTypeOf<typeof ex.PrintJob>): Jobs {
-    const next = new Map(JOBS);
-    next.set(key, change(JOBS.get(key)!));
+/** A jobs record's seed with one job changed. */
+function jobsWith(seed: Jobs, key: string, change: (job: ValueTypeOf<typeof ex.PrintJob>) => ValueTypeOf<typeof ex.PrintJob>): Jobs {
+    const next = new Map(seed);
+    next.set(key, change(seed.get(key)!));
     return next as unknown as Jobs;
 }
 
@@ -85,25 +87,26 @@ describe("the print works' rows (PB12–PB16)", () => {
     });
 
     test("the rows are read over the range the canvas draws — its window and the periods it lays out beyond each edge", async () => {
-        // One job the day before the window opens, on Press A1.
-        const early = jobsWith("J-1001", (job) => ({ ...job, start: some(new Date("2026-10-04T06:00:00Z")), end: some(new Date("2026-10-04T08:00:00Z")) }));
-        await h.commit(ex.planPrintJobs, early);
+        // The smallest builder's spring catalogue, the day before the window opens, on Press A1.
+        const early = jobsWith(EVENT_JOBS, "J-3001", (job) => ({ ...job, start: some(new Date("2026-10-04T06:00:00Z")), end: some(new Date("2026-10-04T08:00:00Z")) }));
+        await h.commit(ex.planEventJobs, early);
         const { container } = mount(programOf(ex.planEvents));
         await settle();
         // Drawn past the window's start, where a pan reveals it.
-        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
+        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-3001")}`)).toBeTruthy();
     });
 
     test("an event whose resource is none draws on its kind's Unassigned row, after every resource kind", async () => {
-        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: none })));
+        // The smallest builder's ticket books are timed, and on no press.
         const { container } = mount(programOf(ex.planEvents));
         await settle();
         const rows = drawn(container);
         expect(rows[rows.length - 1]).toBe(rowKeyOf(entry("job.unassigned", "span")));
         const lost = container.querySelector(rowAt(entry("job.unassigned", "span")))!;
         expect(lost.textContent).toContain("Unassigned");
-        expect([...lost.querySelectorAll("[data-run]")].map((r) => r.getAttribute("data-run"))).toEqual([elementKey("job", "J-1001")]);
-        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeNull();
+        expect([...lost.querySelectorAll("[data-run]")].map((r) => r.getAttribute("data-run"))).toEqual([elementKey("job", "J-3009")]);
+        // Drawn there alone: no press's row draws it.
+        expect(container.querySelectorAll(el("data-run", "job", "J-3009"))).toHaveLength(1);
     });
 });
 
@@ -115,10 +118,10 @@ describe("the rows follow the records", () => {
     test("a job moved to another press by a commit draws on that press's row", async () => {
         const { container } = mount(programOf(ex.planEvents));
         await settle();
-        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
-        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
-        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeNull();
-        expect(container.querySelector(`${rowAt(entry("presses.span", "b3"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
+        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-3001")}`)).toBeTruthy();
+        await h.commit(ex.planEventJobs, jobsWith(EVENT_JOBS, "J-3001", (job) => ({ ...job, press: some("b3") })));
+        expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-3001")}`)).toBeNull();
+        expect(container.querySelector(`${rowAt(entry("presses.span", "b3"))} ${el("data-run", "job", "J-3001")}`)).toBeTruthy();
     });
 
     test("a read that fails leaves the rows standing and says why; the next that reads clears it", async () => {
@@ -395,9 +398,9 @@ describe("paged data beside event kinds", () => {
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
         const served = pagesServed;
         // A waiting job's customer: no row draws it.
-        await h.commit(ex.planPrintJobs, jobsWith("J-1030", (job) => ({ ...job, customer: "Someone else" })));
+        await h.commit(ex.planPrintJobs, jobsWith(JOBS, "J-1030", (job) => ({ ...job, customer: "Someone else" })));
         expect(pagesServed).toBe(served);
-        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
+        await h.commit(ex.planPrintJobs, jobsWith(JOBS, "J-1001", (job) => ({ ...job, press: some("b3") })));
         expect(pagesServed).toBeGreaterThan(served);
     });
 
@@ -409,7 +412,7 @@ describe("paged data beside event kinds", () => {
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
         // A commit moves a job: the windows are read again, and the rows they
         // lead with are the commit's — once each, the units' unchanged.
-        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
+        await h.commit(ex.planPrintJobs, jobsWith(JOBS, "J-1001", (job) => ({ ...job, press: some("b3") })));
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeNull();
         expect(container.querySelector(`${rowAt(entry("presses.span", "b3"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
