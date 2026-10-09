@@ -45,6 +45,71 @@ import { readTestPieceBytesFrom } from './pieces.js';
 
 export type { ExecuteOptions, ExecutionIds, ExecutionResult } from './cache.js';
 
+/**
+ * One execution body after its cache probe missed: a plain task, or one
+ * piece or merge of a split task. The split task's planning stays local.
+ */
+export interface TaskBodyRequest {
+  /** The repository's storage backend. */
+  storage: StorageBackend;
+  /** The repository identifier, a local path for the local backend. */
+  repo: string;
+  /** The task object's hash. */
+  taskHash: string;
+  /** The decoded task object. */
+  task: TaskObject;
+  /** Inputs in execution-identity order; a merge's may include its tag. */
+  inputHashes: string[];
+  /** The local attempt's identity, also used by the fallback. */
+  ids: ExecutionIds;
+  /** Runtime options, including cancellation, budget and graph name. */
+  options: ExecuteOptions;
+  /** Whether this runs a whole task or a unit planned by the split engine. */
+  role: 'task' | 'unit';
+  /** The logical task's hash for a unit. */
+  logicalTaskHash?: string;
+  /** The whole unit, including merge parts/range and whether it is its
+   *  task's own execution. Present exactly when role is `unit`. */
+  unit?: SplitUnit;
+}
+
+/**
+ * Executes one body in place of the local spawn.
+ *
+ * @param request - The body whose execution cache missed
+ * @param local - Executes the standard local body, with the original
+ *   identity, process settings, scratch staging, budget, records and logs.
+ *   An optional identity starts a fresh local attempt after a remote one;
+ *   its inputs hash must remain the request's.
+ * @returns The execution's result
+ * @remarks
+ * A hook that does not call `local` takes no local budget grant and creates
+ * no local scratch directory. It owns its execution records and log writes,
+ * and returns the identity of the attempt it records. A local fallback
+ * defaults to `request.ids`. After a remote attempt, the fallback must use a
+ * fresh identity so the successful retry sorts after the failed remote attempt
+ * in execution history. The hook is runtime-only and never hashed.
+ * @example
+ * ```ts
+ * const body: TaskBodyExecutor = async (request, local) => {
+ *   console.log(request.options.taskName, request.role);
+ *   return local();
+ * };
+ * const runner = new LocalTaskRunner(repo, budget, { body });
+ * ```
+ */
+export type TaskBodyExecutor = (
+  request: TaskBodyRequest,
+  local: (ids?: ExecutionIds) => Promise<ExecutionResult>,
+) => Promise<ExecutionResult>;
+
+/** Runtime configuration of a local runner and its optional body executor. */
+export interface LocalTaskRunnerOptions extends ProcessSettings {
+  /** Replaces task and split-unit bodies after cache misses. Detached calls
+   *  and intake units still run locally. */
+  body?: TaskBodyExecutor;
+}
+
 declare module './cache.js' {
   /** The local runner's own options: the process's budget, and how the
    *  execution's processes run — the environment they start from, and the
@@ -58,6 +123,9 @@ declare module './cache.js' {
      *  keeps as many units in flight as the budget has cores. Runtime-only, and
      *  never seen by a remote backend. Absent, spawns are not budgeted. */
     budget?: Budget;
+    /** Replaces the standard body of a task or split unit after its cache
+     *  probe missed. Runtime-only; no grant is held unless it calls local. */
+    body?: TaskBodyExecutor;
   }
 }
 
@@ -85,12 +153,13 @@ export class LocalTaskRunner implements TaskRunner {
    * @param settings - How every process the runner starts runs — task and
    *   unit runners, function calls, intake units and environment installs: the
    *   environment it starts from, and the user and group it runs as
-   *   ({@link ProcessSettings}). Absent, this process's own.
+   *   ({@link ProcessSettings}), and optionally the body executor for tasks
+   *   and split units. Absent, this process's own settings and local bodies.
    * @throws {Error} When the settings name a user or group on Windows.
    * @throws {RangeError} When a user or group id is not a non-negative
    *   integer.
    */
-  constructor(private readonly repo: string, private readonly budget?: Budget, private readonly settings: ProcessSettings = {}) {
+  constructor(private readonly repo: string, private readonly budget?: Budget, private readonly settings: LocalTaskRunnerOptions = {}) {
     checkProcessSettings(settings);
   }
 
@@ -110,6 +179,7 @@ export class LocalTaskRunner implements TaskRunner {
     return toTaskResult(await taskExecute(storage, this.repo, taskHash, inputHashes, {
       force: options?.force,
       verbose: options?.verbose,
+      taskName: options?.taskName,
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
@@ -132,6 +202,7 @@ export class LocalTaskRunner implements TaskRunner {
     return toTaskResult(await taskExecuteUnit(storage, this.repo, taskHash, unit, {
       force: options?.force,
       verbose: options?.verbose,
+      taskName: options?.taskName,
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
@@ -249,14 +320,16 @@ export async function taskExecute(
     // each unit is probed with the caller's judgement of what still runs.
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
       (unitInputs, unitIds, merge, expectedPeakBytes, own) =>
-        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge, 'unit', !own),
+        runBody({ storage, repo, taskHash, task, inputHashes: unitInputs, ids: unitIds,
+          options: { ...options, expectedPeakBytes }, role: 'unit', logicalTaskHash: taskHash,
+          unit: { inputs: unitInputs, merge, own } }),
       {
         width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH),
         owner: options.owner === undefined ? await processOwner() : options.owner,
         ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
       });
   }
-  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
+  return runBody({ storage, repo, taskHash, task, inputHashes, ids, options, role: 'task' });
 }
 
 /**
@@ -290,7 +363,20 @@ export async function taskExecuteUnit(
   const ids = { inHash, executionId: uuidv7(), startTime: Date.now() };
   const task = await readTaskObject(storage, repo, taskHash, unit.inputs, ids, !unit.own);
   if (!('body' in task)) return task;
-  return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge, 'unit', !unit.own);
+  return runBody({ storage, repo, taskHash, task, inputHashes: unit.inputs, ids, options,
+    role: 'unit', logicalTaskHash: taskHash, unit });
+}
+
+/** Calls the replacement only after a cache miss, before any local resource
+ *  is acquired. Its fallback preserves every parameter of the local body. */
+function runBody(request: TaskBodyRequest): Promise<ExecutionResult> {
+  const { storage, repo, taskHash, task, inputHashes, ids, options, unit } = request;
+  const local = (attempt = ids) => {
+    if (attempt.inHash !== ids.inHash) return Promise.reject(new Error('A local fallback cannot change its inputs hash'));
+    return taskExecuteBody(storage, repo, taskHash, task, inputHashes, attempt, options,
+      unit?.merge ?? null, request.role, unit === undefined ? false : !unit.own);
+  };
+  return options.body === undefined ? local() : options.body(request, local);
 }
 
 /**

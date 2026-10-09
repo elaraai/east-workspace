@@ -437,6 +437,10 @@ export function isTransientFsError(err: unknown): boolean {
  * @param from - Staging path to rename from
  * @param to - Destination path to atomically replace
  * @param maxAttempts - Upper bound on retries (≈1.9s total over the default 25)
+ * @example
+ * ```ts
+ * await renameWithRetry(stagedPath, destinationPath);
+ * ```
  */
 export async function renameWithRetry(from: string, to: string, maxAttempts = 25): Promise<void> {
   await retryTransient(() => fs.rename(from, to), maxAttempts);
@@ -499,6 +503,10 @@ async function retryTransient(op: () => Promise<void>, maxAttempts: number): Pro
  *
  * @param filePath - Destination path to atomically (over)write
  * @param data - Bytes (or string) to write
+ * @example
+ * ```ts
+ * await atomicWriteFile(statePath, encodedState);
+ * ```
  */
 export async function atomicWriteFile(filePath: string, data: Uint8Array | string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });

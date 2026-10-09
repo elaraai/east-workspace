@@ -40,6 +40,9 @@ export interface ExecuteOptions {
    *  and its peak memory to stderr. Runtime-only: it never affects the task
    *  hash or caching. */
   verbose?: boolean;
+  /** The task's graph name, for labelling work handed to another executor.
+   *  Runtime-only: never hashed or part of the execution cache. */
+  taskName?: string;
   /** Timeout in milliseconds (default: none) */
   timeout?: number;
   /** AbortSignal for cancellation */
