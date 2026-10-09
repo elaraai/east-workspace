@@ -98,10 +98,12 @@ export function socketStream(socketPath: string, method: string, path: string, o
       response.once('error', () => {}); // a destroyed response remains observable by its consumer
       resolve(response);
     });
+    // Observe source errors before an already-aborted signal can destroy it.
+    // Without the pipeline, destroy(error) emits an unhandled stream error.
+    if (options.rawBody instanceof Readable) void pipeline(options.rawBody, req).catch(fail);
     options.signal?.addEventListener('abort', abort, { once: true });
     if (options.signal?.aborted) { abort(); return; }
-    if (options.rawBody instanceof Readable) void pipeline(options.rawBody, req).catch(fail);
-    else req.end(options.rawBody);
+    if (!(options.rawBody instanceof Readable)) req.end(options.rawBody);
   });
 }
 

@@ -37,6 +37,21 @@ function uploadUrl(id: string, info: SessionUpload) {
   return `/v1/uploads/${id}?${new URLSearchParams({ lease: info.leaseId, hash: info.hash, size: `${info.size}`, receipt: info.receipt })}`;
 }
 
+it('rejects an already-cancelled streamed upload without crashing the process', async () => {
+  const { data, auth } = await setup();
+  const bytes = Buffer.from('cancelled upload');
+  const body = Readable.from([bytes]);
+  const info: SessionUpload = { leaseId: 'lease', hash: digest(bytes), size: BigInt(bytes.length), receipt: randomUUID() };
+  await assert.rejects(socketStream(data.socketPath, 'PUT', uploadUrl(randomUUID(), info), {
+    ...auth, rawBody: body, signal: AbortSignal.abort(),
+  }), { code: 'aborted' });
+  await delay(0); // Allow asynchronous stream errors to reach the test runner.
+  assert.equal(body.destroyed, true);
+  const response = await socketStream(data.socketPath, 'HEAD', `/v1/objects/${info.hash}`, auth);
+  response.resume();
+  assert.equal(response.statusCode, 404);
+});
+
 it('streams large objects, verifies bytes before adoption and preserves an adopted inode on retries', async () => {
   const { data, auth, repo, storage } = await setup();
   const bytes = Buffer.alloc(9 * 1024 * 1024, 42);
