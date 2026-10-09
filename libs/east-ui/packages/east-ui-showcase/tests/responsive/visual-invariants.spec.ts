@@ -742,9 +742,11 @@ test.describe("Visual invariants — the Table, on touch", () => {
 /**
  * Every host with a slice rail (#952) or a toolbar row of its own, by an
  * example that mounts it, and the viewport widths it is swept across — each
- * host's own range: the Plan's wide layout holds down to 850px (below it the
- * showcase's column is under its narrow breakpoint), its resolution folding
- * into its menu under 900; its narrow layout is `planTargetState`'s in a 360px
+ * host's own range: the flagship's wide layout holds down to 886px, its
+ * resolution folding into its menu by 900 — narrower, its library's 44px rail
+ * leaves main under the 480px the narrow layout takes over at, whose toolbar
+ * draws no grain segment and so has room to unfold the resolution again, so
+ * the sweep stops at 900; its narrow layout is `planTargetState`'s in a 360px
  * box, as a phone's;
  * a Plan with editing over a keyed paged source, its palette its library
  * (#1193, #1259), is swept through its narrow layout, which its library's rail
@@ -755,7 +757,7 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * (#1229).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; box?: number; rail?: readonly string[]; ladder?: Ladder }> = [
-    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1200, 900], nudge: [1200], box: 360 },
     { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
