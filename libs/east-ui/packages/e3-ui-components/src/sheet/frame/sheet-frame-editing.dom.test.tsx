@@ -17,7 +17,7 @@
  */
 
 import { test, expect } from "vitest";
-import { act, fireEvent, within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import {
     East, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -25,7 +25,7 @@ import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { initializeRecordApi, type RecordApi } from "../../platform/index.js";
-import { WORKSPACE, sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { WORKSPACE, act, sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
 
 const harness = sheetHarness();
 const JOBS = ex.sheetJobs;

@@ -13,12 +13,17 @@
  * and mounts Plans as a surface does: through the dispatcher, under the page's
  * drag layer when its cards drag.
  *
+ * Each test runs alone (#1280, `test-runs.test-utils.ts`): once a test ends,
+ * the work it left in flight settles before the next begins, and a body its
+ * timeout abandoned starts nothing more. A test file takes `act` from here,
+ * never from Testing Library.
+ *
  * @packageDocumentation
  */
 
 import type { ReactNode } from "react";
 import { beforeEach, afterEach } from "vitest";
-import { act, cleanup, render, type RenderResult } from "@testing-library/react";
+import { cleanup, render, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { PatchType, applyFor, encodeBeast2For, printFor, variant, type EastIR, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
@@ -29,6 +34,7 @@ import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../../platform/index.js";
+import { act, isolateRuns } from "../../test-runs.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 // The canvas is an extension: its renderer registers as it loads.
 import "../index.js";
@@ -43,6 +49,9 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 // jsdom has no `CSS.escape`; a segment group's radios, and a menu's items, are found with it.
 (globalThis as unknown as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
 (globalThis as unknown as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
+
+/** The `act` the harness's tests take: each scope its test's work, until it closes (#1280). */
+export { act };
 
 /** The workspace the records live in. */
 export const WORKSPACE = "plan-test";
@@ -87,11 +96,15 @@ function seed(cache: ReactiveDatasetCache, input: { path: Parameters<ReactiveDat
 /**
  * Installs the harness around each test of the file: a fresh store, the
  * examples' records in memory and their inputs' values; after each, the DOM
- * and the viewer's storage are cleared.
+ * and the viewer's storage are cleared. Each test is a run of its own
+ * (#1280): once it ends — its afterEach hooks having unmounted what it
+ * mounted — the work it left in flight settles before the next test begins,
+ * and its body, if its timeout abandoned it, starts nothing more.
  *
  * @returns The records, the cache and a commit — each test's own, set before it runs
  */
 export function planHarness(): PlanHarness {
+    isolateRuns();
     const harness = {
         async commit(record: CommittedRecord, state: unknown) {
             await act(async () => {

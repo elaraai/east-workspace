@@ -18,7 +18,7 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
@@ -30,7 +30,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { EastChakraPlan, type PlanRootValue, type PlanValue } from "../index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
-import { entry, mount, planHarness, programOf, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, entry, mount, planHarness, programOf, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 

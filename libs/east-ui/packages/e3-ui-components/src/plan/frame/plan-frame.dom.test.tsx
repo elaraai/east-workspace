@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -29,7 +29,7 @@ import { oneBlock, rowId } from "../plan.test-utils.js";
 import {
     SEED, banner, dropJob, history, historyButton, jobsDrawn, mountCanvas, releaseCanvases, statusLine,
 } from "../plan-editing.test-utils.js";
-import { mount, planHarness, programOf, settle, slot } from "./harness.test-utils.js";
+import { act, mount, planHarness, programOf, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
 // The canvases the #880 tests mount go after the DOM they drew.

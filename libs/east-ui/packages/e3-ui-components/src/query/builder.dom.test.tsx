@@ -28,13 +28,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { East, JqType, PatchType, checkJq, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
 import { faIcons } from "@elaraai/east-ui-components/testing";
 import { Query } from "@elaraai/e3-ui/internal";
 import {
-    RECORD, ROOT, WORKSPACE, commits as committed, mountBuilder, offlineCall, openQuery, press, readRecord as recordOf, recordHarness, savedQuery,
+    act, RECORD, ROOT, WORKSPACE, commits as committed, mountBuilder, offlineCall, openQuery, press, readRecord as recordOf, recordHarness, savedQuery,
     savedRecord, settle, type RecordHarness,
 } from "./query.test-utils.js";
 

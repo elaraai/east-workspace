@@ -18,7 +18,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { useCallback, useMemo } from "react";
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     East, JqType, PatchType, SortedMap, checkJq, encodeBeast2For, equalFor, none, some, variant,
@@ -30,7 +30,7 @@ import { TreePathType } from "@elaraai/e3-types";
 import { useRecentQueries } from "./hooks.js";
 import { querySourceId, useOpenQuery, type QueryOpen } from "./open-query.js";
 import {
-    CUSTOMERS, HandleType, RECORD, ROOT, commits as committed, enabled, keys, mountBuilder, openQuery, press, readRecord as recordOf, recordHarness,
+    act, CUSTOMERS, HandleType, RECORD, ROOT, commits as committed, enabled, keys, mountBuilder, openQuery, press, readRecord as recordOf, recordHarness,
     savedQuery, settle, type RecordHarness, type Saved,
 } from "./query.test-utils.js";
 import { entriesQuery, queryEntries, savedOffers, type QueryEntry, type SavedQuery } from "./session.js";

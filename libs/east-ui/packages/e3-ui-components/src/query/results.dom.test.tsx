@@ -26,14 +26,14 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { ArrayType, IntegerType, StructType, decodeBeast2, decodeEastIR, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, variant } from "@elaraai/east";
 import { ApiError } from "@elaraai/e3-api-client";
 import type { ExecuteResult } from "@elaraai/e3-types";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import type { QueryCall } from "./hooks.js";
 import {
-    FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
+    act, FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
 } from "./query.test-utils.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */

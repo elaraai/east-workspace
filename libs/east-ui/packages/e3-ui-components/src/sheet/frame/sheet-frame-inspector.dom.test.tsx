@@ -21,14 +21,14 @@
  */
 
 import { test, expect } from "vitest";
-import { act, fireEvent, within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ArrayType, East, FloatType, FunctionType, NullType, OptionType, StringType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { formatters, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
+import { WORKSPACE, act, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
 
 const harness = sheetHarness();
 const WORDS = formatters("en-US");

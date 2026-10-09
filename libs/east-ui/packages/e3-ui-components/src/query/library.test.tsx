@@ -27,7 +27,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import {
     OptionType, checkJq, decodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -40,7 +40,7 @@ import { whenWords } from "./about.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import {
-    CustomersType, RECORD, WORKSPACE, fixtureCall, mountLibrary, recordHarness, savedQuery, savedRecord, settle, type RecordHarness,
+    act, CustomersType, RECORD, WORKSPACE, fixtureCall, mountLibrary, recordHarness, savedQuery, savedRecord, settle, type RecordHarness,
 } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
 

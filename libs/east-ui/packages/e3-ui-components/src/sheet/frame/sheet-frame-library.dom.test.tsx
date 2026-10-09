@@ -16,12 +16,12 @@
  */
 
 import { test, expect } from "vitest";
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { cleanup, fireEvent, within } from "@testing-library/react";
 import { ArrayType, East, StringType, StructType, some } from "@elaraai/east";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
 
 sheetHarness();
 

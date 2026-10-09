@@ -43,7 +43,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } from "vitest";
-import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, OptionType, PatchType, SortedMap, StringType, StructType, applyFor, compareFor,
@@ -66,7 +66,7 @@ import { contentHash, countWholeReads, recordPaging } from "../../platform/recor
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
-import { WORKSPACE, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { WORKSPACE, act, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.

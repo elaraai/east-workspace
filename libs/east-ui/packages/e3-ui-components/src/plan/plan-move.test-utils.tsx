@@ -22,7 +22,7 @@
  * and kept.
  */
 
-import { act, fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
+import { fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, StringType, StructType,
@@ -33,6 +33,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { system, getRegisteredPlatformImplementations, DragLayerProvider } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { layOut } from "@elaraai/east-ui-components/testing";
+import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
 

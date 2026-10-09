@@ -19,7 +19,7 @@
  */
 
 import { test, expect } from "vitest";
-import { act, cleanup, fireEvent } from "@testing-library/react";
+import { cleanup, fireEvent } from "@testing-library/react";
 import {
     East, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -30,7 +30,7 @@ import type { TreePath } from "@elaraai/e3-types";
 import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../../platform/index.js";
 import { countWholeReads, pathText, recordPaging } from "../../platform/record-paging.test-utils.js";
 import { todayUtc } from "../parse/date.js";
-import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
+import { WORKSPACE, act, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
 
 const harness = sheetHarness();
 const JOBS = ex.sheetJobs;

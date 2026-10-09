@@ -22,7 +22,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { act, fireEvent, renderHook, within } from "@testing-library/react";
+import { fireEvent, renderHook, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
     DateTimeType, East, PatchType, decodeBeast2For, diffFor, encodeBeast2For, none, printFor, some, variant, type EastType, type ValueTypeOf,
@@ -34,7 +34,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { initializeRecordApi, type RecordApi } from "../../platform/index.js";
 import { usePlanEventEditing, type PlanEventChange } from "../edit/events.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
-import { WORKSPACE, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot } from "./harness.test-utils.js";
+import { WORKSPACE, act, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.

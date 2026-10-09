@@ -13,10 +13,10 @@
  */
 
 import { afterEach, test, expect } from "vitest";
-import { act, fireEvent, within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { act, sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
 import { touchFrame } from "../frame.test-utils.js";
 
 sheetHarness();

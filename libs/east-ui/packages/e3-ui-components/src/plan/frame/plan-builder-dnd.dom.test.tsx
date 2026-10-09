@@ -24,7 +24,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { act, fireEvent, within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
@@ -34,7 +34,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { initializeRecordApi } from "../../platform/index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
-import { WORKSPACE, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { WORKSPACE, act, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 

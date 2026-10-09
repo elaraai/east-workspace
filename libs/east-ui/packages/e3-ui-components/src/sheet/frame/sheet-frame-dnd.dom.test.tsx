@@ -16,13 +16,13 @@
  */
 
 import { test, expect } from "vitest";
-import { act, fireEvent, within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { ArrayType, East, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot } from "./harness.test-utils.js";
+import { WORKSPACE, act, sheetHarness, mount, mountPayload, settle, slot } from "./harness.test-utils.js";
 
 const harness = sheetHarness();
 stubScrollIntoView();

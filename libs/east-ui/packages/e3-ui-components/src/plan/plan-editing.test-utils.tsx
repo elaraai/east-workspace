@@ -23,7 +23,7 @@
  */
 
 import type { ReactNode } from "react";
-import { act, fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
+import { fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BooleanType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType,
@@ -38,6 +38,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { pointAt } from "@elaraai/east-ui-components/testing";
+import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanEventRows } from "./root/events.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
