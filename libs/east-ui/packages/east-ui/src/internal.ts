@@ -97,7 +97,7 @@ export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, M
 // takes, and the build-time refusal of another, which e3-ui's builders share.
 export { SOLID_PREFIX, refuseNonSolid, type SolidIconPrefix } from "./display/icon/solid.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Roster, Board, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
 // The chart layer builders' TS faces and the spec vocabulary a composite
 // consumes Chart layers through — e3-ui's Plan reads them as data (#1177).
 export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";

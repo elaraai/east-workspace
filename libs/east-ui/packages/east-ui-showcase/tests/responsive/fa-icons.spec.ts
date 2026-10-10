@@ -46,8 +46,6 @@ import { settled } from "./settle";
 const FILES = [
     "feedback/empty-state",
     "collections/library",
-    "collections/board",
-    "collections/roster",
     "slice/slice",
     "layout/snap-grid",
     "disclosure/story",
@@ -219,8 +217,6 @@ test.describe("a converted icon takes the room its glyph took (#1263)", () => {
     test("every other converted icon is its own width, as its shape gives it — never Font Awesome's fixed cell", async ({ page, isMobile }) => {
         test.skip(isMobile, "measured once, at the desktop width");
         const pages: ReadonlyArray<[string, Readonly<Record<string, Site>>]> = [
-            ["collections/board", { sign: { icons: "[data-chip-sign] svg" }, openSlot: { icons: "[aria-label='Open slot'] svg" } }],
-            ["collections/roster", { sign: { icons: "[data-chip-sign] svg" }, hint: { icons: "[data-roster-hint] svg" } }],
             ["collections/library", { add: { icons: "[data-library-footer-add] svg" } }],
             ["e3/decision/queue", { caret: { icons: "[data-collapsible] > span > svg" } }],
             ["e3/query/query", { slotCaret: { icons: "button[aria-haspopup='listbox'] > span[aria-hidden] > svg" } }],

@@ -66,6 +66,8 @@ export interface EastChakraLibraryProps {
      * be dragged still clicks on ⏎.
      */
     onCardEnter?: ((key: string) => void) | undefined;
+    /** Optional host-controlled facets; search and facet matching remain the shared Library engine. */
+    facetFilter?: { values: Record<string, string[]>; onChange: (next: Record<string, string[]>) => void } | undefined;
 }
 
 /** What an empty Library says: the empty state's title, and the line under it. */
@@ -284,7 +286,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
             )}
-            {icon && (
+            {item.avatar.type === "some" ? <ChakraAvatar.Root size="2xs"><AvatarFallback name={item.avatar.value} /></ChakraAvatar.Root> : icon && (
                 <Box css={styles.iconTile}>
                     <FontAwesomeIcon icon={["fas", icon as IconName]} />
                 </Box>
@@ -665,7 +667,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -683,7 +685,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter 
     });
     const [query, setQuery] = useState("");
     const filterOptions = value.filterOptions;
-    const activeFilters = useMemo(() => toolbar.filters ?? {}, [toolbar.filters]);
+    const activeFilters = useMemo(() => facetFilter?.values ?? toolbar.filters ?? {}, [facetFilter?.values, toolbar.filters]);
 
     const onCardClickFn = useMemo(() => getSomeorUndefined(value.onCardClick), [value.onCardClick]);
     const handleCardClick = useCallback((key: string) => {
@@ -705,15 +707,16 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter 
     }, [setToolbar]);
 
     const toggleFilter = useCallback((facet: string, checked: string) => {
-        setToolbar(prev => {
-            const current = prev.filters?.[facet] ?? [];
-            const next = current.includes(checked) ? current.filter(v => v !== checked) : [...current, checked];
-            return { ...prev, filters: { ...prev.filters, [facet]: next } };
-        });
-    }, [setToolbar]);
+        const current = activeFilters[facet] ?? [];
+        const next = current.includes(checked) ? current.filter(v => v !== checked) : [...current, checked];
+        const filters = { ...activeFilters, [facet]: next };
+        if (facetFilter !== undefined) facetFilter.onChange(filters);
+        else setToolbar(prev => ({ ...prev, filters }));
+    }, [setToolbar, activeFilters, facetFilter]);
     const clearFilters = useCallback(() => {
-        setToolbar(prev => ({ ...prev, filters: {} }));
-    }, [setToolbar]);
+        if (facetFilter !== undefined) facetFilter.onChange({});
+        else setToolbar(prev => ({ ...prev, filters: {} }));
+    }, [setToolbar, facetFilter]);
 
     // Each facet's values, in the order the cards first hold them.
     const facetValues = useMemo(() => {
@@ -1191,4 +1194,4 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
         </Box>
     );
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
-    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter);
+    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter);

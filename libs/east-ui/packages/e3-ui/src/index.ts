@@ -248,3 +248,8 @@ export { DecisionJournal } from './runtime/decision/journal.js';
 export { type DecisionJournalOptions } from './decision/journal.js';
 
 export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calendar/index.js";
+
+// Record-backed staffing roster.
+export { Roster, type RosterProps, type RosterNamespace, type RosterWeeksHandle } from "./roster/index.js";
+export type { RosterPeopleConfig } from "./roster/people.js";
+export type { RosterPatchOptions, RosterLibraryTabConfig, RosterLibraryTab } from "./roster/library.js";

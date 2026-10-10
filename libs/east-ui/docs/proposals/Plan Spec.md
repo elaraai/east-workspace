@@ -37,8 +37,8 @@ decision · window · now**. The component is named `Plan` (the spec's name; it
 | `Gantt` | **Subsumed — delete** | `Plan.span` rows (+ `Plan.events` for milestones) are a superset: same bars, same review chrome, plus slice, groups, measures. |
 | `Planner` | **Subsumed — delete** | `Plan.buckets` rows are the Planner surface verbatim; review model + drag grammar move to the canvas. |
 | `AlignedStack` | **Internalised — delete** | The canvas *is* the aligned stack (§3). `PlotGutter` (#147) survives only for *standalone* components (Chart, Trace, …) — **Plan never uses it**; `AlignedGutterType` and the `AlignedStack` arm/renderer/runtime tag go. |
-| `Roster` | Stays (for now) | Temporal rostering is covered by `Plan.cards`; whether standalone Roster is retired is §11's open question — revisit after Plan ships. |
-| `Board` / `Matrix` / `Table` / `Chart` / `Sparkline` / `Calendar` | Stay | Matrix keeps category×category grids; heat rows borrow its cell recipes (`MatrixFillType`, segment/weight cells). Chart stays *standalone*; inside a Plan its **layer grammar is consumed as data** — chart rows are a row kind the canvas renders itself, never an embedded Chart component (§4.3). |
+| east-ui `Roster` / `Board` | **Retired by #1160 / #1174** | e3-ui `Roster` provides the record-backed weekly staffing builder. Use `Plan` for generic cards on an axis. |
+| `Matrix` / `Table` / `Chart` / `Sparkline` / `Calendar` | Stay | Matrix keeps category×category grids; heat rows borrow its cell recipes (`MatrixFillType`, segment/weight cells). Chart stays *standalone*; inside a Plan its **layer grammar is consumed as data** — chart rows are a row kind the canvas renders itself, never an embedded Chart component (§4.3). |
 | `Slice` | Stays — gains two things | A **resolution** segment on `Slice.Range` (slice-state addition) and the **horizon-strip brush density** (a restyle + density of the existing brush strip). §8. |
 | e3-ui `DecisionQueue` / rail | **Out of scope** | A host composes it beside a Plan on the same slice. Plan keeps only the §9 review chrome (decision column + batch foot). |
 

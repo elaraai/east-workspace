@@ -5,7 +5,7 @@ Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `DatasetPreview`, `EastValueViewer`, `InputPreview`,
 `VirtualizedLogViewer`, the diff component family, the Plan's canvas
 (`src/plan/`, #1177), Sheet (`src/sheet/`, #1179) and Calendar
-(`src/calendar/`, #1159), each registered against its e3-ui extension as the package
+(`src/calendar/`, #1159) and Roster (`src/roster/`, #1174), each registered against its e3-ui extension as the package
 loads. Each renders in its `BuilderFrame` wherever it is used — the Plan's
 (`src/plan/frame/`, #1193) around its canvas (`src/plan/canvas.tsx`, a hook
 handing the frame main and its chrome's facts), the Sheet's
@@ -170,6 +170,68 @@ Use the shared move-preview component and `time/move-ghost.ts` recipe for event
 dragging/resizing. The preview sizes to its content independently of the source
 bar or edge handle. Test a short timeline event: its title must not wrap into
 a few characters per line. Preserve the shared destination/refusal caption.
+
+### Weekly records: Roster's reference case
+
+Keep the domain's aggregate boundary. Roster stores one complete week per UTC
+DateTime key. Each week owns a shared EditSession/history view; the record's
+write gate is shared across weeks. Save patches only the active week, and
+Publish patches its assignments, targets, dismissals and published status in
+one request. Unconfirmed writes retain the draft and the same retry identity.
+Switching weeks, filtering or resizing must not discard another week's draft.
+
+Keep **visibility separate from calculation scope** when the domain requires
+it. Roster's author binds staff with `Data.bind`/`Record.bind`, applies
+`Slice.rows` over typed staff scope rows, and passes their original keys as
+`visiblePeople`. The complete `people` value still drives coverage, cost,
+rest, skills and lead/trainer checks. Never calculate a misleading surplus by
+filtering people out of the roster's arithmetic. Hidden edits still Save.
+
+The windowed example binds a separate week-key Slice range and
+`Data.bindPaged` on the weeks record. The same range is read by the shared
+range control and written by roster navigation. Seek the active week, the
+previous Copy source and the open picker's month only; do not read the whole
+record to build the picker. Test an external Slice write and reverse navigation.
+
+Use the Library's facet engine for role/skill focus. A host may control those
+facets, but must not create a second search/filter implementation. Keep typed
+inspector callbacks on the same guarded commands as dragging and mobile
+forms; they cannot replace assignment identity or bypass published/read-only
+state. Pure coverage and rule functions live in e3-ui and are compiled for
+the renderer, so a task and the screen use the same arithmetic.
+
+At main width below 480px, both Shifts and People become explicit-action cards;
+no drag source or target remains registered. Test both layouts, target editing,
+proposal acceptance, restore and Save/remount. Test the final toolbar forms at
+360px with every action present: date picking, view, history and Publish must
+all remain reachable. Bound each footer item separately so the shared rail can
+wrap on narrow screens. Use Font Awesome for agreement icons as for other
+icons; avoid text glyph substitutes.
+
+Test the actual contained width as well as viewport width: a 360px showcase
+viewport leaves a 294px frame after padding. Combine week and view controls
+in a final shared-toolbar fold before history, keeping date picking, navigation
+and Publish reachable. Desktop proposals use the mock's single-line dashed chip
+with quiet Font Awesome actions; mobile cards keep labelled Accept/Reject.
+
+The footer must retain domain readouts, not just the shared rail's appearance.
+Roster shows day/week hours, cost versus budget and the coverage legend, all
+computed from the same complete coverage as the inspector. Keep each item
+individually wrappable and measure the rail's actual contents; a wide main does
+not guarantee that every footer label fits. Reuse coverage swatches as well as
+the footer recipe. A collapsed Library badge reports availability for the day,
+while tab counts report the library's item count; do not interchange them.
+
+Keep a proposal's compact placement and detailed explanation separate in the
+existing regions: a dashed single-line chip in the desktop grid, the complete
+reason and labelled actions in Details, and explicit-action cards on phones.
+Test those states after selection, as well as their initial appearance.
+
+Numeric-input integration tests must allow the shared input's animation-frame
+write-back to settle between keystrokes, following its existing tests. Also
+exercise real decimal typing in Chromium through Save/remount. Distinguish a
+refreshed record's stale-draft banner from a conflict returned by a write that
+races with Save; both retain the draft and protect the newer stored value.
 
 ## See also
 

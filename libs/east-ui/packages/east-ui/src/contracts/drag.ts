@@ -24,8 +24,7 @@ import {
 //
 // | Target  | `row`            | `slot`                                        |
 // |---------|------------------|-----------------------------------------------|
-// | Roster  | person key       | day key (e.g. `"wed"`)                        |
-// | Board   | area key         | shift key                                     |
+// | e3-ui Roster | group key | canonical East text of `{ day, group, shift }` |
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
 // | Plan    | the row id's canonical text (#822) | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as East prints a Float; `ordinal` ⇒ the value |
 // | SnapGrid | the row key, or `""` for a new row between rows (#990) | the pointed-at column, `"1"`–`"12"`; for a new row, the gap's index — `"0"` above the first row, `"n"` below the last |
@@ -246,7 +245,7 @@ export type DragEventType = typeof DragEventType;
  * sink is always structurally valid for a removable payload — removal policy
  * belongs to the host's `onDrag` handling, not the hover veto.
  *
- * A **throwing** predicate logs and allows (fail-open, the Board / Schematic
+ * A **throwing** predicate logs and allows (fail-open, the Schematic
  * validator convention) so a broken validator cannot brick the surface.
  * Verdicts are cached per candidate event for as long as the predicate is the
  * same function.

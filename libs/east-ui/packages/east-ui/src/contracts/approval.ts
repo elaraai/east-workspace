@@ -8,7 +8,7 @@
  * core of the shared review contract (`contracts/review.ts`).
  *
  * Split out of `review.ts` so IR type modules that `component.ts` loads (e.g.
- * `collections/roster/types.ts`) can reach {@link ApprovalStateType} /
+ * `collections/table/types.ts`) can reach {@link ApprovalStateType} /
  * {@link reviewType} without a circular import: `review.ts` itself must import
  * `component.ts` (its `RowReviewType` is resolved at `UIComponentType`), so it
  * cannot be loaded from inside the `component.ts` module graph. Everything here
@@ -72,7 +72,7 @@ export type ApprovalStateLiteral = "approved" | "pending" | "rejected";
 
 /**
  * The row-subject reference — the payload of per-row review callbacks on the
- * row-granularity adopters (Table, Roster, Board).
+ * row-granularity adopters such as Table.
  *
  * @remarks
  * `rowIndex` addresses the row in the surface's **unsliced** row order (the
@@ -122,7 +122,7 @@ export type ReviewStructType<S extends EastType, C extends EastType> = StructTyp
  *
  * @remarks
  * Every adopter's `review` field is `OptionType(reviewType(...))` with the
- * same fixed fields — only the subject varies: Table / Roster / Board review
+ * same fixed fields — only the subject varies: Table reviews
  * rows (`{ rowIndex }`), while per-tile ghost-accept stays on the drag
  * contract's `CellRefType`. `componentType` is injected (rather than
  * imported) so this module stays importable from inside the `component.ts`

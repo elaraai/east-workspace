@@ -29,6 +29,7 @@
   "files": [
     "dist/src",
     "dist/test/**/*.examples.*",
+    "dist/test/roster/warehouse.*",
     "!dist/**/*.spec.*",
     "README.md",
     "CONTRIBUTING.md",

@@ -4,7 +4,7 @@ The e3-ui `Roster`: a week's roster, edited in place. Groups of people work
 shifts day by day, and each shift's requirement (positions, and hours needed
 by skill) sits beside who is on it. The rules are checked as you go. It is
 laid out in `BuilderFrame` as Studio's builder, the query builder and the
-Calendar are, it has drag and drop throughout, and it replaces east-ui's
+Calendar are, it has desktop drag and drop and explicit mobile actions, and it replaces east-ui's
 `Roster` and `Board`.
 
 This document is the design the Roster epic builds. Each sub-issue copies the
@@ -43,14 +43,15 @@ their name's letters in lower case. The mock's current week is W37, Sunday
 disk, the runtime's re-read of its own page is refused by the browser's
 `file://` rule and logged as a console error; the page works either way, and
 served by any static server it is not logged. The mock is a desktop design;
-the product's phone behaviour is `BuilderFrame`'s (§7).
+BuilderFrame handles pane collapse and overlays, while main below 480px renders
+Shifts/People cards with explicit actions and no drag sources, targets or handles.
 
 An agent measures the mock in a headless browser, through its DOM; nobody
 reads a screenshot.
 
 ## 1. Summary
 
-- **What.** `<Roster.Builder>` plans who works which shift, day by day,
+- **What.** `<Roster>` plans who works which shift, day by day,
   against what each shift needs.
 - **Where.** The interface is in e3-ui (`libs/east-ui/packages/e3-ui/src/roster/`)
   and the renderer in e3-ui-components (`src/roster/`), as Studio's, the query
@@ -73,7 +74,7 @@ reads a screenshot.
     chips moved between shifts;
   - the rules and the coverage, and issues with their fixes;
   - the model's proposals, to accept or reject;
-  - undo and redo, Apply, and Publish.
+  - undo and redo, Save, and Publish.
 
   The app wires none of it.
 - **Replaces.** east-ui's `Board` (areas × shifts for one day, whose grid is
@@ -90,7 +91,7 @@ These are settled.
    returns as the People layout (§14).
 2. **The roster is one record keyed by week** (its first day), in the
    roster's own types, as Studio's pages record is Studio's. A week is one
-   entry, so one Apply writes a week's assignments, requirements and
+   entry, so one Save writes a week's assignments, requirements and
    dismissals together.
 3. **People are the app's own record**, read through accessors. The roster
    never writes them.
@@ -117,9 +118,10 @@ These are settled.
     Northside Staffing), and every person in it has a synthetic name.
     Nothing names a client, its trade or its people, in the mock, the
     examples, the showcase or the tests.
-13. **Data in examples and tests is an East value** bound once with
-    `$.let(value, Type)` inside the East body: never a module-scope
-    TypeScript constant, and never a TypeScript helper that builds one.
+13. **Every component definition is inline in its example.** Show the full
+    `Reactive` body, bindings, Slice and custom UI callbacks in the example.
+    Module-level e3 units, types and typed seeded East values are permitted;
+    a nested helper that hides the UI definition is not.
     Times are East values: a time of day is `{ hour: 6n, minute: 0n }`.
 
 ## 3. The authoring surface
@@ -176,7 +178,7 @@ export const rota = ui("rota", [], East.function([], UIComponentType, _$ => (
         const groups = $.let([{ key: "inbound", label: "Inbound", skills: [] }], ArrayType(Roster.Types.Group));
         const shifts = $.let([{ key: "early", label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8 }], ArrayType(Roster.Types.Shift));
         return (
-            <Roster.Builder
+            <Roster
                 weeks={weeks}
                 people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team })}
                 groups={groups}
@@ -188,7 +190,7 @@ export const rota = ui("rota", [], East.function([], UIComponentType, _$ => (
 ```
 
 That is a working editor. Inbound's people drag onto the early shift of any
-day, chips move between days, and Apply commits the week as one patch through
+day, chips move between days, and Save commits the week as one patch through
 `rosterPatch`. With no requirements a shift shows no positions to fill, and
 with no skills there are no activities.
 
@@ -238,7 +240,7 @@ export const warehouseRoster = ui("warehouse_roster", [], East.function([], UICo
         ], ArrayType(Roster.Types.Position));
         const agencies = $.let([{ key: "northside", name: "Northside Staffing" }], ArrayType(Roster.Types.Agency));
         return (
-            <Roster.Builder
+            <Roster
                 weeks={weeks}
                 people={Roster.people(staff.read(), {
                     name:     p => p.name,
@@ -259,7 +261,7 @@ export const warehouseRoster = ui("warehouse_roster", [], East.function([], UICo
                 proposals={proposed.read()}
                 forecast={demand.read()}
                 rules={{ rest: 10, lead: true, trainer: true, skill: true, agree: true }}
-                costs={{ currency: "$", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: 24800 }}
+                costs={{ currency: "AUD", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: 24800 }}
                 view={{ period: "day" }}
                 week={{ start: "sunday" }}
             />
@@ -306,7 +308,7 @@ and Plan's do. Only `name` and `group` are required.
 | `trainer`, `trainee` | `Boolean` | For the trainer rule. |
 | `usual` | `Option<String>` | The shift they usually work, shown on their card and in the inspector. |
 
-### 4.2 `Roster.Builder` props
+### 4.2 `Roster` props
 
 | Prop | Takes | What it does |
 |---|---|---|
@@ -322,11 +324,11 @@ and Plan's do. Only `name` and `group` are required.
 | `forecast` | `Dict<DateTime, Roster.Types.Requirements>` | The requirements a week starts with, by its first day (§9.4). |
 | `rules` | `{ rest?, lead?, trainer?, skill?, agree? }` | The built-in checks (§9.6): the least rest between shifts in hours (10 by default), and whether a staffed shift needs a lead, a trainee a trainer, an activity its skill, and a change the person's agreement. All on by default. |
 | `check` | `Fn(Roster.Types.CheckContext) → Array<Roster.Types.Issue>` | The app's own rules, beside the built-in ones. |
-| `costs` | `{ currency, rates: { permanent, overtime, agency }, budget? }` | Hourly rates by kind and a budget per day. Omitted, the roster shows no costs. |
+| `costs` | `{ currency, rates: { permanent, overtime, agency }, budget? }` | ISO 4217 currency code, hourly rates by kind and a budget per day, formatted by the shared app formatter. Omitted, the roster shows no costs. |
 | `view` | `{ layout?, period?, date? }` | The first view: `"shifts"` (the default, groups × shifts) or `"people"` (people × days, §9.12); `"day"` (the default) or `"week"`; and the date shown (today by default). The viewer's own changes persist per builder after that. |
 | `week` | `{ start? }` | The first day of a week, `"monday"` by default. |
 | `density` | `"comfortable"`, `"compact"` | Chip height (26px or 22px); compact hides the requirement cells' skill lines. |
-| `chip` | `"skills"`, `"hours"` | Whether a chip ends with the person's skills held (`5/6`) or their hours this week (`40h`). |
+| `chipSkills` | `Boolean` (default `true`) | Whether a chip ends with the person's skills held (`5/6`) or their hours this week (`40h`). |
 | `requirements` | `Boolean` | Whether the requirement rows show. Shown by default. |
 | `id` | string | Names the builder when a surface holds two: its view state's storage key and its library's drag-source ids. |
 
@@ -362,7 +364,7 @@ Roster.Types.Skill    = StructType({ key: StringType, label: StringType, code: S
 Roster.Types.Shift    = StructType({ key: StringType, label: StringType, code: StringType, start: Clock, hours: FloatType });
 Roster.Types.Position = StructType({ key: StringType, label: StringType, code: StringType, lead: BooleanType });
 Roster.Types.Agency   = StructType({ key: StringType, name: StringType });
-Roster.Types.Clock    = Calendar.Types.Clock;                         // StructType({ hour: IntegerType, minute: IntegerType })
+Roster.Types.Clock    = Schedule.Types.Clock;                         // StructType({ hour: IntegerType, minute: IntegerType })
 
 Roster.Types.Person   = StructType({                                  // one person, as the accessors resolve them
     key: StringType, name: StringType, group: StringType, position: StringType, skills: SetType(StringType),
@@ -376,7 +378,7 @@ Roster.Types.Costs    = StructType({
 });
 Roster.Types.Context  = StructType({                                  // what the rules and the coverage read
     people: DictType(StringType, Person), groups: ArrayType(Group), duties: ArrayType(Skill),
-    shifts: ArrayType(Shift), positions: ArrayType(Position), rules: Rules, costs: OptionType(Costs),
+    shifts: ArrayType(Shift), positions: ArrayType(Position), agencies: ArrayType(Agency), rules: Rules, costs: OptionType(Costs),
 });
 
 Roster.Types.Coverage = StructType({                                  // one slot's arithmetic
@@ -420,24 +422,27 @@ Roster.check    : (Week, Context) → Array<Issue>                     // breach
 
 ### 5.2 What the renderer receives: the payload
 
-Unlike the Calendar's event kinds, the roster's records have fixed types: the
-roster's own. So, like Studio's builder, the payload holds the bound record
-directly, with only the people resolved through their accessors:
+The weeks record uses Roster's fixed week type. The tag adapts its bound
+record once through `Record.onApply`, as the other builders do. The payload
+contains the shared editing door, resolved people and declarative configuration;
+BuilderFrame remains an internal renderer detail.
 
 ```ts
-RosterBuilderPayloadType = StructType({
-    weeks:     RosterWeeksHandleType,                // { read, history, commit: { patch } }, as Studio's pages
-    window:    OptionType(RosterWeeksPagedType),
-    people:    ArrayType(Person),
-    groups:    ArrayType(Group), duties: ArrayType(Skill), shifts: ArrayType(Shift),
+RosterPayloadType = StructType({
+    sourceId: StringType,
+    read: FunctionType([], RosterWeeksType),
+    apply: AsyncFunctionType([Editing.Types.ChangeSet(Week, DateTimeType)], Editing.Types.ApplyResult),
+    window: OptionType(RosterWindowType),
+    people: ArrayType(Person), visiblePeople: OptionType(SetType(StringType)),
+    groups: ArrayType(Group), duties: ArrayType(Skill), shifts: ArrayType(Shift),
     positions: ArrayType(Position), agencies: ArrayType(Agency),
-    proposals: ArrayType(Proposal),
-    forecast:  DictType(DateTimeType, Requirements),
-    rules:     Rules,
-    check:     OptionType(FunctionType([CheckContext], ArrayType(Issue))),
-    costs:     OptionType(Costs),
-    settings:  RosterSettingsType,                   // the first view, the week's start, density, chip, requirements shown
-    id:        OptionType(StringType),
+    proposals: ArrayType(Proposal), forecast: DictType(DateTimeType, Requirements),
+    rules: Rules, costs: OptionType(Costs),
+    check: OptionType(FunctionType([CheckContext], ArrayType(Issue))),
+    library: ArrayType(RosterLibraryTabType), inspector: OptionType(RosterInspectorType),
+    slice: OptionType(SliceChromeType),
+    settings: RosterSettingsType, // layout, period, date, weekStart, density, chipSkills, requirements, readOnly
+    id: OptionType(StringType),
 });
 ```
 
@@ -456,7 +461,7 @@ inspector functions, so the arithmetic is East's and never the renderer's.
 | The `Library` parts | The library pane's People and Activities tabs |
 | The shared `Editing` session over a record | One session over the roster record, a week's entry a draft |
 | The drag grammar (`LibraryRef`, `CellRef`, `DragEvent`) | Every drop (§11) |
-| `Calendar.Types.Clock`, `StatusTokenType` | A shift's start; an issue's tone |
+| `Schedule.Types.Clock`, `StatusTokenType` | A shift's start; an issue's tone |
 | Accessors `(row, key)`; data bound with `$.let` | `Roster.people` |
 
 They differ on purpose in one place: the Calendar takes the app's own
@@ -474,9 +479,9 @@ the shared contracts only, never on Plan's internals.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│ History · <W37 05-11 Mar 2028 v> · Sun..Sat days · Day Week · 8 issues · Apply    │
+│ History · <W37 05-11 Mar 2028 v> · Sun..Sat days · Day Week · 8 issues · Save    │
 ├───────────────────────────────────────────────────────────────────────────────────┤
-│ banners: a published or not-started week; an Apply's refusals                     │
+│ banners: a published or not-started week; an Save's refusals                     │
 ├──────────────┬────────────────────────────────────────────────┬───────────────────┤
 │ LIBRARY      │ main: the roster grid                          │ INSPECTOR         │
 │ People       │  per group: its requirement row, its roster    │ Details · Issues  │
@@ -490,8 +495,8 @@ the shared contracts only, never on Plan's internals.
 
 | Region | Holds |
 |---|---|
-| Toolbar | The history item (undo · redo · discard), the week control and its picker, the day strip, Day · Week, the issues chip, Apply, Publish. The shared `Toolbar` folds what doesn't fit. |
-| Banners | A published or not-started week (§9.4); an Apply's refusal. |
+| Toolbar | The history item (undo · redo · discard), the week control and its picker, the day strip, Day · Week, the issues chip, Save, Publish. The shared `Toolbar` folds what doesn't fit. |
+| Banners | A published or not-started week (§9.4); an Save's refusal. |
 | Start pane "Library" | Tabs People · Activities, each a `Library` (§9.5). |
 | Main | The grid (§8). |
 | End pane "Inspector" | Tabs Details · Issues (§9.7, §9.8). |
@@ -768,7 +773,7 @@ mock.
   click outside it.
 - **B19.** A published week is read-only, under the banner
   `W36 · published — Read-only view of the published roster.`: no drops, no
-  chip actions, no inspector edits, no Apply.
+  chip actions, no inspector edits, no Save.
 - **B20.** A week with no entry is not started. It shows the forecast's
   requirements with no one rostered, under the banner
   `W38 · not started — Requirements are loaded from the forecast. No one is rostered yet.`
@@ -995,7 +1000,7 @@ mock.
 - **B54.** After a drop the new or moved assignment is selected. A published
   week takes no drop.
 
-### 9.11 Editing and Apply (owner: editing)
+### 9.11 Editing and Save (owner: editing)
 
 - **B55.** The roster record is one session of the shared `Editing`
   contract, and a week's entry is its draft. Every gesture is one undoable
@@ -1005,13 +1010,15 @@ mock.
   - accept or reject;
   - a copy, or a fix.
 - **B56.** Removing an assignment the week holds strikes it through until
-  Apply, and ↺ restores it. Removing one the drafts added drops it.
+  Save, and ↺ restores it. Removing one the drafts added drops it.
 - **B57.** The pending count is the assignments added, moved, edited or
   removed, and the slots whose requirement changed.
-- **B58.** Apply commits the week as one patch: its assignments,
+- **B58.** Save commits the week as one patch: its assignments,
   requirements and dismissals, checked against what its drafts began from. A
-  week another write moved since is refused as a conflict: its drafts stay,
-  and a banner says so. Discard drops the week's drafts.
+  refreshed record that has changed marks its existing drafts stale; a write
+  racing with Save returns the shared conflict banner. Both preserve the drafts
+  and the newer stored value. Discard drops the week's drafts and adopts the
+  latest record. Unconfirmed outcomes retain the same write identity for retry.
 
 ### 9.12 The People layout (owner: People layout, *product*)
 
@@ -1044,15 +1051,16 @@ mock.
 
 All of it runs on the shared drag grammar (`LibraryRef`, `CellRef`,
 `DragEvent`), as the Calendar's and Studio's do. A roster `CellRef`'s `row`
-is `<group>|<shift>`, and its `slot` is the day's index in the week. A chip
-is a drop target too, for activities: its `CellRef` names the assignment.
+is the group key, and its `slot` is the canonical East-printed `Roster.Types.Slot`
+(day, group, shift). The target parses it through East, without delimiter-based
+keys. A chip is a drop target too, for activities: its `CellRef` names the assignment.
 
 ## 12. Where the product differs from the mock
 
 | The mock | The product | Why, and what is lost |
 |---|---|---|
 | Two control rows: the toolbar, and a day strip over the grid | One toolbar; read-outs and the legend in the footer | A component has one toolbar. Nothing is lost. |
-| Apply into an applied layer, then Save | Apply commits; Discard in the history item | One editing session. The applied-but-unsaved layer is lost. |
+| Save into an applied layer, then Save | Save commits; Discard in the history item | One editing session. The applied-but-unsaved layer is lost. |
 | A row's or a shift's "Definition", naming the API (`Roster.Requirement`, …) | A shift's definition (its times and hours, crossing midnight) and a row's totals; no API names | An operator's screen. The API text is lost. |
 | The inspector's footer, naming the selection's path in the data | No footer | The same. |
 | A week's status from its date (past weeks published) | A week's own status, and Publish | Stored state. |
@@ -1068,7 +1076,7 @@ is a drop target too, for activities: its `CellRef` names the assignment.
 
 - **UI.** east-ui's `Roster` and `Board` arms leave `UIComponentType`;
   packages are re-exported (`WIRE_MIGRATION.md`). The builder rides an
-  `EastUI.component` carrier, `RosterBuilder`, as `StudioBuilder` does.
+  `EastUI.component` carrier, `Roster`, as `StudioBuilder` does.
 - **Stored state.** The roster record holds `Roster.Types.Weeks`, the
   roster's own type, as Studio's pages record holds Studio's. Once released,
   a change to it ships a repository upgrade step (`WIRE_MIGRATION.md`).
@@ -1082,7 +1090,7 @@ The roster lands after the Calendar epic's `Fields` (#1147) and its types
 2. Remove east-ui's `Board` and `Roster`.
 3. The types, factories, rules and coverage (e3-ui).
 4. The frame and the grid.
-5. Editing and Apply.
+5. Editing and Save.
 6. Weeks.
 7. The library pane.
 8. Drag and drop.
@@ -1093,3 +1101,156 @@ The roster lands after the Calendar epic's `Fields` (#1147) and its types
     examples.
 13. The People layout (*product*): people × days, in place of east-ui's
     `Roster` view.
+
+
+## Rebased implementation decisions (2026-10-10)
+
+The working branch and this PR now target `elaraai/feat/e3-ui-calendar`, at `d64b992f5b24265120d60a141df9a7c6c9091c77`. The rebased specification commit is `8190597ef7984fe04d658272bf5c4c86fab27694`. Calendar already includes the shared Plan/Sheet builder work. The new isolated checkout is `~/src/east-workspace-roster-1174`.
+
+The user reiterated that Roster must look and act like `Roster Spec.html`. Preserve its shift headers, group sections, requirements beside staffing, assignment chips, coverage bars, library cards and inspector sections. Use the existing builder's shared behavior and named text styles where the mock differs.
+
+| Mock/older specification | Existing shared behavior | Roster decision and consequence |
+| --- | --- | --- |
+| `Roster.Builder` | One framed Plan/Calendar tag | One `<Roster>`; frame/session/toolbar assembly stays internal. |
+| Stacked range/cost labels and two toolbar bands | One folding 44px Toolbar | Date and compact count share one baseline; detailed hours/costs use the footer. |
+| Apply buffer followed by Save | Shared EditSession Save | One draft layer; Undo/Redo/Discard/Save use the shared history item. Publish atomically commits the week and published status. |
+| Inline mock font sizes and SVG defaults | Named text styles, slot recipes, shared icon sizing | Measure actual text/SVG geometry against Plan in both themes. Preserve domain anatomy, not a second typography system. |
+| Body-colored footer or footer text alone | Whole `builder-footer.ts` rail | Consume its background, top rule, height, spacing and narrow wrapping. |
+| Desktop-only grid with collapsed panes | Main-panel width decides narrow content | Below 480px of main, Shifts/People become cards with explicit actions. No narrow drag sources, targets, listeners or handles. |
+| Mock date determines publication | Status stored in the weekly record | Published is read-only regardless of date; failed/unknown Publish remains unsaved with shared retry. |
+| Mock local search/predicate state | Author-owned Slice and shared Library | No new search/filter engine. Preserve authoritative keys and complete staff context. |
+| Mock's fixed week label `W37` against March dates | Real calendar arithmetic | Labels derive from the configured week start and actual dates. |
+| Gap fix needs an agency, but Context omitted agencies | Pure domain functions need explicit inputs | Add `agencies` to the non-stored Context type; no agency means no request fix. |
+
+**Filtering decision:** the user delegated this choice on 2026-10-10. Slice narrows visibility, while coverage, costs and warnings continue to read the complete shift and complete staff context. `visiblePeople` accepts original staff keys from upstream `Slice.rows`/`Slice.apply`. Hidden leads/trainers still satisfy staffing rules. Selection and draft identity survive filtering; Save still targets the original week. Label coverage as whole-shift coverage when visibility is narrowed. The renderer never derives its own hidden Slice from loaded data.
+
+`slice={{ slice, affordances }}` is the same author-owned chrome contract as Plan. A people Slice can expose search/filter/cohorts. A datetime-range Slice, when declared, drives the week key sought by `window`; navigation writes the same bound range. The active week is the configured week containing the range's first day. Week navigation writes that week's complete inclusive date range. Day navigation within it retains that week range. Externally changing the range updates the active week without discarding drafts. A wide range still opens one week; it never causes a full-history read. Examples and tests demonstrate both filtering and range/key paging, with their scopes explicit.
+
+### Concrete full authoring shape
+
+The minimal JSX was presented in the conversation. The full example keeps its component definition inline, with module-level e3 units/types/seeds allowed:
+
+```tsx
+// StaffScope: { key: String, name: String, group: String, trainer: Boolean }
+// configRecord: groups, duties, shifts, positions, agencies, rules and costs.
+East.function([], UIComponentType, _$ => {
+    const cfg = Slice.config(StaffScope, {
+        fields: {
+            name: { label: "Name" }, group: { label: "Home group" },
+            trainer: { label: "Trainer" },
+        },
+        searchFieldIds: ["name", "group"],
+    });
+    return <Reactive>{$ => {
+        const weeks = $.let(Record.bind(rosterWeeks, [rosterPatch]));
+        const window = $.let(Data.bindPaged(rosterWeeks));
+        const staff = $.let(Data.bind(people));
+        const config = $.let(Data.bind(configRecord).read());
+        const forecast = $.let(Data.bind(forecastRecord).read());
+        const proposals = $.let(Data.bind(proposalRecord).read());
+        const rows = $.let(staff.read().toArray((_$, p, key) => ({
+            key, name: p.name, group: p.team, trainer: p.trainer,
+        })));
+        const slice = $.let(Slice.bind([StaffScope], "warehouse.roster.people",
+            cfg, Slice.state({}), rows, none));
+        const visible = $.let(Slice.rows([StaffScope], slice)
+            .toSet((_$, p) => p.key));
+        return <Roster
+            id="warehouse-roster"
+            weeks={weeks} window={window}
+            people={Roster.people(staff.read(), {
+                name: p => p.name, group: p => p.team,
+                position: p => p.position, skills: p => p.skills,
+                contract: p => p.contract, agency: p => p.agency,
+                trainer: p => p.trainer, trainee: p => p.trainee,
+                usual: p => p.usual,
+            })}
+            visiblePeople={visible}
+            groups={config.groups} duties={config.duties}
+            shifts={config.shifts} positions={config.positions}
+            agencies={config.agencies} rules={config.rules} costs={config.costs}
+            forecast={forecast} proposals={proposals}
+            slice={{ slice, affordances: ["filter", "search"] }}
+            library={[Roster.library.people(), Roster.library.activities()]}
+            inspector
+            week={{ start: "sunday" }}
+            view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
+        />;
+    }}</Reactive>;
+});
+```
+
+The runnable authoring examples are `test/roster/roster.examples.tsx`: full bound staff filtering, windowed week-key ranges, minimal panes, People/Week views, phone cards, published weeks and custom forms. Each defines its UI inline and is compiled in the example suite. `inspector` also accepts the previously approved assignment/requirement custom-form functions; an author's library tabs and typed assignment patches remain in scope.
+
+### Implementation and verification order
+
+1. Rebase and set the PR base (done); reconcile this design with the spec and children.
+2. Retire east-ui Board/Roster and their wire/dispatch/export/example references; keep shared primitives used by surviving components.
+3. Implement the typed e3-ui payload, accessor adapters and pure East coverage/checks. No East UI composition in tag factories.
+4. Prove one complete workflow through shared BuilderFrame, Toolbar/Slice, Library, FieldForm and EditSession: edit a real week, Save, remount, desktop and narrow. Check computed typography/icons/footer at this stage.
+5. Complete day/week and People views, weekly paging/navigation/status/Publish/copy, inspectors, proposals/fixes and desktop drag grammar through the same commands. Preserve drafts across navigation/filter/resize.
+6. Add the bound showcase examples, including a dedicated phone container, published/future weeks, People and windowed history. Run HTTPS from the rebuilt output.
+7. Run pure domain, API, session/conflict/unknown retry, real e3 Save/remount, desktop drag and responsive/mobile tests. Verify light/dark at 1440/1024/768/390/360 and a narrow parent in a wide viewport; no page overflow, no narrow drag listeners, shared touch targets, stable toolbar folds and shared footer geometry.
+8. Update package guides/skills/migration notes, regenerate plugin artifacts, run applicable build/test/lint/responsive/artifact gates, then record commit/test evidence. No child is complete until its implementation and checks pass.
+
+The reuse inventory and detailed acceptance requirements in PR #1174 remain mandatory. This addendum corrects older Apply, frame/API and mobile wording in the original children; it does not remove their domain behavior, custom forms or author-owned library tabs.
+
+
+### Implemented integration details
+
+The canonical tag exposes `chipSkills` (true for the fit ratio, false for week
+hours), optional `library`/`inspector`, `readOnly` and `visiblePeople`. It uses
+`RosterPayloadType` under the `Roster` extension carrier. A `window` must refer
+to the same weeks record, with no secondary index. Full histories are not read
+for the picker. Configuration, people and proposals refresh reactively without
+replacing drafts.
+
+The day grid retains the mock's 148px group gutter and 832px minimum canvas;
+week shifts use 862px; People adds a dedicated weekly-hours column. These grids
+scroll inside main. Main below 480px uses Shifts or People cards with explicit
+actions. Week status comes from the record. The toolbar uses real ISO week
+numbers and shared folds, with a compact week picker and Publish in the folded
+menu when needed. The last fold combines week and view controls at the actual
+294px frame width inside a 360px showcase viewport, keeping Save, Publish,
+navigation and the date picker reachable. The footer is the shared 28px rail,
+wrapping individual items when its measured contents no longer fit. It retains
+the coverage legend, day/week hours, cost versus budget, status, pending changes,
+agreement and proposal counts. Its totals and the inspector share complete
+coverage, including staff hidden by Slice.
+
+Coverage and rule arithmetic are pure East functions in `src/roster/`; the tag
+only validates and adapts typed data. Every edit path uses the same renderer
+commands. Named staff, unnamed agency requests, proposals and typed custom card
+patches all use shared Library/DnD and Session behavior. Calendar and Roster
+share UTC window helpers, move ghosts and the record-backed test harness.
+
+This changes package UI wire: remove old Board/Roster variants, rebuild consumers
+and re-export packages. It adds a new weekly record schema without changing the
+repository's stored record/history format; no storage upgrader is needed.
+
+
+### Review corrections and regression evidence
+
+- Desktop proposals match the mock's compact 26px dashed placement: app-body
+  italic name, small MODEL label and quiet accessible Font Awesome Accept/Reject
+  actions. Do not fit the full reason or large labelled buttons into that chip.
+  Selection opens the complete reason and labelled actions in Details; narrow
+  cards keep labelled actions. Measure this in both themes alongside Plan's
+  typography, grip visibility and footer styles.
+- Library tabs count items; the collapsed People badge counts availability for
+  the selected day. Show Off/shift status and position in the shared cards,
+  agency requests in their group, and the action hint in the pane footer. Use
+  shared facets for role/skill focus, with no parallel search/filter engine.
+- Position defaults fall back to the first configured non-lead position when a
+  person's position is absent from configuration, and for an unnamed request;
+  use the first position only when every configured position leads.
+- Chromium tests perform real pointer drops from Library and Save/remount. Keep
+  the frame inside its clipped showcase host, remeasure after pane transitions,
+  and target the actual assignment chip instead of a clamped cell coordinate.
+- Numeric form tests settle the shared input's animation-frame write-back
+  between simulated keystrokes. A separate Chromium test types a decimal at
+  normal speed and verifies it through Save/remount.
+- Cover both stale drafts after a record refresh and write-time conflicts,
+  preserving the newer stored value and pending edits in both cases.
+
+These requirements are also recorded in both e3-ui package BuilderFrame guides.

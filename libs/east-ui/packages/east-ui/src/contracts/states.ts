@@ -202,9 +202,7 @@ export type PlannerFlavourType = typeof PlannerFlavourType;
  * `rejected` is a proposal that was turned down, kept for diff context.
  *
  * @remarks
- * The shared state vocabulary of the assignment surfaces — Roster shifts,
- * Board assignments, and Blend allocations all carry these values in their
- * data. Named for the Planner component that coined it (retired in favour of
+ * The shared state vocabulary retained for Blend allocations. Named for the Planner component that coined it (retired in favour of
  * the `Plan` canvas, #571); the name is kept so existing data and imports
  * round-trip unchanged.
  *
