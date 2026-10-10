@@ -4,89 +4,37 @@
  *
  * @vitest-environment jsdom
  *
- * Plot-gutter cascade tests (#147): a lane component must inset its data lane to
- * `[left, W − right]` when a gutter is imposed directly from a
- * `PlotGutterProvider`, with the lane's own `plotGutter` winning over the
- * context.
- *
- * The Calendar is the probe: its day band is the only element carrying an inline
- * `grid-template-columns`, and the gutter form switches the 7 day columns to
- * `minmax(0, 1fr)` framed by leading `left` / trailing `right` tracks — so the
- * raw style attribute is a faithful, layout-free assertion target under jsdom.
+ * Plot-gutter context coverage independent of any particular collection.
  */
-
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import { some, none } from "@elaraai/east";
-import { system } from "../theme/index.js";
-import { PlotGutterProvider } from "./plot-gutter.js";
-import { EastChakraCalendar, type CalendarValue } from "../collections/calendar/index.js";
+import { PlotGutterProvider, usePlotGutter } from "./plot-gutter.js";
 
 afterEach(cleanup);
-
-/** Minimal one-cell Calendar; `plotGutter` is its own (own-beats-context) gutter. */
-function calendarValue(plotGutter: CalendarValue["plotGutter"] = none): CalendarValue {
-    return {
-        cells: [{ week: "W1", day: "Mon", value: 5, text: "5", compare: none, summary: none }],
-        values: true,
-        scale: none,
-        domain: none,
-        totals: none,
-        aggregateRow: none,
-        footer: none,
-        actionLabel: none,
-        onAction: none,
-        onSelect: none,
-        density: none,
-        plotGutter,
-        height: none,
-        maxHeight: none,
-    } as CalendarValue;
+function Probe({ name }: { name: string }) {
+    const gutter = usePlotGutter();
+    return <output data-testid={name} data-left={gutter?.left} data-right={gutter?.right} data-imposed={gutter !== undefined ? "" : undefined} />;
 }
-
-/** The day band is the lone element with an inline `grid-template-columns`. */
-function bandStyle(container: HTMLElement): string {
-    const grid = container.querySelector('[style*="grid-template-columns"]');
-    expect(grid).not.toBeNull();
-    return grid!.getAttribute("style")!;
-}
-
-const ui = (node: React.ReactElement) => render(<ChakraProvider value={system}>{node}</ChakraProvider>);
-
-describe("plot-gutter cascade (#147)", () => {
-    test("standalone: no imposed gutter, the band keeps its plain 7-column track", () => {
-        const { container } = ui(<EastChakraCalendar value={calendarValue()} storageKey="c" />);
-        const style = bandStyle(container);
-        // Plain form: `<weekColW> repeat(7, minmax(<colDay>, 1fr))` — the
-        // density day track, no imposed gutter (no `minmax(0, 1fr)`, no
-        // trailing gutter column).
-        expect(style).toMatch(/repeat\(7, minmax\(62px/);
-        expect(style).not.toContain("minmax(0");
+describe("plot-gutter context (#147)", () => {
+    test("without a provider, the component can retain its natural gutter", () => {
+        const { getByTestId } = render(<Probe name="plain" />);
+        expect(getByTestId("plain").hasAttribute("data-imposed")).toBe(false);
     });
-
-    test("context: a PlotGutterProvider insets the band to [left, W − right]", () => {
-        const { container } = ui(
-            <PlotGutterProvider value={{ left: "120px", right: "16px" }}>
-                <EastChakraCalendar value={calendarValue()} storageKey="c" />
-            </PlotGutterProvider>,
-        );
-        const style = bandStyle(container);
-        expect(style).toContain("grid-template-columns: 120px repeat(7, minmax(0, 1fr)) 16px");
+    test("the provider publishes both insets to its descendants", () => {
+        const { getByTestId } = render(<PlotGutterProvider value={{ left: "120px", right: "16px" }}><Probe name="child" /></PlotGutterProvider>);
+        expect(getByTestId("child").getAttribute("data-left")).toBe("120px");
+        expect(getByTestId("child").getAttribute("data-right")).toBe("16px");
     });
-
-    test("own plotGutter wins over the inherited context (per-axis)", () => {
-        const { container } = ui(
-            <PlotGutterProvider value={{ left: "120px", right: "16px" }}>
-                <EastChakraCalendar
-                    value={calendarValue(some({ left: some("80px"), right: none }))}
-                    storageKey="c"
-                />
-            </PlotGutterProvider>,
-        );
-        // Own `left` (80px) overrides the context's 120px; `right` is unset on the
-        // own gutter, so it still falls back to the context's 16px.
-        const style = bandStyle(container);
-        expect(style).toContain("grid-template-columns: 80px repeat(7, minmax(0, 1fr)) 16px");
+    test("a nested provider is scoped, and changing it updates its consumers", () => {
+        const tree = (left: string) => <PlotGutterProvider value={{ left: "120px", right: "16px" }}>
+            <Probe name="outer" />
+            <PlotGutterProvider value={{ left }}><Probe name="inner" /></PlotGutterProvider>
+        </PlotGutterProvider>;
+        const { getByTestId, rerender } = render(tree("80px"));
+        expect(getByTestId("inner").getAttribute("data-left")).toBe("80px");
+        expect(getByTestId("inner").getAttribute("data-right")).toBeNull();
+        rerender(tree("96px"));
+        expect(getByTestId("inner").getAttribute("data-left")).toBe("96px");
+        expect(getByTestId("outer").getAttribute("data-left")).toBe("120px");
     });
 });

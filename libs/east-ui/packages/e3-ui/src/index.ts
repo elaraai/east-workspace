@@ -246,3 +246,5 @@ export { DecisionQueue } from './runtime/decision/queue.js';
 export { type DecisionQueueOptions } from './decision/queue.js';
 export { DecisionJournal } from './runtime/decision/journal.js';
 export { type DecisionJournalOptions } from './decision/journal.js';
+
+export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calendar/index.js";

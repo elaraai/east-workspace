@@ -63,7 +63,7 @@ export function PlanFooter({ styles, items, transport, counts, pending, narrow }
     }
     if (own.length === 0 && items.length === 0 && transport === undefined) return null;
     return (
-        <Box css={styles.footer} data-slot="footer" data-plan-narrow={narrow === true ? "" : undefined}>
+        <Box css={styles.footer} data-slot="footer" data-builder-narrow={narrow === true ? "" : undefined} data-plan-narrow={narrow === true ? "" : undefined}>
             {own.map((count) => (
                 <Box key={count.key} css={styles.footerItem} data-plan-count={count.key}>{count.text}</Box>
             ))}

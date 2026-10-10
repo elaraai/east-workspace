@@ -62,12 +62,6 @@ export {
     type EastChakraBoardProps,
 } from "./board";
 
-export {
-    EastChakraCalendar,
-    type CalendarValue,
-    type CalendarCellValue,
-    type EastChakraCalendarProps,
-} from "./calendar";
 
 export {
     EastChakraSchematic,

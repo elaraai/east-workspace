@@ -15,7 +15,6 @@ export { ValueTree } from "./value-tree.js";
 export { Library } from "./library.js";
 export { Roster } from "./roster.js";
 export { Board } from "./board.js";
-export { Calendar } from "./calendar.js";
 export { Schematic } from "./schematic.js";
 export { Flowchart } from "./flowchart.js";
 export { Map } from "./map.js";

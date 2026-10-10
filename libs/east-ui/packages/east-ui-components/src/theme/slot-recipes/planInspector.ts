@@ -29,7 +29,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { INSPECTOR_SECTION, inspectorBase, inspectorSlots } from "./inspector.js";
+import { INSPECTOR_SECTION, INSPECTOR_STATUS, inspectorBase, inspectorSlots } from "./inspector.js";
 
 export const planInspectorSlotRecipe = defineSlotRecipe({
     className: "elara-plan-inspector",
@@ -64,24 +64,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
          * (`06:00–14:00`) whole on the next — never after their dash. Each place a time is said does so. */
         when: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere", textWrap: "balance" },
         /* An event's status, in its tone — open, as a tentative status draws, when it is a ring. */
-        status: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "600",
-            letterSpacing: "0.12em",
-            lineHeight: "normal",
-            textTransform: "uppercase",
-            paddingX: "{spacing.1}",
-            paddingY: "1px",
-            borderRadius: "{radii.xs}",
-            whiteSpace: "nowrap",
-            "&[data-tone=success]": { background: "bg.success.subtle", color: "fg.success" },
-            "&[data-tone=warning]": { background: "bg.warning.subtle", color: "fg.warning" },
-            "&[data-tone=danger]": { background: "bg.danger.subtle", color: "fg.danger" },
-            "&[data-tone=info]": { background: "bg.brand.subtle", color: "brand.fg" },
-            "&[data-tone=neutral]": { background: "bg.subtle", color: "fg.muted" },
-            "&[data-ring]": { background: "transparent", boxShadow: "inset 0 0 0 1px currentColor" },
-        },
+        status: INSPECTOR_STATUS,
         /* Its facts: each its label beside its value. */
         facts: {
             ...INSPECTOR_SECTION,

@@ -760,6 +760,7 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1200, 900], nudge: [1200], box: 360 },
+    { name: "Calendar", route: "e3/calendar/calendar/calendarOperations", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["calendar.filter"] },
     { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },

@@ -260,6 +260,28 @@ export const ScheduleEntriesType = StructType({
 export type ScheduleEntriesType = typeof ScheduleEntriesType;
 
 /**
+ * Whether two events of a kind on one resource at once are a conflict.
+ *
+ * @property warn - They are: both wear a warn ring, and the overlaps count them (the default)
+ * @property allow - They are not: the kind's events run in parallel
+ */
+export const ScheduleOverlapsType = VariantType({ warn: NullType, allow: NullType });
+
+/** Type representing {@link ScheduleOverlapsType}. */
+export type ScheduleOverlapsType = typeof ScheduleOverlapsType;
+
+/** One event and its full record row, read with the current drafts in place. */
+export const ScheduleReadType = StructType({ item: ScheduleItemType, row: BlobType });
+/** Type representing ScheduleReadType. */
+export type ScheduleReadType = typeof ScheduleReadType;
+
+/** The fields whose edits are owned by the schedule section of an inspector. */
+export const ScheduleRolesType = StructType({
+    title: StringType, start: StringType, end: StringType,
+    resource: OptionType(StringType), status: OptionType(StringType),
+});
+
+/**
  * One event kind, closed: every row crosses as bytes at the record's own entry
  * type, so a builder's payload is one type whatever the records hold.
  *
@@ -295,6 +317,14 @@ export const ScheduleKindType = StructType({
     editing: EditingType,
     entries: OptionType(ScheduleEntriesType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
+    /** One event and its row, read from the window or by key, with drafts applied. */
+    event: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(ScheduleReadType)),
+    /** The inspector's schedule fields. */
+    schedule: ScheduleRolesType,
+    /** Whether this kind participates in overlap warnings. */
+    overlaps: ScheduleOverlapsType,
+    /** The author's form in place of the default fields. */
+    inspector: OptionType(RowInspectorType),
 });
 
 /** Type representing {@link ScheduleKindType}. */
@@ -333,17 +363,6 @@ export type ScheduleResourcesType = typeof ScheduleResourcesType;
 // ============================================================================
 // The kinds as Plan's builder takes them (#1190)
 // ============================================================================
-
-/**
- * Whether two events of a kind on one resource at once are a conflict.
- *
- * @property warn - They are: both wear a warn ring, and the overlaps count them (the default)
- * @property allow - They are not: the kind's events run in parallel
- */
-export const ScheduleOverlapsType = VariantType({ warn: NullType, allow: NullType });
-
-/** Type representing {@link ScheduleOverlapsType}. */
-export type ScheduleOverlapsType = typeof ScheduleOverlapsType;
 
 /**
  * One event as Plan draws it: what every view draws ({@link ScheduleItemType}),
