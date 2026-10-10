@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
     Box,
     Button,
@@ -107,7 +107,7 @@ const COLLAPSE_HEIGHT = "440px";
  * virtualizer's ResizeObserver, so source disclosure / code expansion
  * just reflow the document.
  */
-export function PatternEntry({ entry }: { entry: CatalogEntry }) {
+export const PatternEntry = memo(function PatternEntry({ entry }: { entry: CatalogEntry }) {
     return (
         <Box borderTopWidth="1px" borderTopColor="border.subtle" pt="20px" pb="36px">
             <Flex align="baseline" gap="3" wrap="wrap" minW={0}>
@@ -137,7 +137,7 @@ export function PatternEntry({ entry }: { entry: CatalogEntry }) {
             {entry.tier === "live" ? <LiveBody entry={entry} /> : <CodeBody entry={entry} />}
         </Box>
     );
-}
+});
 
 /** Live example: rendered frame hugging its content, with the captured
  *  dependencies and source in disclosures beneath it. The doc virtualizer

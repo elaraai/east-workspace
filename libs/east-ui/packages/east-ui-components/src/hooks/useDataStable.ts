@@ -27,11 +27,11 @@ import { useState } from "react";
  *
  * @example
  * ```tsx
- * const rosterDataEqual = equalFor(Roster.Types.Roster);
+ * const tableDataEqual = equalFor(TableRootType);
  *
- * const data = useDataStable(value, rosterDataEqual);
+ * const data = useDataStable(value, tableDataEqual);
  * // Recomputed on a data change only — a closure change keeps the review state.
- * const approvals = useMemo(() => data.people.map(p => p.approval), [data]);
+ * const approvals = useMemo(() => data.rows.map(row => row.approval), [data]);
  * ```
  */
 export function useDataStable<V>(value: V, dataEqual: (a: V, b: V) => boolean): V {

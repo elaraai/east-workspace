@@ -28,7 +28,7 @@
  * `false` for coarse, `true` for hover-capable.
  */
 
-import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { flushSync } from "react-dom";
 
 /** Container width class: `compact < compactBelow ≤ regular < wideAbove ≤ wide`. */
@@ -60,25 +60,27 @@ function useContainerWidthEffect(
     ref: RefObject<HTMLElement | null>,
     onWidth: (width: number) => void,
 ): void {
+    const measured = useRef<{ width: number; listener: typeof onWidth } | undefined>(undefined);
+    const measure = useCallback(() => {
+        const el = ref.current;
+        if (el === null || typeof ResizeObserver === "undefined") return;
+        const width = el.getBoundingClientRect().width;
+        if (width > 0 && (measured.current?.width !== width || measured.current.listener !== onWidth)) {
+            measured.current = { width, listener: onWidth };
+            onWidth(width);
+        }
+    }, [ref, onWidth]);
+    // A parent frame may settle its pane placement during the same commit.
+    // Recheck after each commit so the initial narrow render is corrected
+    // before paint, without waiting for the first ResizeObserver delivery.
+    useLayoutEffect(measure);
     useLayoutEffect(() => {
         const el = ref.current;
-        if (!el || typeof ResizeObserver === "undefined") return;
-        const measure = () => {
-            const width = el.getBoundingClientRect().width;
-            if (width > 0) onWidth(width);
-        };
-        // A width change is taken before this frame paints: a crossing
-        // commits at once, so the frame shows the layout for the width it is
-        // painted at, and what the layout tells its host — the Plan's toolbar
-        // items, say — with it (#1259).
+        if (el === null || typeof ResizeObserver === "undefined") return;
         const ro = new ResizeObserver(() => flushSync(measure));
         ro.observe(el);
-        measure();
         return () => ro.disconnect();
-        // The consumer's callback identity is intentionally not a dependency:
-        // both public hooks pass stable setters derived from state.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ref]);
+    }, [ref, measure]);
 }
 
 /**
@@ -97,9 +99,9 @@ export function useContainerBreakpoint(
     const compactBelow = thresholds?.compactBelow ?? DEFAULT_COMPACT_BELOW;
     const wideAbove = thresholds?.wideAbove ?? DEFAULT_WIDE_ABOVE;
     const [breakpoint, setBreakpoint] = useState<ContainerBreakpoint>("regular");
-    useContainerWidthEffect(ref, (width) => {
+    useContainerWidthEffect(ref, useCallback((width: number) => {
         setBreakpoint(classify(width, compactBelow, wideAbove));
-    });
+    }, [compactBelow, wideAbove]));
     return breakpoint;
 }
 
@@ -116,9 +118,9 @@ export function useContainerBreakpoint(
  */
 export function useContainerBelow(ref: RefObject<HTMLElement | null>, px: number): boolean {
     const [below, setBelow] = useState(false);
-    useContainerWidthEffect(ref, (width) => {
+    useContainerWidthEffect(ref, useCallback((width: number) => {
         setBelow(width < px);
-    });
+    }, [px]));
     return below;
 }
 

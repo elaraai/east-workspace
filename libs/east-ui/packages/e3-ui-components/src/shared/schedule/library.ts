@@ -12,11 +12,11 @@ export function scheduleLibraryCard(fields: Pick<LibraryItemValue, "key" | "labe
     return { ...fields, media: none, avatar: none, byline: none, action: none, facets: new Map(), dims: new Map() };
 }
 /** A pane's Library: filling its pane with shared search, grouping and cards. */
-export function scheduleLibrary(fields: Pick<LibraryValue, "id" | "items" | "groupOptions" | "noun" | "onCardClick">): LibraryValue {
+export function scheduleLibrary(fields: Pick<LibraryValue, "id" | "items" | "groupOptions" | "noun" | "onCardClick">, virtualize = false): LibraryValue {
     return {
         ...fields, hint: none, groupSummaries: new Map(), dimOptions: [], defaultDimensions: [], filterOptions: [], searchable: true,
         addLabel: none, onAdd: none, slice: none,
-        style: some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none }),
+        style: some({ height: some("fill"), maxHeight: none, virtualization: some(virtualize), columns: none, mediaPlacement: none, mediaSize: none }),
         variant: none, layout: none, toolbar: true,
     };
 }

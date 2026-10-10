@@ -696,8 +696,10 @@ The shared audit vocabulary outlived the Planner and moved to `contracts/`:
 | `PlannerApprovalType` | use `ApprovalStateType` (`contracts/review.ts` / `approval.ts`) — structural twin, wire-identical |
 | `PlannerApproveEventType` | use `RowRefType` (`contracts/review.ts` / `approval.ts`) — structural twin, wire-identical |
 
-`Roster.Types.State`, `Board.Types.State` and `Blend.Types.State` still
-resolve to `PlannerStateType` and their data round-trips unchanged.
+`Blend.Types.State` still resolves to `PlannerStateType` and its data round-trips
+unchanged. The old east-ui `Roster` and `Board` are retired by #1160 / #1174;
+weekly staffing uses e3-ui `Roster` and its record-backed week model. See
+[Roster Spec](./proposals/Roster%20Spec.md) for the replacement API.
 
 ## 1:1 recipes
 

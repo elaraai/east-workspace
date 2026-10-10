@@ -28,6 +28,9 @@ describe("Calendar in the shared frame", () => {
         expect(event(container, "service", "service1").hasAttribute("data-overlap")).toBe(true);
         expect(event(container, "shift", "shift1").hasAttribute("data-overlap")).toBe(false);
         expect(container.querySelector("[data-calendar-overlaps]")?.textContent).toContain("1");
+        const footer = container.querySelector("[data-calendar-footer]")!;
+        expect([...footer.children].map(item => item.getAttribute("data-calendar-legend"))).toEqual(["job", "service", "shift"]);
+        expect(footer.textContent).not.toMatch(/pending|backlog|saved|events in view/);
     });
     test("optional library and inspector really omit their panes; every example is the same Calendar", async () => {
         const { container } = mount(ex.calendarMinimal); await settle();
@@ -71,15 +74,17 @@ describe("Calendar in the shared frame", () => {
         await press(within(slot(container, "toolbar")).getByRole("radio", { name: "Resources" }));
         expect(slot(container, "main").textContent).toContain("Live press");
     });
-    test("Resources keeps Day selected and keyboard navigation skips disabled periods", async () => {
+    test("Resources hides the fixed period and returning to Calendar restores the chosen period", async () => {
         const { container } = mount(ex.calendarOperations); await settle();
-        await press(within(slot(container, "toolbar")).getByRole("radio", { name: "Resources" }));
-        const group = within(slot(container, "toolbar")).getByRole("radiogroup", { name: "Period" });
-        const day = within(group).getByRole("radio", { name: "Day" });
-        expect(within(group).getByRole("radio", { name: "Week" }).hasAttribute("disabled")).toBe(true);
-        expect(within(group).getByRole("radio", { name: "Month" }).hasAttribute("disabled")).toBe(true);
-        await act(async () => { day.focus(); fireEvent.keyDown(day, { key: "ArrowRight" }); });
-        expect(document.activeElement).toBe(day); expect(day.getAttribute("aria-checked")).toBe("true");
+        const toolbar = within(slot(container, "toolbar"));
+        for (const name of ["Week", "Month"]) {
+            await press(toolbar.getByRole("radio", { name }));
+            await press(toolbar.getByRole("radio", { name: "Resources" }));
+            expect(toolbar.queryByRole("radiogroup", { name: "Period" })).toBeNull();
+            expect(container.querySelector('[data-calendar-time-grid]')).not.toBeNull();
+            await press(toolbar.getByRole("radio", { name: "Calendar" }));
+            expect(toolbar.getByRole("radio", { name }).getAttribute("aria-checked")).toBe("true");
+        }
     });
     test("readOnly retains selection and warnings without history, fields or record writes", async () => {
         const { container } = mount(ex.calendarReadOnly); await settle();

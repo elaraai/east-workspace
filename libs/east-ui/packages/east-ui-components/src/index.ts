@@ -180,15 +180,6 @@ export {
     type LibraryItemValue,
     type LibraryEmpty,
     type EastChakraLibraryProps,
-    EastChakraRoster,
-    type RosterValue,
-    type RosterShiftValue,
-    type EastChakraRosterProps,
-    EastChakraBoard,
-    type BoardValue,
-    type BoardEntityValue,
-    type BoardAssignmentValue,
-    type EastChakraBoardProps,
     EastChakraSchematic,
     type SchematicValue,
     type SchematicItemValue,
@@ -439,7 +430,7 @@ export {
 } from "./dnd/drag-layer.js";
 // The drag layer's words (#608) — `<DragLayerProvider messages={…}>` overrides any subset.
 export { dragMessages, type DragMessages } from "./dnd/messages.js";
-// The assignment surfaces' words (#1263) — a Board's or a Roster's chip state,
+// The assignment surfaces' words (#1263) — an assignment's chip state,
 // as its accessible name says it; `<AssignmentMessagesProvider>` overrides any subset.
 export {
     AssignmentMessagesProvider,

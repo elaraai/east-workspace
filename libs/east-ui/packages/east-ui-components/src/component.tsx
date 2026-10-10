@@ -80,8 +80,6 @@ import { EastChakraTrace } from "./display/trace";
 import { EastChakraLibrary } from "./collections/library";
 import { EastChakraDeck, EastChakraDeckReadout, EastChakraDeckRows, EastChakraDeckNote } from "./collections/deck";
 import { EastChakraValueTree } from "./collections/value-tree";
-import { EastChakraRoster } from "./collections/roster";
-import { EastChakraBoard } from "./collections/board";
 import { EastChakraSchematic } from "./collections/schematic";
 import { EastChakraFlowchart } from "./collections/flowchart";
 import { EastChakraMap } from "./collections/map";
@@ -266,8 +264,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             DeckRows: (v) => <EastChakraDeckRows value={v} />,
             DeckNote: (v) => <EastChakraDeckNote value={v} />,
             ValueTree: (v) => <EastChakraValueTree value={v} storageKey={childKey(storageKey, "ValueTree")} />,
-            Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
-            Board: (v) => <EastChakraBoard value={v} storageKey={childKey(storageKey, "Board")} />,
             Schematic: (v) => <EastChakraSchematic value={v} storageKey={childKey(storageKey, "Schematic")} />,
             Flowchart: (v) => <EastChakraFlowchart value={v} storageKey={childKey(storageKey, "Flowchart")} />,
             Map: (v) => <EastChakraMap value={v} storageKey={childKey(storageKey, "Map")} />,

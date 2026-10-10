@@ -7,7 +7,7 @@
  * Review / approval grammar — the shared contract for decision surfaces.
  *
  * Lifted from the Planner's review chrome (PR #76) so every grid surface
- * (Table, Roster, Board) speaks one approval vocabulary and wears identical
+ * (such as Table) speaks one approval vocabulary and wears identical
  * chrome: a per-subject Approve / Reject **decision column** plus a batch
  * **`commitBar` foot** (Approve all / Reject all / Rerun).
  *
@@ -67,7 +67,7 @@ export {
 
 /**
  * The resolved row-granularity review-config type — `reviewType(RowRefType,
- * UIComponentType)`. The concrete type Table / Roster / Board carry
+ * UIComponentType)`. The concrete type Table carries
  * (and the one renderers decode).
  */
 export const RowReviewType: ReviewStructType<RowRefType, UIComponentType> = reviewType(RowRefType, UIComponentType);
