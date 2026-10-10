@@ -89,7 +89,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             }
             return null;
         };
-        const baseLibrary = scheduleLibrary({ id: rosterLibraryId(storageKey, name), items: cards, groupOptions: [{ key: "group", label: "Group" }], noun: some({ singular: tab.type === "people" ? "person" : "activity", plural: tab.type === "people" ? "people" : "activities" }), onCardClick: some(choose) });
+        const baseLibrary = scheduleLibrary({ id: rosterLibraryId(storageKey, name), items: cards, groupOptions: [{ key: "group", label: "Group" }], noun: some({ singular: tab.type === "people" ? "person" : "activity", plural: tab.type === "people" ? "people" : "activities" }), onCardClick: some(choose) }, true);
         const library = { ...baseLibrary,
             ...(tab.type === "tab" ? {} : { dimOptions: [{ key: "hours", label: "Hours" }], defaultDimensions: ["hours"] }),
             ...(tab.type === "people" ? { filterOptions: [{ key: "role", label: "Role" }, { key: "skill", label: "Skill" }] } : {}),

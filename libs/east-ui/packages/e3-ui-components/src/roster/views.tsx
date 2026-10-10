@@ -2,11 +2,12 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { Fragment, useCallback, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faClock, faChevronDown, faChevronRight, faGripVertical, faRotateLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
+import { VirtualRows } from "@elaraai/east-ui-components/internal";
 import { tickFormatOf, useDragEventChip, useDropCell, usePersistedState, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -63,20 +64,32 @@ export function CoverageView({ coverage: c, value, styles, format, compact = fal
         </Box>; })}
     </>;
 }
+interface AssignmentChipProps { props: RosterViewsProps; id: string; assignment: Assignment; removed: boolean; short?: boolean }
+/** Keep the shared drag hooks outside the chip body: pointer motion does not repaint its contents. */
+function AssignmentChip(args: AssignmentChipProps) {
+    const { props, id, assignment: a, removed } = args;
+    const { styles, value, drag } = props;
+    const name = assignmentName(value, a);
+    const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.slot, id), event: id }), [drag.surface, a.slot, id]);
+    const ghost = useMemo(() => <MoveGhost styles={styles} label={name} />, [styles, name]);
+    const enabled = drag.enabled && !removed;
+    const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
+    const drop = useDropCell(enabled ? coord : null, !enabled, event => drag.run(event, true) === undefined, undefined, { caption: drag.caption });
+    const dragRef = handle?.ref;
+    const attach = useCallback((element: HTMLDivElement | null) => { dragRef?.(element); drop(element); }, [dragRef, drop]);
+    return <AssignmentChipBody {...args} handle={handle} attach={attach} />;
+}
 /** Chip state comes from the held week and the domain issues, never from a second draft store. */
-function AssignmentChip({ props, id, assignment: a, removed, short = false }: { props: RosterViewsProps; id: string; assignment: Assignment; removed: boolean; short?: boolean }) {
+const AssignmentChipBody = memo(function AssignmentChipBody({ props, id, assignment: a, removed, short = false, handle, attach }: AssignmentChipProps & {
+    handle: ReturnType<typeof useDragEventChip>; attach: (element: HTMLDivElement | null) => void;
+}) {
     const { styles, value, commands, drag } = props;
     const name = assignmentName(value, a);
+    const enabled = drag.enabled && !removed;
     const person = a.who.type === "person" ? value.people.find(p => p.key === a.who.value) : undefined;
     const position = value.positions.find(p => p.key === a.position);
     const issues = removed ? [] : props.issues.filter(i => i.assignment.type === "some" && i.assignment.value === id);
     const activity = a.activity.type === "some" ? [...value.groups.flatMap(g => g.skills), ...value.duties].find(activity => activity.key === a.activity.value) : undefined;
-    const coord = { ...rosterCoord(drag.surface, a.slot, id), event: id };
-    const enabled = drag.enabled && !removed;
-    const handle = useDragEventChip(enabled ? coord : null, <MoveGhost styles={styles} label={name} />, !enabled, name);
-    const drop = useDropCell(enabled ? coord : null, !enabled, event => drag.run(event, true) === undefined, undefined, { caption: drag.caption });
-    const dragRef = handle?.ref;
-    const attach = useCallback((element: HTMLDivElement | null) => { dragRef?.(element); drop(element); }, [dragRef, drop]);
     const baseline = props.held?.assignments.get(id);
     const drafted = removed || baseline === undefined || !sameAssignment(baseline, a);
     const time = assignmentTimes(a, value, props.start);
@@ -99,7 +112,7 @@ function AssignmentChip({ props, id, assignment: a, removed, short = false }: { 
         {commands.editing.available && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
             onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
     </Box>;
-}
+});
 /** No hook in the mobile branch registers a drag source or target. */
 function DropSlot({ props, slot, children, compact = false }: { props: RosterViewsProps; slot: Slot; children: ReactNode; compact?: boolean }) {
     const ref = useRef<HTMLDivElement>(null);
@@ -108,9 +121,10 @@ function DropSlot({ props, slot, children, compact = false }: { props: RosterVie
         event => props.drag.run(event, true) === undefined, undefined, { caption: props.drag.caption,
             onHover: (_x, _y, payload) => setLanding(props.drag.preview(rosterCoord(props.drag.surface, slot), payload, true)) });
     const attach = useCallback((element: HTMLDivElement | null) => { ref.current = element; drop(element); }, [drop]);
-    return <Box ref={attach} css={compact ? props.styles.weekCell : props.styles.cell} data-roster-slot={slotKey(slot)} data-selected={selectedSlot(props.selection, slot) ? "" : undefined} data-roster-landing-tone={landing?.tone} title={compact ? landing?.label : undefined}>
+    // The shared target subscription can change on pointer motion; its body need not.
+    return useMemo(() => <Box ref={attach} css={compact ? props.styles.weekCell : props.styles.cell} data-roster-slot={slotKey(slot)} data-selected={selectedSlot(props.selection, slot) ? "" : undefined} data-roster-landing-tone={landing?.tone} title={compact ? landing?.label : undefined}>
         {children}{!compact && landing !== undefined && <Box css={props.styles.landing} data-roster-landing="" data-tone={landing.tone}>{landing.label}</Box>}
-    </Box>;
+    </Box>, [attach, compact, props, slot, landing, children]);
 }
 /** A desktop proposal is the mock's quiet inline chip; phones retain labelled actions. */
 export function ProposalCard({ props, proposal }: { props: RosterViewsProps; proposal: Proposal }) {
@@ -160,17 +174,17 @@ function Shifts(props: RosterViewsProps) {
     const style = { "--roster-columns": columns.length } as CSSProperties;
     return <Box css={props.styles.scroll} data-roster-grid="shifts"><Box css={props.styles.grid} data-period={props.view.period} style={style}>
         <Box css={props.styles.head}>
-            {props.view.period === "week" && <Box css={props.styles.row}><Box css={props.styles.gutter} />{days.map(day => <chakra.button type="button" key={day} css={props.styles.shiftHead} style={{ gridColumn: `span ${props.value.shifts.length}` }} data-week="" data-selected={props.day === day ? "" : undefined}
+            {props.view.period === "week" && <Box css={props.styles.row}><Box css={props.styles.gutter} />{days.map(day => <chakra.button type="button" key={day} css={props.styles.shiftHead} data-roster-column-header="" style={{ gridColumn: `span ${props.value.shifts.length}` }} data-week="" data-selected={props.day === day ? "" : undefined}
                 onClick={() => props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY })}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</chakra.button>)}</Box>}
             <Box css={props.styles.row}><Box css={[props.styles.gutter, props.styles.rowHead]}><Box css={props.styles.eyebrow}>Groups</Box><Box css={props.styles.detail}>{props.value.shifts.length} shifts</Box></Box>
-                {columns.map(({ day, shift }) => { const at = props.start.getTime() + day * DAY + (Number(shift.start.hour) * 60 + Number(shift.start.minute)) * 60_000; const rows = [...props.coverage].filter(([slot]) => Number(slot.day) === day && slot.shift === shift.key).map(([, c]) => c); return <chakra.button type="button" key={`${day}.${shift.key}`} css={props.styles.shiftHead} data-week={days.length > 1 ? "" : undefined} onClick={() => props.select({ type: "shift", key: shift.key })}>
+                {columns.map(({ day, shift }) => { const at = props.start.getTime() + day * DAY + (Number(shift.start.hour) * 60 + Number(shift.start.minute)) * 60_000; const rows = [...props.coverage].filter(([slot]) => Number(slot.day) === day && slot.shift === shift.key).map(([, c]) => c); return <chakra.button type="button" key={`${day}.${shift.key}`} css={props.styles.shiftHead} data-roster-column-header="" data-week={days.length > 1 ? "" : undefined} onClick={() => props.select({ type: "shift", key: shift.key })}>
                     <Box css={props.styles.shiftLabel}>{days.length > 1 ? shift.code : shift.label}</Box>{days.length === 1 && <Box css={props.styles.time}>{props.format.time(new Date(at))}–{props.format.time(new Date(at + shift.hours * 3_600_000))}</Box>}{days.length === 1 && <Box css={props.styles.detail}>{props.format.number(rows.reduce((n, c) => n + c.filled, 0n))} / {props.format.number(rows.reduce((n, c) => n + c.positions, 0n))} positions · {props.format.number(rows.reduce((n, c) => n + c.hours.needed, 0))} h needed{props.value.costs.type === "some" && ` · ${money(props.format, props.value, rows.reduce((n, c) => n + c.cost, 0))}`}</Box>}
                 </chakra.button>; })}</Box>
         </Box>
         {props.value.groups.map(group => { const coverage = [...props.coverage].filter(([slot]) => slot.group === group.key && days.includes(Number(slot.day))).map(([, c]) => c);
             const issues = props.issues.filter(i => i.slot.type === "some" && i.slot.value.group === group.key && days.includes(Number(i.slot.value.day)) && (i.kind.type === "breach" || i.kind.type === "gap"));
             const needed = coverage.reduce((n, c) => n + c.hours.needed, 0), rostered = coverage.reduce((n, c) => n + c.hours.rostered, 0);
-            return <Fragment key={group.key}><chakra.button type="button" css={props.styles.group} aria-expanded={!collapsed.includes(group.key)} onClick={() => setCollapsed(collapsed.includes(group.key) ? collapsed.filter(key => key !== group.key) : [...collapsed, group.key])}>
+            return <Fragment key={group.key}><chakra.button type="button" css={props.styles.group} data-roster-group={group.key} aria-expanded={!collapsed.includes(group.key)} onClick={() => setCollapsed(collapsed.includes(group.key) ? collapsed.filter(key => key !== group.key) : [...collapsed, group.key])}>
                 <FontAwesomeIcon icon={collapsed.includes(group.key) ? faChevronRight : faChevronDown} /><Box as="span" css={props.styles.groupLabel}>{group.label}</Box><Box as="span" css={props.styles.detail}>{props.format.number(needed)} h needed · {props.format.number(rostered)} h rostered · {rostered >= needed ? "+" : ""}{props.format.number(rostered - needed)} h{props.value.costs.type === "some" && ` · ${money(props.format, props.value, coverage.reduce((n, c) => n + c.cost, 0))}`}</Box>{issues.length > 0 && <Box as="span" css={props.styles.flag} data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : "warning"}>{issues.length} issues</Box>}
             </chakra.button>{!collapsed.includes(group.key) && <>
                 {props.value.settings.requirements && <Box css={props.styles.row}><chakra.button type="button" css={[props.styles.gutter, props.styles.rowHead]} onClick={() => props.select({ type: "group", key: group.key })}><Box css={props.styles.eyebrow}>Requirement</Box><Box css={props.styles.title}>Work</Box><Box css={props.styles.detail}>hours by skill</Box><Box css={props.styles.detail}>{props.format.number(needed)} h needed</Box></chakra.button>
@@ -199,31 +213,55 @@ function PersonDay({ props, person, group, day, children }: { props: RosterViews
         return from.success && (person === undefined ? from.value.type === "agency" : from.value.type === "person" && from.value.value === person.key);
     };
     const ref = useDropCell(props.drag.enabled ? rosterCoord(props.drag.surface, initial) : null, !props.drag.enabled, e => props.drag.run(e, true) === undefined, resolve, { accepts, caption: props.drag.caption });
-    return <Box ref={ref} css={props.styles.peopleCell} data-roster-person-day={`${person?.key ?? `requests:${group}`}.${day}`} data-selected={props.day === day ? "" : undefined}>{children}</Box>;
+    return useMemo(() => <Box ref={ref} css={props.styles.peopleCell} data-roster-person-day={`${person?.key ?? `requests:${group}`}.${day}`} data-selected={props.day === day ? "" : undefined}>{children}</Box>, [ref, props, person, group, day, children]);
+}
+type PeopleRow = { key: string; group: RosterValue["groups"][number] } & (
+    { kind: "group" } | { kind: "person"; person: RosterValue["people"][number] | undefined }
+);
+/** Shared stable rows for desktop People and its explicit-action phone cards. */
+function usePeopleRows(value: RosterValue): PeopleRow[] {
+    return useMemo(() => {
+        const people = value.people.filter(p => value.visiblePeople.type === "none" || value.visiblePeople.value.has(p.key));
+        const rank = (p: typeof people[number]) => p.agency ? 2 : value.positions.find(pos => pos.key === p.position)?.lead ? 0 : 1;
+        return value.groups.flatMap(group => [
+            { kind: "group" as const, key: `group:${group.key}`, group },
+            ...people.filter(p => p.group === group.key).sort((a, b) => rank(a) - rank(b)).map(person => ({ kind: "person" as const, key: `person:${person.key}`, group, person })),
+            { kind: "person" as const, key: `requests:${group.key}`, group, person: undefined },
+        ]);
+    }, [value.people, value.visiblePeople, value.positions, value.groups]);
+}
+/** Bring an explicitly selected person into either virtual People layout. */
+function selectedPeopleRow(props: RosterViewsProps, rows: readonly PeopleRow[]): number | undefined {
+    const selected = props.selection;
+    const assignment = selected?.type === "assignment" ? props.week.assignments.get(selected.key) ?? props.held?.assignments.get(selected.key) : undefined;
+    const person = selected?.type === "person" ? selected.key : assignment?.who.type === "person" ? assignment.who.value : undefined;
+    const index = rows.findIndex(row => row.kind === "person" && (person !== undefined ? row.person?.key === person : assignment?.who.type === "request" && row.person === undefined && row.group.key === assignment.slot.group));
+    return index < 0 ? undefined : index;
 }
 function People(props: RosterViewsProps) {
     const days = Array.from({ length: 7 }, (_, d) => d);
-    const people = props.value.people.filter(p => props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.key));
-    const rank = (p: typeof people[number]) => p.agency ? 2 : props.value.positions.find(pos => pos.key === p.position)?.lead ? 0 : 1;
-    return <Box css={props.styles.scroll} data-roster-grid="people"><Box css={props.styles.grid} data-layout="people" style={{ "--roster-columns": 8 } as CSSProperties}>
-        <Box css={[props.styles.row, props.styles.head]}><Box css={[props.styles.gutter, props.styles.peopleHead]}>People · week</Box>{days.map(day => <Box key={day} css={props.styles.shiftHead} data-selected={props.day === day ? "" : undefined}><Box css={props.styles.shiftLabel}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</Box></Box>)}<Box css={props.styles.peopleHead}>Week hours</Box></Box>
-        {props.value.groups.map(group => <Fragment key={group.key}><Box css={props.styles.group}><Box css={props.styles.groupLabel}>{group.label}</Box></Box>
-            {[...people.filter(p => p.group === group.key).sort((a, b) => rank(a) - rank(b)), undefined].map(person => {
-                const key = person?.key ?? `requests:${group.key}`;
-                const matches = (a: Assignment) => person === undefined ? a.who.type === "request" && a.slot.group === group.key : a.who.type === "person" && a.who.value === key;
-                const rows = matchingAssignments(props, matches);
+    const rows = usePeopleRows(props.value);
+    const getItemKey = useCallback((index: number) => rows[index]!.key, [rows]);
+    const header = <Box css={props.styles.row}><Box css={[props.styles.gutter, props.styles.peopleHead]}>People · week</Box>{days.map(day => <Box key={day} css={props.styles.shiftHead} data-roster-column-header="" data-week="" data-selected={props.day === day ? "" : undefined}><Box css={props.styles.shiftLabel}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</Box></Box>)}<Box css={props.styles.peopleHead}>Week hours</Box></Box>;
+    return <Box css={props.styles.main} data-roster-grid="people" style={{ "--roster-columns": 8 } as CSSProperties}>
+        <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="1100px" rootCss={props.styles.scroll}
+            header={header} count={rows.length} getItemKey={getItemKey} estimateSize={index => rows[index]!.kind === "group" ? 38 : 62}
+            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={index => {
+                const row = rows[index]!, { group } = row;
+                if (row.kind === "group") return <Box css={props.styles.group} data-roster-group={group.key}><Box css={props.styles.groupLabel}>{group.label}</Box></Box>;
+                const person = row.person, key = person?.key ?? row.key;
+                const assignments = matchingAssignments(props, a => person === undefined ? a.who.type === "request" && a.slot.group === group.key : a.who.type === "person" && a.who.value === key);
                 const total = props.hours.get(key) ?? 0;
-                return <Box key={key} css={props.styles.row}><chakra.button type="button" css={[props.styles.gutter, props.styles.peopleHead]} onClick={() => person !== undefined && props.select({ type: "person", key })}><Box css={props.styles.title}>{person?.name ?? "Agency requests"}</Box></chakra.button>
+                return <Box css={props.styles.row} data-roster-person-row={key}><chakra.button type="button" css={[props.styles.gutter, props.styles.peopleHead]} onClick={() => person !== undefined && props.select({ type: "person", key })}><Box css={props.styles.title}>{person?.name ?? "Agency requests"}</Box></chakra.button>
                     {days.map(day => <PersonDay key={day} props={props} person={person} group={group.key} day={day}>
-                        {rows.filter(({ a }) => a.slot.day === BigInt(day)).map(({ id, a, removed }) => <AssignmentChip key={id} props={props} id={id} assignment={a} removed={removed} short />)}
-                        {person !== undefined && !rows.some(({ a, removed }) => !removed && a.slot.day === BigInt(day)) && (props.commands.editing.available
+                        {assignments.filter(({ a }) => a.slot.day === BigInt(day)).map(({ id, a, removed }) => <AssignmentChip key={id} props={props} id={id} assignment={a} removed={removed} short />)}
+                        {person !== undefined && !assignments.some(({ a, removed }) => !removed && a.slot.day === BigInt(day)) && (props.commands.editing.available
                             ? <PlaceAction label="Off · assign" source={{ type: "person", key }} slot={{ day: BigInt(day), group: group.key, shift: person.usual.type === "some" ? person.usual.value : props.value.shifts[0]!.key }} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /> : <Box css={props.styles.detail}>Off</Box>)}
                     </PersonDay>)}
                     <Box css={props.styles.peopleHead} data-tone={person !== undefined && total > person.contract ? "warning" : undefined}>{person !== undefined && <><Box css={props.styles.weekValue}>{props.format.number(total)} / {props.format.number(person.contract)} h</Box><Box css={props.styles.weekFill}><Box css={props.styles.weekFillValue} style={{ width: `${Math.min(total / Math.max(person.contract, 1), 1) * 100}%` }} /></Box></>}</Box>
                 </Box>;
-            })}
-        </Fragment>)}
-    </Box></Box>;
+            }} />
+    </Box>;
 }
 function AssignmentCard({ props, id, assignment, removed }: { props: RosterViewsProps; id: string; assignment: Assignment; removed: boolean }) {
     const times = assignmentTimes(assignment, props.value, props.start), baseline = props.held?.assignments.get(id);
@@ -235,20 +273,29 @@ function AssignmentCard({ props, id, assignment, removed }: { props: RosterViews
     </Box>;
 }
 function PeopleAgenda(props: RosterViewsProps) {
-    return <Box css={props.styles.scroll} data-roster-agenda="people"><Box css={props.styles.agenda}>{props.value.groups.map(group => <Box key={group.key} css={props.styles.agendaGroup}>
-        <Box css={props.styles.groupLabel}>{group.label}</Box>
-        {props.value.people.filter(person => person.group === group.key && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(person.key))).map(person => <Box key={person.key} css={props.styles.card}>
-            <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "person", key: person.key })}>{person.name} · {props.format.number(props.hours.get(person.key) ?? 0)} / {props.format.number(person.contract)} h</chakra.button>
-            {Array.from({ length: 7 }, (_, day) => {
-                const rows = matchingAssignments(props, a => a.who.type === "person" && a.who.value === person.key && a.slot.day === BigInt(day));
-                return <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.detail}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))}</Box>
-                    {rows.map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}
-                    {!rows.some(row => !row.removed) && (props.commands.editing.available ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: group.key, shift: person.usual.type === "some" ? person.usual.value : props.value.shifts[0]!.key }} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /> : <Box css={props.styles.detail}>Off</Box>)}
+    const rows = usePeopleRows(props.value);
+    const getItemKey = useCallback((index: number) => rows[index]!.key, [rows]);
+    return <Box css={props.styles.main} data-roster-agenda="people">
+        <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={props.styles.agenda} count={rows.length}
+            getItemKey={getItemKey} estimateSize={index => rows[index]!.kind === "group" ? 38 : 900} overscan={1}
+            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={index => {
+                const row = rows[index]!;
+                if (row.kind === "group") return <Box css={props.styles.agendaGroup}><Box css={props.styles.groupLabel}>{row.group.label}</Box></Box>;
+                const person = row.person;
+                return <Box css={props.styles.card} data-roster-person-card={person?.key ?? row.key}>
+                    {person === undefined ? <><Box css={props.styles.cardHead}>Agency requests</Box>{matchingAssignments(props, a => a.who.type === "request" && a.slot.group === row.group.key).map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}</> : <>
+                        <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "person", key: person.key })}>{person.name} · {props.format.number(props.hours.get(person.key) ?? 0)} / {props.format.number(person.contract)} h</chakra.button>
+                        {Array.from({ length: 7 }, (_, day) => {
+                            const assignments = matchingAssignments(props, a => a.who.type === "person" && a.who.value === person.key && a.slot.day === BigInt(day));
+                            return <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.detail}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))}</Box>
+                                {assignments.map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}
+                                {!assignments.some(row => !row.removed) && (props.commands.editing.available ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: row.group.key, shift: person.usual.type === "some" ? person.usual.value : props.value.shifts[0]!.key }} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /> : <Box css={props.styles.detail}>Off</Box>)}
+                            </Box>;
+                        })}
+                    </>}
                 </Box>;
-            })}
-        </Box>)}
-        <Box css={props.styles.card}><Box css={props.styles.cardHead}>Agency requests</Box>{matchingAssignments(props, a => a.who.type === "request" && a.slot.group === group.key).map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}</Box>
-    </Box>)}</Box></Box>;
+            }} />
+    </Box>;
 }
 /** Narrow cards retain explicit operations even with both BuilderFrame panes collapsed. */
 function Agenda(props: RosterViewsProps) {

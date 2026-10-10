@@ -103,6 +103,8 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
 function Summary({ props }: { props: Args }) {
     const totals = viewTotals(props.value, props.coverage, props.view, props.day);
     const { days, cost, budget } = totals;
+    const visible = props.value.visiblePeople;
+    const filtered = visible.type === "some" && props.value.people.some(person => !visible.value.has(person.key));
     const stats = [
         { label: "Cost", value: money(props.format, props.value, cost), sub: budget === undefined ? "" : `${money(props.format, props.value, Math.abs(budget - cost))} ${cost > budget ? "over" : "under"} budget` },
         { label: "Positions", value: `${totals.filled} / ${totals.positions}`, sub: `${totals.open} open` },
@@ -111,6 +113,7 @@ function Summary({ props }: { props: Args }) {
     ];
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: days === 1 ? `Day · ${props.format.weekdayDate(new Date(props.view.date))}` : `Week · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}`, icon: "calendar-week" }} title="Roster" when={`${props.value.groups.length} groups · ${props.value.shifts.length} shifts`} />
         <Box css={props.styles.summary}>{stats.filter(s => s.label !== "Cost" || props.value.costs.type === "some").map(stat => <Box key={stat.label} css={props.styles.stat}><Box css={props.styles.statLabel}>{stat.label}</Box><Box css={props.styles.statValue}>{stat.value}</Box><Box css={props.styles.detail}>{stat.sub}</Box></Box>)}</Box>
+        {filtered && visible.type === "some" && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(props.value.people.length)} people visible · Coverage includes all staff</Box></Box>}
         {props.proposals.length > 0 && <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Proposals</Box>{props.proposals.map(proposal => <ProposalCard key={proposal.key} props={props} proposal={proposal} />)}</Box>}
         <Box css={props.styles.section}><Box css={props.styles.detail}>Select a person or shift to inspect its details.</Box><Box css={props.styles.detail}>Use the Library to assign people and activities.</Box><Box css={props.styles.detail}>Warnings help plan the week and do not prevent saving.</Box><Box css={props.styles.detail}>Save drafts as you work; publish the week when it is ready.</Box></Box>
     </>;
@@ -135,7 +138,7 @@ function Details({ props }: { props: Args }) {
     if (selection?.type === "group" || selection?.type === "shift") {
         const group = props.value.groups.find(g => selection.type === "group" && g.key === selection.key), shift = props.value.shifts.find(s => selection.type === "shift" && s.key === selection.key);
         return <><ScheduleInspectorHead styles={props.styles} kind={{ name: group === undefined ? "Shift" : "Group", icon: "table-columns" }} title={group?.label ?? shift?.label ?? "Selection"} when={shift === undefined ? "Totals by shift" : `${props.format.number(shift.hours)} h · totals by group`} />
-            {[...props.coverage].filter(([slot]) => (props.view.period === "week" || Number(slot.day) === props.day) && (group === undefined ? slot.shift === selection.key : slot.group === selection.key)).map(([slot, c], i) => <Box key={i} css={props.styles.section}><Box css={props.styles.title}>{props.format.weekday(new Date(props.start.getTime() + Number(slot.day) * DAY))} · {props.value.groups.find(g => g.key === slot.group)?.label} · {props.value.shifts.find(s => s.key === slot.shift)?.label}</Box><Box css={props.styles.detail}>{String(c.filled)} / {String(c.positions)} positions · {props.format.number(c.hours.rostered)} of {props.format.number(c.hours.needed)} h</Box></Box>)}
+            {[...props.coverage].filter(([slot]) => (props.view.layout === "people" || props.view.period === "week" || Number(slot.day) === props.day) && (group === undefined ? slot.shift === selection.key : slot.group === selection.key)).map(([slot, c], i) => <Box key={i} css={props.styles.section}><Box css={props.styles.title}>{props.format.weekday(new Date(props.start.getTime() + Number(slot.day) * DAY))} · {props.value.groups.find(g => g.key === slot.group)?.label} · {props.value.shifts.find(s => s.key === slot.shift)?.label}</Box><Box css={props.styles.detail}>{String(c.filled)} / {String(c.positions)} positions · {props.format.number(c.hours.rostered)} of {props.format.number(c.hours.needed)} h</Box></Box>)}
         </>;
     }
     return <Summary props={props} />;

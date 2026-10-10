@@ -80,6 +80,25 @@ for (const theme of ["light", "dark"] as const) {
             }
         }
     });
+    test(`Resources omits period controls in expanded and folded toolbars (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'calendarOperations', theme), frame = entry.locator('[data-calendar-frame]').first();
+        await size(page, entry, 1440); await viewChoice(page, frame, 'Week');
+        for (const width of [1440, 768, 360, 294]) {
+            await size(page, entry, width); await viewChoice(page, frame, 'Resources');
+            await expect(frame.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
+            const folded = frame.getByRole('button', { name: 'View', exact: true });
+            if (await folded.isVisible()) {
+                await folded.click();
+                await expect(page.getByRole('menuitem', { name: /^(Day|Week|Month)$/ })).toHaveCount(0);
+                await page.keyboard.press('Escape');
+            }
+            expect(await toolbarFaults(entry)).toEqual([]);
+            await viewChoice(page, frame, 'Calendar');
+        }
+        await size(page, entry, 1440);
+        await expect(frame.getByRole('radio', { name: 'Week', exact: true })).toHaveAttribute('aria-checked', 'true');
+    });
     test(`phone example schedules and saves a backlog row through e3 (${theme}) @narrow`, async ({ page }) => {
         const entry = await open(page, "calendarMobile", theme);
         const frame = entry.locator("[data-calendar-frame]").first();
@@ -201,6 +220,8 @@ for (const theme of ["light", "dark"] as const) {
                 tracking: item.letterSpacing, casing: item.textTransform, color: item.color };
         });
         const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'));
+        await expect(frame.locator('[data-calendar-footer] > [data-calendar-legend]')).toHaveCount(3);
+        await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend])')).toHaveCount(0);
         expect(calendarFooter.height).toBe(28);
         expect(calendarFooter.background).not.toBe('rgba(0, 0, 0, 0)');
         await size(page, entry, 390);
@@ -218,7 +239,7 @@ for (const theme of ["light", "dark"] as const) {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "calendarWindowed", theme); await size(page, entry, 1440);
         const frame = entry.locator('[data-calendar-frame]').first();
-        await expect(frame.locator('[data-calendar-footer]')).toContainText('loaded window');
+        await expect(frame.locator('[data-toolbar-item="calendar.scope"]').getByText('Loaded window', { exact: true })).toBeVisible();
         await frame.locator('[data-calendar-event]').filter({ hasText: 'Mounting brackets' }).click();
         const customer = frame.locator('[data-field="customer"] input');
         await customer.fill('Windowed customer'); await customer.press('Enter');

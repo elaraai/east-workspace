@@ -28,8 +28,8 @@ export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
     const start = useMemo(() => weekStart(new Date(view.date), sunday), [view.date, sunday]);
     const day = Math.floor((dayStart(view.date).getTime() - start.getTime()) / DAY);
     const setView = (next: RosterView) => {
-        const normalized = { ...next, period: next.layout === "people" ? "week" as const : next.period };
-        setState(normalized);
+        // People always renders a week; retain the Shifts period preference.
+        setState(next);
         const from = weekStart(new Date(next.date), sunday);
         if (slice !== undefined && slice.rangeFieldId().type === "some" && (from.getTime() !== start.getTime() || first === undefined)) {
             slice.setRange(some(variant("datetime", { from, to: new Date(from.getTime() + 7 * DAY - 1) })));

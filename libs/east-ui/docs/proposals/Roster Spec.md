@@ -67,8 +67,7 @@ reads a screenshot.
   as typed East data bound with `$.let`.
 - **Draws.** `BuilderFrame`: one toolbar; the library (People · Activities) in
   the start pane; the roster grid by day or by week in main; the inspector
-  (Details · Issues) in the end pane; a footer with the legend and the
-  counts.
+  (Details · Issues) in the end pane; a footer with only the coverage legend.
 - **Built in.**
   - drag and drop: people, agency requests and activities onto shifts, and
     chips moved between shifts;
@@ -489,7 +488,7 @@ the shared contracts only, never on Plan's internals.
 │ search       │  (Week)                                        │ a shift, a summary│
 │ filters      │                                                │ fixes, proposals  │
 ├──────────────┴────────────────────────────────────────────────┴───────────────────┤
-│ footer: legend · Draft · 3 changes · 4 to agree · $24.3k of $24.8k · 550 of 564 h │
+│ footer: Permanent · Agency staff · Overtime · Requested · Open · Hours needed  │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -500,14 +499,14 @@ the shared contracts only, never on Plan's internals.
 | Start pane "Library" | Tabs People · Activities, each a `Library` (§9.5). |
 | Main | The grid (§8). |
 | End pane "Inspector" | Tabs Details · Issues (§9.7, §9.8). |
-| Footer | The legend, the week's status, the pending changes, the agreements and proposals, the cost against the budget, the hours against those needed. |
+| Footer | Only the coverage legend, in the shared BuilderFrame rail. Totals, costs, agreements and proposals belong in Inspector; editing state belongs in the shared history/status controls. |
 
 The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
 overlaid with a rail and a scrim on a phone (560px and narrower), and slid off
 main during a drag so they never hide a drop target. The builder fills its
 parent and draws no border of its own. The mock's two control rows (the
 toolbar, and the day strip over the grid) fold into the one toolbar, and its
-read-outs move to the footer. Every style is a slot recipe's: renderers set
+detailed read-outs move to Inspector. The footer contains only the legend. Every style is a slot recipe's: renderers set
 data attributes and geometry only.
 
 ## 8. The views — anatomy, from the mock
@@ -544,20 +543,20 @@ dot), ›. Then the range label in DM Sans 15px 700 and its line in mono
 10.5px.
 
 **The grid header:**
-- **Day:** sticky, 52px tall:
+- **Day:** sticky, 52px tall, shift details left aligned:
   - a 148px corner, `GROUP · ROW` mono 9.5px over `2 rows × 3 shifts`;
   - a column per shift, its label mono 10.5px 600 uppercase beside its time
     mono 10.5px, and its meta mono 10px.
 
   Columns `148px repeat(3, minmax(228px, 1fr))`, at least 832px wide, past
   which main scrolls sideways.
-- **Week:** a 28px row of days, each spanning its shifts (`THU` mono 10px
+- **Week:** centered day labels and shift codes; a 28px row of days, each spanning its shifts (`THU` mono 10px
   600, `09` mono 11px 600, a 6px issue dot), over a 24px row of shift codes
   (mono 9.5px). Columns `148px repeat(21, minmax(34px, 1fr))`, at least
   862px.
 
 **A group:**
-- **The header:** at least 36px, on paper-2: a 24px chevron, the name in DM
+- **The header:** spans the entire scrollable grid, including the gutter and every column, in Shifts and People. Its contents are left aligned. At least 36px, on paper-2: a 24px chevron, the name in DM
   Sans 14px 700, its meta mono 10.5px, the issues status, and the cost mono
   11px 600 at the right.
 - **A row's head:** sticky at the left, and within the row sticky under the
@@ -638,8 +637,10 @@ mock.
 
 ### 9.1 The toolbar and navigation (owner: frame and grid)
 
-- **B1.** Day · Week switch the period. Day shows the day in view, a column
-  per shift; Week shows the seven days, a column per day and shift.
+- **B1.** Day · Week switch the Shifts period. Day shows the day in view, a column
+  per shift; Week shows the seven days, a column per day and shift. People is
+  always weekly: omit period controls from expanded, folded and combined
+  picker forms. Returning to Shifts restores its previously selected period.
 - **B2.** The day strip lists the week's days. Each day's dot:
   - danger when a hard breach is on it;
   - warning when another breach or a gap is;
@@ -750,7 +751,8 @@ mock.
   - on a row's head, the row;
   - on a shift's header, the shift.
 
-  A selection opens the inspector's Details.
+  An explicit inspection click opens Details. Selection caused by a drop or
+  an editing command preserves the Inspector's open/collapsed state and tab.
 - **B16.** The keys, none of them while typing:
   - Esc closes the week picker, else clears the selection;
   - Delete or Backspace removes the selected assignment, or rejects the
@@ -997,8 +999,11 @@ mock.
   chip with the label, and the cell is tinted. The ghost is brand when
   allowed, warning when warned, danger when refused. The week view's roster
   cells take the same drops, with the label as their tooltip.
-- **B54.** After a drop the new or moved assignment is selected. A published
-  week takes no drop.
+- **B54.** After a drop the new or moved assignment is selected without opening
+  the Inspector or changing its tab. A published week takes no drop. Hover
+  previews reuse the pure domain check and cache unchanged destinations.
+  Configuration/week changes invalidate the preview; the final drop validates
+  against current data. Pointer motion must not repaint every chip/cell.
 
 ### 9.11 Editing and Save (owner: editing)
 
@@ -1059,7 +1064,7 @@ keys. A chip is a drop target too, for activities: its `CellRef` names the assig
 
 | The mock | The product | Why, and what is lost |
 |---|---|---|
-| Two control rows: the toolbar, and a day strip over the grid | One toolbar; read-outs and the legend in the footer | A component has one toolbar. Nothing is lost. |
+| Two control rows: the toolbar, and a day strip over the grid | One toolbar; detailed read-outs in Inspector and only the legend in the footer | A component has one toolbar. Nothing is lost. |
 | Save into an applied layer, then Save | Save commits; Discard in the history item | One editing session. The applied-but-unsaved layer is lost. |
 | A row's or a shift's "Definition", naming the API (`Roster.Requirement`, …) | A shift's definition (its times and hours, crossing midnight) and a row's totals; no API names | An operator's screen. The API text is lost. |
 | The inspector's footer, naming the selection's path in the data | No footer | The same. |
@@ -1112,7 +1117,7 @@ The user reiterated that Roster must look and act like `Roster Spec.html`. Prese
 | Mock/older specification | Existing shared behavior | Roster decision and consequence |
 | --- | --- | --- |
 | `Roster.Builder` | One framed Plan/Calendar tag | One `<Roster>`; frame/session/toolbar assembly stays internal. |
-| Stacked range/cost labels and two toolbar bands | One folding 44px Toolbar | Date and compact count share one baseline; detailed hours/costs use the footer. |
+| Stacked range/cost labels and two toolbar bands | One folding 44px Toolbar | Date and compact count share one baseline; detailed hours/costs use Inspector. The footer contains only the legend. |
 | Apply buffer followed by Save | Shared EditSession Save | One draft layer; Undo/Redo/Discard/Save use the shared history item. Publish atomically commits the week and published status. |
 | Inline mock font sizes and SVG defaults | Named text styles, slot recipes, shared icon sizing | Measure actual text/SVG geometry against Plan in both themes. Preserve domain anatomy, not a second typography system. |
 | Body-colored footer or footer text alone | Whole `builder-footer.ts` rail | Consume its background, top rule, height, spacing and narrow wrapping. |
@@ -1213,10 +1218,11 @@ numbers and shared folds, with a compact week picker and Publish in the folded
 menu when needed. The last fold combines week and view controls at the actual
 294px frame width inside a 360px showcase viewport, keeping Save, Publish,
 navigation and the date picker reachable. The footer is the shared 28px rail,
-wrapping individual items when its measured contents no longer fit. It retains
-the coverage legend, day/week hours, cost versus budget, status, pending changes,
-agreement and proposal counts. Its totals and the inspector share complete
-coverage, including staff hidden by Slice.
+wrapping individual items when its measured contents no longer fit. It contains
+only the coverage legend. Inspector retains day/week hours, cost versus budget,
+agreement and proposal counts; editing controls retain status and pending changes.
+Coverage and Inspector totals include staff hidden by Slice; Inspector explains
+that scope when visibility is narrowed.
 
 Coverage and rule arithmetic are pure East functions in `src/roster/`; the tag
 only validates and adapts typed data. Every edit path uses the same renderer
@@ -1254,3 +1260,47 @@ repository's stored record/history format; no storage upgrader is needed.
   preserving the newer stored value and pending edits in both cases.
 
 These requirements are also recorded in both e3-ui package BuilderFrame guides.
+
+
+### Interaction and layout follow-up
+
+- Roster People is weekly and Calendar Resources is daily. Hide inapplicable
+  period segments and menu choices in every Toolbar fold and the narrow combined
+  picker; preserve the previous period when returning to a flexible layout.
+- Keep both Calendar and Roster footers to legends, using the shared rail's
+  recipes. Do not accumulate counts, instructions or editing status there.
+- Roster group bands fill the whole scrolling canvas in Day, Week and People,
+  including after horizontal scrolling. Day shift details are left aligned;
+  compact Week and People day labels are centered. Assert actual computed
+  alignment and bounding boxes in both themes.
+- Keep shared drag sensors, grammar, ghosts, target feedback and EditSession
+  commands. Cache hover results by the stable payload and canonical target for
+  the current week/configuration. Reuse the pure check over the destination's
+  complete staffing and the moving person's complete week; the final command
+  still checks live data. Keep sensor subscriptions outside memoized chip/cell
+  contents and profile realistic showcase data.
+- A successful drop highlights its assignment and preserves the Inspector's
+  pane state and tab. Only explicit inspection requests open Details. Test real
+  pointer drops, keyboard cancellation, repeated hover, configuration refresh,
+  Undo/Redo and Save/remount, plus phone actions without drag affordances.
+
+### Loading and bounded rendering follow-up
+
+- Use Plan's shared `useContainerBelow`/`useContainerBreakpoint` hooks for
+  main-width adaptation. Initial BuilderFrame pane placement must settle before
+  paint; do not flash phone cards into a desktop main. While a paged active week
+  is unresolved, show the shared loading state instead of a partially populated
+  roster. Cold-load tests sample actual painted layouts as well as final geometry.
+- Enable the shared Library virtualizer. Desktop People rows and narrow People
+  cards use shared `VirtualRows`, stable person/group keys and measured heights.
+  Only the visible window plus overscan mounts; coverage and rules still use the
+  complete week. Selection reveals the same person after a view change or resize,
+  including a removed assignment that is still restorable until Save.
+- Verify later rows by scrolling to the end, searching for an initially unmounted
+  Library person, and dropping an assignment after virtual scrolling. Test Save
+  and remount, selection/drafts through resizing and no narrow drag affordances.
+- Bound the showcase's offscreen examples too. Keep a small adjacent window for
+  asynchronous height changes and stable deep links; memoize stable example
+  entries. Verify Calendar/Plan navigation as well as Roster. Profile a populated
+  live example and record mounted counts and pointer-motion work before claiming
+  that using the shared drag engine makes interaction fast.

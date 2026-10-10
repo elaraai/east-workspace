@@ -15,7 +15,7 @@
 
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import {
     useContainerBreakpoint,
     useContainerBelow,
@@ -110,6 +110,22 @@ describe("useContainerBelow", () => {
             // Read inside the delivery, before act flushes anything of its own.
             expect(seen).toBe(false);
         });
+    });
+
+    test("initial pane placement settles before any ResizeObserver delivery", () => {
+        let width = 360;
+        stubResizeObserver(() => width);
+        let seen = false;
+        function Frame() {
+            const ref = useRef<HTMLDivElement>(null);
+            seen = useContainerBelow(ref, 480);
+            // BuilderFrame opens at its declared pane sizes, then places them
+            // against available width in a layout effect during the mount.
+            useLayoutEffect(() => { width = 700; }, []);
+            return <div ref={ref} />;
+        }
+        render(<Frame />);
+        expect(seen).toBe(false);
     });
 
     test("defaults to false without ResizeObserver", () => {

@@ -58,7 +58,11 @@ describe('Roster shared and custom forms', () => {
         week.assignments.set('request', { slot: { day: 4n, group: 'inbound', shift: 'early' }, who: variant('request', 'northside'), position: 'crew', activity: none, offset: 0, overtime: 0, agreed: none });
         // The stored request is deliberately changed below through the same remove/restore commands.
         await h.commit(ex.rosterWeeks, weeks);
-        const { container } = mount(ex.rosterPeople); await settle(); await width(390);
+        const { container } = mount(ex.rosterPeople); await settle();
+        // Hide named staff through the shared Slice so the request row is in
+        // the mounted virtual window; filtering must not hide agency requests.
+        await userEvent.setup().type(within(slot(container, 'toolbar')).getByPlaceholderText('Search…'), 'no staff match');
+        await settle(); await width(390);
         await press(within(card(container, 'request')).getByRole('button', { name: 'Remove' }));
         expect(within(card(container, 'request')).getByRole('button', { name: 'Restore' })).not.toBeNull();
         await press(within(card(container, 'request')).getByRole('button', { name: 'Restore' }));

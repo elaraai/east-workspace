@@ -75,8 +75,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         else if (key === "previous") navigate(-1); else if (key === "next") navigate(1);
         else if (key === "today") setView({ ...view, date: Date.now() }); else if (key === "issues") args.onIssues(); else displayChoice(key);
     }}>
-        {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator />
-        {PERIODS.map(item => <ChakraMenu.Item key={item.key} value={item.key} disabled={view.layout === "people" && item.key === "day"}>{item.label}</ChakraMenu.Item>)}
+        {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
+        {view.layout === "shifts" && <><ChakraMenu.Separator />{PERIODS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}</>}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous week</ChakraMenu.Item><ChakraMenu.Item value="next">Next week</ChakraMenu.Item><ChakraMenu.Item value="today">This week</ChakraMenu.Item>{value.inspector.type === "some" && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {commands.editing.available && commands.editing.week.status.type !== "published" && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
@@ -87,7 +87,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // holds both week and view controls. It folds before the shared history.
     const controls = <Box css={styles.agendaGroup}>
         <Seg label="Layout" scope="roster" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />
-        <Seg label="Period" scope="roster" name="compact-period" items={PERIODS.map(p => ({ ...p, disabled: view.layout === "people" && p.key === "day" }))} active={view.layout === "people" ? "week" : view.period} onPick={period} />
+        {view.layout === "shifts" && <Seg label="Period" scope="roster" name="compact-period" items={PERIODS} active={view.period} onPick={period} />}
         <Box css={styles.actions}><Button size="xs" variant="ghost" onClick={() => navigate(-1)}>Previous week</Button><Button size="xs" variant="ghost" onClick={() => navigate(1)}>Next week</Button><Button size="xs" variant="ghost" onClick={() => setView({ ...view, date: Date.now() })}>This week</Button></Box>
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector.type === "some" && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
@@ -98,7 +98,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     return [
         ...rail,
         { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
-        { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={PERIODS.map(p => ({ ...p, disabled: view.layout === "people" && p.key === "day" }))} active={view.layout === "people" ? "week" : view.period} onPick={period} />, null] },
+        view.layout === "shifts" && { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={PERIODS} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },
         { key: "roster.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["roster.view", "roster.controls"], forms: [null, menu, null] },
         { key: "roster.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "roster.controls"], forms: [navigation, <WeekPicker compact value={value} start={start} weeks={args.weeks} choose={date => setView({ ...view, date: date.getTime() })} onDates={args.onPickerDates} styles={styles} />, <WeekPicker compact label="View" controls={controls} value={value} start={start} weeks={args.weeks} choose={date => setView({ ...view, date: date.getTime() })} onDates={args.onPickerDates} styles={styles} />] },

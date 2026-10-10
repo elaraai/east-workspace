@@ -6,6 +6,8 @@
 /** e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useFormatters } from "@elaraai/east-ui-components";
@@ -113,8 +115,11 @@ function CalendarFrame(props: HostProps) {
                     onAction={action => editing.history.actOn(held.key, action)} />)}
                 {(error ?? data.error) !== undefined && <Box role="alert" css={styles.error}>{error ?? data.error}</Box>}
             </>}
-            footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}><Box as="span" css={styles.footerItem}>{items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length} events in view{value.events.some(kind => kind.entries.type === "some") ? " · loaded window" : ""}</Box>
-                <Box as="span" css={styles.footerItem}>{data.backlog.length} in backlog</Box>{data.saved !== undefined && <Box as="span" css={styles.footerItem}>Last saved {format.time(data.saved)}</Box>}{editing !== undefined && <Box as="span" css={styles.footerItem}>{editing.history.pending} pending</Box>}{data.loading && <Box as="span" css={styles.footerItem}>Loading…</Box>}</Box>}>
+            footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}>
+                {value.events.map(kind => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}>
+                    <Box as="span" css={styles.eventIcon}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box> {kind.name}
+                </Box>)}
+            </Box>}>
             <Box ref={main} css={styles.main} data-calendar-main="" data-calendar-narrow={narrow ? "" : undefined}>
                 <CalendarViews format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
                     selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />

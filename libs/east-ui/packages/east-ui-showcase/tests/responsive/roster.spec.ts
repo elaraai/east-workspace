@@ -82,6 +82,26 @@ for (const theme of ['light', 'dark'] as const) {
         await frame.getByRole('button', { name: 'View', exact: true }).click();
         await expect(page.locator('[data-roster-picker-week="2028-03-05"]')).toBeVisible();
     });
+    test(`People omits period controls in every toolbar form (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        for (const width of [1440, 768, 294]) {
+            await size(page, entry, width);
+            await view(page, frame, 'People');
+            await expect(frame.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
+            const folded = frame.getByRole('button', { name: 'View', exact: true });
+            if (await folded.isVisible()) {
+                await folded.click();
+                await expect(page.getByRole('menuitem', { name: /^(Day|Week)$/ })).toHaveCount(0);
+                await expect(page.getByRole('dialog').getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
+                await page.keyboard.press('Escape');
+            }
+            expect(await toolbarFaults(frame)).toEqual([]);
+            await view(page, frame, 'Shifts');
+        }
+        await size(page, entry, 1440);
+        await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
+    });
     test(`phone edits a named assignment and saves through e3 (${theme}) @narrow`, async ({ page }) => {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
         expect(await toolbarFaults(frame)).toEqual([]);
@@ -132,7 +152,7 @@ for (const theme of ['light', 'dark'] as const) {
         await size(page, entry, 1440); await view(page, frame, 'People');
         await expect(frame.locator('[data-roster-grid="people"]')).toBeVisible();
         await expect(frame.locator('[data-roster-assignment="s37"]')).toHaveAttribute('data-selected', '');
-        expect(await frame.locator('[data-roster-grid="people"]').evaluate(el => getComputedStyle(el.firstElementChild!).minWidth)).toBe('1100px');
+        expect(await frame.locator('[data-roster-grid="people"]').evaluate(el => getComputedStyle(el.querySelector("[data-virtual-extent]")!).minWidth)).toBe('1100px');
         await view(page, frame, 'Shifts'); await view(page, frame, 'Week');
         await expect(frame.locator('[data-roster-slot]')).toHaveCount(63);
         await frame.locator('[data-roster-slot]').first().getByRole('button').click();
@@ -141,8 +161,12 @@ for (const theme of ['light', 'dark'] as const) {
     test(`desktop drag shares readable previews, warnings, undo and Save (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'Mobile uses explicit assignment actions.');
         await page.setViewportSize({ width: 2160, height: 1080 });
-        const entry = await open(page, 'rosterWarehouse', theme); await size(page, entry, 1920);
+        const entry = await open(page, 'rosterWarehouse', theme); await size(page, entry, 960);
         const frame = entry.locator('[data-roster-frame]').first();
+        const collapseLibrary = frame.getByRole('button', { name: 'Collapse Library', exact: true });
+        if (await collapseLibrary.isVisible()) await collapseLibrary.click();
+        await settled(page); await closeInspector(frame);
+        await expect(frame.getByRole('button', { name: 'Expand Inspector', exact: true })).toBeVisible();
         const source = frame.locator('[data-roster-assignment="s37"]');
         await source.scrollIntoViewIfNeeded(); await source.focus(); await page.keyboard.press('Space');
         const ghost = page.locator('[data-drag-ghost] [data-move-ghost]');
@@ -157,11 +181,16 @@ for (const theme of ['light', 'dark'] as const) {
         // The shared frame slides panes away during dragging. Measure the new
         // destination, and point at its padding rather than a nested chip target.
         const to = (await target.boundingBox())!;
-        await page.mouse.move(to.x + 3, Math.max(to.y + 10, from.y), { steps: 12 });
+        const main = (await frame.locator('[data-roster-main]').boundingBox())!;
+        await page.mouse.move(to.x + 5, Math.min(Math.max(to.y + 100, main.y + 180), main.y + main.height - 80), { steps: 12 });
         await expect(target).toHaveAttribute('data-drop-active', '');
         await expect(target.locator('[data-roster-landing]')).toContainText('C. Clover');
         await page.mouse.up();
         await expect(source).toHaveAttribute('data-drafted', '');
+        await expect(frame.getByRole('button', { name: 'Expand Inspector', exact: true })).toBeVisible();
+        await source.click();
+        await expect(frame.getByRole('button', { name: 'Collapse Inspector', exact: true })).toBeVisible();
+        await closeInspector(frame);
         await frame.getByRole('button', { name: 'Undo', exact: true }).click();
         await expect(source).not.toHaveAttribute('data-drafted', '');
         await frame.getByRole('button', { name: 'Redo', exact: true }).click();
@@ -175,6 +204,7 @@ for (const theme of ['light', 'dark'] as const) {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme); await size(page, entry, 960);
         const frame = entry.locator('[data-roster-frame]').first();
+        await closeInspector(frame);
         const library = frame.locator('[data-frame-slot="start"]');
         const drag = async (from: Locator, into: Locator, cell = false) => {
             await into.evaluate(el => el.scrollIntoView({ block: "center", inline: "center" }));
@@ -202,7 +232,7 @@ for (const theme of ['light', 'dark'] as const) {
         await drag(person, night, true);
         await expect(frame.locator('[data-roster-main] [data-roster-proposal="s317"]')).toHaveCount(0);
         await expect(frame.locator('[data-roster-assignment][data-drafted]').filter({ hasText: 'N. Ochre' })).toHaveCount(1);
-        await closeInspector(frame);
+        await expect(frame.getByRole('button', { name: 'Expand Inspector', exact: true })).toBeVisible();
         const expand = frame.getByRole('button', { name: 'Expand Library' });
         if (await expand.isVisible()) await expand.click();
         await library.getByRole('tab', { name: 'Activities 17' }).click();
@@ -215,6 +245,69 @@ for (const theme of ['light', 'dark'] as const) {
         const again = await remount(page, 'rosterWarehouse');
         await expect(again.locator('[data-roster-assignment]').filter({ hasText: 'N. Ochre' })).toHaveCount(1);
         await expect(again.locator('[data-roster-assignment="s37"]').getByTitle('Unloading', { exact: true })).toBeVisible();
+    });
+    test(`People and Library mount a bounded window and reveal later rows (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, 'rosterPeople', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, 960);
+        const people = frame.locator('[data-roster-grid="people"]');
+        const rows = people.locator('[data-roster-person-row]');
+        await expect(rows.first()).toBeVisible();
+        expect(await rows.count()).toBeLessThan(30);
+        const first = await rows.first().getAttribute('data-roster-person-row');
+        const scroll = people.locator('[data-virtual-rows]');
+        await scroll.evaluate(el => el.scrollTo({ top: el.scrollHeight })); await settled(page);
+        await expect(people.locator('[data-roster-person-row="requests:dispatch"]')).toBeVisible();
+        expect(await rows.count()).toBeLessThan(30);
+        expect(await rows.first().getAttribute('data-roster-person-row')).not.toBe(first);
+        const library = frame.locator('[data-frame-slot="start"]');
+        const expand = frame.getByRole('button', { name: 'Expand Library', exact: true });
+        if (await expand.isVisible()) await expand.click();
+        const cards = library.getByRole('tabpanel').filter({ visible: true }).locator('[data-library-item]');
+        expect(await cards.count()).toBeGreaterThan(0);
+        expect(await cards.count()).toBeLessThan(30);
+        await library.getByRole('textbox', { name: 'Search library' }).fill('Ochre');
+        await expect(cards.filter({ hasText: 'N. Ochre' })).toHaveCount(1);
+        await size(page, entry, 294);
+        const agenda = frame.locator('[data-roster-agenda="people"]');
+        await expect(agenda).toBeVisible();
+        expect(await agenda.locator('[data-roster-person-card]').count()).toBeLessThan(10);
+        await expect(frame.locator('[aria-roledescription="draggable"], [data-roster-person-day]')).toHaveCount(0);
+    });
+    test(`People drag after virtual scrolling preserves the row and saves (${theme})`, async ({ page }, info) => {
+        test.skip(info.project.name !== 'desktop', 'Phone People cards use explicit actions.');
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterPeople', theme); await size(page, entry, 960);
+        const frame = entry.locator('[data-roster-frame]').first();
+        const collapse = frame.getByRole('button', { name: 'Collapse Library', exact: true });
+        if (await collapse.isVisible()) await collapse.click();
+        await settled(page); await closeInspector(frame); await settled(page);
+        const scroll = frame.locator('[data-roster-grid="people"] [data-virtual-rows]');
+        const rows = frame.locator('[data-roster-person-row]');
+        const initial = await rows.evaluateAll(nodes => nodes.map(el => el.getAttribute('data-roster-person-row')));
+        await scroll.evaluate(el => el.scrollTo({ top: el.scrollHeight })); await settled(page);
+        const row = rows.filter({ has: page.locator('[data-roster-assignment]') })
+            .filter({ has: page.getByRole('button', { name: 'Off · assign', exact: true }) }).last();
+        const person = await row.getAttribute('data-roster-person-row');
+        expect(initial).not.toContain(person);
+        const source = row.locator('[data-roster-assignment]').first();
+        const id = await source.getAttribute('data-roster-assignment');
+        const target = row.locator('[data-roster-person-day]').filter({ has: page.getByRole('button', { name: 'Off · assign', exact: true }) }).first();
+        const destination = await target.getAttribute('data-roster-person-day');
+        await source.scrollIntoViewIfNeeded();
+        const from = (await source.boundingBox())!;
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2); await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2, { steps: 2 });
+        await expect(page.locator('[data-drag-ghost]')).toBeVisible();
+        await target.hover(); await expect(target).toHaveAttribute('data-drop-active', ''); await page.mouse.up();
+        const moved = frame.locator(`[data-roster-person-day="${destination}"] [data-roster-assignment="${id}"]`);
+        await expect(moved).toHaveAttribute('data-drafted', '');
+        await expect(frame.getByRole('button', { name: 'Expand Inspector', exact: true })).toBeVisible();
+        await frame.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(moved).not.toHaveAttribute('data-drafted', '');
+        const again = await remount(page, 'rosterPeople'); await size(page, entry, 960);
+        await again.locator('[data-roster-grid="people"] [data-virtual-rows]').evaluate(el => el.scrollTo({ top: el.scrollHeight }));
+        await expect(again.locator(`[data-roster-person-day="${destination}"] [data-roster-assignment="${id}"]`)).toHaveCount(1);
     });
     test(`custom numeric inspector keeps decimal typing through Save (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'Custom inspector typing; narrow default forms are tested separately.');
@@ -248,7 +341,30 @@ for (const theme of ['light', 'dark'] as const) {
         expect(await proposal.getByRole('button', { name: 'N. Ochre', exact: true }).evaluate(el => getComputedStyle(el).fontStyle)).toBe('italic');
         await expect(proposal.getByRole('button', { name: 'Accept proposal for N. Ochre' })).toHaveCount(1);
         await expect(proposal.getByRole('button', { name: 'Reject proposal for N. Ochre' })).toHaveCount(1);
-        const actual = await railStyle(frame.locator('[data-roster-footer]')); expect(actual.height).toBe(28);
+        const footer = frame.locator('[data-roster-footer]');
+        await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(6);
+        await expect(footer.locator(':scope > :not([data-roster-legend])')).toHaveCount(0);
+        const actual = await railStyle(footer); expect(actual.height).toBe(28);
+        const groupBands = () => frame.locator('[data-roster-group]').evaluateAll(groups => groups.map(el => {
+            const b = el.getBoundingClientRect(), grid = el.parentElement!.getBoundingClientRect();
+            return { left: Math.abs(b.left - grid.left) < 1, width: Math.abs(b.width - grid.width) < 1, align: getComputedStyle(el).textAlign };
+        }));
+        expect(await groupBands()).toEqual(Array.from({ length: 3 }, () => ({ left: true, width: true, align: 'left' })));
+        const headings = frame.locator('[data-roster-column-header]');
+        expect(await headings.evaluateAll(nodes => nodes.length === 3 && nodes.every(el => getComputedStyle(el).textAlign === 'left'))).toBe(true);
+        await view(page, frame, 'Week');
+        expect(await headings.evaluateAll(nodes => nodes.length > 0 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
+        expect(await groupBands()).toEqual(Array.from({ length: 3 }, () => ({ left: true, width: true, align: 'left' })));
+        await view(page, frame, 'People');
+        expect(await headings.evaluateAll(nodes => nodes.length === 7 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
+        const peopleBands = await groupBands();
+        expect(peopleBands.length).toBeGreaterThan(0);
+        expect(peopleBands.every(b => b.left && b.width && b.align === 'left')).toBe(true);
+        await size(page, entry, 768);
+        const scroll = frame.locator('[data-roster-grid="people"] [data-virtual-rows]');
+        await scroll.evaluate(el => { el.scrollLeft = 200; });
+        expect(await scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+        expect((await groupBands()).every(b => b.left && b.width && b.align === 'left')).toBe(true);
         await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
         const plan = page.locator('[data-plan-frame] [data-slot="footer"]').first(); await expect(plan).toBeVisible({ timeout: 30_000 });
         expect(await railStyle(plan)).toEqual(actual);

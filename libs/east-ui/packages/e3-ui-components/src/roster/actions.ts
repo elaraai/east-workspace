@@ -103,7 +103,13 @@ export function rosterCommands(value: RosterValue, editing: RosterEditing, start
             if (!checkOnly) write("Edit assignment", origin, week => week.assignments.set(id, normalized));
             return undefined;
         },
-        remove(id) { if (write("Remove assignment", "remove", next => next.assignments.delete(id))) select(undefined); },
+        remove(id) {
+            if (write("Remove assignment", "remove", next => next.assignments.delete(id))) {
+                // A saved assignment stays as a restorable tombstone until Save.
+                // Keep its identity so changing layouts reveals that same row.
+                select(editing.held?.assignments.has(id) ? { type: "assignment", key: id } : undefined);
+            }
+        },
         restore(id) {
             const original = editing.held?.assignments.get(id); if (original === undefined || week.assignments.has(id)) return;
             if (original.who.type === "person" && [...week.assignments.values()].some(a => a.slot.day === original.slot.day && a.who.type === "person" && a.who.value === original.who.value)) return;

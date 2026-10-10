@@ -53,8 +53,22 @@ export function builderHarness(WORKSPACE: string, RECORDS: readonly { name: stri
         mainWidth = 900;
         const realRect = Element.prototype.getBoundingClientRect;
         vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-            if (this.hasAttribute(mainAttribute)) return { x: 0, y: 0, top: 0, left: 0, right: mainWidth, bottom: 700, width: mainWidth, height: 700, toJSON() {} };
+            const library = this.closest("[data-library]") !== null;
+            const viewport = this.hasAttribute(mainAttribute) || this.matches("[data-virtual-rows], [data-library] [data-scrollable]");
+            const row = this.hasAttribute("data-index") && (library || this.closest("[data-virtual-rows]") !== null);
+            if (viewport || row) {
+                const width = library ? 272 : mainWidth;
+                const height = viewport ? 700 : this.querySelector("[data-roster-person-card]") ? 900 : this.querySelector("[data-roster-group]") ? 38 : 62;
+                return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height, toJSON() {} };
+            }
             return realRect.call(this);
+        });
+        // Shared row/Library virtualizers read viewport offsets in jsdom.
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+            return this.matches("[data-virtual-rows], [data-library] [data-scrollable]") ? 700 : 0;
+        });
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+            return this.hasAttribute("data-virtual-rows") ? mainWidth : this.matches("[data-library] [data-scrollable]") ? 272 : 0;
         });
         const store = new Map<string, Uint8Array>();
         const api: DatasetApi = {
@@ -75,7 +89,7 @@ export function builderHarness(WORKSPACE: string, RECORDS: readonly { name: stri
     return harness;
 }
 export async function settle() { await act(async () => { for (let i = 0; i < 8; i++) await new Promise<void>(resolve => setTimeout(resolve, 0)); }); }
-export async function width(value: number) { await act(async () => { mainWidth = value; for (const observe of observers) observe(); }); await settle(); }
+export async function width(value: number) { await act(async () => { mainWidth = value; for (const observe of [...observers]) observe(); }); await settle(); }
 export const programOf = (example: { fn: { toIR(): unknown } }): (() => ValueTypeOf<typeof UIComponentType>) => (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
 export function mount(example: { fn: { toIR(): unknown } }, storageKey = "builder-test"): RenderResult {
     const program = programOf(example);

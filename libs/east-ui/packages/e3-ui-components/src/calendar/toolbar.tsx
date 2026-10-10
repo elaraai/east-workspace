@@ -65,8 +65,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         else if (key === "previous" || key === "next") setView(navigate(view, key === "previous" ? -1 : 1));
     }}>
         {LAYOUTS.map(layout => <ChakraMenu.Item value={layout.key} key={layout.key}>{layout.label}</ChakraMenu.Item>)}
-        <ChakraMenu.Separator />
-        {PERIODS.map(p => <ChakraMenu.Item value={p.key} key={p.key} disabled={view.layout === "resources" && p.key !== "day"} title={view.layout === "resources" && p.key !== "day" ? "Resources shows one day" : undefined}>{p.label}</ChakraMenu.Item>)}
+        {view.layout !== "resources" && <><ChakraMenu.Separator />{PERIODS.map(p => <ChakraMenu.Item value={p.key} key={p.key}>{p.label}</ChakraMenu.Item>)}</>}
         <ChakraMenu.Separator />
         <ChakraMenu.Item value="previous">Previous period</ChakraMenu.Item><ChakraMenu.Item value="today">Today</ChakraMenu.Item><ChakraMenu.Item value="next">Next period</ChakraMenu.Item>
         {firstPair !== undefined && <ChakraMenu.Item value="overlaps">{overlaps.pairs.length} overlaps</ChakraMenu.Item>}
@@ -74,7 +73,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     return [
         ...rail,
         { key: "calendar.layout", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Layout" scope="calendar" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
-        { key: "calendar.period", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Period" scope="calendar" name="period" items={PERIODS.map(p => ({ ...p, disabled: view.layout === "resources" && p.key !== "day", hint: view.layout === "resources" && p.key !== "day" ? "Resources shows one day" : undefined }))} active={period} onPick={period => setView({ ...view, period })} />, null] },
+        view.layout !== "resources" && { key: "calendar.period", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Period" scope="calendar" name="period" items={PERIODS} active={period} onPick={period => setView({ ...view, period })} />, null] },
         { key: "calendar.view", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [null, viewMenu] },
         { key: "calendar.navigation", side: "start", rank: [HOST_RANK + 2, HOST_RANK + 5], forms: [navigation(false), navigation(true), null] },
         { key: "calendar.range", side: "start", rank: [HOST_RANK, HOST_RANK + 3], forms: [

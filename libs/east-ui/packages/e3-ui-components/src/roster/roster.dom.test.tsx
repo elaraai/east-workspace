@@ -29,8 +29,9 @@ describe("Roster in the shared record-backed frame", () => {
         expect(slot(container, "main").textContent).toContain("Early");
         expect(h.read(ex.rosterWeeks).get(START)!.assignments.size).toBe(316);
         expect(container.querySelectorAll("[data-roster-legend]")).toHaveLength(6);
-        expect(container.querySelector("[data-roster-hours]")?.textContent).toContain("Day");
-        expect(container.querySelector("[data-roster-cost]")?.textContent).toContain("budget");
+        const footer = container.querySelector("[data-roster-footer]")!;
+        expect([...footer.children].every(item => item.hasAttribute("data-roster-legend"))).toBe(true);
+        expect(slot(container, "end").textContent).toContain("budget");
         await press(within(slot(container, "main")).getByRole("button", { name: "N. Ochre" }));
         expect(slot(container, "end").textContent).toContain(h.read(ex.rosterProposals).find(p => p.key === "s317")!.reason);
         expect(within(slot(container, "end")).getByRole("button", { name: "Accept proposal" })).not.toBeNull();
@@ -71,8 +72,21 @@ describe("Roster in the shared record-backed frame", () => {
         const people = [...container.querySelectorAll('[data-roster-assignment]:not([data-request])')];
         expect(people).toHaveLength(1); expect(people[0]!.getAttribute("data-roster-assignment")).toBe("s37");
         expect([...container.querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"))).toEqual(before);
-        expect(container.querySelector("[data-roster-footer]")?.textContent).toContain("1 of 69 people visible");
+        expect(container.querySelectorAll("[data-roster-legend]")).toHaveLength(6);
         expect(h.read(ex.rosterWeeks).get(START)!.assignments.size).toBe(316);
+    });
+    test("People hides the fixed period and returning to Shifts restores its chosen period", async () => {
+        const { container } = mount(ex.rosterWarehouse); await settle();
+        const toolbar = within(slot(container, "toolbar"));
+        for (const name of ["Day", "Week"]) {
+            await press(toolbar.getByRole("radio", { name }));
+            await press(toolbar.getByRole("radio", { name: "People" }));
+            expect(toolbar.queryByRole("radiogroup", { name: "Period" })).toBeNull();
+            expect(container.querySelector('[data-roster-grid="people"]')).not.toBeNull();
+            await press(toolbar.getByRole("radio", { name: "Shifts" }));
+            expect(toolbar.getByRole("radio", { name }).getAttribute("aria-checked")).toBe("true");
+            expect(container.querySelectorAll("[data-roster-slot]")).toHaveLength(name === "Day" ? 9 : 63);
+        }
     });
     test("published weeks retain navigation and inspection with no editing or drag sources", async () => {
         const { container } = mount(ex.rosterPublished); await settle();

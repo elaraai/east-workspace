@@ -2,11 +2,12 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { RosterComponent } from "@elaraai/e3-ui/internal";
-import { BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useFormatters, usePersistedState, useTrackedEvaluation, type HistoryAction } from "@elaraai/east-ui-components";
+import { BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters, usePersistedState, useTrackedEvaluation, type HistoryAction } from "@elaraai/east-ui-components";
 import { rosterCommands, type PeopleFocus } from "./actions.js";
 import { useRosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
@@ -14,7 +15,7 @@ import { useRosterEditing } from "./editing.js";
 import { RosterFooter } from "./footer.js";
 import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
-import { DAY, NARROW_WIDTH, availableProposals, configError, emptyWeek, pendingCount, rosterContext, rosterDomain, type Issue, type RosterStyles, type RosterValue, type Selection } from "./model.js";
+import { DAY, NARROW_WIDTH, availableProposals, configError, rosterContext, rosterDomain, type Issue, type RosterStyles, type RosterValue, type Selection } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
 import { RosterViews } from "./views.js";
 import { useRosterWindow } from "./window.js";
@@ -36,17 +37,12 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const [focus, setFocus] = useState<PeopleFocus>();
     const [error, setError] = useState<string>();
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
-    const [narrow, setNarrow] = useState(false);
+    const narrow = useContainerBelow(main, NARROW_WIDTH);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     const select = useCallback((next: Selection | undefined) => { setSelection(next); setTab("details"); if (next !== undefined) revealPane("Inspector"); }, []);
     const find = useCallback((next: PeopleFocus) => { setFocus(next); setLibraryTab("people"); revealPane("Library"); }, []);
     const weekEpoch = window.start.getTime();
     useEffect(() => { setSelection(undefined); setError(undefined); }, [weekEpoch]);
-    useLayoutEffect(() => {
-        const element = main.current; if (element === null) return;
-        const measure = () => { const width = element.getBoundingClientRect().width; if (width > 0) setNarrow(width < NARROW_WIDTH); };
-        measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
-    }, []);
     const recipe = useSlotRecipe({ key: "rosterBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as RosterStyles, [recipe]);
     const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
@@ -61,7 +57,9 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const allIssues: Issue[] = [...builtIn, ...(custom.result.ok ? custom.result.value : []), ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
         title: `${value.people.find(person => person.key === p.person)?.name ?? p.person} · proposed`, detail: p.reason, slot: some(p.slot), assignment: none, flag: none, fix: some(variant("accept", p.key)) }))];
     const issues = allIssues.filter(i => window.view.layout === "people" || window.view.period === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day);
-    const commands = rosterCommands(value, editing, window.start, select, find);
+    // Commands update the selected item without changing the user's pane/tab.
+    // Only an explicit inspection click uses `select` to reveal Details.
+    const commands = rosterCommands(value, editing, window.start, setSelection, find);
     const drag = useRosterDrag({ value, commands, storageKey: key, narrow, start: window.start, onError: setError });
     const viewProps = { value, week: editing.week, held: editing.held, start: window.start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, issues, proposals, selection, select, commands, drag, onError: setError };
@@ -71,10 +69,7 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, words, weeks: data.weeks, issues, onIssues, onAction, onPickerDates: setPickerDates, onDisplay: next => setDisplay({ ...display, ...next }) });
     const previous = data.weeks.get(new Date(window.start.getTime() - 7 * DAY));
-    const pending = editing.history.pending === 0 ? 0 : pendingCount(editing.held ?? emptyWeek(value, window.start), editing.week);
     const published = data.weeks.get(window.start)?.status.type === "published";
-    const visiblePeople = value.visiblePeople;
-    const filtered = visiblePeople.type === "some" && value.people.some(person => !visiblePeople.value.has(person.key));
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={published || value.settings.readOnly ? "" : undefined}>
         <BuilderFrame storageKey={`${key}.frame`} label="Roster" start={start} end={end} toolbar={toolbar} onKeyDown={event => {
             if (event.defaultPrevented || typedInto(event.target)) return;
@@ -89,8 +84,8 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
                 actions={previous !== undefined && editing.available ? <Button size="xs" variant="outline" onClick={() => commands.copy(previous)}>Copy previous week</Button> : undefined} />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The roster's additional checks could not run. Built-in checks are still shown." />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
-        </>} footer={<RosterFooter props={viewProps} pending={pending} filtered={filtered} loading={data.loading} />}>
-            <Box ref={main} css={styles.main} data-roster-main="" data-roster-narrow={narrow ? "" : undefined}><RosterViews {...viewProps} /></Box>
+        </>} footer={<RosterFooter styles={styles} narrow={narrow} />}>
+            <Box ref={main} css={styles.main} data-roster-main="" aria-busy={data.loading} data-roster-narrow={narrow ? "" : undefined}>{data.loading ? <StatusDisplay variant={data.error === undefined ? "loading" : "error"} title={data.error === undefined ? "Loading roster…" : "Roster unavailable"} {...(data.error === undefined ? {} : { message: data.error })} /> : <RosterViews {...viewProps} />}</Box>
         </BuilderFrame>
     </Box>;
 }
