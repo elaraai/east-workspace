@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-opus-5-5",
+  "small_model": "anthropic/claude-haiku-5-5",
+  "enabled_providers": ["anthropic"],
+  "share": "disabled",
+  "instructions": ["CLAUDE.md"],
+  "skills": {
+    "paths": ["./libs/east-claude-plugin/skills"]
+  },
+  "mcp": {
+    "east": {
+      "type": "local",
+      "command": ["node", "libs/east-claude-plugin/.build/mcp/server.js"],
+      "enabled": true
+    }
+  }
+}
