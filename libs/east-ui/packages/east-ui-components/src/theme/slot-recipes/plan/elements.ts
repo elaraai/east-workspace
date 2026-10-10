@@ -16,6 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../../icon-size.js";
+import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
@@ -456,29 +457,5 @@ export const elementsBase = {
     // a press drags that end. A hairline grip shows on the element's hover;
     // a touch gets a wider target.
     moveEdge: timeResizeEdge("x", "data-plan-edge"),
-    // The ghost beside the pointer — the element's name over the span it
-    // would take, on paper in a brand ring.
-    moveGhost: {
-        display: "inline-flex",
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: "1px",
-        padding: "3px 8px",
-        borderRadius: "3px",
-        background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}",
-        fontFamily: "mono",
-        whiteSpace: "nowrap",
-        pointerEvents: "none",
-    },
-    moveGhostLabel: {
-        fontSize: "10px",
-        fontWeight: "semibold",
-        color: "fg.default",
-    },
-    moveGhostSpan: {
-        fontSize: "9.5px",
-        fontWeight: "medium",
-        color: "brand.fg",
-    },
+    ...moveGhostBase,
 } satisfies Record<(typeof elementsSlots)[number], SystemStyleObject>;

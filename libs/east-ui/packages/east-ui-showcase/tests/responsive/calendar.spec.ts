@@ -176,6 +176,43 @@ for (const theme of ["light", "dark"] as const) {
         await expect(entry.locator('[data-calendar-event]').filter({ hasText: 'Bracket batch' }).first()).toBeVisible();
         await expect(entry.locator('[data-calendar-event]').filter({ hasText: 'Mounting brackets' }).first()).toHaveAttribute('aria-label', /6:15|06:15/);
     });
+    test(`Timeline preview and footer use Plan's shared styles (${theme})`, async ({ page }, info) => {
+        test.skip(info.project.name !== "desktop", "Narrow Calendar has explicit actions instead of dragging.");
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator('[data-calendar-frame]').first();
+        await viewChoice(page, frame, "Timeline");
+        const short = frame.locator('[data-calendar-event]').filter({ hasText: 'Preventive maintenance' }).first();
+        await short.scrollIntoViewIfNeeded(); await short.focus(); await page.keyboard.press('Space');
+        const ghost = page.locator('[data-drag-ghost] [data-move-ghost]');
+        await expect(ghost).toBeVisible();
+        expect((await ghost.boundingBox())!.width).toBeGreaterThan(100);
+        expect((await ghost.boundingBox())!.height).toBeLessThan(50);
+        expect(await ghost.locator('[data-move-ghost-label]').evaluate(el => {
+            const style = getComputedStyle(el); const box = el.getBoundingClientRect();
+            return { wraps: style.whiteSpace !== 'nowrap', lines: box.height / parseFloat(style.lineHeight) };
+        })).toEqual({ wraps: false, lines: 1 });
+        await page.keyboard.press('Escape');
+        const railStyle = async (rail: Locator) => rail.evaluate(el => {
+            const s = getComputedStyle(el); const item = getComputedStyle(el.firstElementChild!);
+            return { height: el.getBoundingClientRect().height, background: s.backgroundColor,
+                border: s.borderTop, padding: s.padding, gap: s.gap,
+                family: item.fontFamily, size: item.fontSize, weight: item.fontWeight,
+                tracking: item.letterSpacing, casing: item.textTransform, color: item.color };
+        });
+        const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'));
+        expect(calendarFooter.height).toBe(28);
+        expect(calendarFooter.background).not.toBe('rgba(0, 0, 0, 0)');
+        await size(page, entry, 390);
+        const footer = frame.locator('[data-calendar-footer]');
+        await expect(footer).toHaveAttribute('data-builder-narrow', '');
+        expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
+        const plan = page.locator('[data-plan-frame] [data-slot="footer"]').first();
+        await expect(plan).toBeVisible({ timeout: 30_000 });
+        expect(await railStyle(plan)).toEqual(calendarFooter);
+    });
+
     test(`indexed events inspect by key and save without losing fields (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== "desktop", "The paged source is independent of the responsive action layout.");
         await page.setViewportSize({ width: 1920, height: 1080 });

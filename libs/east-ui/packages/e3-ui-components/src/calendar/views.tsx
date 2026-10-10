@@ -18,6 +18,7 @@ import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
+import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { EventActions } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
@@ -47,7 +48,7 @@ function EventBlock({ item, props, geometry, along = "y", chip = false, window }
     const start = item.start.type === "some" ? item.start.value : props.range.from;
     const coord = { ...calendarCoord(drag.surface, start, props.view.layout === "calendar" ? none : item.resource), event: id } as Required<CellCoord>;
     const enabled = drag.enabled && commands?.editing.available(item.kind) === true;
-    const handle = useDragEventChip(enabled ? coord : null, item.title, !enabled, item.title);
+    const handle = useDragEventChip(enabled ? coord : null, <MoveGhost styles={styles} label={item.title} />, !enabled, item.title);
     const block = useRef<HTMLDivElement>(null);
     const dragRef = handle?.ref;
     const attachEvent = useCallback((element: HTMLDivElement | null) => { block.current = element; dragRef?.(element); }, [dragRef]);
@@ -118,7 +119,7 @@ function EventBlock({ item, props, geometry, along = "y", chip = false, window }
     </Box>;
 }
 function EventEdge({ coord, edge, label, styles, along }: { coord: Required<CellCoord>; edge: "start" | "end"; label: string; styles: CalendarStyles; along: "x" | "y" }) {
-    const handle = useDragEventEdge(coord, edge, label, false, `${edge === "start" ? "Start" : "End"} of ${label}`);
+    const handle = useDragEventEdge(coord, edge, <MoveGhost styles={styles} label={label} />, false, `${edge === "start" ? "Start" : "End"} of ${label}`);
     return <chakra.button {...handle} type="button" css={styles.resize} data-edge={edge} data-along={along} aria-label={`Resize ${edge} of ${label}`}
         onClick={event => event.stopPropagation()} onPointerDown={event => { event.stopPropagation(); handle?.onPointerDown?.(event); }} />;
 }

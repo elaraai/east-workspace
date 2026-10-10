@@ -1009,7 +1009,7 @@ mock.
   - Timeline: the visible span.
 
   Each ends `· N events` in view.
-- **B5.** The shared Slice filter can narrow by resource kind. With no filter all kinds show; filtering narrows the events and their resource columns/rows together. Search and filter operate on the loaded window, explicitly labelled for paged records.
+- **B5.** Filtering uses Plan's **author-bound Slice**: the author declares the schema, seed and `Slice.bind`, passes `slice={{ slice, affordances }}`, and scopes typed event/resource data upstream through `Slice.rows` / `Slice.apply`. The renderer must not construct its own Slice or predicates over projected loaded events. The operations example scopes both events and resource rows by original keys; without an active filter all resource kinds remain visible. For indexed events, the same bound datetime range drives day-index seeks/reads and is written by Calendar navigation; by-key inspector/edit reads stay on the original record. Arbitrary predicates over a paged window are labelled as such, never represented as a search of all history.
 - **B6.** The view, period and date persist per builder for the viewer.
 - **B7.** The footer counts the events, the backlog, the pending changes and
   the last Save's time.
@@ -1252,3 +1252,10 @@ first in #1201, the Plan and Sheet builders' PR; this branch takes them once
 #1201 is on main. The frame, the library and the inspector are pushed
 together, so the calendar first appears with both panes full of the examples'
 seeded records.
+
+### Follow-up implementation contracts (Calendar review, 2026-10-10)
+
+- Every showcase example defines its Reactive bindings, Slice wiring, Calendar JSX and custom UI callbacks inline. Shared record/type/mutation/index declarations are allowed; a wrapper calling an exported surface function is not the example DX.
+- Calendar and Plan consume the same `builder-footer.ts` recipe part: panel background, top rule, 28px desktop rail, spacing, status typography and narrow wrapping. Reusing only the footer text style is insufficient.
+- Event and edge drag previews use the same `MoveGhost` component and `time/move-ghost.ts` recipe part as Plan. Their width follows the content, not a short timeline bar or edge handle. Keep the shared destination/refusal caption.
+- Tests must demonstrate external Slice writes and toolbar changes reaching the data and day-key requests without a whole-record read; filtered-out drafts still Save by their original key. Browser tests compare Plan/Calendar footer CSS in both themes and exercise a narrow-source Timeline drag label.

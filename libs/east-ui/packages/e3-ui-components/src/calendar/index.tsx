@@ -6,18 +6,19 @@
 /** e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
-import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useFormatters, usePersistedState } from "@elaraai/east-ui-components";
+import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useFormatters } from "@elaraai/east-ui-components";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
-import { useCalendarData, useCalendarSlice } from "./data.js";
+import { resourceRows, useCalendarData } from "./data.js";
 import { useCalendarDrag } from "./drag.js";
 import { useCalendarInspector, useCalendarSelection } from "./inspector.js";
 import { templateSources, useCalendarLibrary } from "./library.js";
 import { useCalendarToolbar } from "./toolbar.js";
-import { timelineRange } from "./timeline.js";
+import { useCalendarWindow } from "./window.js";
 import { CalendarViews } from "./views.js";
 import { calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, type CalendarItem, type CalendarRef, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
 
@@ -26,6 +27,7 @@ export type { CalendarValue } from "./model.js";
 export interface EastChakraCalendarProps { value: CalendarValue; storageKey: string }
 interface HostProps extends EastChakraCalendarProps {
     view: CalendarView; setView: (next: CalendarView) => void; now: Date;
+    slice: ReturnType<typeof useCalendarWindow>["slice"]; affordances: readonly string[];
     range: ReturnType<typeof calendarRange>; editing?: ScheduleEditing;
 }
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
@@ -76,7 +78,9 @@ function CalendarFrame(props: HostProps) {
         setReveal(undefined);
     }, [reveal, data.items, view, narrow]);
     const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, data.items), [value, editing, select, data.items]);
-    const { slice, items, resources: rows } = useCalendarSlice(value, data.items, `${storageKey}.slice`, now);
+    const { slice, affordances } = props;
+    const items = data.items;
+    const rows = useMemo(() => [...resourceRows(value.resources), { key: "", label: "Unassigned", meta: "", group: "", resource: none }], [value.resources]);
     const selection = useCalendarSelection({ value, refs, range, commands });
     const selectedItems = selection.ok ? selection.value.map(event => event.item) : [];
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
@@ -89,8 +93,8 @@ function CalendarFrame(props: HostProps) {
         const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
         editing?.history.act(action);
     }, [editing]);
-    const displayRange = narrow ? calendarRange(view, value.settings) : view.layout === "timeline" ? shownRange ?? range : range;
-    const toolbar = useCalendarToolbar({ view, setView, range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
+    const displayRange = narrow ? (slice?.read().range.type === "some" ? range : calendarRange(view, value.settings)) : view.layout === "timeline" ? shownRange ?? range : range;
+    const toolbar = useCalendarToolbar({ view, setView, range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, affordances, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
     const drag = useCalendarDrag({ value, key: storageKey, commands, narrow, items: data.items, backlog: data.backlog, selection: selectedItems, activeTemplate, onError: setError });
     const pick = useCallback((item: CalendarItem, additive = false) => {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
@@ -109,8 +113,8 @@ function CalendarFrame(props: HostProps) {
                     onAction={action => editing.history.actOn(held.key, action)} />)}
                 {(error ?? data.error) !== undefined && <Box role="alert" css={styles.error}>{error ?? data.error}</Box>}
             </>}
-            footer={<Box css={styles.footer} data-calendar-footer=""><span>{items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length} events in view{value.events.some(kind => kind.entries.type === "some") ? " · loaded window" : ""}</span>
-                <span>{data.backlog.length} in backlog</span>{data.saved !== undefined && <span>Last saved {format.time(data.saved)}</span>}{editing !== undefined && <span>{editing.history.pending} pending</span>}{data.loading && <span>Loading…</span>}</Box>}>
+            footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}><Box as="span" css={styles.footerItem}>{items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length} events in view{value.events.some(kind => kind.entries.type === "some") ? " · loaded window" : ""}</Box>
+                <Box as="span" css={styles.footerItem}>{data.backlog.length} in backlog</Box>{data.saved !== undefined && <Box as="span" css={styles.footerItem}>Last saved {format.time(data.saved)}</Box>}{editing !== undefined && <Box as="span" css={styles.footerItem}>{editing.history.pending} pending</Box>}{data.loading && <Box as="span" css={styles.footerItem}>Loading…</Box>}</Box>}>
             <Box ref={main} css={styles.main} data-calendar-main="" data-calendar-narrow={narrow ? "" : undefined}>
                 <CalendarViews format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
                     selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />
@@ -122,12 +126,8 @@ function CalendarFrame(props: HostProps) {
 export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProps) {
     const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "calendar"}`;
     const now = useNow(value.settings.now.type === "some" ? value.settings.now.value : undefined);
-    const { state: view, setState: setView } = usePersistedState<CalendarView>(`${key}.view`, {
-        layout: value.settings.layout.type, period: value.settings.period.type,
-        date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : now).getTime(),
-    });
-    const range = useMemo(() => view.layout === "timeline" ? timelineRange(view) : calendarRange(view, value.settings), [view, value.settings]);
-    const props = { value, storageKey: key, view, setView, range, now };
+    const { view, setView, range, slice, affordances } = useCalendarWindow(value, key, now);
+    const props = { value, storageKey: key, view, setView, range, now, slice, affordances };
     return value.settings.readOnly ? <CalendarFrame {...props} /> : <EditableCalendar {...props} />;
 }
 implementUIComponent(CalendarComponent, EastChakraCalendar);

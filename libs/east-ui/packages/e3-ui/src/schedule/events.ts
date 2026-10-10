@@ -262,6 +262,14 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     status?: ScheduleStatusConfig<R, SF>;
     /** Hints for the inspector's form over the other fields (`Schedule.field`, east-ui's `Fields`). */
     fields?: FieldHints<R["fields"]>;
+    /**
+     * Author-owned narrowing over the typed row and its original key, usually
+     * `Slice.apply.matches` over an author-bound Slice. Runs after drafts are
+     * overlaid on a record or index window, for scheduled rows and backlog.
+     * Does not change by-key inspector reads, editing baselines or Save.
+     * On a paged record this filters the requested window, not all history.
+     */
+    filter?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
@@ -406,6 +414,7 @@ interface AnyConfig {
     fields?: Readonly<Record<string, unknown>>;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
+    filter?: (row: unknown, key: unknown) => unknown;
     window?: unknown;
     backlogWindow?: unknown;
     entries?: unknown;
@@ -895,11 +904,16 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
     const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
 
+    // Adapt the author's typed predicate once; Slice owns its semantics and state.
+    const filter = config.filter === undefined ? undefined
+        : East.function([rowType, keyType], BooleanType, (_$, row, key) => config.filter!(row, key) as SubtypeExprOrValue<BooleanType>);
+
     /** An item seam over a window: the events whose items `itemFn` makes that overlap `[from, to)`. */
     const windowOf = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>) =>
         East.function([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(itemType)), ($, from, to, drafts) => {
             const inPlace = $.const(withDrafts);
             const item = $.const(itemFn);
+            const accepts = filter === undefined ? undefined : $.const(filter);
             const result = $.let(East.value(none, OptionType(ArrayType(itemType))), OptionType(ArrayType(itemType)));
             let read: ExprType<OptionType<DictType<EastType, EastType>>>;
             if (readDays === undefined) {
@@ -911,7 +925,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             $.match(read, {
                 some: ($2, rows) => {
                     const out = $2.let([], ArrayType(itemType));
-                    $2.for(inPlace(rows, drafts), ($3, entry) => {
+                    $2.for(inPlace(rows, drafts), ($3, entry, _i, label) => {
+                        if (accepts !== undefined) $3.if(accepts(entry.row, entry.key).not(), $4 => { $4.continue(label); });
                         // Every item type holds what every view draws, its start and end among them.
                         const one = $3.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
                         $3.match(one.start, {
@@ -940,6 +955,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             if (optional) {
                 const inPlace = $.const(withDrafts);
                 const item = $.const(itemFn);
+                const accepts = filter === undefined ? undefined : $.const(filter);
                 let read: ExprType<OptionType<DictType<EastType, EastType>>>;
                 if (readBacklog === undefined) {
                     read = $.let(East.value(some(readAll()), OptionType(HeldType)));
@@ -951,7 +967,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 $.match(read, {
                     some: ($2, rows) => {
                         const out = $2.let([], ArrayType(itemType));
-                        $2.for(inPlace(rows, drafts), ($3, entry) => {
+                        $2.for(inPlace(rows, drafts), ($3, entry, _i, label) => {
+                            if (accepts !== undefined) $3.if(accepts(entry.row, entry.key).not(), $4 => { $4.continue(label); });
                             const one = $3.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
                             $3.if(one.start.hasTag("none"), ($4) => { $4(out.pushLast(one as unknown as ExprType<EastType>)); });
                         });

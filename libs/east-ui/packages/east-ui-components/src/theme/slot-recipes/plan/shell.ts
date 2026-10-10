@@ -19,6 +19,7 @@
  */
 
 import { timeAxisText } from "../time/axis.js";
+import { builderFooter, builderFooterItem } from "../builder-footer.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
 
@@ -139,35 +140,9 @@ export const shellBase = {
         background: "bg.panel",
         whiteSpace: "nowrap",
     },
-    // ── Footer (28px): mono status line, the frame's footer (#1193) ──
-    footer: {
-        minHeight: "var(--plan-footer-h)",
-        display: "flex",
-        alignItems: "center",
-        gap: "14px",
-        padding: "0 12px",
-        background: "bg.panel",
-        borderTopWidth: "1px",
-        borderTopColor: "border.subtle",
-        // Under the narrow layout (§10) there is no 28px band to fit a
-        // status line into — the same items wrap onto as many lines as they
-        // need.
-        "&[data-plan-narrow]": { flexWrap: "wrap", minHeight: "auto", padding: "6px 12px", rowGap: "2px", columnGap: "10px" },
-    },
-    footerItem: {
-        fontFamily: "mono",
-        fontSize: "10px",
-        fontWeight: "semibold",
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-        color: "fg.subtle",
-        whiteSpace: "nowrap",
-        "&[data-tone='warning']": { color: "{colors.status.warn}" },
-        "&[data-tone='danger']":  { color: "{colors.status.neg}" },
-        "&[data-tone='success']": { color: "{colors.status.pos}" },
-        "&[data-tone='info']":    { color: "{colors.status.info}" },
-        "&[data-end]": { marginLeft: "auto" },
-    },
+    // One shared status rail in Plan and Calendar.
+    footer: { ...builderFooter, minHeight: "var(--plan-footer-h)" },
+    footerItem: builderFooterItem,
     // The focus band (`Plan links.html`, #1258) — a band between the header
     // and the body, 32 tall on the band paper: `← All rows` as a link at its
     // start, the focus's caption at its end. The ruler NEVER moves for it.

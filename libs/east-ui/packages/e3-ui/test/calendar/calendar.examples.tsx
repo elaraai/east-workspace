@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 
-import { BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
-import { Box, Input, Reactive, UIComponentType } from "@elaraai/east-ui";
+import { DateTimeType, DictType, East, FloatType, FunctionType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
+import { Box, Input, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -72,9 +72,16 @@ export const calendarShiftTemplates = e3.record("calendar_shift_templates", Dict
     ["day", { name: "Day shift", values: { title: "Day shift", notes: "" } }],
 ]));
 
-/** The full surface, reusable as real East IR; record and template bindings stay reactive. */
-export const calendarOperationsUI = East.function([BooleanType], UIComponentType, (_$, readOnly) => (
-    <Reactive>{$ => {
+/** The application's cross-record filtering schema; original event rows remain in their records. */
+export const CalendarFilter = StructType({ title: StringType, kind: StringType, resourceKind: StringType, resourceKey: StringType, resource: StringType, status: StringType });
+/** A day key for the indexed calendar's author-bound Slice. */
+export const CalendarDay = StructType({ day: DateTimeType });
+
+export const calendarOperations = example({
+    inputs: [],
+    description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, Slice filters and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save.",
+    keywords: ["Calendar", "Record.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bind", "Slice.rows", "Slice.apply.matches", "filter", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
         const people = $.let(Record.bind(calendarPeople, []));
         const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
@@ -83,59 +90,196 @@ export const calendarOperationsUI = East.function([BooleanType], UIComponentType
         const jobTemplates = $.let(Record.bind(calendarJobTemplates, []));
         const serviceTemplates = $.let(Record.bind(calendarServiceTemplates, []));
         const shiftTemplates = $.let(Record.bind(calendarShiftTemplates, []));
-        return <Calendar id="operations" inspector readOnly={readOnly} view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+        const cfg = Slice.config(CalendarFilter, {
+            fields: { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } },
+            searchFieldIds: ["title", "kind", "resource"],
+        });
+        const jobScope = $.const(East.function([CalendarJob], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Production", resourceKind: "Machines", resourceKey: row.machine.match({ some: (_$3, key) => key, none: () => "" }), resource: row.machine.match({ some: (_$3, key) => machines.read().get(key).name, none: () => "Unassigned" }),
+            status: row.status.match({ planned: () => "Planned", active: () => "Active", done: () => "Done" }),
+        })));
+        const serviceScope = $.const(East.function([CalendarService], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Maintenance", resourceKind: "Machines", resourceKey: row.machine, resource: machines.read().get(row.machine).name, status: "",
+        })));
+        const shiftScope = $.const(East.function([CalendarShift], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Shift", resourceKind: "People", resourceKey: row.person, resource: people.read().get(row.person).name, status: "",
+        })));
+        const scope = $.let(jobs.read().toArray((_$2, row) => jobScope(row))
+            .concat(services.read().toArray((_$2, row) => serviceScope(row)))
+            .concat(shifts.read().toArray((_$2, row) => shiftScope(row))));
+        const slice = $.let(Slice.bind([CalendarFilter], "ex.calendarOperations.scope", cfg, Slice.state({}), scope, none));
+        const visible = $.let(Slice.rows([CalendarFilter], slice));
+        // Preserve record keys while the same Slice scopes resource rows upstream.
+        const visibleMachines = $.let(machines.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
+            visible.some((_$3, row) => row.resourceKind.equal("Machines").and(() => row.resourceKey.equal(key))))));
+        const visiblePeople = $.let(people.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
+            visible.some((_$3, row) => row.resourceKind.equal("People").and(() => row.resourceKey.equal(key))))));
+        return <Box height="760px"><Calendar id="operations" inspector view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            slice={{ slice, affordances: ["filter", "search"] }}
             resources={{
-                machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name, meta: row => some(row.area) }),
-                people: Calendar.resources(people.read(), { name: "People", icon: "users", label: row => row.name, meta: row => some(row.team) }),
+                machines: Calendar.resources(visibleMachines, { name: "Machines", icon: "gears", label: row => row.name, meta: row => some(row.area) }),
+                people: Calendar.resources(visiblePeople, { name: "People", icon: "users", label: row => row.name, meta: row => some(row.team) }),
             }}
             events={{
                 job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, jobScope(row)),
                     status: { field: "status", cases: { planned: { label: "Planned", tone: variant("neutral", null), ring: true }, active: { label: "Active", tone: variant("info", null), ring: false }, done: { label: "Done", tone: variant("success", null), ring: false } } },
                     backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
                     ready: row => row.hours.lessEqual(0).ifElse(() => variant("incomplete", [{ field: "hours", message: "Duration must be positive" }]), () => variant("ready", null)),
                     templates: Calendar.templates(jobTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values }),
                 }),
                 service: Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, serviceScope(row)),
                     fields: { technician: Calendar.field.reference({ of: "people" }) },
                     templates: Calendar.templates(serviceTemplates.read(), { name: row => row.name, duration: row => variant("hours", row.hours), values: row => row.values }),
                 }),
                 shift: Calendar.events(shifts, { name: "Shift", icon: "user-clock", title: "title", start: "start", end: "end", resource: { field: "person", of: "people" }, overlaps: "allow",
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, shiftScope(row)),
                     templates: Calendar.templates(shiftTemplates.read(), { name: row => row.name, at: () => some({ hour: 6n, minute: 0n }), duration: () => variant("hours", 8.0), values: row => row.values }),
                 }),
             }}
             library={[Calendar.library.templates(), Calendar.library.backlog(), Calendar.library.tab(people.read(), {
                 name: "Technicians", icon: "user-gear", label: row => row.name, meta: row => some(row.team), group: row => row.team,
                 drop: (_row, key) => Calendar.patch(CalendarService, { technician: key }),
-            })]} />;
-    }}</Reactive>
-));
-
-export const calendarOperations = example({
-    inputs: [],
-    description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, Slice filters and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save.",
-    keywords: ["Calendar", "Record.bind", "Calendar.templates", "Schedule", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save"],
-    fn: East.function([], UIComponentType, $ => {
-        const surface = $.const(calendarOperationsUI);
-        return <Box height="760px">{surface(false)}</Box>;
-    }),
+            })]} />
+        </Box>;
+    }}</Reactive>),
 });
 export const calendarMobile = example({
     inputs: [],
     description: "The same bound calendar in a phone-width container: chronological agenda cards with explicit Move, Resize, Duplicate, Delete and Return to backlog actions, Create and Schedule in the library, shared forms and Save history. Resizing preserves the view, selection and drafts; no dragging on the agenda.",
     keywords: ["Calendar", "mobile", "responsive", "agenda", "cards", "no dragging", "explicit actions", "Record.bind", "templates"],
-    fn: East.function([], UIComponentType, $ => {
-        const surface = $.const(calendarOperationsUI);
-        return <Box width="100%" maxWidth="390px" height="760px">{surface(false)}</Box>;
-    }),
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const people = $.let(Record.bind(calendarPeople, []));
+        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
+        const shifts = $.let(Record.bind(calendarShifts, [calendarShiftsPatch]));
+        const jobTemplates = $.let(Record.bind(calendarJobTemplates, []));
+        const serviceTemplates = $.let(Record.bind(calendarServiceTemplates, []));
+        const shiftTemplates = $.let(Record.bind(calendarShiftTemplates, []));
+        const cfg = Slice.config(CalendarFilter, {
+            fields: { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } },
+            searchFieldIds: ["title", "kind", "resource"],
+        });
+        const jobScope = $.const(East.function([CalendarJob], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Production", resourceKind: "Machines", resourceKey: row.machine.match({ some: (_$3, key) => key, none: () => "" }), resource: row.machine.match({ some: (_$3, key) => machines.read().get(key).name, none: () => "Unassigned" }),
+            status: row.status.match({ planned: () => "Planned", active: () => "Active", done: () => "Done" }),
+        })));
+        const serviceScope = $.const(East.function([CalendarService], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Maintenance", resourceKind: "Machines", resourceKey: row.machine, resource: machines.read().get(row.machine).name, status: "",
+        })));
+        const shiftScope = $.const(East.function([CalendarShift], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Shift", resourceKind: "People", resourceKey: row.person, resource: people.read().get(row.person).name, status: "",
+        })));
+        const scope = $.let(jobs.read().toArray((_$2, row) => jobScope(row))
+            .concat(services.read().toArray((_$2, row) => serviceScope(row)))
+            .concat(shifts.read().toArray((_$2, row) => shiftScope(row))));
+        const slice = $.let(Slice.bind([CalendarFilter], "ex.calendarMobile.scope", cfg, Slice.state({}), scope, none));
+        const visible = $.let(Slice.rows([CalendarFilter], slice));
+        // Preserve record keys while the same Slice scopes resource rows upstream.
+        const visibleMachines = $.let(machines.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
+            visible.some((_$3, row) => row.resourceKind.equal("Machines").and(() => row.resourceKey.equal(key))))));
+        const visiblePeople = $.let(people.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
+            visible.some((_$3, row) => row.resourceKind.equal("People").and(() => row.resourceKey.equal(key))))));
+        return <Box width="100%" maxWidth="390px" height="760px"><Calendar id="operations" inspector view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            slice={{ slice, affordances: ["filter", "search"] }}
+            resources={{
+                machines: Calendar.resources(visibleMachines, { name: "Machines", icon: "gears", label: row => row.name, meta: row => some(row.area) }),
+                people: Calendar.resources(visiblePeople, { name: "People", icon: "users", label: row => row.name, meta: row => some(row.team) }),
+            }}
+            events={{
+                job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, jobScope(row)),
+                    status: { field: "status", cases: { planned: { label: "Planned", tone: variant("neutral", null), ring: true }, active: { label: "Active", tone: variant("info", null), ring: false }, done: { label: "Done", tone: variant("success", null), ring: false } } },
+                    backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                    ready: row => row.hours.lessEqual(0).ifElse(() => variant("incomplete", [{ field: "hours", message: "Duration must be positive" }]), () => variant("ready", null)),
+                    templates: Calendar.templates(jobTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values }),
+                }),
+                service: Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, serviceScope(row)),
+                    fields: { technician: Calendar.field.reference({ of: "people" }) },
+                    templates: Calendar.templates(serviceTemplates.read(), { name: row => row.name, duration: row => variant("hours", row.hours), values: row => row.values }),
+                }),
+                shift: Calendar.events(shifts, { name: "Shift", icon: "user-clock", title: "title", start: "start", end: "end", resource: { field: "person", of: "people" }, overlaps: "allow",
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, shiftScope(row)),
+                    templates: Calendar.templates(shiftTemplates.read(), { name: row => row.name, at: () => some({ hour: 6n, minute: 0n }), duration: () => variant("hours", 8.0), values: row => row.values }),
+                }),
+            }}
+            library={[Calendar.library.templates(), Calendar.library.backlog(), Calendar.library.tab(people.read(), {
+                name: "Technicians", icon: "user-gear", label: row => row.name, meta: row => some(row.team), group: row => row.team,
+                drop: (_row, key) => Calendar.patch(CalendarService, { technician: key }),
+            })]} />
+        </Box>;
+    }}</Reactive>),
 });
 export const calendarReadOnly = example({
     inputs: [],
     description: "The same record calendar given readOnly: navigation, filtering, selection and overlaps, with a read-only inspector and no mutation session or editing actions.",
     keywords: ["Calendar", "readOnly", "records", "selection", "overlaps"],
-    fn: East.function([], UIComponentType, $ => {
-        const surface = $.const(calendarOperationsUI);
-        return <Box height="760px">{surface(true)}</Box>;
-    }),
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const people = $.let(Record.bind(calendarPeople, []));
+        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
+        const shifts = $.let(Record.bind(calendarShifts, [calendarShiftsPatch]));
+        const jobTemplates = $.let(Record.bind(calendarJobTemplates, []));
+        const serviceTemplates = $.let(Record.bind(calendarServiceTemplates, []));
+        const shiftTemplates = $.let(Record.bind(calendarShiftTemplates, []));
+        const cfg = Slice.config(CalendarFilter, {
+            fields: { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } },
+            searchFieldIds: ["title", "kind", "resource"],
+        });
+        const jobScope = $.const(East.function([CalendarJob], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Production", resourceKind: "Machines", resourceKey: row.machine.match({ some: (_$3, key) => key, none: () => "" }), resource: row.machine.match({ some: (_$3, key) => machines.read().get(key).name, none: () => "Unassigned" }),
+            status: row.status.match({ planned: () => "Planned", active: () => "Active", done: () => "Done" }),
+        })));
+        const serviceScope = $.const(East.function([CalendarService], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Maintenance", resourceKind: "Machines", resourceKey: row.machine, resource: machines.read().get(row.machine).name, status: "",
+        })));
+        const shiftScope = $.const(East.function([CalendarShift], CalendarFilter, (_$2, row) => ({
+            title: row.title, kind: "Shift", resourceKind: "People", resourceKey: row.person, resource: people.read().get(row.person).name, status: "",
+        })));
+        const scope = $.let(jobs.read().toArray((_$2, row) => jobScope(row))
+            .concat(services.read().toArray((_$2, row) => serviceScope(row)))
+            .concat(shifts.read().toArray((_$2, row) => shiftScope(row))));
+        const slice = $.let(Slice.bind([CalendarFilter], "ex.calendarReadOnly.scope", cfg, Slice.state({}), scope, none));
+        const visible = $.let(Slice.rows([CalendarFilter], slice));
+        // Preserve record keys while the same Slice scopes resource rows upstream.
+        const visibleMachines = $.let(machines.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
+            visible.some((_$3, row) => row.resourceKind.equal("Machines").and(() => row.resourceKey.equal(key))))));
+        const visiblePeople = $.let(people.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
+            visible.some((_$3, row) => row.resourceKind.equal("People").and(() => row.resourceKey.equal(key))))));
+        return <Box height="760px"><Calendar id="operations" inspector readOnly view={{ date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            slice={{ slice, affordances: ["filter", "search"] }}
+            resources={{
+                machines: Calendar.resources(visibleMachines, { name: "Machines", icon: "gears", label: row => row.name, meta: row => some(row.area) }),
+                people: Calendar.resources(visiblePeople, { name: "People", icon: "users", label: row => row.name, meta: row => some(row.team) }),
+            }}
+            events={{
+                job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, jobScope(row)),
+                    status: { field: "status", cases: { planned: { label: "Planned", tone: variant("neutral", null), ring: true }, active: { label: "Active", tone: variant("info", null), ring: false }, done: { label: "Done", tone: variant("success", null), ring: false } } },
+                    backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                    ready: row => row.hours.lessEqual(0).ifElse(() => variant("incomplete", [{ field: "hours", message: "Duration must be positive" }]), () => variant("ready", null)),
+                    templates: Calendar.templates(jobTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values }),
+                }),
+                service: Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, serviceScope(row)),
+                    fields: { technician: Calendar.field.reference({ of: "people" }) },
+                    templates: Calendar.templates(serviceTemplates.read(), { name: row => row.name, duration: row => variant("hours", row.hours), values: row => row.values }),
+                }),
+                shift: Calendar.events(shifts, { name: "Shift", icon: "user-clock", title: "title", start: "start", end: "end", resource: { field: "person", of: "people" }, overlaps: "allow",
+                    filter: row => Slice.apply.matches([CalendarFilter], slice.read(), cfg, shiftScope(row)),
+                    templates: Calendar.templates(shiftTemplates.read(), { name: row => row.name, at: () => some({ hour: 6n, minute: 0n }), duration: () => variant("hours", 8.0), values: row => row.values }),
+                }),
+            }}
+            library={[Calendar.library.templates(), Calendar.library.backlog(), Calendar.library.tab(people.read(), {
+                name: "Technicians", icon: "user-gear", label: row => row.name, meta: row => some(row.team), group: row => row.team,
+                drop: (_row, key) => Calendar.patch(CalendarService, { technician: key }),
+            })]} />
+        </Box>;
+    }}</Reactive>),
 });
 export const calendarMinimal = example({
     inputs: [],
@@ -170,15 +314,23 @@ export const calendarJobsUnscheduled = e3.recordIndex("calendar_jobs_unscheduled
 });
 export const calendarWindowed = example({
     inputs: [],
-    description: "The jobs calendar read by its day and backlog indexes, with by-key reads for the inspector and checked saves. Navigation changes the loaded window; filtering and counts say what they cover. The same mobile agenda and explicit actions work over the paged record.",
-    keywords: ["Calendar", "Data.bindPaged", "recordIndex", "window", "backlogWindow", "entries", "mobile", "Save"],
+    description: "The jobs calendar read by its day and backlog indexes, with by-key reads for the inspector and checked saves. An author-bound Slice selects the day-index keys read; navigation and the shared range control write that same Slice. Counts describe the loaded window. The same mobile agenda and explicit actions work over the paged record.",
+    keywords: ["Calendar", "Data.bindPaged", "recordIndex", "window", "backlogWindow", "entries", "Slice", "Slice.bind", "range", "day keys", "mobile", "Save"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
         const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
         const days = $.let(Data.bindPaged(calendarJobs, { index: calendarJobsByDay, join: true }));
         const backlog = $.let(Data.bindPaged(calendarJobs, { index: calendarJobsUnscheduled, join: true }));
         const entries = $.let(Data.bindPaged(calendarJobs));
+        const cfg = Slice.config(CalendarDay, { fields: { day: { label: "Day", format: { date: "MMM D" } } }, rangeFieldId: "day" });
+        const first = $.const(new Date("2026-10-01T00:00:00Z"), DateTimeType);
+        // A bounded horizon of day keys, not a download of the event record.
+        const horizon = $.let(East.Array.generate(31n, CalendarDay, (_$2, i) => ({ day: first.addDays(i) })));
+        const slice = $.let(Slice.bind([CalendarDay], "ex.calendarWindowed.days", cfg, Slice.state({
+            range: some(variant("datetime", { from: first, to: first.addDays(1n).addMilliseconds(-1n) })),
+        }), horizon, none));
         return <Box height="760px"><Calendar id="windowed" inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            slice={{ slice, affordances: ["range"] }}
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
             events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
                 window: days, backlogWindow: backlog, entries, backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
@@ -207,18 +359,18 @@ export const calendarQuickstart = example({
 });
 
 /** A custom inspector edits the complete typed row through the same session. */
-export const calendarInspectAppointment = East.function([CalendarAppointment, FunctionType([CalendarAppointment], NullType)], UIComponentType, ($, row, update) => {
-    const change = $.const(East.function([StringType], NullType, ($2, title) => { $2(update({ title, start: row.start, end: row.end })); }));
-    return <Input.String value={row.title} placeholder="Appointment title" onChange={change} />;
-});
 export const calendarCustomInspector = example({
     inputs: [],
     description: "A typed custom appointment inspector updates the whole row through Calendar's shared Undo, Redo and Save session.",
     keywords: ["Calendar", "inspector", "custom", "Schedule.events", "update", "Record.bind"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const appointments = $.let(Record.bind(calendarAppointments, [calendarAppointmentsPatch]));
+        const inspect = $.const(East.function([CalendarAppointment, FunctionType([CalendarAppointment], NullType)], UIComponentType, ($2, row, update) => {
+            const change = $2.const(East.function([StringType], NullType, ($3, title) => { $3(update({ title, start: row.start, end: row.end })); }));
+            return <Input.String value={row.title} placeholder="Appointment title" onChange={change} />;
+        }));
         return <Box height="640px"><Calendar inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
-            events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end", inspector: calendarInspectAppointment }) }} />
+            events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end", inspector: inspect }) }} />
         </Box>;
     }}</Reactive>),
 });

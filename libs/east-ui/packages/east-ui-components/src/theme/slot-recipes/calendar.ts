@@ -8,6 +8,8 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
+import { builderFooter, builderFooterItem } from "./builder-footer.js";
+import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
 import { timeAxisText } from "./time/axis.js";
@@ -16,6 +18,7 @@ import { timeResizeEdge } from "./time/resize.js";
 export const calendarSlotRecipe = defineSlotRecipe({
     className: "east-calendar",
     slots: [
+        ...moveGhostSlots, "footerItem",
         "root", "main", "scroll", "head", "columnHead", "columnMeta", "dayHeading", "weekday", "dayDate",
         "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
         "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", "group", "title", "detail",
@@ -25,6 +28,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "form", "error", "empty", ...nowSlots,
     ],
     base: {
+        ...moveGhostBase,
         ...nowBase,
         root: { ...shellBase.root, height: "100%", minHeight: 0 },
         main: { position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
@@ -106,7 +110,8 @@ export const calendarSlotRecipe = defineSlotRecipe({
         paneFoot: { flexShrink: 0, padding: "12px", borderTopWidth: "1px", borderColor: "border.subtle" },
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
-        footer: { display: "flex", flexWrap: "wrap", gap: "8px", padding: "6px 12px", minWidth: 0, "& > span": shellBase.footerItem },
+        footer: builderFooter,
+        footerItem: builderFooterItem,
         toolbarRange: { display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" },
         rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" },
         toolbarText: shellBase.footerItem,

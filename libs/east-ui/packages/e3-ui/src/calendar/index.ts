@@ -8,6 +8,7 @@ import {
     StructType, VariantType, none, some, variant, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
+import { SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import { Schedule, scheduleCheck, type ScheduleNamespace } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
@@ -33,7 +34,7 @@ export const CalendarSettingsType = StructType({
 /** Calendar's closed interface to its React renderer. The frame is a renderer detail. */
 export const CalendarPayloadType = StructType({
     events: ArrayType(ScheduleKindType), resources: ArrayType(ScheduleResourcesType), settings: CalendarSettingsType,
-    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType,
+    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(SliceChromeType),
     canDrop: OptionType(FunctionType([ScheduleCandidateType], OptionType(StringType))),
     onSelect: OptionType(FunctionType([ScheduleEventRefType], NullType)), id: OptionType(StringType),
 });
@@ -64,6 +65,18 @@ export interface CalendarProps {
     events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>;
     /** Resource kinds read from keyed data, commonly bound records. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
+    /**
+     * Author-bound Slice, as in Plan. Its datetime range drives the indexed
+     * event window; navigation writes the same range. Narrow event rows with
+     * the shared Slice engine in each kind's `filter` accessor. The renderer
+     * never creates its own filter dataset. Omitted, no Slice controls.
+     */
+    slice?: {
+        /** The handle declared with Slice.bind in the authoring Reactive block. */
+        slice: SubtypeExprOrValue<SliceBindType>;
+        /** Shared controls to mount, in order; defaults to filter and search. */
+        affordances?: SliceAffordanceLiteral[];
+    };
     /** The library's tabs, in order; omitted or empty, no start pane. */
     library?: readonly CalendarLibraryTab[];
     /** Shows the inspector pane. */
@@ -123,6 +136,10 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             readOnly: props.readOnly ?? false,
         },
         library, inspector: props.inspector ?? false,
+        slice: props.slice === undefined ? none : some(East.value({
+            slice: props.slice.slice,
+            affordances: East.value((props.slice.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)),
+        }, SliceChromeType)),
         canDrop: props.canDrop === undefined ? none : some(props.canDrop),
         onSelect: props.onSelect === undefined ? none : some(props.onSelect), id: props.id === undefined ? none : some(props.id),
     }, CalendarPayloadType);
