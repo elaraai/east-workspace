@@ -81,6 +81,8 @@ change to one is a new version of the thing, not an edit to it.
 
 ## Changes
 
+- **east-ui's `UIComponentType` loses its heatmap `Calendar` arm (#1144, #1146)** — package-borne. Re-export packages with the current SDK: variant case indexes after Calendar change. The record-backed calendar is e3-ui's single `<Calendar>` extension; its renderer is in e3-ui-components. The shared Schedule kind also gains the by-key event read, schedule roles and inspector/overlap fields used by Plan and Calendar. Application event, resource and template records retain their own types; no stored record migration is introduced.
+
 Each wire changed under this rule, with the kind it is.
 
 - **east-ui's `UIComponentType` loses its `Plan` arm (#1177, #1191)** —

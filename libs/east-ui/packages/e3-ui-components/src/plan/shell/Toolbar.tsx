@@ -27,12 +27,12 @@
  * last, to its buttons. Nothing wraps or goes to a second row.
  */
 
-import { useMemo, type KeyboardEvent } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { useMemo } from "react";
+import { Box, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import {
-    HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds, radioGroupKey,
+    HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds,
 } from "@elaraai/east-ui-components/internal";
 import {
     useSliceReactivity, type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem,
@@ -44,6 +44,8 @@ import { usePlanWords } from "../words.js";
 import { PlanDiagnosticChips, hasDiagnostics } from "./Diagnostics.js";
 import type { PlanChrome } from "../root/chrome.js";
 import type { PlanOverlaps } from "../frame/counts.js";
+import { Seg, SegMenu } from "../../shared/schedule/segments.js";
+export { Seg, SegMenu } from "../../shared/schedule/segments.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 
 /** Narrowing affordances whose meaning CHANGES on a paged canvas: they narrow
@@ -67,88 +69,6 @@ const PLAN_RANK = {
     seek: HOST_RANK + 4,
 } as const;
 
-type Styles = Record<string, Record<string, unknown>>;
-
-/** A segment strip's props — shared by the strip and its one-chip menu. */
-interface SegProps<K extends string> {
-    /** What the strip picks — its radio group's (the menu's) accessible name. */
-    label: string;
-    /** Which strip it is, as `data-plan-seg` (`data-plan-segmenu`) says. */
-    name: string;
-    /** The segments, in order. */
-    items: ReadonlyArray<{ key: K; label: string }>;
-    /** The checked segment's key — any other string checks none. */
-    active: string;
-    /** Picks a segment. */
-    onPick: (key: K) => void;
-}
-
-/**
- * The compact chrome segment strip (`seg` recipe) — a radio group (#632).
- * It is ONE tab stop, on the checked segment (the first while none is);
- * ← / → and Home / End move between the segments and pick the one they land
- * on, as the WAI-ARIA radio group pattern has it, and a click, Enter or Space
- * picks the one it is on.
- */
-export function Seg<K extends string>({ label, name, items, active, onPick }: SegProps<K>) {
-    const seg = useSlotRecipe({ key: "seg" });
-    const ss = useMemo(() => seg({}) as unknown as Styles, [seg]);
-    const stop = items.some((it) => it.key === active) ? active : items[0]?.key;
-    // The radio group's keys (shared with the Sheet's context switch): handled, so the canvas's own keys skip them.
-    const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-        radioGroupKey(e, (j) => {
-            const it = items[j];
-            if (it !== undefined && it.key !== active) onPick(it.key);
-        });
-    };
-    return (
-        <Box css={ss.root} data-slot="seg" data-plan-seg={name} role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
-            {items.map((it) => (
-                <chakra.button key={it.key} type="button" css={ss.item} role="radio"
-                    aria-checked={it.key === active} tabIndex={it.key === stop ? 0 : -1}
-                    data-state={it.key === active ? "on" : undefined}
-                    onClick={() => onPick(it.key)}>
-                    {it.label}
-                </chakra.button>
-            ))}
-        </Box>
-    );
-}
-
-/**
- * A segment strip folded into one chip (#952) — the checked segment and a
- * caret, Font Awesome's (#1263), opening a menu of every segment; picking one
- * does what the strip's press does. The toolbar's segments take this form
- * once the row is short of room.
- */
-export function SegMenu<K extends string>({ label, name, items, active, onPick }: SegProps<K>) {
-    const chip = useRecipe({ key: "chip" });
-    const current = items.find((it) => it.key === active);
-    return (
-        <ChakraMenu.Root onSelect={(d) => {
-            const it = items.find((x) => x.key === d.value);
-            if (it !== undefined) onPick(it.key);
-        }}>
-            <ChakraMenu.Trigger asChild>
-                {/* A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221). */}
-                <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]} data-slot="segMenu"
-                    data-plan-segmenu={name} aria-label={label}>
-                    {current?.label ?? active}
-                    <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
-                </chakra.button>
-            </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
-                        {items.map((it) => (
-                            <ChakraMenu.Item key={it.key} value={it.key}>{it.label}</ChakraMenu.Item>
-                        ))}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
-        </ChakraMenu.Root>
-    );
-}
 
 /** Props of {@link OverlapsChip}. */
 interface OverlapsChipProps {

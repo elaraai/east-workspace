@@ -24,7 +24,8 @@ import type { KeyboardEvent } from "react";
  * @returns Whether the key was the group's — it is then handled, so the page does not scroll
  */
 export function radioGroupKey(e: KeyboardEvent<HTMLElement>, pick: (index: number) => void): boolean {
-    const radios = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[role='radio']"));
+    const all = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[role='radio']"));
+    const radios = all.filter(radio => !radio.matches(":disabled, [aria-disabled='true']"));
     const i = radios.indexOf(e.target as HTMLElement);
     if (i < 0) return false;
     const last = radios.length - 1;
@@ -38,6 +39,6 @@ export function radioGroupKey(e: KeyboardEvent<HTMLElement>, pick: (index: numbe
     }
     e.preventDefault();
     radios[j]!.focus();
-    pick(j);
+    pick(all.indexOf(radios[j]!));
     return true;
 }

@@ -15,6 +15,8 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { fontAwesomeSize } from "../../icon-size.js";
+import { timeResizeEdge } from "../time/resize.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
@@ -412,14 +414,10 @@ export const elementsBase = {
         position: "absolute",
         top: "50%",
         transform: "translate(-50%, -50%)",
-        width: "var(--plan-mark-icon-w)",
-        height: "var(--plan-mark-icon-w)",
-        fontSize: "var(--plan-mark-icon-w)",
+        ...fontAwesomeSize("var(--plan-mark-icon-w)"),
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        "& svg": { width: "100%", height: "100%", "--fa-width": "1em" },
-        lineHeight: 1,
         color: "{colors.brand.solid}",
         zIndex: 3,
         "&[data-kind='exception']": { color: "{colors.status.warn}" },
@@ -457,30 +455,7 @@ export const elementsBase = {
     // A run's or a chip's end handle — the element's first / last 6px, where
     // a press drags that end. A hairline grip shows on the element's hover;
     // a touch gets a wider target.
-    moveEdge: {
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        width: "6px",
-        cursor: "ew-resize",
-        zIndex: 1,
-        "&[data-plan-edge='start']": { left: 0 },
-        "&[data-plan-edge='end']": { right: 0 },
-        "&::after": {
-            content: "''",
-            position: "absolute",
-            top: "3px",
-            bottom: "3px",
-            left: "2px",
-            width: "2px",
-            borderRadius: "1px",
-            background: "currentColor",
-            opacity: 0,
-            transition: "opacity 120ms",
-        },
-        "[data-draggable]:hover > &": { "&::after": { opacity: 0.55 } },
-        "@media (hover: none)": { width: "10px" },
-    },
+    moveEdge: timeResizeEdge("x", "data-plan-edge"),
     // The ghost beside the pointer — the element's name over the span it
     // would take, on paper in a brand ring.
     moveGhost: {

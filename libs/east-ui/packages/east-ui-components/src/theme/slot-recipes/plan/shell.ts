@@ -18,6 +18,7 @@
  * @packageDocumentation
  */
 
+import { timeAxisText } from "../time/axis.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
 
@@ -113,11 +114,7 @@ export const shellBase = {
     // its column into the blank ones beside it, so the tick clips nothing.
     // The first and the last sit against the track's ends (`data-align`).
     rulerTick: {
-        fontFamily: "mono",
-        fontSize: "10px",
-        fontWeight: "semibold",
-        textTransform: "uppercase",
-        color: "fg.subtle",
+        ...timeAxisText,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

@@ -56,9 +56,10 @@ import type { PickBindType } from "@elaraai/east-ui";
 import { ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined, useTrackedEvaluation,
-    type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
+    type BuilderFrameDock, type LibraryValue,
 } from "@elaraai/east-ui-components";
 import { SliceDensityContext } from "@elaraai/east-ui-components/internal";
+import { scheduleLibraryCard as card, scheduleLibrary as libraryOf } from "../../shared/schedule/library.js";
 import { DUE_GROUPS, dueGroupOf, durationMinutes, type DueGroup } from "../../shared/schedule/due.js";
 import type { PlanLibraryTabWord } from "../messages.js";
 import type { PlanWords } from "../words.js";
@@ -93,9 +94,6 @@ const printResource = printFor(ScheduleResourceRefType);
 
 /** The library open: the Calendar's 272px (§8). */
 const LIBRARY_SIZE = "272px";
-
-/** A library tab's cards fill the pane and scroll there, every card mounted. */
-const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none });
 
 /** One kind's drafts, by entry id, as its seams take them. */
 type PlanKindDraftsValue = Parameters<PlanEventKindValue["planUnscheduled"]>[0];
@@ -149,19 +147,6 @@ export interface PlanLibraryProps {
 
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
-
-/** A card with nothing but its face: no media, byline, action, facets or secondary facts. */
-function card(fields: Pick<LibraryItemValue, "key" | "label" | "sublabel" | "icon" | "status" | "trailing" | "draggable" | "filtered" | "placed" | "search" | "groups">): LibraryItemValue {
-    return { ...fields, media: none, avatar: none, byline: none, action: none, facets: new Map(), dims: new Map() };
-}
-
-/** A Library of a tab's cards, as every tab of the pane draws them: filling the pane, its search and grouping on its toolbar. */
-function libraryOf(fields: Pick<LibraryValue, "id" | "items" | "groupOptions" | "noun" | "onCardClick">): LibraryValue {
-    return {
-        ...fields, hint: none, groupSummaries: new Map(), dimOptions: [], defaultDimensions: [], filterOptions: [], searchable: true,
-        addLabel: none, onAdd: none, slice: none, style: FILL, variant: none, layout: none, toolbar: true,
-    };
-}
 
 /**
  * How long something takes, in the Plan's words — `6 h`, `2 h 15 m`, `45 m`.

@@ -3,297 +3,115 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/**
- * Calendar slot recipe — the day-of-week × week heatmap, rebuilt to the
- * designer's `Calendar Heatmap` spec: an eight-step teal ramp (theme-aware —
- * it flips to a dim→bright ramp in dark mode), mono day / week labels that
- * cross-highlight the hovered row and column, the Σ-wk totals rail with a
- * proportion bar, the per-weekday aggregate ("mean") row, and the selection
- * footer with the predicted / compare / delta chip and the low→high gradient
- * legend. Per-density SIZING (cell height, grid template, padding, gap) is
- * computed in the renderer; this recipe owns the density-independent styling
- * and the ramp CSS variables.
- */
-
+/** Calendar geometry uses the builders' text, state, time and inspector styles. */
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fontAwesomeSize } from "../icon-size.js";
+import { INSPECTOR_STATUS } from "./inspector.js";
+import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
+import { shellBase } from "./plan/shell.js";
+import { nowSlots, nowBase } from "./time/now.js";
+import { timeAxisText } from "./time/axis.js";
+import { timeResizeEdge } from "./time/resize.js";
 
 export const calendarSlotRecipe = defineSlotRecipe({
-    className: "elara-calendar",
+    className: "east-calendar",
     slots: [
-        "root", "dayHeader", "totalsHeader", "weekLabel",
-        "cell",
-        "totalsCell", "totalsValue", "totalsBar", "totalsBarFill",
-        "meanLabel", "meanCell", "meanPad",
-        "footer", "footerLead", "footerSel", "footerValue", "deltaChip", "action",
-        "legend", "legendCap", "legendGradient",
+        "root", "main", "scroll", "head", "columnHead", "columnMeta", "dayHeading", "weekday", "dayDate",
+        "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
+        "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", "group", "title", "detail",
+        "ruler", "rulerRow", "rulerTick", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
+        "timelineRow", "rowHead", "rowPlot", "agenda", "agendaDay", "agendaHead", "card", "cardHead", "cardTitle",
+        "actions", "pane", "paneFoot", "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
+        "form", "error", "empty", ...nowSlots,
     ],
     base: {
-        /* Bare like Table / Planner — identity chrome (title, outer frame) is
-         * host composition via Card / Slice.Frame. The eight ramp stops + the
-         * two on-ramp inks live here as CSS variables so the fill (a data-
-         * driven binding, applied inline in the renderer) flips with the
-         * theme. Dark mode runs a dim-surface → bright-teal ramp and swaps
-         * the on-ramp inks (#362).
-         *
-         * These stops are literal hex on purpose, and are the one sanctioned
-         * exception to "semantic tokens only". A heatmap needs a perceptually
-         * even sequential ramp; `tokens/colors.css` deliberately has no such
-         * scale (its brand steps jump from bright cyan to desaturated teal, so
-         * reading them as a ramp would make intensity illegible). The stops
-         * stay inside the brand teal family and are theme-aware via the
-         * `_dark` block below — what they are NOT is reachable from an
-         * existing token. Do not "fix" these to brand.N. */
-        root: {
-            background: "bg.surface",
-            "--cal-r0": "#dcecec", "--cal-r1": "#c2e0e1", "--cal-r2": "#a3ced1", "--cal-r3": "#82b8bd",
-            "--cal-r4": "#5f9ba3", "--cal-r5": "#437e87", "--cal-r6": "#2f636d", "--cal-r7": "#1e4952",
-            /* on-ramp ink: `lo` for the pale (below-threshold) stops, `hi` for
-             * the deep (>= step 4) stops. */
-            "--cal-ink-lo": "#22343c", "--cal-ink-hi": "#eef7f7",
-            /* the hover cross-hair ring, per mode. */
-            "--cal-ring": "rgba(17,27,34,0.5)",
-            _dark: {
-                "--cal-r0": "#223335", "--cal-r1": "#294349", "--cal-r2": "#33565d", "--cal-r3": "#416e76",
-                "--cal-r4": "#56939c", "--cal-r5": "#6fb3bb", "--cal-r6": "#86cdd4", "--cal-r7": "#a3e4ea",
-                "--cal-ink-lo": "#cfe0e0", "--cal-ink-hi": "#10201f",
-                "--cal-ring": "rgba(255,255,255,0.72)",
+        ...nowBase,
+        root: { ...shellBase.root, height: "100%", minHeight: 0 },
+        main: { position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
+        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column" } },
+        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "52px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-month]": { height: "30px" } },
+        columnHead: {
+            flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: "3px",
+            padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left",
+            "& svg": { ...fontAwesomeSize("10px"), color: "fg.subtle" },
+            "&[data-today]": { color: "brand.fg", background: "brand.subtle" },
+        },
+        dayHeading: { display: "flex", alignItems: "baseline", gap: "6px", minWidth: 0 },
+        weekday: { textStyle: "eyebrow", "[data-today] &": { color: "brand.fg" } },
+        dayDate: { textStyle: "num", fontSize: "title.sm", lineHeight: "1", "[data-today] &": { fontWeight: "bold" } },
+        columnMeta: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        timeGutter: { ...timeAxisText, width: "56px", flexShrink: 0, position: "sticky", left: 0, zIndex: 4, background: "bg.surface", color: "fg.subtle" },
+        timeLabel: { position: "absolute", right: "8px", transform: "translateY(-50%)" },
+        columns: { display: "flex", flex: 1, minWidth: 0, position: "relative" },
+        column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y" },
+        hour: { position: "absolute", left: 0, right: 0, borderTopWidth: "1px", borderColor: "border.subtle", pointerEvents: "none", "&[data-half]": { opacity: 0.45 } },
+        shade: { position: "absolute", background: "bg.muted", opacity: 0.45, pointerEvents: "none", "&[data-along=y]": { left: 0, right: 0 }, "&[data-along=x]": { top: 0, bottom: 0 } },
+        event: {
+            ...planElementDrafted, ...planElementSelected, ...planElementFocus,
+            position: "absolute", display: "flex", flexDirection: "column", gap: "2px", padding: "4px 6px",
+            borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm", background: "bg.panel", color: "fg",
+            textAlign: "left", cursor: "pointer", minHeight: "16px", minWidth: "4px", overflow: "hidden",
+            "&[data-draggable]": { cursor: "grab" },
+            "&[data-compact]": { flexDirection: "row", alignItems: "center", paddingY: 0, gap: "5px" },
+            "&[data-chip]": { height: "21px", flexShrink: 0 },
+            "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+            "&[data-dragging]": { zIndex: 10 },
+        },
+        ghost: {
+            textStyle: "mono.xs", position: "absolute", borderWidth: "1.5px", borderStyle: "dashed", borderColor: "brand.solid",
+            background: "brand.subtle", color: "brand.fg", pointerEvents: "none", zIndex: 6, overflow: "hidden",
+            "&[data-whole-day]": { inset: 0 }, "&[data-along=x]:not([data-whole-day])": { top: 0, bottom: 0 }, "&[data-along=y]:not([data-whole-day])": { left: 0, right: 0 },
+            "&[data-calendar-landing]": { display: "none" }, "&[data-calendar-landing]:where([data-drop-active] > *)": { display: "block" },
+        },
+        eventTop: { display: "flex", alignItems: "center", gap: "5px", minWidth: 0, flexShrink: 0, "[data-compact] &": { display: "contents" } },
+        eventIcon: { ...fontAwesomeSize("9px"), display: "inline-flex", alignItems: "center", flexShrink: 0, color: "fg.muted" },
+        eventWarning: { ...fontAwesomeSize("9px"), display: "inline-flex", color: "fg.warning", flexShrink: 0, order: 4 },
+        eventTitle: {
+            textStyle: "body.sm", fontWeight: "semibold", lineHeight: "tight", minWidth: 0, whiteSpace: "nowrap",
+            overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, order: 2,
+            "[data-compact] &": { flex: "1 1 auto" }, "&[data-wrap]": { whiteSpace: "normal", lineClamp: 2 },
+            "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" },
+        },
+        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
+        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
+        group: { textStyle: "eyebrow", height: "28px", background: "bg.muted", borderBottomWidth: "1px", borderColor: "border.subtle", "& > div": { display: "flex", alignItems: "center", gap: "6px", position: "sticky", left: 0, width: "184px", height: "100%", padding: "4px 12px", whiteSpace: "nowrap", "& svg": fontAwesomeSize("10px") } },
+        ruler: { flex: 1, minWidth: 0 },
+        rulerRow: { position: "relative", height: "26px", overflow: "hidden" },
+        rulerTick: { ...shellBase.rulerTick, position: "absolute", top: 0, bottom: 0, justifyContent: "flex-start", padding: "4px", overflow: "hidden", textOverflow: "ellipsis", borderLeftWidth: "1px", borderColor: "border.subtle" },
+        title: { textStyle: "body.sm", fontWeight: "semibold", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 },
+        detail: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
+        resize: {
+            ...timeResizeEdge("y", "data-edge"),
+            "&[data-along=x]": {
+                ...timeResizeEdge("x", "data-edge"), left: "auto", right: "auto", height: "auto",
+                "&::after": { ...timeResizeEdge("x", "data-edge")["&::after"], right: "auto", height: "auto" },
             },
         },
-        dayHeader: {
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "center",
-            fontFamily: "mono",
-            fontWeight: "600",
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            transition: "color 140ms {easings.out}",
-            /* cross-highlight: the hovered / selected day column. */
-            "&[data-active]": { color: "link", fontWeight: "700" },
-        },
-        totalsHeader: {
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "flex-end",
-            fontFamily: "mono",
-            fontSize: "9px",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-        weekLabel: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            paddingRight: "11px",
-            fontFamily: "mono",
-            color: "fg.subtle",
-            transition: "color 140ms {easings.out}",
-            /* cross-highlight: the hovered / selected week row. */
-            "&[data-active]": { color: "link", fontWeight: "700" },
-        },
-        cell: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "mono",
-            fontVariantNumeric: "tabular-nums",
-            fontWeight: "600",
-            lineHeight: "1",
-            position: "relative",
-            outlineOffset: "-2px",
-            transition: "background-color 180ms {easings.out}, box-shadow 130ms ease, filter 130ms ease",
-            cursor: "pointer",
-            /* the fill (`background`) + on-ramp ink (`color`) are applied inline
-             * in the renderer from the ramp CSS vars — a data-driven binding. */
-            /* empty (no cell for this week × day): hatched neutral. */
-            "&[data-empty]": {
-                background: "bg.subtle",
-                backgroundImage: "repeating-linear-gradient(-45deg,transparent 0 5px,color-mix(in srgb, {colors.fg.subtle} 12%, transparent) 5px 6px)",
-                color: "fg.subtle",
-                cursor: "default",
-            },
-            /* hover cross-hair — an inset ring, brightened. */
-            "&[data-hover]:not([data-selected])": {
-                boxShadow: "inset 0 0 0 2px var(--cal-ring)",
-                filter: "brightness(1.05)",
-            },
-            /* selected — the ink outline; no shadow (the design system
-             * shadows nothing but the focus ring). */
-            "&[data-selected]": {
-                outline: "2px solid",
-                outlineColor: "fg",
-                zIndex: "2",
-            },
-            /* non-interactive densities keep the default cursor. */
-            "&[data-static]": { cursor: "default" },
-        },
-        /* Σ-wk totals rail — value stacked over a proportion bar. */
-        totalsCell: {
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            justifyContent: "center",
-            gap: "5px",
-            paddingLeft: "11px",
-        },
-        totalsValue: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "600",
-            lineHeight: "1",
-            color: "fg",
-        },
-        totalsBar: {
-            display: "block",
-            width: "100%",
-            height: "3px",
-            borderRadius: "2px",
-            background: "bg.subtle",
-            overflow: "hidden",
-        },
-        totalsBarFill: {
-            display: "block",
-            height: "100%",
-            background: "brand.solid",
-            borderRadius: "2px",
-            transition: "width 220ms {easings.out}",
-        },
-        /* per-weekday aggregate ("mean") row — pinned under the grid, ruled. */
-        meanLabel: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            paddingRight: "11px",
-            fontFamily: "mono",
-            fontSize: "9px",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            marginTop: "5px",
-        },
-        meanCell: {
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "mono",
-            fontWeight: "500",
-            color: "fg.subtle",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            marginTop: "5px",
-            transition: "color 140ms {easings.out}",
-            "&[data-active]": { color: "link" },
-        },
-        meanPad: {
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            marginTop: "5px",
-        },
-        /* selection footer. */
-        footer: {
-            display: "flex",
-            alignItems: "center",
-            gap: "11px",
-            borderTopWidth: "1px",
-            borderTopColor: "border.subtle",
-            fontFamily: "body",
-            fontSize: "12px",
-            color: "fg.muted",
-            whiteSpace: "nowrap",
-        },
-        footerLead: { color: "fg.subtle" },
-        footerSel: { color: "fg", fontWeight: "600" },
-        footerValue: { fontFamily: "mono", fontWeight: "600", color: "fg" },
-        /* The delta: Font Awesome's caret, or its bar while flat, beside the
-         * signed figure (#1263) — the icon in the chip's ink, its size, and its
-         * own width, as the glyph it replaced, not Font Awesome's fixed 1.25em. */
-        deltaChip: {
-            "--fa-width": "auto",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "600",
-            padding: "2px 8px",
-            borderRadius: "3px",
-            borderWidth: "1px",
-            letterSpacing: "0.02em",
-            /* The word is the valence's text step; its edge, a mark, the base. */
-            "&[data-dir=up]":   { color: "fg.success", borderColor: "status.pos", background: "bg.success.subtle" },
-            "&[data-dir=down]": { color: "fg.danger",  borderColor: "status.neg", background: "bg.danger.subtle" },
-            "&[data-dir=flat]": { color: "fg.subtle",  borderColor: "border.strong", background: "bg.canvas" },
-        },
-        action: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "600",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "link",
-            cursor: "pointer",
-            background: "transparent",
-            border: "none",
-            padding: "0",
-            "&[data-disabled]": { color: "fg.subtle", cursor: "default" },
-        },
-        /* low→high gradient legend, pinned footer-right. */
-        legend: {
-            display: "flex",
-            alignItems: "center",
-            gap: "7px",
-            flexShrink: "0",
-            marginLeft: "auto",
-        },
-        legendCap: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "500",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-        legendGradient: {
-            width: "92px",
-            height: "8px",
-            borderRadius: "9999px",
-            background: "linear-gradient(90deg, var(--cal-r0), var(--cal-r1), var(--cal-r2), var(--cal-r3), var(--cal-r4), var(--cal-r5), var(--cal-r6), var(--cal-r7))",
-            boxShadow: "inset 0 0 0 1px color-mix(in srgb, {colors.fg} 7%, transparent)",
-        },
-    },
-    variants: {
-        /* Density → font sizing + cell radius only. The structural pixel
-         * values (cell height, grid template, gap, padding) are computed in
-         * the renderer's DENS map so the VirtualRows sizing contract (#320)
-         * and the plot-gutter template (#147) can read them. Mapped by size
-         * rank to the designer's three panels: comfortable = "large" (46px),
-         * compact = "comfortable" (30px), condensed = "compact" (20px). */
-        density: {
-            comfortable: {
-                cell: { fontSize: "13px", borderRadius: "3px" },
-                dayHeader: { fontSize: "10px" },
-                weekLabel: { fontSize: "10px" },
-                meanCell: { fontSize: "10px" },
-            },
-            compact: {
-                cell: { fontSize: "11px", borderRadius: "3px" },
-                dayHeader: { fontSize: "10px" },
-                weekLabel: { fontSize: "10px" },
-                meanCell: { fontSize: "10px" },
-            },
-            condensed: {
-                cell: { fontSize: "11px", borderRadius: "2px" },
-                dayHeader: { fontSize: "9px" },
-                weekLabel: { fontSize: "9px" },
-                meanCell: { fontSize: "9px" },
-            },
-        },
-    },
-    defaultVariants: {
-        density: "comfortable",
+        month: { display: "grid", flex: 1, minHeight: 0 },
+        monthDay: { position: "relative", minWidth: 0, minHeight: "128px", padding: "6px", borderRightWidth: "1px", borderBottomWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "&[data-outside]": { background: "bg.muted" }, "& [data-calendar-event]": { position: "relative", width: "100%" } },
+        dayNumber: { textStyle: "mono.sm", textAlign: "left", minHeight: "24px", "&[data-today]": { color: "brand.fg", fontWeight: "bold" } },
+        more: { textStyle: "mono.xs", color: "brand.fg", textAlign: "left", minHeight: "28px" },
+        timeline: { minWidth: 0 },
+        timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        rowHead: { position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "8px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
+        rowPlot: { position: "relative", flex: 1 },
+        agenda: { minWidth: 0, padding: "12px", background: "bg.panel", display: "flex", flexDirection: "column", gap: "16px" },
+        agendaDay: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
+        agendaHead: { textStyle: "caption.eyebrow" },
+        card: { ...planElementDrafted, ...planElementSelected, ...planElementFocus, minWidth: 0, padding: "12px", borderWidth: "1px", borderColor: "border.subtle", borderRadius: "sm", background: "bg.surface", display: "flex", flexDirection: "column", gap: "8px", "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } },
+        cardHead: { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" },
+        cardTitle: { textStyle: "title.row", overflowWrap: "anywhere", minWidth: 0 },
+        actions: { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" },
+        pane: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0, minWidth: 0 },
+        paneFoot: { flexShrink: 0, padding: "12px", borderTopWidth: "1px", borderColor: "border.subtle" },
+        section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
+        status: INSPECTOR_STATUS,
+        footer: { display: "flex", flexWrap: "wrap", gap: "8px", padding: "6px 12px", minWidth: 0, "& > span": shellBase.footerItem },
+        toolbarRange: { display: "flex", alignItems: "baseline", gap: "8px", whiteSpace: "nowrap" },
+        rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" },
+        toolbarText: shellBase.footerItem,
+        form: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
+        error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
+        empty: { textStyle: "body.sm", padding: "16px", color: "fg.muted" },
     },
 });

@@ -67,12 +67,13 @@ import {
 import { Record } from "../bind/record.js";
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
+import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { checkEntries, checkIndexWindow, scheduleBacklogWindow, scheduleDayWindow, scheduleEntryByKey, scheduleLastKey } from "./window.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEntriesType,
     ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleStatusCasesFor, ScheduleStatusType,
-    ScheduleWriteType, type ScheduleStatusCasesType,
+    ScheduleWriteType, ScheduleTemplateType, ScheduleReadType, type ScheduleStatusCasesType,
 } from "./types.js";
 
 // ============================================================================
@@ -289,7 +290,7 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     /** Whether two events of the kind on one resource at once are a conflict (`"warn"`, the default) or run in parallel (`"allow"`). */
     overlaps?: ScheduleOverlapsLiteral;
     /**
-     * Plan: the kind's own inspector for one event (PB60) — an East function
+     * Plan and Calendar: the kind's own inspector for one event (PB60) — an East function
      * over the event's row and a writer of the edited row,
      * `(row, update) => UIComponentType`, passed through untouched (never
      * called at build), capturing only data and bind handles. A Plan's
@@ -322,7 +323,7 @@ export interface ScheduleEventsConfig<K extends EastType, R extends StructType, 
     /** For Option times: how long an unscheduled row takes, and when it is due. */
     backlog?: R["fields"][S] extends OptionType<DateTimeType> ? ScheduleBacklog<K, R> : never;
     /** The presets the library lists. */
-    templates?: readonly ScheduleTemplate<ScheduleValuesOf<R, S | E | F>>[];
+    templates?: readonly ScheduleTemplate<ScheduleValuesOf<R, S | E | F>>[] | ScheduleTemplates<ScheduleValuesOf<R, S | E | F>>;
     /**
      * A paged read of a backlog index over the record (`Data.bindPaged(record,
      * { index, join: true })`), keyed by `Schedule.unscheduled`: the kind's
@@ -403,7 +404,7 @@ interface AnyConfig {
     status?: { field: string; cases: unknown };
     backlog?: { duration: (row: unknown, key: unknown) => unknown; due?: (row: unknown, key: unknown) => unknown };
     fields?: Readonly<Record<string, unknown>>;
-    templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[];
+    templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
     window?: unknown;
     backlogWindow?: unknown;
@@ -674,7 +675,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // The templates: unique keys, a span kind's duration, and values of the row less what a drop places.
     const placed = new Set([startField, endField, ...(resource === undefined ? [] : [resource.field])]);
     const valuesType = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !placed.has(name))));
-    const templates = config.templates ?? [];
+    const boundTemplates = config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates
+        ? checkedTemplates(config.templates, valuesType, where) : undefined;
+    const templates = config.templates !== undefined && !(SCHEDULE_TEMPLATES in config.templates) ? config.templates : [];
     const seen = new Set<string>();
     for (const t of templates) {
         if (seen.has(t.key)) throw new Error(`${where}: template "${t.key}" is declared twice — a template's key is unique within its kind`);
@@ -959,6 +962,46 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             return result;
         });
 
+    const readEvent = (makeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType) => East.function([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(readType), ($, id, drafts, from, to) => {
+        const parse = $.const(keyOf);
+        const make = $.const(makeItem);
+        const key = $.const(parse(id));
+        const row = $.let(East.value(none, OptionType(rowType)), OptionType(rowType));
+        const unread = $.let(true, BooleanType);
+        $.if(drafts.has(id), ($2) => {
+            $2.match(drafts.get(id).decodeBeast(draftType, "v2"), {
+                value: ($3, entry) => {
+                    $3.assign(row, East.value(some(entry), OptionType(rowType)));
+                    $3.assign(unread, false);
+                },
+                missing: ($3) => { $3.assign(unread, false); },
+            });
+        });
+        $.if(unread, ($2) => {
+            if (byKey === undefined || readDays === undefined) {
+                const held = $2.const(readAll());
+                $2.assign(row, held.tryGet(key) as never);
+                return;
+            }
+            const days = $2.const(readDays);
+            $2.match(days(from, to), { some: ($3, held) => { $3.assign(row, held.tryGet(key) as never); } });
+            if (readBacklog !== undefined) {
+                const backlog = $2.const(readBacklog);
+                $2.if(row.hasTag("none"), ($3) => {
+                    $3.match(backlog(), { some: ($4, held) => { $4.assign(row, held.tryGet(key) as never); } });
+                });
+            }
+            const find = $2.const(byKey);
+            $2.if(row.hasTag("none"), ($3) => {
+                $3.match(find(id), { held: ($4, held) => { $4.assign(row, East.value(some(held as ExprType<EastType>), OptionType(rowType)) as never); } });
+            });
+        });
+        return row.match({
+            some: (_$2, r) => East.value(some({ item: make({ id, key, row: r }), row: East.Blob.encodeBeast(r, "v2") }) as never, OptionType(readType)),
+            none: (_$2) => East.value(none, OptionType(readType)),
+        });
+    });
+
     /** The Calendar's kind, part by part, under its slot — and the function that makes one of its events. */
     const kindParts = (slot: string) => {
         // One event, as every view draws it.
@@ -1003,15 +1046,18 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         const items = windowOf(ScheduleItemType, itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>);
         const unscheduled = backlogOf(ScheduleItemType, itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>);
         // Each template's values, by key, as the templates on the wire carry them.
-        const templateBytes = templates.map((t) => ({
-            key: t.key,
-            bytes: East.Blob.encodeBeast(East.value(t.values as SubtypeExprOrValue<EastType>, valuesType), "v2"),
-        }));
+        const templateRows = boundTemplates ?? East.value(templates.map((t) => ({
+            key: t.key, name: t.name, group: t.group === undefined ? none : some(t.group),
+            at: t.at === undefined ? none : some(East.value(t.at as SubtypeExprOrValue<ScheduleClockType>, ScheduleClockType)),
+            duration: t.duration === undefined ? variant("minutes", 0) : East.value(t.duration as SubtypeExprOrValue<ScheduleDurationType>, ScheduleDurationType),
+            values: East.Blob.encodeBeast(East.value(t.values as SubtypeExprOrValue<EastType>, valuesType), "v2"),
+        })), ArrayType(ScheduleTemplateType));
         const write = East.function([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType)), ($, requests) => {
             const place = $.const(placeIn);
             const resolve = resourceValue === undefined ? undefined : $.const(resourceValue);
             const byTemplate = $.let(new Map(), DictType(StringType, BlobType));
-            for (const t of templateBytes) $(byTemplate.insert(t.key, t.bytes));
+            const presets = $.const(templateRows);
+            $.for(presets, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
             // Each setter's path as East holds it: a field is named by its steps, never by text a dotted name could mimic.
             const setterFns = setters.map((setter) => ({ path: $.const([...setter.path], ArrayType(StringType)), set: $.const(setter.set) }));
             return requests.map(($2, request) => {
@@ -1061,8 +1107,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
         // The author's check, one result per drafted entry, in order; a check that throws refuses its own entry alone.
         const ready = config.ready === undefined ? undefined : (() => {
-            const author = East.function([rowType, keyType], EditingReadinessType, (_$, row, key) =>
-                config.ready!(row, key) as SubtypeExprOrValue<typeof EditingReadinessType>);
+            const author = East.function([rowType, keyType], EditingReadinessType, ($, row, key) =>
+                $.const(config.ready!(row, key) as SubtypeExprOrValue<typeof EditingReadinessType>, EditingReadinessType));
             return East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType), ($, batch) => {
                 const check = $.const(author);
                 const parse = $.const(keyOf);
@@ -1141,17 +1187,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             takes,
             status: statusTable === undefined || statusCases === undefined ? [] : statusCases.map((c) => ({ case: c, status: fieldOf(statusTable, c) })),
             backlog: optional,
-            templates: templates.map((t, i) => ({
-                key: t.key,
-                name: t.name,
-                group: t.group === undefined ? none : some(t.group),
-                at: t.at === undefined ? East.value(none, OptionType(ScheduleClockType)) : East.value(some(East.value(t.at as SubtypeExprOrValue<ScheduleClockType>, ScheduleClockType)), OptionType(ScheduleClockType)),
-                // An instant kind's template creates an event of no length.
-                duration: t.duration === undefined
-                    ? East.value(variant("minutes", 0), ScheduleDurationType)
-                    : East.value(t.duration as SubtypeExprOrValue<ScheduleDurationType>, ScheduleDurationType),
-                values: templateBytes[i]!.bytes,
-            })),
+            templates: templateRows,
             fields: East.value(formSpecs, ArrayType(FieldSpecType)),
             items,
             unscheduled,
@@ -1160,6 +1196,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             editing,
             entries: entriesSeam,
             history: handle["history"],
+            event: readEvent(itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, ScheduleReadType),
+            schedule: { title: config.title, start: startField, end: endField,
+                resource: resource === undefined ? none : some(resource.field),
+                status: config.status === undefined ? none : some(config.status.field) },
+            overlaps: variant(overlaps, null),
+            inspector: inspector === undefined ? none : some(inspector),
         };
         return { fields: fieldsOfKind, itemOf };
     };
@@ -1202,45 +1244,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             // is the record's: read whole, or for a kind read a window at a time (#1199) looked for first among the
             // rows its windows hold over [from, to) and its backlog's, where a gesture's event is drawn, then read
             // by its key.
-            const planEvent = East.function([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(PlanEventReadType), ($, id, drafts, from, to) => {
-                const parse = $.const(keyOf);
-                const make = $.const(planItemOf);
-                const key = $.const(parse(id));
-                const row = $.let(East.value(none, OptionType(rowType)), OptionType(rowType));
-                const unread = $.let(true, BooleanType);
-                $.if(drafts.has(id), ($2) => {
-                    $2.match(drafts.get(id).decodeBeast(draftType, "v2"), {
-                        value: ($3, entry) => {
-                            $3.assign(row, East.value(some(entry), OptionType(rowType)));
-                            $3.assign(unread, false);
-                        },
-                        missing: ($3) => { $3.assign(unread, false); },
-                    });
-                });
-                $.if(unread, ($2) => {
-                    if (byKey === undefined || readDays === undefined) {
-                        const held = $2.const(readAll());
-                        $2.assign(row, held.tryGet(key) as never);
-                        return;
-                    }
-                    const days = $2.const(readDays);
-                    $2.match(days(from, to), { some: ($3, held) => { $3.assign(row, held.tryGet(key) as never); } });
-                    if (readBacklog !== undefined) {
-                        const backlog = $2.const(readBacklog);
-                        $2.if(row.hasTag("none"), ($3) => {
-                            $3.match(backlog(), { some: ($4, held) => { $4.assign(row, held.tryGet(key) as never); } });
-                        });
-                    }
-                    const find = $2.const(byKey);
-                    $2.if(row.hasTag("none"), ($3) => {
-                        $3.match(find(id), { held: ($4, held) => { $4.assign(row, East.value(some(held as ExprType<EastType>), OptionType(rowType)) as never); } });
-                    });
-                });
-                return row.match({
-                    some: (_$2, r) => East.value(some({ item: make({ id, key, row: r }), row: East.Blob.encodeBeast(r, "v2") }) as never, OptionType(PlanEventReadType)),
-                    none: (_$2) => East.value(none, OptionType(PlanEventReadType)),
-                });
-            });
+            const planEvent = readEvent(planItemOf, PlanEventReadType);
             const name = (field: string | undefined) => (field === undefined ? none : some(field));
             return East.value({
                 ...parts.fields,

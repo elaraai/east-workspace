@@ -34,7 +34,9 @@
     "./dist/ontology/index.js",
     "./src/ontology/index.tsx",
     "./dist/experiment/index.js",
-    "./src/experiment/index.tsx"
+    "./src/experiment/index.tsx",
+    "./dist/calendar/index.js",
+    "./src/calendar/index.tsx"
   ],
   "scripts": {
     "build": "pnpm run typecheck && vite build",

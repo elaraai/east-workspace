@@ -124,3 +124,23 @@ export const inspectorBase = {
     emptyTitle: { textStyle: "caption.eyebrow" },
     emptyHint: { textStyle: "body.sm", maxWidth: "220px", color: "fg.muted", textWrap: "pretty" },
 } satisfies Record<(typeof inspectorSlots)[number], SystemStyleObject>;
+
+/** A schedule status badge shared by Plan and Calendar inspectors. */
+export const INSPECTOR_STATUS = {
+    fontFamily: "mono",
+    fontSize: "9px",
+    fontWeight: "600",
+    letterSpacing: "0.12em",
+    lineHeight: "normal",
+    textTransform: "uppercase",
+    paddingX: "{spacing.1}",
+    paddingY: "1px",
+    borderRadius: "{radii.xs}",
+    whiteSpace: "nowrap",
+    "&[data-tone=success]": { background: "bg.success.subtle", color: "fg.success" },
+    "&[data-tone=warning]": { background: "bg.warning.subtle", color: "fg.warning" },
+    "&[data-tone=danger]": { background: "bg.danger.subtle", color: "fg.danger" },
+    "&[data-tone=info]": { background: "bg.brand.subtle", color: "brand.fg" },
+    "&[data-tone=neutral]": { background: "bg.subtle", color: "fg.muted" },
+    "&[data-ring]": { background: "transparent", boxShadow: "inset 0 0 0 1px currentColor" },
+} as const satisfies SystemStyleObject;

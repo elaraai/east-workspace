@@ -46,7 +46,6 @@ import { settled } from "./settle";
 const FILES = [
     "feedback/empty-state",
     "collections/library",
-    "collections/calendar",
     "collections/board",
     "collections/roster",
     "slice/slice",
@@ -277,20 +276,7 @@ test.describe("a converted icon takes the room its glyph took (#1263)", () => {
         expect(signs.filter((c) => !(c.fa === "auto" && c.w > 0 && near(c.w, c.own))), "a sign in Font Awesome's fixed cell").toEqual([]);
     });
 
-    test("the Calendar's delta: its caret its own width, beside the signed figure", async ({ page, isMobile }) => {
-        test.skip(isMobile, "measured once, at the desktop width");
-        const file = "collections/calendar";
-        await openFile(page, file);
-        // A day picked: the footer's delta chip draws.
-        await page.evaluate(() => {
-            const row = [...document.querySelectorAll("[data-index]")].find((r) => r.querySelector('a[href="#collections/calendar/calendarDemand"]') !== null)!;
-            [...row.querySelectorAll<HTMLElement>("div[style*='background']")].find((cell) => !cell.hasAttribute("data-empty") && /\d/.test(cell.textContent ?? ""))!.click();
-        });
-        await settled(page);
-        const deltas = await measure(page, file, { delta: { icons: "[data-dir] svg" } });
-        expect(deltas.length, "no delta drawn").toBeGreaterThan(0);
-        expect(deltas.filter((d) => !(d.fa === "auto" && d.w > 0 && near(d.w, d.own))), "a delta in Font Awesome's fixed cell").toEqual([]);
-    });
+
 });
 
 test.describe("an empty state's mark (#1263)", () => {

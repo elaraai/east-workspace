@@ -52,11 +52,6 @@ export {
     type MapCartoLiteral,
 } from "./map/index.js";
 export {
-    Calendar,
-    type CalendarConfig,
-    type CalendarCellFields,
-} from "./calendar/index.js";
-export {
     Roster,
     type RosterConfig,
     type RosterPersonFields,

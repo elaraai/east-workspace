@@ -81,6 +81,7 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
     { name: "planTargetState", hash: `${PLAN_EXAMPLES}/planTargetState` },
     { name: "planRowDrop", hash: `${PLAN_EXAMPLES}/planRowDrop` },
     { name: "planPrintWorks", hash: `${PLAN_EVENT_EXAMPLES}/planPrintWorks` },
+    { name: "calendarOperations", hash: "e3/calendar/calendar/calendarOperations" },
     {
         name: "sheetWorkshop", hash: "e3/sheet/sheet/sheetWorkshop",
         phone: [{

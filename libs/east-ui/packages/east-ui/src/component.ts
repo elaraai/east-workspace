@@ -130,7 +130,6 @@ import { ValueTreeRootType } from "./collections/value-tree/types.js";
 import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
 import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
 import { CellRefType, DragEventType } from "./contracts/drag.js";
-import { CalendarRootType } from "./collections/calendar/types.js";
 import {
     SchematicItemType,
     SchematicZoneType,
@@ -1018,8 +1017,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         })),
     }),
 
-    // Calendar — day-of-week × week intensity grid (visualisation only)
-    Calendar: CalendarRootType,
 
     // Schematic — 2D world-coordinate canvas. The `itemHover` / `zoneHover` /
     // `linkHover` builders return arbitrary UI via the recursion `node`; mirror

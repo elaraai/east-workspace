@@ -7,7 +7,7 @@
  * React context + hook for the `PlotGutter` cascade (#147).
  *
  * A `PlotGutterProvider` publishes one `{ left, right }` gutter; the axis/lane
- * components (Chart, Trace, Calendar, …) read it via {@link usePlotGutter} and
+ * components (Chart, Trace, …) read it via {@link usePlotGutter} and
  * inset their data lane to `[left, W − right]` so stacked components line up on
  * a common x. A component's own `plotGutter` prop wins over the inherited value
  * — the same per-component-override-beats-cascade rule as density (see
