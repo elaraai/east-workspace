@@ -42,6 +42,8 @@ export {
     StateRuntime,
     NavImpl,
     SliceImpl,
+    RecordSliceImpl,
+    createRecordSliceImplementation,
     SliceApplyImpl,
     buildSliceHandle,
     DEFAULT_SLICE_STATE,

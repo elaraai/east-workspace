@@ -41,6 +41,9 @@ export interface EditSource<W> {
     refresh: (revision: option<string>) => unknown;
     /** Find a key's row. */
     seek: option<(query: ValueTypeOf<SeekQueryType>) => option<ValueTypeOf<SeekRangeType>>>;
+    /** Confirm by primary identity independently of a filtered view. Outer none
+     * is pending; inner none means the record no longer contains the entry. */
+    readCurrent?: ((id: string) => option<option<Uint8Array>>) | undefined;
 }
 
 /**
@@ -49,6 +52,8 @@ export interface EditSource<W> {
  * @typeParam W - The collection's projection of an entry
  */
 export interface EditSessionOptions<W> {
+    /** Optional view confirmation prepared before the mutation is submitted. */
+    prepare?: EditSessionBinding<W>["prepare"];
     /** An entry's id, read off its projection. Stable across renders. */
     idOf: (row: W) => string;
     /** The collection's own checks over the drafts, built for the current rows. */
@@ -73,7 +78,7 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @returns The session; the base it observed; its schemas' codecs; each resident row's index; an entry's placement and original version; the encoded drafts; whether editing is available; and the session's version
  */
 export function useEditSession<W>(editing: EditingValue, source: EditSource<W> | undefined, rows: readonly W[], positions: readonly number[], storageKey: string, options: EditSessionOptions<W>) {
-    const { idOf, ready } = options;
+    const { idOf, ready, prepare } = options;
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo((): EastType => fromEastTypeValue(editing.draftType), [editing.draftType]);
@@ -82,8 +87,8 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) : undefined, [editing.keyType]);
     const sourceId = editing.sourceId;
     const sourceSessions = useMemo(() => sourceSessionsOf(store, sourceId), [store, sourceId]);
-    const binding = useMemo(() => bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh),
-        [entryType, draftType, keyType, editing, source, ready]);
+    const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare }),
+        [entryType, draftType, keyType, editing, source, ready, prepare]);
     const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
     const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);
@@ -132,6 +137,11 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         const ids = session.status === "reconciling" ? [...session.entries.keys()]
             : naming !== undefined && !stringEqual(revision.value, naming.revision) ? naming.ids : [];
         for (const id of ids) {
+            if (source.readCurrent !== undefined) {
+                const current = source.readCurrent(id);
+                if (current.type === "some") reads.set(id, current.value.type === "some" ? some(codecs.decodeEntry(current.value.value)) : none);
+                continue;
+            }
             const resident = rowIndex.get(id);
             let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
             if (keyType !== undefined && source.seek.type === "some") {

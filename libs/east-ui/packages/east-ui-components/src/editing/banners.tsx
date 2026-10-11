@@ -102,6 +102,11 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
                         description={issues(session.issues)} />
                 </Box>
             )}
+            {status === "idle" && errorText !== undefined && (
+                <Box data-session-banner="prepare">
+                    <BannerView status="error" title={titled(m.bannerRejected())} description={errorText} actions={action(m.retryRequest(), "apply")} />
+                </Box>
+            )}
             {status === "rejected" && (
                 <Box data-session-banner="rejected">
                     <BannerView status="error" title={titled(m.bannerRejected())} description={issues(session.issues)} />

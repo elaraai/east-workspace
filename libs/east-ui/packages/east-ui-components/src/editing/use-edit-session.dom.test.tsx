@@ -157,3 +157,59 @@ test("a keyed paged source's conflicting Save is named by its entries read at th
     expect(session().issues).toEqual([issue("b", "b moved")]);
     expect(session().stale).toBe(true);
 });
+
+
+test("hidden and paged-out drafts retain history and Save confirms them by primary identity", async () => {
+    initializeStore(new UIStore());
+    const held = { revision: "r1", pending: true };
+    const confirmed: string[] = [];
+    const sourceAt = (): EditSource<Bar> => ({
+        revision: () => some(held.revision), refresh: () => null,
+        page: () => { throw new Error("The narrowed view no longer contains b"); },
+        seek: some(() => { throw new Error("Confirmation must use primary identity"); }),
+        readCurrent: (id) => {
+            confirmed.push(id);
+            return held.pending ? none : some(some(encodeRun({ id: "b", end: 5n })));
+        },
+    });
+    const editing: EditingValue = {
+        ...editingOf(true), sourceId: "filtered-bars", snapshot: none,
+        onApply: some(variant("sync", () => variant("applied", { revision: some("r2") }))),
+    };
+    const hook = renderHook(({ source, rows }) => useEditSession<Bar>(editing, source, rows, POSITIONS, "filtered-bars", { idOf }), {
+        initialProps: { source: sourceAt(), rows: BARS },
+    });
+    act(() => {
+        const { session, original } = hook.result.current;
+        const before = original("b");
+        session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
+    });
+    const session = hook.result.current.session;
+    // Evict the edited row from the resident window, as scrolling or filtering does.
+    // The page cache is not the draft store; even Undo/Redo works while hidden.
+    const hidden = BARS.filter(bar => bar.key !== "b");
+    hook.rerender({ source: sourceAt(), rows: hidden });
+    expect(hook.result.current.session).toBe(session);
+    expect(session.pending).toBe(1);
+    expect([...hook.result.current.drafts.keys()]).toEqual(["b"]);
+    act(() => session.undo());
+    expect(session.pending).toBe(0);
+    act(() => session.redo());
+    expect(session.pending).toBe(1);
+    hook.rerender({ source: sourceAt(), rows: BARS });
+    expect(hook.result.current.original("b").draft).toEqual({ id: variant("value", "b"), end: variant("value", 5n) });
+    hook.rerender({ source: sourceAt(), rows: hidden });
+    expect(confirmed, "gestures and paging use retained drafts without extra primary reads").toEqual([]);
+    await act(async () => { await session.apply(); });
+    held.revision = "r2";
+    hook.rerender({ source: sourceAt(), rows: BARS.filter(bar => bar.key !== "b") });
+    expect(hook.result.current.session.status).toBe("reconciling");
+    expect(hook.result.current.session.entries.size).toBe(1);
+    held.pending = false;
+    hook.rerender({ source: sourceAt(), rows: BARS.filter(bar => bar.key !== "b") });
+    expect(confirmed).toContain("b");
+    expect(hook.result.current.session.pending).toBe(0);
+    expect(hook.result.current.session.status).toBe("idle");
+    expect(hook.result.current.available).toBe(true);
+    expect(hook.result.current.session.issues).toEqual([]);
+});

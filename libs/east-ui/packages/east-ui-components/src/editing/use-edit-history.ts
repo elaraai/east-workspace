@@ -50,6 +50,8 @@ export interface EditHistoryPaged {
 export interface EditHistorySource<W> {
     /** Its editing declaration: a keyed source (`keyType` given) — read whole, its entries an inline snapshot (`snapshot`), or a window at a time (`paged`), with none. */
     readonly editing: EditingValue;
+    /** Optional view confirmation prepared before the mutation is submitted. */
+    readonly prepare?: EditSessionBinding<W>["prepare"];
     /** Its own checks over its drafts (the session's `ready`). */
     readonly ready?: EditSessionBinding<W>["ready"] | undefined;
     /** How a source read a window at a time is read (#1199); omitted, the source is read whole. */
@@ -156,7 +158,7 @@ export function useEditHistory<W>(
         const entryType = fromEastTypeValue(editing.entryType);
         const draftType = fromEastTypeValue(editing.draftType);
         const keyType = fromEastTypeValue(editing.keyType.value);
-        const binding = bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh);
+        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare };
         const kept = sourceSessionsOf(store, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => new EditSession<W>(binding));
         return {

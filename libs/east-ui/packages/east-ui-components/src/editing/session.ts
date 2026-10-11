@@ -98,6 +98,10 @@ export interface EditSessionBinding<W> {
      * an inline snapshot base is the source's `Dict<K, E>`, applied by key.
      */
     keyType?: EastType | undefined;
+    /** Prepare view-specific confirmation, before submitting any mutation.
+     * The returned observer runs once after the primary entries confirm.
+     * Preparation failures leave the drafts editable and the Save unsent. */
+    prepare?: ((targets: ReadonlyMap<string, Target>) => Promise<() => void>) | undefined;
     /** The authoritative apply, over the batch's bytes. */
     apply: ((payload: Uint8Array) => ApplyResult | Promise<ApplyResult>) | undefined;
     /** The patch observer, over the event's bytes. */
@@ -134,6 +138,8 @@ interface Conflicted {
 }
 
 interface Submission<W> {
+    prepare: EditSessionBinding<W>["prepare"];
+    confirmed?: (() => void) | undefined;
     payload: Uint8Array;
     apply: NonNullable<EditSessionBinding<W>["apply"]>;
     refresh: EditSessionBinding<W>["refresh"];
@@ -576,10 +582,22 @@ export class EditSession<W> {
             }]));
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
-            this.submission = { release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, base: this.cloneBase(this.base), revision: undefined };
+            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
+        if (request.prepare !== undefined) {
+            try {
+                request.confirmed = await request.prepare(request.targets);
+                request.prepare = undefined;
+            } catch (error) {
+                // No mutation was sent. Release the write gate and keep all
+                // drafts, so Retry can prepare a fresh request safely.
+                this.submission = undefined; request.release?.(); this.status = "idle";
+                this.error = error instanceof Error ? error.message : String(error);
+                this.changed(); return;
+            }
+        }
         let result: ApplyResult;
         try { result = await request.apply(request.payload.slice()); }
         catch (error) {
@@ -676,7 +694,9 @@ export class EditSession<W> {
             this.baseline.clear(); this.current.clear(); this.history = []; this.cursor = 0;
             this.draftsChanged();
         }
-        this.changed(); return true;
+        this.changed();
+        if (request.confirmed !== undefined) queueMicrotask(() => request.confirmed!());
+        return true;
     }
 
     /**

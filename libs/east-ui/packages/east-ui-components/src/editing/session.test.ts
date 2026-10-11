@@ -294,3 +294,51 @@ test("a snapshot's conflict is named by its source, and a gesture after a revisi
     expect(paged.naming).toBeUndefined();
     expect(paged.nameConflicts(variant("revision", "r2"), () => some({ ...cut, qty: 3n }))).toBe(false);
 });
+
+
+test("view preparation precedes submission; only changed primary entries reach it, and its observer waits for confirmed Save", async () => {
+    let release!: () => void;
+    let applied = 0;
+    let confirmed = 0;
+    const seen: string[][] = [];
+    const session = create({
+        prepare: async targets => {
+            seen.push([...targets.keys()]);
+            await new Promise<void>(resolve => { release = resolve; });
+            return () => { confirmed++; };
+        },
+        apply: () => { applied++; return variant("applied", { revision: none }); },
+    });
+    session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    const save = session.apply();
+    expect(applied).toBe(0);
+    expect(session.writable).toBe(false);
+    release();
+    await save;
+    expect(seen).toEqual([["a"]]);
+    expect(applied).toBe(1);
+    expect(confirmed).toBe(0);
+    expect(session.reconcile(variant("snapshot", [a]), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("snapshot", [{ ...a, end: 5n }]), () => undefined)).toBe(true);
+    await Promise.resolve();
+    expect(confirmed).toBe(1);
+});
+
+test("failed preparation sends no mutation, retains every draft and permits a fresh Save", async () => {
+    let failed = true;
+    let applied = 0;
+    const session = create({
+        prepare: async () => { if (failed) throw new Error("Could not check the current view"); return () => {}; },
+        apply: () => { applied++; return variant("applied", { revision: none }); },
+    });
+    session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    await session.apply();
+    expect(applied).toBe(0);
+    expect(session.pending).toBe(1);
+    expect(session.canApply).toBe(true);
+    expect(session.error).toBe("Could not check the current view");
+    failed = false;
+    await session.apply();
+    expect(applied).toBe(1);
+    expect(session.error).toBeUndefined();
+});
