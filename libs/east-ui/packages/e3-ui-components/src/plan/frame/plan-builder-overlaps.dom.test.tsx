@@ -184,7 +184,7 @@ describe("an overlap pair (#1198, PB51)", () => {
 });
 
 describe("the overlaps chip (#1198, PB52)", () => {
-    test("a click selects the first pair, earliest first, and brings it into view — out of a folded grain", async () => {
+    test("a click selects the first pair, earliest first, and brings it into view — out of collapsed groups", async () => {
         // Another job on Press A1 on the 5th, during the catalogue: the earlier pair.
         await h.commit(ex.planPrintJobs, jobsWith({
             "J-1031": { title: "Proof run", start: some(at("2026-10-05T10:00:00Z")), end: some(at("2026-10-05T12:00:00Z")), press: some("a1") },
@@ -192,10 +192,15 @@ describe("the overlaps chip (#1198, PB52)", () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         expect(chip(container)!.textContent).toBe("2 overlaps");
-        // GROUP folds each hall to its strip: Press A1's row leaves the canvas.
-        const group = [...slot(container, "toolbar")!.querySelectorAll<HTMLElement>("[data-plan-seg='grain'] [role='radio']")]
-            .find((radio) => radio.textContent === "GROUP")!;
-        fireEvent.click(group);
+        // The bindery starts collapsed, so the first action may be Expand all.
+        const fold = () => slot(container, "toolbar")!.querySelector("[data-plan-fold-all]")!;
+        if (fold().getAttribute("aria-label") === "Expand all") {
+            fireEvent.click(fold());
+            await settle();
+        }
+        // Collapse all folds each hall and its nested rows.
+        expect(fold().getAttribute("aria-label")).toBe("Collapse all");
+        fireEvent.click(fold());
         await settle();
         expect(container.querySelector(rowAt(A1))).toBeNull();
         fireEvent.click(chip(container)!);
@@ -204,10 +209,9 @@ describe("the overlaps chip (#1198, PB52)", () => {
         expect(bar(container, A1, "J-1031")!.getAttribute("aria-pressed")).toBe("true");
         expect(selectedRow(container)).toBe(rowKeyOf(A1));
         expect(announced(container)).toBe("2 events selected");
-        // The grain gave way to show the row; the inspector shows the two.
-        const resource = [...slot(container, "toolbar")!.querySelectorAll<HTMLElement>("[data-plan-seg='grain'] [role='radio']")]
-            .find((radio) => radio.textContent === "RESOURCE")!;
-        expect(resource.getAttribute("aria-checked")).toBe("true");
+        // Only the selected row's ancestors open. Other halls stay folded.
+        const hallB = container.querySelector(`[data-plan-group=${JSON.stringify(rowKeyOf(entry("presses.group", "Hall B")))}]`)!;
+        expect(hallB.getAttribute("aria-expanded")).toBe("false");
         expect(pane(container).querySelector("[data-inspector-several]")!.textContent).toBe("2 events");
     });
 

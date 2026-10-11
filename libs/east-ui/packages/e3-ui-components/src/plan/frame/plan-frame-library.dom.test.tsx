@@ -164,9 +164,9 @@ describe("Plan library integration", () => {
             ["Early shift", "Crew shift · 8 h · crews"],
             ["Late shift", "Crew shift · 8 h · crews"],
             ["Night shift", "Crew shift · 8 h · crews"],
-            ["Job plates", "Plates · setters"],
-            ["Fold sections", "Bindery job · 8 h · lines"],
-            ["Morning delivery", "Delivery · bays / vans"],
+            ["Job plates", "Plates · plate room"],
+            ["Fold sections", "Bindery job · 8 h · bindery"],
+            ["Morning delivery", "Delivery · dispatch/vans"],
         ]);
         // Each card wears its kind's icon, and drags.
         expect(cardNamed(container, "Brochure run").querySelector('svg[data-icon="file-lines"]')).not.toBeNull();

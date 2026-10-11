@@ -438,14 +438,14 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(header).not.toContain("~");
     });
 
-    test("the grain segment is the wide canvas's (#632): below 480px the Groups · Rows tabs own the grain; at 480px it mounts", () => {
+    test("the shared fold control remains available on both the narrow list and the wide canvas", () => {
         const narrow = renderPlan(fixture(), "plan-632-narrow");
         expect(narrow.container.querySelector("[data-plan-narrow]")).toBeTruthy();
-        expect(narrow.container.querySelector("[data-plan-seg='grain']")).toBeNull();
+        expect(narrow.container.querySelector("[data-plan-fold-all]")).not.toBeNull();
         cleanup();
         stubWidth(480);
         const wide = renderPlan(fixture(), "plan-632-wide");
         expect(wide.container.querySelector("[data-plan-narrow]")).toBeNull();
-        expect(wide.container.querySelector("[data-plan-seg='grain']")).not.toBeNull();
+        expect(wide.container.querySelector("[data-plan-fold-all]")).not.toBeNull();
     });
 });

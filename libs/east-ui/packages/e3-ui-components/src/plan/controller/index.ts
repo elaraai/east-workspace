@@ -174,6 +174,8 @@ export interface PlanAnnouncement {
 /** Everything the canvas renders from — replaced whole, parts kept by identity. */
 export interface PlanSnapshot {
     store: PlanStore;
+    /** Parent rows available to the fold control, including the first inline render. */
+    groups: readonly RowKey[];
     paging: PlanPagingSnapshot;
     seek: PlanSeekSnapshot;
     overlay: PlanOverlays;
@@ -509,7 +511,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     }
 
     let snapshot: PlanSnapshot = {
-        store, paging: paging.getSnapshot(), seek: seek.getSnapshot(), overlay, anchor, scroll, nav, announce,
+        store, groups: groupKeysOf(NO_ROWS), paging: paging.getSnapshot(), seek: seek.getSnapshot(), overlay, anchor, scroll, nav, announce,
     };
 
     // What the paged windows' heights were last measured under (#823).
@@ -549,6 +551,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     function refresh(): void {
         const p = paging.getSnapshot();
         const s = seek.getSnapshot();
+        const currentGroups = groupKeysOf(rows());
+        // A data commit with the same parents needs no extra render.
+        const groups = sameList(snapshot.groups, currentGroups, sameKey) ? snapshot.groups : currentGroups;
         // The key search's target: the first loaded row whose element sorts
         // at-or-after the sought key (a row's id starts with the key of the
         // element it came from, and the source serves its elements in key
@@ -573,14 +578,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }
         const quiet = store === quietStore;
         quietStore = undefined;
-        const othersSame = snapshot.paging === p && snapshot.seek === s && snapshot.overlay === overlay
+        const othersSame = snapshot.groups === groups && snapshot.paging === p && snapshot.seek === s && snapshot.overlay === overlay
             && snapshot.anchor === anchor && snapshot.scroll === scroll && snapshot.nav === nav
             && snapshot.announce === announce;
         if (snapshot.store === store && othersSame) return;
         // Only the store moved, and to what every reader already shows: no one
         // needs telling (see `setValue`).
         const drawn = quiet && othersSame;
-        snapshot = { store, paging: p, seek: s, overlay, anchor, scroll, nav, announce };
+        snapshot = { store, groups, paging: p, seek: s, overlay, anchor, scroll, nav, announce };
         if (!drawn) dirty = true;
     }
 

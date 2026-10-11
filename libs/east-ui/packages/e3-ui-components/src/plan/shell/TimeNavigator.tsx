@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+import type { ReactNode } from "react";
 
 import { some } from "@elaraai/east";
 import { useFormatters, useSliceReactivity } from "@elaraai/east-ui-components";
@@ -11,7 +12,7 @@ import { rangeOf } from "../axis.js";
 import type { PlanChrome } from "../root/chrome.js";
 
 /** Calendar/Roster navigation over Plan's existing Slice window and scale. */
-export function PlanTimeNavigator({ chrome, compact = false }: { chrome: PlanChrome; compact?: boolean }) {
+export function PlanTimeNavigator({ chrome, compact = false, controls }: { chrome: PlanChrome; compact?: boolean; controls?: ReactNode }) {
     const { scale, slice, recordChrome } = chrome;
     const record = recordChrome?.slice;
     useSliceReactivity(record?.key ?? slice?.key);
@@ -32,8 +33,8 @@ export function PlanTimeNavigator({ chrome, compact = false }: { chrome: PlanChr
     const rangeEditor = record !== undefined && field !== undefined
         ? <RecordSliceFieldEditor slice={record} field={field} />
         : slice !== undefined ? <SliceRangeContent slice={slice} fallback={rangeOf("datetime", scale.window.min, scale.window.max)} /> : undefined;
-    return <TimeNavigator scope="plan" label="Choose plan dates" date={from.getTime()} period={scale.resolution ?? "day"}
+    return <TimeNavigator scope="plan" label={controls === undefined ? "Choose plan dates" : "View"} date={from.getTime()} period={scale.resolution ?? "day"}
         sunday={false} compact={compact} onChange={navigate}
         rangeLabel={scale.resolution === "hour" ? `${words.dateTime(from)} – ${words.dateTime(to)}` : words.range(from, to)}
-        rangeEditor={rangeEditor} />;
+        rangeEditor={rangeEditor} controls={controls} />;
 }

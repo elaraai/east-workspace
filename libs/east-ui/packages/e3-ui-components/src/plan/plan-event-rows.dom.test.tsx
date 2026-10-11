@@ -71,6 +71,9 @@ describe("the print works' rows (PB12–PB16)", () => {
                 ...keys.flatMap((k) => [entry("presses.span", hall, k), entry("presses.marks", hall, k), entry("util", hall, k)]),
             ]),
             ...crews.flatMap(([hall, keys]) => [entry("crews.group", hall), ...keys.map((k) => entry("crews.cards", hall, k))]),
+            entry("setters.marks", "ps"), entry("lines.cards", "bindery"),
+            entry("bays.buckets", "bay"), entry("vans.buckets", "van1"), entry("vans.buckets", "van2"),
+            ...["board", "coated", "uncoated"].map(key => entry("stock", key)),
         ].map(rowKeyOf));
         // A press's bars are its jobs, its marks its stops; a crew's chips its shifts.
         const bars = container.querySelector(rowAt(entry("presses.span", "Hall A", "a1")))!;

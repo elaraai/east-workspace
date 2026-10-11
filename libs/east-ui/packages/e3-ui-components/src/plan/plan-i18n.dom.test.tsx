@@ -187,14 +187,17 @@ describe("one message table (#820)", () => {
             planRow("x", span([run("n1", variant("number", 1) as PlanInstantValue, variant("number", 2) as PlanInstantValue)]),
                 { parent: "G" }),
         ], { links }), "plan-820-desktop", marked);
-        // The frame's toolbar: the grain segment and the diagnostics chip.
+        // The frame's toolbar: the fold control and the diagnostics chip.
         const toolbar = container.querySelector("[data-frame-slot='toolbar']")!;
         allMarked(words(toolbar));
-        expect(words(toolbar)).toEqual(["⟦GROUP", "⟦RESOURCE", "⟦1 row skipped"]);
-        expect(toolbar.querySelector("[data-plan-seg='grain']")!.getAttribute("aria-label")).toBe("⟦Grain");
-        // The ruler: its caption, every tick, the now chip.
+        expect(words(toolbar)).toEqual(["⟦Collapse all", "⟦1 row skipped"]);
+        expect(toolbar.querySelector("[data-plan-fold-all]")!.getAttribute("aria-label")).toBe("⟦Collapse all");
+        // Plan's caption, ticks and now chip use its message table. The
+        // shared upper time band formats month/year dates in the locale.
         const ruler = container.querySelector("[data-slot='ruler']")!;
-        allMarked(words(ruler));
+        allMarked(words(ruler.firstElementChild!));
+        allMarked([...ruler.querySelectorAll("[data-slot='rulerTick'], [data-plan-nowchip]")].flatMap(words));
+        expect(words(ruler.querySelector("[data-time-ruler='units']")!)).toEqual(["June 2026", "July 2026", "August 2026", "September 2026"]);
         expect(words(ruler)).toContain("⟦W27");
         expect(words(ruler)).toContain("⟦NOW");
         // A group band: the author's label, then the derived meta.
@@ -369,6 +372,7 @@ describe("PlanMessagesProvider (#820)", () => {
     ]);
     const OUTER: Partial<PlanMessages> = {
         groupMeta: ({ count }) => `${count} Zeilen`,
+        collapseAll: () => "Alle einklappen",
         grainName: ({ grain }) => (grain === "group" ? "GRUPPE" : "RESSOURCE"),
     };
     const INNER: Partial<PlanMessages> = {
@@ -382,7 +386,7 @@ describe("PlanMessagesProvider (#820)", () => {
             </PlanMessagesProvider>
         ));
         expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Hall 1", "2 Zeilen"]);
-        expect(words(container.querySelector("[data-plan-seg='grain']")!)).toEqual(["GRUPPE", "RESSOURCE"]);
+        expect(words(container.querySelector("[data-plan-fold-all]")!)).toEqual(["Alle einklappen"]);
         expect(words(container.querySelector("[data-slot='ruler']")!)[0]).toBe("RESSOURCE");
         // The inner table reaches the controller: the live region speaks it.
         fireEvent.click(container.querySelector(itemSel("s"))!);

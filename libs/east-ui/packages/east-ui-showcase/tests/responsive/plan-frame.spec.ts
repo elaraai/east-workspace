@@ -134,7 +134,9 @@ test.describe("the Plan's frame (#1193)", () => {
         expect((await frameFaults(overlapping)).toolbar).toBe(true);
         expect(await overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar-item]")
             .evaluateAll((items) => items.map((item) => item.getAttribute("data-toolbar-item")))).toEqual(["overlaps", "history"]);
-        await expect(overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]")).toHaveText("1 overlap");
+        const chip = overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]");
+        await expect(chip).toHaveAccessibleName("1 overlap — select the first pair");
+        await expect(chip).toHaveText(await chip.getAttribute("data-plan-overlaps") === "short" ? "1" : "1 overlap");
     });
 
     test("a declared fill is the whole Plan's: the frame takes its host's height, and the canvas scrolls its own rows in main", async ({ page }) => {
@@ -196,10 +198,25 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         { name: "planRowDrop", file: PLAN_EXAMPLES },
         { name: "planPrintWorks", file: EVENTS },
     ]) {
-        test(`${name}: one 44px row from 1440px to 360px — nothing past its edge, nothing scrolled — folded as far as its own ladder says, the rail first and the history last, never less at a narrower frame`, async ({ page }) => {
+        test(`${name}: one 44px row from 1440px to 336px — nothing past its edge, nothing scrolled — folded as far as its own ladder says, the rail first and the history last, never less at a narrower frame`, async ({ page }) => {
             test.setTimeout(120_000);
             const entry = await openExample(page, name, file);
-            expect(await toolbarLadderFaults(page, entry, [1440, 1280, 1024, 900, 768, 640, 560, 480, 420, 360])).toEqual([]);
+            // The example host has 42px of padding/border: 336px gives a
+            // 294px frame, the available frame on the narrow phone layout.
+            expect(await toolbarLadderFaults(page, entry, [1440, 1280, 1024, 900, 768, 640, 560, 480, 420, 360, 336])).toEqual([]);
+            if (name === "planPrintWorks") {
+                await entry.getByRole("button", { name: "View", exact: true }).click();
+                const dialog = page.getByRole("dialog");
+                await expect(dialog.getByRole("button", { name: "Today", exact: true })).toBeVisible();
+                const fold = dialog.locator("[data-plan-fold-all]");
+                const before = await fold.getAttribute("aria-label");
+                await fold.click();
+                await expect(fold).toHaveAccessibleName(before === "Expand all" ? "Collapse all" : "Expand all");
+                await dialog.getByRole("radio", { name: "WEEK", exact: true }).click();
+                await expect(dialog.getByRole("radio", { name: "WEEK", exact: true })).toHaveAttribute("aria-checked", "true");
+                await page.keyboard.press("Escape");
+                await expect(entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Save", exact: true })).toBeVisible();
+            }
         });
     }
 

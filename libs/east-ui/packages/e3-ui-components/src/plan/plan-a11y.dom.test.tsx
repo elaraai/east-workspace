@@ -393,14 +393,13 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(item(container, "r:pin").getAttribute("tabindex")).toBe("0");
         // One stop in the grid — every row control and element is out of the
         // order. The frame's toolbar is not the grid: its controls keep stops
-        // of their own, and a segment is ONE (#632 — the grain's, on its
-        // checked radio).
+        // of their own. Expand/collapse is one native button.
         const stops = (root: Element) => [...root.querySelectorAll("*")].filter((el) => (el as HTMLElement).tabIndex >= 0
             && el.matches("button, [tabindex]"));
         const toolbar = container.querySelector("[data-frame-slot='toolbar']")!;
         expect(toolbar.contains(container.querySelector("[data-plan-body]"))).toBe(false);
         expect(stops(container.querySelector("[data-plan-body]")!)).toEqual([item(container, "r:pin")]);
-        expect(stops(toolbar)).toEqual([container.querySelector("[data-plan-seg='grain'] [aria-checked='true']")]);
+        expect(stops(toolbar)).toEqual([container.querySelector("[data-plan-fold-all]")]);
     });
 
     test("every row is reachable by ↓ from the first, and ↑ walks back", () => {

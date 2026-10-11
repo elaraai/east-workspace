@@ -331,10 +331,11 @@ describe("every gesture is one transaction (PB43)", () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         await select(bar(container, "J-1001")!);
-        expect(counted(container)).toBe("52 events");
+        const initialCount = Number.parseInt(counted(container)!, 10);
+        expect(initialCount).toBeGreaterThan(0);
         await press(action(container, "duplicate"));
         // The footer counts the copy: its counts read the drafts (PB23).
-        expect(counted(container)).toBe("53 events");
+        expect(counted(container)).toBe(`${initialCount + 1} events`);
         // The copy draws beside the catalogue, keyed past the record's keys, and is what the inspector shows now.
         expect(jobsOn(container)).toContain(elementKey("job", "J-1001-2"));
         expect(bar(container, "J-1001-2")!.getAttribute("aria-pressed")).toBe("true");
@@ -346,7 +347,7 @@ describe("every gesture is one transaction (PB43)", () => {
         await press(action(container, "delete"));
         expect(bar(container, "J-1001-2")).toBeNull();
         expect(pending(container)).toBe("0 pending");
-        expect(counted(container)).toBe("52 events");
+        expect(counted(container)).toBe(`${initialCount} events`);
         // Undo brings the copy back; again, takes it away; the record never held it.
         await press(historyButton(container, UNDO));
         expect(bar(container, "J-1001-2")).not.toBeNull();

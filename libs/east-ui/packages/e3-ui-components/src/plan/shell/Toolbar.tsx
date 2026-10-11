@@ -23,7 +23,9 @@
  * menu, then the fold toggle keeps only its icon, and the summary hides. On a row narrower
  * still the key search folds into its icon, which opens the box in a popover
  * (#1193): with that, a phone's row holds every item. The history item folds
- * last, to its buttons. Nothing wraps or goes to a second row.
+ * last, to its buttons. Before that last step, a time-axis Plan folds its
+ * group and resolution controls into the shared date navigator, as Calendar
+ * and Roster do. Nothing wraps or goes to a second row.
  */
 
 import { useMemo } from "react";
@@ -68,6 +70,7 @@ const PLAN_RANK = {
     summaryHide: HOST_RANK + 3,
     seek: HOST_RANK + 4,
     time: HOST_RANK,
+    controls: HOST_RANK + 6,
 } as const;
 
 
@@ -197,37 +200,50 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     const selectFirst = () => {
         if (first !== undefined) selectEvents([scheduleEventKey(first.first), scheduleEventKey(first.second)]);
     };
+    const foldToggle = (compact = false) => <Button size="xs" variant="ghost" data-plan-fold-all=""
+        aria-label={folded ? words.m.expandAll() : words.m.collapseAll()} title={folded ? words.m.expandAll() : words.m.collapseAll()}
+        onClick={() => controller.setGroupsCollapsed(!folded)}>
+        <FontAwesomeIcon icon={folded ? faAnglesDown : faAnglesUp} />
+        {!compact && (folded ? words.m.expandAll() : words.m.collapseAll())}
+    </Button>;
+    const showResolution = (slice !== undefined || recordChrome !== undefined) && resolutionItems.length > 0;
+    const pickResolution = (r: string) => dispatch({ t: "resolution.set", resolution: r });
+    const compactControls = <>
+        {folded !== undefined && foldToggle()}
+        {showResolution && <Seg label={words.m.resolutionLabel()} name="compact-resolution" items={resolutionItems}
+            active={resolution} onPick={pickResolution} fullWidth />}
+    </>;
     return [
         ...recordRail,
         rail.find((it) => it.key === "cluster"),
         scoped && { key: "scope", forms: [<Box css={styles.footerItem} data-slot="scopeBadge">{words.m.scopeBadge()}</Box>] },
         seek,
         folded !== undefined && {
-            key: "groups", rank: PLAN_RANK.grain,
-            forms: [false, true].map(compact => <Button size="xs" variant="ghost" data-plan-fold-all=""
-                aria-label={folded ? "Expand all" : "Collapse all"} title={folded ? "Expand all" : "Collapse all"}
-                onClick={() => controller.setGroupsCollapsed(!folded)}>
-                <FontAwesomeIcon icon={folded ? faAnglesDown : faAnglesUp} />
-                {!compact && (folded ? "Expand all" : "Collapse all")}
-            </Button>),
+            key: "groups", rank: [PLAN_RANK.grain, PLAN_RANK.controls],
+            bundle: [undefined, "plan.controls"],
+            forms: [foldToggle(), foldToggle(true), ...(timeNavigation ? [null] : [])],
         },
         timeNavigation ? {
-            key: "time-navigation", rank: PLAN_RANK.time,
-            forms: [<PlanTimeNavigator chrome={chrome} />, <PlanTimeNavigator chrome={chrome} compact />],
+            key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.controls],
+            bundle: [undefined, "plan.controls"],
+            forms: [<PlanTimeNavigator chrome={chrome} />, <PlanTimeNavigator chrome={chrome} compact />,
+                <PlanTimeNavigator chrome={chrome} compact controls={compactControls} />],
         } : rail.find((it) => it.key === "range"),
         // The segment is a SLICE write (`slice.setResolution`) — without a
         // bound slice the effect runner drops it, so mounting it would offer
         // a control that does nothing. The unbound-canvas fallback story is
         // #572's (resolution persist fallback); until then, no slice ⇒ no
         // segment.
-        (slice !== undefined || recordChrome !== undefined) && resolutionItems.length > 0 && {
+        showResolution && {
             key: "resolution",
-            rank: PLAN_RANK.resolution,
+            rank: [PLAN_RANK.resolution, PLAN_RANK.controls],
+            bundle: [undefined, "plan.controls"],
             forms: [
                 <Seg label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
-                    onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />,
+                    onPick={pickResolution} />,
                 <SegMenu label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
-                    onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />,
+                    onPick={pickResolution} />,
+                ...(timeNavigation ? [null] : []),
             ],
         },
         hasDiagnostics(diagnostics) && { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] },

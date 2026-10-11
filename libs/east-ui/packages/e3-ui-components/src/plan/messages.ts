@@ -115,6 +115,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     grainLabel: () => string;
     /** A grain's name — the grain segment and the ruler caption. */
     grainName: (p: { grain: PlanGrainWord }) => string;
+    /** Expand every parent row, including nested groups. */
+    expandAll: () => string;
+    /** Collapse every parent row, including nested groups. */
+    collapseAll: () => string;
     /** The resolution segment's (and its one-chip menu's) accessible name. */
     resolutionLabel: () => string;
     /** A time resolution's name — its segment and its one-chip menu. */
@@ -526,6 +530,8 @@ export const planMessages: PlanMessages = {
 
     grainLabel: () => "Grain",
     grainName: ({ grain }) => grain.toUpperCase(),
+    expandAll: () => "Expand all",
+    collapseAll: () => "Collapse all",
     resolutionLabel: () => "Resolution",
     resolutionName: ({ resolution }) => resolution.toUpperCase(),
     summary: ({ result, total, n, active }) =>

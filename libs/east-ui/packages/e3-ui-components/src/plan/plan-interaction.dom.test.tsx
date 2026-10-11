@@ -332,100 +332,50 @@ describe("Plan keyboard rungs (#569)", () => {
     });
 });
 
-describe("The toolbar's grain segment (#632)", () => {
+describe("The toolbar's expand/collapse control", () => {
     const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
-    /** Two root groups, a row in each. */
+    /** Two root groups, including a parent row nested inside the first. */
     const grouped = () => [
         planRow("hall1", group(), { gutter: gutter("Hall 1") }),
         planRow("m1", spanKind([]), { parent: "hall1" }),
+        planRow("job1", spanKind([]), { parent: "m1" }),
         planRow("hall2", group(), { gutter: gutter("Hall 2") }),
         planRow("m2", spanKind([]), { parent: "hall2" }),
     ];
-    const segment = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-plan-seg='grain']");
-    const radio = (container: HTMLElement, name: string) =>
-        [...segment(container)!.querySelectorAll<HTMLElement>("[role='radio']")].find((r) => r.textContent === name)!;
-    /** The ruler's gutter caption — the active grain's name. */
-    const caption = (container: HTMLElement) => container.querySelector("[data-slot='ruler']")!.firstElementChild!.textContent;
-    const announced = (container: HTMLElement) => container.querySelector("[data-plan-announce]")!.textContent;
+    const toggle = (container: HTMLElement) => container.querySelector<HTMLButtonElement>("[data-plan-fold-all]");
 
-    test("a canvas with a root group mounts it, slice or no slice; without one there is nothing to fold, and no segment", () => {
-        const { container } = renderPlan(planRoot(grouped()), "plan-632-mount");
-        // No slice and no search: the segment alone gives the frame its toolbar.
-        expect(container.querySelector("[data-frame-slot='toolbar']")).not.toBeNull();
-        const seg = segment(container)!;
-        expect(seg.getAttribute("role")).toBe("radiogroup");
-        expect(seg.getAttribute("aria-label")).toBe("Grain");
-        expect([...seg.querySelectorAll("[role='radio']")].map((r) => [r.textContent, r.getAttribute("aria-checked")]))
-            .toEqual([["GROUP", "false"], ["RESOURCE", "true"]]);
-
-        // Ungrouped: neither the segment nor a toolbar for it.
-        const flat = renderPlan(planRoot([planRow("f1", spanKind([])), planRow("f2", spanKind([]))]), "plan-632-flat");
-        expect(segment(flat.container)).toBeNull();
+    test("parents at any depth get one fold control; flat rows have nothing to fold", () => {
+        const { container } = renderPlan(planRoot(grouped()), "plan-fold-mount");
+        expect(toggle(container)!.getAttribute("aria-label")).toBe("Collapse all");
+        expect(toggle(container)!.tabIndex).toBe(0);
+        const flat = renderPlan(planRoot([planRow("f1", spanKind([])), planRow("f2", spanKind([]))]), "plan-fold-flat");
+        expect(toggle(flat.container)).toBeNull();
         expect(flat.container.querySelector("[data-frame-slot='toolbar']")).toBeNull();
-        // The grain folds ROOT groups: a group under another row gives it
-        // nothing to fold.
         const nested = renderPlan(planRoot([
             planRow("p", spanKind([])),
             planRow("g", group(), { parent: "p" }),
             planRow("n1", spanKind([]), { parent: "g" }),
-        ]), "plan-632-nested");
-        expect(segment(nested.container)).toBeNull();
+        ]), "plan-fold-nested");
+        expect(toggle(nested.container)).not.toBeNull();
     });
 
-    test("GROUP folds every root group to its strip and RESOURCE brings the rows back — the swap g makes; onGrainChange reports it, the ruler caption follows", async () => {
-        const seen: unknown[] = [];
-        const { container } = renderPlan(planRoot(grouped(), { onGrainChange: (g: unknown) => { seen.push(g); } }), "plan-632-swap");
-        expect(caption(container)).toBe("RESOURCE");
-
-        fireEvent.click(radio(container, "GROUP"));
+    test("keyboard activation folds every parent; opening a group leaves its nested parent folded until Expand all", async () => {
+        const { container } = renderPlan(planRoot(grouped()), "plan-fold-keys");
+        const user = userEvent.setup();
+        act(() => toggle(container)!.focus());
+        await user.keyboard("{Enter}");
+        expect(toggle(container)!.getAttribute("aria-label")).toBe("Expand all");
         expect(container.querySelector(rowSel("m1"))).toBeNull();
         expect(container.querySelector(rowSel("m2"))).toBeNull();
-        expect(container.querySelector(rowSel("hall1", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
-        expect(container.querySelector(rowSel("hall2", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
-        expect(caption(container)).toBe("GROUP");
-        expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
-        await waitFor(() => expect(seen).toEqual([variant("group", null)]));
-
-        fireEvent.click(radio(container, "RESOURCE"));
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
         expect(container.querySelector(rowSel("m1"))).not.toBeNull();
+        expect(container.querySelector(rowSel("job1"))).toBeNull();
+        // The one toggle shares the disclosures' state and is a native button.
+        act(() => toggle(container)!.focus());
+        await user.keyboard(" ");
+        expect(toggle(container)!.getAttribute("aria-label")).toBe("Collapse all");
+        expect(container.querySelector(rowSel("job1"))).not.toBeNull();
         expect(container.querySelector(rowSel("m2"))).not.toBeNull();
-        expect(caption(container)).toBe("RESOURCE");
-        await waitFor(() => expect(seen).toEqual([variant("group", null), variant("resource", null)]));
-
-        // One control, two ways in: the segment follows the `g` key.
-        fireEvent.keyDown(container.querySelector("[data-plan-body]")!, { key: "g" });
-        expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
-        expect(container.querySelector(rowSel("m1"))).toBeNull();
-    });
-
-    test("the segment is ONE tab stop; ← / → and Home / End move and pick, and the live region says so", () => {
-        const { container } = renderPlan(planRoot(grouped()), "plan-632-keys");
-        const groupRadio = radio(container, "GROUP");
-        const resourceRadio = radio(container, "RESOURCE");
-        // The tab stop is the checked segment.
-        expect(resourceRadio.tabIndex).toBe(0);
-        expect(groupRadio.tabIndex).toBe(-1);
-
-        act(() => resourceRadio.focus());
-        fireEvent.keyDown(resourceRadio, { key: "ArrowLeft" });
-        expect(document.activeElement).toBe(groupRadio);
-        expect(groupRadio.getAttribute("aria-checked")).toBe("true");
-        expect(groupRadio.tabIndex).toBe(0);
-        expect(resourceRadio.tabIndex).toBe(-1);
-        expect(container.querySelector(rowSel("m1"))).toBeNull();
-        expect(announced(container)).toBe("Grain: group");
-
-        // ← wraps from the first to the last; Home and End go to the ends.
-        fireEvent.keyDown(groupRadio, { key: "ArrowLeft" });
-        expect(document.activeElement).toBe(resourceRadio);
-        expect(resourceRadio.getAttribute("aria-checked")).toBe("true");
-        expect(announced(container)).toBe("Grain: resource");
-        fireEvent.keyDown(resourceRadio, { key: "Home" });
-        expect(document.activeElement).toBe(groupRadio);
-        expect(groupRadio.getAttribute("aria-checked")).toBe("true");
-        fireEvent.keyDown(groupRadio, { key: "End" });
-        expect(document.activeElement).toBe(resourceRadio);
-        expect(container.querySelector(rowSel("m1"))).not.toBeNull();
     });
 
     test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
@@ -514,7 +464,7 @@ describe("Plan interaction fixes (#615)", () => {
         ], {
             resolutions: [variant("week", null), variant("day", null)],
         }), "plan-seg-gate");
-        expect(container.querySelector("[data-frame-slot='toolbar'] [data-plan-seg='grain']")).not.toBeNull();
+        expect(container.querySelector("[data-frame-slot='toolbar'] [data-plan-fold-all]")).not.toBeNull();
         expect(container.querySelector("[data-plan-seg='resolution']")).toBeNull();
         expect(screen.queryByText("DAY")).toBeNull();
     });
