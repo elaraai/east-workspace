@@ -14,9 +14,13 @@ for (const theme of ["light", "dark"] as const) {
         for (const resolution of ["WEEK", "DAY"] as const) {
             const strip = entry.locator('[data-plan-seg="resolution"]');
             if (await strip.isVisible()) await strip.getByRole("radio", { name: resolution, exact: true }).click();
-            else {
+            else if (await entry.locator('[data-plan-segmenu="resolution"]').isVisible()) {
                 await entry.locator('[data-plan-segmenu="resolution"]').click();
                 await page.getByRole("menuitem", { name: resolution, exact: true }).click();
+            } else {
+                await entry.getByRole("button", { name: "View", exact: true }).click();
+                await page.getByRole("dialog").getByRole("radio", { name: resolution, exact: true }).click();
+                await page.keyboard.press("Escape");
             }
             await settled(page);
             const units = entry.locator('[data-plan-ruler="units"]:visible');
@@ -70,7 +74,12 @@ for (const theme of ["light", "dark"] as const) {
             await expect(chart).toHaveAttribute("aria-expanded", "false");
             await expect(chart.locator('[data-plan-tickpx][data-compact]')).toHaveCount(1);
         }
-        const fold = entry.locator('[data-plan-fold-all]');
+        let fold = entry.locator('[data-plan-fold-all]');
+        const compact = !await fold.isVisible();
+        if (compact) {
+            await entry.getByRole("button", { name: "View", exact: true }).click();
+            fold = page.getByRole("dialog").locator('[data-plan-fold-all]');
+        }
         await expect(fold).toHaveCount(1);
         await expect(entry.locator('[data-plan-seg="grain"], [data-plan-segmenu="grain"]')).toHaveCount(0);
         if (await fold.getAttribute('aria-label') === 'Expand all') await fold.click();
@@ -82,6 +91,7 @@ for (const theme of ["light", "dark"] as const) {
         await fold.click();
         await expect(fold).toHaveAttribute('aria-label', 'Collapse all');
         await expect(entry.locator('[role="row"][aria-expanded="false"]:not([data-plan-kind="chart"])')).toHaveCount(0);
+        if (compact) await page.keyboard.press("Escape");
         // Exercise the actual span recipe either side of its label threshold,
         // including the hidden-label case that used to expose part of a quantity.
         const span = entry.locator('[data-run]:visible').first();
