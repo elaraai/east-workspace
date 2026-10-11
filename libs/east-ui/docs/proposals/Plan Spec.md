@@ -1027,12 +1027,15 @@ The examples corpus (grown through P2–P4, epic-#455 style) must include:
 **`planTargetState`** — the flagship §1 mirror exercising EVERY row kind on
 one canvas (pinned chart, span group with a drilled row, heat strip, buckets
 incl. unbucketed + markers, cards, events, footer, slice toolbar, now-line)
-plus every interaction (select/drill, popovers, hovercards, review, library
-DnD); **`planVariants`** — THE configurator (one live instance, preset axis
-over kinds × densities × grains × review × slice); and focused scenarios
-(`planSpanRollup`, `planBuckets`, `planCharts`, `planHeatTable`, `planCards`,
-`planEvents`, `planReview`, `planLibraryDnd`, `planJourney`). Every example
-doubles as a shot target for the §8 side-by-side loop.
+plus selection, expand/collapse, popovers, hovercards and library drag/drop.
+The current consolidated corpus (#1200) is in e3-ui: `planMeasures` covers
+charts, heat, tables and resolution folds; `planRowDrop` covers editing nested
+record entries; `planVariants` is the configurator; `planNumberAxis` and
+`planOrdinalAxis` cover the other axis kinds. `planEvents` is the smallest
+record-backed builder, `planPrintWorks` the complete multi-kind workflow,
+`planEventLinks` the link-routing cases, and `planWindows`/`planRecordIndexes`
+the paged record examples. Review was removed (#1260); changes use the shared
+editing session and Save. Responsive checks measure DOM geometry and behavior.
 
 **P2 — renderer core** scale.ts + plan-state.ts (+tests), model.ts, shell
 (toolbar/brush/ruler/overlays/footer), RowShell, SpanRow, GroupRow, ChartRow,

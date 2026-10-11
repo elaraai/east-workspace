@@ -142,6 +142,8 @@ Task → What do you need?
     │   ├─ Its library pane: templates, backlog, series, cards → library={[Plan.library.events(), Plan.library.backlog(), Plan.library.series(), Plan.library.tab(rows, {…})]}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
     │   ├─ Event kinds dragged: templates, backlog, moves     → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
+    │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" }); the chip selects the first pair
+    │   ├─ Save each changed event kind through its patch door → applyMode="batch" (default); "auto" commits each ready gesture
     │   └─ Dropped cards and moves as drafts                  → a series' edit + editing={{ onUpdate | onApply }}
     │
     ├─ Let planners type rows in place — the Sheet, in its frame (see The Sheet below)
@@ -877,7 +879,7 @@ return <Plan axis={axis} data={rows} series={series} />;
 
 ```
 <Plan axis={Plan.axis({…})} data={rows} series={[Plan.series.span(Row, {…}), …]} /> — the planning canvas: ONE shared axis — { time | number | ordinal } (#631): a UTC window ÷ resolution, a numeric window ÷ step, or an ordinal list = n bucket columns — over heterogeneous rows — the eight row kinds: span state-runs, bucket allocation lanes, chart measures, heat cells, bucketed table numerals, cards shift chips, event marks, and group strips — sliced, searched and picked as one surface. Rows derive from `data` through `series` as an ordered STREAM (#822): the series list IS the layout (one contiguous block per series, top to bottom), a parent is followed by its subtree, and hierarchy comes only from the data's own nesting — never from a field value. Every row carries a typed id, `Plan.Types.RowId` = { series, path } (the series that made it and the entry keys that lead to it; `Plan.ref` builds one), which every callback reports and `links` address. Nothing behaves differently because `data` is inline or paged
-├─ The frame (#1193): ONE toolbar holding every control the Plan draws outside its canvas, in this order — the slice's narrowing (cohort · filter · search), the scope badge, the key search, GROUP · RESOURCE, the slice's range, WEEK · DAY, the diagnostics; at its end the summary line and the history item (a Plan with none of them has no toolbar). It is one row at every width: the rail folds first, then the summary shortens, the resolution and the grain fold into their one-chip menus, the summary hides, the key search folds into its icon (which opens the box in a popover, the focus in it), and the history item last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — each session's, an event kind's titled with its name (#1194): a Save's conflict, a refusal, an unknown outcome with Retry, a source out of date with Discard. Main — the canvas: the horizon, the ruler, pinned rows and the rows. The footer — the counts: the event kinds' events in the window, their backlog, the changes pending and when an event kind's record was last saved; then the author's `footer` and the transport line. ⌘Z undoes and ⇧⌘Z redoes from anywhere in the frame; a field being typed into keeps its own undo. The Plan draws no border
+├─ The frame (#1193): ONE toolbar holding every control the Plan draws outside its canvas, in this order — the slice's narrowing (cohort · filter · search), the scope badge, the key search, Expand/Collapse all, the shared date navigator (or numeric Slice range), the configured resolution, the diagnostics; at its end the summary line, the overlaps chip and the history item (a Plan with none of them has no toolbar). It is one row at every width: the rail folds first, then the summary shortens, the resolution folds into a menu and Expand/Collapse all keeps its icon, the summary hides, the key search folds into its icon (which opens the box in a popover, the focus in it), then the time-axis view controls share the date popover, and the history item folds last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — each session's, an event kind's titled with its name (#1194): a Save's conflict, a refusal, an unknown outcome with Retry, a source out of date with Discard. Main — the canvas: the horizon, the ruler, pinned rows and the rows. The footer — the counts: the event kinds' events in the window, their backlog, the changes pending and when an event kind's record was last saved; then the author's `footer` and the transport line. ⌘Z undoes and ⇧⌘Z redoes from anywhere in the frame; a field being typed into keeps its own undo. The Plan draws no border
 ├─ Props:
 │   ├─ axis (required) — ONE of three kinds; every element instant on the canvas must ride its arm. The kind is also a TYPE: `Plan.axis.number(…)` fixes the tag's `K`, every builder result carries the kind its instants' STATIC types imply (a `DateTimeType` accessor ⇒ `"time"`, a `FloatType` field ⇒ `"number"`, `Plan.at.ordinal(…)` ⇒ `"ordinal"`), a series collects its elements' kinds, and a series (or literal row) on another arm FAILS TO COMPILE at the tag — no wire change, the brand is phantom. Kind-erased values (a stored record, an `Expr<Plan.Types.Instant>`, an East-mapped element list, a `$.let`-bound axis or `$.const`-bound series list, chart rows) constrain nothing at compile time and are held to the axis at render — a row on another arm is a render-time diagnostic naming the row and the arm, never a silent misplacement. Plan.axis({ window?, resolution, resolutions?, now?, format? }) — the TIME shorthand (= Plan.axis.time): half-open [min, max) UTC window; omit window ⇒ the bound slice's datetime range — there is NO fit to the data (#822): a canvas that neither states a window nor binds a slice is refused, at build when the axis is written in the tag, else as the render-time NO WINDOW diagnostic (a bound or stored axis); `resolutions` lists the WEEK/DAY segment options; `now` draws the observed/plan divider; `format` overrides tick labels (date tokens; defaults: week ⇒ "W27", day ⇒ "MON"); at a resolution coarser than a row's data a bucket shows ONE value per row — the fold of those in it (#824) · Plan.axis.number({ window?, step, now?, format? }) — a numeric window ÷ `step` (bucket edges on whole steps; omit window ⇒ the bound slice's float / integer range, under the same no-fit rule; `format` a Chart.format.* spec; no resolution segment — step IS the declaration) · Plan.axis.ordinal({ values, now? }) — the declared values ARE the buckets, in order (the list is the window: no slice range, no brush, the window keys idle; an unlisted value positions nowhere; an interval END names its LAST bucket, inclusive)
 │   ├─ data (required unless `events` or `rows` — a Plan with no rows from any source is refused at build) — a KEYED collection: a `Dict<K, R>` value/expression for the inline arm, or a `$.let`-bound `Data.bindPaged(…)` handle for a WINDOWED arm, recognised by its East type: `pinned` when it names its snapshot, which `editing.onApply` needs; `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none. Any key type `K` — a row's path starts with its entry's key, a String as it is, any other key as its `.east` text (`3`, `(hall="H1", bin=3)`) — and any entry type `R`: a struct, a `RecursiveType` node, or a collection (a `groupToDicts` group). A positional collection is refused — key it at the call site with `rows.toDict((_$, r) => r.id)`. A paged canvas pages by PARENTS (#823): a window is N top-level entries, each with its whole subtree, so a parent never straddles two windows and its bands, means, subtotals and member count are exact — nest children in the source, and group a flat paged source in its dataflow (a group is one entry holding its members; a parent is bounded by a page). Each top-level series is a BLOCK, exactly as inline: a paged canvas pages every block on its own over the same windows (its own bands and resident run; one read of a window serves every block), draws a section's header and hand-built rows once (FIXED blocks), and rebases only the block a far jump lands in; a window landing above the rows in view at a height its estimate missed moves the scroll, never the rows. A paged source may serve SHORT windows (e3 trims pages of wide entries to a byte budget) and the canvas still reads WHOLE ones — its derived source re-requests what a trimmed page left out. When the source's `revision()` moves (`Data.bindPaged` follows each write to its dataset), the canvas re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position holds, and a standing key search is asked again at the new snapshot, its text kept and the view where it is (its matches named rows of the old one, #1199)
@@ -994,20 +996,20 @@ Plan.series.views(OpsRow, { key: "presses", title: "Presses", match: r => r.pick
 | --- | --- | --- |
 | **Layout and nesting** | | |
 | `series={[s1, s2, …]}` | The list is the layout: one block per series, top to bottom; a pick's list order is the same layout. | `planTargetState` |
-| `children: (r, k) => r.children` | More of this series: a `RecursiveType` entry, to any depth. A parent's span bands (`rollup`, summed per quantity unit), heat `aggregate` (on its `scale`) or table subtotals (`aggregate`, `format`) derive from its subtree. | `planTableRows`, `planSpanRows`, `planHeatRows` |
-| `children: Plan.children(of: (r, k) => Array \| Dict, series: Series[])` | A step down to a child collection of another type, laid out like a top-level list; an array of step-downs gives several collections, in order. | `planSeriesData`, `planGroupedRows` |
-| `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` **❗** | One strip per entry, its members the entry's children; the removed `by` form throws. | `planGroupedRows`, `planNarrow` |
-| `rows.groupToDicts(($, r) => r.hall, ($, _r, k) => k)` | Grouping is a data step; a paged source is grouped in its dataflow. | `planGroupedRows`, `planFill` |
-| `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summaryAggregate? }, members: Series[])` | A fixed titled block over series; it adds no path segment. | `planTargetState`, `planLibraryDnd` |
-| `Plan.series.views(R, { key, title, match?, children?, collapsed? }, members: Series[])` **❗** | One row per member per entry, adjacent; the entry's children follow under the first view row, and a seek lands there. A member may not declare `children`. Its children may be more of its own entries (a bare accessor), each drawn as the members' rows; a span member's `rollup` rolls them up. | `planLibraryDnd`, `planFill` |
-| `Plan.series.rows(R, { key, title }, [Plan.span({ key, label, rows? }), …])` | Hand-built rows as one block; a row's id is the series key plus the factory keys to it. | `planLiteralRows` |
+| `children: (r, k) => r.children` | More of this series: a `RecursiveType` entry, to any depth. A parent's span bands (`rollup`, summed per quantity unit), heat `aggregate` (on its `scale`) or table subtotals (`aggregate`, `format`) derive from its subtree. | `planTargetState`, `planMeasures` |
+| `children: Plan.children(of: (r, k) => Array \| Dict, series: Series[])` | A step down to a child collection of another type, laid out like a top-level list; an array of step-downs gives several collections, in order. | `planTargetState` |
+| `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` **❗** | One strip per entry, its members the entry's children; the removed `by` form throws. | `planTargetState` |
+| `rows.groupToDicts(($, r) => r.hall, ($, _r, k) => k)` | Grouping is a data step; a paged source is grouped in its dataflow. | `planTargetState` |
+| `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summaryAggregate? }, members: Series[])` | A fixed titled block over series; it adds no path segment. | `planTargetState` |
+| `Plan.series.views(R, { key, title, match?, children?, collapsed? }, members: Series[])` **❗** | One row per member per entry, adjacent; the entry's children follow under the first view row, and a seek lands there. A member may not declare `children`. Its children may be more of its own entries (a bare accessor), each drawn as the members' rows; a span member's `rollup` rolls them up. | `planTargetState` |
+| `Plan.series.rows(R, { key, title }, [Plan.span({ key, label, rows? }), …])` | Hand-built rows as one block; a row's id is the series key plus the factory keys to it. | `planTargetState` |
 | **Paged sources (#823)** | | |
 | `data={paged}` — a `Data.bindPaged(…)` handle **❗** | Parents are the page unit: a window is N top-level entries with their whole subtrees, so nest children in the source and group a flat source in its dataflow. | `dataBindPagedPlan` |
 | several series over one paged source | Each series is a block that pages on its own — its own bands and resident run — and one read of a window serves every block; a section's header and hand-built rows are fixed blocks, drawn once. | `dataBindPagedBlocks` |
 | **Identity** | | |
-| `Plan.ref(series: String, ...path: String[]): RowId` | A row's typed id, for links, `East.equal` in resolvers, and host tables keyed by `East.print(id)`. | `planSpanRows`, `planRowDrop` |
-| `Plan.sectionRef(series: String, ...path: String[]): RowId` | A section header's id, at its parent's path. | — |
-| `onSelect` / `expandRender` / `expandGutter`: `fn(Plan.Types.RowId)`; element refs, `onGroupToggle`, a drop (`Plan.Types.Drop`): `{ row: RowId, … }` | Every callback names a row by its id. | `planVariants`, `planExpand`, `planRowDrop` |
+| `Plan.ref(series: String, ...path: String[]): RowId` | A row's typed id, for links, `East.equal` in resolvers, and host tables keyed by `East.print(id)`. | `planTargetState`, `planRowDrop` |
+| `Plan.sectionRef(series: String, ...path: String[]): RowId` | A section header's id, at its parent's path. | `planTargetState` |
+| `onSelect` / `expandRender` / `expandGutter`: `fn(Plan.Types.RowId)`; element refs, `onGroupToggle`, a drop (`Plan.Types.Drop`): `{ row: RowId, … }` | Every callback names a row by its id. | `planVariants`, `planTargetState`, `planRowDrop` |
 | series keys unique across the whole tree **❗** | A repeated key is a build-time error naming both series; a repeated run-time id draws a DUPLICATE ID row diagnostic. | — |
 | **Window** | | |
 | `Plan.axis({ window: { min, max }, … })` or `slice={{ slice }}` **❗** | The window is stated, or it is the bound slice's range. A canvas with neither is refused, and nothing fits the axis to the data. | `planTargetState`, `planNumberAxis` |
@@ -1056,11 +1058,11 @@ const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, 
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `Plan.quantity(value: Float, { unit?: String, format?: Format.*, text?: String }): Quantity` | A run's or a link's quantity: its caption is `text`, else the value through `format`, then its unit; rollup bands sum it unit by unit. | `planSeriesData`, `planSpanRows` |
-| `fold?: "sum" \| "mean" \| "min" \| "max" \| "last" \| "count"` | What a coarser bucket shows of a row's values in it: heat and weight `mean`, segments, table numerals and columns `sum`, lines and areas `mean`. One value in a bucket keeps its own instant, label and text. | `planFold` |
+| `Plan.quantity(value: Float, { unit?: String, format?: Format.*, text?: String }): Quantity` | A run's or a link's quantity: its caption is `text`, else the value through `format`, then its unit; rollup bands sum it unit by unit. | `planTargetState` |
+| `fold?: "sum" \| "mean" \| "min" \| "max" \| "last" \| "count"` | What a coarser bucket shows of a row's values in it: heat and weight `mean`, segments, table numerals and columns `sum`, lines and areas `mean`. One value in a bucket keeps its own instant, label and text. | `planMeasures` |
 | `onElementClick: fn(Plan.Types.ElementRef) => Null` | Every element kind — run, event, mark, chip, cell, link — through one callback; the arm says which. | `planVariants` |
-| `ui: State.bind([Plan.Types.UiState], key, Plan.uiState({ … }))` | The host's selection, folds, opens, expanded charts and a `focus` request the canvas spends; the user's actions are written back. | `planUiState` |
-| `Plan.link({ key, from, fromRun, to, toRun, quantity? })` | A ribbon keyed for its click ref, weighed and captioned by its quantity. | `planSpanRows` |
+| `ui: State.bind([Plan.Types.UiState], key, Plan.uiState({ … }))` | The host's selection, folds, opens, expanded charts and a `focus` request the canvas spends; the user's actions are written back. | `planTargetState` |
+| `Plan.link({ key, from, fromRun, to, toRun, quantity? })` | A ribbon keyed for its click ref, weighed and captioned by its quantity. | `planTargetState` |
 
 Removed with #824: `qty` and the string `quantity` on a run (one
 `Plan.quantity`); the span series' `unit` (a quantity carries its unit); the
@@ -1130,11 +1132,11 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, (
 | `edit: { items: F, key: K, start: S, end: E }` (span / cards) or `{ items: F, key: K, at: A }` (buckets / events) **❗** | A run, chip, tile or mark moves by its body, and a run or chip resizes by either end, with the pointer, a touch or the keyboard (#825). It moves in whole buckets; Shift moves one finer unit (a day under a week, an hour under a day, 15 minutes under an hour). Onto another row whose items are the same type, the item leaves its list for that row's, as one gesture over both entries. `K` is the item's `String` key field, since an element's key is its item's key — and its identity across every row it can move to: a row's list keeps its keys unique, so a card or a move that would repeat one is refused (⊘ while dragging); `S`, `E` and `A` are instant fields (`DateTime`; `Float` / `Integer` on a number axis; `String` on an ordinal one; `Plan.Types.Instant`). `create` becomes optional. A field a move cannot write fails the build. | `planRowDrop` |
 | `children: r => r.kids` / `Plan.children(r => r.kids, …)` / `Plan.children(g => g, …)` **❗** | A gesture below an entry writes back through its `children`, so where a series below takes gestures they read a FIELD of the entry or are the entry itself; a computed collection fails the build. | `planRowDrop` |
 | **The session (on the root)** | | |
-| `editing={{ onUpdate: handle.write }}` with `data={handle}` **❗** | The inline adapter: Save applies the batch with `Editing.apply` over the handle's latest `Dict` and writes it once — idempotent across retries. It needs the handle itself as `data`. | `planRowDrop` |
-| `editing={{ onApply: fn(Editing.Types.ChangeSet(R, K)) => Editing.Types.ApplyResult }}` **❗** | The host's transaction, sync or async, checked against the base the drafts began from. A paged source needs `revision` and `refresh`; the host applies atomically, dedupes by `requestId` and returns the committed revision. | — |
+| `editing={{ onUpdate: handle.write }}` with `data={handle}` **❗** | The inline adapter: Save applies the batch with `Editing.apply` over the handle's latest `Dict` and writes it once — idempotent across retries. It needs the handle itself as `data`. | Inline adapter shown above; the record-backed `planRowDrop` uses `Record.onApply` |
+| `editing={{ onApply: fn(Editing.Types.ChangeSet(R, K)) => Editing.Types.ApplyResult }}` **❗** | The host's transaction, sync or async, checked against the base the drafts began from. A paged source needs `revision` and `refresh`; the host applies atomically, dedupes by `requestId` and returns the committed revision. | `planRowDrop` (`Record.onApply`) |
 | `onPatch: fn(Plan.Types.PatchEvent(R)) => Null` | One call per gesture, and per undo, redo and discard. | `planRowDrop` |
 | `ready: fn(R, K) => Editing.Types.Readiness` | The author's check over a drafted entry: a refusal marks the rows the draft changed and holds Save; a check that throws refuses its own entry only. | `planRowDrop` |
-| `mode: "batch" \| "auto"` | Save sends the batch (default), or each ready gesture goes at once. | — |
+| `mode: "batch" \| "auto"` | Save sends the batch (default), or each ready gesture goes at once. | `planRowDrop` (batch); auto mode is exercised by `plan-editing.spec.ts` |
 | `canDrop: fn(DragEventType) => Boolean` | Vets the event a drop where the drag rests would deliver — its `duplicate` whether Alt is held — showing the ⊘ stage, and again before it becomes a draft. A move is vetoed as the grammar's `move` or `resize` (#825), and a refusal is announced. | `planRowDrop` |
 
 - **Drawn where made.** A drafted entry's rows are derived again, exactly as
@@ -1170,6 +1172,54 @@ summary and Rerun, Approve all and Reject all), a series' `review` and
 are gone, with the verdict buttons on a row and in the inspector. Each throws
 at build, naming the removal. The history item's commit is Save.
 
+#### `Schedule`: resource and event kinds shared with Calendar
+
+Bind records inside the example's own `Reactive` body. Resources and templates
+can come from bound records; the backlog is the event record's unscheduled rows.
+`Schedule` declares field roles and accessors. The internal renderer owns the
+frame, Slice toolbar, shared fields, drag layer and editing session.
+
+| API / option | Meaning | Tested example |
+| --- | --- | --- |
+| `Schedule.resources(rows, { name, icon, label, meta? })` | Keyed resources; accessors receive `(row, key)`. `meta` is an optional second line. Use `Record.bind(record, []).read()` for a resource record. | `planEvents`, `planPrintWorks` |
+| Resource `group`, `parent` | Plan groups resources by the group label, and nests a resource under the optional key of its parent in the same kind. | `planPrintWorks` |
+| Resource `sub`, `value`, `status`, `collapsed` | Plan's gutter subtitle, value and status; initial collapse is a Boolean or accessor. | `planPrintWorks` |
+| Resource `rollup`, `measures` | Parent bands use `union` (default), `byStatus` or `sum`. Measures are read-only `Plan.series.heat`, `table` or `chart` rows over the resource type, with unique keys and no children. | `planPrintWorks` |
+| `Schedule.events(record, { name, icon, title, start, end, … })` | A record bound with its patch mutation; `title` names a String field, and `start`/`end` name matching DateTime or Option<DateTime> fields. | `planEvents` |
+| Event `at`, `draw` | An instant uses `at` instead of start/end and defaults to `marks`; it may draw `buckets`. Intervals default to `span`, and may draw `buckets`, `cards` or `marks`. | `planPrintWorks`, `planEventLinks` |
+| Event `resource: { field, of }` | A String/Option<String> field targets one resource slot. A variant field maps each case to a resource slot, such as bay or van. | `planPrintWorks` |
+| Event `state`, `quantity: { field, unit?, format? }`, `lane` | Plan's lifecycle field (confirmed when omitted), Float quantity with its unit/format, and String lane for bucket tiles. | `planPrintWorks` |
+| Event `status: { field, cases }` | A non-Option variant field with one `{ label, tone, ring }` per case; warning status rings the element. | `planPrintWorks` |
+| Event `overlaps: "warn" \| "allow"` | Warn is the default. Allow permits parallel events. Both preserve every event; warnings never remove or truncate overlaps. | `planPrintWorks` |
+| Event `backlog: { duration, due? }` | Option times allow unscheduled rows. Accessors derive their duration and optional due date from `(row, key)`. | `planEvents`, `planPrintWorks` |
+| Event `templates` | Presets have `key`, `name`, optional `group` and `at` clock, `duration`, and `values` for fields other than time/resource. Instant presets omit duration. Interval templates may use `Schedule.templates(boundRows, config)`. | `planPrintWorks`, `calendarOperations` |
+| Event `fields`, `Schedule.field.*` | The shared `Fields` vocabulary: `text`, `number`, `select`, `tags`, `checklist`, `reference`, `readonly`, `hidden`; other editors derive from the field type. | `planEvents`, `planPrintWorks` |
+| Event `ready`, `inspector` | Readiness returns `Editing.Types.Readiness` and can hold Save. A custom inspector receives the typed row and its session writer. | `planPrintWorks` |
+| Event `slice`, `entries` | A `Slice.bindRecord` with an interval index owns narrowing and the visible range; `Data.bindPaged(record)` supplies original-key reads for editing. See Indexed records and shared Slice above. | `calendarRecordIndexes` |
+| Event `window`, `backlogWindow`, `entries` | The separate single-index paging form, described under Large records below. Do not combine it with record `slice`. | `planWindows` |
+
+`Schedule.Types` exposes the same contracts to both builders:
+
+| Type | Value |
+| --- | --- |
+| `ResourceRef`, `EventRef` | `{ kind, key }`: the slot name and the original key's text. |
+| `Status`, `StatusCases(VariantType)` | `{ label, tone, ring }`, and one such status per variant case. |
+| `Clock` | `{ hour, minute }`, both Integers. |
+| `Duration` | The shared time-step variant: minutes, hours, days, weeks or months, with a Float amount. |
+| `Candidate` | `kind`, `from` (template/backlog/event key), `start`, `end`, optional `resource`; the Plan's drop veto receives this. |
+| `Patch(RowType)` | Every field optional; `Schedule.patch` constructs the patch. An omitted field stays unchanged; `none` supplied for an Option field clears it. |
+
+Event kinds default to batch Save. For automatic commits, set
+`applyMode="auto"` on the same `<Plan>` with its bound resources and events:
+
+```tsx
+<Plan resources={resources} events={events} axis={axis} applyMode="auto" />
+```
+
+Each ready gesture commits through its kind's patch mutation. This does not change the separate data-series session's
+`editing.mode`. Auto mode is covered by `plan-events.spec.ts` and
+`plan-builder-editing.dom.test.tsx`; the showcase examples demonstrate batch Save.
+
 #### Event kinds, read-only rows and links between events (#1191)
 
 Beside `data`, a Plan takes event kinds over records — `Schedule`'s, the very
@@ -1204,8 +1254,8 @@ const stock   = $.let(Data.bind(planLinkStock));
 | `rows: [Plan.chart({ …, pinned? }), Plan.over(…), …]` | Read-only rows after the event kinds' and `data`'s, each a fixed block; a pinned one sits under the ruler. | `planPrintWorks`, `planEventLinks` |
 | `Plan.over(data: Dict \| Data.bind handle, series: Series[])` **❗** | Series over a dataset, read only: a series declaring `edit` fails the build, naming `Schedule.events`. | `planEventLinks` |
 | `Plan.eventRef(kind: String, key: String): Plan.Types.RunRef` | An event for a link's end, wherever it draws; `Plan.link` takes it without `fromRun` / `toRun`. A link naming a kind `events` has not fails the build — or, when its kind is not known there (a list held in a variable or built in East, an event end held in a variable), is refused as the Plan is evaluated. | `planEventLinks` |
-| `canDrop: fn(Schedule.Types.Candidate) => Option<String>` | An event kind's drop veto, its message on the ghost, as the Calendar's — asked where a drag rests and again of the drop (#1196), its `from` the template's key, the backlog event's or the moved event's, its start, end and resource where the drop would put it; a `fn(DragEventType) => Boolean` vets drops on `data`'s rows instead. | — |
-| `applyMode: "batch" \| "auto"`, `date` | When the event kinds' drafts go — on Save, each kind with a change as one patch through its patch mutation, checked against what its drafts began from, or each ready gesture as it lands (#1194) — and the date brought into view first. | — |
+| `canDrop: fn(Schedule.Types.Candidate) => Option<String>` | An event kind's drop veto, its message on the ghost, as the Calendar's — asked where a drag rests and again of the drop (#1196), its `from` the template's key, the backlog event's or the moved event's, its start, end and resource where the drop would put it; a `fn(DragEventType) => Boolean` vets drops on `data`'s rows instead. | `planPrintWorks` |
+| `applyMode: "batch" \| "auto"`, `date` | When the event kinds' drafts go — on Save, each kind with a change as one patch through its patch mutation, checked against what its drafts began from, or each ready gesture as it lands (#1194) — and the date brought into view first. | `planPrintWorks` (`date`, batch Save); auto mode described above |
 
 Removed with #1191: `<Plan.View>` (`<Plan>`).
 
@@ -1231,10 +1281,22 @@ paged `data` they lead every window, drawn once.
 | --- | --- | --- |
 | a row's id: `entry { series: "<slot>.<draw>", path: [group?, …parents, key] }` | A resource's rows, by its kind's slot and the way they draw (`presses.span`, `presses.marks`). A measure row's id is the measure's key and the resource's path, a strip's `"<slot>.group"` and its group. Selection, collapse, links and focus address them. | `planPrintWorks` |
 | an element's key: `East.print(Schedule.Types.EventRef { kind, key })` | Unique on a row the kinds that draw alike share; a popover, an element click and a link's event end name the event by it. | `planEventLinks` |
-| the Unassigned rows: `entry { series: "<kind>.unassigned", path: [draw] }` | An event whose resource is none, or names one its kind does not have, draws on its kind's Unassigned row, after every resource kind. | — |
+| the Unassigned rows: `entry { series: "<kind>.unassigned", path: [draw] }` | An event whose resource is none, or names one its kind does not have, draws on its kind's Unassigned row, after every resource kind. | `planEvents` |
 | `Plan.link({ from: Plan.eventRef(kind, key), … })` | The link meets the event where it draws: a bar's end (a run shorter than the narrowest bar draws the narrowest), a chip's, in by the cell inset, a tile's cell, in its lane, and a mark's glyph. `planEventLinks` draws every way a link can, one link each. | `planEventLinks` |
 | a resource kind no event kind is placed on, with no `measures` **❗** | Refused at build: it would draw no rows. | — |
 | a key the event rows take (`<slot>`, `<slot>.<draw>`, `<slot>.group`, `<kind>.unassigned`) that a measure, a `data` series or a `Plan.over` series has **❗** | Refused at build, naming both: a row's id is its series' key and its path. | — |
+
+#### Overlap feedback
+
+With `overlaps: "warn"`, each overlapping event wears the shared warning ring.
+The toolbar chip after the summary counts pairs; selecting it selects the first
+pair in time order and brings its row into view, expanding its ancestors. The
+inspector lists the selected event's pairs or the selected resource's pairs.
+`planEvents` and `planPrintWorks` demonstrate this. Overlapping events are kept.
+
+Bucket cells also preserve their events when space is short: they draw only
+whole tiles, followed by a `+n` menu listing those that do not fit. Choosing a
+menu item performs the same action as selecting that tile (`planTargetState`).
 
 #### The frame (#1193)
 
@@ -1249,7 +1311,7 @@ places it bare.
 | the toolbar | Every control the Plan draws outside its canvas, one row at every width: the rail folds first, then the Plan's own steps and the key search into its icon; the history item folds last. | `planTargetState`, `planRowDrop` |
 | the banners | Each session's — `data`'s, and each event kind's titled with its name (#1194): a Save's conflict, a refusal, an unknown outcome with Retry, a source out of date with Discard; each leaves when what it reports does, and one kind's leaves the other kinds' commits standing. | `planRowDrop`, `planPrintWorks` |
 | the footer | The counts — the event kinds' events in the window, their backlog, the changes pending and the last save of an event kind's record — then the author's `footer` and the transport line. | `planPrintWorks` |
-| `style={{ height: "fill" }}` / `maxHeight` | The whole Plan's: the canvas fills main and scrolls its own rows. | `planFill` |
+| `style={{ height: "fill" }}` / `maxHeight` | The whole Plan's: the canvas fills main and scrolls its own rows. | `planTargetState` |
 | a host's height, and no `style.height` | The canvas fills main and scrolls there; a host that gives none lets it grow with its rows. | — |
 
 Removed with #1193: the canvas's own toolbar row (the frame's toolbar holds
@@ -1289,12 +1351,12 @@ const customers = $.let(Record.bind(planPrintCustomers, []));
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `Plan.library.events()` **❗** | Every event kind's templates, under the kind's name and then the template's `group` (`Print job · Jobs`). A card is its kind's icon, its name and `Print job · 6 h · presses`: its kind, how long it runs (an instant kind's runs no time) and the resource kinds it is placed on. Dropped on a resource's row it makes its event there (#1196). Refused on a Plan with no event kinds. | `planLibrary`, `planPrintWorks` |
-| `Plan.library.backlog()` **❗** | Every event kind's unscheduled events (a kind with Option times and a `backlog`), grouped by when they are due: Due this week (overdue included), Due next week, Later, No date — UTC weeks, from the Monday of the week the axis's `now` is in, else the week the Plan mounted in. A card is `6 h · Press A · due Fri 16` (`Unassigned` on no resource). It is read again as a kind's record commits, with every kind's drafts in place (#1196): a card dropped on a resource's row is scheduled and leaves it, an event dropped on the tab is unscheduled and joins it. Collapsed, the pane's rail counts it. Refused on a Plan with no event kinds. | `planLibrary`, `planPrintWorks` |
+| `Plan.library.events()` **❗** | Every event kind's templates, under the kind's name and then the template's `group` (`Print job · Jobs`). A card is its kind's icon, its name and `Print job · 6 h · presses`: its kind, how long it runs (an instant kind's runs no time) and the resource kinds it is placed on. Dropped on a resource's row it makes its event there (#1196). Refused on a Plan with no event kinds. | `planEvents`, `planPrintWorks` |
+| `Plan.library.backlog()` **❗** | Every event kind's unscheduled events (a kind with Option times and a `backlog`), grouped by when they are due: Due this week (overdue included), Due next week, Later, No date — UTC weeks, from the Monday of the week the axis's `now` is in, else the week the Plan mounted in. A card is `6 h · Press A · due Fri 16` (`Unassigned` on no resource). It is read again as a kind's record commits, with every kind's drafts in place (#1196): a card dropped on a resource's row is scheduled and leaves it, an event dropped on the tab is unscheduled and joins it. Collapsed, the pane's rail counts it. Refused on a Plan with no event kinds. | `planEvents`, `planPrintWorks` |
 | `Plan.library.series()` **❗** | `Pick.Panel`'s list in the order the canvas draws: each resource kind and its measures, the event kinds, `data`'s series when they are picked (`pick`), and the Plan's `rows` — a hand-built row by its key, a `Plan.over` series by its own. Hiding an event kind hides its elements everywhere, its Unassigned row and any row only it draws on with them (a resource's first row is its own, and stays); a resource kind its rows; a measure, or one of `rows`, its rows — a `Plan.over` series' nested series with it. `data`'s series hide through their pick. The rest are kept per viewer under the Plan's `id`, and only while the library lists this tab. Refused on a Plan with nothing a viewer can hide. | `planPrintWorks` |
-| `Plan.library.tab(rows: Dict<K, R>, { name, icon?, label, meta?, group?, drop? })` **❗** | A card per row, its rows read as `Schedule.resources` reads them, accessors `(row, key)`: its label, its meta, the tab's icon, grouped by `group`, searched by key, label and meta. A click selects a card, and a click on the selected card lets it go. A key of another type than String is its card's key as East prints it. Its cards drag onto the rows of `data` whose series makes an item of a card (`edit.create`) — the drop's `from.key` the card's key, so `canDrop` and `create` read it as a Library card's — and the Plan takes them with no `id` or `sources` (#1259). | `planLibrary`, `planPrintWorks`, `planRowDrop` |
-| `drop: (row, key) => Schedule.patch(KindRowType, { … })` **❗** | With it, each card drags onto an event too, while one of the patch's kind is on the canvas. What a card dropped on an event sets (#1196): the patch's type names the event kind it lands on, so a patch over no kind's row type, or over one two kinds share, is refused at build, naming the tab. Dropped on the event under the pointer it sets the patch's fields as one step (`Harbour Arts Society → Spring catalogue` on the ghost); refused between events (`Drop a customer onto an event`) and on another kind's (`Stops take no customer`). | `planLibrary`, `planPrintWorks` |
-| `Schedule.patch(R, { field: value, … })` / `Schedule.Types.Patch(R)` | A patch over an event kind's row type: every field an `Option`, each field left out `none`; one set to `none` clears an Option field. | `planLibrary` |
+| `Plan.library.tab(rows: Dict<K, R>, { name, icon?, label, meta?, group?, drop? })` **❗** | A card per row, its rows read as `Schedule.resources` reads them, accessors `(row, key)`: its label, its meta, the tab's icon, grouped by `group`, searched by key, label and meta. A click selects a card, and a click on the selected card lets it go. A key of another type than String is its card's key as East prints it. Its cards drag onto the rows of `data` whose series makes an item of a card (`edit.create`) — the drop's `from.key` the card's key, so `canDrop` and `create` read it as a Library card's — and the Plan takes them with no `id` or `sources` (#1259). | `planEvents`, `planPrintWorks`, `planRowDrop` |
+| `drop: (row, key) => Schedule.patch(KindRowType, { … })` **❗** | With it, each card drags onto an event too, while one of the patch's kind is on the canvas. What a card dropped on an event sets (#1196): the patch's type names the event kind it lands on, so a patch over no kind's row type, or over one two kinds share, is refused at build, naming the tab. Dropped on the event under the pointer it sets the patch's fields as one step (`Harbour Arts Society → Spring catalogue` on the ghost); refused between events (`Drop a customer onto an event`) and on another kind's (`Stops take no customer`). | `planEvents`, `planPrintWorks` |
+| `Schedule.patch(R, { field: value, … })` / `Schedule.Types.Patch(R)` | A patch over an event kind's row type: every field an `Option`, each field left out `none`; one set to `none` clears an Option field. | `planEvents` |
 | a tab listed twice — an author's by its name **❗** | Refused at build, naming it. | — |
 
 The pane is the frame's start pane, 272px open: its open tab and whether it
@@ -1335,7 +1397,7 @@ const inspectStop = $.const(East.function([PrintStop, FunctionType([PrintStop], 
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `inspector` (`inspector={true}`) **❗** | The end pane, 320px. One event: its kind, its title, when it runs and its status; its resource, its start and end or its instant, its lane, its state and its quantity; its kind's form over `fields`, the fields its roles read left to their own lines; Duplicate and Delete. Several: how many, each kind's count, the list, and the bulk edit — the state, the resource, a shift of a day or an hour. A row: its resource's name, its lines and its group, its events in the window — how many, their hours, their quantities by unit — and its measures at the bucket a click on its plot named; an Unassigned row, its kind's events on no resource; any other row, what it draws at that bucket. Nothing: the window's events, hours and backlog, and three hints. Collapsed, a rail naming what is selected. Refused on a Plan with no event kinds; `false`, or left out, no pane. | `planPrintWorks` |
+| `inspector` (`inspector={true}`) **❗** | The end pane, 320px. One event: its kind, its title, when it runs and its status; its resource, its start and end or its instant, its lane, its state and its quantity; its kind's form over `fields`, the fields its roles read left to their own lines; Duplicate and Delete; an overlaps banner lists this event's pairs. Several: how many, each kind's count, the list, and the bulk edit — the state, the resource, a shift of a day or an hour. A row: its resource's name, its lines and its group, its events in the window — how many, their hours, their quantities by unit — its overlapping pairs, and its measures at the bucket a click on its plot named; an Unassigned row, its kind's events on no resource; any other row, what it draws at that bucket. Nothing: the window's events, hours and backlog, and three hints. Collapsed, a rail naming what is selected. Refused on a Plan with no event kinds; `false`, or left out, no pane. | `planPrintWorks` |
 | `Schedule.events(record, { …, inspector: fn(R, fn(R) => Null) => UIComponentType })` **❗** | The kind's own inspector for one event, in place of its form, over the event's row; `update(edited)` writes the edited event back. Passed through untouched, called only where the pane draws it. A function over another row type, or with no writer, fails the build. Plan and Calendar use it when their optional `inspector` pane is present; read-only Calendar never calls its editing callback. | `planPrintWorks` |
 | the edits | Each one transaction of the Plan's history (#1194): a field of the kind's form, tinted while the record holds it otherwise; the kind's own inspector's `update`; Duplicate — each copy under a new key (a `String` key `-2`, `-3`, … after its own, an `Integer` key past the largest; a kind keyed otherwise has none), the copies then selected; Delete; and the bulk edit across kinds — the state, the resource (each event placed on that resource's kind), a shift of a day or an hour. They are off while a selected event's kind is saving or its record is not yet read. | `planPrintWorks` |
 
@@ -1359,7 +1421,7 @@ layout.
 | a bar, tile, chip or mark → along its row, or another resource's | Moves its event — across rows writing the resource field. A selected element moves the selection with it: the others by the same units, those on its resource onto the row's. Refused onto a resource of a kind it is not placed on. | `planPrintWorks` |
 | a bar's or a chip's edge → along the axis | Resizes it, never shorter than one snap. | `planPrintWorks` |
 | an event → the Backlog tab | Unschedules it: its times none, its resource kept. Refused for a kind whose times are no Options (`Stops have no backlog`). No trash zone shows. | `planPrintWorks` |
-| an author's card → an event of its patch's kind | Sets the fields the patch sets on the event, as one step. Refused anywhere but an event, or on another kind's. | `planPrintWorks`, `planLibrary` |
+| an author's card → an event of its patch's kind | Sets the fields the patch sets on the event, as one step. Refused anywhere but an event, or on another kind's. | `planPrintWorks`, `planEvents` |
 | an element of an event its drafts changed | Wears the brand tint in a brand border (a mark, the tint's ring), in both themes. | `planPrintWorks` |
 
 #### Large records, a window at a time (#1199)
@@ -1749,21 +1811,19 @@ Tested examples live in `test/*.examples.tsx`:
   its components read, the components, the pages record, and the three surfaces
   it mounts — `<Studio.Builder>`, `<Studio.Library>` and a published
   `<Studio.Page>`.
-- `plan/plan.examples.tsx` — `<Plan>` over `data`: every row kind, nesting from the
-  data, the time, number and ordinal axes, folds, links, the series library,
-  the editing session — cards dragged from the library panel, moves and
-  resizes, a hall's presses drafting the hall, and readiness (`planRowDrop`) —
-  and the narrow layout; the bound paged Plans are `data.examples.tsx`'s.
-- `plan/plan-events.examples.tsx` — `<Plan>` over event kinds: the smallest
-  (`planEvents`); the print works — presses and crews by hall, jobs as bars,
-  stops as marks, shifts as chips, every kind's templates, a utilisation row
-  under each press, a pinned chart, its library — the
-  customers among its tabs — and its inspector, where a stop shows the stop
-  kind's own (`planPrintWorks`); every way a link draws between events,
-  one link each, on a bounded canvas, beside a read-only table over a dataset
-  (`planEventLinks`); and the library pane —
-  the templates, the backlog by when it is due, the series and the author's
-  own customers, each setting a job's customer where it lands (`planLibrary`).
+- `plan/plan.examples.tsx` — `planTargetState` combines all row kinds,
+  nesting, links, bound UI state, the series library and a narrow layout;
+  `planMeasures` combines charts, heat, tables and resolution folds;
+  `planRowDrop` edits nested record entries through one session;
+  `planVariants`, `planNumberAxis`, `planOrdinalAxis` and `slicePlanChrome`
+  retain their distinct axis, configuration and Slice examples.
+- `plan/plan-events.examples.tsx` — `planEvents` is the smallest builder,
+  with a bound backlog, a customer-card tab and an Unassigned row.
+  `planPrintWorks` covers grouped presses and crews, nested bindery resources,
+  jobs, stops, shifts and plates, deliveries assigned to a bay or van, lanes,
+  status, readiness, overlap rules, linked events, measures and stock. Its
+  library and inspector use the shared frame and Save session.
+  `planEventLinks` keeps the individual link-routing cases.
 - `plan/plan-windows.examples.tsx` — `<Plan>` over records too large to read
   whole (`planWindows`): 2,000 presses a task generates, paged as the canvas
   scrolls, and the jobs read through their day index, their backlog index and

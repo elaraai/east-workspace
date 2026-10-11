@@ -141,15 +141,15 @@ path.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `groupBy: [r => r.top, r => r.contract]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
-| `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planGroupedRows`, `planNarrow` |
-| `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState`, `planLibraryDnd` |
-| `keySuffix` (`"p03"` → `"p03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
+| `groupBy: [r => r.top, r => r.contract]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planTargetState`, `planMeasures` |
+| `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planTargetState` |
+| `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState` |
+| `keySuffix` (`"p03"` → `"p03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planTargetState` |
 | numbered keys to force a layout (`"10-hall1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
-| `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planSpanRows` |
-| `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState`, `planExpand` |
+| `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planTargetState` |
+| `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
-| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planPick`, `planLibraryDnd` |
+| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planTargetState` |
 | fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
 | series keys unique per source; a repeat silently replaced rows (`LAST_WINS`) | series keys unique across the WHOLE series tree — a repeat is a build-time error naming both sites; a repeated run-time id (hand-built rows sharing a key) draws a `DUPLICATE ID` row diagnostic | — |
 | `data: Dict<String, R>` only | `Dict<K, R>` for any `K`; accessors receive `(entry, key: K)`; a series whose accessors read a non-String key declares `keyType` (and a bound list types itself `Plan.Types.Series(R, K)`) | — |
@@ -291,13 +291,13 @@ host.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `Plan.run({ qty: 12, quantity: "12 k sheets" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "k sheets", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planSeriesData`, `planSpanRows` |
-| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 k sheets" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "k sheets" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planSpanRows`, `planTargetState` |
-| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 k sheets · 12 h`) | `planSpanRows` |
+| `Plan.run({ qty: 12, quantity: "12 k sheets" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "k sheets", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planTargetState` |
+| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 k sheets" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "k sheets" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planTargetState` |
+| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 k sheets · 12 h`) | `planTargetState` |
 | `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` / `onCellClick` | `onElementClick` over `Plan.Types.ElementRef`: `$.match(ref, { run: …, cell: … })` answers only the arms it names, and a ribbon click is the `link` arm | `planVariants` |
 | `Plan.Types.RunClickEvent` … `CellClickEvent` | the arms of `Plan.Types.ElementRef`; a run's is `Plan.Types.RunRef` | — |
-| a group given both `summary` and `summaryAggregate` | one or the other; both is refused at build | `planGroupedRows` |
-| cells stacking at a coarser resolution | `fold`: `Plan.heatCells(c, { min, max, warnAt, fold, format })`, `Plan.weightCells(c, { fold, format })`, `Plan.segmentCells(c, { fold, format })`, `Plan.table({ cells, fold })`, `Plan.tableSeries({ fold })`, `Plan.series.table(R, { fold })`, `Plan.layer(layer, { fold })` | `planFold` |
+| a group given both `summary` and `summaryAggregate` | one or the other; both is refused at build | `planTargetState` |
+| cells stacking at a coarser resolution | `fold`: `Plan.heatCells(c, { min, max, warnAt, fold, format })`, `Plan.weightCells(c, { fold, format })`, `Plan.segmentCells(c, { fold, format })`, `Plan.table({ cells, fold })`, `Plan.tableSeries({ fold })`, `Plan.series.table(R, { fold })`, `Plan.layer(layer, { fold })` | `planMeasures` |
 
 A heat parent's `scale` (`Plan.series.heat(R, { scale })`,
 `Plan.heat({ rows, scale })`) is written as before; it is now the parent's own
@@ -822,20 +822,25 @@ gutter-imposing stack container any more.
 
 ## Example map (what guards what now)
 
+Updated for #1200: the consolidated examples live in e3-ui. Historical example
+names in the historical narrative describe the earlier migration;
+the tables point to the current corpus. The separate 200-row `planFill` stress
+example was retired; `planWindows` and `planRecordIndexes` cover paged scale.
+
 | Retired example | Plan equivalent |
 |---|---|
-| `ganttBasic` | `planSeriesData`, `planSpanRows` |
-| `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planSpanRows` (lifecycle flavours), `planFill` (fill + 200-row stress), `planTargetState` |
+| `ganttBasic` | `planTargetState` |
+| `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planTargetState` (lifecycle flavours and bounded fill), `planWindows` (paged scale) |
 | `ganttReactiveDrag` | `planRowDrop` (a drop is a draft, and runs move and resize, #825; Save commits them) |
 | `ganttReview` | none: review is removed (#1260) |
 | `ganttLibraryDnd` | `planRowDrop` |
-| `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |
-| `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
+| `plannerPoint` | `planTargetState`; its `number` axis → `planNumberAxis` (#631) |
+| `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planTargetState` (colour channels, cards and root resolvers); day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
 | `plannerReview` | none: review is removed (#1260) |
 | `plannerLibraryDnd` (add + veto + review loop) | `planRowDrop` (drops from the Plan's library panel, moves and resizes in one session) |
-| `plannerSpan` | `planSpanRows` |
-| `plannerFill` | `planFill` |
-| `alignedStackAll` | `planTargetState` (all kinds, one axis), `planChartRows` (chart compositions) |
+| `plannerSpan` | `planTargetState` |
+| `plannerFill` | `planTargetState` |
+| `alignedStackAll` | `planTargetState` (all kinds, one axis), `planMeasures` (chart compositions) |
 | `alignedStackLibraryDnd` | `planRowDrop` |
 
 `sliceGanttChrome` → `slicePlanChrome`. `dockBesidePlanner`, a `<Dock>` beside the
