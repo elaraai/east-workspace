@@ -783,7 +783,7 @@ Plan.events({ key: "milestones", label: "MILESTONES", id: true, sub: "7",
 ### Review + slice + composition (the §1 target state)
 
 ```tsx
-const slice = $.let(Slice.bind([RowType], "ops.plan", cfg, Slice.state()));
+const slice = $.let(Slice.bind("ops.plan", rows, { range: "due", search: "name" }));
 <Plan
     axis={Plan.axis({ resolution: "week", resolutions: ["week", "day"], now })}
     slice={{ slice, affordances: ["cohort", "filter", "search", "range", "resolution", "brush", "summary"] }}

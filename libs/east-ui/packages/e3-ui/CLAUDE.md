@@ -42,33 +42,61 @@ Do not emit an East program implementing layout, sessions or gestures there.
 
 ### Bind data and Slice as Plan does
 
-- Bind editable records with their mutation doors inside `Reactive`. Resources,
-  templates, backlog, configuration and other domain inputs must accept their
-  declared reactive value types, including values from records, inputs and
-  tasks. Backlog is a view of the authoritative event record. Browser viewer
-  state is not a second domain-data store.
-- **Expose the author-bound Slice contract used by Plan:** the app declares
-  `Slice.config`, `Slice.bind` and the upstream narrowing, and passes
-  `slice={{ slice, affordances: [...] }}` for shared controls. Study
-  `slicePlanChrome` and `planWindows` in the tested example index. The renderer
-  must not manufacture a hidden Slice over whatever rows it happened to load.
-- The controls alone are not Slice integration. For inline data, feed the
-  component the result of the shared Slice engine (`Slice.rows` or
-  `Slice.apply` at the typed source boundary), preserving the original keys.
-  Do not implement another search/predicate engine or infer filters from labels.
-- For paged event records, follow `planWindows`: the bound Slice range drives
-  the time window and therefore the day-index keys sought/read. Declare
-  `Data.bindPaged` handles for the day index, backlog index and original
-  entries, as appropriate. Keep inspector reads and edit baselines by key.
-  Do not download a whole record to build filter choices or a filter preview.
-- Distinguish range/index selection, filtering a loaded window, and seeking a
-  key in the complete source. Plan's paged toolbar makes that distinction.
-  Scope badges and counts must say what they cover. Do not describe arbitrary
-  Slice predicates as server-side filtering unless an actual source/index
-  implements that operation.
-- Navigation and shared range controls must write the same bound Slice state.
-  Test both directions, including a Slice changed by another component.
-  Preserve draft and selection identity through range, filter and page changes.
+Bind editable records with their mutation doors inside `Reactive`. Resources,
+templates, backlog and configuration accept reactive records, inputs or tasks;
+backlog remains part of the authoritative event record.
+
+Choose the Slice arm from the source, not from the builder:
+
+- Rows held whole: `Slice.bind(key, rows, { fields, range, search, initial,
+  presets })`, then `Slice.rows(slice)`. Keep `Slice.config` for pure
+  `Slice.apply` calls; do not use the removed positional binding form.
+- Indexed records: declare `e3.recordIndex(name, record, { on: [fields...] })`,
+  bind with `Data.bindPaged(record, { indexes })`, then
+  `Slice.bindRecord(key, binding, options)`. Pass `Slice.rows(slice)` as Plan/
+  Sheet data or Roster `visiblePeople`, and the same handle to `slice` chrome.
+  Never turn the loaded page into another local Slice or implement a browser
+  predicate. Typed controls and supported combinations come from declared indexes.
+- Calendar event records: declare an interval index, for example
+  `e3.recordIndex("by_status_time", events, { on: ["status"],
+  interval: { from: "start", to: "end" } })`. Bind it through record Slice
+  with `range: "start"`, pass that handle as the event kind's `slice`, and
+  pass `Data.bindPaged(events)` as its `entries`. The same Slice owns the
+  toolbar and navigation. Do not combine this with `filter`, `window` or
+  `backlogWindow`. Existing day-index consumers remain supported separately.
+
+Calendar means overlap with `[from, to)`: preserve carry-in, whole-window,
+overnight and multi-day events once by original primary key. An instant at
+`from` is included; one at `to` is excluded. A missing end on a scheduled
+optional event projects as an instant, without changing its stored row.
+Never substitute a scalar start range, guessed lookback, loaded-page filter or
+whole-record scan. Interval indexes add at most three entries per event and
+exact prefix, independent of duration. Queries use one start range plus at
+most 54 disjoint carry-in ranges; counts sum bounds without fetching rows.
+Keep Set-field narrowing single-member so duplicate fan-out cannot inflate counts.
+
+The controls alone are not integration. Trace toolbar changes into the source;
+record ranges are half-open while the existing local wire stays inclusive.
+Preserve supplied UTC precision in state and queries. Day-column layout may
+align to midnight without rewriting those bounds. Navigation and brushes write
+the same range; test external Slice writes in the other direction.
+
+Sessions retain drafts/history by original primary key independently of queries,
+index keys, pages and view membership. Save includes hidden entries and confirms
+through primary reads at the committed revision. A filtered-out row is neither
+a deletion nor evidence that a mutation completed. New unsaved rows are a
+separate draft layer; do not append existing hidden drafts to another narrowing.
+Existing Search keys remains primary-key navigation, separate from field search.
+
+After confirmed Save, shared `RecordSliceSaveNotice` reports rows that actually
+left the active narrowing. Use `prepareRecordSliceSave` through the shared
+session lifecycle; capture membership before the mutation and resolve it again
+after primary-key confirmation. Reuse the SDK's maintained index-key functions
+and bounded seeks, never a browser predicate or loaded-page membership. Existing
+hidden edits do not count as exits; new records outside the narrowing do. Clear
+the notice when the query changes. A feedback retry never resubmits a mutation.
+The indexed binding's `recordId`, unlike its query/source ID, is independent of
+which index declarations a view lists and is the shared editing identity.
 
 ### Examples show the complete component definition inline
 
@@ -134,11 +162,15 @@ one request. Unconfirmed writes retain the draft and the same retry identity.
 Switching weeks, filtering or resizing must not discard another week's draft.
 
 Keep **visibility separate from calculation scope** when the domain requires
-it. Roster's author binds staff with `Data.bind`/`Record.bind`, applies
-`Slice.rows` over typed staff scope rows, and passes their original keys as
-`visiblePeople`. The complete `people` value still drives coverage, cost,
-rest, skills and lead/trainer checks. Never calculate a misleading surplus by
-filtering people out of the roster's arithmetic. Hidden edits still Save.
+it. Roster takes complete `people` for coverage, costs, rest and skill/lead/
+trainer checks. A record Slice over staff supplies
+`visiblePeople={Slice.rows(slice)}` and `slice={{ slice }}`; local Slice supplies
+a Set of original staff keys. Indexed visibility pages only the chosen result,
+retains the previous complete membership while pending and never changes the
+weekly editing session. Hidden assignment edits still Save the original week.
+The staff date fields are not the week-navigation state. Bounded complete staff
+may be read for domain arithmetic; never read all history or staff merely to
+make filter choices or pretend to implement an indexed predicate.
 
 The windowed example binds a separate week-key Slice range and
 `Data.bindPaged` on the weeks record. The same range is read by the shared
@@ -268,7 +300,7 @@ races with Save; both retain the draft and protect the newer stored value.
 
 ### Shared time navigation
 
-Calendar and Roster use the internal `TimeNavigator` in
+Plan, Calendar and Roster use the internal `TimeNavigator` in
 `e3-ui-components/src/shared/time/navigation.tsx`; its static styling lives in
 `east-ui-components/src/theme/slot-recipes/timeNavigator.ts`. Reuse it for
 period navigation instead of copying another date picker. It composes the
@@ -294,11 +326,31 @@ timeline labels the visible range and steps from its visible center; Today
 recenters even if the persisted date was already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
-Test both consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
+Test all three consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
 styles, bounded reads, Slice writes, month/year boundaries and timeline
 recentring. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
+
+Plan's time navigator uses its active scale unit (including hour, quarter and
+year), preserves the visible bucket count and writes the same Slice range as
+the horizon brush. Its Range panel embeds the shared `SliceRangeContent` or
+`RecordSliceFieldEditor`; never create another input or filter implementation.
+Date inputs reuse the existing React Aria compound date field. Retain UTC,
+sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
+Plan axes keep their own appropriate controls.
+
+A current week retains `aria-current`, but must not acquire a left accent rule
+or inset shadow. Check a selected current week as well as a selected other week:
+all examples share the same recipe and selected treatment.
+
+Plan's toolbar offers Expand all / Collapse all over the existing per-row folds,
+including nested parents. Apply the change atomically, preserve selection and
+drafts, and retain overrides for evicted pages. Do not relabel the old
+Group/Resource grain selector and leave its different behavior underneath.
+An automatic chart maximum stays beside its heading at every chart height;
+only declared axis ticks position against the plot. Test both collapsed and
+expanded rows, including baseline alignment and containment.
 
 ### Loading and bounded rendering
 

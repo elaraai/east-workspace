@@ -275,6 +275,45 @@ names at least one end; open at both it names no run, and the seek refuses it.
 In the search box quoting is the escape: a quoted value is exact, and a `..`
 inside it is text, so `"../config"` finds that key rather than a range.
 
+### Indexed records and shared Slice
+
+Declare field indexes with `e3.recordIndex(name, record, { on: [fields...] })`.
+`Data.bindPaged(record, { indexes: [declarations...] })` carries their field/key
+types and joins rows by default. Bind it with
+`Slice.bindRecord(key, binding, { fields, range, search, initial, presets })`.
+`Slice.rows(slice)` supplies an ordered, pinned source whose entries retain the
+original primary key. Pass it as Plan/Sheet data, or Roster `visiblePeople`,
+and give the same Slice handle to the component's `slice` prop. Existing
+single-index `Data.bindPaged(record, { index, join })` remains separate.
+
+Controls come from indexed field types: unit Variant/Boolean/hints become choice
+chips; Strings use prefix suggestions; numbers/dates use typed ranges; Options
+add Unset; Sets permit one exact member. Counts are exact original-record counts,
+pending until known. Only a supported path through one index can combine choices.
+Never filter resident pages or materialize a record to discover its choices.
+Local arrays use `Slice.bind(key, rows, options?)`; neither arm needs a type
+argument for `Slice.rows(slice)`.
+
+Calendar event windows preserve overlap with `[from, to)`, including carry-in
+and whole-window spans. Declare `interval: { from: "start", to: "end" }` on an
+index (optional leading `on` fields), choose `range: "start"`, and pass that
+Slice as the event kind's `slice` with primary `entries: Data.bindPaged(events)`.
+Do not combine it with `filter`, `window` or `backlogWindow`. Do not replace it
+with a start-only query or guessed lookback. Optional missing ends are instants;
+an instant at `from` is included and one at `to` is excluded. Backlog remains
+part of the same authoritative record.
+
+Sessions retain original-key drafts across paging, narrowing and remount in the
+same UI store. Save includes hidden edits and confirms primary rows at the
+committed revision. A saved row leaving the narrowing produces footer feedback;
+moving off a resident page does not. Slice persistence saves query state, not
+unsaved drafts. Roster still saves weekly assignments and calculates coverage
+over complete staff; its indexed staff query controls visibility only.
+
+Search examples: `planRecordIndexes`, `sheetRecordIndexes`,
+`calendarRecordIndexes`, `rosterRecordIndexes`, and their Mobile counterparts.
+Each shows its full reactive bindings and JSX inline.
+
 ### `Func.bind(fn)`
 
 A workspace-scoped call handle for a named package function
@@ -424,13 +463,11 @@ and shareable with any other component). Bind it over the decision envelope
 with the handle's own union as the rows feed:
 
 ```tsx
-const cfg = Slice.config(Decision.Types.Decision, {
+const slice = $.let(Slice.bind('ops.queue.slice', handle.queue(), {
     fields: { kind: { label: 'Kind' }, title: { label: 'Title' }, value: { label: 'Value' } },
-    searchFieldIds: ['kind', 'title'],
-});
-const slice = $.let(Slice.bind([Decision.Types.Decision], 'ops.queue.slice', cfg,
-    Slice.state({ filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })] }),
-    handle.queue(), none));
+    search: ['kind', 'title'],
+    initial: { kind: ['roster'] },
+}));
 return <DecisionQueue handle={handle} heading="Decisions waiting" slice={slice} />;
 ```
 

@@ -281,10 +281,10 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
         ], ArrayType(StatusRow));
         // Every operation of every order: what the slice searches and filters.
         const operations = $.let(orders.read().toArray((_$, o) => o.ops).flatMap((_$, ops) => ops));
-        const slice = $.let(Slice.bind([d.OperationType], "workshop.slice",
-            Slice.config(d.OperationType, { fields: { activity: { label: "Activity" }, notes: { label: "Notes" } },
-                                            searchFieldIds: ["activity", "notes"] }),
-            Slice.state(), operations, none));
+        const slice = $.let(Slice.bind("workshop.slice", operations, {
+            fields: { activity: { label: "Activity" }, notes: { label: "Notes" } },
+            search: ["activity", "notes"],
+        }));
         // End = start + the activity's days: a fill the copilot offers.
         const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
         const endFromStart = $.const(East.function([Sheet.Types.DraftContext(d.OrderType, "ops", d.ActivityType)], DateFill, ($, ctx) => {

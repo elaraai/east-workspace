@@ -759,12 +759,11 @@ is drawn from the whole narrowing, `filter` and `cohort` affordances work the
 same way — a filtered-out row is a band, not a missing row.
 
 ```tsx
-const cfg = Slice.config(PlanRowType, {
+const slice = $.let(Slice.bind("plan.slice", rows, {
     fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
               stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },   // a Link, searched by its display text
-    searchFieldIds: ["activity", "notes", "stations"],
-});
-const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
+    search: ["activity", "notes", "stations"],
+}));
 
 <Sheet … slice={slice} affordances={["search", "filter"]} />
 ```
@@ -885,12 +884,11 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
         const families = $.const(FAMILIES, ArrayType(FamilyType));
         const sites = $.const(SITES, ArrayType(StringType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
-        const cfg = Slice.config(PlanRowType, {
+        const slice = $.let(Slice.bind("plan.slice", rows, {
             fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
                       stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },
-            searchFieldIds: ["activity", "notes", "stations"],
-        });
-        const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
+            search: ["activity", "notes", "stations"],
+        }));
         // impliedStations, siteMatches (§3.4) · endFromStart, lastSimilar, lastQuantity, lastStations, nextSlot, shiftQuantity,
         // phrase, countedByQuantity (§3.5) · nestingFollowUps, lastFollower, modelProposals (§3.6)
         const planned = $.let(rows.filter((_$, r) => r.activity.length().greater(0n)).length());

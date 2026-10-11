@@ -82,20 +82,52 @@ weekly roster record need not become Schedule event records to share a frame.
 
 ### Slice controls and data have one declared owner
 
-The author passes the bound Slice, as in Plan; the renderer mounts shared
-`useSliceToolbarItems` controls and subscribes with `useSliceReactivity`.
-Honor the declared affordances and the shared rail/fold behavior. Do not
-construct a private Slice from projected renderer rows or keep parallel search,
-filter, cohort or range state.
+Authors bind either local rows or a declared indexed record. Use
+`useSliceToolbarItems` for the local carrier and `useRecordSliceToolbarItems`
+for the record carrier. Both use the shared rail, editors, choice/search/range
+parts and toolbar ladder in east-ui-components. Keep the old local wire intact;
+record chrome is a separate appended payload. Honor affordances and persistence.
+Inside the folded editor, field editors expand inline, with one popup and
+normal keyboard focus return. Never copy another control family into a builder.
 
-Trace an actual control change into the data path. Inline narrowing comes from
-the shared Slice engine upstream. On indexed events, the bound range controls
-the window that seeks/reads day keys. Navigation writes that same range. A
-key search uses the source's seek path; it is not text filtering over a loaded
-prefix. Preserve Plan's distinction and make partial scope/counts explicit.
-Do not promise server-side arbitrary filtering that the paged API cannot do.
-By-key selection, draft baselines and Save remain tied to the original record,
-even when an event leaves the filtered view.
+Trace every choice to the source. Plan/Sheet read the ordered Slice source,
+Calendar event kinds read its interval queries, and Roster reads the selected
+staff identities for visibility only. No filtering over resident record rows,
+private Slice, full scan for options or user-facing index picker. The shared
+summary is authoritative N of M original records; do not add a competing local
+count. Search keys remains primary-key navigation, not Slice field search.
+
+Calendar preserves overlap `[from, to)`, including carry-in events, whole-window
+spans, overnight/multi-day events and instants at the lower boundary, once by
+primary identity. Reuse Schedule's record-window adapter and declared interval
+indexes. Do not replace overlap with a scalar start query or guessed lookback.
+Precise query bounds and midnight-aligned day geometry are separate. Navigation,
+shared range editors and brushes must write the same bound state.
+
+On query replacement, retain the previous complete rows/membership and window
+until the replacement lands, then swap atomically. Reset the new paging origin.
+Pending is not empty; errors retain usable data and offer Retry. Mark retained
+content busy and disable its editing gestures while pending. Keep toolbar
+navigation and session Save usable. The shared BuilderFrame Skeleton owns cold
+load; do not flash partial rows or cover usable data on every filter change.
+
+Sessions/history use original record keys and stable source/view identities.
+A query ID, index key or page offset must never become an edit identity. Retain
+hidden drafts through filtering, paging and remount, and Save them through the
+existing checked mutation. Confirm by primary reads outside the narrowing at
+the committed revision; absence from the filtered result proves nothing about
+Save. Roster still saves one complete active week and calculates over complete
+staff, whatever people the indexed visibility query hides.
+
+Use the shared session `prepare` seam with `prepareRecordSliceSave`, then render
+`RecordSliceSaveNotice` in the host's existing footer. Capture exact membership
+before sending the checked mutation and recheck after primary-key confirmation.
+Use SDK-maintained keys and bounded index seeks, never local predicates or page
+membership. Count only entries leaving this query and new entries saved outside
+it; an already-hidden edit is not an exit. Query changes clear feedback. A failed
+preparation sends no mutation and preserves drafts; a failed feedback read offers
+a read retry, never another Save. An indexed source's `recordId` names the primary
+record across all index lists and must back the shared editing identity.
 
 ### Frame, editing and narrow content
 
@@ -322,7 +354,7 @@ races with Save; both retain the draft and protect the newer stored value.
 
 ### Shared time navigation
 
-Calendar and Roster use the internal `TimeNavigator` in
+Plan, Calendar and Roster use the internal `TimeNavigator` in
 `e3-ui-components/src/shared/time/navigation.tsx`; its static styling lives in
 `east-ui-components/src/theme/slot-recipes/timeNavigator.ts`. Reuse it for
 period navigation instead of copying another date picker. It composes the
@@ -348,11 +380,31 @@ timeline labels the visible range and steps from its visible center; Today
 recenters even if the persisted date was already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
-Test both consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
+Test all three consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
 styles, bounded reads, Slice writes, month/year boundaries and timeline
 recentring. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
+
+Plan's time navigator uses its active scale unit (including hour, quarter and
+year), preserves the visible bucket count and writes the same Slice range as
+the horizon brush. Its Range panel embeds the shared `SliceRangeContent` or
+`RecordSliceFieldEditor`; never create another input or filter implementation.
+Date inputs reuse the existing React Aria compound date field. Retain UTC,
+sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
+Plan axes keep their own appropriate controls.
+
+A current week retains `aria-current`, but must not acquire a left accent rule
+or inset shadow. Check a selected current week as well as a selected other week:
+all examples share the same recipe and selected treatment.
+
+Plan's toolbar offers Expand all / Collapse all over the existing per-row folds,
+including nested parents. Apply the change atomically, preserve selection and
+drafts, and retain overrides for evicted pages. Do not relabel the old
+Group/Resource grain selector and leave its different behavior underneath.
+An automatic chart maximum stays beside its heading at every chart height;
+only declared axis ticks position against the plot. Test both collapsed and
+expanded rows, including baseline alignment and containment.
 
 ### Loading and bounded rendering
 

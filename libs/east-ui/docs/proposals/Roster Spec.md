@@ -1139,26 +1139,24 @@ The minimal JSX was presented in the conversation. The full example keeps its co
 // StaffScope: { key: String, name: String, group: String, trainer: Boolean }
 // configRecord: groups, duties, shifts, positions, agencies, rules and costs.
 East.function([], UIComponentType, _$ => {
-    const cfg = Slice.config(StaffScope, {
-        fields: {
-            name: { label: "Name" }, group: { label: "Home group" },
-            trainer: { label: "Trainer" },
-        },
-        searchFieldIds: ["name", "group"],
-    });
     return <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterPatch]));
         const window = $.let(Data.bindPaged(rosterWeeks));
-        const staff = $.let(Data.bind(people));
-        const config = $.let(Data.bind(configRecord).read());
-        const forecast = $.let(Data.bind(forecastRecord).read());
-        const proposals = $.let(Data.bind(proposalRecord).read());
+        const staff = $.let(Record.bind(people, []));
+        const config = $.let(Record.bind(configRecord, []).read());
+        const forecast = $.let(Record.bind(forecastRecord, []).read());
+        const proposals = $.let(Record.bind(proposalRecord, []).read());
         const rows = $.let(staff.read().toArray((_$, p, key) => ({
             key, name: p.name, group: p.team, trainer: p.trainer,
         })));
-        const slice = $.let(Slice.bind([StaffScope], "warehouse.roster.people",
-            cfg, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice)
+        const slice = $.let(Slice.bind("warehouse.roster.people", rows, {
+            fields: {
+                name: { label: "Name" }, group: { label: "Home group" },
+                trainer: { label: "Trainer" },
+            },
+            search: ["name", "group"],
+        }));
+        const visible = $.let(Slice.rows(slice)
             .toSet((_$, p) => p.key));
         return <Roster
             id="warehouse-roster"
