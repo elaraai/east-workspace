@@ -25,7 +25,7 @@
 
 import { inputsHash as computeInputsHash } from '@elaraai/e3-core';
 import { OptionType, StringType, equalFor } from '@elaraai/east';
-import { LEASE_MIN_AGENT, agentVersionAtLeast, type RackRegistration } from '../protocol/index.js';
+import { LEASE_MIN_AGENT, agentVersionAtLeast, type RackHeartbeatRequest, type RackRegistration } from '../protocol/index.js';
 import type { RackDispatch, RackLease, RackLeaseStatus } from '../lease/rack-dispatch.js';
 import {
   makeLeaseId,
@@ -43,8 +43,7 @@ import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordin
  * Whether a registration's latest boot lacks approval (D12 start
  * approval): the reported and approved boot ids differ. Both-none is NOT
  * pending — a freshly enrolled rack adopts its first boot on first
- * heartbeat, and quarantining the pre-heartbeat window would serve nothing
- * (an agent that never heartbeats never claims work healthily anyway).
+ * heartbeat. Enrollment is unhealthy until that heartbeat authorizes work.
  */
 export function bootPendingApproval(registration: RackRegistration): boolean {
   const { lastBootId, approvedBootId } = registration;
@@ -87,6 +86,28 @@ export interface StoreRackDispatchOptions {
 export const DEFAULT_HEALTHY_WINDOW_MS = 45_000;
 /** Visibility granted by a claim or extension. */
 export const DEFAULT_VISIBILITY_MS = 60_000;
+
+/**
+ * Capacity advertised by a heartbeat: occupied plus free slots while ready,
+ * zero while fenced, draining or unhealthy. Busy workers remain available.
+ * @param heartbeat - Decoded machine heartbeat
+ * @returns Effective concurrent capacity, safe for the scheduler's number arithmetic
+ * @throws If slot counts are negative, unsafe, or contain duplicate lease references
+ * @example
+ * const capacity = heartbeatCapacity(heartbeat);
+ */
+export function heartbeatCapacity(heartbeat: RackHeartbeatRequest): bigint {
+  const capacity = heartbeat.freeCapacity + BigInt(heartbeat.runningLeases.length);
+  if (heartbeat.freeCapacity < 0n || capacity > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Invalid capacity');
+  const seen = new Map<string, Set<string>>();
+  for (const { repo, leaseId } of heartbeat.runningLeases) {
+    const leases = seen.get(repo) ?? new Set<string>();
+    if (leases.has(leaseId)) throw new Error('Duplicate running lease');
+    leases.add(leaseId);
+    seen.set(repo, leases);
+  }
+  return heartbeat.healthy ? capacity : 0n;
+}
 
 // The oldest agent the cloud leases work to (#214) is part of the rack
 // protocol: e3-cloud-types', where the agent and the suites read it too
@@ -163,6 +184,7 @@ export class StoreRackDispatch implements RackDispatch {
     return racks.filter(
       (rack) =>
         rack.healthy &&
+        rack.capacity > 0n &&
         rack.lastSeenAt.getTime() >= cutoff &&
         (filter.tier === undefined || rack.tiers.includes(filter.tier)) &&
         !(requireApproval && bootPendingApproval(rack)) &&

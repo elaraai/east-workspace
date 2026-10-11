@@ -13,7 +13,7 @@ import { East, IntegerType, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { LocalStorage, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
-import { RackEnrollRequestType, RackEnrollResponseType } from '@elaraai/e3-rack/protocol';
+import { RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
 import { TestRackAgent } from '@elaraai/e3-rack/testing';
 import { runE3Command, spawnE3Command, waitFor, type CliResult } from './helpers.js';
 
@@ -92,6 +92,17 @@ it('prints the advertised HTTPS source without the VPN HTTP opt-in', async () =>
   const help = ok(await f.cli('rack', 'enroll', '--help'));
   assert.doesNotMatch(help, /--instance|--tiers|--max-vms|--gpus/);
   assert.match(help, /prepared\s+rack\s+worker\s+VM/);
+});
+
+it('shows a fenced worker as unavailable and a resumed worker as ready', async () => {
+  const f = await enrolled();
+  await f.agent.post('heartbeat', RackHeartbeatRequestType, {
+    healthy: false, freeCapacity: 0n, runningLeases: [], agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}`,
+    bootId: 'fenced-fixture', cacheBytes: 0n,
+  }, RackHeartbeatResponseType);
+  assert.match(ok(await f.cli('rack', 'list')), /0\/0\s+.*unavailable/);
+  await f.agent.heartbeat();
+  assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
 });
 
 it('round-trips policy, auto-starts and stops the hub, and delegates an enabled CLI run', async () => {

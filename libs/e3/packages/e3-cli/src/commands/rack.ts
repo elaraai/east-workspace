@@ -53,7 +53,8 @@ function printFleet(status: Status): void {
     const capacity = status.capacity.racks.find((entry) => entry.rackId === rack.rackId);
     const bundled = bundledE3Version(rack.agentVersion);
     const state = rack.lastBootId.type === 'none' ? 'enrolled-not-started'
-      : capacity?.pendingApproval ? 'pending-approval' : !capacity?.healthy ? 'stale'
+      : capacity?.pendingApproval ? 'pending-approval'
+      : !rack.healthy || rack.capacity <= 0n ? 'unavailable' : !capacity?.healthy ? 'stale'
       : rack.tiers.length === 0 ? 'no-runtimes'
       : bundled === null ? 'incompatible: bundled e3 unknown'
         : !agentVersionAtLeast(bundled, E3_RACK_VERSION) ? `incompatible: agent e3 ${bundled} < project e3 ${E3_RACK_VERSION}` : 'ready';

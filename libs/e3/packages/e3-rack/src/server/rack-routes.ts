@@ -69,7 +69,7 @@ import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '..
 import type { RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
 import { isFunctionLease, isLeaseEventV2, leaseRun, type RackLeaseResult } from '../protocol/task-envelope.js';
-import { DEFAULT_VISIBILITY_MS, leaseRefusal } from './dispatch.js';
+import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
 import {
   hashToken,
@@ -320,12 +320,12 @@ export function createRackRoutes(
     return hashes;
   };
 
-  /** Refresh the caller's lastSeenAt — polling/heartbeating proves liveness. */
+  /** Serialize registration patches with revocation. Only heartbeats refresh health. */
   const touchRack = (rackId: string, patch: (registration: RackRegistration) => Partial<RackRegistration> = () => ({})): Promise<RackRegistration | null> =>
     coordinator.run('@rack', rackId, async () => {
       const registration = await settingsStore.getRack(rackId);
       if (registration === null) return null;
-      const updated = { ...registration, ...patch(registration), lastSeenAt: new Date(now()) };
+      const updated = { ...registration, ...patch(registration) };
       await settingsStore.putRack(updated);
       return updated;
     });
@@ -363,7 +363,7 @@ export function createRackRoutes(
       capacity: request.hostInfo.capacity,
       lastSeenAt: enrolledAt,
       agentVersion: request.hostInfo.agentVersion,
-      healthy: true,
+      healthy: false,
       lastBootId: none,
       approvedBootId: none,
     };
@@ -417,7 +417,8 @@ export function createRackRoutes(
         quarantined = !(approved !== undefined && approved.type === 'some' && approved.value === bootId);
       }
 
-      if (!quarantined) {
+      if (!quarantined && currentRack.healthy && currentRack.capacity > 0n
+        && currentRack.lastSeenAt.getTime() >= now() - DEFAULT_HEALTHY_WINDOW_MS) {
         const candidates = await leaseStore.listClaimable(tiers, now(), 10);
         for (const candidate of candidates) {
           const grant = await coordinator.run(candidate.repo, candidate.leaseId, async () => {
@@ -477,14 +478,18 @@ export function createRackRoutes(
   app.post('/api/rack/heartbeat', async (c) => {
     const rackId = c.get('rackId');
     let heartbeat: RackHeartbeatRequest;
+    let capacity: bigint;
     try {
       heartbeat = (await decodeBody(c, RackHeartbeatRequestType)) as RackHeartbeatRequest;
+      capacity = heartbeatCapacity(heartbeat);
     } catch {
       return sendError(RackHeartbeatResponseType, variant('internal', { message: 'Invalid heartbeat body' }));
     }
 
     const registration = await touchRack(rackId, (current) => ({
       healthy: heartbeat.healthy,
+      capacity,
+      lastSeenAt: new Date(now()),
       agentVersion: heartbeat.agentVersion,
       lastBootId: some(heartbeat.bootId),
       approvedBootId: current.approvedBootId.type === 'none' && current.lastBootId.type === 'none'

@@ -99,12 +99,15 @@ async function fixture(options: RackRouteOptions = {}) {
     if (result.type !== 'success') throw new Error('Expected success');
     return result.value;
   };
-  const enroll = async (version = '0.5.0+e3.1.0.85') => {
+  const enroll = async (version = '0.5.0+e3.1.0.85', activate = true, capacity = 2n) => {
     const mint = generateEnrollmentToken();
     await identities.putEnrollmentToken(mint.tokenHash, new Date(time + 60_000));
-    const request = { enrollmentToken: mint.token, hostInfo: { label: 'test rack', tiers: ['node'], capacity: 2n, agentVersion: version } };
+    const request = { enrollmentToken: mint.token, hostInfo: { label: 'test rack', tiers: ['node'], capacity, agentVersion: version } };
     const response = await success(await raw('enroll', RackEnrollRequestType, request), RackEnrollResponseType);
     token = response.rackToken;
+    if (activate) await success(await raw('heartbeat', RackHeartbeatRequestType, {
+      healthy: true, freeCapacity: capacity, runningLeases: [], agentVersion: version, bootId: 'boot', cacheBytes: 0n,
+    }), RackHeartbeatResponseType);
     return { ...response, request };
   };
   const create = async () => {
@@ -268,4 +271,55 @@ it('does not resurrect a rack when revocation overlaps an in-flight heartbeat up
   assert.equal(await revoked, true);
   assert.equal(await f.registry.getRack(rackId), null);
   assert.equal((await f.heartbeat()).status, 401);
+});
+
+it('activates zero-capacity enrollment, preserves busy capacity, and withdraws it on drain and stale heartbeats', async () => {
+  const f = await fixture();
+  const { rackId } = await f.enroll(undefined, false, 0n);
+  const lease = await f.create();
+  assert.equal(await f.dispatch.anyHealthyRackWithTier('node'), false);
+  assert.equal((await f.claim()).status, 204);
+  const heartbeat = { healthy: false, freeCapacity: 0n, runningLeases: [],
+    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n };
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, heartbeat), RackHeartbeatResponseType);
+  assert.equal((await f.claim()).status, 204, 'a fenced boot cannot claim');
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, healthy: true, freeCapacity: 1n }), RackHeartbeatResponseType);
+  assert.equal((await f.registry.getRack(rackId))!.capacity, 1n);
+  assert.equal(await f.dispatch.anyHealthyRackWithTier('node'), true);
+  assert.equal((await f.success(await f.claim(), RackLeaseGrantType)).leaseId, lease.leaseId);
+  const runningLeases = [{ repo: 'repo', leaseId: lease.leaseId }];
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, healthy: true, runningLeases }), RackHeartbeatResponseType);
+  assert.equal((await f.registry.getRack(rackId))!.capacity, 1n, 'busy slots remain part of capacity');
+  assert.equal(await f.dispatch.anyHealthyRackWithTier('node'), true);
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, runningLeases }), RackHeartbeatResponseType);
+  assert.equal((await f.registry.getRack(rackId))!.capacity, 0n, 'drain withdraws capacity even with running work');
+  assert.equal(await f.dispatch.anyHealthyRackWithTier('node'), false);
+  await f.success(await f.complete(lease.leaseId), RackCompleteResponseType);
+  const next = await f.create();
+  assert.equal((await f.claim()).status, 204);
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, healthy: true, freeCapacity: 3n }), RackHeartbeatResponseType);
+  assert.equal((await f.registry.getRack(rackId))!.capacity, 3n, 'resume refreshes the allocation without another identity');
+  f.advance(45_001);
+  assert.equal((await f.claim()).status, 204, 'polling cannot keep stale heartbeat capacity alive');
+  assert.equal(await f.dispatch.anyHealthyRackWithTier('node'), false);
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, healthy: true, freeCapacity: 3n }), RackHeartbeatResponseType);
+  assert.equal((await f.success(await f.claim(), RackLeaseGrantType)).leaseId, next.leaseId);
+  assert.equal((await f.registry.listRacks()).length, 1);
+});
+
+it('rejects invalid capacity reports without changing the registration', async () => {
+  const f = await fixture();
+  const { rackId } = await f.enroll();
+  const before = await f.registry.getRack(rackId);
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [],
+    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n };
+  const ref = { repo: 'repo', leaseId: 'lease' };
+  for (const invalid of [
+    { freeCapacity: -1n }, { freeCapacity: BigInt(Number.MAX_SAFE_INTEGER) + 1n },
+    { freeCapacity: BigInt(Number.MAX_SAFE_INTEGER), runningLeases: [ref] }, { runningLeases: [ref, ref] },
+  ]) {
+    const response = await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, ...invalid });
+    assert.equal((await f.envelope(response, RackHeartbeatResponseType)).type, 'error');
+    assert.deepEqual(await f.registry.getRack(rackId), before);
+  }
 });

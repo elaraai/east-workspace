@@ -41,7 +41,7 @@ export const RackRegistrationType = StructType({
   label: StringType,
   enrolledAt: DateTimeType,
   tiers: ArrayType(StringType),
-  /** Declared max concurrent microVMs. */
+  /** Enrollment declaration until first heartbeat, then ready free plus occupied slots (zero if unhealthy). */
   capacity: IntegerType,
   lastSeenAt: DateTimeType,
   agentVersion: StringType,

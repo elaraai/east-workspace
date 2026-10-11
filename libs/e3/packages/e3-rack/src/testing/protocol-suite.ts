@@ -62,9 +62,13 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       const value = decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer()));
       assert(value.type === 'success'); return value.value;
     };
-    const enroll = async (enrollmentToken?: string) => success(await raw('enroll', RackEnrollRequestType, {
-      enrollmentToken: enrollmentToken ?? await f.mintEnrollmentToken(), hostInfo: { label: 'contract', tiers: ['node'], capacity: 1n, agentVersion: `0.5.0+e3.${E3_RACK_VERSION}` },
-    }), RackEnrollResponseType);
+    const enroll = async (enrollmentToken?: string, ready = true) => {
+      const enrolled = await success(await raw('enroll', RackEnrollRequestType, {
+        enrollmentToken: enrollmentToken ?? await f.mintEnrollmentToken(), hostInfo: { label: 'contract', tiers: ['node'], capacity: 1n, agentVersion: `0.5.0+e3.${E3_RACK_VERSION}` },
+      }), RackEnrollResponseType);
+      if (ready) await success(await heartbeat(enrolled.rackToken), RackHeartbeatResponseType);
+      return enrolled;
+    };
     const claim = (token: string) => raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'contract-boot' }, token);
     const heartbeat = (token: string, runningLeases: RackLeaseRef[] = []) => raw('heartbeat', RackHeartbeatRequestType, {
       healthy: true, freeCapacity: 1n, runningLeases, bootId: 'contract-boot', cacheBytes: 0n, agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`,
@@ -94,6 +98,12 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       for (const [peer, allowed] of [[winner, true], [loser, false]] as const) {
         assert.equal(await f.success(await f.raw('lease/extend', RackExtendRequestType, { repo: f.repo, leaseId: lease.leaseId }, peer.rackToken), BooleanType), allowed);
       }
+    });
+    void it('requires a ready heartbeat even when enrollment declares capacity', async (t) => {
+      const f = await fixture(t); const a = await f.enroll(undefined, false); await f.create();
+      assert.equal((await f.claim(a.rackToken)).status, 204);
+      await f.success(await f.heartbeat(a.rackToken), RackHeartbeatResponseType);
+      await f.success(await f.claim(a.rackToken), RackLeaseGrantType);
     });
     void it('computes inline output hashes and makes completion idempotent', async (t) => {
       const f = await fixture(t); const a = await f.enroll(); const lease = await f.create(); await f.success(await f.claim(a.rackToken), RackLeaseGrantType);

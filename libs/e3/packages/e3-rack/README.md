@@ -51,10 +51,18 @@ filters the observed registrations, so compare the result with the worker's
 enrollment result. Enrollment does not prove service activation or readiness.
 `e3 rack list` shows `enrolled-not-started` before a first heartbeat.
 
+Once the worker has been activated and explicitly resumed, its heartbeat
+publishes concurrent capacity as free plus occupied slots. Busy workers remain
+eligible; fenced, draining or unhealthy workers publish zero capacity and show
+`unavailable`. Existing work can still finish during drain. Only heartbeats
+refresh readiness: lease polling cannot keep an old capacity report alive.
+After 45 seconds without a heartbeat the worker stops counting as available.
+Source boot approval, when required, remains a separate gate from worker resume.
+
 Independent agents belong to separate worker VMs, each with its own identity,
 encrypted configuration and host-enforced resource allocation. Whole GPUs are
 assigned through the host lifecycle, independently of this enrollment command.
-The named host manager, source management, multi-source admission and capacity
+The named host manager, source management, multi-source admission and service/network
 activation are still being completed in [cloud #253](https://github.com/elaraai/e3-cloud/issues/253).
 The current managed runtime accepts one source per worker; successful enrollment
 alone is not an end-to-end deployment. See the companion's
