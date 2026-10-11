@@ -4,9 +4,10 @@
  */
 
 import { expect, test } from "vitest";
-import { none, variant } from "@elaraai/east";
-import { calendarRange, DAY, inputInstant, navigate, type CalendarValue, type CalendarView } from "./model.js";
+import { decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { calendarRange, DAY, inputInstant, inWindow, navigate, type CalendarValue, type CalendarView } from "./model.js";
 import { shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
+import { ScheduleItemType } from "@elaraai/e3-ui/internal";
 const settings: CalendarValue["settings"] = { layout: variant("calendar", null), period: variant("week", null), date: none,
     hours: { from: 6n, to: 22n }, weekStart: variant("monday", null), weekends: true, density: variant("comfortable", null), now: none, readOnly: false };
 const view: CalendarView = { layout: "calendar", period: "week", date: Date.UTC(2026, 9, 1) };
@@ -34,3 +35,20 @@ for (const period of ["day", "week", "month"] as const) {
         }
     });
 }
+
+test("half-open Calendar windows preserve spans and instants at the lower boundary", () => {
+    const from = new Date("2026-10-02T00:00:00Z");
+    const to = new Date("2026-10-03T00:00:00Z");
+    const before = new Date("2026-10-01T22:00:00Z");
+    const after = new Date("2026-10-04T00:00:00Z");
+    const encode = encodeBeast2For(ScheduleItemType);
+    const decode = decodeBeast2For(ScheduleItemType);
+    const item = (start: Date, end: Date) => decode(encode({
+        kind: "job", key: "original", title: "Event", start: some(start), end: some(end),
+        resource: none, status: none, minutes: 0n, due: none,
+    }));
+    expect(inWindow(item(before, after), from, to)).toBe(true);
+    expect(inWindow(item(before, from), from, to)).toBe(false);
+    expect(inWindow(item(from, from), from, to)).toBe(true);
+    expect(inWindow(item(to, to), from, to)).toBe(false);
+});

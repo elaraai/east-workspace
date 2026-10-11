@@ -89,7 +89,8 @@ export function navigate(view: CalendarView, step: number): CalendarView {
 /** Whether a scheduled event intersects a half-open window. */
 export function inWindow(item: CalendarItem, from: Date, to: Date): boolean {
     return item.start.type === "some" && item.end.type === "some"
-        && compareDate(item.start.value, to) < 0 && compareDate(item.end.value, from) > 0;
+        && compareDate(item.start.value, to) < 0
+        && (compareDate(item.end.value, from) > 0 || compareDate(item.start.value, from) >= 0);
 }
 /** Stable chronological order, including a tie-break across record kinds. */
 export function chronological(items: readonly CalendarItem[]): CalendarItem[] {

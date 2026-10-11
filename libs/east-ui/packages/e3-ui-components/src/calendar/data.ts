@@ -38,8 +38,12 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     }, [value.events, range.from, range.to, drafts]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef(EMPTY);
-    if (result.ok) held.current = result.value;
-    return { ...held.current, error: result.ok ? undefined : String(result.error) };
+    const heldRange = useRef(range);
+    // A pending or failed replacement is not a partial/empty result. Publish
+    // scheduled rows, backlog and their time geometry together when ready.
+    if (result.ok && !result.value.loading) { held.current = result.value; heldRange.current = range; }
+    return { ...held.current, range: heldRange.current, ready: held.current !== EMPTY,
+        loading: result.ok && result.value.loading, error: result.ok ? undefined : String(result.error) };
 }
 
 /** Named resource rows, preserving the author's declaration order. */

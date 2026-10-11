@@ -29,7 +29,15 @@
  * true })`); and its history. A builder's payload is one type whatever the
  * records hold, and the renderer never needs a row type.
  *
- * A large record is read a window at a time (#1199, `window.ts`): given
+ * A record Slice reads overlap queries through its declared interval indexes
+ * (`slice: Slice.bindRecord(...)`, with `range` naming the start field).
+ * It shares the toolbar's filters and window, counts original events once,
+ * and reads backlog through the same choices with an Unset start. It requires
+ * `entries` for original-key inspection and Save. Existing drafts outside a
+ * new narrowing remain in the session; Save includes them. Do not combine
+ * this with a local `filter`, `window`, or `backlogWindow`.
+ *
+ * A large record may also be read a window at a time (#1199, `window.ts`): given
  * `window`, a paged read of a day index keyed by `Schedule.days`, the kind's
  * events over a window are the rows the index files under the days in view,
  * and given `backlogWindow`, a paged read of an index keyed by
@@ -69,6 +77,7 @@ import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
+import { scheduleRecordWindow, type ScheduleRecordSlice } from "./record-window.js";
 import { checkEntries, checkIndexWindow, scheduleBacklogWindow, scheduleDayWindow, scheduleEntryByKey, scheduleLastKey } from "./window.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEntriesType,
@@ -281,12 +290,14 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
      * kind given it reads one event by its key through `entries`.
      */
     window?: unknown;
+    /** Indexed record narrowing. Uses an interval index, with original-key entries beside it. */
+    slice?: ScheduleRecordSlice<K, R>;
     /**
      * A paged read of the record's own entries (`Data.bindPaged(record)`),
      * beside `window` (#1199): one event read by its key — its key sought, then
      * a one-row page — for the inspector, and for the editing session, whose
      * base is the record's revision: a draft's original, a Save's entries read
-     * back, a conflict's entries named. Required with `window`.
+     * back, a conflict's entries named. Required with `window` or record `slice`.
      */
     entries?: unknown;
     /** Plan: the `EventStateType` field whose lifecycle its events wear. Omitted, confirmed. */
@@ -416,6 +427,7 @@ interface AnyConfig {
     ready?: (row: unknown, key: unknown) => unknown;
     filter?: (row: unknown, key: unknown) => unknown;
     window?: unknown;
+    slice?: unknown;
     backlogWindow?: unknown;
     entries?: unknown;
     draw?: string;
@@ -481,7 +493,7 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
  *   another type; `fields` naming a field the row does not have, or hinting one it cannot; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
- *   `entries`, `entries` without a `window`, and `entries` that is not a paged read of the record's own entries naming
+ *   `entries`, `entries` without a `window` or record `slice`, and `entries` that is not a paged read of the record's own entries naming
  *   its snapshot (#1199) — a window that reads no rows (`join` not true) is refused as it is read, naming `join: true`;
  *   a `draw` that is not a way to draw, or draws two ends of an instant; a `state`, `quantity` or `lane` field of
  *   another type; a `review`, which is removed (#1260); an `overlaps` that is neither `"warn"` nor `"allow"`; and an
@@ -700,6 +712,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     }
 
     // The windows (#1199): the days in view through a day index, the backlog through a backlog index.
+    if (config.slice !== undefined && (config.window !== undefined || config.backlogWindow !== undefined || config.filter !== undefined)) {
+        throw new Error(`${where}: slice replaces window, backlogWindow and local filter; narrow through the record's indexes`);
+    }
     const dayWindow = config.window === undefined ? undefined
         : checkIndexWindow(config.window, "window", keyType, rowType, DateTimeType, where);
     let backlogWindow: ExprType<EastType> | undefined;
@@ -716,14 +731,17 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // Nor one event: it is read by its key through the record's own entries.
     let entries: ExprType<EastType> | undefined;
     if (config.entries !== undefined) {
-        if (dayWindow === undefined) {
-            throw new Error(`${where}: \`entries\` reads one event by its key beside \`window\` — and this kind has no \`window\`, so it reads its record whole, every event with it`);
+        if (dayWindow === undefined && config.slice === undefined) {
+            throw new Error(`${where}: \`entries\` reads one event by its key beside \`window\` or record \`slice\` — give one of those with it`);
         }
         entries = checkEntries(config.entries, keyType, rowType, `${where}: \`entries\``);
-    } else if (dayWindow !== undefined) {
-        throw new Error(`${where}: \`window\` reads the days in view, so the record is never read whole — and one event, the inspector's ` +
+    } else if (dayWindow !== undefined || config.slice !== undefined) {
+        throw new Error(`${where}: an indexed kind reads only the window — and one event, the inspector's ` +
             "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
     }
+
+    const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
+    const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
 
     // The inspector's form: the fields a gesture does not write, in the hints' order.
     const omit = [...new Set([config.title, ...placed, ...(config.status === undefined ? [] : [config.status.field])])];
@@ -768,9 +786,16 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 });
             }).else(($3) => { $3(out.pushLast({ id, key, row })); });
         });
-        $.for(drafts, ($2, bytes, id) => {
+        $.for(drafts, ($2, bytes, id, label) => {
             const key = $2.const(parse(id));
             $2.if(held.has(key).not(), ($3) => {
+                // Existing drafts outside an indexed result stay in the session,
+                // but do not leak back into a different narrowing. New entries
+                // remain an explicit unsaved layer until their first Save.
+                if (config.slice !== undefined && byKey !== undefined) {
+                    const find = $3.const(byKey);
+                    $3.if(find(id).hasTag("absent").not(), $4 => { $4.continue(label); });
+                }
                 $3.match(draft(bytes, East.value(none, OptionType(rowType))), {
                     some: ($4, next) => { $4(out.pushLast({ id, key, row: next })); },
                 });
@@ -897,12 +922,19 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
 
     // The rows a window reads (#1199): the days in view through the day index, and the backlog through
     // the backlog index — each `none` while its search or a page is in flight. Without them, the record whole.
-    const readDays = dayWindow === undefined ? undefined : scheduleDayWindow(dayWindow, keyType, rowType, where);
-    const readBacklog = backlogWindow === undefined ? undefined : scheduleBacklogWindow(backlogWindow, keyType, rowType, where);
+    const readDays = config.slice !== undefined
+        ? scheduleRecordWindow(config.slice, keyType, rowType, startField, endField, optional, false, where)
+        : dayWindow === undefined ? undefined : scheduleDayWindow(dayWindow, keyType, rowType, where);
+    const indexedBacklog = config.slice !== undefined && optional
+        ? scheduleRecordWindow(config.slice, keyType, rowType, startField, endField, optional, true, where) : undefined;
+    const readBacklog = indexedBacklog === undefined
+        ? backlogWindow === undefined ? undefined : scheduleBacklogWindow(backlogWindow, keyType, rowType, where)
+        : East.function([], OptionType(HeldType), $ => {
+            const read = $.const(indexedBacklog);
+            return read(new Date(0), new Date(1));
+        });
     // One event by its key through the record's own entries, and the largest key (#1199): what a kind read a
     // window at a time reads in place of the record whole.
-    const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
-    const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
 
     // Adapt the author's typed predicate once; Slice owns its semantics and state.
     const filter = config.filter === undefined ? undefined
@@ -1026,7 +1058,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             const row = entry.row;
             const ref = $.const(refOf);
             const start = $.const(instant(row, startField));
-            const end = $.const(instant(row, endField));
+            // An optional missing end is an instant at its scheduled start,
+            // matching interval-index membership without rewriting the row.
+            const end = $.const(instant(row, endField).match({
+                none: () => start,
+                some: (_$2, end) => East.value(some(end), OptionType(DateTimeType)),
+            }));
             const minutes = $.let(0n, IntegerType);
             $.match(start, {
                 some: ($2, s) => {

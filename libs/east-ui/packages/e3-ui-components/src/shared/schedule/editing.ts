@@ -15,7 +15,8 @@ import {
     type EditHistory, type EditHistoryJoined, type EditHistoryPaged, type EditHistoryPart, type EditHistorySource, type EditSession,
     type EntryVersion, type Origin,
 } from "@elaraai/east-ui-components";
-import { wholeEntryReadiness } from "@elaraai/east-ui-components/internal";
+import { wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 
 /** The common event projection decoded from Schedule. */
 type Item = ValueTypeOf<typeof ScheduleItemType>;
@@ -139,6 +140,8 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
     joined: readonly EditHistoryJoined<ScheduleEntryRef>[];
     /** The range the canvas reads its event kinds' rows over (#1199): a kind read a window at a time holds every event it draws there. */
     range?: ScheduleRange | undefined;
+    /** Indexed query over an edited kind's primary record, for confirmed Save feedback. */
+    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
 /** A kind's codecs, read once per kind. */
@@ -204,7 +207,7 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @param args - The kinds, when their drafts go, the canvas's storage key, the sessions that join, and the range the canvas reads
  * @returns The history, the kinds' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, storageKey, joined, range }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
+export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, storageKey, joined, range, recordSlice }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
     const codecs = useMemo(() => kinds.map((kind): KindCodecs => {
@@ -231,6 +234,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, st
     // and an event read by its key, decoded.
     const sources = useMemo(() => kinds.map((kind, i): EditHistorySource<ScheduleEntryRef> => {
         const editing = applyMode === "auto" ? { ...kind.editing, mode: variant("auto", null) } : kind.editing;
+        const prepare = prepareRecordSliceSave(recordSlice?.sourceId === editing.sourceId ? recordSlice : undefined);
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
@@ -238,7 +242,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, st
             encode: encodeBeast2For(entryType) as (value: unknown) => Uint8Array,
             equal: equalFor(entryType) as (a: unknown, b: unknown) => boolean,
         });
-        if (kind.entries.type !== "some") return { editing, ready };
+        if (kind.entries.type !== "some") return { editing, ready, prepare };
         const seam = kind.entries.value;
         const decodeRow = codecs[i]!.decodeRow;
         const paged: EditHistoryPaged = {
@@ -250,8 +254,8 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, st
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);
             },
         };
-        return { editing, ready, paged };
-    }), [kinds, codecs, applyMode, storageKey]);
+        return { editing, ready, paged, prepare };
+    }), [kinds, codecs, applyMode, storageKey, recordSlice]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;
     const { history, keys, version } = state;

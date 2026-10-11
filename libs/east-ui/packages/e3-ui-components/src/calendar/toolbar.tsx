@@ -6,12 +6,12 @@
 /** One folding Toolbar: Slice, Calendar navigation, overlaps and shared history. */
 import { useMemo } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { SliceBindType } from "@elaraai/east-ui/internal";
+import type { RecordSliceChromeType, SliceBindType } from "@elaraai/east-ui/internal";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { ChipMenu, historyToolbarItem, useSliceReactivity, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, railAffordanceKinds, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import { HOST_RANK, coarseHitArea, railAffordanceKinds, useRecordSliceToolbarItems, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import { Seg } from "../shared/schedule/segments.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
@@ -25,6 +25,7 @@ interface ToolbarArgs {
     slice: ValueTypeOf<typeof SliceBindType> | undefined; affordances: readonly string[]; styles: CalendarStyles; commands: CalendarCommands | undefined;
     words: EditingWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
     onAction: (action: HistoryAction) => void; paged: boolean;
+    recordChrome: ValueTypeOf<RecordSliceChromeType> | undefined;
     sunday: boolean; navigationDate: number; rangeLabel: string | undefined; onNavigate: (date: number) => void;
 }
 /** The control row uses shared folding ranks, popovers and coarse-pointer targets. */
@@ -37,6 +38,10 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [slice, affordances, version]);
     const rail = useSliceToolbarItems(slice, [{ key: "calendar.slice", kinds }]);
+    const recordRail = useRecordSliceToolbarItems(args.recordChrome?.slice, {
+        noun: "events", affordances,
+        ...(args.recordChrome?.persist.type === "some" ? { persist: args.recordChrome.persist.value.type } : {}),
+    });
     const chip = useRecipe({ key: "chip" });
     const period = view.layout === "resources" ? "day" : view.period;
     const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.navigationDate }, step).date);
@@ -70,13 +75,13 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         sunday={args.sunday} now={now} onChange={args.onNavigate} compact={compact} rangeLabel={args.rangeLabel}
         label={combined ? "View" : "Choose date"} controls={combined ? controls : undefined} />;
     return [
-        ...rail,
+        ...rail, ...recordRail,
         { key: "calendar.layout", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Layout" scope="calendar" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
         view.layout !== "resources" && { key: "calendar.period", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Period" scope="calendar" name="period" items={PERIODS} active={period} onPick={period => setView({ ...view, period })} />, null] },
         { key: "calendar.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["calendar.view", "calendar.controls"], forms: [null, viewMenu, null] },
         { key: "calendar.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "calendar.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
-        { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [<Box css={styles.toolbarText} data-calendar-count="">{words.number(count)} events</Box>, null] },
-        paged && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
+        args.recordChrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [<Box css={styles.toolbarText} data-calendar-count="">{words.number(count)} events</Box>, null] },
+        paged && args.recordChrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
         firstPair !== undefined && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction,
             onIssue: issue => { const kind = commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind; if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),

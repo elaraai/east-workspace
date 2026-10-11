@@ -14,7 +14,7 @@ import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { rowsBase } from "./plan/rows.js";
 import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
-import { timeAxisText, timeHeaderText } from "./time/axis.js";
+import { timeAxisText, timeHeaderText, timeRulerBase } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
 
 export const calendarSlotRecipe = defineSlotRecipe({
@@ -88,9 +88,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
 
         ruler: { flex: 1, minWidth: 0 },
-        rulerRow: { position: "relative", height: "28px", overflow: "clip", borderBottomWidth: "1px", borderColor: "border.subtle", "&:last-child": { borderBottomWidth: 0 } },
-        rulerTick: { ...shellBase.rulerTick, position: "absolute", top: 0, bottom: 0, justifyContent: "flex-start", padding: "0 4px", overflow: "clip", textOverflow: "ellipsis", borderLeftWidth: "1px", borderColor: "border.subtle" },
-        rulerLabel: { ...shellBase.rulerLabel, position: "sticky", left: "188px", background: "bg.surface", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" },
+        rulerRow: timeRulerBase.rulerRow,
+        rulerTick: { ...timeRulerBase.rulerTick, justifyContent: "flex-start", padding: "0 4px", overflow: "clip", textOverflow: "ellipsis", borderLeftWidth: "1px", borderColor: "border.subtle" },
+        rulerLabel: { ...timeRulerBase.rulerLabel, position: "sticky", left: "188px", background: "bg.surface", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" },
         title: { textStyle: "body.sm", fontWeight: "semibold", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 },
         detail: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
         resize: {

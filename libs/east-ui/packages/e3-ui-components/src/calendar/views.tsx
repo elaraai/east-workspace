@@ -13,7 +13,8 @@ import { none } from "@elaraai/east";
 import { useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
-import { timeScale } from "../shared/time/scale.js";
+import { timeScale, timeWords } from "../shared/time/scale.js";
+import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
@@ -304,16 +305,13 @@ function Timeline(props: CalendarViewsProps) {
     };
     const duration = props.range.to.getTime() - props.range.from.getTime();
     const width = duration / DAY * pixelsPerDay;
-    const ticks = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "hour" : "day" })!;
-    const units = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "day" : props.view.period === "week" ? "week" : "month" })!;
+    const words = timeWords(props.format.locale);
+    const ticks = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "hour" : "day", words })!;
+    const units = timeRulerUnits(ticks, words, props.view.period === "day" ? "day" : props.view.period === "week" ? "week" : "month")!;
     return <Box ref={scroll} onScroll={onScroll} css={props.styles.scroll} data-calendar-timeline=""><Box css={props.styles.timeline} style={{ minWidth: width + 184 }}>
         <Box css={props.styles.head} data-calendar-header="" data-timeline=""><Box css={props.styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={props.styles.ruler}>
-            {[units, ticks].map((scale, i) => <Box key={i} css={props.styles.rulerRow} data-calendar-ruler={i === 0 ? "units" : "ticks"}>
-                {scale.buckets.map(bucket => <Box key={bucket.index} css={props.styles.rulerTick} style={{
-                    left: `${Math.max(0, bucket.start.getTime() - props.range.from.getTime()) / duration * 100}%`,
-                    width: `${(Math.min(props.range.to.getTime(), bucket.end.getTime()) - Math.max(props.range.from.getTime(), bucket.start.getTime())) / duration * 100}%`,
-                }}><Box as="span" css={props.styles.rulerLabel} data-calendar-ruler-label="">{bucket.label}</Box></Box>)}
-            </Box>)}
+            <TimeRulerRow scale={units} styles={props.styles} band="units" owner="calendar" sticky />
+            <TimeRulerRow scale={ticks} styles={props.styles} band="ticks" owner="calendar" sticky />
         </Box></Box>
         {groups.map(group => {
             const rows = props.rows.filter(row => row.group === group);

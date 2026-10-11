@@ -8,7 +8,7 @@ import {
     StructType, VariantType, none, some, variant, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
-import { SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { localSliceHandle, isRecordSlice, recordSliceChrome, RecordSliceChromeType, SliceAffordanceType, SliceBindType, SliceChromeType, type RecordSliceChromeOptions, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import { Schedule, scheduleCheck, type ScheduleNamespace } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
@@ -37,6 +37,7 @@ export const CalendarPayloadType = StructType({
     library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(SliceChromeType),
     canDrop: OptionType(FunctionType([ScheduleCandidateType], OptionType(StringType))),
     onSelect: OptionType(FunctionType([ScheduleEventRefType], NullType)), id: OptionType(StringType),
+    recordSlice: OptionType(RecordSliceChromeType),
 });
 /** The extension carrier registered by e3-ui-components. */
 export const CalendarComponent = EastUI.component("Calendar", CalendarPayloadType, { optional: true });
@@ -66,17 +67,17 @@ export interface CalendarProps {
     /** Resource kinds read from keyed data, commonly bound records. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /**
-     * Author-bound Slice, as in Plan. Its datetime range drives the indexed
-     * event window; navigation writes the same range. Narrow event rows with
-     * the shared Slice engine in each kind's `filter` accessor. The renderer
-     * never creates its own filter dataset. Omitted, no Slice controls.
+     * Author-bound Slice, as in Plan. Its datetime range and navigation share
+     * one state. With Slice.bindRecord, pass the same handle to each relevant
+     * event kind's slice option; interval indexes preserve overlapping events.
+     * Local slices use the kind's filter accessor. Omitted, no Slice controls.
      */
     slice?: {
         /** The handle declared with Slice.bind in the authoring Reactive block. */
         slice: SubtypeExprOrValue<SliceBindType>;
         /** Shared controls to mount, in order; defaults to filter and search. */
         affordances?: SliceAffordanceLiteral[];
-    };
+    } | RecordSliceChromeOptions;
     /** The library's tabs, in order; omitted or empty, no start pane. */
     library?: readonly CalendarLibraryTab[];
     /** Shows the inspector pane. */
@@ -125,6 +126,8 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             ? East.value(variant("tab", buildScheduleTab(tab, events, "Calendar")), CalendarLibraryTabType)
             : East.value(variant(tab.kind, null), CalendarLibraryTabType);
     });
+    const record = props.slice !== undefined && isRecordSlice(props.slice.slice);
+    const local = record ? undefined : props.slice as { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | undefined;
     return East.value({
         events: events.map(([slot, kind]) => kind.build(slot)),
         resources: Object.entries(resources).map(([slot, kind]) => kind.build(slot)),
@@ -136,12 +139,13 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             readOnly: props.readOnly ?? false,
         },
         library, inspector: props.inspector ?? false,
-        slice: props.slice === undefined ? none : some(East.value({
-            slice: props.slice.slice,
-            affordances: East.value((props.slice.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)),
+        slice: local === undefined ? none : some(East.value({
+            slice: localSliceHandle(local.slice),
+            affordances: East.value((local.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)),
         }, SliceChromeType)),
         canDrop: props.canDrop === undefined ? none : some(props.canDrop),
         onSelect: props.onSelect === undefined ? none : some(props.onSelect), id: props.id === undefined ? none : some(props.id),
+        recordSlice: record ? some(recordSliceChrome(props.slice as RecordSliceChromeOptions)) : none,
     }, CalendarPayloadType);
 }
 
