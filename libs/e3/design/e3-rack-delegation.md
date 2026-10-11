@@ -191,8 +191,14 @@ the closed repository. Cloud may adopt those seams in its own change. The
 current agent protocol can serve the local hub. Companion PR #254 implements
 request deadlines, durable completion retries, lockstep releases and encrypted
 worker enrollment. The local handoff follows its prepared-worker commands,
-while named host/source management and capacity activation remain cloud #253
-work. In particular, the enrollment child advertises zero capacity; activation
-must update that registration before local dispatch can admit work.
+and ready heartbeats activate capacity after pending-completion restoration and
+managed resume. Enrollment still advertises zero capacity. Capacity counts free
+plus occupied slots while ready and becomes zero during drain/stop; existing
+work may finish. Only heartbeats refresh the 45-second readiness window. Source
+boot approval remains an additional gate. Local registration fences and cloud
+conditional writes preserve concurrent updates and revocation.
+Named host/source management, service/network activation and host resource
+admission remain cloud #253 work. Advertised capacity is not permission to
+remove quarantine or start an unqualified worker.
 Cloud #195's real-agent/hardware acceptance remains distinct from the test agent.
 See the reconciliation for the status of every companion and deferred feature.

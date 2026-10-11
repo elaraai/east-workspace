@@ -118,10 +118,16 @@ The local mint intentionally displays its token; do not log that output.
 Enrollment does not start services or authorize task claims. The local CLI
 observes a new registration (optionally filtered by label); compare it with the
 worker's result. Before a first heartbeat, status is `enrolled-not-started`.
+After managed resume, a ready heartbeat advertises free plus occupied slots;
+busy workers stay eligible. Fenced, draining or stopping workers withdraw their
+capacity and show `unavailable`. After 45 seconds without a heartbeat, readiness
+expires; lease polling cannot prolong it. Source boot approval, when required,
+remains an additional gate. This advertisement does not authorize host resource
+admission or removal of service/network quarantine.
 Resources and mutable whole-GPU assignments belong to the host lifecycle, not
 local enrollment flags. Managed execution currently accepts one source; named
-host/source management, multi-source admission, capacity activation and hardware
-acceptance remain companion cloud #253 work. Separate clients require separate
+host/source management, multi-source admission, service/network activation and
+hardware acceptance remain companion cloud #253 work. Separate clients require separate
 worker VMs. Request deadlines and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
 
