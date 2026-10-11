@@ -12,16 +12,17 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster-records";
 import * as records from "@elaraai/e3-ui/examples/roster/roster";
 import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../platform/index.js";
 import { countWholeReads, recordPaging } from "../platform/record-paging.test-utils.js";
-import { act, assignment, mount, rosterHarness, settle, slot, START, width, WORKSPACE } from "./harness.test-utils.js";
+import { builderHarness } from "../shared/builder-harness.test-utils.js";
+import { act, assignment, mount, settle, slot, START, width, WORKSPACE } from "./harness.test-utils.js";
 
-const h = rosterHarness();
+const h = builderHarness(WORKSPACE, [ex.indexedRosterWeeks, ex.indexedRosterStaff, records.rosterConfiguration, records.rosterForecast, records.rosterProposals], "data-roster-main");
 afterEach(() => clearPagedApi());
 test("indexed staff visibility replaces atomically without narrowing coverage, and hidden edits Save the original week on mobile", async () => {
     const store = new UIStore(); StateRuntime.initializeStore(store);
     const reads = countWholeReads(h.cache); initializeRecordApi(reads.serve(h.memory), h.cache, WORKSPACE);
     const service = recordPaging(h.cache, reads.raw, [
-        { path: records.rosterWeeks.path, type: records.rosterWeeks.type },
-        { path: records.rosterStaff.path, type: records.rosterStaff.type,
+        { path: ex.indexedRosterWeeks.path, type: ex.indexedRosterWeeks.type },
+        { path: ex.indexedRosterStaff.path, type: ex.indexedRosterStaff.type,
             indexes: [ex.rosterStaffByName, ex.rosterStaffByTeam, ex.rosterStaffByTrainer, ex.rosterStaffBySkill].map(index => {
                 const fn = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
                 return { name: index.name, keyType: index.keyType, keys: (key: unknown, row: unknown) => index.multi ? fn(key, row) as Iterable<unknown> : [fn(key, row)] };
@@ -58,8 +59,8 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     expect(save).toHaveProperty("disabled", false);
     await act(async () => { fireEvent.click(save); });
     await waitFor(() => expect(within(slot(again.container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true));
-    const committed = decodeBeast2For(records.rosterWeeks.type)(reads.raw(WORKSPACE, records.rosterWeeks.path)!);
+    const committed = decodeBeast2For(ex.indexedRosterWeeks.type)(reads.raw(WORKSPACE, ex.indexedRosterWeeks.path)!);
     expect(committed.get(START)!.assignments.has("s37")).toBe(false);
     expect(committed.get(START)!.assignments.size).toBe(315);
-    expect(reads.paths.filter(path => path === "records.roster_weeks")).toEqual([]);
+    expect(reads.paths.filter(path => path === "records.indexed_roster_weeks")).toEqual([]);
 }, 30_000);

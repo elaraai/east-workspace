@@ -38,9 +38,9 @@ const generateWork = East.function([IntegerType], Work, ($, count) => {
     return rows;
 });
 
-export const indexedWorkCount = e3.input("indexed_work_count", IntegerType, variant("value", 2000n));
+export const indexedWorkCount = e3.input("indexed_work_count", IntegerType, variant("value", 50000n));
 export const indexedWorkGenerated = e3.task("indexed_work_generated", [indexedWorkCount], generateWork);
-export const indexedWorkOrders = e3.record("indexed_work_orders", Work, East.compile(generateWork, [])(2000n));
+export const indexedWorkOrders = e3.record("indexed_work_orders", Work, East.compile(generateWork, [])(50000n));
 export const indexedWorkPatch = e3.mutation.patch(indexedWorkOrders);
 export const indexedWorkByStatusDue = e3.recordIndex("by_status_due", indexedWorkOrders, { on: ["status", "due"] });
 export const indexedWorkByDue = e3.recordIndex("by_due", indexedWorkOrders, { on: ["due"] });
@@ -51,7 +51,7 @@ export const indexedWorkByTag = e3.recordIndex("by_tag", indexedWorkOrders, { on
 
 export const sheetRecordIndexes = example({
     keywords: ["Sheet", "Slice.bindRecord", "Data.bindPaged", "Record", "recordIndex", "saved views", "paging", "primary key", "filter"],
-    description: "Two thousand work orders, narrowed by maintained record indexes. Save retains original keys and hidden drafts; saved tabs retain the indexed query.",
+    description: "50,000 work orders, narrowed by maintained record indexes. Choose Ready and Scheduled together, then a Due range: their disjoint index ranges form one paged view. Save retains original keys and hidden drafts; saved tabs retain the query.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));

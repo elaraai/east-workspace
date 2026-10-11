@@ -9,7 +9,7 @@ import { Data, Plan, Record } from "@elaraai/e3-ui";
 import { IndexedWork, indexedWorkOrders, indexedWorkPatch, indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag } from "../sheet/sheet-records.examples.js";
 
 export const planRecordIndexes = example({
-    description: "The Sheet's two thousand bound work orders on a Plan. Due-date narrowing and the time window share one Slice; operations remain nested under their original work-order keys when moved and saved.",
+    description: "The Sheet's 50,000 bound work orders on a Plan. Multiple statuses combine with the Due range through the status/due index; the canvas pages their union. Operations remain nested under their original work-order keys when moved and saved.",
     keywords: ["Plan", "Slice", "bindRecord", "indexes", "paging", "Record", "editing", "range", "brush"], inputs: [],
     fn: East.function([], UIComponentType, _$ => (
         <Reactive>{$ => {

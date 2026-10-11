@@ -85,7 +85,7 @@ test("indexed Calendar preserves overlaps, replaces windows atomically, and save
     await waitFor(() => expect(within(slot(container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true));
     const committed = decodeBeast2For(ex.indexedCalendarEvents.type)(reads.raw(WORKSPACE, ex.indexedCalendarEvents.path)!);
     expect(committed.get("job")?.status).toBe("Done");
-    expect(committed.size).toBe(6);
+    expect(committed.size).toBe(12000);
     expect(service.requests.some(request => request.includes('seek "job"'))).toBe(true);
     expect(container.querySelector('[data-record-save-notice]')).toBeNull();
     await act(async () => { store.write(scope, encodeBeast2For(RecordSliceStateType)(state)); });

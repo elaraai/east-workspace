@@ -72,13 +72,13 @@ test("indexed Sheet keeps source order, restores saved narrowing and saves hidde
     const ids = () => ui.rows().map(row => row.dataset.rowId);
     const initialIds = ids();
     expect(initialIds.slice(0, 3)).toEqual(["JOB-10000", "JOB-10090", "JOB-10180"]);
-    expect(ui.tab("all").textContent).toContain("2,000");
+    expect(ui.tab("all").textContent).toContain("50,000");
     expect(ui.container.querySelector('[data-slot="contextOption"]')).toBeNull();
     expect(ui.reads.paths).toEqual([]);
 
     fireEvent.mouseDown(ui.container.querySelector('[data-slot="tabAdd"]')!, { button: 0 });
     await settle();
-    expect(ui.tab("view-1").querySelector('[data-slot="tabCount"]')?.textContent).toBe("667");
+    expect(ui.tab("view-1").querySelector('[data-slot="tabCount"]')?.textContent).toBe("16,667");
     fireEvent.doubleClick(ui.row("JOB-10000")!.querySelector('[data-key="status"]')!);
     const editor = await waitFor(() => {
         const input = ui.container.querySelector<HTMLInputElement>('[data-slot="editorInput"]');
@@ -119,7 +119,7 @@ test("indexed Sheet keeps source order, restores saved narrowing and saves hidde
     await settle();
     expect(ui.row("JOB-10000")).toBeNull();
     expect(ui.rows().every(row => row.querySelector('[data-key="status"]')?.textContent === "Ready")).toBe(true);
-    expect(ui.tab("view-1").querySelector('[data-slot="tabCount"]')?.textContent).toBe("666");
+    expect(ui.tab("view-1").querySelector('[data-slot="tabCount"]')?.textContent).toBe("16,666");
     expect(ui.tab("view-1").hasAttribute("data-dirty")).toBe(false);
     expect(ui.queryByRole("alert")).toBeNull();
 
@@ -141,7 +141,7 @@ test("indexed Sheet keeps source order, restores saved narrowing and saves hidde
     await waitFor(() => expect(ui.container.querySelector('[data-record-save-notice]')?.textContent).toBe("1 row left this view"));
     expect(ui.row(leavingId)).toBeNull();
     expect(decodeBeast2For(ui.record.type)(ui.reads.raw(ui.ws, ui.record.path)!).get(leavingId)?.status).toBe("Scheduled");
-    expect(ui.tab("view-1").querySelector('[data-slot="tabCount"]')?.textContent).toBe("665");
+    expect(ui.tab("view-1").querySelector('[data-slot="tabCount"]')?.textContent).toBe("16,665");
     expect(ui.reads.paths).toEqual([]);
     fireEvent.mouseDown(ui.tab("all"), { button: 0 });
     await settle();

@@ -166,21 +166,43 @@ export function recordPaging(
         if (record === undefined) throw new Error(`the service holds no ${pathText(path)}`);
         return record;
     };
-    const revisionOf = (workspace: string, path: TreePath) => contentHash(read(workspace, path));
+    // Like maintained server indexes, build once per record revision. Rebuilding
+    // for each boundary seek obscures the UI's bounded-read behavior on large fixtures.
+    const hashes = new WeakMap<Uint8Array, string>();
+    const decoded = new WeakMap<Uint8Array, ReadonlyMap<unknown, unknown>>();
+    const indexes = new WeakMap<ReadonlyMap<unknown, unknown>, Map<string, { ik: unknown; key: unknown; value: null; row: unknown }[]>>();
+    const revisionOf = (workspace: string, path: TreePath) => {
+        const bytes = read(workspace, path);
+        if (bytes === undefined) return contentHash(bytes);
+        let hash = hashes.get(bytes);
+        if (hash === undefined) { hash = contentHash(bytes); hashes.set(bytes, hash); }
+        return hash;
+    };
     const pinned = (workspace: string, path: TreePath, hash: string | undefined) => {
         const now = revisionOf(workspace, path);
         if (hash !== undefined && hash !== now) throw new DatasetHashMismatchError("stale pin", now);
         return now;
     };
     /** A record's entries as it holds them now, in key order. */
-    const entriesOf = (workspace: string, record: PagedRecord): ReadonlyMap<unknown, unknown> =>
-        decodeBeast2For(record.type)(read(workspace, record.path)!) as ReadonlyMap<unknown, unknown>;
+    const entriesOf = (workspace: string, record: PagedRecord): ReadonlyMap<unknown, unknown> => {
+        const bytes = read(workspace, record.path)!;
+        let rows = decoded.get(bytes);
+        if (rows === undefined) { rows = decodeBeast2For(record.type)(bytes) as ReadonlyMap<unknown, unknown>; decoded.set(bytes, rows); }
+        return rows;
+    };
     const indexed = (workspace: string, record: PagedRecord, name: string) => {
         const index = record.indexes?.find(candidate => candidate.name === name);
         if (index === undefined) throw new Error(`the service holds no index ${name}`);
-        const compareIndex = compareFor(index.keyType); const compareKey = compareFor(record.type.key);
-        const entries = [...entriesOf(workspace, record)].flatMap(([key, row]) => [...index.keys(key, row)].map(ik => ({ ik, key, value: null, row })));
-        entries.sort((a, b) => compareIndex(a.ik, b.ik) || compareKey(a.key, b.key));
+        const rows = entriesOf(workspace, record);
+        let byName = indexes.get(rows);
+        if (byName === undefined) { byName = new Map(); indexes.set(rows, byName); }
+        let entries = byName.get(name);
+        if (entries === undefined) {
+            const compareIndex = compareFor(index.keyType); const compareKey = compareFor(record.type.key);
+            entries = [...rows].flatMap(([key, row]) => [...index.keys(key, row)].map(ik => ({ ik, key, value: null, row })));
+            entries.sort((a, b) => compareIndex(a.ik, b.ik) || compareKey(a.key, b.key));
+            byName.set(name, entries);
+        }
         return { index, entries };
     };
     const api: PagedApi = {
