@@ -95,7 +95,7 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(frame.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
         await frame.getByRole('button', { name: 'View', exact: true }).click();
         await expect(page.getByRole('dialog').getByRole('button', { name: 'Publish week', exact: true })).toBeVisible();
-        await expect(page.getByRole('dialog').getByRole('button', { name: 'Next week', exact: true })).toBeVisible();
+        await expect(page.getByRole('dialog').getByRole('button', { name: 'Next day', exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
         await frame.getByRole('button', { name: 'View', exact: true }).click();
         await expect(page.locator('[data-roster-picker-week="2028-03-05"]')).toBeVisible();

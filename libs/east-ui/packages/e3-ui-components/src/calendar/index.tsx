@@ -43,6 +43,8 @@ function CalendarFrame(props: HostProps) {
     const { value, storageKey, view, range, editing, now } = props;
     const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
     const [shownRange, setShownRange] = useState<ReturnType<typeof calendarRange> | undefined>();
+    const [navigationRevision, setNavigationRevision] = useState(0);
+    const onNavigate = (date: number) => { props.setView({ ...view, date }); setNavigationRevision(before => before + 1); };
     const setView = (next: CalendarView) => {
         const middle = visible.current;
         props.setView(view.layout === "timeline" && middle !== undefined && next.date === view.date && (next.layout !== view.layout || next.period !== view.period)
@@ -96,7 +98,11 @@ function CalendarFrame(props: HostProps) {
         editing?.history.act(action);
     }, [editing]);
     const displayRange = narrow ? (slice?.read().range.type === "some" ? range : calendarRange(view, value.settings)) : view.layout === "timeline" ? shownRange ?? range : range;
-    const toolbar = useCalendarToolbar({ view, setView, range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, affordances, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
+    const standardRange = calendarRange(view, value.settings);
+    const rangeLabel = view.layout === "timeline" || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
+        ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
+    const navigationDate = !narrow && view.layout === "timeline" && shownRange !== undefined ? dayStart((shownRange.from.getTime() + shownRange.to.getTime()) / 2).getTime() : view.date;
+    const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, affordances, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
     const drag = useCalendarDrag({ value, key: storageKey, commands, narrow, items: data.items, backlog: data.backlog, selection: selectedItems, activeTemplate, onError: setError });
     const pick = useCallback((item: CalendarItem, additive = false) => {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
@@ -121,7 +127,7 @@ function CalendarFrame(props: HostProps) {
                 </Box>)}
             </Box>}>
             <Box ref={main} css={styles.main} data-calendar-main="" data-calendar-narrow={narrow ? "" : undefined}>
-                <CalendarViews format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
+                <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
                     selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />
             </Box>
         </BuilderFrame>

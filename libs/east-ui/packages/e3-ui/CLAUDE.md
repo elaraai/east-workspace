@@ -216,6 +216,39 @@ exercise real decimal typing in Chromium through Save/remount. Distinguish a
 refreshed record's stale-draft banner from a conflict returned by a write that
 races with Save; both retain the draft and protect the newer stored value.
 
+### Shared time navigation
+
+Calendar and Roster use the internal `TimeNavigator` in
+`e3-ui-components/src/shared/time/navigation.tsx`; its static styling lives in
+`east-ui-components/src/theme/slot-recipes/timeNavigator.ts`. Reuse it for
+period navigation instead of copying another date picker. It composes the
+shared Button, Seg and SliceEditPopover and uses the shared UTC calendar
+arithmetic and app formatters. Keep BuilderFrame and this renderer detail out
+of the public authoring API.
+
+The full toolbar is previous / clickable current date or range / next / Today.
+The popup always has Today, including compact and combined View forms. Arrows
+step the effective view unit: Calendar Resources uses days, Roster People uses
+weeks, and other layouts use their active period. Keep invalid period controls
+absent. The picker's Days/Weeks choices select a date; they do not change the
+main view's period. Month/year browsing changes only the open picker until a
+period is selected. Week jumps preserve the selected weekday; month jumps
+clamp to a shorter month's final day. All boundaries use UTC and the declared
+Sunday/Monday week start.
+
+Pass date changes through the host's existing window/Slice owner. Preserve
+whole-week Roster reads and per-week drafts, and request status only for the
+open picker's month. Cancel and browsing must not write the Slice. Calendar's
+timeline labels the visible range and steps from its visible center; Today
+recenters even if the persisted date was already today. Do not duplicate the
+current date as detached toolbar text. Counts remain a separate folding item.
+
+Test both consumers at 1440/1024/768/390/360 and a 294px parent, in both themes:
+popup Today, all valid units, keyboard selection/cancel, hover versus selected
+styles, bounded reads, Slice writes, month/year boundaries and timeline
+recentring. Rebuild and check the actual HTTPS showcase before reporting that
+navigation changed.
+
 ### Loading and bounded rendering
 
 Use the shared `useContainerBelow`/`useContainerBreakpoint` hooks, as Plan does.

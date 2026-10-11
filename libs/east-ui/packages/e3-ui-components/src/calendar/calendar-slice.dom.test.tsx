@@ -91,7 +91,7 @@ describe("Calendar's author-bound Slice", () => {
         expect(event(container, "job", "job1")).toBeNull(); expect(event(container, "job", "job4")).not.toBeNull();
         await width(390); expect(card(container, "job", "job4")).not.toBeNull();
         await width(900);
-        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Previous period" })); }); await settle();
+        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Previous day" })); }); await settle();
         expect(readRange()).toEqual(new Date("2026-10-01T00:00:00Z"));
         await act(async () => { fireEvent.click(event(container, "job", "job1")); }); await settle();
         const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;

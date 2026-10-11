@@ -16,7 +16,7 @@ test("UTC week/month/day windows and weekends, including a year boundary", () =>
     expect(calendarRange({ ...view, layout: "resources" }, settings).days).toHaveLength(1);
     const month = calendarRange({ ...view, period: "month", date: Date.UTC(2026, 11, 31) }, settings);
     expect(month.from.toISOString()).toBe("2026-11-30T00:00:00.000Z"); expect(month.to.toISOString()).toBe("2027-01-04T00:00:00.000Z");
-    expect(navigate({ ...view, period: "month", date: Date.UTC(2026, 0, 31) }, 1).date).toBe(Date.UTC(2026, 1, 1));
+    expect(navigate({ ...view, period: "month", date: Date.UTC(2026, 0, 31) }, 1).date).toBe(Date.UTC(2026, 1, 28));
 });
 test("invalid UTC input never rolls into another day", () => {
     expect(inputInstant("2026-02-30", "09:00")).toBeUndefined(); expect(inputInstant("2026-10-01", "24:30")).toBeUndefined();

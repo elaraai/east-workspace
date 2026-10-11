@@ -6,6 +6,7 @@
 /** Calendar's UTC windows and projected data; no UI or record writes. */
 import { DateTimeType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { CalendarPayloadType, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { shiftCalendar } from "../shared/time/calendar-math.js";
 import { type ScheduleItemValue } from "../shared/schedule/overlaps.js";
 
 /** Calendar's closed payload, decoded. */
@@ -83,9 +84,7 @@ export function calendarRange(view: CalendarView, settings: CalendarValue["setti
 export function navigate(view: CalendarView, step: number): CalendarView {
     const date = new Date(view.date);
     const period = view.layout === "resources" ? "day" : view.period;
-    return { ...view, date: period === "month"
-        ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + step, 1)
-        : view.date + step * DAY * (period === "week" ? 7 : 1) };
+    return { ...view, date: shiftCalendar(date, period, step).getTime() };
 }
 /** Whether a scheduled event intersects a half-open window. */
 export function inWindow(item: CalendarItem, from: Date, to: Date): boolean {

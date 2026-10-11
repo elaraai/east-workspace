@@ -40,7 +40,7 @@ async function toolbarFaults(entry: Locator) {
 async function viewChoice(page: Page, frame: Locator, name: string) {
     const radio = frame.getByRole("radio", { name, exact: true });
     if (await radio.isVisible()) await radio.click();
-    else { await frame.getByRole("button", { name: "View", exact: true }).click(); await page.getByRole("menuitem", { name, exact: true }).click(); }
+    else { await frame.getByRole("button", { name: "View", exact: true }).click(); const choice = page.getByRole("menuitem", { name, exact: true }); if (await choice.isVisible()) await choice.click(); else { await page.getByRole("dialog").getByRole("radio", { name, exact: true }).click(); await page.keyboard.press("Escape"); } }
     await settled(page);
 }
 async function movePointer(page: Page, source: Locator, x: number, y: number) {
@@ -261,7 +261,7 @@ for (const theme of ["light", "dark"] as const) {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1920);
         const frame = entry.locator("[data-calendar-frame]").first();
-        const range = frame.locator('[data-calendar-range]');
+        const range = frame.locator('[data-time-navigation=calendar]');
         await expect(range).toBeVisible();
         const fonts = await range.evaluate(el => {
             const cs = getComputedStyle(el);
@@ -271,11 +271,13 @@ for (const theme of ["light", "dark"] as const) {
             const s = getComputedStyle(el);
             return { family: s.fontFamily, size: parseFloat(s.fontSize), weight: s.fontWeight, casing: s.textTransform };
         });
-        const heading = await typography(range.locator('span').first());
-        expect(heading.family).toBe(fonts.heading); expect(heading.size).toBe(15); expect(heading.weight).toBe("700");
+        const heading = await typography(range.locator('[data-time-label]'));
+        expect(heading).toEqual(await typography(range.getByRole('button', { name: 'Today', exact: true })));
         expect(await range.evaluate(el => {
-            const boxes = [...el.children].map(child => child.getBoundingClientRect());
-            return boxes[1]!.left >= boxes[0]!.right && Math.max(...boxes.map(b => b.bottom)) - Math.min(...boxes.map(b => b.top)) < 24;
+            const buttons = [...el.querySelectorAll('button')];
+            const boxes = buttons.map(button => button.getBoundingClientRect());
+            return buttons[1]!.hasAttribute('data-time-trigger') && boxes.every((b, i) => i === 0 || b.left >= boxes[i - 1]!.right)
+                && Math.max(...boxes.map(b => b.bottom)) - Math.min(...boxes.map(b => b.top)) <= 28;
         })).toBe(true);
         const weekday = await typography(frame.locator('[data-calendar-day-heading] > span').first());
         expect(weekday.family).toBe(fonts.mono); expect(weekday.size).toBe(10); expect(weekday.weight).toBe("600"); expect(weekday.casing).toBe("uppercase");

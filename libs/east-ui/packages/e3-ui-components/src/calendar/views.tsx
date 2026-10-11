@@ -27,6 +27,7 @@ import { DAY, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, on
 
 /** The views share selection, commands, drafts and overlap state. */
 export interface CalendarViewsProps {
+    navigationRevision?: number;
     value: CalendarValue; view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; visibleRange: CalendarRange; format: Formatters;
     onVisible: (range: CalendarRange) => void; items: readonly CalendarItem[]; rows: readonly CalendarRow[]; now: Date; narrow: boolean; styles: CalendarStyles;
     selected: ReadonlySet<string>; select: (item: CalendarItem, additive?: boolean) => void; clear: () => void;
@@ -281,7 +282,7 @@ function Timeline(props: CalendarViewsProps) {
         shifted.current = undefined; publish();
         // View changes and edge replacement are the only recentering operations.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.range.from.getTime(), props.view.period, props.view.date]);
+    }, [props.range.from.getTime(), props.view.period, props.view.date, props.navigationRevision]);
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
         const observer = new ResizeObserver(publish); observer.observe(element); return () => observer.disconnect();

@@ -17,7 +17,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "actions", "pane", "paneFoot", "section", "status",
-        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "picker", "pickerRow", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
+        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
     base: {
         ...moveGhostBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
@@ -95,8 +95,6 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         rangeTitle: { textStyle: "h5", whiteSpace: "nowrap" }, toolbarText: builderFooterItem,
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { padding: "16px", textStyle: "body.sm", color: "fg.muted" },
-        picker: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
-        pickerRow: { display: "flex", alignItems: "center", gap: "10px", padding: "8px", minHeight: "36px", textAlign: "left", textStyle: "mono.sm", borderRadius: "sm", cursor: "pointer", "&:hover:not([data-selected])": { background: "bg.subtle" }, "&[data-selected]": { background: "brand.subtle" }, ...planRowFocus },
         pickerDot: { width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle", "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" }, "&[data-state=draft]": { background: "brand.solid", borderColor: "brand.solid" } },
         summary: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "16px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle" },
         stat: { display: "flex", flexDirection: "column", gap: "4px" }, statValue: { textStyle: "num-lg" }, statLabel: { textStyle: "caption.eyebrow" },
