@@ -119,6 +119,13 @@ a few characters per line. Preserve the shared destination/refusal caption.
 
 ### Weekly records: Roster's reference case
 
+The examples declare staff, configuration, forecasts and proposals as
+`e3.record` definitions. `Data.bind(record)` provides reactive reads of a
+record, just as it reads inputs and task outputs. `Record.bind(record,
+mutations)` adds the mutation commands for a record the surface edits. The
+binding name does not change the source's storage kind. Keep these declarations
+visible alongside the examples so reference data is clearly record-backed.
+
 Keep the domain's aggregate boundary. Roster stores one complete week per UTC
 DateTime key. Each week owns a shared EditSession/history view; the record's
 write gate is shared across weeks. Save patches only the active week, and
@@ -174,6 +181,13 @@ window, so omit Day/Week; Calendar Resources has a fixed daily window, so omit
 Day/Week/Month. Omit them from every Toolbar form, including menus and the
 narrow combined picker. Keep the inactive period preference so switching back
 restores it. Test expanded, folded and phone forms and switching back.
+
+Mobile day strips use the shared `Seg` component's `fullWidth` recipe
+variant: all seven buttons fill the available content width equally, with no
+unused tail or horizontal overflow. Picker rows have a neutral hover state,
+a distinct selected state and the shared keyboard focus ring, all in slot
+recipes. Verify their actual computed styles and geometry in both themes,
+including a narrow container inside a wide viewport.
 
 Group bands fill the complete scrolling grid width in both layouts. Make text
 alignment explicit in slot recipes: Day shift details align left; compact Week

@@ -66,6 +66,24 @@ for (const theme of ['light', 'dark'] as const) {
                 await expect(main.locator('[data-roster-agenda]')).toBeVisible();
                 await expect(frame.locator('[data-draggable], [aria-roledescription="draggable"], [data-roster-grip], [data-roster-slot]')).toHaveCount(0);
                 expect(await main.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+                const days = main.locator('[data-roster-seg="agenda-days"]');
+                const fit = await days.evaluate(el => {
+                    const strip = el.getBoundingClientRect(), border = getComputedStyle(el), parent = el.parentElement!, css = getComputedStyle(parent);
+                    const cells = [...el.querySelectorAll('[role="radio"]')].map(day => day.getBoundingClientRect());
+                    return {
+                        count: cells.length,
+                        widthError: Math.abs(strip.width - (parent.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight))),
+                        spread: Math.max(...cells.map(cell => cell.width)) - Math.min(...cells.map(cell => cell.width)),
+                        left: Math.abs(cells[0]!.left - strip.left - parseFloat(border.borderLeftWidth)),
+                        right: Math.abs(strip.right - cells.at(-1)!.right - parseFloat(border.borderRightWidth)),
+                        overflow: el.scrollWidth - el.clientWidth,
+                    };
+                });
+                expect(fit.count).toBe(7);
+                expect(fit.widthError, `${width}px day strip`).toBeLessThanOrEqual(1);
+                expect(fit.spread, `${width}px equal day buttons`).toBeLessThanOrEqual(1);
+                expect(fit.left).toBeLessThanOrEqual(0.25); expect(fit.right).toBeLessThanOrEqual(0.25);
+                expect(fit.overflow).toBeLessThanOrEqual(1);
                 expect(await main.evaluate(root => [...root.querySelectorAll('[data-roster-card]')].flatMap(card => {
                     const b = card.getBoundingClientRect(), p = root.getBoundingClientRect();
                     return b.left < p.left - 1 || b.right > p.right + 1 ? [card.getAttribute('data-roster-card')] : [];
@@ -81,6 +99,28 @@ for (const theme of ['light', 'dark'] as const) {
         await page.keyboard.press('Escape');
         await frame.getByRole('button', { name: 'View', exact: true }).click();
         await expect(page.locator('[data-roster-picker-week="2028-03-05"]')).toBeVisible();
+    });
+    test(`week picker hover is distinct from selection and keeps keyboard focus (${theme})`, async ({ page }, info) => {
+        test.skip(info.project.name !== 'desktop', 'Hover uses a fine pointer; touch selection is covered by narrow controls.');
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await frame.getByRole('button', { name: 'Choose roster week', exact: true }).click();
+        const chosen = page.locator('[data-roster-picker-week][data-selected]');
+        const week = page.locator('[data-roster-picker-week]:not([data-selected])').first();
+        const background = (row: Locator) => row.evaluate(el => getComputedStyle(el).backgroundColor);
+        const selected = await background(chosen), rest = await background(week);
+        await week.hover();
+        expect(await background(week)).not.toBe(rest);
+        expect(await background(week)).not.toBe(selected);
+        expect(await background(chosen)).toBe(selected);
+        await chosen.hover(); expect(await background(chosen)).toBe(selected);
+        expect(await background(week)).toBe(rest);
+        await week.focus(); await page.keyboard.press('Tab');
+        const focus = page.locator('[data-roster-picker-week]:focus-visible');
+        await expect(focus).toHaveCount(1);
+        expect(await focus.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('solid');
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('dialog')).toHaveCount(0);
     });
     test(`People omits period controls in every toolbar form (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
