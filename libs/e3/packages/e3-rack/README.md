@@ -99,11 +99,19 @@ The flag acknowledges prior revocation; it does
 not revoke remotely. Other sources and retained data are preserved. Reconcile
 host endpoint policy before activation; the next boot remains fenced.
 
+The companion also provides worker-local `reconcile-services`: after a completed
+drain and stopped services, it applies the host's next allocation generation and
+resource limits. The previous service-plan hash and exact drain/operation/boot
+binding protect the transition. Interrupted updates keep activation guarded and
+retry with the same operation; ciphertext and journals remain unchanged. This
+supports prepared GPU/VFIO assignments at the same executable release; the host
+still performs and verifies the physical move, and network quarantine remains.
+
 The named host manager, source aliases, managed updates,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/ef20d7e6fa7fefee694df776e167b8aa27991ebb/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/476ae85c28a94bb6ef2c1544f1435e8cd63747c2/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 

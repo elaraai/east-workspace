@@ -145,7 +145,11 @@ with `--allocation <path> --source <UUID> --acknowledge-revocation` asks for UUI
 confirmation. Reset prints a new UUID for fresh enrollment; old pending results
 and caches stay in the retired namespace. Other sources and retained data are
 preserved, and host endpoint policy must be reconciled before activation. The
-flag acknowledges revocation; it does not revoke remotely. Named host management,
+flag acknowledges revocation; it does not revoke remotely. The companion's
+`reconcile-services` applies a host-provided next allocation and service budgets
+after a completed drain, with stopped units, the previous plan hash and exact
+operation/boot binding. It retains ciphertext/journals and network quarantine;
+it does not move a GPU, start a worker or change its executable release. Named host management,
 source aliases, service/network activation, managed updates and hardware acceptance remain
 companion cloud #253 work. This and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
