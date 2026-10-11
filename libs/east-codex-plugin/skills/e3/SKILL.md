@@ -145,7 +145,21 @@ with `--allocation <path> --source <UUID> --acknowledge-revocation` asks for UUI
 confirmation. Reset prints a new UUID for fresh enrollment; old pending results
 and caches stay in the retired namespace. Other sources and retained data are
 preserved, and host endpoint policy must be reconciled before activation. The
-flag acknowledges revocation; it does not revoke remotely. The companion's
+flag acknowledges revocation; it does not revoke remotely.
+
+Worker-local `registry status --allocation <path>` reports only whether encrypted
+registry credentials are present; it can run while active and does not test access.
+After drain/stop, `registry configure --allocation <path>` privately prompts for
+username/token without re-entering settings. `registry clear --allocation <path>`
+asks for the installation UUID and removes only the stored access. Both require
+the same release, the writer lock and no unresolved enrollment/service transition;
+they preserve current identities, rotations, settings, journals and cached data.
+Credentials stay in the existing encrypted bundle, with no Docker login file.
+A later activation receives them; services remain stopped and the next boot fenced.
+Repeating configure with the same values or clear when absent does not write.
+Clearing/replacing does not revoke a token remotely or purge cached images.
+
+The companion's
 `reconcile-services` applies a host-provided next allocation and service budgets
 after a completed drain, with stopped units, the previous plan hash and exact
 operation/boot binding. It retains ciphertext/journals and network quarantine;

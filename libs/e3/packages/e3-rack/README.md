@@ -99,6 +99,28 @@ The flag acknowledges prior revocation; it does
 not revoke remotely. Other sources and retained data are preserved. Reconcile
 host endpoint policy before activation; the next boot remains fenced.
 
+Private registry access has its own worker-local commands:
+
+```sh
+sudo /opt/e3-rack/releases/1.0.86/e3-rack registry status \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json'
+# After a verified drain and stopping the worker services/sockets:
+sudo /opt/e3-rack/releases/1.0.86/e3-rack registry configure \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json'
+```
+
+Status can run while active and shows only whether credentials are stored; it
+does not test GHCR access. Configure privately prompts for username/read-only
+token without re-entering worker settings. Use `registry clear --allocation
+<path>` to remove stored access, confirming the installation UUID privately.
+Changes require the same release, the writer lock and no unresolved enrollment
+or service transition. They preserve current source identities/rotations, settings,
+journals and cached images/task data. Credentials stay in the encrypted bundle;
+no Docker login file is created. A later service activation receives the change,
+with the next boot still fenced. Neither replacing nor clearing revokes a token
+remotely. After interruption, repeat configure with the intended values or clear
+to ensure absence; repeating the current values or an absent clear makes no write.
+
 The companion also provides worker-local `reconcile-services`: after a completed
 drain and stopped services, it applies the host's next allocation generation and
 resource limits. The previous service-plan hash and exact drain/operation/boot
@@ -131,7 +153,7 @@ The named host manager, source aliases, incompatible-state migrations,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/846a7631fcf52a9b35fb7e6e1f7f0d49f9c63f6e/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/964a4304948d914d9f387910d29b54deb999f8f2/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 
