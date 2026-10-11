@@ -469,3 +469,10 @@ export {
 } from './decision/journal.js';
 
 export * from "./calendar/index.js";
+
+// Roster renderer contracts and the shared pure domain functions.
+export * from "./roster/index.js";
+export * from "./roster/types.js";
+export * from "./roster/library.js";
+export * from "./roster/coverage.js";
+export * from "./roster/rules.js";

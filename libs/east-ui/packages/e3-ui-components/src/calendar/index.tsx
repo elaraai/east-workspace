@@ -4,11 +4,14 @@
  */
 
 /** e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
-import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useFormatters } from "@elaraai/east-ui-components";
+import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters } from "@elaraai/east-ui-components";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
@@ -41,6 +44,8 @@ function CalendarFrame(props: HostProps) {
     const { value, storageKey, view, range, editing, now } = props;
     const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
     const [shownRange, setShownRange] = useState<ReturnType<typeof calendarRange> | undefined>();
+    const [navigationRevision, setNavigationRevision] = useState(0);
+    const onNavigate = (date: number) => { props.setView({ ...view, date }); setNavigationRevision(before => before + 1); };
     const setView = (next: CalendarView) => {
         const middle = visible.current;
         props.setView(view.layout === "timeline" && middle !== undefined && next.date === view.date && (next.layout !== view.layout || next.period !== view.period)
@@ -54,12 +59,7 @@ function CalendarFrame(props: HostProps) {
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
     const format = useFormatters(); const words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
     const main = useRef<HTMLDivElement>(null);
-    const [narrow, setNarrow] = useState(false);
-    useLayoutEffect(() => {
-        const element = main.current; if (element === null) return;
-        const measure = () => { const width = element.getBoundingClientRect().width; if (width > 0) setNarrow(width < NARROW_WIDTH); };
-        measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
-    }, []);
+    const narrow = useContainerBelow(main, NARROW_WIDTH);
     const [refs, setRefs] = useState<CalendarRef[]>([]);
     const [error, setError] = useState<string>();
     const [reveal, setReveal] = useState<CalendarRef>();
@@ -94,14 +94,18 @@ function CalendarFrame(props: HostProps) {
         editing?.history.act(action);
     }, [editing]);
     const displayRange = narrow ? (slice?.read().range.type === "some" ? range : calendarRange(view, value.settings)) : view.layout === "timeline" ? shownRange ?? range : range;
-    const toolbar = useCalendarToolbar({ view, setView, range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, affordances, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
+    const standardRange = calendarRange(view, value.settings);
+    const rangeLabel = view.layout === "timeline" || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
+        ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
+    const navigationDate = !narrow && view.layout === "timeline" && shownRange !== undefined ? dayStart((shownRange.from.getTime() + shownRange.to.getTime()) / 2).getTime() : view.date;
+    const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, affordances, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
     const drag = useCalendarDrag({ value, key: storageKey, commands, narrow, items: data.items, backlog: data.backlog, selection: selectedItems, activeTemplate, onError: setError });
     const pick = useCallback((item: CalendarItem, additive = false) => {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
         select(additive ? selected.has(id) ? refs.filter(ref => eventKey(ref) !== id) : [...refs, ref] : [ref]);
     }, [select, selected, refs]);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" toolbar={toolbar} start={start} end={end}
+        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={data.loading && data.error === undefined} toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
@@ -113,11 +117,14 @@ function CalendarFrame(props: HostProps) {
                     onAction={action => editing.history.actOn(held.key, action)} />)}
                 {(error ?? data.error) !== undefined && <Box role="alert" css={styles.error}>{error ?? data.error}</Box>}
             </>}
-            footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}><Box as="span" css={styles.footerItem}>{items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length} events in view{value.events.some(kind => kind.entries.type === "some") ? " · loaded window" : ""}</Box>
-                <Box as="span" css={styles.footerItem}>{data.backlog.length} in backlog</Box>{data.saved !== undefined && <Box as="span" css={styles.footerItem}>Last saved {format.time(data.saved)}</Box>}{editing !== undefined && <Box as="span" css={styles.footerItem}>{editing.history.pending} pending</Box>}{data.loading && <Box as="span" css={styles.footerItem}>Loading…</Box>}</Box>}>
-            <Box ref={main} css={styles.main} data-calendar-main="" data-calendar-narrow={narrow ? "" : undefined}>
-                <CalendarViews format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
-                    selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />
+            footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}>
+                {value.events.map(kind => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}>
+                    <Box as="span" css={styles.eventIcon}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box> {kind.name}
+                </Box>)}
+            </Box>}>
+            <Box ref={main} css={styles.main} data-calendar-main="" aria-busy={data.loading && data.error === undefined} data-calendar-narrow={narrow ? "" : undefined}>
+                {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Calendar unavailable" message={data.error} /> : <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
+                    selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />}
             </Box>
         </BuilderFrame>
     </Box>;

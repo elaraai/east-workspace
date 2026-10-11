@@ -4,8 +4,8 @@
  */
 
 /**
- * The assignment surfaces' own words (#1263) — what the Board and the Roster
- * say about a chip's state. Their chips speak `PlannerStateType`, the shared
+ * The assignment surfaces' own words (#1263) — words for
+ * a chip's state. These chips speak `PlannerStateType`, the shared
  * state vocabulary of the assignment surfaces: a chip that is a proposal to
  * add — an operator's, or a model's suggestion — draws Font Awesome's plus
  * before its label, never a text `+`, and its accessible name says what the
@@ -79,7 +79,7 @@ export interface AssignmentMessagesProviderProps {
  * };
  *
  * <AssignmentMessagesProvider messages={GERMAN}>
- *     <EastChakraComponent value={board} />
+ *     <EastChakraComponent value={surface} />
  * </AssignmentMessagesProvider>
  * ```
  */

@@ -18,7 +18,7 @@ import {
     example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    BarStrip, Board, Box, Chart, Format, HStack, MetricChip, Reactive, Roster, Sparkline, Stat, Text, UIComponentType,
+    BarStrip, Box, Chart, Format, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType,
 } from "@elaraai/east-ui";
 import { Data, Record, Studio, fingerprintOf } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -214,35 +214,23 @@ const visitsSparklineUi = East.function([], UIComponentType, (_$) => (
     }}</Reactive>
 ));
 
-/** The Assignment board's code: today, who works where, by shift. */
+/** Today's assignments as a read-only table using the shared collection. */
 const assignmentBoardUi = East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
-        const areas = $.let(Data.bind(studioAreas).read());
-        const shifts = $.let(Data.bind(studioShifts).read());
-        const people = $.let(Data.bind(studioPeople).read());
+        const areas = $.let(Data.bind(studioAreas).read().toDict((_$2, area) => area.id, (_$2, area) => area.name));
+        const shifts = $.let(Data.bind(studioShifts).read().toDict((_$2, shift) => shift.id, (_$2, shift) => shift.name));
+        const people = $.let(Data.bind(studioPeople).read().toDict((_$2, person) => person.id, (_$2, person) => person.name));
         const today = $.let(Data.bind(studioAssignmentsToday).read());
-        return (
-            <Board id="studio-assignment-board" mode="published"
-                areas={areas} area={a => ({ key: a.id, label: a.name })}
-                shifts={shifts} shift={s => ({ key: s.id, label: s.name, sublabel: s.window })}
-                people={people} person={p => ({ key: p.id, label: p.name })}
-                assignments={today}
-                assignment={x => ({ key: x.id, person: x.person, area: x.area, shift: x.shift, state: variant("committed", null) })} />
-        );
+        return <Table data={today.map((_$2, row) => ({ person: people.get(row.person), area: areas.get(row.area), shift: shifts.get(row.shift) }))} columns={["person", "area", "shift"]} />;
     }}</Reactive>
 ));
 
-/** The Shift roster's code: this week, people down the side, days across. */
+/** The week's shifts as a read-only table; editable rostering belongs to e3-ui. */
 const shiftRosterUi = East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
-        const people = $.let(Data.bind(studioPeople).read());
+        const people = $.let(Data.bind(studioPeople).read().toDict((_$2, person) => person.id, (_$2, person) => person.name));
         const rota = $.let(Data.bind(studioRotaWeek).read());
-        return (
-            <Roster id="studio-shift-roster" mode="published" days={["Mon", "Tue", "Wed", "Thu", "Fri"]}
-                people={people} person={p => ({ key: p.id, label: p.name })}
-                shifts={rota}
-                shift={s => ({ key: s.id, person: s.person, day: s.day, hours: s.hours, state: variant("committed", null) })} />
-        );
+        return <Table data={rota.map((_$2, row) => ({ person: people.get(row.person), day: row.day, hours: row.hours }))} columns={["person", "day", "hours"]} />;
     }}</Reactive>
 ));
 
@@ -284,7 +272,7 @@ export const assignmentBoard = Studio.component("assignment_board", {
 
 export const shiftRoster = Studio.component("shift_roster", {
     name: "Shift roster", category: "Collections", icon: "calendar-week", span: 12n,
-    description: "This week: people down the side, days across.",
+    description: "This week: people, days and their assigned hours.",
     collections: ["People"],
 }, shiftRosterUi);
 

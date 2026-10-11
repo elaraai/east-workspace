@@ -10,19 +10,21 @@ import { INSPECTOR_STATUS } from "./inspector.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
+import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
+import { rowsBase } from "./plan/rows.js";
 import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
-import { timeAxisText } from "./time/axis.js";
+import { timeAxisText, timeHeaderText } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
 
 export const calendarSlotRecipe = defineSlotRecipe({
     className: "east-calendar",
     slots: [
         ...moveGhostSlots, "footerItem",
-        "root", "main", "scroll", "head", "columnHead", "columnMeta", "dayHeading", "weekday", "dayDate",
-        "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
-        "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", "group", "title", "detail",
-        "ruler", "rulerRow", "rulerTick", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
+        "root", "main", "scroll", "head", "headerCaption", "columnHead", "columnMeta", "resourceHeading", "rowTitle", "dayHeading", "weekday", "dayDate",
+        "timeGridContent", "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
+        "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", ...scheduleGroupSlots, "title", "detail",
+        "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
         "timelineRow", "rowHead", "rowPlot", "agenda", "agendaDay", "agendaHead", "card", "cardHead", "cardTitle",
         "actions", "pane", "paneFoot", "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
         "form", "error", "empty", ...nowSlots,
@@ -30,20 +32,26 @@ export const calendarSlotRecipe = defineSlotRecipe({
     base: {
         ...moveGhostBase,
         ...nowBase,
+        ...scheduleGroupBase,
         root: { ...shellBase.root, height: "100%", minHeight: 0 },
         main: { position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
-        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column" } },
-        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "52px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-month]": { height: "30px" } },
+        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column", "--calendar-month-min-width": "calc(var(--calendar-month-columns) * 104px)" } },
+        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "28px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-resources]": { height: "44px" }, "&[data-timeline]": { height: "auto" }, "&[data-month]": { minWidth: "var(--calendar-month-min-width)" } },
+        headerCaption: { ...shellBase.brushCaption, position: "sticky", left: 0, width: "184px", flexShrink: 0, zIndex: 4, background: "bg.surface" },
         columnHead: {
-            flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: "3px",
+            flex: 1, minWidth: 0, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px",
+            "[data-resources] &": { flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: "2px" },
             padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left",
             "& svg": { ...fontAwesomeSize("10px"), color: "fg.subtle" },
             "&[data-today]": { color: "brand.fg", background: "brand.subtle" },
         },
-        dayHeading: { display: "flex", alignItems: "baseline", gap: "6px", minWidth: 0 },
-        weekday: { textStyle: "eyebrow", "[data-today] &": { color: "brand.fg" } },
-        dayDate: { textStyle: "num", fontSize: "title.sm", lineHeight: "1", "[data-today] &": { fontWeight: "bold" } },
-        columnMeta: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        dayHeading: { display: "flex", alignItems: "baseline", gap: "6px", minWidth: 0, flexShrink: 0 },
+        weekday: { ...timeHeaderText, "[data-today] &": { color: "brand.fg" } },
+        dayDate: { ...timeHeaderText, "[data-today] &": { color: "brand.fg" } },
+        columnMeta: { ...rowsBase.gutterSub, minWidth: 0, marginTop: 0 },
+        resourceHeading: { ...timeHeaderText, overflow: "hidden", textOverflow: "ellipsis" },
+        rowTitle: { ...rowsBase.gutterName },
+        timeGridContent: { minWidth: "calc(56px + var(--calendar-columns) * 112px)", "&[data-resources]": { minWidth: "calc(56px + var(--calendar-columns) * 104px)" }, "&[data-single]": { minWidth: "296px" } },
         timeGutter: { ...timeAxisText, width: "56px", flexShrink: 0, position: "sticky", left: 0, zIndex: 4, background: "bg.surface", color: "fg.subtle" },
         timeLabel: { position: "absolute", right: "8px", transform: "translateY(-50%)" },
         columns: { display: "flex", flex: 1, minWidth: 0, position: "relative" },
@@ -78,10 +86,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
         },
         eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
         eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
-        group: { textStyle: "eyebrow", height: "28px", background: "bg.muted", borderBottomWidth: "1px", borderColor: "border.subtle", "& > div": { display: "flex", alignItems: "center", gap: "6px", position: "sticky", left: 0, width: "184px", height: "100%", padding: "4px 12px", whiteSpace: "nowrap", "& svg": fontAwesomeSize("10px") } },
+
         ruler: { flex: 1, minWidth: 0 },
-        rulerRow: { position: "relative", height: "26px", overflow: "hidden" },
-        rulerTick: { ...shellBase.rulerTick, position: "absolute", top: 0, bottom: 0, justifyContent: "flex-start", padding: "4px", overflow: "hidden", textOverflow: "ellipsis", borderLeftWidth: "1px", borderColor: "border.subtle" },
+        rulerRow: { position: "relative", height: "28px", overflow: "clip", borderBottomWidth: "1px", borderColor: "border.subtle", "&:last-child": { borderBottomWidth: 0 } },
+        rulerTick: { ...shellBase.rulerTick, position: "absolute", top: 0, bottom: 0, justifyContent: "flex-start", padding: "0 4px", overflow: "clip", textOverflow: "ellipsis", borderLeftWidth: "1px", borderColor: "border.subtle" },
+        rulerLabel: { ...shellBase.rulerLabel, position: "sticky", left: "188px", background: "bg.surface", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" },
         title: { textStyle: "body.sm", fontWeight: "semibold", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 },
         detail: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
         resize: {
@@ -91,17 +100,17 @@ export const calendarSlotRecipe = defineSlotRecipe({
                 "&::after": { ...timeResizeEdge("x", "data-edge")["&::after"], right: "auto", height: "auto" },
             },
         },
-        month: { display: "grid", flex: 1, minHeight: 0 },
+        month: { display: "grid", flex: 1, minHeight: 0, minWidth: "var(--calendar-month-min-width)", gridTemplateColumns: "repeat(var(--calendar-month-columns), minmax(104px, 1fr))", gridTemplateRows: "repeat(var(--calendar-month-rows), minmax(128px, 1fr))" },
         monthDay: { position: "relative", minWidth: 0, minHeight: "128px", padding: "6px", borderRightWidth: "1px", borderBottomWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "&[data-outside]": { background: "bg.muted" }, "& [data-calendar-event]": { position: "relative", width: "100%" } },
-        dayNumber: { textStyle: "mono.sm", textAlign: "left", minHeight: "24px", "&[data-today]": { color: "brand.fg", fontWeight: "bold" } },
+        dayNumber: { ...timeHeaderText, textAlign: "left", minHeight: "24px", "&[data-today]": { color: "brand.fg" } },
         more: { textStyle: "mono.xs", color: "brand.fg", textAlign: "left", minHeight: "28px" },
         timeline: { minWidth: 0 },
         timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle" },
-        rowHead: { position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "8px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
+        rowHead: { ...rowsBase.gutterCell, position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "4px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
         rowPlot: { position: "relative", flex: 1 },
         agenda: { minWidth: 0, padding: "12px", background: "bg.panel", display: "flex", flexDirection: "column", gap: "16px" },
         agendaDay: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
-        agendaHead: { textStyle: "caption.eyebrow" },
+        agendaHead: { ...timeHeaderText },
         card: { ...planElementDrafted, ...planElementSelected, ...planElementFocus, minWidth: 0, padding: "12px", borderWidth: "1px", borderColor: "border.subtle", borderRadius: "sm", background: "bg.surface", display: "flex", flexDirection: "column", gap: "8px", "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } },
         cardHead: { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" },
         cardTitle: { textStyle: "title.row", overflowWrap: "anywhere", minWidth: 0 },

@@ -171,6 +171,16 @@ component, nothing in east-ui.
   `toolbarRef` its toolbar's element (where a host finds its items' controls:
   the search box a key focuses); `onKeyDown` hears keys from anywhere in the
   frame, the panes included.
+- **Loading (opt-in).** `loading` covers the complete frame with shared Chakra
+  Skeletons while its active data window is unresolved. Its actual regions stay
+  mounted, measurable, inert and hidden from assistive technology. On the first
+  resolved window it also waits for the mounted content's fonts after layout
+  measurement; no timeout or initial pane animation. The `builderFrame` recipe
+  owns these states and skeleton geometry. Existing callers that omit `loading`
+  retain their own loading behavior. Keep usable cached data visible on refresh;
+  surface errors instead of leaving the skeleton indefinitely. Calendar and
+  Roster's integration and evidence are in
+  [`../e3-ui-components/CLAUDE.md`](../e3-ui-components/CLAUDE.md#loading-and-bounded-rendering).
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet

@@ -1,11 +1,11 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with (Box), (Flex), (Stack)/(VStack)/(HStack), (Grid), (SnapGrid) (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), (Splitter), (ScrollArea), (Sticky), (Expandable), (Dock), (Configurator) (control table + live preview + spec readout), (3) Forms with (Input), (Textarea), (Select), (Combobox), (Checkbox), (Switch), (Slider), (RadioGroup), (RadioCardGroup), (TagsInput), (FileUpload), (Field), (DateRangeInput), (TimeRangeInput), (4) Data display with (Table), (TreeView), (ValueTree), (DataList), (Deck), (Matrix), (Schematic), (Map), (Library) (a drag palette, or a gallery of large cards whose media is any component), (Roster), (Board), (Blend), (Slice.Rail), (Pagination),… See the detailed scope below."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with (Box), (Flex), (Stack)/(VStack)/(HStack), (Grid), (SnapGrid) (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), (Splitter), (ScrollArea), (Sticky), (Expandable), (Dock), (Configurator) (control table + live preview + spec readout), (3) Forms with (Input), (Textarea), (Select), (Combobox), (Checkbox), (Switch), (Slider), (RadioGroup), (RadioCardGroup), (TagsInput), (FileUpload), (Field), (DateRangeInput), (TimeRangeInput), (4) Data display with (Table), (TreeView), (ValueTree), (DataList), (Deck), (Matrix), (Schematic), (Map), (Library) (a drag palette, or a gallery of large cards whose media is any component), (Blend), (Slice.Rail), (Pagination), (ChipRail),… See the detailed scope below."
 ---
 
 ## Detailed skill scope
 
-Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, or a rail and breadcrumb the author passes, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props.
+Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, or a rail and breadcrumb the author passes, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props.
 
 # East UI
 
@@ -661,34 +661,7 @@ Task → Which tag?
 │   │       ├─ ValueTree.at(T, p => p.machines.entry("m1"), fn([SubT], Null)) — a typed scope: struct fields as properties, .item(i), .entry(k), .some()
 │   │       ├─ ValueTree.zero(T) — the default element for inserts (delegates to East defaultValue)
 │   │       └─ ValueTree.Types.{Root, Node, Path, Step, Leaf, Style} — the East types for RAW callbacks
-│   ├─ <Roster people={…} shifts={…} id person={…} shift={…} /> — people × days-of-week shift grid; joins the two flat tables by person key
-│   │   └─ Props:
-│   │       ├─ people + shifts + id (required) — the two tables + DnD target identity
-│   │       ├─ person (optional) — row mapper to { key, label, sublabel? } (omit when already Roster.Types.Person)
-│   │       ├─ shift (optional) — row mapper to { key, person, day, hours|label, state } (state is a PlannerStateType — Roster.Types.State)
-│   │       ├─ mode (optional) — published (default) | edit
-│   │       ├─ days (optional) — day columns in order (default Mon–Sun)
-│   │       ├─ personHeader / personWidth (optional) — frozen column header (default "Operator") + CSS width (default 150px)
-│   │       ├─ sources + onDrag + canDrop (optional) — DnD target (add/move/remove funnel); canDrop = fn(DragEvent) => Bool IR veto (⊘ over vetoed cells); a remove-capable drag raises the shared trash sink (drop = remove/trash)
-│   │       ├─ onSelect / onAccept / onAddAt (optional) — cell click / ghost-shift accept / empty-cell add (CellRef payloads); granularity contract: onAccept(CellRef) resolves ONE ghost, review.onApprove({rowIndex}) signs off the LINE (interplay host-owned)
-│   │       ├─ review (optional) — row-level Decision column + foot (+ person status/approval fields)
-│   │       ├─ summary (optional) — status-strip text (dirty / ghost counts)
-│   │       └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320)
-│   ├─ <Board areas={…} shifts={…} people={…} assignments={…} id … /> — single-day areas × shifts assignment grid; cells stack MULTIPLE person chips, faces joined to people by person key
-│   │   └─ Props:
-│   │       ├─ areas + shifts + people + assignments + id (required) — the four tables + DnD target identity
-│   │       ├─ area / shift / person (optional) — entity row mappers to { key, label, sublabel? }
-│   │       ├─ assignment (optional) — row mapper to { key, person, area, shift, state }
-│   │       ├─ requirements + requirement (optional) — coverage rows + mapper to { area, shift, required } (n/required numerals + open-slot placeholders — Font Awesome's circle-plus — under/over tones)
-│   │       ├─ mode (optional) — published (default) | edit
-│   │       ├─ areaHeader / areaWidth (optional) — frozen column header (omit = blank; zero baked copy) + CSS width (default 150px)
-│   │       ├─ maxVisible (optional) — per-cell chip cap before the +N overflow popover
-│   │       ├─ sources + onDrag + canDrop (optional) — DnD target (add/move/remove); canDrop = fn(DragEvent) => Bool veto (⊘ while dragging; duplicate-person guard stays built in)
-│   │       ├─ canAssign (optional) — DEPRECATED sugar fn(person, area, shift) => Bool the factory compiles into canDrop
-│   │       ├─ onSelect / onAccept / onAddAt (optional) — cell click / ghost accept / open-slot click (CellRef payloads)
-│   │       ├─ review (optional) — { summary?, onApproveAll, onRejectAll, onRerun? } batch commitBar foot only (per-row fields unused in v1, the factory warns); ghost onAccept unchanged
-│   │       ├─ summary (optional) — status-strip text (open / proposed counts); toolbar chrome is page composition
-│   │       └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320)
+│   ├─ <Roster> — the weekly staffing builder is in e3-ui: `import { Roster } from "@elaraai/e3-ui"`. Shifts day/week and People week, bound weeks/staff/configuration, shared Slice and editing; the former east-ui Roster and Board are removed.
 │   ├─ <Blend targets={…} config={{…}} /> — blend / batch assembly surface; pairs with a Library; target count picks the mode: 1 single | 2 compare (derived diff / Δ table) | 3+ portfolio
 │   │   ├─ Props:
 │   │   │   ├─ targets + id (required) — target rows + DnD target identity
@@ -1096,7 +1069,7 @@ Task → Which tag?
 │   │   ├─ <Status value> — dot + word (`ring` an open ring — not live yet); <Banner status> uses the wider notice set (info|warning|success|error|neutral|change|guard|stale)
 │   │   └─ <Meter tone> / BarStrip item { tone } / SegmentedMeter segment { tone } — bar fills
 │   ├─ Sentiment (value direction, NOT state): <MetricChip tone> positive|negative|neutral|info · <Numeric sentiment> positive|negative|neutral · <Stat indicator.sentiment> positive|negative|neutral · <Progress tone> brand|pos|neg
-│   ├─ state ≠ status: the AUDIT LIFECYCLE is orthogonal to the status tint. Roster shifts, Board assignments and Blend allocations speak PlannerStateType ("committed"|"added"|"model"|"removed"|"rejected" — committed solid, proposals dashed/ghost/struck, rejected greyed; only proposed items drag); Plan elements speak the richer EventStateType ladder ("estimated"→"proposed"(added|recommended|removed)→"confirmed"→"in-progress"→"actual", plus "rejected"). A status token is the ORTHOGONAL semantic tint layered on top
+│   ├─ state ≠ status: the AUDIT LIFECYCLE is orthogonal to the status tint. Blend allocations speak PlannerStateType ("committed"|"added"|"model"|"removed"|"rejected" — committed solid, proposals dashed/ghost/struck, rejected greyed; only proposed items drag); Plan elements speak the richer EventStateType ladder ("estimated"→"proposed"(added|recommended|removed)→"confirmed"→"in-progress"→"actual", plus "rejected"). A status token is the ORTHOGONAL semantic tint layered on top
 │   └─ tone vs colorPalette: tone/status/sentiment = the semantic vocabulary above (meaning-bearing, theme-stable); colorPalette = decorative hue theming (Chakra palettes) for buttons/badges/tags where the colour carries no state meaning
 │
 ├─ Reactive (state-driven re-render)
@@ -1280,7 +1253,7 @@ Non-UI sub-structures are never child sub-tags.
 
 Every size prop is a **plain string** and every renderer parses it the same
 way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
-e3-ui's `<Plan>`, `<Matrix>`, `<Board>`, `<Roster>`,
+e3-ui's `<Plan>`, `<Matrix>`,
 `<Library>`, `<Schematic>`, `<SnapGrid>`) and layout primitives (`<Box>` / `<Flex>` /
 `<Stack>` / `<Grid>` / `<Card>`):
 
@@ -1448,7 +1421,7 @@ error), and the specs refuse one again as they resolve, naming the field.
 
 ### Drag and drop — one grammar, every target (#608)
 
-A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or e3-ui's `<Plan>`
+A `<Library>` is a source; a `<Blend>` or e3-ui's `<Plan>`, `<Calendar>` or `<Roster>`
 that lists its `id` in `sources` is a target. Every drag between them reduces
 to one `DragEventType` — `add` (a card onto a cell), `move`, `remove` (to the
 trash or back to the palette) or `resize` (a span's edge) — and the renderer
@@ -1465,7 +1438,7 @@ const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, event) 
 | --- | --- | --- |
 | **The gesture** | | |
 | pointer | A mouse or pen drag starts after 4px of travel, so a click stays a click; a touch after a 300ms hold — a drift first scrolls the page; a touch on a grip at once. Only the pointer that pressed moves, drops or cancels the drag — a second finger never does. | `rosterLibraryDnd` |
-| keyboard | Every draggable is a focusable control: Space / Enter picks it up, the arrow keys carry it between the cells that take it (and along a Plan row's buckets), Space / Enter drops it, Escape / Tab cancels. A Plan element is picked up with Space alone, since Enter is its click, and carries its own keys (#825). A key pressed in a control inside it is the control's. | `boardLibraryDnd`, `planRowDrop` (e3-ui) |
+| keyboard | Every draggable is a focusable control: Space / Enter picks it up, the arrow keys carry it between the cells that take it (and along a Plan row's buckets), Space / Enter drops it, Escape / Tab cancels. A Plan element is picked up with Space alone, since Enter is its click, and carries its own keys (#825). A key pressed in a control inside it is the control's. | `rosterWarehouse`, `planRowDrop` (e3-ui) |
 | reach | A drag resting near a scroll container's edge scrolls it — the container under the pointer: a bounded Plan's body, the page — and whatever scrolls under a still drag is read again. | `planRowDrop` (e3-ui) |
 | **The verdict** | | |
 | `canDrop: fn(DragEventType) => Boolean` | Asked of the event a drop where the drag rests would deliver — an `add`'s `duplicate` is whether Alt is held now — so the ⊘ stage shows before the drop, and asked again of the event delivered. A predicate that throws allows. | `rosterLibraryDnd`, `blendLibraryDnd`, `planRowDrop` (e3-ui) |

@@ -18,7 +18,7 @@
  * @packageDocumentation
  */
 
-import { timeAxisText } from "../time/axis.js";
+import { timeAxisText, timeHeaderText } from "../time/axis.js";
 import { builderFooter, builderFooterItem } from "../builder-footer.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
@@ -63,12 +63,7 @@ export const shellBase = {
     // The gutter caption of a header band — the ruler's, the horizon's — in
     // the header row's one style (#949): mono 10 / 600, uppercase, label ink.
     brushCaption: {
-        fontFamily: "mono",
-        fontSize: "10px",
-        fontWeight: "semibold",
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-        color: "fg.subtle",
+        ...timeHeaderText,
         display: "flex",
         alignItems: "center",
         padding: "0 12px",

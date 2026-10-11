@@ -34,7 +34,6 @@ import { EastChakraComponent } from "../component.js";
 import { initializeStore, getStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../platform/registry.js";
-import type { RosterValue } from "../collections/roster/index.js";
 import type { TableRootValue } from "../collections/table/index.js";
 
 afterEach(cleanup);
@@ -108,20 +107,6 @@ const REVIEW = {
     onApproveAll: none, onRejectAll: none, onRerun: none, rerunLabel: "Rerun",
 };
 
-/** Two people, one committed shift; the review is wired per test. */
-const ROSTER = {
-    id: "roster", sources: [], mode: variant("edit", null),
-    days: ["Mon"], personHeader: "Person", personWidth: none,
-    people: [
-        { key: "p0", label: "P0", sublabel: none, status: none, approval: none },
-        { key: "p1", label: "P1", sublabel: none, status: none, approval: none },
-    ],
-    shifts: [{ key: "s0", person: "p0", day: "Mon", label: "8h", state: variant("committed", null) }],
-    density: none, height: none, maxHeight: none, summary: none,
-    onDrag: none, canDrop: none, onSelect: none, onAccept: none, onAddAt: none,
-    review: none,
-} as unknown as RosterValue;
-
 /** Two rows of one `name` column, printed by the table itself; the review
  *  verdicts come from the accessor each test wires. */
 const TABLE = {
@@ -151,20 +136,20 @@ const approveButtons = (container: HTMLElement): HTMLElement[] =>
         .filter((b) => b.textContent === "Approve") as HTMLElement[];
 
 describe("review decisions across closure-only changes (#809)", () => {
-    test("Roster: an optimistic decision survives a new callback, and the new callback runs", async () => {
+    test("Table: an optimistic decision survives a new callback, and the new callback runs", async () => {
         initializeStore(new UIStore());
         const first: bigint[] = [];
         const second: bigint[] = [];
-        // The same people and shifts every time; only `onApprove` changes.
-        const roster = (onApprove: (ref: { rowIndex: bigint }) => null): UIValue =>
-            variant("Roster", { ...ROSTER, review: some({ ...REVIEW, onApprove: some(onApprove) }) }) as unknown as UIValue;
-        const { container, rerender } = mount(roster((ref) => { first.push(ref.rowIndex); return null; }));
+        // The same rows and columns every time; only `onApprove` changes.
+        const table = (onApprove: (ref: { rowIndex: bigint }) => null): UIValue =>
+            variant("Table", { ...TABLE, review: some({ ...REVIEW, onApprove: some(onApprove) }) }) as unknown as UIValue;
+        const { container, rerender } = mount(table((ref) => { first.push(ref.rowIndex); return null; }));
         fireEvent.click(approveButtons(container)[0]!);
         await act(async () => { await Promise.resolve(); });
         expect(approveButtons(container)[0]!.getAttribute("aria-pressed")).toBe("true");
         expect(first).toEqual([0n]);
 
-        rerender(roster((ref) => { second.push(ref.rowIndex); return null; }));
+        rerender(table((ref) => { second.push(ref.rowIndex); return null; }));
         expect(approveButtons(container)[0]!.getAttribute("aria-pressed")).toBe("true");
 
         fireEvent.click(approveButtons(container)[1]!);

@@ -52,21 +52,6 @@ export {
     type MapCartoLiteral,
 } from "./map/index.js";
 export {
-    Roster,
-    type RosterConfig,
-    type RosterPersonFields,
-    type RosterShiftFields,
-    RosterModeType, type RosterModeLiteral,
-} from "./roster/index.js";
-export {
-    Board,
-    type BoardConfig,
-    type BoardEntityFields,
-    type BoardAssignmentFields,
-    type BoardRequirementFields,
-    BoardModeType, type BoardModeLiteral,
-} from "./board/index.js";
-export {
     Deck,
     DeckItemType,
     DeckRootType,

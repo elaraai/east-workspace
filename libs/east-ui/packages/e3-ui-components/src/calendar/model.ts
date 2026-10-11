@@ -6,6 +6,7 @@
 /** Calendar's UTC windows and projected data; no UI or record writes. */
 import { DateTimeType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { CalendarPayloadType, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { shiftCalendar } from "../shared/time/calendar-math.js";
 import { type ScheduleItemValue } from "../shared/schedule/overlaps.js";
 
 /** Calendar's closed payload, decoded. */
@@ -33,12 +34,10 @@ export interface CalendarRow { key: string; label: string; meta: string; group: 
 /** A slot recipe's styles. */
 export type CalendarStyles = Record<string, Record<string, unknown>>;
 
-/** One UTC day. */
-export const DAY = 86_400_000;
+import { DAY, dayStart, weekStart } from "../shared/schedule/window.js";
+export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 /** A calendar gesture's smallest span. */
 export const QUARTER = 15 * 60_000;
-/** Same width transition as Plan, measured on main, not the viewport. */
-export const NARROW_WIDTH = 480;
 /** Canonical ids avoid collisions across record kinds and arbitrary keys. */
 export const eventKey = printFor(ScheduleEventRefType);
 /** Resource ids use the shared East codec, not delimiter concatenation. */
@@ -56,17 +55,6 @@ export const sameResource = equalFor(ScheduleResourceRefType);
 const compareDate = compareFor(DateTimeType);
 const compareRef = compareFor(ScheduleEventRefType);
 
-/** The start of a UTC day. */
-export function dayStart(date: Date | number): Date {
-    const value = typeof date === "number" ? new Date(date) : date;
-    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
-}
-/** The first day of a week. */
-export function weekStart(date: Date, sunday: boolean): Date {
-    const day = dayStart(date);
-    const offset = (day.getUTCDay() + (sunday ? 0 : 6)) % 7;
-    return new Date(day.getTime() - offset * DAY);
-}
 /** Calendar days including the surrounding weeks of a month. */
 export function calendarRange(view: CalendarView, settings: CalendarValue["settings"]): CalendarRange {
     const current = dayStart(view.date);
@@ -96,9 +84,7 @@ export function calendarRange(view: CalendarView, settings: CalendarValue["setti
 export function navigate(view: CalendarView, step: number): CalendarView {
     const date = new Date(view.date);
     const period = view.layout === "resources" ? "day" : view.period;
-    return { ...view, date: period === "month"
-        ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + step, 1)
-        : view.date + step * DAY * (period === "week" ? 7 : 1) };
+    return { ...view, date: shiftCalendar(date, period, step).getTime() };
 }
 /** Whether a scheduled event intersects a half-open window. */
 export function inWindow(item: CalendarItem, from: Date, to: Date): boolean {

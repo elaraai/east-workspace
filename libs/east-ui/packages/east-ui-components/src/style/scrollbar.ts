@@ -5,8 +5,7 @@
 
 /**
  * Reserved-gutter scrollbar styling shared by the virtual-scroll data
- * components (Table / Library / Plan / Matrix / Board / Roster /
- * Matrix). Spread onto the scroll element's `css` prop — only when the
+ * components (Table / Library / Plan / Matrix). Spread onto the scroll element's `css` prop — only when the
  * component is actually bounded (a definite `height` / `maxHeight`), so
  * content-sized components don't reserve a dead gutter (#320).
  *

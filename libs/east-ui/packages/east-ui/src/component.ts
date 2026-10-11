@@ -127,9 +127,6 @@ import {
     DeckStyleType,
 } from "./collections/deck/types.js";
 import { ValueTreeRootType } from "./collections/value-tree/types.js";
-import { RosterModeType, RosterPersonType, RosterShiftType } from "./collections/roster/types.js";
-import { BoardModeType, BoardEntityType, BoardAssignmentType, BoardRequirementType } from "./collections/board/types.js";
-import { CellRefType, DragEventType } from "./contracts/drag.js";
 import {
     SchematicItemType,
     SchematicZoneType,
@@ -944,79 +941,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         slice: OptionType(SliceChromeType),
         style: OptionType(TableStyleType),
     }),
-
-    // Roster — people × days-of-week shift grid (drag & drop target role).
-    // Spelled inline since #265 (the review config's `summary` rides the
-    // recursion `node`) — mirror `RosterRootType` in `collections/roster/index.ts`.
-    Roster: StructType({
-        id: StringType,
-        sources: ArrayType(StringType),
-        mode: RosterModeType,
-        days: ArrayType(StringType),
-        personHeader: StringType,
-        personWidth: OptionType(StringType),
-        people: ArrayType(RosterPersonType),
-        shifts: ArrayType(RosterShiftType),
-        density: OptionType(DensityType),
-        // Uniform sizing contract (#320) — bound the grid; it scrolls within.
-        height: OptionType(StringType),
-        maxHeight: OptionType(StringType),
-        summary: OptionType(StringType),
-        onDrag: OptionType(FunctionType([DragEventType], NullType)),
-        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        onSelect: OptionType(FunctionType([CellRefType], NullType)),
-        onAccept: OptionType(FunctionType([CellRefType], NullType)),
-        onAddAt: OptionType(FunctionType([CellRefType], NullType)),
-        review: OptionType(StructType({
-            columnLabel: StringType,
-            summary: OptionType(node),
-            onApprove: OptionType(FunctionType([RowRefType], NullType)),
-            onReject: OptionType(FunctionType([RowRefType], NullType)),
-            onApproveAll: OptionType(FunctionType([], NullType)),
-            onRejectAll: OptionType(FunctionType([], NullType)),
-            onRerun: OptionType(FunctionType([], NullType)),
-            rerunLabel: StringType,
-        })),
-    }),
-
-    // Board — single-day areas × shifts assignment board (drag & drop target
-    // role). Spelled inline since #265 (the review config's `summary` rides
-    // the recursion `node`) — mirror `BoardRootType` in
-    // `collections/board/index.ts`.
-    Board: StructType({
-        id: StringType,
-        sources: ArrayType(StringType),
-        mode: BoardModeType,
-        areaHeader: OptionType(StringType),
-        areaWidth: OptionType(StringType),
-        areas: ArrayType(BoardEntityType),
-        shifts: ArrayType(BoardEntityType),
-        people: ArrayType(BoardEntityType),
-        assignments: ArrayType(BoardAssignmentType),
-        requirements: OptionType(ArrayType(BoardRequirementType)),
-        density: OptionType(DensityType),
-        maxVisible: OptionType(IntegerType),
-        // Uniform sizing contract (#320) — bound the board; it scrolls within.
-        height: OptionType(StringType),
-        maxHeight: OptionType(StringType),
-        summary: OptionType(StringType),
-        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        onDrag: OptionType(FunctionType([DragEventType], NullType)),
-        onSelect: OptionType(FunctionType([CellRefType], NullType)),
-        onAccept: OptionType(FunctionType([CellRefType], NullType)),
-        onAddAt: OptionType(FunctionType([CellRefType], NullType)),
-        review: OptionType(StructType({
-            columnLabel: StringType,
-            summary: OptionType(node),
-            onApprove: OptionType(FunctionType([RowRefType], NullType)),
-            onReject: OptionType(FunctionType([RowRefType], NullType)),
-            onApproveAll: OptionType(FunctionType([], NullType)),
-            onRejectAll: OptionType(FunctionType([], NullType)),
-            onRerun: OptionType(FunctionType([], NullType)),
-            rerunLabel: StringType,
-        })),
-    }),
-
 
     // Schematic — 2D world-coordinate canvas. The `itemHover` / `zoneHover` /
     // `linkHover` builders return arbitrary UI via the recursion `node`; mirror

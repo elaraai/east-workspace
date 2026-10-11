@@ -54,7 +54,7 @@ import {
     type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { DockPane } from "../dock/index.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useDragLayerOptional } from "../../dnd/drag-layer";
@@ -97,6 +97,8 @@ export interface BuilderFrameProps {
     end?: BuilderFramePane | undefined;
     /** One band under everything: a status line, say. */
     footer?: ReactNode;
+    /** Opt into a full-frame skeleton until the first layout/fonts and the requested data are ready. Regions remain mounted, hidden and inert, preserving their state and measured size. */
+    loading?: boolean | undefined;
     /** Where each pane keeps its open tab, and its collapsed state when it persists. */
     storageKey: string;
     /** The narrowest main may get beside pinned panes before an `auto` pane overlays it: 480 (px) by default. */
@@ -304,7 +306,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, toolbarRef, onKeyDown } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, toolbarRef, onKeyDown, loading } = props;
     const minMain = props.minMain ?? MIN_MAIN;
     const styles = useSlotRecipe({ key: "builderFrame" })() as Styles;
     const dragging = useDragLayerOptional()?.active ?? false;
@@ -334,6 +336,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
 
     // ── What the frame measures of itself ───────────────────────────────
     const rootRef = useRef<HTMLDivElement | null>(null);
+    const [initialReady, setInitialReady] = useState(false);
+    const busy = loading !== undefined && (loading || !initialReady);
     const slotRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const probeRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const [measured, setMeasured] = useState<Measured | undefined>(undefined);
@@ -363,6 +367,17 @@ export function BuilderFrame(props: BuilderFrameProps) {
     // Measured after every render, before paint: a pane's size or its content may have
     // moved. It ends: a measure that has not moved sets nothing.
     useLayoutEffect(() => { measure(); });
+    // Measure the real regions while covered. Wait for fonts only on the first
+    // resolved window; later polling/edits never restart an initial-load delay.
+    useLayoutEffect(() => {
+        if (loading === undefined || loading || initialReady) return;
+        let live = true;
+        const finish = () => { if (live) setInitialReady(true); };
+        const fonts = rootRef.current?.ownerDocument.fonts;
+        if (fonts === undefined) finish();
+        else void fonts.ready.then(finish, finish);
+        return () => { live = false; };
+    }, [loading, initialReady]);
     // A width change is taken before the frame paints at it, as the shared toolbar takes one.
     const observer = useRef<ResizeObserver | null>(null);
     const observed = useRef(new Set<Element>());
@@ -522,16 +537,16 @@ export function BuilderFrame(props: BuilderFrameProps) {
     };
 
     return (
-        <Box ref={setRoot} css={styles.root} data-builder-frame=""
+        <Box ref={setRoot} css={styles.root} data-builder-frame="" data-loading={busy ? "" : undefined} aria-busy={loading === undefined ? undefined : busy}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (
-                <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar">
+                <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={busy} aria-hidden={busy ? true : undefined}>
                     <Toolbar items={toolbar} />
                 </Box>
             )}
-            {given(banners) && <Box css={styles.banners} data-frame-slot="banners">{banners}</Box>}
-            <Box css={styles.body} data-frame-slot="body">
+            {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={busy} aria-hidden={busy ? true : undefined}>{banners}</Box>}
+            <Box css={styles.body} data-frame-slot="body" inert={busy} aria-hidden={busy ? true : undefined}>
                 {start !== undefined && pane("start", start)}
                 <Box css={styles.main} data-frame-slot="main">
                     {children}
@@ -539,7 +554,16 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 </Box>
                 {end !== undefined && pane("end", end)}
             </Box>
-            {given(footer) && <Box css={styles.footer} data-frame-slot="footer">{footer}</Box>}
+            {given(footer) && <Box css={styles.footer} data-frame-slot="footer" inert={busy} aria-hidden={busy ? true : undefined}>{footer}</Box>}
+            {busy && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}>
+                {toolbar !== undefined && <Box css={[styles.toolbar, styles.loadingBar]} aria-hidden>
+                    <Skeleton css={styles.loadingLine} /><Skeleton css={styles.loadingLine} /><Skeleton css={styles.loadingLine} />
+                </Box>}
+                <Box css={styles.loadingBody} aria-hidden>{Array.from({ length: 12 }, (_, i) => <Box key={i} css={styles.loadingRow} data-builder-loading-row="">
+                    <Skeleton css={[styles.loadingLine, styles.loadingCell]} /><Skeleton css={[styles.loadingLine, styles.loadingCell]} /><Skeleton css={[styles.loadingLine, styles.loadingCell]} />
+                </Box>)}</Box>
+                {given(footer) && <Box css={styles.loadingFooter} aria-hidden><Skeleton css={styles.loadingLine} /></Box>}
+            </Box>}
         </Box>
     );
 }

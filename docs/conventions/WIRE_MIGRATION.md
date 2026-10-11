@@ -116,3 +116,5 @@ Each wire changed under this rule, with the kind it is.
   under the other: packages are re-exported, and the dataflow computes each UI
   task's output again under the new type. As with the EmptyState's glyph, no
   repository upgrade step ships with it.
+
+- **east-ui's `UIComponentType` loses its `Board` and `Roster` arms (#1162, #1174)** — package-borne. Re-export packages and recompute UI task outputs: the sorted variant case indexes change. Staffing now uses e3-ui's `Roster` extension. Its new `Roster.Types.Weeks` is an application record type; this change does not rewrite an existing backend record or introduce a repository upgrade step. Applications adopting it declare and seed their own weeks record.

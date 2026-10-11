@@ -129,7 +129,10 @@ export function DocList({
         count: items.length,
         getScrollElement: () => parentRef.current,
         estimateSize: i => estimateItem(items[i]),
-        overscan: 3,
+        // Keep one adjacent entry mounted while asynchronous examples grow and
+        // scroll anchoring settles. Larger overscan mounts several expensive
+        // builders and adds their subscriptions to every interaction.
+        overscan: 1,
         paddingStart: PAD_START,
         paddingEnd: PAD_END,
     });

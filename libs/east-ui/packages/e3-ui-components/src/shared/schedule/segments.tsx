@@ -23,6 +23,8 @@ interface SegProps<K extends string> {
     items: ReadonlyArray<{ key: K; label: string; disabled?: boolean | undefined; hint?: string | undefined }>;
     /** The checked segment's key — any other string checks none. */
     active: string;
+    /** Fills the available strip width with equal segments; folded menus keep their intrinsic size. */
+    fullWidth?: boolean;
     /** Picks a segment. */
     onPick: (key: K) => void;
 }
@@ -34,9 +36,9 @@ interface SegProps<K extends string> {
  * on, as the WAI-ARIA radio group pattern has it, and a click, Enter or Space
  * picks the one it is on.
  */
-export function Seg<K extends string>({ label, name, scope = "plan", items, active, onPick }: SegProps<K>) {
+export function Seg<K extends string>({ label, name, scope = "plan", items, active, fullWidth = false, onPick }: SegProps<K>) {
     const seg = useSlotRecipe({ key: "seg" });
-    const ss = useMemo(() => seg({}) as unknown as Styles, [seg]);
+    const ss = useMemo(() => seg({ fullWidth }) as unknown as Styles, [seg, fullWidth]);
     const stop = items.some((it) => it.key === active && !it.disabled) ? active : items.find(it => !it.disabled)?.key;
     // The radio group's keys (shared with the Sheet's context switch): handled, so the canvas's own keys skip them.
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
