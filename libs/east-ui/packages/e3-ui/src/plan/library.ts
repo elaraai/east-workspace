@@ -35,15 +35,16 @@
  */
 
 import {
-    ArrayType, DictType, East, Expr, NullType, OptionType, StringType, StructType, VariantType, isTypeEqual, none, printType,
+    ArrayType, DictType, East, NullType, StringType, StructType, VariantType, none,
     some, variant,
-    type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
+    type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { PickItemType } from "@elaraai/east-ui";
 import type { ScheduleEventKind } from "../schedule/events.js";
-import { SchedulePatchTypeFor } from "../schedule/patch.js";
+import { ScheduleAuthorTabType, buildScheduleTab,
+    type ScheduleLibraryTabConfig as PlanLibraryTabConfig } from "../schedule/library.js";
+export { ScheduleLibraryCardType as PlanLibraryCardType, type ScheduleLibraryTabConfig as PlanLibraryTabConfig } from "../schedule/library.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
-import { ScheduleFieldWriteType } from "../schedule/types.js";
 import { overSeries } from "./over.js";
 import { KIND_ICONS } from "./pick.js";
 import { planSeriesFacts } from "./series.js";
@@ -62,17 +63,6 @@ import { PlanRowsCollectionType } from "./types.js";
  * @property group - The tab's group the card sits under
  * @property sets - What a drop writes into the event it lands on: each field the tab's `drop` patch sets; empty without a `drop`
  */
-export const PlanLibraryCardType = StructType({
-    key: StringType,
-    label: StringType,
-    meta: OptionType(StringType),
-    group: OptionType(StringType),
-    sets: ArrayType(ScheduleFieldWriteType),
-});
-
-/** Type representing {@link PlanLibraryCardType}. */
-export type PlanLibraryCardType = typeof PlanLibraryCardType;
-
 /**
  * The id the Series tab lists a thing by, and a viewer's hidden set holds it by
  * (PB29): one namespace per source, so no two collide — a resource kind and an
@@ -151,12 +141,7 @@ export const PlanLibraryTabType = VariantType({
     events: NullType,
     backlog: NullType,
     series: PlanLibrarySeriesType,
-    tab: StructType({
-        name: StringType,
-        icon: OptionType(StringType),
-        drop: OptionType(StringType),
-        cards: ArrayType(PlanLibraryCardType),
-    }),
+    tab: ScheduleAuthorTabType,
 });
 
 /** Type representing {@link PlanLibraryTabType}. */
@@ -174,21 +159,6 @@ export type PlanLibraryTabType = typeof PlanLibraryTabType;
  * @typeParam R - Their row type
  * @typeParam P - The patch `drop` returns: `Schedule.Types.Patch` of one event kind's row type
  */
-export interface PlanLibraryTabConfig<K extends EastType, R extends EastType, P extends EastType = EastType> {
-    /** The tab's name: its label in the tab row. */
-    name: string;
-    /** A Font Awesome solid icon name for the tab's cards. */
-    icon?: string;
-    /** The card's name. */
-    label: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
-    /** The line under it — return the field's `Option`. */
-    meta?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** The tab's group the card sits under. */
-    group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
-    /** What a card dropped on an event sets: `Schedule.patch(KindRowType, …)`, whose type names the event kind it lands on. */
-    drop?: (row: ExprType<R>, key: ExprType<K>) => ExprType<P>;
-}
-
 /** One tab of the library pane — what each `Plan.library.*` call returns, and `library` lists. */
 export type PlanLibraryTab =
     | { readonly kind: "events" }
@@ -495,92 +465,6 @@ function seriesTab(ctx: PlanLibraryContext): ExprType<PlanLibraryTabType> {
 }
 
 /**
- * An author's tab on the wire: its cards, read through its accessors, and the
- * event kind its `drop` lands on, named by the patch's type (PB62).
- *
- * @param tab - The tab
- * @param ctx - What the library is built against
- * @returns The tab's wire value
- * @throws {Error} Naming the tab: rows that are not a `Dict`, or a `drop` over no event kind's row type, or over one two
- *   kinds share
- */
-function authorTab(tab: Extract<PlanLibraryTab, { kind: "tab" }>, ctx: PlanLibraryContext): ExprType<PlanLibraryTabType> {
-    const cfg = tab.config;
-    const where = `Plan: ${tabName(tab)}`;
-    const source = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(source as unknown as Expr) as EastType;
-    if (type.type !== "Dict") {
-        throw new Error(`${where} reads its rows as Schedule.resources does — a Dict, usually a record's read() — and these are ${printType(type)}`);
-    }
-    const keyType = type.key as EastType;
-    const rowType = type.value as EastType;
-
-    // The drop: reified once, its patch's type naming the event kind it lands on.
-    let lands: string | undefined;
-    let writes: ExprType<FunctionType<[EastType, EastType], ArrayType<typeof ScheduleFieldWriteType>>> | undefined;
-    if (cfg.drop !== undefined) {
-        const drop = cfg.drop;
-        const dropFn = East.function([rowType, keyType], undefined, (_$, row, key) => drop(row, key));
-        const patchType = (Expr.type(dropFn as unknown as Expr) as FunctionType).output as EastType;
-        const takers = ctx.events.filter(([, kind]) => (kind.rowType as EastType).type === "Struct"
-            && isTypeEqual(patchType, SchedulePatchTypeFor(kind.rowType as StructType)));
-        if (takers.length === 0) {
-            const kinds = ctx.events.map(([slot]) => slot).join(", ");
-            throw new Error(`${where}'s \`drop\` returns a patch over no event kind's row type — build it with Schedule.patch(RowType, { … }) ` +
-                `over the row type of the kind its cards land on (${kinds === "" ? "this Plan has no event kinds" : kinds})`);
-        }
-        if (takers.length > 1) {
-            throw new Error(`${where}'s \`drop\` returns a patch over a row type ${takers.length} event kinds share ` +
-                `(${takers.map(([slot]) => slot).join(", ")}) — a card lands on one kind, so give each kind a row type of its own`);
-        }
-        lands = takers[0]![0];
-        // Each field the patch sets, as the kind's field write: its path, and its value's bytes.
-        const fields = Object.keys((patchType as StructType).fields as Record<string, EastType>);
-        writes = East.function([rowType, keyType], ArrayType(ScheduleFieldWriteType), ($, row, key) => {
-            const patchOf = $.const(dropFn);
-            const patch = $.const(patchOf(row as never, key as never)) as unknown as Record<string, ExprType<OptionType<EastType>>>;
-            const written = $.let([], ArrayType(ScheduleFieldWriteType));
-            for (const name of fields) {
-                $.match(patch[name]!, {
-                    some: ($2, value) => { $2(written.pushLast({ path: [name], value: East.Blob.encodeBeast(value as ExprType<EastType>, "v2") })); },
-                });
-            }
-            return written;
-        }) as unknown as ExprType<FunctionType<[EastType, EastType], ArrayType<typeof ScheduleFieldWriteType>>>;
-    }
-
-    // A String key is its own text; any other key as East prints it.
-    const text = keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key));
-    const describe = East.function([rowType, keyType], PlanLibraryCardType, ($, row, key) => {
-        const keyText = $.const(text as unknown as ExprType<FunctionType<[EastType], StringType>>);
-        const sets = $.let([], ArrayType(ScheduleFieldWriteType));
-        if (writes !== undefined) {
-            const setsOf = $.const(writes);
-            $.assign(sets, setsOf(row as never, key as never));
-        }
-        return {
-            key: keyText(key),
-            label: cfg.label(row, key),
-            meta: cfg.meta !== undefined ? cfg.meta(row, key) : East.value(none, OptionType(StringType)),
-            group: cfg.group !== undefined ? some(cfg.group(row, key)) : East.value(none, OptionType(StringType)),
-            sets,
-        };
-    });
-    const cards = (source as unknown as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
-        const card = $.const(describe);
-        return card(row, key);
-    });
-    return East.value(variant("tab", {
-        name: cfg.name,
-        icon: cfg.icon === undefined ? none : some(cfg.icon),
-        drop: lands === undefined ? none : some(lands),
-        cards,
-    }), PlanLibraryTabType);
-}
-
-/**
  * Builds the library pane on the wire (PB26, PB61, PB62): its tabs in the
  * order `library` lists them; none when it is left out.
  *
@@ -618,7 +502,7 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
             case "series":
                 return seriesTab(ctx);
             case "tab":
-                return authorTab(tab, ctx);
+                return East.value(variant("tab", buildScheduleTab(tab, ctx.events, "Plan")), PlanLibraryTabType);
         }
     });
     return East.value(wires, ArrayType(PlanLibraryTabType));

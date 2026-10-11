@@ -299,9 +299,12 @@ describe("Plan link ribbons (#818)", () => {
             // ...and arrives at b's run START, at b's bar centre (32 + 15.5).
             const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
             expect(tipOf(head.getAttribute("d")!)).toEqual([Number(xAt(JUL13).toFixed(1)), 47.5]);
-            // Past the old 320ms settle: still nothing measured by the layer.
+            // Past the old 320ms settle: still no row/ribbon geometry read.
+            // The shared adaptive hook reads the body's container width after
+            // every commit; that is not a measurement of the ribbon layout.
             await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
-            expect(measured.filter((el) => el.closest("[data-plan-body]") !== null)).toEqual([]);
+            const body = container.querySelector("[data-plan-body]");
+            expect(measured.filter((el) => el !== body && el.closest("[data-plan-body]") !== null)).toEqual([]);
         } finally {
             Element.prototype.getBoundingClientRect = rect;
             restore();

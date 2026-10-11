@@ -7,7 +7,7 @@
  * Shared **plot gutter** primitive (#147).
  *
  * A horizontal inset `{ left, right }` for axis/lane components (Chart, Trace,
- * Calendar, Matrix, Table) so their data lanes occupy exactly
+ * Matrix, Table) so their data lanes occupy exactly
  * `[left, W − right]` and line up on a common x when stacked. All chrome (axes,
  * frozen label columns, week/row headers) renders **within** the gutter.
  * For a temporally-aligned composite the `Plan` canvas owns the whole

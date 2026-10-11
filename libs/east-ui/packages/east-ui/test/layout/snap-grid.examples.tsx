@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
-import { BarStrip, Board, Box, Chart, Dock, Format, HStack, Library, MetricChip, Reactive, Roster, SnapGrid, Sparkline, Stat, State, Status, Table, Text, UIComponentType } from "@elaraai/east-ui";
+import { BarStrip, Box, Chart, Dock, Format, HStack, Library, MetricChip, Reactive, SnapGrid, Sparkline, Stat, State, Status, Table, Text, UIComponentType } from "@elaraai/east-ui";
 
 export const snapGridPage = example({
     keywords: [
@@ -183,8 +183,8 @@ export const snapGridEditor = example({
                 { id: "trend", name: "Revenue trend", meta: "Chart.Area · 90 d", icon: "chart-area", group: "Charts", span: 8n, kind: variant("trend", null) },
                 { id: "orders", name: "Orders by week", meta: "Chart.Column · 8 wk", icon: "chart-column", group: "Charts", span: 6n, kind: variant("orders", null) },
                 { id: "spark", name: "Visits sparkline", meta: "Sparkline · 14 d", icon: "chart-line", group: "Charts", span: 4n, kind: variant("visits", null) },
-                { id: "board", name: "Assignment board", meta: "Board · areas × shifts", icon: "border-all", group: "Collections", span: 12n, kind: variant("board", null) },
-                { id: "roster", name: "Shift roster", meta: "Roster · people × days", icon: "calendar-week", group: "Collections", span: 12n, kind: variant("roster", null) },
+                { id: "board", name: "Assignment board", meta: "Table · areas × shifts", icon: "border-all", group: "Collections", span: 12n, kind: variant("board", null) },
+                { id: "roster", name: "Shift roster", meta: "Table · people × days", icon: "calendar-week", group: "Collections", span: 12n, kind: variant("roster", null) },
             ], ArrayType(Component));
             // The page's tiles, held where the canvas writes them back.
             const Tile = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType), name: StringType, kind: Kind });
@@ -229,7 +229,6 @@ export const snapGridEditor = example({
                 { week: "W13", orders: 248n }, { week: "W14", orders: 196n }, { week: "W15", orders: 132n }, { week: "W16", orders: 74n },
             ], ArrayType(Week));
             const visits = $.const([412.0, 438.0, 401.0, 466.0, 490.0, 455.0, 512.0, 538.0, 501.0, 560.0, 587.0, 549.0, 603.0, 621.0], ArrayType(FloatType));
-            const COMMITTED = variant("committed", null);
             return (
                 <SnapGrid
                     data={tiles}
@@ -315,46 +314,21 @@ export const snapGridEditor = example({
                                 </HStack>
                             ),
                             board: () => (
-                                <Board id="assignments" mode="published" areaHeader="Area"
-                                    areas={[{ key: "north", label: "North" }, { key: "south", label: "South" }]}
-                                    area={a => ({ key: a.key, label: a.label })}
-                                    shifts={[{ key: "am", label: "AM", sublabel: "07-15" }, { key: "pm", label: "PM", sublabel: "15-23" }, { key: "night", label: "Night", sublabel: "23-07" }]}
-                                    shift={sh => ({ key: sh.key, label: sh.label, sublabel: sh.sublabel })}
-                                    people={[
-                                        { key: "af", label: "A.F." }, { key: "ry", label: "R.Y." }, { key: "ka", label: "K.A." },
-                                        { key: "ml", label: "M.L." }, { key: "ti", label: "T.I." }, { key: "pr", label: "P.R." },
-                                    ]}
-                                    person={pe => ({ key: pe.key, label: pe.label })}
-                                    assignments={[
-                                        { key: "a1", person: "af", area: "north", shift: "am", state: COMMITTED },
-                                        { key: "a2", person: "ry", area: "north", shift: "am", state: COMMITTED },
-                                        { key: "a3", person: "ml", area: "north", shift: "night", state: COMMITTED },
-                                        { key: "a4", person: "ka", area: "south", shift: "am", state: COMMITTED },
-                                        { key: "a5", person: "ti", area: "south", shift: "pm", state: COMMITTED },
-                                        { key: "a6", person: "pr", area: "south", shift: "pm", state: COMMITTED },
-                                    ]}
-                                    assignment={x => ({ key: x.key, person: x.person, area: x.area, shift: x.shift, state: x.state })}
-                                    requirements={[
-                                        { area: "north", shift: "am", required: 2n }, { area: "north", shift: "pm", required: 1n },
-                                        { area: "north", shift: "night", required: 1n }, { area: "south", shift: "am", required: 1n },
-                                        { area: "south", shift: "pm", required: 2n }, { area: "south", shift: "night", required: 1n },
-                                    ]}
-                                    requirement={r => ({ area: r.area, shift: r.shift, required: r.required })}
-                                    summary="2 open · 0 over" />
+                                <Table data={[
+                                    { area: "North", shift: "AM", people: "A.F., R.Y.", required: 2n },
+                                    { area: "North", shift: "PM", people: "Open", required: 1n },
+                                    { area: "North", shift: "Night", people: "M.L.", required: 1n },
+                                    { area: "South", shift: "AM", people: "K.A.", required: 1n },
+                                    { area: "South", shift: "PM", people: "T.I., P.R.", required: 2n },
+                                    { area: "South", shift: "Night", people: "Open", required: 1n },
+                                ]} columns={["area", "shift", "people", "required"]} />
                             ),
                             roster: () => (
-                                <Roster id="roster" mode="published" personHeader="Person"
-                                    people={[{ key: "af", label: "A.F." }, { key: "ka", label: "K.A." }, { key: "ml", label: "M.L." }]}
-                                    person={pe => ({ key: pe.key, label: pe.label })}
-                                    shifts={[
-                                        { key: "s1", person: "af", day: "Mon", hours: 8n, state: COMMITTED },
-                                        { key: "s2", person: "af", day: "Tue", hours: 8n, state: COMMITTED },
-                                        { key: "s3", person: "ka", day: "Wed", hours: 6n, state: COMMITTED },
-                                        { key: "s4", person: "ml", day: "Thu", hours: 8n, state: COMMITTED },
-                                        { key: "s5", person: "ml", day: "Fri", hours: 6n, state: COMMITTED },
-                                    ]}
-                                    shift={sh => ({ key: sh.key, person: sh.person, day: sh.day, hours: sh.hours, state: sh.state })}
-                                    days={["Mon", "Tue", "Wed", "Thu", "Fri"]} />
+                                <Table data={[
+                                    { person: "A.F.", Mon: 8n, Tue: 8n, Wed: 0n, Thu: 0n, Fri: 0n },
+                                    { person: "K.A.", Mon: 0n, Tue: 0n, Wed: 6n, Thu: 0n, Fri: 0n },
+                                    { person: "M.L.", Mon: 0n, Tue: 0n, Wed: 0n, Thu: 8n, Fri: 6n },
+                                ]} columns={["person", "Mon", "Tue", "Wed", "Thu", "Fri"]} />
                             ),
                         }),
                     })}

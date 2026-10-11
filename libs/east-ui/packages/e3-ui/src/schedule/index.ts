@@ -34,6 +34,7 @@
 import { StringType, isTypeEqual, printType, type EastType } from "@elaraai/east";
 import { Fields, type FieldsNamespace } from "@elaraai/east-ui";
 import { scheduleDays, scheduleUnscheduled } from "./days.js";
+import { scheduleTemplates } from "./templates.js";
 import { scheduleEvents, type ScheduleEventKind } from "./events.js";
 import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
@@ -45,6 +46,7 @@ import {
 } from "./types.js";
 
 export * from "./types.js";
+export { scheduleTemplates, type ScheduleTemplates, type ScheduleTemplatesConfig } from "./templates.js";
 export {
     scheduleEvents,
     type ScheduleAtField, type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig,
@@ -105,6 +107,8 @@ export function scheduleCheck(
 export interface ScheduleNamespace {
     /** One event kind: a record of its own, bound with its patch mutation. */
     events: typeof scheduleEvents;
+    /** Reads typed templates from bound keyed data. */
+    templates: typeof scheduleTemplates;
     /** One resource kind, read from keyed rows. */
     resources: typeof scheduleResources;
     /** The inspector's typed form: east-ui's `Fields`. */
@@ -142,6 +146,7 @@ export interface ScheduleNamespace {
  */
 export const Schedule: ScheduleNamespace = {
     events: scheduleEvents,
+    templates: scheduleTemplates,
     resources: scheduleResources,
     field: Fields,
     patch: schedulePatch,

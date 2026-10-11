@@ -52,6 +52,7 @@
  * @packageDocumentation
  */
 
+import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
 import { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -556,25 +557,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
 
     return (
         <Box css={styles.root} data-plan-inspector="event">
-            <Box css={styles.head}>
-                <Box css={styles.headRow}>
-                    <Box as="span" css={styles.kindTile} aria-hidden="true">
-                        <FontAwesomeIcon icon={["fas", kind.icon as IconName]} />
-                    </Box>
-                    <Box css={styles.headText}>
-                        <Box css={styles.eyebrow} data-inspector-kind="">{kind.name}</Box>
-                        <Box css={styles.name} data-inspector-title="">{item.title}</Box>
-                        <Box css={styles.when} data-inspector-when="">{whenText(item, kind.instant, words)}</Box>
-                    </Box>
-                </Box>
-                {status !== undefined && (
-                    <Box css={styles.marks}>
-                        <Box as="span" css={styles.status} data-tone={status.tone.type} data-ring={status.ring ? "" : undefined} data-inspector-status="">
-                            {status.label}
-                        </Box>
-                    </Box>
-                )}
-            </Box>
+            <ScheduleInspectorHead styles={styles} kind={kind} title={item.title} when={whenText(item, kind.instant, words)} status={status} />
             {/* Under the head, as the Calendar's inspector has it (§8) — and out
                 of the edits' fieldset, so its lines select while that is disabled. */}
             {peers.length > 0 && chrome !== undefined && (

@@ -185,6 +185,8 @@ export interface DropCellOptions {
      * between them; without stops they move to the neighbouring cell.
      */
     stops?: () => readonly number[];
+    /** Axis of the continuous stops: x by default; a Calendar time column uses y. */
+    stopAxis?: "x" | "y";
     /** The cell's name, for the announcements — at the coordinate the drag rests on, for what is dragged. */
     name?: (coord: CellCoord, payload: DragPayload) => string;
     /** Told each time a drag rests over the cell and it takes it, with the client point and what is dragged. */
@@ -500,6 +502,9 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     const track = useRef<DragTrack>({ altKey: false, point: undefined, abort: undefined }).current;
     /** The point the drag rests at — the pointer, or a keyboard drag's centre. */
     const restPoint = useRef<Point | undefined>(undefined);
+    // A keyboard destination belongs to the source's centre and the chosen
+    // stops. A compact ghost must not shift it when its measured size changes.
+    const keyboardPoint = useRef<Point | undefined>(undefined);
     /** The last hit test — a point, and the destination element under it. */
     const lastHit = useRef<{ point: Point; el: HTMLElement | null } | undefined>(undefined);
     const outcome = useRef<Outcome | undefined>(undefined);
@@ -702,7 +707,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
      * still point moves when something scrolls. The move handler reuses it.
      */
     const collide = useCallback<CollisionDetection>(({ collisionRect, pointerCoordinates }) => {
-        const point = pointerCoordinates ?? {
+        const point = (drag.current?.keyboard ? keyboardPoint.current : pointerCoordinates) ?? {
             x: collisionRect.left + collisionRect.width / 2,
             y: collisionRect.top + collisionRect.height / 2,
         };
@@ -723,13 +728,12 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         const forward = code === "ArrowRight" || code === "ArrowDown";
         const current = d.hovered;
         const here = current !== null ? cells.current.get(current)?.current : undefined;
-        // Within a continuous cell, Left / Right step between its stops.
-        if (horizontal && current !== null && here?.stops !== undefined) {
+        // Within a continuous cell, step along the axis its stops describe.
+        if (current !== null && here?.stops !== undefined && horizontal === (here.stopAxis !== "y")) {
             const stops = here.stops();
-            const stop = forward
-                ? stops.find((x) => x > from.x + 0.5)
-                : [...stops].reverse().find((x) => x < from.x - 0.5);
-            if (stop !== undefined) return { x: stop, y: from.y };
+            const at = horizontal ? from.x : from.y;
+            const stop = forward ? stops.find(point => point > at + 0.5) : [...stops].reverse().find(point => point < at - 0.5);
+            if (stop !== undefined) return horizontal ? { x: stop, y: from.y } : { x: from.x, y: stop };
         }
         // Otherwise the nearest destination in that direction: along the key's
         // axis first, then as close across it as possible.
@@ -764,22 +768,24 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         const target: HTMLElement = best.el;
         target.scrollIntoView?.({ block: "nearest", inline: "nearest" });
         const r = target.getBoundingClientRect();
-        const stops = cells.current.get(target)?.current.stops?.();
-        // Up / Down keep the column; Left / Right enter at the near stop.
-        const x = !horizontal
-            ? Math.min(Math.max(from.x, r.left + 1), r.right - 1)
-            : stops !== undefined && stops.length > 0 ? (forward ? stops[0]! : stops[stops.length - 1]!)
-                : r.left + r.width / 2;
-        return { x, y: r.top + r.height / 2 };
+        const cell = cells.current.get(target)?.current;
+        const stops = cell?.stops?.();
+        const entersAlongStops = horizontal === (cell?.stopAxis !== "y");
+        const stop = entersAlongStops && stops !== undefined && stops.length > 0 ? (forward ? stops[0]! : stops[stops.length - 1]!) : undefined;
+        // Across a continuous cell, retain the time coordinate; along it, enter at the near stop.
+        const x = !horizontal ? Math.min(Math.max(from.x, r.left + 1), r.right - 1) : stop ?? r.left + r.width / 2;
+        const y = horizontal && cell?.stopAxis === "y" ? Math.min(Math.max(from.y, r.top + 1), r.bottom - 1) : !horizontal && cell?.stopAxis === "y" ? stop ?? r.top + r.height / 2 : r.top + r.height / 2;
+        return { x, y };
     }, [connected, sinkValid]);
 
     /** Where an arrow key takes a keyboard drag's collision rect — the sensor asks for the arrows alone. */
     const coordinateGetter = useCallback<KeyboardCoordinateGetter>((event, { context }) => {
         const rect = context.collisionRect;
         if (rect === null) return undefined;
-        const from = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        const from = keyboardPoint.current ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         const to = nextPoint(event.code, from);
         if (to === undefined) return undefined;
+        keyboardPoint.current = to;
         return { x: to.x - rect.width / 2, y: to.y - rect.height / 2 };
     }, [nextPoint]);
 
@@ -803,6 +809,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         origin?.setAttribute("data-dragging", "");
         // A keyboard drag's modifiers are the keyboard's, and its sensor tracks them.
         const keyboard = activatorEvent instanceof KeyboardEvent;
+        const originRect = origin?.getBoundingClientRect();
+        keyboardPoint.current = keyboard && originRect !== undefined ? { x: originRect.left + originRect.width / 2, y: originRect.top + originRect.height / 2 } : undefined;
         // Content scrolled under a drag that did not move — a wheel, a
         // touchpad, the edge scroller — brings another destination under it:
         // rest again where it now is. dnd-kit re-reads collisions only when

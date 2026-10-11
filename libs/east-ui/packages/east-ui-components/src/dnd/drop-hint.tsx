@@ -7,8 +7,7 @@
  * Shared `DropHint` affordance (#267) — the "this empty region accepts
  * drops" marker: a dashed outline + host-supplied hint text, consistent
  * with the `data-drop-valid` stage vocabulary (dashed = ephemeral). Blend's
- * empty-allocations box renders it; Roster/Board empty cells may adopt it
- * later. Zero baked copy — the hint text arrives from the caller.
+ * empty-allocations box renders it; other empty targets may adopt it. Zero baked copy — the hint text arrives from the caller.
  */
 
 import { type ReactNode } from "react";

@@ -35,6 +35,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { builderFooter } from "./builder-footer.js";
 
 /** The motion of a state toggle: the design system's `--dur-base` on `--ease-in-out`. */
 const TOGGLE_MOTION = {
@@ -44,8 +45,16 @@ const TOGGLE_MOTION = {
 
 export const builderFrameSlotRecipe = defineSlotRecipe({
     className: "elara-builder-frame",
-    slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer"],
+    slots: ["root", "toolbar", "banners", "body", "pane", "sheet", "probe", "main", "scrim", "footer", "loading", "loadingBar", "loadingBody", "loadingRow", "loadingLine", "loadingCell", "loadingFooter"],
     base: {
+        loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
+        loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
+        loadingBody: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "{spacing.2} {spacing.4}", overflow: "hidden" },
+        // Loading rows keep the density of the builders; spare height stays empty.
+        loadingRow: { flex: "0 0 40px", display: "flex", alignItems: "center", gap: "{spacing.4}", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        loadingLine: { flex: "0 1 160px", minWidth: 0, width: "100%", maxWidth: "160px", "&:nth-child(2)": { flexGrow: 1, maxWidth: "320px" }, _motionReduce: { animation: "none" } },
+        loadingCell: { height: "24px" },
+        loadingFooter: { ...builderFooter },
         root: {
             position: "relative",
             isolation: "isolate",
@@ -58,6 +67,8 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             background: "bg.surface",
             overflow: "hidden",
+            "&[data-loading] > [data-frame-slot]": { opacity: 0 },
+            "&[data-loading] [data-frame-slot]": { transition: "none" },
         },
         /* The one toolbar band: the shared toolbar's row. */
         toolbar: {

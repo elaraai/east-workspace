@@ -806,6 +806,51 @@ describe("keyboard drags (#608)", () => {
         expect(announced()).toBe("patel was dropped on cho · tue.");
     });
 
+    test("vertical time stops advance within a column and retain time when crossing columns", async () => {
+        const events: DragEventValue[] = [];
+        function Column({ row }: { row: string }) {
+            const ref = useDropCell({ surface: "roster", row, slot: "0" }, false, undefined,
+                (_x, y) => ({ surface: "roster", row, slot: String(Math.floor(y / 20)) }),
+                { stopAxis: "y", stops: () => [1, 21, 41, 61] });
+            return <div ref={ref} data-testid={`column-${row}`} />;
+        }
+        const { getByTestId } = render(<DragLayerProvider>
+            <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+            <Card library="people" itemKey="patel" /><Column row="one" /><Column row="two" />
+        </DragLayerProvider>);
+        const card = getByTestId("card-patel");
+        const one = getByTestId("column-one"); const two = getByTestId("column-two");
+        layOut(new Map([[card, { left: 0, top: 0, width: 80, height: 30 }],
+            [one, { left: 200, top: 0, width: 100, height: 80 }], [two, { left: 300, top: 0, width: 100, height: 80 }]]));
+        card.focus(); press("Space"); await tick(); press("ArrowRight");
+        expect(one.hasAttribute("data-drop-active")).toBe(true);
+        press("ArrowDown"); press("ArrowDown");
+        expect(one.hasAttribute("data-drop-active")).toBe(true);
+        press("ArrowRight"); expect(two.hasAttribute("data-drop-active")).toBe(true);
+        press("Space");
+        const e = sole(events); expect(e.type).toBe("add");
+        if (e.type === "add") { expect(e.value.into.row).toBe("two"); expect(e.value.into.slot).toBe("2"); }
+    });
+
+    test("a tall event keeps its keyboard landing point when its ghost is compact", async () => {
+        const events: DragEventValue[] = [];
+        function Continuous() {
+            const ref = useDropCell({ surface: "roster", row: "one", slot: "0" }, false, undefined,
+                (_x, y) => ({ surface: "roster", row: "one", slot: String(Math.floor(y / 20)) }),
+                { stopAxis: "y", stops: () => Array.from({ length: 20 }, (_, i) => i * 20 + 0.1) });
+            return <div ref={ref} data-testid="continuous"><Chip surface="roster" row="one" slot="1" event="tall" /></div>;
+        }
+        const { getByTestId } = render(<DragLayerProvider>
+            <Target config={{ id: "roster", sources: [], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+            <Continuous />
+        </DragLayerProvider>);
+        const chip = getByTestId("chip-tall"); const column = getByTestId("continuous");
+        layOut(new Map([[chip, { left: 200, top: 20, width: 100, height: 200 }], [column, { left: 200, top: 0, width: 100, height: 400 }]]));
+        chip.focus(); press("Space"); await tick(); press("ArrowDown"); press("Space");
+        const e = sole(events); expect(e.type).toBe("move");
+        if (e.type === "move") expect(e.value.to.slot).toBe("7");
+    });
+
     test("Escape cancels a keyboard drag, and says so", async () => {
         const events: DragEventValue[] = [];
         const { getByTestId } = render(<Grid events={events} />);

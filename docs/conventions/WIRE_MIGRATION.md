@@ -81,6 +81,8 @@ change to one is a new version of the thing, not an edit to it.
 
 ## Changes
 
+- **east-ui's `UIComponentType` loses its heatmap `Calendar` arm (#1144, #1146)** — package-borne. Re-export packages with the current SDK: variant case indexes after Calendar change. The record-backed calendar is e3-ui's single `<Calendar>` extension; its renderer is in e3-ui-components. The shared Schedule kind also gains the by-key event read, schedule roles and inspector/overlap fields used by Plan and Calendar. Application event, resource and template records retain their own types; no stored record migration is introduced.
+
 Each wire changed under this rule, with the kind it is.
 
 - **east-ui's `UIComponentType` loses its `Plan` arm (#1177, #1191)** —
@@ -114,3 +116,5 @@ Each wire changed under this rule, with the kind it is.
   under the other: packages are re-exported, and the dataflow computes each UI
   task's output again under the new type. As with the EmptyState's glyph, no
   repository upgrade step ships with it.
+
+- **east-ui's `UIComponentType` loses its `Board` and `Roster` arms (#1162, #1174)** — package-borne. Re-export packages and recompute UI task outputs: the sorted variant case indexes change. Staffing now uses e3-ui's `Roster` extension. Its new `Roster.Types.Weeks` is an application record type; this change does not rewrite an existing backend record or introduce a repository upgrade step. Applications adopting it declare and seed their own weeks record.

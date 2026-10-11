@@ -20,7 +20,7 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
-import { Box } from "@chakra-ui/react";
+import { MoveGhost } from "../../shared/schedule/move-ghost.js";
 import { useDragEventChip, useDragEventEdge, type CellCoord, type DragHandle } from "@elaraai/east-ui-components";
 import { slotOfInstant } from "../../shared/time/slot.js";
 import type { PlanScale } from "../scale.js";
@@ -80,12 +80,7 @@ function PlanMoveGhost({ edit, movable }: { edit: PlanEditContextValue; movable:
     const proposal = useSyncExternalStore(edit.store.subscribe, () => edit.store.proposal);
     const span = proposal?.span ?? movable.span;
     const styles = edit.styles;
-    return (
-        <Box css={styles.moveGhost} data-plan-ghost={movable.kind}>
-            <Box as="span" css={styles.moveGhostLabel}>{movable.label}</Box>
-            <Box as="span" css={styles.moveGhostSpan} data-plan-ghost-span>{spanWords(edit.scale, movable, span, edit.words)}</Box>
-        </Box>
-    );
+    return <MoveGhost styles={styles} label={movable.label} detail={spanWords(edit.scale, movable, span, edit.words)} planKind={movable.kind} />;
 }
 
 /**

@@ -19,8 +19,8 @@
  */
 
 import { DatasetHashMismatchError, type DatasetFindQuery, type DatasetFindResult, type DatasetPage } from "@elaraai/e3-api-client";
-import { SortedMap, compareFor, decodeBeast2For, encodeBeast2For, parseFor, variant, type DictType, type EastType } from "@elaraai/east";
-import type { TreePath } from "@elaraai/e3-types";
+import { NullType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, parseFor, some, none, variant, type DictType, type EastType } from "@elaraai/east";
+import { indexWindowType, type TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey, type PagedApi, type ReactiveDatasetCache, type RecordApi } from "./index.js";
 
 /** A record the service serves: where e3 keeps it, and its type — a Dict. */
@@ -29,6 +29,8 @@ export interface PagedRecord {
     readonly path: TreePath;
     /** Its type. */
     readonly type: DictType<EastType, EastType>;
+    /** Optional day/backlog indexes, evaluated on the stand-in server with the declared East key function. */
+    readonly indexes?: readonly { name: string; keyType: EastType; keys: (key: unknown, row: unknown) => Iterable<unknown> }[];
 }
 
 /** The whole reads of datasets a test counts, and how it reads past the count. */
@@ -133,11 +135,26 @@ export function recordPaging(
     /** A record's entries as it holds them now, in key order. */
     const entriesOf = (workspace: string, record: PagedRecord): ReadonlyMap<unknown, unknown> =>
         decodeBeast2For(record.type)(read(workspace, record.path)!) as ReadonlyMap<unknown, unknown>;
+    const indexed = (workspace: string, record: PagedRecord, name: string) => {
+        const index = record.indexes?.find(candidate => candidate.name === name);
+        if (index === undefined) throw new Error(`the service holds no index ${name}`);
+        const compareIndex = compareFor(index.keyType); const compareKey = compareFor(record.type.key);
+        const entries = [...entriesOf(workspace, record)].flatMap(([key, row]) => [...index.keys(key, row)].map(ik => ({ ik, key, value: null, row })));
+        entries.sort((a, b) => compareIndex(a.ik, b.ik) || compareKey(a.key, b.key));
+        return { index, entries };
+    };
     const api: PagedApi = {
         async getRevision(workspace, path) { return revisionOf(workspace, path); },
         async getPage(workspace, path, window): Promise<DatasetPage> {
             const record = recordOf(path);
-            if (window.index !== undefined) throw new Error(`the service serves ${pathText(path)}'s own entries, not an index`);
+            if (window.index !== undefined) {
+                requests.push(`${pathText(path)} index ${window.index} page ${window.offset}+${window.limit}`);
+                const hash = pinned(workspace, path, window.hash);
+                const { index, entries } = indexed(workspace, record, window.index);
+                const rows = entries.slice(window.offset, window.offset + window.limit).map(entry => ({ ...entry, row: window.join === true ? some(entry.row) : none }));
+                const data = encodeBeast2For(indexWindowType(record.type.key, index.keyType, NullType, record.type.value))(rows);
+                return { data, totalElements: entries.length, totalBytes: data.length, totalExact: true, segmentCount: 1, offset: window.offset, count: rows.length, hash };
+            }
             requests.push(`${pathText(path)} page ${window.offset}+${window.limit}`);
             const hash = pinned(workspace, path, window.hash);
             const entries = [...entriesOf(workspace, record)];
@@ -148,6 +165,16 @@ export function recordPaging(
         async findKey(workspace, path, query: DatasetFindQuery): Promise<DatasetFindResult> {
             const record = recordOf(path);
             const hash = pinned(workspace, path, query.hash);
+            if (query.index !== undefined) {
+                if (!("from" in query) || query.from?.[0] === undefined) throw new Error("an index is sought from its first day key");
+                requests.push(`${pathText(path)} index ${query.index} seek ${query.from[0]}`);
+                const { index, entries } = indexed(workspace, record, query.index);
+                const parsed = parseFor(index.keyType)(query.from[0]);
+                if (!parsed.success) throw new Error(`not a key of ${query.index}: ${query.from[0]}`);
+                const compare = compareFor(index.keyType);
+                const row = entries.filter(entry => compare(entry.ik, parsed.value) < 0).length;
+                return { found: row < entries.length, row, count: entries.length - row, hash };
+            }
             // By a key's text, as East prints it.
             if (!("key" in query)) throw new Error("a record's own entries are sought by a key");
             requests.push(`${pathText(path)} seek ${query.key}`);

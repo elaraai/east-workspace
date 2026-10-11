@@ -5,7 +5,7 @@
 
 /**
  * Shared row-virtualization frame for the grow-to-content data collections
- * (Matrix / Board / Roster / Calendar / Plan). Table / Library keep
+ * (Matrix / Board / Roster / Plan). Table / Library keep
  * their own bespoke virtualizers; every other collection routes its body rows
  * through this one helper so they all bound, scroll and virtualize identically
  * (#320).
@@ -1124,7 +1124,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             {header !== undefined && (
                 // Opaque wash: scrolled rows must never paint through the
                 // pinned header (not every collection's header cells carry
-                // their own background — Calendar's don't).
+                // their own background).
                 <Box ref={setHeaderEl} position="sticky" top="0" zIndex={headerZIndex} minWidth={minWidth} background="bg.surface">
                     {header}
                 </Box>

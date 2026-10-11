@@ -81,4 +81,12 @@ export const segSlotRecipe = defineSlotRecipe({
             },
         },
     },
+    variants: {
+        fullWidth: {
+            true: {
+                root: { width: "100%", minWidth: 0, display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(0, 1fr)" },
+                item: { minWidth: 0, paddingInline: 0 },
+            },
+        },
+    },
 });

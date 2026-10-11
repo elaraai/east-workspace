@@ -22,6 +22,8 @@ import './studio/library.js';             // → implementUIComponent(StudioLibr
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
+import './calendar/index.js';
+import './roster/index.js';
 import './plan/index.js';                 // → implementUIComponent(PlanComponent, EastChakraPlanPayload)
 import './sheet/frame/index.js';          // → implementUIComponent(SheetComponent, EastChakraSheet)
 
@@ -178,3 +180,9 @@ export { VirtualizedLogViewer, type VirtualizedLogViewerProps, type LogMatches }
 // A preview's controls, drawn in its host's header (#1209): the handle the
 // host gives a preview as `controls`, and what a log view does for it.
 export { usePreviewControls, type PreviewControls, type LogViewerControls } from './components/preview-controls.js';
+
+// The e3 record Calendar registers its extension on import.
+export { EastChakraCalendar, type EastChakraCalendarProps, type CalendarValue } from "./calendar/index.js";
+
+// The record-backed staffing roster, with its internal shared builder frame.
+export { EastChakraRoster, type EastChakraRosterProps, type RosterValue } from "./roster/index.js";
