@@ -371,12 +371,13 @@ const windowsPlan = East.compile(East.function([], UIComponentType, (_$) => Reac
     const jobBacklog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const paper = $.const(Data.bind(planLinkStock));
-    const cfg = Slice.config(ex.PlanWindowDay, { fields: { day: { label: "Day", format: { date: "MMM D" } } }, rangeFieldId: "day" });
     const first = $.const(FIRST, DateTimeType);
     const days = $.let(East.Array.generate(28n, ex.PlanWindowDay, (_$2, i) => ({ day: first.addDays(i) })));
-    const slice = $.let(Slice.bind([ex.PlanWindowDay], "plan.windows.dom", cfg, Slice.state({
-        range: some(variant("datetime", { from: first, to: first.addDays(14n).addMilliseconds(-1n) })),
-    }), days, none));
+    const slice = $.let(Slice.bind("plan.windows.dom", days, {
+        fields: { day: { label: "Day", format: { date: "MMM D" } } },
+        range: "day",
+        initial: { day: { from: first, to: first.addDays(14n).addMilliseconds(-1n) } },
+    }));
     const axis = $.let(Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }));
     // The paper in stock, each reading a week apiece from the window's first Monday.
     const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>

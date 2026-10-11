@@ -61,7 +61,7 @@ export type PlanGrain = "group" | "resource";
 
 /** All ephemeral UI state — one object, one reducer. */
 export interface PlanUiState {
-    /** The active grain (initial from the IR; the toolbar segment drives it after). */
+    /** The active grain (initial from the IR; explicit fold-all actions use resource). */
     grain: PlanGrain;
     /** Collapsed rows — any row with children (#822; keys present = COLLAPSED —
      *  rows carry the initial set). */
@@ -84,6 +84,8 @@ export interface PlanUiState {
 export type PlanEvent =
     | { t: "grain.set"; grain: PlanGrain }
     | { t: "group.toggle"; key: RowKey }
+    /** One atomic fold of every parent, including nested parents. */
+    | { t: "groups.set"; keys: readonly RowKey[]; collapsed: boolean }
     /** A row selected — `at`, the bucket a click on its plot named (#1197). */
     | { t: "row.select"; key: RowKey; at?: PlanInstantValue | undefined }
     /** An event's element selected on its row (#1197) — `additive` adds or removes it (Shift, ⌘ or Ctrl). */
@@ -188,6 +190,18 @@ export function planReducer(
                 state: { ...s, collapsed },
                 effects: [{ t: "emit.groupToggle", key: e.key, expanded: !collapsed.has(e.key) }],
             };
+        }
+        case "groups.set": {
+            const collapsed = new Set(s.collapsed);
+            const effects: PlanEffect[] = [];
+            for (const key of e.keys) {
+                if (collapsed.has(key) !== e.collapsed) effects.push({ t: "emit.groupToggle", key, expanded: !e.collapsed });
+                if (e.collapsed) collapsed.add(key); else collapsed.delete(key);
+            }
+            // The old grain can hide an otherwise opened parent. Bulk folding
+            // uses the real row folds, preserving selection, drafts and charts.
+            if (s.grain !== "resource") effects.push({ t: "emit.grainChange", grain: "resource" });
+            return { state: { ...s, grain: "resource", collapsed, focus: null }, effects };
         }
         case "row.select": {
             // Selection is idempotent — re-clicking the selected row holds. A
@@ -487,9 +501,13 @@ export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep
             const { state, effects } = planReducer(store.ui, a.e);
             if (state === store.ui && effects.length === 0) return { store, effects: NO_EFFECTS };
             // A toggle is the user's word on that row from now on (#813).
-            const overrides = a.e.t === "group.toggle"
-                ? new Map(store.overrides).set(a.e.key, state.collapsed.has(a.e.key))
-                : store.overrides;
+            let overrides = store.overrides;
+            if (a.e.t === "group.toggle") overrides = new Map(overrides).set(a.e.key, state.collapsed.has(a.e.key));
+            else if (a.e.t === "groups.set") {
+                const next = new Map(overrides);
+                for (const key of a.e.keys) next.set(key, a.e.collapsed);
+                overrides = next;
+            }
             const next = state === store.ui && overrides === store.overrides
                 ? store
                 : { ...store, ui: state, overrides };

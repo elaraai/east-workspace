@@ -293,7 +293,7 @@ export function usePlanCanvas({
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
     // with.
-    const { slice, affordances, scale } = usePlanWindow(hostValue, hostData, words);
+    const { slice, recordChrome, affordances, scale } = usePlanWindow(hostValue, hostData, words);
 
     // ── The editing session (#880) ────────────────────────────────────────
     // Every dropped card, move and resize is a DRAFT of the entry its row
@@ -459,7 +459,7 @@ export function usePlanCanvas({
     // snapshot of the source's data, whose rows the matches it holds no longer
     // index (#821, #1199). New rows over the same data — a pan reading the
     // event kinds' rows again, a draft — move neither, so the search stands.
-    const seekable = data.rows.type !== "inline" && data.rows.value.seek.type === "some";
+    const seekable = recordChrome === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     const search = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...controller.search, resetKey: sourceId, requery: seek.again } : undefined),
@@ -570,7 +570,13 @@ export function usePlanCanvas({
         kinds, resources, tabs, keys, editing: eventEditing, canDrop, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
         selected: () => controller.getSnapshot().store.ui.elements,
-        select: (selected, row) => controller.selectEvents(selected, row ?? null),
+        select: (selected, row) => {
+            controller.selectEvents(selected, row ?? null);
+            // A scheduled backlog card unmounts at its origin. Hand focus to
+            // the dropped event through the same path as a keyboard drop.
+            const first = selected[0];
+            if (row !== undefined && first !== undefined) editStore.focusAfterDraw(row, first);
+        },
     });
     const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): boolean => {
         if (event.type === "add") {
@@ -719,7 +725,14 @@ export function usePlanCanvas({
     // into view; none when no row on the canvas draws it.
     const selectEvents = useCallback((keys: readonly string[], row?: RowKey) => {
         const first = keys[0];
-        if (first === undefined) return;
+        if (first === undefined) {
+            const selectedRow = controller.getSnapshot().store.ui.selected;
+            controller.selectEvents([], null);
+            // Delete can unmount either the focused event or its inspector
+            // button. Keep Undo and the grid's keyboard navigation reachable.
+            if (selectedRow !== null) controller.focusItem(rowItemKey(selectedRow));
+            return;
+        }
         controller.selectEvents(keys, row ?? index.rows.find((r) => holdsElement(r, first))?.key ?? null);
     }, [index, controller]);
     // What every row of this render shares (#616: per-row facts are computed
@@ -999,11 +1012,11 @@ export function usePlanCanvas({
 
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef}
-            slice={slice} affordances={affordances} now={now}
+            slice={slice} recordSlice={recordChrome?.slice} affordances={affordances} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             pinned={pinned.map((v) => (
-                <Box key={v.row.key} background="bg.surface">{renderPlanRow(v, rowCtx)}</Box>
+                <Box key={v.row.key} css={styles.header}>{renderPlanRow(v, rowCtx)}</Box>
             ))}
             pinnedId={pinned.length > 0 ? pinnedId : undefined}
             focus={view.focus}
@@ -1213,10 +1226,7 @@ export function usePlanCanvas({
             // The keyboard surface and the focus anchor, but not a tab
             // stop: the grid's one stop is its active row (#819).
             tabIndex={-1}
-            outline="none"
-            position="relative"
-            width="100%"
-            minWidth={0}
+            css={styles.body}
             data-plan-body
             onBlur={onBodyBlur}
             // The bound lives HERE, not on the frame — the attribute is
@@ -1231,9 +1241,6 @@ export function usePlanCanvas({
             // own rows. Grown with its rows, it keeps its own height —
             // never shrunk to main's — so a host that bounds the frame is
             // seen to cut it off (`useHostBound`).
-            {...(frameFills
-                ? { display: "flex", flexDirection: "column", flex: "1", minHeight: 0 }
-                : { flex: "none" })}
             onKeyDown={onKeyDown}
             onClickCapture={overlayHandlers.onClickCapture}
             onPointerOver={overlayHandlers.onPointerOver}
@@ -1351,7 +1358,7 @@ export function usePlanCanvas({
         bound,
         main,
         chrome: {
-            words, styles, storageKey, scale, slice, affordances, resolutions,
+            words, styles, storageKey, scale, slice, recordChrome, affordances, resolutions,
             // The grain folds the canvas's root groups (#632); below 480px the
             // narrow layout's Groups · Rows tabs own them, so nothing is left
             // for the segment to do there.

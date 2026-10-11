@@ -57,6 +57,8 @@ import {
     SliceAffordanceType,
     SliceBindType,
     SliceChromeType,
+    localSliceHandle,
+    isRecordSlice, recordSliceChrome, type RecordSliceChromeOptions,
     buildKeyedInlineApply,
     buildPagedWindow,
     buildRowSource,
@@ -87,6 +89,7 @@ import {
     type PlanAxisKindLiteral,
     type PlanAxisInput,
 } from "./types.js";
+import { orderedPlanSource } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES } from "./builders.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
@@ -270,7 +273,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
         slice: SubtypeExprOrValue<SliceBindType>;
         /** The toolbar affordances, in order. */
         affordances?: SliceAffordanceLiteral[];
-    };
+    } | RecordSliceChromeOptions;
     /** Status-footer items (`end: true` right-aligns). */
     footer?: {
         /** The footer text. */
@@ -435,7 +438,9 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
     // and the series pipeline is the `make` that turns each window's entries
     // into canvas rows (the single R-erasure point).
-    const resolved = resolveRowSource(data, "Plan");
+    const incoming = resolveRowSource(data, "Plan");
+    const ordered = incoming.kind === "ordered" ? orderedPlanSource(incoming) : undefined;
+    const resolved = ordered?.resolved ?? incoming;
     // The canvas is KEYED: a row's path starts with its entry's key, which is
     // what keeps the canvas addressable by the keys the source is searched and
     // windowed by (#568). Refuse anything else rather than inventing keys.
@@ -465,11 +470,15 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     // paged, each window's share of every block — one read serves them all.
     // A Plan's `rows` follow as fixed blocks, which every window serves alike.
     const rowsValue = buildRowSource(
-        resolved,
+        incoming,
         PlanBlocksType,
-        (source) => (extra === undefined ? applySeries(seriesInput, source) : applySeries(seriesInput, source).concat(extra)),
+        (source) => {
+            const blocks = ordered === undefined ? applySeries(seriesInput, source) : ordered.make(seriesInput, source);
+            return extra === undefined ? blocks : blocks.concat(extra);
+        },
     ) as unknown as ExprType<PlanRowsType>;
-    return rootOf(config, rowsValue, config.editing !== undefined ? buildPlanEditing(resolved, seriesInput, config.editing) : undefined);
+    const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, config.editing);
+    return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing);
 }
 
 /**
@@ -490,11 +499,13 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
             gutterWidth: style.gutterWidth !== undefined ? some(style.gutterWidth) : none,
         }, PlanStyleType))
         : none;
-    const sliceChrome = config.slice !== undefined
+    const record = config.slice !== undefined && isRecordSlice(config.slice.slice);
+    const recordOptions = record ? config.slice as RecordSliceChromeOptions : undefined;
+    const sliceChrome = config.slice !== undefined && !record
         ? some(East.value({
-            slice: config.slice.slice,
+            slice: localSliceHandle(config.slice.slice as SubtypeExprOrValue<SliceBindType>),
             affordances: East.value(
-                (config.slice.affordances ?? DEFAULT_PLAN_AFFORDANCES).map(a => variant(a, null)),
+                ((config.slice.affordances ?? DEFAULT_PLAN_AFFORDANCES) as SliceAffordanceLiteral[]).map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),
             ),
         }, SliceChromeType))
@@ -541,6 +552,9 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         onGrainChange: config.onGrainChange !== undefined ? some(config.onGrainChange) : none,
         ui:       config.ui !== undefined ? some(East.value(config.ui, PlanUiBindType)) : none,
         style:    styleValue,
+        recordSlice: recordOptions === undefined ? none : some(recordSliceChrome({ ...recordOptions,
+            affordances: recordOptions.affordances ?? ["fields", "presets", "summary", "brush"],
+        })),
     }, PlanRootType);
 }
 

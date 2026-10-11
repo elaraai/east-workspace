@@ -284,7 +284,10 @@ describe("Plan paged random access (#567/#574/#577)", () => {
                 expect(container.querySelector('[data-part="dataset-key-search"]')!.textContent)
                     .toMatch(/match/);
             }, { timeout: 5_000 });
-            fireEvent.keyDown(input, { key: "Enter" });
+            // Suggestions are available before Enter loads the canvas window.
+            await waitFor(() => expect(document.querySelector('[role="option"]')?.textContent).toContain(TARGET_KEY));
+            expect(container.querySelector(unitRow(TARGET_KEY))).toBeNull();
+            fireEvent.click(document.querySelector('[role="option"]')!);
 
             // The canvas MOVED: the target window landed, and the page
             // scrolled to its row...

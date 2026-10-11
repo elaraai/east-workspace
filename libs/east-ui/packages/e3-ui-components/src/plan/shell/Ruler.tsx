@@ -4,7 +4,7 @@
  */
 
 /**
- * The ruler (28px, `Plan Spec.html` §2) — the tick band on the shared
+ * The ruler — two time bands, or one numeric/ordinal band, on the shared
  * template, sticky with the header chrome: one mono tick per bucket (grid
  * columns sized by the buckets' window fractions, so clipped edge buckets
  * stay true), the NOW chip on the brand rule, and the cursor readout chip.
@@ -22,13 +22,12 @@
  * `data-tick-label` on its label.
  */
 
-import { useRef } from "react";
+import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
 import { NowChip, NowLine } from "../../shared/time/now-line.js";
 import { usePlanScale } from "../context.js";
 import { usePlanWords } from "../words.js";
-import { GridSeparators } from "../rows/RowShell.js";
-import { startsPeriod, useRulerFit } from "./use-ruler-fit.js";
+import { TimeRulerRow, timeRulerUnits } from "../../shared/time/ruler.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -58,38 +57,18 @@ export interface PlanRulerProps {
     cursorChipRef?: React.Ref<HTMLDivElement>;
 }
 
-/** The 28px ruler band. */
+/** The ruler shares its adaptive time bands with Calendar. */
 export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef }: PlanRulerProps) {
     const scale = usePlanScale();
     const words = usePlanWords();
-    const trackRef = useRef<HTMLDivElement | null>(null);
-    const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
-    // Which labels draw, measured before paint (#1269).
-    const placed = useRulerFit(trackRef, scale);
+    const units = useMemo(() => timeRulerUnits(scale, words), [scale, words]);
 
     return (
-        <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler">
-            {/* The gutter's rule runs down through the ruler as through every row. */}
+        <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler" data-time={units !== undefined ? "" : undefined}>
             <Box css={styles.brushCaption}>{caption}</Box>
-            <Box ref={trackRef} position="relative" minWidth={0} overflow="clip">
-                <Box position="absolute" inset={0} display="grid" gridTemplateColumns={columns}>
-                    {scale.buckets.map((b, i) => {
-                        const align = placed?.align[i] ?? "centre";
-                        return (
-                            <Box key={b.index} css={styles.rulerTick} data-slot="rulerTick"
-                                data-period-start={startsPeriod(scale, b) ? "" : undefined}
-                                data-thinned={placed !== undefined && !placed.shown[i] ? "" : undefined}
-                                data-align={align !== "centre" ? align : undefined}>
-                                <Box as="span" css={styles.rulerLabel} data-tick-label="">{b.label}</Box>
-                            </Box>
-                        );
-                    })}
-                </Box>
-                {/* The bucket lines and the now line are the ROWS' — the same
-                    elements, placed in a box of the plot's own geometry — so
-                    the header's lines are the rows' lines, pixel for pixel,
-                    however an edge rounds. */}
-                <GridSeparators styles={styles} />
+            <Box css={styles.rulerTrack}>
+                {units !== undefined && <TimeRulerRow scale={units} styles={styles} band="units" owner="plan" />}
+                <TimeRulerRow scale={scale} styles={styles} band="ticks" owner="plan" />
                 {scale.nowFrac !== undefined && (
                     <>
                         <NowLine styles={styles} at={scale.nowFrac} data-plan-now />
@@ -97,7 +76,7 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef }: Plan
                     </>
                 )}
                 {cursorChipRef !== undefined && (
-                    <Box ref={cursorChipRef} css={styles.cursorChip} top="50%"
+                    <Box ref={cursorChipRef} css={styles.cursorChip}
                         data-plan-cursorchip style={{ display: "none" }} />
                 )}
             </Box>

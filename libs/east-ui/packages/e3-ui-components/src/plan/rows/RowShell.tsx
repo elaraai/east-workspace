@@ -473,6 +473,7 @@ export function RowShell({
             data-plan-item={rowItemKey(row.key)}
             data-plan-row={row.key}
             data-plan-kind={row.kind.type}
+            data-collapsible={caret !== undefined && ctx !== true ? "" : undefined}
             // The height the model laid the row out at — a layout spec holds
             // the rendered height to it, kind by kind (#817).
             data-plan-h={height}
@@ -504,7 +505,8 @@ export function RowShell({
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
                     : undefined}
             >
-                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name">
+                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name"
+                    data-collapsible={caret !== undefined && ctx !== true ? "" : undefined}>
                     {caret !== undefined && (
                         <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
                             <FontAwesomeIcon icon={faCaretDown} />
@@ -531,6 +533,8 @@ export function RowShell({
                                 data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />}
                         </Box>
                     )}
+                    {/* A compact chart's maximum is a normal trailing value; taller charts keep positioned axis ticks. */}
+                    {gutterOverlay}
                     {/* Row controls (R1/R2) — at the line's end, always shown
                         (#1258), each named by the canvas's tooltip
                         (`root/overlays.tsx`); a control click never selects or
@@ -572,7 +576,6 @@ export function RowShell({
                 {expandGutter !== undefined && (
                     <Box css={styles.expandGutterBody} data-plan-expandgutter>{expandGutter}</Box>
                 )}
-                {gutterOverlay}
             </Box>
             <Box
                 ref={plotRef}

@@ -12,7 +12,7 @@
 import type { ReactNode, Ref, RefObject } from "react";
 import { Box } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
+import { Slice, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { HorizonBrush } from "../shell/HorizonBrush.js";
 import { FocusBar } from "../shell/FocusBar.js";
 import { PlanRuler } from "../shell/Ruler.js";
@@ -28,6 +28,7 @@ export interface PlanHeaderProps {
     /** The header element — its live height feeds the expand clamp. */
     headerRef: Ref<HTMLDivElement>;
     slice: SliceBindValue | undefined;
+    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
     /** The ruler's gutter caption — the active grain's name. */
@@ -49,15 +50,15 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, slice, affordances, now, rulerCaption, cursorChipRef,
+    styles, gridTemplate, headerRef, slice, recordSlice, affordances, now, rulerCaption, cursorChipRef,
     pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
-        <Box background="bg.surface" ref={headerRef} data-plan-header>
+        <Box css={styles.header} ref={headerRef} data-plan-header>
             {/* The brush mounts only where the slice's range domain speaks the
                 axis's arm — the band decides that itself (#631). */}
-            {slice !== undefined && affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice} now={now} />
+            {(slice !== undefined || recordSlice !== undefined) && affordances.includes("brush") && (
+                <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice} recordSlice={recordSlice} now={now} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef} />

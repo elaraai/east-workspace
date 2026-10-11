@@ -218,6 +218,10 @@ export interface PlanController {
     setWords(words: PlanWords): void;
     /** An interaction — the transition, then its effects. */
     dispatch(e: PlanEvent): void;
+    /** Parent rows in the current canvas, including nested parents. */
+    groupKeys(): readonly RowKey[];
+    /** Fold all parents in one action, retaining offscreen overrides. */
+    setGroupsCollapsed(collapsed: boolean): void;
     /**
      * Select events from outside the canvas (#1198) — the overlaps chip's
      * first pair, a peer the inspector's banner names: the selection replaced
@@ -293,6 +297,15 @@ export interface PlanController {
 const NO_OVERLAYS: PlanOverlays = { popover: null, hover: null, tooltip: null };
 const NO_NAV: PlanNav = { active: null, request: null };
 const NO_ROWS: readonly PlanRowValue[] = [];
+const groupKeysCache = new WeakMap<readonly PlanRowValue[], readonly RowKey[]>();
+function groupKeysOf(rows: readonly PlanRowValue[]): readonly RowKey[] {
+    let keys = groupKeysCache.get(rows);
+    if (keys === undefined) {
+        keys = [...new Set(rows.flatMap(row => row.parent.type === "some" ? [row.parent.value] : []))];
+        groupKeysCache.set(rows, keys);
+    }
+    return keys;
+}
 const refEqual = equalFor(Plan.Types.ElementRef);
 const uiStateEqual = equalFor(Plan.Types.UiState);
 /** A String key's `.east` literal — how an exact key search names it. */
@@ -409,6 +422,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     // again for that search: a window landing above the row, or the row's
     // window leaving as the reader scrolls on, retargets nothing.
     let searchRequest: { key: string; row: number } | undefined;
+    let searchJump = 0;
     let nav = NO_NAV;
     let navSeq = 0;
     let announce: PlanAnnouncement | null = null;
@@ -480,7 +494,6 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }),
     });
     const seek = createSeekDriver({
-        rows: () => elementRowsOf(paging.getSnapshot()),
         clearJump: () => paging.clearJump(),
         onChange: () => batch(() => undefined),
     });
@@ -550,7 +563,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             const loaded = elementRowsOf(p);
             const targetKey = loaded[firstAtOrAfter(loaded, searchRequest.key)]?.key;
             searchRequest = undefined;
-            if (targetKey !== undefined) scroll = { ...scroll, owner: "search", targetKey, searchSeq: scroll.searchSeq + 1 };
+            if (targetKey !== undefined) {
+                const target = loaded.find((row) => row.key === targetKey)!;
+                reveal(target, new Map(p.rows.map((row) => [row.key, row])));
+                persistToggles();
+                writeBound();
+                scroll = { ...scroll, owner: "search", targetKey, searchSeq: scroll.searchSeq + 1 };
+            }
         }
         const quiet = store === quietStore;
         quietStore = undefined;
@@ -841,12 +860,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     /** Ask for the row of the element `row` under the standing search. */
     function requestSearch(row: number): void {
         const sought = seek.getSnapshot().sought;
-        if (sought !== null) searchRequest = { key: sought.key, row };
+        if (sought !== null) searchRequest = { key: seek.keyAt(row) ?? sought.key, row };
     }
 
     const search: Omit<PlanSearch, "resetKey" | "requery"> = {
         keyType: CANVAS_KEY_TYPE,
         find: (q, again) => {
+            searchJump++;
             // The query standing, asked again at a new snapshot (#1199): its
             // answer indexes that snapshot's rows, and the view stays put.
             if (again === true) return seek.find(q);
@@ -869,10 +889,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         // windows in between are never fetched (#577) — and the canvas goes to
         // the search's row once that window lands.
         jump: (row) => batch(() => {
+            const seq = ++searchJump;
             paging.jumpToElement(row);
-            requestSearch(row);
+            if (seek.keyAt(row) !== undefined) requestSearch(row);
+            else void seek.listRange(row, 1).then(() => batch(() => {
+                if (seq === searchJump) requestSearch(row);
+            }), () => undefined);
         }),
-        clear: () => batch(() => seek.clear()),
+        clear: () => batch(() => { searchJump++; seek.clear(); }),
     };
 
     return {
@@ -889,8 +913,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 data = nextData;
                 bound = getSomeorUndefined(next.ui);
                 const src = windowedSourceOf(next.rows);
-                seek.setSeek(src !== undefined && src.seek.type === "some" ? src.seek.value : undefined);
-                paging.setSource(src);
+                seek.setSource(src);
+                const keep = prev?.recordSlice?.type === "some" && next.recordSlice?.type === "some"
+                    && prev.recordSlice.value.slice.sourceId === next.recordSlice.value.slice.sourceId;
+                paging.setSource(src, keep);
                 // Which rows draw as diagnostics is the axis kind's to say:
                 // the windows take their skeletons again.
                 if (prev !== undefined && src !== undefined && prev.axis.type !== next.axis.type) paging.reskeleton();
@@ -942,6 +968,18 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     const after = currentScale(value)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
                 }
+            });
+        },
+        groupKeys: () => groupKeysOf(rows()),
+        setGroupsCollapsed(collapsed) {
+            batch(() => {
+                // Include previously visited parents whose pages are evicted.
+                // Changing a fold never reads the rest of the record.
+                const keys = [...new Set([...groupKeysOf(rows()), ...store.overrides.keys(), ...store.seeded])];
+                if (keys.length === 0) return;
+                step({ t: "groups.set", keys, collapsed });
+                persistToggles();
+                syncHeights();
             });
         },
         selectEvents(keys, row) {

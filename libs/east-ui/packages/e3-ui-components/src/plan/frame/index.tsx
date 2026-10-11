@@ -76,6 +76,8 @@ import {
     BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
 import { usePlanCanvas } from "../canvas.js";
+import { usePlanSelector } from "../controller/react.js";
+import { removePlanEvents } from "../edit/events.js";
 import type { PlanCanvasParts } from "../root/chrome.js";
 import type { PlanEventRows } from "../root/events.js";
 import { usePlanToolbarItems } from "../shell/Toolbar.js";
@@ -284,14 +286,22 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const history = chrome?.history;
     const session = history?.session;
     const onAction = history?.onAction;
-    // The history keys from anywhere in the frame: the canvas's own it has answered already.
+    const selectedEvents = usePlanSelector(snapshot => snapshot.store.ui.elements);
+    const eventEditing = chrome?.events;
+    const selectEvents = chrome?.selectEvents;
+    // The frame owns shortcuts even when no inspector is declared or its pane is collapsed.
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-        if (onAction === undefined || event.defaultPrevented || typedInto(event.target)) return;
+        if (event.defaultPrevented || event.nativeEvent.isComposing || typedInto(event.target)) return;
         const action = historyShortcut(event);
-        if (action === undefined) return;
-        event.preventDefault();
-        onAction(action);
-    }, [onAction]);
+        if (action !== undefined && onAction !== undefined) {
+            event.preventDefault();
+            onAction(action);
+        } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace")
+            && removePlanEvents(selectedEvents, eventEditing)) {
+            event.preventDefault();
+            selectEvents?.([]);
+        }
+    }, [onAction, selectedEvents, eventEditing, selectEvents]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
     // Each session's banners, in the history's order: `data`'s, then each event kind's, named.
@@ -307,7 +317,8 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         : undefined;
     const footer = chrome !== undefined
         ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport}
-            counts={kinds.length > 0 ? counts : undefined} pending={session?.pending} narrow={chrome.narrow} />
+            counts={kinds.length > 0 ? counts : undefined} pending={session?.pending} narrow={chrome.narrow}
+            recordSlice={root.recordSlice?.type === "some" ? root.recordSlice.value.slice : undefined} />
         : undefined;
     return (
         <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}

@@ -29,7 +29,8 @@ async function closed() { await waitFor(() => expect(within(document.body).query
 
 describe("Shared time navigation", () => {
     test.each([
-        ["day", Date.UTC(2028, 1, 1)], ["week", Date.UTC(2028, 1, 7)], ["month", Date.UTC(2028, 1, 29)],
+        ["hour", JAN31 + 3_600_000], ["day", Date.UTC(2028, 1, 1)], ["week", Date.UTC(2028, 1, 7)],
+        ["month", Date.UTC(2028, 1, 29)], ["quarter", Date.UTC(2028, 3, 30)], ["year", Date.UTC(2029, 0, 31)],
     ] as const)("arrows step a %s; month ends clamp through the shared calendar arithmetic", async (period, expected) => {
         const { container, onChange } = mount({ period });
         await press(within(container).getByRole("button", { name: `Next ${period}` }));
@@ -73,6 +74,18 @@ describe("Shared time navigation", () => {
         await open(container);
         await press(within(popup()).getByRole("button", { name: "Februar 2028" }));
         expect(onChange.mock.calls).toEqual([[Date.UTC(2028, 1, 29)]]);
+    });
+    test("hour navigation and picking a day retain sub-day precision; the shared range editor stays reachable", async () => {
+        const time = 13 * 3_600_000 + 45 * 60_000 + 12_345;
+        const { container, onChange } = mount({ date: JAN31 + time, period: "hour", rangeEditor: <div>Shared range controls</div> });
+        await press(within(container).getByRole("button", { name: "Next hour" }));
+        expect(onChange.mock.lastCall).toEqual([JAN31 + time + 3_600_000]);
+        await open(container);
+        await press(within(popup()).getByRole("radio", { name: "Range" }));
+        expect(within(popup()).getByText("Shared range controls")).toBeTruthy();
+        await press(within(popup()).getByRole("radio", { name: "Days" }));
+        await press(popup().querySelector(`[data-time-day="${Date.UTC(2028, 1, 1)}"]`)!);
+        expect(onChange.mock.lastCall).toEqual([Date.UTC(2028, 1, 1) + time]);
     });
     test("compact navigation keeps Today and only requests the currently browsed weeks", async () => {
         const onWeeks = vi.fn<(dates: readonly Date[]) => void>();

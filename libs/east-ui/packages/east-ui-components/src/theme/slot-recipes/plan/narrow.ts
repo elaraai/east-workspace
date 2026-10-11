@@ -15,6 +15,7 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { timeRulerBase } from "../time/axis.js";
 
 /** The slots this part styles. */
 export const narrowSlots = [
@@ -69,6 +70,8 @@ export const narrowBase = {
         position: "relative",
         zIndex: 3,
         height: "var(--plan-ruler-h)",
+        "&[data-time]": { height: "calc(2 * var(--plan-ruler-h) + 1px)" },
+        "--time-ruler-row-h": "var(--plan-ruler-h)",
         flexShrink: 0,
         marginX: "-12px",
         background: "bg.panel",
@@ -82,15 +85,13 @@ export const narrowBase = {
         "[data-plan-fill] &": { position: "sticky", top: 0 },
     },
     // The tick track — inset to the card bodies' inset so the bucket
-    // columns line up down the page; a grid, one cell per bucket.
+    // columns line up down the page; each band shares the desktop ruler.
     narrowRulerTrack: {
         position: "absolute",
         top: 0,
         bottom: 0,
         left: "25px",
         right: "25px",
-        display: "grid",
-        alignItems: "stretch",
     },
     // One bucket: its separator on the right edge (every bucket has one,
     // labelled or not), its label centred over it, whole, on the ruler's
@@ -100,26 +101,8 @@ export const narrowBase = {
     // every k-th (#1269, `data-thinned` on the rest), and the first and the
     // last sit against the track's ends (`data-align`).
     narrowRulerTick: {
-        position: "relative",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: "mono",
-        fontSize: "10px",
-        fontWeight: "medium",
-        color: "fg.subtle",
-        whiteSpace: "nowrap",
-        minWidth: 0,
-        overflow: "visible",
-        borderRightWidth: "1px",
-        borderRightColor: "border.subtle",
-        "&:last-of-type": { borderRightWidth: 0 },
-        "&[data-align='start']": { justifyContent: "flex-start" },
-        "&[data-align='end']": { justifyContent: "flex-end" },
-        "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },
-        // A 28px band has no lane for the NOW chip, and a chip laid over
-        // the labels hides the two it straddles. The now BUCKET's label
-        // wears the brand instead — the line beneath it says the rest.
+        ...timeRulerBase.rulerTick,
+        // Highlight the now bucket without a chip obscuring neighbouring labels.
         "&[data-now]": { color: "brand.fg", fontWeight: "semibold" },
     },
     // A group's section header on the unscoped Rows tab — the group's

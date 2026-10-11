@@ -21,7 +21,7 @@ import {
     StructType,
 } from "@elaraai/east";
 import { CanDropFnType, PickBindType, UIComponentType } from "@elaraai/east-ui";
-import { SliceChromeType } from "@elaraai/east-ui/internal";
+import { SliceChromeType, RecordSliceChromeType } from "@elaraai/east-ui/internal";
 import {
     PlanAxisType,
     PlanGrainType,
@@ -95,6 +95,8 @@ export const PlanRootType = StructType({
     // The interaction state a host holds — a bound `State.bind` handle (#824).
     ui: OptionType(PlanUiBindType),
     style: OptionType(PlanStyleType),
+    /** Record narrowing, appended separately from the local Slice wire. */
+    recordSlice: OptionType(RecordSliceChromeType),
 });
 /** Type alias for {@link PlanRootType}. */
 export type PlanRootType = typeof PlanRootType;

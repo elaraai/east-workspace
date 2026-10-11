@@ -7,11 +7,10 @@
  * The Plan's toolbar items (#1193, `Plan Builder Spec.md` §7.1) — every
  * control the Plan draws outside its canvas, as items of its frame's one
  * toolbar (`BuilderFrame`'s), in this order: the slice's narrowing (cohort ·
- * filter · search), the scope badge, the key search, the GROUP · RESOURCE
- * grain, the slice's range, the resolution, the diagnostics; then, at the
- * row's end, the summary, the overlaps chip and the history item. The GROUP ·
- * RESOURCE strip is the canvas's own (#632): a canvas with a root group
- * mounts it, slice or no slice. There is no Series button: the library's
+ * filter · search), the scope badge, the key search, Expand/Collapse all,
+ * the shared date navigator or numeric Slice range, the resolution, the diagnostics; then, at the
+ * row's end, the summary, the overlaps chip and the history item. The fold toggle acts on every parent, including nested rows,
+ * and keeps the same per-row state as the disclosure buttons. There is no Series button: the library's
  * Series tab holds the series (#1195). The overlaps chip (#1198, PB52) counts the pairs of events
  * that overlap in the window; a click selects the first pair, earliest first,
  * and brings it into view.
@@ -21,24 +20,24 @@
  * Plan's own items (the user's decision, 2026-09-27): the summary shortens to
  * its count and the overlaps chip to its glyph and its count — words give way
  * before a control does — then the resolution segment folds into a one-chip
- * menu, then the grain segment does, and the summary hides. On a row narrower
+ * menu, then the fold toggle keeps only its icon, and the summary hides. On a row narrower
  * still the key search folds into its icon, which opens the box in a popover
  * (#1193): with that, a phone's row holds every item. The history item folds
  * last, to its buttons. Nothing wraps or goes to a second row.
  */
 
 import { useMemo } from "react";
-import { Box, chakra, useRecipe } from "@chakra-ui/react";
+import { Box, Button, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faAnglesDown, faAnglesUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import {
-    HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds,
+    HOST_RANK, coarseHitArea, useSliceToolbarItems, useRecordSliceToolbarItems, railAffordanceKinds,
 } from "@elaraai/east-ui-components/internal";
 import {
     useSliceReactivity, type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem,
 } from "@elaraai/east-ui-components";
 import { usePlanDispatch } from "../context.js";
-import { PLAN_GRAINS } from "../plan-state.js";
+import { usePlanController, usePlanSelector } from "../controller/react.js";
 import { transportLabel } from "./transport.js";
 import { usePlanWords } from "../words.js";
 import { PlanDiagnosticChips, hasDiagnostics } from "./Diagnostics.js";
@@ -46,6 +45,7 @@ import type { PlanChrome } from "../root/chrome.js";
 import type { PlanOverlaps } from "../frame/counts.js";
 import { Seg, SegMenu } from "../../shared/schedule/segments.js";
 export { Seg, SegMenu } from "../../shared/schedule/segments.js";
+import { PlanTimeNavigator } from "./TimeNavigator.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 
 /** Narrowing affordances whose meaning CHANGES on a paged canvas: they narrow
@@ -57,7 +57,7 @@ const NARROWING_KINDS = new Set(["filter", "cohort", "presets", "breakdown", "se
 /** The Plan's own fold ranks, after every step of the slice rail's (#952):
  *  the summary shortens and the overlaps chip keeps its glyph and its count
  *  (one rank: the summary first, in the row's order), the resolution then the
- *  grain segment fold into their menus, the summary hides, and the key search
+ *  fold toggle shorten, the summary hides, and the key search
  *  folds into its icon. The history item's step (`DEFAULT_RANK`) comes after
  *  all of them. */
 const PLAN_RANK = {
@@ -67,6 +67,7 @@ const PLAN_RANK = {
     grain: HOST_RANK + 2,
     summaryHide: HOST_RANK + 3,
     seek: HOST_RANK + 4,
+    time: HOST_RANK,
 } as const;
 
 
@@ -110,16 +111,19 @@ function OverlapsChip({ n, short, onSelect }: OverlapsChipProps) {
  */
 export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: PlanOverlaps | undefined): ReadonlyArray<ToolbarItem | false | undefined> {
     const dispatch = usePlanDispatch();
+    const controller = usePlanController();
+    const folded = usePlanSelector(snapshot => {
+        const keys = controller.groupKeys();
+        return keys.length === 0 ? undefined : snapshot.store.ui.grain === "group" || keys.some(key => snapshot.store.ui.collapsed.has(key));
+    });
     const words = usePlanWords();
     const slice = chrome?.slice;
+    const recordChrome = chrome?.recordChrome;
     const affordances = chrome?.affordances;
     const search = chrome?.search;
     const transport = chrome?.transport;
     const resolutions = chrome?.resolutions;
-    // The segments' strips — every grain and resolution, by its name (#820).
-    const grainItems = useMemo(
-        () => PLAN_GRAINS.map((g) => ({ key: g, label: words.m.grainName({ grain: g }) })),
-        [words]);
+    // The configured resolutions, in the app's words.
     const resolutionItems = useMemo(
         () => (resolutions ?? []).map((r) => ({ key: r, label: words.m.resolutionName({ resolution: r }) })),
         [resolutions, words]);
@@ -147,11 +151,19 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         [affordances, slice, search, sliceVersion],
     );
     const clusterKinds = useMemo(() => railKinds.filter((k) => k !== "range"), [railKinds]);
-    const rangeKinds = useMemo(() => railKinds.filter((k) => k === "range"), [railKinds]);
+    const recordRange = recordChrome?.slice.config.range;
+    const timeNavigation = chrome?.scale.kind === "time" && (railKinds.includes("range")
+        || (recordRange?.type === "some" && (affordances?.includes("range") || affordances?.includes("fields"))));
+    const rangeKinds = useMemo(() => railKinds.filter((k) => k === "range" && !timeNavigation), [railKinds, timeNavigation]);
     const rail = useSliceToolbarItems(slice, [
         { key: "cluster", kinds: clusterKinds },
         { key: "range", kinds: rangeKinds },
     ]);
+    const recordRail = useRecordSliceToolbarItems(recordChrome?.slice, {
+        ...(timeNavigation && recordRange?.type === "some" ? { excludeFields: [recordRange.value] } : {}),
+        ...(affordances === undefined ? {} : { affordances: affordances.filter(kind => kind !== "resolution") }),
+        ...(recordChrome?.persist.type === "some" ? { persist: recordChrome.persist.value.type } : {}),
+    });
     // The key search over a seekable source: its box, or its icon on a row short of room.
     const seek = useKeySearchToolbarItem(search, { rank: PLAN_RANK.seek, label: words.m.keySearch() });
     // A narrowing affordance on a paged canvas reports over the LOADED prefix
@@ -177,7 +189,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     }, [showSummary, slice, transport, sliceVersion, words]);
 
     if (chrome === undefined) return [];
-    const { styles, grain, diagnostics, history, selectEvents } = chrome;
+    const { styles, diagnostics, history, selectEvents } = chrome;
     const resolution = chrome.scale.resolution ?? "";
     const summaryLine = (text: string) => <Box css={styles.footerItem} data-slot="toolbarSummary">{text}</Box>;
     // The first pair, earliest first — what the chip's click selects (PB52).
@@ -186,29 +198,29 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         if (first !== undefined) selectEvents([scheduleEventKey(first.first), scheduleEventKey(first.second)]);
     };
     return [
+        ...recordRail,
         rail.find((it) => it.key === "cluster"),
         scoped && { key: "scope", forms: [<Box css={styles.footerItem} data-slot="scopeBadge">{words.m.scopeBadge()}</Box>] },
         seek,
-        // The grain is canvas state, not a slice write: the segment drives the
-        // same `grain.set` the `g` key does, bound slice or not. It leads the
-        // group — after the search, before the range, where §7.1 puts it.
-        grain !== undefined && {
-            key: "grain",
-            rank: PLAN_RANK.grain,
-            forms: [
-                <Seg label={words.m.grainLabel()} name="grain" items={grainItems} active={grain}
-                    onPick={(g) => dispatch({ t: "grain.set", grain: g })} />,
-                <SegMenu label={words.m.grainLabel()} name="grain" items={grainItems} active={grain}
-                    onPick={(g) => dispatch({ t: "grain.set", grain: g })} />,
-            ],
+        folded !== undefined && {
+            key: "groups", rank: PLAN_RANK.grain,
+            forms: [false, true].map(compact => <Button size="xs" variant="ghost" data-plan-fold-all=""
+                aria-label={folded ? "Expand all" : "Collapse all"} title={folded ? "Expand all" : "Collapse all"}
+                onClick={() => controller.setGroupsCollapsed(!folded)}>
+                <FontAwesomeIcon icon={folded ? faAnglesDown : faAnglesUp} />
+                {!compact && (folded ? "Expand all" : "Collapse all")}
+            </Button>),
         },
-        rail.find((it) => it.key === "range"),
+        timeNavigation ? {
+            key: "time-navigation", rank: PLAN_RANK.time,
+            forms: [<PlanTimeNavigator chrome={chrome} />, <PlanTimeNavigator chrome={chrome} compact />],
+        } : rail.find((it) => it.key === "range"),
         // The segment is a SLICE write (`slice.setResolution`) — without a
         // bound slice the effect runner drops it, so mounting it would offer
         // a control that does nothing. The unbound-canvas fallback story is
         // #572's (resolution persist fallback); until then, no slice ⇒ no
         // segment.
-        slice !== undefined && resolutionItems.length > 0 && {
+        (slice !== undefined || recordChrome !== undefined) && resolutionItems.length > 0 && {
             key: "resolution",
             rank: PLAN_RANK.resolution,
             forms: [

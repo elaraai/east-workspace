@@ -46,7 +46,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Flex, IconButton, Text } from '@chakra-ui/react';
+import { Box, chakra, useSlotRecipe } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faChevronUp, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { none, some, variant, type EastTypeValue } from '@elaraai/east';
@@ -77,8 +77,8 @@ export interface DatasetKeySearchProps {
      *  as `requery` moved — the source's new snapshot, which its matches index:
      *  a host that jumps to a new query's matches leaves the view where it is. */
     onFind: (query: DatasetKeyQuery, again?: boolean) => Promise<DatasetKeyMatchRange>;
-    /** Labels rows `[row, row + limit)` for the popup, in row order. */
-    onListRange: (row: number, limit: number) => Promise<string[]>;
+    /** Labels rows `[row, row + limit)` for the popup. Explicit positions preserve gaps when a view omits entries. */
+    onListRange: (row: number, limit: number) => Promise<(string | { row: number; label: string })[]>;
     /** Jumps the host tree to a global root row. */
     onJump: (row: number) => void;
     /** Clears the host's jump (and its held row highlight) when the query
@@ -104,6 +104,10 @@ export interface DatasetKeySearchProps {
  *   clear affordance
  */
 export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery }: DatasetKeySearchProps) {
+    const recipe = useSlotRecipe({ key: 'combobox' });
+    const styles = recipe({ size: 'xs' });
+    const [typed, setTyped] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [range, setRange] = useState<DatasetKeyMatchRange | null>(null);
     const [items, setItems] = useState<{ row: number; label: string }[]>([]);
     /** Position within the range after a jump; -1 before the first jump. */
@@ -115,13 +119,15 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const findSeqRef = useRef(0);
     /** The query the box holds — the last one sent — until it is cleared (#1199). */
     const queryRef = useRef<DatasetKeyQuery | undefined>(undefined);
-    useEffect(() => () => clearTimeout(debounceRef.current), []);
+    useEffect(() => () => { clearTimeout(debounceRef.current); findSeqRef.current++; }, []);
     // The match counts, in the app's locale (#850).
     const words = useFormatters();
 
     const runFind = useCallback((query: DatasetKeyQuery, again = false) => {
         const seq = ++findSeqRef.current;
         queryRef.current = query;
+        setLoading(true);
+        setItems([]);
         void (async () => {
             try {
                 // A query asked again says so; a new one is asked as it always was.
@@ -132,14 +138,17 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                 if (result.found) {
                     const labels = await onListRange(result.row, Math.min(POPUP_LIMIT, result.count));
                     if (seq !== findSeqRef.current) return;
-                    setItems(labels.map((label, i) => ({ row: result.row + i, label })));
+                    setItems(labels.map((label, i) => typeof label === 'string' ? { row: result.row + i, label } : label));
                 } else {
                     setItems([]);
                 }
-            } catch {
+            } catch (error) {
                 if (seq !== findSeqRef.current) return;
                 setRange(null);
                 setItems([]);
+                setHint(error instanceof Error ? error.message : 'Search failed');
+            } finally {
+                if (seq === findSeqRef.current) setLoading(false);
             }
         })();
     }, [onFind, onListRange]);
@@ -152,6 +161,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         setItems([]);
         setActiveIdx(-1);
         setHint(null);
+        setLoading(false);
     }, []);
 
     // The source moved to another snapshot (#1199): the query the box holds is
@@ -167,6 +177,12 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const handleInput = useCallback((text: string) => {
         clearTimeout(debounceRef.current);
         onInputChange?.(text);
+        setTyped(text !== '');
+        findSeqRef.current++;
+        setRange(null);
+        setItems([]);
+        setActiveIdx(-1);
+        setLoading(false);
         if (text === '') {
             resetQueryState();
             onClear?.();
@@ -183,11 +199,13 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
             return;
         }
         setHint(null);
+        setLoading(true);
         debounceRef.current = setTimeout(() => runFind(parsed.query), FIND_DEBOUNCE_MS);
     }, [keyType, runFind, resetQueryState, onClear, onInputChange]);
 
     const clearSearch = useCallback(() => {
         resetQueryState();
+        setTyped(false);
         setResetSeq((s) => s + 1);
         onClear?.();
         onInputChange?.('');
@@ -239,7 +257,9 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const status = hint !== null
         ? hint
-        : range === null
+        : loading
+            ? 'Searching…'
+            : range === null
             ? null
             : !range.found
                 ? 'No matches'
@@ -247,34 +267,28 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                     ? `${words.number(range.count)} ${range.count === 1 ? 'match' : 'matches'}`
                     : `${words.number(activeIdx + 1)} of ${words.number(range.count)}`;
     const canStep = range !== null && range.found && range.count > 1;
+    const indicators = <>
+        {status !== null && <chakra.span css={styles.searchStatus} role="status" title={status}>{status}</chakra.span>}
+        {canStep && <>
+            <chakra.button type="button" css={styles.searchAction} aria-label="Previous match"
+                disabled={activeIdx <= 0} onClick={() => step(-1)}>
+                <FontAwesomeIcon icon={faChevronUp} />
+            </chakra.button>
+            <chakra.button type="button" css={styles.searchAction} aria-label="Next match"
+                disabled={activeIdx >= range.count - 1} onClick={() => step(1)}>
+                <FontAwesomeIcon icon={faChevronDown} />
+            </chakra.button>
+        </>}
+        {typed && <chakra.button type="button" css={styles.searchAction} aria-label="Clear search" onClick={clearSearch}>
+            <FontAwesomeIcon icon={faXmark} />
+        </chakra.button>}
+    </>;
     return (
-        <Flex gap={1} align="center" minW="0" onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
-            {/* Sized to the key signature (inputs have a fixed intrinsic
-              * width, so the placeholder cannot size the box itself), capped
-              * and shrinkable — past the cap the input ellipsizes. */}
-            <Flex width={`min(${placeholder.length + 10}ch, 40rem)`} minW="12rem" flexShrink={1}>
-                <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" />
-            </Flex>
-            {status !== null && (
-                <Text fontSize="body.sm" color="fg.muted" whiteSpace="nowrap">{status}</Text>
-            )}
-            {canStep && (
-                <>
-                    <IconButton aria-label="Previous match" size="2xs" variant="ghost"
-                        disabled={activeIdx <= 0} onClick={() => step(-1)}>
-                        <FontAwesomeIcon icon={faChevronUp} />
-                    </IconButton>
-                    <IconButton aria-label="Next match" size="2xs" variant="ghost"
-                        disabled={activeIdx >= range.count - 1} onClick={() => step(1)}>
-                        <FontAwesomeIcon icon={faChevronDown} />
-                    </IconButton>
-                </>
-            )}
-            {(range !== null || hint !== null) && (
-                <IconButton aria-label="Clear search" size="2xs" variant="ghost" onClick={clearSearch}>
-                    <FontAwesomeIcon icon={faXmark} />
-                </IconButton>
-            )}
-        </Flex>
+        <Box css={[styles.search, { '--key-search-width': `${placeholder.length + (status === null ? 10 : 26)}ch` }]}
+            onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
+            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false}
+                indicators={indicators} emptyText={loading ? 'Searching…' : hint ?? (keyType.type === 'String'
+                    ? 'No matches. Keys are case-sensitive.' : 'No matches')} />
+        </Box>
     );
 });

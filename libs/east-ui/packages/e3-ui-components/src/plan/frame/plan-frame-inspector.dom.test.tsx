@@ -239,8 +239,9 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         await settle();
         expect(pane(container).getAttribute("data-frame-slot")).toBe("end");
         expect(showing(container)).toBe("none");
-        // 22 jobs, 6 stops and 24 shifts in the four weeks: the jobs run 135 h and the shifts 192 h.
-        expect(["events", "hours", "backlog"].map((name) => stat(container, name))).toEqual(["52", "327", "8"]);
+        // 22 jobs, 6 stops, 24 shifts, 2 plate orders, 3 bindery jobs and 3 deliveries.
+        // Jobs run 135 h, shifts 192 h and the bindery 22 h; the other kinds are instants.
+        expect(["events", "hours", "backlog"].map((name) => stat(container, name))).toEqual(["60", "349", "8"]);
         // A Plan approves and rejects nothing (#1260): nothing to review.
         expect(stat(container, "review")).toBeNull();
         expect(pane(container).querySelectorAll("li")).toHaveLength(3);

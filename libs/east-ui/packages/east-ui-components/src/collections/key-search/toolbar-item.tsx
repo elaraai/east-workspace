@@ -30,7 +30,7 @@ import type { EastTypeValue } from "@elaraai/east";
 import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceEditPopover } from "../../slice/edit/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
-import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from "./index.js";
+import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery, type DatasetKeySearchProps } from "./index.js";
 
 /** What a key search reads and drives: a keyed source's `seek`, as its host wires it. */
 export interface KeySearchSource {
@@ -47,7 +47,7 @@ export interface KeySearchSource {
     /** Locates a query — `again`, one the box holds asked again as `requery` moved. */
     find: (query: DatasetKeyQuery, again?: boolean) => Promise<DatasetKeyMatchRange>;
     /** Labels rows `[row, row + limit)` for the box's popup, in row order. */
-    listRange: (row: number, limit: number) => Promise<string[]>;
+    listRange: DatasetKeySearchProps["onListRange"];
     /** Jumps the host to a match's row. */
     jump: (row: number) => void;
     /** Drops the query and the host's jump. */

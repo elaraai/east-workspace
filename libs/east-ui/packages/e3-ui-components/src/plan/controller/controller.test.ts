@@ -911,7 +911,7 @@ describe("a new source revision (#821)", () => {
         ]);
         const source = {
             id: "c822-seek",
-            page: () => some(viewRows),
+            page: (offset: bigint, limit: bigint) => some(viewRows.slice(Number(offset) * 3, Number(offset + limit) * 3)),
             total: () => some(BigInt(elements.length)),
             seek: some(() => some({ found: true, row: 2n, count: 1n })),
         };
@@ -923,8 +923,10 @@ describe("a new source revision (#821)", () => {
         expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e1", "jobs"));
         await c.search.find({ key: '"e10"' });
         expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
-        // The labels are the elements, each once, in key order from the key.
-        expect(await c.search.listRange(0, 3)).toEqual(["e2", "e3"]);
+        // Source positions survive the multiple canvas rows each entry emits.
+        expect(await c.search.listRange(2, 2)).toEqual([{ row: 2, label: "e2" }, { row: 3, label: "e3" }]);
+        c.search.jump(3);
+        expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e3", "jobs"));
     });
 
     test("refreshSource reads the windows again at the revision the source names NOW — no channel fired (#880)", () => {
@@ -1016,14 +1018,17 @@ describe("a key search looks among the source's elements (#1192)", () => {
         const elements = ["e0", "e1", "e2"].map((e) => planRow(e, span(), undefined, "jobs"));
         const source = {
             id: "c1192-seek",
-            page: () => some([{ fixed: true, parent: none, rows: lead }, { fixed: false, parent: none, rows: elements }]),
+            page: (offset: bigint, limit: bigint) => some([
+                { fixed: true, parent: none, rows: lead },
+                { fixed: false, parent: none, rows: elements.slice(Number(offset), Number(offset + limit)) },
+            ]),
             total: () => some(3n),
             seek: some(() => some({ found: true, row: 2n, count: 1n })),
         };
         const { c } = show(root([], { rows: variant("paged", source) }));
         await c.search.find({ key: '"e10"' });
         expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
-        expect(await c.search.listRange(0, 3)).toEqual(["e2"]);
+        expect(await c.search.listRange(2, 1)).toEqual([{ row: 2, label: "e2" }]);
     });
 });
 

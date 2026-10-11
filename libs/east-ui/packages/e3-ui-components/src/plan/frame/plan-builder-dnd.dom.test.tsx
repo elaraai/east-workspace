@@ -329,19 +329,29 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(historyButton(c, UNDO).disabled).toBe(true);
     }, 30_000);
 
-    test("a template with a start time starts at it on a whole day; a stop's lands on the press whichever of its rows takes it — drawn on its marks", async () => {
+    test("templates highlight only matching sub-rows and refuse a different draw on the same resource", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
-        const y = layOutPlots(c, [A1, C1]);
-        // The early shift, from 06:00 for eight hours, on Crew 1's Tuesday.
+        let y = layOutPlots(c, [A1, A1_MARKS, C1]);
+        // The early shift starts at 06:00 for eight hours on the cards row.
         const letGo = await carry(cardOf(c, elementKey("shift", "early"))!, OFF, { x: xAt(8), y: y(C1) });
+        expect(plotOf(c, A1).hasAttribute("data-drop-valid")).toBe(false);
+        expect(plotOf(c, A1_MARKS).hasAttribute("data-drop-valid")).toBe(false);
         expect(caption()).toBe("Early shift · Crew 1 · Tue, Oct 13, 2026 · 06:00");
         await letGo();
         await settle();
         expect(named(chip(c, "early-2"))).toMatch(/^Early, Oct 13, 2026, 06:00 – Oct 13, 2026, 14:00/);
-        // A plate change dropped on Press A1's bars lands on Press A1: a mark, on its marks row, at the day's start.
-        await drop(cardOf(c, elementKey("stop", "plates"))!, OFF, { x: xAt(3), y: y(A1) });
-        expect(stop(c, "plates-2")).not.toBeNull();
+        // A mark cannot land on the neighbouring bars, even on the same press.
+        y = layOutPlots(c, [A1, A1_MARKS, C1]);
+        const refused = await carry(cardOf(c, elementKey("stop", "plates"))!, OFF, { x: xAt(3), y: y(A1) });
+        expect(plotOf(c, A1_MARKS).hasAttribute("data-drop-valid")).toBe(true);
+        expect(plotOf(c, A1).hasAttribute("data-drop-valid")).toBe(false);
+        expect(plotOf(c, A1).hasAttribute("data-drop-invalid")).toBe(true);
+        expect(caption()).toBe("refused: Drop on a Stop row");
+        await refused();
+        expect(stop(c, "plates-2")).toBeNull();
+        expect(pending(c)).toBe("1 pending");
+        await drop(cardOf(c, elementKey("stop", "plates"))!, OFF, { x: xAt(3), y: y(A1_MARKS) });
         expect(named(stop(c, "plates-2"))).toMatch(/Oct 8, 2026/);
         expect(pending(c)).toBe("2 pending");
     }, 30_000);
@@ -494,13 +504,17 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     test("refused onto a resource of a kind it is not placed on: a job over a crew says what it needs", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
-        const y = layOutPlots(c, [A1, C1]);
-        const letGo = await carry(bar(c, "J-1001")!, { x: xAt(0, 9), y: y(A1) }, { x: xAt(0, 9), y: y(C1) });
-        expect(plotOf(c, C1).hasAttribute("data-drop-invalid")).toBe(true);
-        expect(caption()).toBe("refused: Needs presses");
-        await letGo();
-        expect(announced()).toBe("Spring catalogue was not dropped.");
-        expect(pending(c)).toBe("0 pending");
+        const y = layOutPlots(c, [A1, A1_MARKS, C1]);
+        for (const [target, reason] of [[A1_MARKS, "Drop on a Print job row"], [C1, "Needs presses"]] as const) {
+            const letGo = await carry(bar(c, "J-1001")!, { x: xAt(0, 9), y: y(A1) }, { x: xAt(0, 9), y: y(target) });
+            expect(plotOf(c, A1).hasAttribute("data-drop-valid")).toBe(true);
+            expect(plotOf(c, A1_MARKS).hasAttribute("data-drop-valid")).toBe(false);
+            expect(plotOf(c, target).hasAttribute("data-drop-invalid")).toBe(true);
+            expect(caption()).toBe(`refused: ${reason}`);
+            await letGo();
+            expect(announced()).toBe("Spring catalogue was not dropped.");
+            expect(pending(c)).toBe("0 pending");
+        }
     }, 30_000);
 
     test("a selected element moves the selection: the others by the same days, in one step", async () => {

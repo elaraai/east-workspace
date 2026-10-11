@@ -24,12 +24,12 @@
  * has no wider horizon to brush.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { some, type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
-import { BrushStrip, boundRangeDomain, boundRangeHistogram } from "@elaraai/east-ui-components/internal";
-import { useSliceReactivity } from "@elaraai/east-ui-components";
+import { Slice, type RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { BrushStrip, boundRangeDomain, boundRangeHistogram, recordSliceDomain } from "@elaraai/east-ui-components/internal";
+import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rangeArmOf, rangeOf } from "../axis.js";
 import type { PlanInstantValue } from "../instant.js";
@@ -49,13 +49,14 @@ const MAX_PERIODS = 100_000;
 export interface HorizonBrushProps {
     styles: Styles;
     gridTemplate: string;
-    slice: SliceBindValue;
+    slice: SliceBindValue | undefined;
+    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
 }
 
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
-export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, slice, recordSlice, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
@@ -86,11 +87,14 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
     // one of them. (The previous disable comment justified the old deps with
     // "useSliceReactivity re-renders on change", which is exactly the
     // misconception: it re-renders, and the memo then serves the stale value.)
-    const sliceVersion = useSliceReactivity(slice.key);
-    const domain = boundRangeDomain(slice.key);
+    const sliceVersion = useSliceReactivity(recordSlice?.key ?? slice?.key);
+    const readDomain = useCallback(() => recordSlice === undefined ? undefined : recordSliceDomain(recordSlice), [recordSlice]);
+    const { result: recordDomain } = useTrackedEvaluation(readDomain);
+    const domain = recordSlice !== undefined ? (recordDomain.ok ? recordDomain.value : undefined)
+        : slice === undefined ? undefined : boundRangeDomain(slice.key);
     // The domain must speak the axis's arm — a datetime field on a time
     // axis, a numeric field on a number axis. An ordinal axis never fits.
-    const fits = domain !== undefined && domain.max > domain.min && (
+    const fits = domain !== undefined && domain.max >= domain.min && (
         scale.kind === "time" ? domain.kind === "datetime"
             : scale.kind === "number" ? domain.kind !== "datetime"
                 : false);
@@ -115,10 +119,13 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
     // 26-week horizon), capped for a very long horizon.
     const buckets = extent !== undefined ? Math.max(1, Math.min(64, extent.periods)) : 0;
     const counts = useMemo(
-        () => (extent !== undefined && buckets > 0 ? boundRangeHistogram(slice.key, buckets, { min: extent.lo, max: extent.hi }) : undefined),
+        () => (slice !== undefined && extent !== undefined && buckets > 0 ? boundRangeHistogram(slice.key, buckets, { min: extent.lo, max: extent.hi }) : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the histogram's dependency: it re-derives when the STORE moves (#611)
-        [slice.key, buckets, extent, sliceVersion],
+        [slice?.key, buckets, extent, sliceVersion],
     );
+    if (!recordDomain.ok && recordSlice !== undefined) return <Box css={styles.partError} role="alert">
+        Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => recordSlice.retry()}>Retry</chakra.button>
+    </Box>;
     if (extent === undefined || domain === undefined) return null;
 
     const span = extent.hi - extent.lo;
@@ -153,8 +160,8 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
     // Every write speaks the slice field's arm (#631): `datetime` on a time
     // axis; `float` / `integer` per the field on a number axis — an Integer
     // field needs bigint bounds or the range is inert (#167).
-    const arm = rangeArmOf(scale.kind, slice.read(), domain.kind);
-    if (arm === undefined) return null;
+    const arm = slice === undefined ? undefined : rangeArmOf(scale.kind, slice.read(), domain.kind);
+    if (slice !== undefined && arm === undefined) return null;
 
     // One coalesced slice write per frame — the LAST step wins the frame.
     const applyStep = (min: PlanInstantValue, max: PlanInstantValue) => {
@@ -163,7 +170,7 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
             stepFrameRef.current = null;
             const w = stepPendingRef.current;
             stepPendingRef.current = null;
-            if (w !== null) slice.setRange(some(rangeOf(arm, w.min, w.max)));
+            if (w !== null && slice !== undefined && arm !== undefined) slice.setRange(some(rangeOf(arm, w.min, w.max)));
         });
     };
     const cancelStep = () => {
@@ -185,7 +192,7 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
             <Box css={styles.brushCaption}>{caption}</Box>
             {/* Only the STRIP arms the rung — a caption click is not a brush
                 gesture, and only strip gestures can ever settle one. */}
-            <Box minWidth={0} onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
+            <Box css={styles.brushTrack} onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
                 <BrushStrip
                     counts={counts}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
@@ -210,7 +217,10 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
                     // slice: moves slide the real canvas, resizes zoom it.
                     // The one-period floor mirrors `snapWindow`, so what the
                     // steps show is exactly what the release commits.
-                    onPreview={(f0, f1) => {
+                    // Record queries commit once per gesture. BrushStrip owns
+                    // the live selection preview; dragging never floods the
+                    // server with a new window for each pointer frame.
+                    onPreview={recordSlice !== undefined ? undefined : (f0, f1) => {
                         const [a, b] = snapPair(f0, f1);
                         applyStep(a, b);
                     }}

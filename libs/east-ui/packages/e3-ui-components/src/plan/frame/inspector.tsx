@@ -67,7 +67,7 @@ import { ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
-import type { PlanEventChange, PlanEventEditing } from "../edit/events.js";
+import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { stateText } from "../a11y.js";
@@ -471,9 +471,10 @@ function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEd
  *
  * @param events - The events
  * @param editing - The event kinds' editing
+ * @param chrome - The canvas's selection commands
  */
-function deleteEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): void {
-    editing?.record(events.map((event): PlanEventChange => ({ kind: event.kind.key, id: event.item.key, remove: true })), "remove", labelOf("Delete", events));
+function deleteEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined): void {
+    if (removePlanEvents(events.map(event => event.key), editing, labelOf("Delete", events))) chrome?.selectEvents([]);
 }
 
 // ============================================================================
@@ -598,7 +599,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => deleteEvents([event], editing)}>
+                        onClick={() => deleteEvents([event], editing, chrome)}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -751,7 +752,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => deleteEvents(events, editing)}>
+                        onClick={() => deleteEvents(events, editing, chrome)}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>

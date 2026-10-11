@@ -117,7 +117,7 @@ describe("DatasetKeySearch", () => {
 
         const input = screen.getByPlaceholderText("Find key (Integer)");
         await userEvent.type(input, "abc");
-        expect(await screen.findByText("Key is Integer")).toBeTruthy();
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Key is Integer"));
         // The debounce window passes without a request going out.
         await new Promise((resolve) => setTimeout(resolve, 320));
         expect(onFind).not.toHaveBeenCalled();
@@ -152,7 +152,7 @@ describe("DatasetKeySearch", () => {
 
     test("struct keys type ahead on the first field through the combobox", async () => {
         const onFind = vi.fn(async () => ({ found: true, row: 100, count: 10 }));
-        const onListRange = vi.fn(async () => ["press · 2"]);
+        const onListRange = vi.fn(async () => [{ row: 103, label: "press · 2" }]);
         const onJump = vi.fn();
         renderSearch({ keyType: MachineKey, onFind, onListRange, onJump });
 
@@ -161,6 +161,13 @@ describe("DatasetKeySearch", () => {
         const input = screen.getByPlaceholderText("Search keys (machine, shift)");
         await userEvent.type(input, "p");
         await waitFor(() => expect(onFind).toHaveBeenCalledWith({ prefix: "p" }));
+        // Host matches need not contain the query's textual syntax. Nor need
+        // their source positions be contiguous when a view skips entries.
+        fireEvent.change(input, { target: { value: "press, 2" } });
+        await waitFor(() => expect(onFind).toHaveBeenLastCalledWith({ fields: ['"press"', '2'] }));
+        const option = await screen.findByRole("option", { name: "press · 2" });
+        fireEvent.click(option);
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(103));
     });
 
     test("the clear button empties the input, drops the query state, and tells the host", async () => {
@@ -240,6 +247,10 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(screen.getByText("No matches")).toBeTruthy());
         expect(onListRange).not.toHaveBeenCalled();
         expect(screen.queryByLabelText("Next match")).toBeNull();
+        const control = view.container.querySelector('[data-scope="combobox"][data-part="control"]')!;
+        expect(control.contains(screen.getByText("No matches"))).toBe(true);
+        expect(control.contains(screen.getByLabelText("Clear search"))).toBe(true);
+        expect(screen.getByText("No matches. Keys are case-sensitive.")).toBeTruthy();
     });
 });
 

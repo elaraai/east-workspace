@@ -14,7 +14,7 @@
 import type { ReactNode } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Plan } from "@elaraai/e3-ui/internal";
-import type { Slice } from "@elaraai/east-ui/internal";
+import type { Slice, RecordSliceChromeType } from "@elaraai/east-ui/internal";
 import type { EditIssue, EditSession, HistoryAction, HistoryBarProps } from "@elaraai/east-ui-components";
 import type { PlanScale } from "../scale.js";
 import type { PlanGrain, RowKey } from "../plan-state.js";
@@ -57,6 +57,8 @@ export interface PlanChrome {
     scale: PlanScale;
     /** The bound slice handle, when there is one. */
     slice: SliceBindValue | undefined;
+    /** Record-backed narrowing in the same toolbar. */
+    recordChrome?: ValueTypeOf<RecordSliceChromeType> | undefined;
     /** The declared affordance kinds (decoded `SliceChromeType`). */
     affordances: readonly string[];
     /** The resolutions the resolution segment offers — `[]`, no segment. */

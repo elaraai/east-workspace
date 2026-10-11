@@ -388,7 +388,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
  *
  *  An axis that declares no ticks still labels its top when the row draws
  *  columns on it (#949): a bar's height reads against its scale's max, and
- *  without one it cannot be read at all. */
+ *  without one it cannot be read at all. This single automatic maximum stays
+ *  beside the title at every row height. Only explicitly declared ticks
+ *  position against the plot. */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
     const { left: s } = useChartScales(kind, height);
     const words = usePlanWords();
@@ -398,13 +400,15 @@ export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue;
     const columns = kind.layers.some((l) => l.type === "column" && l.value.axis.type === "left");
     const ticks = declared.length > 0 ? declared : columns ? [(s.domain() as [number, number])[1]] : [];
     if (ticks.length === 0) return null;
+    const compact = declared.length === 0;
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these — they sit in the rowheader.
     return (
         <>
             {ticks.map((v, i) => (
-                <Box key={i} css={styles.chartTickLeft} top={`${s(v)}px`} data-plan-tickpx={s(v)} aria-hidden="true">
-                    {fmt(v)}
+                <Box key={i} css={styles.chartTickLeft} top={compact ? undefined : `${s(v)}px`}
+                    data-plan-tickpx={s(v)} data-compact={compact ? "" : undefined} aria-hidden="true">
+                    {compact && left?.format.type !== "some" ? words.number(v) : fmt(v)}
                 </Box>
             ))}
         </>

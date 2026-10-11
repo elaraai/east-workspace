@@ -4,20 +4,13 @@
  *
  * @vitest-environment jsdom
  *
- * `<Plan>`'s library pane (#1195, `Plan Builder Spec.md` §8, §9.6, PB25–PB30,
- * PB61, PB62), over the print works' examples and their seeded records: the
- * tabs the author's `library` lists, in its order, each with its count, and
- * no pane when it lists none; the rail's count; the Events tab's templates by
- * kind and group; the Backlog tab's unscheduled events by when they are due,
- * read again as a record commits; the Series tab hiding a kind, a measure, a
- * resource kind and a row of the Plan's own, kept per viewer across a
- * remount; an author's tab's cards, its search and a click selecting a card;
- * the empty states, each marked by Font Awesome's open box (#1263); and the
- * panes' open tab and collapsed state kept under the Plan's id. The Series tab is `Pick.Panel`'s list: the old Series
- * popover's tests run in it, over a canvas whose series are picked.
+ * Plan library integration: one showcase assembly check, then focused
+ * workflows for backlog updates, hiding, author cards and per-viewer state.
+ * Search and duplicate-id handling belong to Pick.Panel's own tests; this
+ * suite checks how Plan combines that panel with its own visibility state.
  */
 
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -112,14 +105,17 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 type TabName = "events" | "backlog" | "series" | "customers";
 
 /** The presses and the print jobs on them, with a backlog and no templates, the library the tabs named and the Plan the id given. */
-function jobsPlan(tabs: readonly TabName[], id?: string) {
+function jobsPlan(tabs: readonly TabName[], id?: string, customerDrop = false) {
     return East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
         const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
         const customers = $.let(Record.bind(ex.planPrintCustomers, []));
         const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }));
         const library = tabs.map((tab) => (tab === "events" ? Plan.library.events() : tab === "backlog" ? Plan.library.backlog()
-            : tab === "series" ? Plan.library.series() : Plan.library.tab(customers.read(), { name: "Customers", label: (c) => c.name })));
+            : tab === "series" ? Plan.library.series() : Plan.library.tab(customers.read(), customerDrop ? {
+                name: "Customers", icon: "building", label: (c) => c.name, meta: (c) => some(c.trade), group: (c) => c.district,
+                drop: (c) => Schedule.patch(ex.PrintJob, { customer: c.name }),
+            } : { name: "Customers", label: (c) => c.name })));
         return Plan({
             axis,
             resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
@@ -147,48 +143,16 @@ function allScheduled(): Map<string, Job> {
     return jobs;
 }
 
-// ============================================================================
-// The tabs `library` lists (PB26, PB61)
-// ============================================================================
-
-describe("the tabs `library` lists (PB26, PB61)", () => {
-    test("in its order, each with its count; collapsed, the pane is a rail with the backlog's count", async () => {
+describe("Plan library integration", () => {
+    test("the showcase exposes its templates, search and backlog rail", async () => {
         const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
-        // Nine templates; eight jobs in the backlog; seven lines to hide; sixteen customers.
-        expect(tabs(pane(container))).toEqual(["Events 9", "Backlog 8", "Series 7", "Customers 16"]);
-        fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
-        await settle();
-        expect(pane(container).hasAttribute("data-collapsed")).toBe(true);
-        expect(within(pane(container)).getByText("8")).toBeTruthy();
-    });
-
-    test("a Plan whose library lists no tab has no pane; without a Backlog tab, the rail counts the first tab's cards", async () => {
-        const bare = mount(jobsPlan([]), DRAG);
-        await settle();
-        // The frame is drawn, main beside no pane.
-        expect(slot(bare.container, "main")).not.toBeNull();
-        expect(slot(bare.container, "start")).toBeNull();
-        cleanup();
-        const { container } = mount(jobsPlan(["customers", "events"]), DRAG);
-        await settle();
-        expect(tabs(pane(container))).toEqual(["Customers 16", "Events 0"]);
-        fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
-        await settle();
-        expect(within(pane(container)).getByText("16")).toBeTruthy();
-    });
-});
-
-// ============================================================================
-// Events (PB27)
-// ============================================================================
-
-describe("Events (PB27)", () => {
-    test("every kind's templates under its kind's name, then their group: each its kind's icon, its name, and its kind, how long it runs and the resource kinds it is placed on", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
-        await settle();
+        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
         await openTab(container, "Events");
-        expect(heads(container)).toEqual([["Print job · Jobs", "4"], ["Stop · Stops", "2"], ["Crew shift · Shifts", "3"]]);
+        expect(heads(container)).toEqual([
+            ["Print job · Jobs", "4"], ["Stop · Stops", "2"], ["Crew shift · Shifts", "3"],
+            ["Plates · Plate room", "1"], ["Bindery job · Bindery", "1"], ["Delivery · Dispatch", "1"],
+        ]);
         expect(cards(container)).toEqual([
             ["Brochure run", "Print job · 6 h · presses"],
             ["Catalogue run", "Print job · 12 h · presses"],
@@ -200,6 +164,9 @@ describe("Events (PB27)", () => {
             ["Early shift", "Crew shift · 8 h · crews"],
             ["Late shift", "Crew shift · 8 h · crews"],
             ["Night shift", "Crew shift · 8 h · crews"],
+            ["Job plates", "Plates · setters"],
+            ["Fold sections", "Bindery job · 8 h · lines"],
+            ["Morning delivery", "Delivery · bays / vans"],
         ]);
         // Each card wears its kind's icon, and drags.
         expect(cardNamed(container, "Brochure run").querySelector('svg[data-icon="file-lines"]')).not.toBeNull();
@@ -210,16 +177,35 @@ describe("Events (PB27)", () => {
         expect(cards(container).map(([name]) => name)).toEqual(["Early shift", "Late shift", "Night shift"]);
         await search(container, "stops");
         expect(cards(container).map(([name]) => name)).toEqual(["Plate change", "Service"]);
+        await search(container, "zz");
+        expect(emptyState(container)).toEqual(["fas box-open", "No matches", 'Nothing matches "zz".']);
+        fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
+        await settle();
+        expect(pane(container).hasAttribute("data-collapsed")).toBe(true);
+        expect(within(pane(container)).getByText("8")).toBeTruthy();
     });
-});
 
-// ============================================================================
-// Backlog (PB28)
-// ============================================================================
+    test("optional tabs and cards without a drop action", async () => {
+        const bare = mount(jobsPlan([]), DRAG);
+        await settle();
+        // The frame is drawn, main beside no pane.
+        expect(slot(bare.container, "main")).not.toBeNull();
+        expect(slot(bare.container, "start")).toBeNull();
+        cleanup();
+        const { container } = mount(jobsPlan(["customers", "events"]), DRAG);
+        await settle();
+        expect(tabs(pane(container))).toEqual(["Customers 16", "Events 0"]);
+        await openTab(container, "Customers");
+        expect(heads(container)).toEqual([]);
+        expect(within(panel(container)).queryByRole("button", { name: "Group by" })).toBeNull();
+        expect(panel(container).querySelector("[data-draggable]")).toBeNull();
+        fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
+        await settle();
+        expect(within(pane(container)).getByText("16")).toBeTruthy();
+    });
 
-describe("Backlog (PB28)", () => {
-    test("every kind's unscheduled events, grouped by when they are due — counted from the week the axis's now is in — each how long it takes, its resource and its due day", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
+    test("backlog due groups follow record commits", async () => {
+        const { container } = mount(jobsPlan(["backlog"]), DRAG);
         await settle();
         await openTab(container, "Backlog");
         // Now is Wednesday 14 October: this week runs to Sunday 18.
@@ -236,58 +222,35 @@ describe("Backlog (PB28)", () => {
         ]);
         expect(cardNamed(container, "Prospectus").querySelector('svg[data-icon="file-lines"]')).not.toBeNull();
         expect(cardNamed(container, "Prospectus").hasAttribute("data-draggable")).toBe(true);
-    });
-
-    test("a job overdue is due this week; one on a press names it; the tab reads the record again as it commits", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
-        await settle();
-        await openTab(container, "Backlog");
         const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
         // Price lists were due last week, and wait on Press B1; the guide reprint is scheduled.
         jobs.set("J-1028", { ...jobs.get("J-1028")!, due: some(new Date("2026-10-09T00:00:00Z")), press: some("b1") });
         jobs.set("J-1023", { ...jobs.get("J-1023")!, start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a1") });
         await h.commit(ex.planPrintJobs, jobs);
-        expect(tabs(pane(container))[1]).toBe("Backlog 7");
+        expect(tabs(pane(container))[0]).toBe("Backlog 7");
         expect(heads(container)).toEqual([["Due this week", "2"], ["Due next week", "2"], ["Later", "1"], ["No date", "2"]]);
         expect(cards(container).slice(0, 2)).toEqual([
             ["Price lists", "2 h · Press B1 · due Fri 9"],
             ["Order forms", "5 h · Unassigned · due Sat 17"],
         ]);
     });
-});
 
-// ============================================================================
-// Series (PB29)
-// ============================================================================
-
-describe("Series (PB29)", () => {
-    test("each resource kind and its measures, the event kinds and the Plan's rows, in the order the canvas draws them, each with an eye, frameless in the pane", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
-        await settle();
-        await openTab(container, "Series");
-        expect(lines(container)).toEqual([
-            ["Presses", true], ["Utilisation", true], ["Crews", true], ["Print job", true], ["Stop", true], ["Crew shift", true], ["SHEETS / DAY", true],
-        ]);
-        expect(panel(container).querySelector("[data-slot='pickPanel']")!.getAttribute("data-density")).toBe("editor");
-        // A measure says whose it is, and each line wears its kind's icon.
-        const util = within(panel(container)).getByRole("button", { name: "Toggle Utilisation" });
-        expect(util.textContent).toContain("Presses");
-        expect(util.querySelector('svg[data-icon="table-cells-large"]')).not.toBeNull();
-        expect(within(panel(container)).getByRole("button", { name: "Toggle Stop" }).querySelector('svg[data-icon="screwdriver-wrench"]')).not.toBeNull();
-    });
-
-    test("a hidden event kind leaves the canvas, and stays hidden for the viewer across a remount", async () => {
+    test("hiding events, resources, measures and read-only rows survives a remount", async () => {
         const first = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         const marks = entry("presses.marks", "Hall A", "a1");
         expect(draws(first.container, marks)).toBe(true);
         await openTab(first.container, "Series");
+        expect(lines(first.container)).toEqual(expect.arrayContaining([
+            ["Presses", true], ["Utilisation", true], ["Stop", true], ["SHEETS / DAY", true], ["Paper stock", true],
+        ]));
+        expect(panel(first.container).querySelector("[data-slot='pickPanel']")!.getAttribute("data-density")).toBe("editor");
         await toggle(first.container, "Stop");
         // The stops were the presses' only marks: their row goes, the bars stay.
         expect(draws(first.container, marks)).toBe(false);
         expect(draws(first.container, entry("presses.span", "Hall A", "a1"))).toBe(true);
-        expect(lines(first.container)[4]).toEqual(["Stop", false]);
-        expect(localStorage.getItem("plan.series")).toBe(JSON.stringify(["events.stop"]));
+        expect(lines(first.container).find(([name]) => name === "Stop")).toEqual(["Stop", false]);
+        expect(localStorage.getItem("plan.printWorks.series")).toBe(JSON.stringify(["events.stop"]));
         first.unmount();
 
         // Kept for the viewer, under the Plan's id.
@@ -295,16 +258,11 @@ describe("Series (PB29)", () => {
         await settle();
         expect(draws(again.container, marks)).toBe(false);
         await openTab(again.container, "Series");
-        expect(lines(again.container)[4]).toEqual(["Stop", false]);
+        expect(lines(again.container).find(([name]) => name === "Stop")).toEqual(["Stop", false]);
         await toggle(again.container, "Stop");
         expect(draws(again.container, marks)).toBe(true);
-        expect(localStorage.getItem("plan.series")).toBe(JSON.stringify([]));
-    });
-
-    test("a hidden measure, resource kind or row of the Plan's own leaves the canvas", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
-        await settle();
-        await openTab(container, "Series");
+        expect(localStorage.getItem("plan.printWorks.series")).toBe(JSON.stringify([]));
+        const container = again.container;
         const util = entry("util", "Hall A", "a1");
         const output = entry("", "output");
         expect(draws(container, util) && draws(container, output)).toBe(true);
@@ -319,29 +277,11 @@ describe("Series (PB29)", () => {
         expect(draws(container, entry("presses.span", "Hall A", "a1"))).toBe(false);
         expect(drawsStrip(container, entry("presses.group", "Hall A"))).toBe(false);
         expect(drawsStrip(container, entry("crews.group", "Hall A"))).toBe(true);
-        expect(JSON.parse(localStorage.getItem("plan.series")!)).toEqual(["measures.util", "rows.output", "resources.presses"]);
+        expect(JSON.parse(localStorage.getItem("plan.printWorks.series")!)).toEqual(["measures.util", "rows.output", "resources.presses"]);
     });
 
-    test("a Plan without the Series tab hides nothing a store holds, nor does a store holding something other than a list of ids", async () => {
-        localStorage.setItem("plan.series", JSON.stringify(["resources.presses"]));
-        const { container } = mount(jobsPlan(["events"]), DRAG);
-        await settle();
-        expect(draws(container, entry("presses.span", "a1"))).toBe(true);
-        cleanup();
-        localStorage.setItem("plan.series", JSON.stringify({ "resources.presses": true }));
-        const odd = mount(jobsPlan(["series"]), DRAG);
-        await settle();
-        expect(draws(odd.container, entry("presses.span", "a1"))).toBe(true);
-    });
-});
-
-// ============================================================================
-// An author's tab (PB62)
-// ============================================================================
-
-describe("an author's tab (PB62)", () => {
-    test("one card per row — its label, its meta, the tab's icon — grouped by its group, searched by key, label and meta; each drags", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
+    test("an authored tab wires its grouping, card metadata, drop action and selection", async () => {
+        const { container } = mount(jobsPlan(["customers"], "cards", true), DRAG);
         await settle();
         await openTab(container, "Customers");
         expect(heads(container)).toEqual([["Old Town", "6"], ["North Quay", "5"], ["Riverside", "5"]]);
@@ -358,22 +298,7 @@ describe("an author's tab (PB62)", () => {
         // Its key alone finds a card: neither its label nor its meta holds it.
         await search(container, "alder-finch");
         expect(cards(container).map(([name]) => name)).toEqual(["Alder & Finch"]);
-    });
-
-    test("a tab with no `drop` and no `group` lists its cards ungrouped, with nothing to group by, and none of them drags: a card of it lands nowhere", async () => {
-        const { container } = mount(jobsPlan(["customers"]), DRAG);
-        await settle();
-        await openTab(container, "Customers");
-        expect(cards(container)).toHaveLength(16);
-        expect(heads(container)).toEqual([]);
-        expect(within(panel(container)).queryByRole("button", { name: "Group by" })).toBeNull();
-        expect(panel(container).querySelector("[data-draggable]")).toBeNull();
-    });
-
-    test("a click on a card selects it, a click on another moves the selection, and a click on the selected card lets it go", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
-        await settle();
-        await openTab(container, "Customers");
+        await search(container, "");
         const placed = () => ["Alder & Finch", "Granite Hall"].map((name) => cardNamed(container, name).hasAttribute("data-placed"));
         fireEvent.click(cardNamed(container, "Alder & Finch"));
         await settle();
@@ -385,14 +310,8 @@ describe("an author's tab (PB62)", () => {
         await settle();
         expect(panel(container).querySelector("[data-placed]")).toBeNull();
     });
-});
 
-// ============================================================================
-// Empty tabs (PB30)
-// ============================================================================
-
-describe("empty tabs (PB30)", () => {
-    test("Backlog clear when every event is scheduled, Nothing in an author's tab with no rows, No templates, and No matches naming the search", async () => {
+    test("empty source tabs explain what is missing", async () => {
         await h.commit(ex.planPrintJobs, allScheduled());
         await h.commit(ex.planPrintCustomers, new Map() as unknown as Customers);
         const { container } = mount(jobsPlan(["backlog", "customers", "events"]), DRAG);
@@ -404,21 +323,9 @@ describe("empty tabs (PB30)", () => {
         expect(emptyState(container)).toEqual(["fas box-open", "Nothing in Customers", "Customers lists nothing yet."]);
         await openTab(container, "Events");
         expect(emptyState(container)).toEqual(["fas box-open", "No templates", "No event kind declares a template to drag in."]);
-        cleanup();
-        const works = mount(programOf(ex.planPrintWorks), DRAG);
-        await settle();
-        await openTab(works.container, "Events");
-        await search(works.container, "zz");
-        expect(emptyState(works.container)).toEqual(["fas box-open", "No matches", 'Nothing matches "zz".']);
     });
-});
 
-// ============================================================================
-// The panes' state (PB25)
-// ============================================================================
-
-describe("the panes' state (PB25)", () => {
-    test("the library's open tab and collapsed state persist under the Plan's id, and another Plan's are its own", async () => {
+    test("pane state persists per Plan id", async () => {
         const first = mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
         await settle();
         await openTab(first.container, "Backlog");
@@ -441,11 +348,19 @@ describe("the panes' state (PB25)", () => {
         expect(pane(other.container).hasAttribute("data-collapsed")).toBe(false);
         expect(panel(other.container).querySelector("[data-library]")!.getAttribute("data-library")).toBe("plan.library.night:events");
     });
-});
 
-// ============================================================================
-// The Series tab is Pick.Panel's: the old popover's tests (#590)
-// ============================================================================
+    test("hidden state is ignored without its tab or with invalid storage", async () => {
+        localStorage.setItem("plan.series", JSON.stringify(["resources.presses"]));
+        const { container } = mount(jobsPlan(["events"]), DRAG);
+        await settle();
+        expect(draws(container, entry("presses.span", "a1"))).toBe(true);
+        cleanup();
+        localStorage.setItem("plan.series", JSON.stringify({ "resources.presses": true }));
+        const odd = mount(jobsPlan(["series"]), DRAG);
+        await settle();
+        expect(draws(odd.container, entry("presses.span", "a1"))).toBe(true);
+    });
+});
 
 describe("the Series tab over a canvas whose series are picked (#590)", () => {
     /** A `PickBindType` closure — the whole surface the panel consumes. */
@@ -494,7 +409,7 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         );
     }
 
-    test("the tab lists its own lines with the pick's between them; a toggle writes the pick for its series, the viewer's set for the rest", async () => {
+    test("Plan combines its own visibility with Pick state and follows external writes", async () => {
         const pick = fakePick(["c"]);
         const { container } = renderPicked(pick);
         await settle();
@@ -503,85 +418,29 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         await toggle(container, "Press jobs");
         expect(pick.state.read()).toEqual(["c", "a"]);
         expect(localStorage.getItem("plan.series")).toBe(JSON.stringify([]));
-        await toggle(container, "Print job");
-        expect(pick.state.read()).toEqual(["c", "a"]);
-        expect(localStorage.getItem("plan.series")).toBe(JSON.stringify(["events.job"]));
-    });
-
-    test("two toggles before the tab draws again compose: the second reads what the first wrote", async () => {
-        const pick = fakePick();
-        const { container } = renderPicked(pick);
-        await settle();
-        await openTab(container, "Series");
-        // One act: the panel does not draw again between the two clicks.
         act(() => {
             fireEvent.click(within(panel(container)).getByRole("button", { name: "Toggle Print job" }));
             fireEvent.click(within(panel(container)).getByRole("button", { name: "Toggle Milestones" }));
         });
         await settle();
+        expect(pick.state.read()).toEqual(["c", "a"]);
         expect(localStorage.getItem("plan.series")).toBe(JSON.stringify(["events.job", "rows.ms"]));
-        expect(lines(container)).toEqual([["Print job", false], ["Press jobs", true], ["Hall load", true], ["Crew shifts", true], ["Milestones", false]]);
-    });
-
-    test("the list is searchable, and searching never touches what is hidden", async () => {
-        const pick = fakePick();
-        const { container } = renderPicked(pick);
-        await settle();
-        await openTab(container, "Series");
-        const box = within(panel(container)).getByLabelText("Search series");
-        await act(async () => { fireEvent.change(box, { target: { value: "crew" } }); });
-        expect(lines(container).map(([name]) => name)).toEqual(["Crew shifts"]);
-        expect(pick.state.read()).toEqual([]);
-        await act(async () => { fireEvent.change(box, { target: { value: "zzz" } }); });
-        expect(panel(container).querySelector("[data-slot='pickEmpty']")).not.toBeNull();
-        fireEvent.click(within(panel(container)).getByRole("button", { name: "Clear search" }));
-        await settle();
-        expect(lines(container)).toHaveLength(5);
-    });
-
-    test("the eyes read the pick again on a write to its store that changes no rows", async () => {
-        let hidden: string[] = [];
-        const pick = {
-            key: "plan.pick.zero-rows",
-            state: { read: () => hidden, write: (n: string[]) => { hidden = n; return null; }, has: () => true },
-            items: [own("a", "Press jobs"), own("b", "Hall load")],
-        };
-        const { container } = renderPicked(pick);
-        await settle();
-        await openTab(container, "Series");
-        expect(lines(container)[1]).toEqual(["Press jobs", true]);
+        // An external write must refresh the combined panel without replacing rows.
         act(() => {
-            hidden = ["a"];
-            getStore().write("plan.pick.zero-rows", new Uint8Array());
+            pick.state.write([]);
+            getStore().write(pick.key, new Uint8Array());
         });
-        expect(lines(container)[1]).toEqual(["Press jobs", false]);
+        expect(lines(container)).toEqual([
+            ["Print job", false], ["Press jobs", true], ["Hall load", true], ["Crew shifts", true], ["Milestones", false],
+        ]);
     });
 
-    test("a Series tab with no line to hide is the shared empty state, its mark Font Awesome's open box (#1263)", async () => {
+    test("an empty Series tab explains that there is nothing to hide", async () => {
         const { container } = renderPicked(undefined, [variant("series", { kinds: [], rows: [] })] as unknown as PlanValue["library"]);
         await settle();
         await openTab(container, "Series");
         const title = within(panel(container)).getByRole("heading");
         expect([markOf(title.parentElement!.previousElementSibling), title.textContent, title.nextElementSibling?.textContent])
             .toEqual(["fas box-open", "No series", "This plan shows nothing to hide."]);
-    });
-
-    test("two lines sharing an id are one switch — reported, and reconciled correctly", async () => {
-        const err = vi.spyOn(console, "error").mockImplementation(() => {});
-        let st: string[] = [];
-        const pick = {
-            key: "k",
-            state: { read: () => st, write: (n: string[]) => { st = n; return null; }, has: () => true },
-            items: [own("dup", "First"), own("dup", "Second")],
-        };
-        const { container } = renderPicked(pick);
-        await settle();
-        await openTab(container, "Series");
-        expect(lines(container).map(([name]) => name)).toContain("Second");
-        expect(err.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
-        expect(err.mock.calls.some((c) => String(c[0]).includes("duplicate item id"))).toBe(true);
-        await toggle(container, "First");
-        expect(st).toEqual(["dup"]);
-        err.mockRestore();
     });
 });

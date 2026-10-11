@@ -136,6 +136,8 @@ export function planHarness(): PlanHarness {
             patchable(ex.planPrintShifts), patchable(ex.planPrintCustomers), patchable(ex.planEventJobs), patchable(ex.planLinkJobs),
             patchable(ex.planLinkSetters), patchable(ex.planLinkLines), patchable(ex.planLinkBays), patchable(ex.planLinkPlates),
             patchable(ex.planLinkCaseJobs), patchable(ex.planLinkBindings), patchable(ex.planLinkDeliveries),
+            patchable(ex.planPrintBindery), patchable(ex.planPrintVans), patchable(ex.planPrintPlates),
+            patchable(ex.planPrintBindings), patchable(ex.planPrintDeliveries),
         ]);
         initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
         seed(harness.cache, ex.planPrintUtilisation);

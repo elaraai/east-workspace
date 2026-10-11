@@ -16,7 +16,7 @@
  */
 
 import { StringType, compareFor, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
-import type { DatasetKeyMatchRange, DatasetKeyQuery } from "@elaraai/east-ui-components";
+import type { DatasetKeyMatchRange, DatasetKeyQuery, DatasetKeySearchProps } from "@elaraai/east-ui-components";
 import { createTrackedRead, toSeekQuery, type SeekQueryValue } from "@elaraai/east-ui-components/internal";
 import type { PlanRowValue } from "../model.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
@@ -64,8 +64,6 @@ export const NO_SEEK: PlanSeekSnapshot = { sought: null, searchError: undefined,
 
 /** Options for {@link createSeekDriver}. */
 export interface SeekDriverOptions {
-    /** The loaded canvas rows, in stream order — what `listRange` labels. */
-    rows: () => readonly PlanRowValue[];
     /** Drop the paging driver's pending jump pin — a cleared search has no target (#614). */
     clearJump: () => void;
     /** Called once per change to the snapshot. */
@@ -75,12 +73,14 @@ export interface SeekDriverOptions {
 /** The search's handle. */
 export interface SeekDriver {
     getSnapshot(): PlanSeekSnapshot;
-    /** The source's `seek`, when it declares one. */
-    setSeek(seek: PlanSeekFn | undefined): void;
+    /** The source whose seek and bounded pages answer the search. */
+    setSource(source: PlanPagedSourceValue | undefined): void;
     /** Locate a query — resolves when the tracked search lands. */
     find(query: DatasetKeyQuery): Promise<DatasetKeyMatchRange>;
-    /** The LOADED head of the match run, labelled by key. */
-    listRange(row: number, limit: number): Promise<string[]>;
+    /** Read the bounded head of the match run, whether or not its canvas window is resident. */
+    listRange: DatasetKeySearchProps["onListRange"];
+    /** A previously labelled source position's key, for an exact jump. */
+    keyAt(row: number): string | undefined;
     /** Drop the query and its jump target. */
     clear(): void;
     /**
@@ -139,7 +139,69 @@ export function firstAtOrAfter(rows: readonly PlanRowValue[], key: string): numb
  * @returns The driver
  */
 export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
+    let source: PlanPagedSourceValue | undefined;
     let seekFn: PlanSeekFn | undefined;
+    const labels = new Map<number, string | undefined>();
+    type Labels = { row: number; label: string }[];
+    const labelRequests = new Set<{
+        row: number; limit: number; resolve: (labels: Labels) => void; reject: (error: unknown) => void;
+    }>();
+    const labelRead = createTrackedRead(() => readLabels());
+
+    function dropLabels(error: unknown): void {
+        labelRead.release();
+        for (const request of labelRequests) request.reject(error);
+        labelRequests.clear();
+        labels.clear();
+    }
+
+    function readLabels(): void {
+        const current = source;
+        if (current === undefined || labelRequests.size === 0) return;
+        const out = labelRead.run(() => {
+            const needed = new Set<number>();
+            for (const request of labelRequests) {
+                for (let i = request.row; i < request.row + request.limit; i++) if (!labels.has(i)) needed.add(i);
+            }
+            for (const row of needed) {
+                // One source element can emit many canvas rows, or none. Read
+                // each requested element at its real position, never infer it
+                // by counting rendered rows. The platform shares page caches;
+                // only the popup's bounded head is requested, not a prefix.
+                const page = current.page(BigInt(row), 1n);
+                if (page.type !== "some") continue;
+                let key: string | undefined;
+                for (const block of page.value) {
+                    if (block.fixed) continue;
+                    for (const item of block.rows) {
+                        if (item.id.type === "entry") key = item.id.value.path[0];
+                        if (key !== undefined) break;
+                    }
+                    if (key !== undefined) break;
+                }
+                labels.set(row, key);
+            }
+        });
+        if (!out.ok) {
+            dropLabels(out.error);
+            publish({ ...snapshot, searchError: out.error instanceof Error ? out.error.message : String(out.error) });
+            return;
+        }
+        for (const request of labelRequests) {
+            const result: Labels = [];
+            let complete = true;
+            for (let i = request.row; i < request.row + request.limit; i++) {
+                if (!labels.has(i)) { complete = false; break; }
+                const label = labels.get(i);
+                if (label !== undefined) result.push({ row: i, label });
+            }
+            if (complete) {
+                labelRequests.delete(request);
+                request.resolve(result);
+            }
+        }
+        if (labelRequests.size === 0) labelRead.release();
+    }
     let query: SeekQueryValue | null = null;
     // The sought key is written SYNCHRONOUSLY in `find()`: the control awaits
     // `onFind` and then calls `onListRange`, and the labels must answer for
@@ -161,6 +223,7 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
         soughtKey = "";
         query = null;
         tracked.release();
+        dropLabels(new Error(why));
     }
 
     const tracked = createTrackedRead(() => read());
@@ -193,14 +256,17 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
 
     return {
         getSnapshot: () => snapshot,
-        setSeek(next) {
-            seekFn = next;
+        setSource(next) {
+            if (source?.id !== next?.id) drop("search source changed");
+            source = next;
+            seekFn = next?.seek.type === "some" ? next.seek.value : undefined;
         },
         find(q) {
             return new Promise<DatasetKeyMatchRange>((resolve, reject) => {
                 // A superseded search is dropped, not left dangling — the
                 // control's own sequence guard ignores a late answer anyway.
                 pending?.reject(new Error("superseded by a newer query"));
+                dropLabels(new Error("superseded by a newer query"));
                 pending = { resolve, reject };
                 soughtKey = soughtKeyOf(q) ?? "";
                 query = toSeekQuery(q);
@@ -208,25 +274,14 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
                 read();
             });
         },
-        async listRange(_row, limit) {
-            // Labels preview the LOADED head of the match run, anchored by the
-            // KEY — never by element arithmetic into a row array (the #582
-            // fallacy). A far match whose windows have not landed yet lists
-            // nothing; the labels arrive with the rows. Each element is
-            // labelled once, by its key, in key order: an element places any
-            // number of rows, and a later series' block of the same window
-            // starts over at the window's first element.
-            const loaded = options.rows();
-            const first = firstAtOrAfter(loaded, soughtKey);
-            if (first < 0) return [];
-            const labels: string[] = [];
-            for (let i = first; i < loaded.length && labels.length < limit; i++) {
-                const element = elementKeyOf(loaded[i]!);
-                const last = labels[labels.length - 1];
-                if (element !== undefined && (last === undefined || KEY_ORDER(element, last) > 0)) labels.push(element);
-            }
-            return labels;
+        listRange(row, limit) {
+            return new Promise<Labels>((resolve, reject) => {
+                if (source === undefined) { resolve([]); return; }
+                labelRequests.add({ row, limit: Math.min(20, Math.max(0, limit)), resolve, reject });
+                readLabels();
+            });
         },
+        keyAt: (row) => labels.get(row),
         clear() {
             drop("search cleared");
             publish({ ...NO_SEEK, again: snapshot.again });
@@ -236,13 +291,16 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
         },
         askAgain() {
             if (query === null) return;
+            dropLabels(new Error("search snapshot changed"));
             publish({ ...snapshot, again: snapshot.again + 1 });
         },
         refresh() {
             read();
+            readLabels();
         },
         disconnect() {
             tracked.release();
+            labelRead.release();
         },
     };
 }

@@ -263,7 +263,7 @@ export interface PagingDriver {
     /** The current snapshot — the same object until something changes. */
     getSnapshot(): PlanPagingSnapshot;
     /** Drive a (new) source; `undefined` idles the driver (an inline canvas). */
-    setSource(source: PlanPagedSourceValue | undefined): void;
+    setSource(source: PlanPagedSourceValue | undefined, retainPrevious?: boolean): void;
     /** Where the viewport is. Ignored while a jump is pending — the jump owns
      *  the viewport until its window settles (#812). */
     reportViewport(at: PlanViewport, scrolling: boolean): void;
@@ -466,6 +466,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     let isScrolling = false;
     let last: ReadOutcome = NOTHING_READ;
     let snapshot: PlanPagingSnapshot = IDLE_PAGING;
+    // A different narrowing has different positions. Keep the previous view as
+    // one bounded stand-in until the replacement's first window or error lands.
+    let transition: PlanPagingSnapshot | undefined;
     let assembled: { pieces: readonly Piece[]; rows: readonly PlanRowValue[]; origin: ReadonlyMap<string, PlanRowOrigin> } =
         { pieces: [], rows: NO_ROWS, origin: NO_ORIGIN };
     let settling = false;
@@ -873,6 +876,16 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
 
     /** The snapshot for the last read — reusing every part that did not move. */
     function publish(): void {
+        if (transition !== undefined) {
+            if (cache.size === 0 && last.total !== 0 && last.failed.length === 0 && last.sourceError === undefined) {
+                if (!snapshot.loading || snapshot.rows !== transition.rows) {
+                    snapshot = { ...transition, seq: ++published, loading: true, complete: false };
+                    options.onChange();
+                }
+                return;
+            }
+            transition = undefined;
+        }
         const prev = snapshot;
         const landed = new Map(last.resident.map((r) => [r.w, r.read]));
         // What each paged block draws, from what is in now (#876).
@@ -1016,10 +1029,24 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
 
     return {
         getSnapshot: () => snapshot,
-        setSource(next) {
+        setSource(next, retainPrevious = false) {
             if (next === source) return;
+            if (retainPrevious && next !== undefined && source !== undefined && next.id !== source.id) {
+                transition = snapshot.rows.length > 0 ? snapshot : transition;
+                // The new result starts at zero; offsets from the old result
+                // must never drive its requests while those rows stand in.
+                total = 0;
+                totalRevision = undefined;
+                shape = undefined;
+                lanes = new Map([[0, newLane()]]);
+                located.clear();
+                focusBlock = 0;
+                isScrolling = false;
+                unpinEvery();
+            } else if (!retainPrevious) transition = undefined;
             source = next;
             if (next === undefined) {
+                transition = undefined;
                 // Idle: the channels go quiet and the canvas renders inline rows.
                 tracked.release();
                 last = NOTHING_READ;
@@ -1033,6 +1060,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             settle();
         },
         reportViewport(at, scrolling) {
+            if (transition !== undefined) return;
             isScrolling = scrolling;
             // A jump owns the viewport until its window settles (#812). The
             // canvas cannot scroll to a row that has not landed, so every report

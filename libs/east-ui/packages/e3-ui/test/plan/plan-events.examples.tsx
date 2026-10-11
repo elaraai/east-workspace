@@ -21,7 +21,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { Chart, EventStateType, Format, Reactive, SegmentGroup, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Chart, EventStateType, Format, Reactive, SegmentGroup, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -326,176 +326,6 @@ export const planEvents = example({
 });
 
 // ============================================================================
-// planPrintWorks — the print works (§3.3)
-// ============================================================================
-
-/**
- * The print works (`Plan Builder Spec.md` §3.3): two resource kinds grouped
- * by hall, three event kinds drawn three ways — jobs as bars, stops as marks
- * at their instants, shifts as chips — a utilisation heat row under each
- * press, and a pinned chart of the sheets printed each day. Each
- * kind declares its templates. Its library (#1195) lists every kind's
- * templates, the backlog, the series a viewer shows and hides, and the
- * customers, a card apiece that sets the customer of the job it is dropped
- * on. Its inspector (#1197) shows what is selected: a job through the form
- * its customer, stock and sheets are hinted for, and a stop through the
- * stop kind's own inspector, which chooses a plate change or a service on a
- * segment.
- */
-export const planPrintWorks = example({
-    keywords: [
-        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Schedule.field", "event kinds", "print works",
-        "presses", "crews", "jobs", "stops", "shifts", "draw", "span", "marks", "cards", "at", "instant", "group",
-        "hall", "sub", "measures", "utilisation", "heat", "state", "quantity", "backlog",
-        "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "library",
-        "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
-        "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197",
-    ],
-    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle and sheets, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, a pinned chart of the sheets printed each day, its library (the templates, the backlog, the series and the customers) and its inspector, where a stop shows the stop kind's own",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const presses = $.let(Record.bind(planPrintPresses, []));
-            const crews = $.let(Record.bind(planPrintCrews, []));
-            const jobs = $.let(Record.bind(planPrintJobs, [planPrintJobsPatch]));
-            const stops = $.let(Record.bind(planPrintStops, [planPrintStopsPatch]));
-            const shifts = $.let(Record.bind(planPrintShifts, [planPrintShiftsPatch]));
-            const customers = $.let(Record.bind(planPrintCustomers, []));
-            const util = $.let(Data.bind(planPrintUtilisation));
-            const output = $.let(Data.bind(planPrintOutput));
-            // The window's first day: each reading runs from it, a day apiece.
-            const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
-            // A press's readings as heat cells, one a day.
-            const daily = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), (_$2, readings) =>
-                East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$3, i) => ({
-                    at: Plan.at.time(first.addDays(i)), value: some(readings.get(i)), label: none,
-                }))));
-            // The sheets printed each day, as a chart's points.
-            const PrintDay = StructType({ day: DateTimeType, sheets: FloatType });
-            const printed = $.let(output.read());
-            const days = $.let(East.Array.generate(printed.size(), PrintDay, (_$2, i) => ({ day: first.addDays(i), sheets: printed.get(i) })));
-            const axis = $.let(Plan.axis({
-                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
-                resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
-            }));
-            // A stop's own inspector: its title, and whether it is a plate change or a
-            // service, chosen on a segment — the edited stop goes back through `update`.
-            const StopKindType = PrintStop.fields.kind;
-            const inspectStop = $.const(East.function([PrintStop, FunctionType([PrintStop], NullType)], UIComponentType, ($2, stop, update) => {
-                const setKind = $2.const(East.function([StringType], NullType, ($3, picked) => {
-                    const kind = $3.const(picked.equal("service").ifElse(
-                        () => East.value(variant("service", null), StopKindType),
-                        () => East.value(variant("plate_change", null), StopKindType)));
-                    // East has no struct spread: the stop, rebuilt with its new kind.
-                    $3(update({ title: stop.title, at: stop.at, press: stop.press, kind }));
-                }));
-                return (
-                    <VStack gap="3" align="stretch">
-                        <Text>{stop.title}</Text>
-                        <SegmentGroup value={stop.kind.getTag()} onChange={setKind} size="sm"
-                            items={[SegmentGroup.Item("plate_change", "Plate change"), SegmentGroup.Item("service", "Service")]} />
-                    </VStack>
-                );
-            }));
-            return (
-                <Plan
-                    axis={axis}
-                    resources={{
-                        presses: Schedule.resources(presses.read(), {
-                            name: "Presses", icon: "print",
-                            label: p => p.name, group: p => p.hall,
-                            sub: p => some(East.str`${East.Float.printCommaSeperated(p.sheets_per_hour, 0n)} sheets/h`),
-                            // A row under each press, from the dataflow's utilisation: an ordinary
-                            // heat series over the press rows, read only.
-                            measures: [
-                                Plan.series.heat(PrintPress, {
-                                    key: "util", title: "Utilisation", label: () => "Utilisation",
-                                    cells: (_p, key) => Plan.heatCells(daily(util.read().get(key)), { min: 0, max: 100, warnAt: 95 }),
-                                }),
-                            ],
-                        }),
-                        crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: c => c.name, group: c => c.hall }),
-                    }}
-                    events={{
-                        job: Schedule.events(jobs, {
-                            name: "Print job", icon: "file-lines", draw: "span",
-                            title: "title", start: "start", end: "end",
-                            resource: { field: "press", of: "presses" },
-                            state: "state",
-                            quantity: { field: "sheets", unit: "sheets" },
-                            backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
-                            fields: {
-                                customer: Schedule.field.text({ label: "Customer" }),
-                                stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
-                                sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
-                            },
-                            templates: [
-                                { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                                  values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                                            customer: "", stock: variant("coated", null), due: none } },
-                                { key: "catalogue", name: "Catalogue run", group: "Jobs", duration: variant("hours", 12.0),
-                                  values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0,
-                                            customer: "", stock: variant("coated", null), due: none } },
-                                { key: "poster", name: "Poster run", group: "Jobs", duration: variant("hours", 4.0),
-                                  values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0,
-                                            customer: "", stock: variant("uncoated", null), due: none } },
-                                { key: "board", name: "Board run", group: "Jobs", duration: variant("hours", 8.0),
-                                  values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0,
-                                            customer: "", stock: variant("board", null), due: none } },
-                            ],
-                        }),
-                        stop: Schedule.events(stops, {
-                            name: "Stop", icon: "screwdriver-wrench", draw: "marks",
-                            title: "title", at: "at",
-                            resource: { field: "press", of: "presses" },
-                            inspector: inspectStop,
-                            templates: [
-                                { key: "plates", name: "Plate change", group: "Stops",
-                                  values: { title: "Plate change", kind: variant("plate_change", null) } },
-                                { key: "service", name: "Service", group: "Stops",
-                                  values: { title: "Service", kind: variant("service", null) } },
-                            ],
-                        }),
-                        shift: Schedule.events(shifts, {
-                            name: "Crew shift", icon: "user-clock", draw: "cards",
-                            title: "title", start: "start", end: "end",
-                            resource: { field: "crew", of: "crews" }, state: "state",
-                            templates: [
-                                { key: "early", name: "Early shift", group: "Shifts", at: { hour: 6n, minute: 0n }, duration: variant("hours", 8.0),
-                                  values: { title: "Early", state: variant("confirmed", null) } },
-                                { key: "late", name: "Late shift", group: "Shifts", at: { hour: 14n, minute: 0n }, duration: variant("hours", 8.0),
-                                  values: { title: "Late", state: variant("confirmed", null) } },
-                                { key: "night", name: "Night shift", group: "Shifts", at: { hour: 22n, minute: 0n }, duration: variant("hours", 8.0),
-                                  values: { title: "Night", state: variant("proposed", variant("added", null)) } },
-                            ],
-                        }),
-                    }}
-                    rows={[
-                        Plan.chart({
-                            key: "output", label: "SHEETS / DAY", id: true, pinned: true, height: "spark", expandable: true,
-                            layers: [Chart.Column(days, { x: r => r.day, y: r => r.sheets })],
-                        }),
-                    ]}
-                    grain="resource"
-                    library={[
-                        Plan.library.events(),
-                        Plan.library.backlog(),
-                        Plan.library.series(),
-                        // The customers, by district: a card dropped on a job sets its customer.
-                        Plan.library.tab(customers.read(), {
-                            name: "Customers", icon: "building",
-                            label: c => c.name, meta: c => some(c.trade), group: c => c.district,
-                            drop: c => Schedule.patch(PrintJob, { customer: c.name }),
-                        }),
-                    ]}
-                    inspector
-                />
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-// ============================================================================
 // planEventLinks — every way a link draws, and rows over a dataset
 // ============================================================================
 
@@ -610,6 +440,317 @@ export const planLinkDeliveries = e3.record("plan_link_deliveries", DictType(Str
 
 /** The deliveries' patch door. */
 export const planLinkDeliveriesPatch = e3.mutation.patch(planLinkDeliveries);
+
+// ============================================================================
+// The print works' finishing and dispatch records (#1200)
+// ============================================================================
+
+/** The parent of the shared folder and binder, held in a record like every other resource. */
+export const planPrintBindery = e3.record("plan_print_bindery", DictType(StringType, PrintCentre), new Map([
+    ["bindery", { name: "Bindery" }],
+]));
+
+/** The vans a delivery can move onto from the dispatch bay. */
+export const planPrintVans = e3.record("plan_print_vans", DictType(StringType, PrintCentre), new Map([
+    ["van1", { name: "Van 1" }], ["van2", { name: "Van 2" }],
+]));
+
+/** A delivery's own status, separate from the schedule's lifecycle. */
+export const PrintDispatchStatus = VariantType({ queued: NullType, ready: NullType, dispatched: NullType });
+
+/** A delivery on a bay or a van: the variant preserves the resource kind when it moves. */
+export const PrintDispatch = StructType({
+    title: StringType, at: DateTimeType,
+    location: VariantType({ bay: StringType, van: StringType }),
+    lane: StringType, status: PrintDispatchStatus, pallets: FloatType,
+});
+
+/** The print works' own plate orders, timed before its existing jobs. */
+export const planPrintPlates = e3.record("plan_print_plates", DictType(StringType, PrintPlates), new Map([
+    ["P-101", { title: "Handbook plates", at: new Date("2026-10-16T14:00:00Z"), setter: "ps" }],
+    ["P-102", { title: "Poster plates", at: new Date("2026-10-13T14:00:00Z"), setter: "ps" }],
+]));
+
+/** The print works' plates commit through their own patch door. */
+export const planPrintPlatesPatch = e3.mutation.patch(planPrintPlates);
+
+/** Two foldings run in parallel, followed by binding, after the handbook leaves Press A1. */
+export const planPrintBindings = e3.record("plan_print_bindings", DictType(StringType, PrintBinding), new Map([
+    ["B-101", { title: "Fold handbook sections", start: new Date("2026-10-20T06:00:00Z"), end: new Date("2026-10-20T14:00:00Z"), line: "fold", state: variant("confirmed", null) }],
+    ["B-102", { title: "Fold handbook inserts", start: new Date("2026-10-20T10:00:00Z"), end: new Date("2026-10-20T16:00:00Z"), line: "fold", state: variant("confirmed", null) }],
+    ["B-103", { title: "Bind handbooks", start: new Date("2026-10-21T06:00:00Z"), end: new Date("2026-10-21T14:00:00Z"), line: "bind", state: variant("confirmed", null) }],
+]));
+
+/** The print works' bindery jobs commit through their own patch door. */
+export const planPrintBindingsPatch = e3.mutation.patch(planPrintBindings);
+
+/** Deliveries occupy AM/PM lanes and carry each of the dispatch statuses. */
+export const planPrintDeliveries = e3.record("plan_print_deliveries", DictType(StringType, PrintDispatch), new Map([
+    ["D-101", { title: "Handbooks", at: new Date("2026-10-22T10:00:00Z"), location: variant("bay", "bay"), lane: "AM", status: variant("queued", null), pallets: 3.0 }],
+    ["D-102", { title: "Event posters", at: new Date("2026-10-15T14:00:00Z"), location: variant("van", "van1"), lane: "PM", status: variant("ready", null), pallets: 2.0 }],
+    ["D-103", { title: "Museum guides", at: new Date("2026-10-09T10:00:00Z"), location: variant("van", "van2"), lane: "AM", status: variant("dispatched", null), pallets: 1.0 }],
+]));
+
+/** The print works' deliveries commit through their own patch door. */
+export const planPrintDeliveriesPatch = e3.mutation.patch(planPrintDeliveries);
+
+// ============================================================================
+// planPrintWorks — the print works (§3.3)
+// ============================================================================
+
+/**
+ * The print works (`Plan Builder Spec.md` §3.3): two resource kinds grouped
+ * by hall, nested finishing resources and deliveries on bays or vans. Jobs
+ * draw as bars, stops and plates as marks
+ * at their instants, shifts as chips — a utilisation heat row under each
+ * press, and a pinned chart of the sheets printed each day. Each
+ * kind declares its templates. Its library (#1195) lists every kind's
+ * templates, the backlog, the series a viewer shows and hides, and the
+ * customers, a card apiece that sets the customer of the job it is dropped
+ * on. Its inspector (#1197) shows what is selected: a job through the form
+ * its customer, stock and sheets are hinted for, and a stop through the
+ * stop kind's own inspector, which chooses a plate change or a service on a
+ * segment. The same Slice owns the range and resolution; links connect the
+ * plates, printing, binding and dispatch. Delivery readiness holds Save for
+ * an invalid pallet count, while the drop veto explains a press in service.
+ */
+export const planPrintWorks = example({
+    keywords: [
+        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Schedule.field", "event kinds", "print works",
+        "presses", "crews", "jobs", "stops", "shifts", "draw", "span", "marks", "cards", "at", "instant", "group",
+        "hall", "sub", "measures", "utilisation", "heat", "state", "quantity", "backlog",
+        "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "library",
+        "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
+        "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197", "#1200", "parent", "rollup", "collapsed", "meta", "value",
+        "buckets", "lane", "status", "ready", "overlaps", "allow", "canDrop", "Schedule.Types.Candidate",
+        "variant resource", "bay", "van", "Slice", "range", "brush", "resolution", "Plan.eventRef", "Plan.over",
+    ],
+    description: "The print works from plates to dispatch — jobs, stops and shifts on grouped presses and crews, nested bindery resources, deliveries in AM/PM lanes on a bay or a van, status and readiness, links between event kinds, utilisation and paper stock, a Slice-owned range and resolution, and the shared library, inspector and Save session",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Record.bind(planPrintPresses, []));
+            const crews = $.let(Record.bind(planPrintCrews, []));
+            const jobs = $.let(Record.bind(planPrintJobs, [planPrintJobsPatch]));
+            const stops = $.let(Record.bind(planPrintStops, [planPrintStopsPatch]));
+            const shifts = $.let(Record.bind(planPrintShifts, [planPrintShiftsPatch]));
+            const customers = $.let(Record.bind(planPrintCustomers, []));
+            const setters = $.let(Record.bind(planLinkSetters, []));
+            const lines = $.let(Record.bind(planLinkLines, []));
+            const bindery = $.let(Record.bind(planPrintBindery, []));
+            const bays = $.let(Record.bind(planLinkBays, []));
+            const vans = $.let(Record.bind(planPrintVans, []));
+            const plates = $.let(Record.bind(planPrintPlates, [planPrintPlatesPatch]));
+            const bindings = $.let(Record.bind(planPrintBindings, [planPrintBindingsPatch]));
+            const deliveries = $.let(Record.bind(planPrintDeliveries, [planPrintDeliveriesPatch]));
+            const stock = $.let(Data.bind(planLinkStock));
+            const lineRows = $.const(lines.read().union(bindery.read(), (_$2, line) => line));
+            const util = $.let(Data.bind(planPrintUtilisation));
+            const output = $.let(Data.bind(planPrintOutput));
+            // The window's first day: each reading runs from it, a day apiece.
+            const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
+            const parentLine = $.const(some("bindery"), OptionType(StringType));
+            const topLine = $.const(none, OptionType(StringType));
+            // The Slice's domain is the scheduled jobs. It owns the visible time window;
+            // Schedule reads every event kind over that window and keeps the backlog separate.
+            const scope = $.const(jobs.read().toArray((_$2, job) => job.start)
+                .filter((_$2, at) => at.hasTag("some"))
+                .map((_$2, at) => ({ at: at.unwrap("some") })));
+            const slice = $.let(Slice.bind("ex.planPrintWorks.time", scope, {
+                fields: { at: { label: "Job start", format: { date: "MMM DD" } } },
+                range: "at",
+                initial: { at: { from: first, to: new Date("2026-11-02T00:00:00Z") } },
+                view: { resolution: some(variant("day", null)) },
+            }));
+            // A press's readings as heat cells, one a day.
+            const daily = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), (_$2, readings) =>
+                East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$3, i) => ({
+                    at: Plan.at.time(first.addDays(i)), value: some(readings.get(i)), label: none,
+                }))));
+            // The sheets printed each day, as a chart's points.
+            const PrintDay = StructType({ day: DateTimeType, sheets: FloatType });
+            const printed = $.let(output.read());
+            const days = $.let(East.Array.generate(printed.size(), PrintDay, (_$2, i) => ({ day: first.addDays(i), sheets: printed.get(i) })));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
+            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
+                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
+            const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+                const reason = $2.let(none, OptionType(StringType));
+                $2.match(candidate.resource, { some: ($3, resource) => {
+                    $3.if(resource.kind.equal("presses").and(() => resource.key.equal("b3")), $4 => {
+                        $4.assign(reason, some("Press B3 is in service; choose another press"));
+                    });
+                } });
+                return reason;
+            }));
+            // A stop's own inspector: its title, and whether it is a plate change or a
+            // service, chosen on a segment — the edited stop goes back through `update`.
+            const StopKindType = PrintStop.fields.kind;
+            const inspectStop = $.const(East.function([PrintStop, FunctionType([PrintStop], NullType)], UIComponentType, ($2, stop, update) => {
+                const setKind = $2.const(East.function([StringType], NullType, ($3, picked) => {
+                    const kind = $3.const(picked.equal("service").ifElse(
+                        () => East.value(variant("service", null), StopKindType),
+                        () => East.value(variant("plate_change", null), StopKindType)));
+                    // East has no struct spread: the stop, rebuilt with its new kind.
+                    $3(update({ title: stop.title, at: stop.at, press: stop.press, kind }));
+                }));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Text>{stop.title}</Text>
+                        <SegmentGroup value={stop.kind.getTag()} onChange={setKind} size="sm"
+                            items={[SegmentGroup.Item("plate_change", "Plate change"), SegmentGroup.Item("service", "Service")]} />
+                    </VStack>
+                );
+            }));
+            return (
+                <Plan
+                    id="printWorks"
+                    axis={axis}
+                    date={first}
+                    canDrop={canDrop}
+                    slice={{ slice, affordances: ["range", "brush"] }}
+                    resources={{
+                        presses: Schedule.resources(presses.read(), {
+                            name: "Presses", icon: "print",
+                            label: p => p.name, group: p => p.hall,
+                            sub: p => some(East.str`${East.Float.printCommaSeperated(p.sheets_per_hour, 0n)} sheets/h`),
+                            // A row under each press, from the dataflow's utilisation: an ordinary
+                            // heat series over the press rows, read only.
+                            measures: [
+                                Plan.series.heat(PrintPress, {
+                                    key: "util", title: "Utilisation", label: () => "Utilisation",
+                                    cells: (_p, key) => Plan.heatCells(daily(util.read().get(key)), { min: 0, max: 100, warnAt: 95 }),
+                                }),
+                            ],
+                        }),
+                        crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: c => c.name, group: c => c.hall }),
+                        setters: Schedule.resources(setters.read(), { name: "Plate room", icon: "layer-group", label: p => p.name, meta: () => some("Plates before printing") }),
+                        lines: Schedule.resources(lineRows, {
+                            name: "Bindery", icon: "book", label: l => l.name,
+                            parent: (_l, key) => key.equal("bindery").ifElse(() => topLine, () => parentLine),
+                            rollup: "union", collapsed: (_l, key) => key.equal("bindery"),
+                            meta: () => some("Finishing"), value: (_l, key) => key.equal("bindery").ifElse(() => some("2 lines"), () => topLine),
+                        }),
+                        bays: Schedule.resources(bays.read(), { name: "Dispatch", icon: "warehouse", label: b => b.name, meta: () => some("Loading") }),
+                        vans: Schedule.resources(vans.read(), { name: "Vans", icon: "truck", label: v => v.name, meta: () => some("Delivery fleet") }),
+                    }}
+                    events={{
+                        job: Schedule.events(jobs, {
+                            name: "Print job", icon: "file-lines", draw: "span",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "presses" },
+                            state: "state",
+                            quantity: { field: "sheets", unit: "sheets" },
+                            backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
+                            fields: {
+                                customer: Schedule.field.text({ label: "Customer" }),
+                                stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
+                                sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
+                            },
+                            templates: [
+                                { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
+                                  values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
+                                            customer: "", stock: variant("coated", null), due: none } },
+                                { key: "catalogue", name: "Catalogue run", group: "Jobs", duration: variant("hours", 12.0),
+                                  values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0,
+                                            customer: "", stock: variant("coated", null), due: none } },
+                                { key: "poster", name: "Poster run", group: "Jobs", duration: variant("hours", 4.0),
+                                  values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0,
+                                            customer: "", stock: variant("uncoated", null), due: none } },
+                                { key: "board", name: "Board run", group: "Jobs", duration: variant("hours", 8.0),
+                                  values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0,
+                                            customer: "", stock: variant("board", null), due: none } },
+                            ],
+                        }),
+                        stop: Schedule.events(stops, {
+                            name: "Stop", icon: "screwdriver-wrench", draw: "marks",
+                            title: "title", at: "at",
+                            resource: { field: "press", of: "presses" },
+                            inspector: inspectStop,
+                            templates: [
+                                { key: "plates", name: "Plate change", group: "Stops",
+                                  values: { title: "Plate change", kind: variant("plate_change", null) } },
+                                { key: "service", name: "Service", group: "Stops",
+                                  values: { title: "Service", kind: variant("service", null) } },
+                            ],
+                        }),
+                        shift: Schedule.events(shifts, {
+                            name: "Crew shift", icon: "user-clock", draw: "cards",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "crew", of: "crews" }, state: "state",
+                            templates: [
+                                { key: "early", name: "Early shift", group: "Shifts", at: { hour: 6n, minute: 0n }, duration: variant("hours", 8.0),
+                                  values: { title: "Early", state: variant("confirmed", null) } },
+                                { key: "late", name: "Late shift", group: "Shifts", at: { hour: 14n, minute: 0n }, duration: variant("hours", 8.0),
+                                  values: { title: "Late", state: variant("confirmed", null) } },
+                                { key: "night", name: "Night shift", group: "Shifts", at: { hour: 22n, minute: 0n }, duration: variant("hours", 8.0),
+                                  values: { title: "Night", state: variant("proposed", variant("added", null)) } },
+                            ],
+                        }),
+                        plate: Schedule.events(plates, {
+                            name: "Plates", icon: "clone", title: "title", at: "at", resource: { field: "setter", of: "setters" },
+                            templates: [{ key: "plates", name: "Job plates", group: "Plate room", values: { title: "Job plates" } }],
+                        }),
+                        binding: Schedule.events(bindings, {
+                            name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end",
+                            resource: { field: "line", of: "lines" }, state: "state", overlaps: "allow",
+                            templates: [{ key: "fold", name: "Fold sections", group: "Bindery", duration: variant("hours", 8.0),
+                                values: { title: "Fold sections", state: variant("confirmed", null) } }],
+                        }),
+                        delivery: Schedule.events(deliveries, {
+                            name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at",
+                            resource: { field: "location", of: { bay: "bays", van: "vans" } }, lane: "lane",
+                            status: { field: "status", cases: {
+                                queued: { label: "Queued", tone: variant("warning", null), ring: true },
+                                ready: { label: "Ready", tone: variant("info", null), ring: false },
+                                dispatched: { label: "Dispatched", tone: variant("success", null), ring: false },
+                            } },
+                            ready: d => d.pallets.lessEqual(0.0).ifElse(
+                                () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
+                                () => variant("ready", null)),
+                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 0.0, step: 1.0 }) },
+                            templates: [{ key: "delivery", name: "Morning delivery", group: "Dispatch", at: { hour: 10n, minute: 0n },
+                                values: { title: "Delivery", lane: "AM", status: variant("queued", null), pallets: 1.0 } }],
+                        }),
+                    }}
+                    rows={[
+                        Plan.chart({
+                            key: "output", label: "SHEETS / DAY", id: true, pinned: true, height: "spark", expandable: true,
+                            layers: [Chart.Column(days, { x: r => r.day, y: r => r.sheets })],
+                        }),
+                        Plan.over(stock, [Plan.series.table(PrintStock, {
+                            key: "stock", title: "Paper stock", label: s => s.name,
+                            cells: s => Plan.tableCells(weekly(s.weekly)), format: Format.Number({ maximumFractionDigits: 0n }),
+                        })]),
+                    ]}
+                    links={[
+                        Plan.link({ key: "plates", from: Plan.eventRef("plate", "P-101"), to: Plan.eventRef("job", "J-1004") }),
+                        Plan.link({ key: "printed", from: Plan.eventRef("job", "J-1004"), to: Plan.eventRef("binding", "B-101"), quantity: Plan.quantity(144, { unit: "k sheets" }) }),
+                        Plan.link({ key: "folded", from: Plan.eventRef("binding", "B-101"), to: Plan.eventRef("binding", "B-103") }),
+                        Plan.link({ key: "dispatched", from: Plan.eventRef("binding", "B-103"), to: Plan.eventRef("delivery", "D-101") }),
+                    ]}
+                    grain="resource"
+                    library={[
+                        Plan.library.events(),
+                        Plan.library.backlog(),
+                        Plan.library.series(),
+                        // The customers, by district: a card dropped on a job sets its customer.
+                        Plan.library.tab(customers.read(), {
+                            name: "Customers", icon: "building",
+                            label: c => c.name, meta: c => some(c.trade), group: c => c.district,
+                            drop: c => Schedule.patch(PrintJob, { customer: c.name }),
+                        }),
+                    ]}
+                    inspector
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
 
 /**
  * Every way a link draws (`Plan links.html`, `Plan Builder Spec.md` §4.3,

@@ -43,7 +43,7 @@ import {
     historyKeyOf, useEditSession, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
-import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
 import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./use-plan-paging.js";
@@ -172,7 +172,10 @@ function entryValueOf(version: EntryVersion<PlanEntryRef> | undefined): { value:
  */
 export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const { value, data, rows, origin, storageKey } = args;
-    const editing = value.editing.type === "some" ? value.editing.value : undefined;
+    const declared = value.editing.type === "some" ? value.editing.value : undefined;
+    const recordSlice = value.recordSlice?.type === "some" ? value.recordSlice.value.slice : undefined;
+    const editing = useMemo(() => declared === undefined || recordSlice === undefined ? declared
+        : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
     const paged = windowedSourceOf(value.rows);
     const entryTypeValue = editing?.entryType;
     const codec = useMemo(() => (entryTypeValue === undefined ? undefined : {
@@ -238,11 +241,13 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             revision: () => revision(),
             refresh: (target) => refresh(target),
             seek: paged.seek,
+            readCurrent: recordSlice?.readEntry,
         };
-    }, [editing, paged]);
+    }, [editing, paged, recordSlice]);
 
+    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice), [recordSlice]);
     const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(
-        editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready });
+        editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready, prepare });
     sessionRef.current = session;
     // The session's key in the Plan's one history (#1194): its source, the view and its schema.
     const historyKey = useMemo(() => historyKeyOf(storageKey, editing ?? INERT), [storageKey, editing]);

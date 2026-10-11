@@ -10,13 +10,15 @@ import { faCalendarWeek, faCaretDown, faChevronLeft, faChevronRight } from "@for
 import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
 import { Seg } from "../schedule/segments.js";
 import { DAY, dayStart, weekStart } from "../schedule/window.js";
-import { isoWeekUTC, shiftCalendar } from "./scale.js";
+import { isoWeekUTC, shiftCalendar, type TimeResolution } from "./scale.js";
 import { useNow } from "./now-line.js";
 
-type Period = "day" | "week" | "month";
-type Panel = Period | "year";
+type Period = TimeResolution;
+type Panel = "day" | "week" | "month" | "year" | "range";
 const NO_DATES: readonly Date[] = [];
 const DAY_WEEK = [{ key: "day", label: "Days" }, { key: "week", label: "Weeks" }] as const;
+const DAY_WEEK_RANGE = [...DAY_WEEK, { key: "range", label: "Range" }] as const;
+const firstPanel = (period: Period, initial?: "day" | "week"): Panel => period === "year" ? "year" : period === "month" || period === "quarter" ? "month" : initial ?? (period === "week" ? "week" : "day");
 const monthStart = (date: number) => { const d = new Date(date); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
 
 /** Internal controlled time navigation. The host retains its Slice, records and view unit. */
@@ -39,17 +41,19 @@ export interface TimeNavigatorProps {
     legend?: ReactNode;
     /** Final toolbar fold: view controls share the same reachable popover. */
     controls?: ReactNode;
+    /** The host's existing Slice editor; no second range state lives here. */
+    rangeEditor?: ReactNode;
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, legend, controls }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, legend, controls, rangeEditor }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     const recipe = useSlotRecipe({ key: "timeNavigator" });
     const styles = recipe({});
     const [open, setOpen] = useState(false);
     const [month, setMonth] = useState(() => monthStart(date));
-    const [panel, setPanel] = useState<Panel>(period === "month" ? "month" : initialPanel ?? period);
+    const [panel, setPanel] = useState<Panel>(firstPanel(period, initialPanel));
     const [dayPanel, setDayPanel] = useState<"day" | "week">(initialPanel ?? (period === "week" ? "week" : "day"));
     const current = dayStart(date);
     const start = weekStart(current, sunday);
@@ -71,18 +75,19 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         if (next) {
             setMonth(monthStart(date));
             const initial = initialPanel ?? (period === "week" ? "week" : "day");
-            setDayPanel(initial); setPanel(period === "month" ? "month" : initial);
+            setDayPanel(initial); setPanel(firstPanel(period, initial));
         }
     };
-    const choose = (next: number) => { onChange(dayStart(next).getTime()); setOpen(false); };
-    const move = (step: number) => choose(shiftCalendar(current, period, step).getTime());
+    const commit = (next: number) => { onChange(next); setOpen(false); };
+    const choose = (next: number) => commit(dayStart(next).getTime() + date - current.getTime());
+    const move = (step: number) => commit(shiftCalendar(new Date(date), period, step).getTime());
     const arrows = <>
         <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
         <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
     </>;
     const weekLabel = (d: Date) => `W${format.number(isoWeekUTC(new Date(d.getTime() + 3 * DAY)))} · ${format.range(d, new Date(d.getTime() + 6 * DAY))}`;
-    const fullLabel = rangeLabel ?? (period === "day" ? format.weekdayDate(current) : period === "month" ? format.monthYear(current) : weekLabel(start));
-    const shortLabel = period === "day" ? format.monthDay(current) : period === "month" ? `${format.month(current)} ${format.year(current)}` : `W${format.number(isoWeekUTC(new Date(start.getTime() + 3 * DAY)))}`;
+    const fullLabel = rangeLabel ?? (period === "hour" ? format.dateTime(new Date(date)) : period === "day" ? format.weekdayDate(current) : period === "week" ? weekLabel(start) : period === "year" ? format.year(current) : format.monthYear(current));
+    const shortLabel = period === "hour" || period === "day" ? format.monthDay(current) : period === "week" ? `W${format.number(isoWeekUTC(new Date(start.getTime() + 3 * DAY)))}` : period === "year" ? format.year(current) : `${format.month(current)} ${format.year(current)}`;
     const browse = (step: number) => setMonth(shiftCalendar(new Date(month), panel === "year" || panel === "month" ? "year" : "month", step * (panel === "year" ? 12 : 1)).getTime());
     const heading = panel === "year" ? `${format.year(new Date(Date.UTC(yearBase, 0, 1)))}–${format.year(new Date(Date.UTC(yearBase + 11, 0, 1)))}` : panel === "month" ? format.year(new Date(month)) : format.monthYear(new Date(month));
     const picker = <SliceEditPopover open={open} onOpenChange={changeOpen} label={label}
@@ -92,12 +97,13 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
         footActions={<Button size="xs" variant="solid" onClick={() => choose(today)}>Today</Button>}>
         <Box css={styles.body} data-time-picker={scope} data-time-panel={panel}>
-            <Box css={styles.header}>
+            {panel !== "range" && <Box css={styles.header}>
                 <Button size="xs" variant="ghost" aria-label={`Previous ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
                 <Button size="xs" variant="ghost" css={styles.heading} aria-label={panel === "year" ? "Choose month" : panel === "month" ? "Choose year" : "Choose month"} onClick={() => setPanel(panel === "month" ? "year" : "month")}>{heading}<FontAwesomeIcon icon={faCaretDown} /></Button>
                 <Button size="xs" variant="ghost" aria-label={`Next ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
-            </Box>
-            {(panel === "day" || panel === "week") && <Seg label="Choose by" name="picker-unit" scope={scope} fullWidth items={DAY_WEEK} active={panel} onPick={next => { setDayPanel(next); setPanel(next); }} />}
+            </Box>}
+            {(panel === "day" || panel === "week" || rangeEditor !== undefined) && <Seg label="Choose by" name="picker-unit" scope={scope} fullWidth items={rangeEditor === undefined ? DAY_WEEK : DAY_WEEK_RANGE} active={panel} onPick={next => { if (next !== "range") setDayPanel(next); setPanel(next); }} />}
+            {panel === "range" && rangeEditor}
             {panel === "week" && <Box css={styles.weeks}>{weeks.map(week => <chakra.button key={week.getTime()} type="button" css={styles.week}
                 {...{ [`data-${scope}-picker-week`]: week.toISOString().slice(0, 10) }} data-time-week={week.getTime()}
                 data-selected={week.getTime() === start.getTime() ? "" : undefined} aria-pressed={week.getTime() === start.getTime()}
@@ -116,11 +122,11 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
                 aria-label={format.monthYear(new Date(Date.UTC(year, i, 1)))} data-time-month={i}
                 data-selected={current.getUTCFullYear() === year && current.getUTCMonth() === i ? "" : undefined}
                 onClick={() => {
-                    if (period === "month") choose(shiftCalendar(current, "month", (year - current.getUTCFullYear()) * 12 + i - current.getUTCMonth()).getTime());
+                    if (period === "month" || period === "quarter") choose(shiftCalendar(current, "month", (year - current.getUTCFullYear()) * 12 + i - current.getUTCMonth()).getTime());
                     else { setMonth(Date.UTC(year, i, 1)); setPanel(dayPanel); }
                 }}>{format.month(new Date(Date.UTC(year, i, 1)))}</chakra.button>)}</Box>}
             {panel === "year" && <Box css={styles.choices}>{Array.from({ length: 12 }, (_, i) => yearBase + i).map(y => <chakra.button key={y} type="button" css={styles.choice}
-                data-selected={current.getUTCFullYear() === y ? "" : undefined} onClick={() => { setMonth(Date.UTC(y, new Date(month).getUTCMonth(), 1)); setPanel("month"); }}>{format.year(new Date(Date.UTC(y, 0, 1)))}</chakra.button>)}</Box>}
+                data-selected={current.getUTCFullYear() === y ? "" : undefined} onClick={() => { if (period === "year") choose(shiftCalendar(current, "year", y - current.getUTCFullYear()).getTime()); else { setMonth(Date.UTC(y, new Date(month).getUTCMonth(), 1)); setPanel("month"); } }}>{format.year(new Date(Date.UTC(y, 0, 1)))}</chakra.button>)}</Box>}
             {panel === "week" && legend !== undefined && <Box css={styles.legend}>{legend}</Box>}
             {controls !== undefined && <Box css={styles.controls}>{controls}</Box>}
         </Box>

@@ -17,7 +17,7 @@
  *   on the event under the pointer.
  * - **The verdict**, asked where the drag rests and again of the drop: the
  *   kind takes a gesture now; it is placed on the row's resource kind (or, on
- *   its own Unassigned row, takes none); its own `write` takes the gesture;
+ *   its own Unassigned row, takes none); the row draws that kind; its own `write` takes the gesture;
  *   and the Plan's `canDrop` over `Schedule.Types.Candidate` lets it land. The
  *   first refusal is what the ghost says, in red: `Needs presses`, or
  *   `canDrop`'s message. Allowed, the ghost says what lands where:
@@ -423,12 +423,16 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             return kind?.rows.find((r) => stringEqual(r.key, target.key))?.label ?? target.key;
         };
         /** Whether a kind is placed on what a row stands for. */
-        const takes = (kind: PlanEventKindValue, target: PlanEventTarget): boolean => (target.kind === "resource"
+        const onResource = (kind: PlanEventKindValue, target: PlanEventTarget): boolean => (target.kind === "resource"
             ? kind.takes.some((slot) => stringEqual(slot, target.slot))
             : stringEqual(kind.key, target.event));
-        /** Why a kind can't land somewhere: the resource kinds it is placed on, as its template cards name them. */
-        const needs = (kind: PlanEventKindValue): string => {
+        /** A drop must stay on the sub-row that actually draws its kind. */
+        const takes = (kind: PlanEventKindValue, target: PlanEventTarget): boolean =>
+            onResource(kind, target) && stringEqual(target.draw, kind.draw.type);
+        /** Explain the missing resource or the compatible sub-row, before anything is drafted. */
+        const needs = (kind: PlanEventKindValue, target?: PlanEventTarget): string => {
             const a = latest.current;
+            if (target !== undefined && onResource(kind, target)) return a.words.m.dropNeedsRow({ kind: kind.name });
             const names = kind.takes.map((slot) => (a.resources.find((r) => stringEqual(r.key, slot))?.name ?? slot).toLocaleLowerCase(a.words.locale));
             return a.words.m.dropNeeds({ resources: names });
         };
@@ -528,7 +532,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             if (at === undefined) return refused(undefined);
             const where = whereName(target);
             const resource = resourceOf(target);
-            if (!takes(kind, target)) return refused(needs(kind));
+            if (!takes(kind, target)) return refused(needs(kind, target));
             if (isTemplate) {
                 // A template (PB32): a new event at the bucket — from its `at` on a whole day — for its duration.
                 const template = kind.templates.find((t) => stringEqual(t.key, ref.key));
@@ -566,7 +570,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 changes: [{ kind: kind.key, id: ref.key, gesture }],
                 origin: "drop",
                 label: `Schedule ${read.item.title} on ${where}`,
-                selects: undefined,
+                selects: { keys: [printRef({ kind: kind.key, key: ref.key })], row: rowFor(kind, target) },
             };
         };
 
@@ -579,7 +583,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const ref = refOf(movable.key);
             const kind = ref !== undefined ? kindOf(ref.kind) : undefined;
             if (target === undefined || ref === undefined || kind === undefined || scale === undefined) return refused(undefined);
-            if (!takes(kind, target)) return refused(needs(kind), to.span);
+            if (!takes(kind, target)) return refused(needs(kind, target), to.span);
             const origin = originOf(movable, to);
             const units = to.units ?? 0;
             const fine = to.fine ?? false;
@@ -704,7 +708,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const target = targetOf(row);
                 const ref = refOf(movable.key);
                 const kind = ref !== undefined ? kindOf(ref.kind) : undefined;
-                return target !== undefined && kind !== undefined && takes(kind, target) && stringEqual(target.draw, kind.draw.type);
+                return target !== undefined && kind !== undefined && takes(kind, target);
             },
             takesCard: (library) => libraries.some((l) => stringEqual(l, library)),
             landsOnEvent: (library) => authorTab(library) !== undefined,

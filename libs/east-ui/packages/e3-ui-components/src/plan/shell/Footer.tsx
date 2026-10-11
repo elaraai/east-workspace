@@ -23,6 +23,8 @@
 import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { transportLine, type PlanTransport } from "./transport.js";
 import { usePlanWords } from "../words.js";
 import type { PlanEventCounts } from "../frame/counts.js";
@@ -44,10 +46,12 @@ export interface PlanFooterProps {
     pending?: number | undefined;
     /** Whether the canvas draws its narrow layout: the items then wrap. */
     narrow?: boolean | undefined;
+    /** Exact, confirmed feedback when saved rows leave the indexed query. */
+    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
 /** The 28px footer band (renders nothing with nothing to say). */
-export function PlanFooter({ styles, items, transport, counts, pending, narrow }: PlanFooterProps) {
+export function PlanFooter({ styles, items, transport, counts, pending, narrow, recordSlice }: PlanFooterProps) {
     const words = usePlanWords();
     const { m } = words;
     // The Plan's own counts, in the order the footer reads them.
@@ -61,7 +65,7 @@ export function PlanFooter({ styles, items, transport, counts, pending, narrow }
         const today = stringEqual(words.date(saved), words.date(new Date()));
         own.push({ key: "saved", text: m.footerSaved({ when: today ? words.time(saved) : words.dateTime(saved) }) });
     }
-    if (own.length === 0 && items.length === 0 && transport === undefined) return null;
+    if (own.length === 0 && items.length === 0 && transport === undefined && recordSlice === undefined) return null;
     return (
         <Box css={styles.footer} data-slot="footer" data-builder-narrow={narrow === true ? "" : undefined} data-plan-narrow={narrow === true ? "" : undefined}>
             {own.map((count) => (
@@ -75,6 +79,7 @@ export function PlanFooter({ styles, items, transport, counts, pending, narrow }
                     </Box>
                 );
             })}
+            {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} />}
             {transport !== undefined && (
                 <Box css={styles.footerItem} data-end="" data-slot="footerTransport"
                     data-partial={transport.partial ? "" : undefined}>

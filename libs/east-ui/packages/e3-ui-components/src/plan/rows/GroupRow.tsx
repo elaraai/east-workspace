@@ -125,7 +125,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                 <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
                 </Box>
-                <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0} data-plan-gutter="label">{row.gutter.label}</Box>
+                <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{row.gutter.label}</Box>
                 {/* The mock's `.grow` anatomy: meta / dot / value cluster
                     pushed to the gutter's RIGHT edge by the flex spacer —
                     never inline beside the name. */}

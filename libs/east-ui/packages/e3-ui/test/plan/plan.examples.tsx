@@ -468,16 +468,6 @@ export const planTargetState = example({
     ],
     description: "The data flagship — every row kind on one axis from one raw ops source bound from e3, grouped by hall in one data step: a pinned KPI, bucket rows derived and stored in lanes, a group strip per hall, span rows with proposal flavours, decisions and ports, contracts rolling up by union and by status, links weighed by quantity, a collapsed section, cards and event rows, a table, a views series and literal rows; expand in place on a row of every kind, the series picked in the library's Series tab, a bound ui state the host drives beside the frame, popover, hover and every callback, slice chrome over a horizon an e3 task generates, and the Plan filling a bounded host; in a box under 480px the same canvas is its narrow layout (Groups · Rows · Measures)",
     fn: East.function([], UIComponentType, (_$) => {
-        const cfg = Slice.config(TargetHorizonRow, {
-            fields: {
-                at: { label: "Delivered", format: { date: "MMM D" } },
-                hall: { label: "Hall" },
-                risk: { label: "Risk", hints: ["late", "on-time"] },
-                sheets: { label: "Sheets" },
-            },
-            rangeFieldId: "at",
-            searchFieldIds: ["hall"],
-        });
 
         return (<Reactive>{$ => {
             // The ONE ops source, bound from e3 — every series reads it.
@@ -802,14 +792,20 @@ export const planTargetState = example({
             // counts are live over the horizon, never printed. A slice range
             // is CLOSED — both ends inclusive — so the twelve weeks W27–W38
             // end the millisecond before W39.
-            const slice = $.let(Slice.bind([TargetHorizonRow], "ex.plan.target", cfg, Slice.state({
-                range: some(variant("datetime", { from: week(27n), to: week(39n).addMilliseconds(-1n) })),
-                cohorts: [
-                    { id: "late", name: "Late risk", filters: [variant("string", { fieldId: "risk", op: variant("eq", "late") })] },
-                    { id: "empty", name: "Empty", filters: [variant("float", { fieldId: "sheets", op: variant("lte", 0.0) })] },
+            const slice = $.let(Slice.bind("ex.plan.target", horizon.read(), {
+                fields: {
+                    at: { label: "Delivered", format: { date: "MMM D" } },
+                    hall: { label: "Hall" },
+                    risk: { label: "Risk", hints: ["late", "on-time"] },
+                    sheets: { label: "Sheets" },
+                },
+                range: "at", search: "hall",
+                initial: { at: { from: week(27n), to: week(39n).addMilliseconds(-1n) } },
+                presets: [
+                    { id: "late", name: "Late risk", where: { risk: ["late"] }, active: true },
+                    { id: "empty", name: "Empty", where: { sheets: { lte: 0.0 } } },
                 ],
-                activeCohorts: new Set(["late"]),
-            }), horizon.read(), none));
+            }));
 
             // ── Expand in place ────────────────────────────────────────
             // ONE resolver serves every declaring row, called with the row's
@@ -1560,10 +1556,6 @@ export const planMeasures = example({
     ],
     description: "Measure rows over weekly readings bound from e3, at MONTH to start — chart rows (a line with its breach, an area, stacked columns, a scatter, every annotation, and a fixed dual-axis composition with its band and swatches), heat rows (colour depth under a hall averaging its presses on its scale with the no-data hatch, weight bars with a planned tail, status segments) and table rows (subtotals at every depth, footer emphasis with a negative and the em-dash, multi-value positions in every split × gutter combination); each row folds a month's weeks by what its values mean, or by its override (peak load by max, a running total and the paper stock by last, the dual chart's columns by mean), and the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK",
     fn: East.function([], UIComponentType, (_$) => {
-        const cfg = Slice.config(MeasureWeek, {
-            fields: { week: { label: "Week", format: { date: "MMM D" } } },
-            rangeFieldId: "week",
-        });
         return (<Reactive>{$ => {
             const measures = $.let(Data.bind(planMeasureReadings));
             // Monday of ISO week n, 2026 — twelve weeks, W23–W34.
@@ -1841,10 +1833,12 @@ export const planMeasures = example({
             // The resolution is the slice's, MONTH to start, and the window
             // its range. A slice range is CLOSED — both ends inclusive — so
             // the twelve weeks W23–W34 end the millisecond before W35.
-            const slice = $.let(Slice.bind([MeasureWeek], "ex.plan.measures", cfg, Slice.state({
-                range: some(variant("datetime", { from: week(23n), to: week(35n).addMilliseconds(-1n) })),
-                resolution: some(variant("month", null)),
-            }), weeks, none));
+            const slice = $.let(Slice.bind("ex.plan.measures", weeks, {
+                fields: { week: { label: "Week", format: { date: "MMM D" } } },
+                range: "week",
+                initial: { week: { from: week(23n), to: week(35n).addMilliseconds(-1n) } },
+                view: { resolution: some(variant("month", null)) },
+            }));
             const axis = $.const(Plan.axis({
                 window: { min: week(23n), max: week(35n) },
                 resolution: "month", resolutions: ["month", "week"], now: week(27n),
@@ -2421,10 +2415,6 @@ export const planNumberAxis = example({
     ],
     description: "The number axis over rows bound from e3 — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale, the horizon brush over the slice's integer range, read inclusive",
     fn: East.function([], UIComponentType, (_$) => {
-        const cfg = Slice.config(NumberHorizonRow, {
-            fields: { day: { label: "Day" }, hall: { label: "Hall" } },
-            rangeFieldId: "day",
-        });
         return (<Reactive>{$ => {
             const ops = $.let(Data.bind(planNumberOps));
             // The slice's horizon — twelve days of orders behind an eight-day
@@ -2489,9 +2479,10 @@ export const planNumberAxis = example({
             // range chip and the window keys write the slice's `integer` arm:
             // a closed range, both ends inclusive — the eight days `[1, 9)`
             // are `1–8`.
-            const slice = $.let(Slice.bind([NumberHorizonRow], "ex.plan.number", cfg, Slice.state({
-                range: some(variant("integer", { from: 1n, to: 8n })),
-            }), horizon.read(), none));
+            const slice = $.let(Slice.bind("ex.plan.number", horizon.read(), {
+                fields: { day: { label: "Day" }, hall: { label: "Hall" } },
+                range: "day", initial: { day: { from: 1n, to: 8n } },
+            }));
             // The declaration: `[1, 9)` ÷ 1 = eight day columns, the divider at 5.
             const axis = $.const(Plan.axis.number({
                 window: { min: 1, max: 9 }, step: 1, now: 5, format: Chart.format.number(),
@@ -2704,20 +2695,17 @@ export const slicePlanChrome = example({
     keywords: ["Slice", "Plan", "slice", "chrome", "filter", "search", "range", "brush", "timeline", "Data.bind", "bound", "e3.input"],
     description: "Ops plan — Plan with the `slice` chrome option over tasks bound from e3: a header rail (`filter`, `search`, `range`) plus the `brush` affordance — drag a window on the horizon strip to set the slice's range; rows fed explicitly via `Slice.rows` and re-keyed into the canvas's keyed collection",
     fn: East.function([], UIComponentType, (_$) => {
-        const cfg = Slice.config(SliceJob, {
-            fields: { task: { label: "Task" }, owner: { label: "Owner" }, start: { label: "Start" } },
-            searchFieldIds: ["task", "owner"],
-            rangeFieldId: "start",
-        });
         return (
             <Reactive>{$ => {
                 const tasks = $.let(Data.bind(planSliceJobs));
-                const slice = $.let(Slice.bind([SliceJob], "ex.slice.plan.chrome", cfg, Slice.state({
-                    filters: [variant("string", { fieldId: "owner", op: variant("eq", "Team A") })],
-                }), tasks.read(), none));
+                const slice = $.let(Slice.bind("ex.slice.plan.chrome", tasks.read(), {
+                    fields: { task: { label: "Task" }, owner: { label: "Owner" }, start: { label: "Start" } },
+                    search: ["task", "owner"], range: "start",
+                    initial: { owner: ["Team A"] },
+                }));
                 // The narrowed rows re-key into the canvas's keyed collection
                 // (#568) — the task name is the row identity here.
-                const narrowed = $.let(Slice.rows([SliceJob], slice));
+                const narrowed = $.let(Slice.rows(slice));
                 const jobs = $.let(narrowed.toDict((_$, j) => j.task, (_$, j) => j));
                 const series = $.const([
                     Plan.series.span(SliceJob, {

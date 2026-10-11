@@ -15,8 +15,9 @@
 
 import { useMemo } from "react";
 import { type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
+import { Slice, type RecordSliceChromeType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useSliceReactivity } from "@elaraai/east-ui-components";
+import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { resolveScale, sliceWindowOf } from "../axis.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanRootValue } from "../model.js";
@@ -30,6 +31,8 @@ export interface PlanWindow {
     chrome: boolean;
     /** The bound slice handle, when there is one. */
     slice: SliceBindValue | undefined;
+    /** The record arm, whose controls query the indexed source. */
+    recordChrome: ValueTypeOf<RecordSliceChromeType> | undefined;
     /** The declared affordance kinds. */
     affordances: readonly string[];
     /** The shared scale, or `undefined` when no window resolves. */
@@ -47,12 +50,14 @@ export interface PlanWindow {
 export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: PlanWords): PlanWindow {
     const decl = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const slice = decl !== undefined ? (decl.slice as SliceBindValue) : undefined;
+    const recordChrome = value.recordSlice?.type === "some" ? value.recordSlice.value : undefined;
+    const record = recordChrome?.slice;
     // Re-render on every write to the slice — the window and resolution are
     // its state, whoever wrote them.
-    useSliceReactivity(slice?.key);
+    useSliceReactivity(record?.key ?? slice?.key);
     const affordances = useMemo(
-        () => (decl !== undefined ? decl.affordances.map((a: { type: string }) => a.type) : []),
-        [decl],
+        () => (recordChrome ?? decl)?.affordances.map((a: { type: string }) => a.type) ?? [],
+        [recordChrome, decl],
     );
     const sliceState = slice !== undefined ? slice.read() : undefined;
     // Keyed on the DOMAIN NUMBERS, never on the range object. `slice.read()`
@@ -63,10 +68,13 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: 
     // busting `edges`, `resolveCoord`, `dropVeto` and so the drop cell's own
     // ref callback, so React detached and re-attached every registered cell on
     // every render of a slice-bound canvas.
-    const sliceWin = sliceWindowOf(sliceState, data.axis.type);
+    const recordWin = record === undefined ? undefined : recordSliceWindow(record);
+    const recordFits = recordWin !== undefined && (data.axis.type === "time" ? recordWin.kind === "datetime" : data.axis.type === "number" && recordWin.kind !== "datetime");
+    const sliceWin = recordFits ? [recordWin.min, recordWin.max] : sliceWindowOf(sliceState, data.axis.type);
     const sliceFromN = sliceWin?.[0];
     const sliceToN = sliceWin?.[1];
-    const sliceResolution = sliceState !== undefined ? getSomeorUndefined(sliceState.resolution)?.type : undefined;
+    const state = record?.read() ?? sliceState;
+    const sliceResolution = state !== undefined ? getSomeorUndefined(state.resolution)?.type : undefined;
     // `resolveScale` owns the ladder: the slice's range ▸ the stated window,
     // per axis kind. The rows are no input (#822), so windows landing keep
     // one scale rather than handing every mounted row a new one (#812).
@@ -76,5 +84,5 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: 
         sliceResolution,
         words,
     }), [data.axis, sliceFromN, sliceToN, sliceResolution, words]);
-    return { chrome: decl !== undefined, slice, affordances, scale };
+    return { chrome: decl !== undefined || recordChrome !== undefined, slice, recordChrome, affordances, scale };
 }

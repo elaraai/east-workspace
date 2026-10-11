@@ -18,15 +18,15 @@
  * @packageDocumentation
  */
 
-import { timeAxisText, timeHeaderText } from "../time/axis.js";
+import { timeRulerBase, timeHeaderText } from "../time/axis.js";
 import { builderFooter, builderFooterItem } from "../builder-footer.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const shellSlots = [
-    "root", "frame", "brushRow",
-    "brushCaption", "horizonLens", "ruler", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
+    "root", "frame", "body", "header", "brushTrack", "brushRow",
+    "brushCaption", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry",
     "cursorLine", "cursorChip", "elementOverlay",
@@ -42,6 +42,12 @@ export const shellBase = {
         minWidth: 0,
         fontVariantNumeric: "tabular-nums",
     },
+    body: {
+        outline: "none", position: "relative", width: "100%", minWidth: 0, flex: "none",
+        "&[data-plan-bounded]": { display: "flex", flexDirection: "column", flex: "1", minHeight: 0 },
+    },
+    header: { background: "bg.surface" },
+    brushTrack: { minWidth: 0 },
     // ── The Plan's frame (#1193): what wraps its `BuilderFrame`, carrying
     // the canvas's geometry variables, which the canvas, the toolbar's
     // items and the footer all read. A Plan that declares no bound adds no
@@ -88,6 +94,8 @@ export const shellBase = {
         display: "grid",
         alignItems: "stretch",
         height: "var(--plan-ruler-h)",
+        "&[data-time]": { height: "calc(2 * var(--plan-ruler-h) + 1px)" },
+        "--time-ruler-row-h": "var(--plan-ruler-h)",
         background: "bg.panel",
         borderBottomWidth: "1px",
         borderBottomColor: "border.strong",
@@ -103,38 +111,8 @@ export const shellBase = {
         // clips for the same reason — see `plot`.)
         overflow: "clip",
     },
-    // A tick — the header row's one style (#949): mono 10 / 600, uppercase,
-    // the label ink, as the gutter caption beside it. Its label is drawn
-    // whole: where the columns are narrower than their labels the ruler draws
-    // every k-th (#1269, `data-thinned` on the rest), and a label may run past
-    // its column into the blank ones beside it, so the tick clips nothing.
-    // The first and the last sit against the track's ends (`data-align`).
-    rulerTick: {
-        ...timeAxisText,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        whiteSpace: "nowrap",
-        overflow: "visible",
-        minWidth: 0,
-        position: "relative",
-        "&[data-align='start']": { justifyContent: "flex-start" },
-        "&[data-align='end']": { justifyContent: "flex-end" },
-        "&[data-thinned] > [data-tick-label]": { visibility: "hidden" },
-        // No border: the ruler's bucket lines are the rows' own separators
-        // (`GridSeparators`, drawn over the ticks), so the two can never sit
-        // a pixel apart.
-    },
-    // A tick's label, the desktop ruler's and the narrow layout's: on a
-    // knockout of the ruler's paper, above the bucket lines it runs past, so
-    // no line strikes through its letters (#1269).
-    rulerLabel: {
-        position: "relative",
-        zIndex: 1,
-        padding: "0 1px",
-        background: "bg.panel",
-        whiteSpace: "nowrap",
-    },
+    rulerTrack: { position: "relative", minWidth: 0, overflow: "clip" },
+    ...timeRulerBase,
     // One shared status rail in Plan and Calendar.
     footer: { ...builderFooter, minHeight: "var(--plan-footer-h)" },
     footerItem: builderFooterItem,
@@ -361,6 +339,7 @@ export const shellBase = {
     },
     cursorChip: {
         position: "absolute",
+        top: "50%",
         transform: "translateX(-50%)",
         fontFamily: "mono",
         fontSize: "9.5px",

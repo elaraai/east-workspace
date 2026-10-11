@@ -318,6 +318,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     dropCaption: (p: { what: string; where: string; day: string; time: string | undefined }) => string;
     /** Why an event can't land on a row: its kind is placed on other resource kinds — `Needs presses`, their names lowercased; none, on no resource. */
     dropNeeds: (p: { resources: readonly string[] }) => string;
+    /** The resource matches, but this sub-row displays a different event kind. */
+    dropNeedsRow: (p: { kind: string }) => string;
     /** Why an event can't change now: its kind's record is not read yet, or a Save of it is under way — `kind` its name. */
     dropBusy: (p: { kind: string }) => string;
     /** Why a drop the kind's own write refuses can't land. */
@@ -643,6 +645,7 @@ export const planMessages: PlanMessages = {
 
     dropCaption: ({ what, where, day, time }) => `${what} · ${where} · ${time === undefined ? day : `${day} · ${time}`}`,
     dropNeeds: ({ resources }) => (resources.length === 0 ? "Goes on no resource" : `Needs ${joined(resources, "or")}`),
+    dropNeedsRow: ({ kind }) => `Drop on ${withArticle(kind)} row`,
     dropBusy: ({ kind }) => `${kind} can't change now`,
     dropRefused: () => "Can't go here",
     dropCardOnEvent: ({ card, event }) => `${card} → ${event}`,

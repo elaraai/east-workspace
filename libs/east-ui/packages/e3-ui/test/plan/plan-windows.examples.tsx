@@ -155,10 +155,6 @@ export const planWindows = example({
     ],
     description: "A Plan read a window at a time — 2,000 presses paged 200 to a window as the canvas scrolls (`Schedule.resources` over `Data.bindPaged`, the key search seeking a press), and the jobs read through the record's day index, only the days in view, with the backlog through its index of jobs with no start and one job by its key through the record's own entries (`Schedule.events`' `window`, `backlogWindow` and `entries`) — its editing a session over the record's revision, never the record whole",
     fn: East.function([], UIComponentType, (_$) => {
-        const cfg = Slice.config(PlanWindowDay, {
-            fields: { day: { label: "Day", format: { date: "MMM D" } } },
-            rangeFieldId: "day",
-        });
         return (<Reactive>{$ => {
             const presses = $.let(Data.bindPaged(planWindowPresses));
             const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
@@ -168,9 +164,11 @@ export const planWindows = example({
             // The four weeks the slice runs over, two in view to start; a pan moves the window a day.
             const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
             const days = $.let(East.Array.generate(28n, PlanWindowDay, (_$2, i) => ({ day: first.addDays(i) })));
-            const slice = $.let(Slice.bind([PlanWindowDay], "ex.plan.windows", cfg, Slice.state({
-                range: some(variant("datetime", { from: first, to: first.addDays(14n).addMilliseconds(-1n) })),
-            }), days, none));
+            const slice = $.let(Slice.bind("ex.plan.windows", days, {
+                fields: { day: { label: "Day", format: { date: "MMM D" } } },
+                range: "day",
+                initial: { day: { from: first, to: first.addDays(14n).addMilliseconds(-1n) } },
+            }));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },
                 resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
@@ -182,7 +180,8 @@ export const planWindows = example({
                     axis={axis}
                     resources={{
                         presses: Schedule.resources(presses, {
-                            name: "Presses", icon: "print", label: p => p.name, sub: p => some(p.hall),
+                            name: "Presses", icon: "print", label: p => p.name,
+                            sub: (p, key) => some(East.str`${key} · ${p.hall}`),
                         }),
                     }}
                     events={{

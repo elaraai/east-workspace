@@ -762,9 +762,9 @@ describe("the windows' types and their refusals", () => {
         const days = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
         const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($) })),
-            /^Schedule\.events: "Print job": `window` reads the days in view, so the record is never read whole — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it, Data\.bindPaged\(record\), the record's own entries$/);
+            /^Schedule\.events: "Print job": an indexed kind reads only the window — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it, Data\.bindPaged\(record\), the record's own entries$/);
         assert.match(refusal(($) => kindWith($, { entries: entries($) })),
-            /^Schedule\.events: "Print job": `entries` reads one event by its key beside `window` — and this kind has no `window`, so it reads its record whole, every event with it$/);
+            /^Schedule\.events: "Print job": `entries` reads one event by its key beside `window` or record `slice` — give one of those with it$/);
         // An index's window, the entries whole, and another record's entries.
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: days($) })),
             /^Schedule\.events: "Print job": `entries` reads the record's own entries by key — Data\.bindPaged\(record\), a window at a time of \.Dict.* — and this one serves an index's window, /);

@@ -16,6 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
+import { timeHeaderText } from "../time/axis.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
@@ -39,6 +40,7 @@ export const rowsBase = {
         borderBottomWidth: "var(--plan-rule-h)",
         borderBottomColor: "border.subtle",
         background: "bg.surface",
+        "&[data-collapsible]": { background: "bg.panel" },
         // The last visible member of an open group (#949): a closing rule
         // in the strong ink, so the rows after it read as outside it.
         "&[data-group-end]": { borderBottomColor: "border.strong" },
@@ -201,6 +203,7 @@ export const rowsBase = {
         display: "flex",
         alignItems: "center",
         gap: "6px",
+        "&[data-collapsible]": { ...timeHeaderText },
         // In a strip every name reads as an id — one 10px mono line is
         // all 16px can carry, and uniformity is what makes the stack
         // scannable.
@@ -275,8 +278,9 @@ export const rowsBase = {
     // The unit slot in the right cluster — mono 10 / 400 in the label ink
     // (#949), box-centred (never baseline-aligned against the name).
     gutterMeta: {
-        fontFamily: "mono",
-        fontSize: "10px",
+        textStyle: "mono.xs",
+        textTransform: "none",
+        letterSpacing: "normal",
         fontWeight: "normal",
         color: "fg.subtle",
         whiteSpace: "nowrap",
@@ -568,16 +572,10 @@ export const rowsBase = {
         "&[data-group-end]": { borderBottomColor: "border.strong" },
         ...planRowFocus,
     },
-    // A group's label (#949) — below the column header in the label order:
-    // 9.5 / 600, 0.16em, the label ink.
+    // Every collapsible heading uses the same band caption, including charts and nested rows.
     groupName: {
+        ...timeHeaderText,
         position: "relative",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "semibold",
-        letterSpacing: "0.16em",
-        textTransform: "uppercase",
-        color: "fg.subtle",
         display: "flex",
         alignItems: "center",
         gap: "6px",

@@ -58,7 +58,7 @@
  * view, as the desktop canvas scrolls to the row.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Box, Tabs } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronRight } from "@fortawesome/free-solid-svg-icons";
@@ -147,7 +147,7 @@ export interface PlanNarrowProps {
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
-const selectNav = (s: PlanSnapshot) => s.scroll.nav;
+const selectScroll = (s: PlanSnapshot) => s.scroll;
 
 /** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
@@ -245,18 +245,37 @@ export function PlanNarrow({
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `membersMeta` reads only `words`, which is a dependency
     }, [scope, index, ungrouped, hasGroups, derived, partial, words]);
 
+    // Keep the last revealed row by key. Prefetch may prepend an earlier
+    // window: a fixed count would then remove the card the reader jumped to,
+    // defeating native scroll anchoring and paging back towards the start.
+    const sectionRows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
+    const pageEnd = useRef<{ scope: RowKey | null; key: RowKey | undefined; requested: number } | undefined>(undefined);
+    const previous = pageEnd.current;
+    const end = previous?.scope === scope ? sectionRows.findIndex((row) => row.key === previous.key) : -1;
+    const rowLimit = Math.max(reveal.rows, end >= 0 ? end + 1 + Math.max(0, reveal.rows - previous!.requested) : 0);
+    useLayoutEffect(() => {
+        if (activeTab === "rows") pageEnd.current = {
+            scope, key: sectionRows[Math.min(rowLimit, sectionRows.length) - 1]?.key, requested: reveal.rows,
+        };
+    }, [activeTab, scope, sectionRows, rowLimit, reveal.rows]);
+
     // ── A row asked for from outside the canvas (#1198) ───────────────────
     // Its group opened on the Rows tab, the list paged to it, and its card
     // scrolled into view once drawn. A request made before the list mounted
     // is the desktop canvas's, already served.
-    const nav = usePlanSelector(selectNav);
-    const served = useRef(nav?.seq);
+    const scroll = usePlanSelector(selectScroll);
+    const requested = scroll.owner === "search" ? scroll.targetKey : scroll.owner === "nav" ? scroll.nav?.row : undefined;
+    const request = requested === undefined ? undefined
+        : `${scroll.owner}:${scroll.owner === "search" ? scroll.searchSeq : scroll.nav?.seq}`;
+    const served = useRef(request);
     const [revealing, setRevealing] = useState<RowKey | undefined>(undefined);
-    useEffect(() => {
-        if (nav === undefined || nav.seq === served.current) return;
-        served.current = nav.seq;
-        const row = nav.row !== undefined ? index.byKey.get(nav.row) : undefined;
+    // Reveal before the parent releases the paging jump after commit. Otherwise
+    // the old cards report their viewport and pull residency back to that window.
+    useLayoutEffect(() => {
+        if (request === undefined || request === served.current || requested === undefined) return;
+        const row = index.byKey.get(requested);
         if (row === undefined) return;
+        served.current = request;
         let root = row;
         for (let up = row.parent; up.type === "some";) {
             const parent = index.byKey.get(up.value);
@@ -264,24 +283,25 @@ export function PlanNarrow({
             root = parent;
             up = parent.parent;
         }
-        const scoped = root.key !== row.key && root.kind.type === "group" ? root.key : hasGroups ? OTHER_SCOPE : null;
+        const scoped = row.kind.type === "group" ? row.key
+            : root.key !== row.key && root.kind.type === "group" ? root.key : hasGroups ? OTHER_SCOPE : null;
         const list = scoped === null ? allDataRows(index)
             : scoped === OTHER_SCOPE ? ungrouped.flatMap((r) => [r, ...dataRowsUnder(index, r.key)])
                 : dataRowsUnder(index, scoped);
-        const at = list.findIndex((r) => r.key === row.key);
+        const at = row.kind.type === "group" ? 0 : list.findIndex((r) => r.key === row.key);
         if (at < 0) return;
         setTab("rows");
         setScope(scoped);
         setReveal((r) => ({ ...r, rows: Math.max(r.rows, (Math.floor(at / PAGE_ROWS) + 1) * PAGE_ROWS) }));
         setRevealing(row.key);
-    }, [nav, index, ungrouped, hasGroups]);
+    }, [request, requested, index, ungrouped, hasGroups]);
 
     // ── Two-finger pan (§10) — one whole period per period width crossed ──
     const listRef = useRef<HTMLDivElement | null>(null);
     useLayoutEffect(() => {
         if (revealing === undefined) return;
-        const card = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-plan-card]") ?? [])]
-            .find((el) => el.getAttribute("data-plan-card") === revealing);
+        const card = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-plan-card], [data-plan-scope]") ?? [])]
+            .find((el) => (el.getAttribute("data-plan-card") ?? el.getAttribute("data-plan-scope")) === revealing);
         card?.scrollIntoView({ block: "nearest" });
         setRevealing(undefined);
     }, [revealing]);
@@ -414,7 +434,7 @@ export function PlanNarrow({
         const scopeValue = scopeGroup !== undefined && scopeGroup.gutter.value.type === "some" ? scopeGroup.gutter.value.value : undefined;
         // ONE page across every section: a section prints its header once it
         // has a card to show, and the load-more counts what is left overall.
-        let budget = reveal.rows;
+        let budget = rowLimit;
         const body: ReactNode[] = [];
         for (const s of sections) {
             if (budget <= 0) break;
@@ -438,11 +458,11 @@ export function PlanNarrow({
             }
             for (const row of shown) body.push(renderRowCard(row, false));
         }
-        const rest = total - (reveal.rows - Math.max(0, budget));
+        const rest = total - (rowLimit - Math.max(0, budget));
         list = (
             <>
                 {(scopeGroup !== undefined || scope === OTHER_SCOPE) && (
-                    <Box css={styles.narrowScope} data-slot="narrowScope">
+                    <Box css={styles.narrowScope} data-slot="narrowScope" data-plan-scope={scopeGroup?.key}>
                         {hasGroups && (
                             <Box as="button" css={styles.narrowBack} data-plan-back=""
                                 onClick={() => { setScope(null); setTab(groupsIndex ? "groups" : "rows"); }}>

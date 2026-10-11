@@ -11,11 +11,12 @@
  * @packageDocumentation
  */
 
-import { useRef } from "react";
+import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanScale } from "../context.js";
-import { startsPeriod, useRulerFit } from "../shell/use-ruler-fit.js";
+import { usePlanWords } from "../words.js";
+import { TimeRulerRow, timeRulerUnits } from "../../shared/time/ruler.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -39,26 +40,16 @@ type Styles = Record<string, Record<string, unknown>>;
  */
 export function NarrowRuler({ styles }: { styles: Styles }) {
     const scale = usePlanScale();
-    const trackRef = useRef<HTMLDivElement | null>(null);
+    const words = usePlanWords();
+    const units = useMemo(() => timeRulerUnits(scale, words), [scale, words]);
     const nowIndex = scale.nowFrac === undefined ? undefined
         : scale.buckets.find((b) => scale.nowFrac! >= b.x0 && scale.nowFrac! < b.x1)?.index;
-    const placed = useRulerFit(trackRef, scale, nowIndex);
-    const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
+    const rulerStyles = { ...styles, rulerTick: styles.narrowRulerTick ?? {} };
     return (
-        <Box css={styles.narrowRuler} data-slot="narrowRuler">
-            <Box ref={trackRef} css={styles.narrowRulerTrack} gridTemplateColumns={columns}>
-                {scale.buckets.map((b, i) => {
-                    const align = placed?.align[i] ?? "centre";
-                    return (
-                        <Box key={b.index} css={styles.narrowRulerTick} data-slot="narrowRulerTick"
-                            data-now={b.index === nowIndex ? "" : undefined}
-                            data-period-start={startsPeriod(scale, b) ? "" : undefined}
-                            data-thinned={placed !== undefined && !placed.shown[i] ? "" : undefined}
-                            data-align={align !== "centre" ? align : undefined}>
-                            <Box as="span" css={styles.rulerLabel} data-tick-label="">{b.label}</Box>
-                        </Box>
-                    );
-                })}
+        <Box css={styles.narrowRuler} data-slot="narrowRuler" data-time={units !== undefined ? "" : undefined}>
+            <Box css={styles.narrowRulerTrack}>
+                {units !== undefined && <TimeRulerRow scale={units} styles={rulerStyles} band="units" owner="plan-narrow" />}
+                <TimeRulerRow scale={scale} styles={rulerStyles} band="ticks" owner="plan-narrow" highlight={nowIndex} />
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} />}
             </Box>
         </Box>

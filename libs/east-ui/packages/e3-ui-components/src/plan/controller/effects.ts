@@ -27,11 +27,11 @@
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { boundRangeDomain } from "@elaraai/east-ui-components/internal";
+import { boundRangeDomain, recordSliceWindow, setRecordSliceWindow, clearRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { resolutionInterval } from "../../shared/time/scale.js";
 import { axisNow, axisStatesWindow, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "../axis.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
-import { timeInstant, type PlanInstantValue } from "../instant.js";
+import { instantOrder, timeInstant, type PlanInstantValue } from "../instant.js";
 import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 
@@ -55,10 +55,14 @@ export function sliceOf(value: PlanRootValue): SliceBindValue | undefined {
 export function currentScale(value: PlanRootValue): PlanScale | undefined {
     const slice = sliceOf(value);
     const state: SliceStateValue | undefined = slice !== undefined ? slice.read() : undefined;
+    const record = value.recordSlice?.type === "some" ? value.recordSlice.value.slice : undefined;
+    const window = record === undefined ? undefined : recordSliceWindow(record);
+    const fits = window !== undefined && (value.axis.type === "time" ? window.kind === "datetime" : value.axis.type === "number" && window.kind !== "datetime");
+    const resolution = record?.read().resolution ?? state?.resolution;
     return resolveScale({
         axis: value.axis,
-        sliceWindow: sliceWindowOf(state, value.axis.type),
-        sliceResolution: state !== undefined ? getSomeorUndefined(state.resolution)?.type : undefined,
+        sliceWindow: fits ? [window.min, window.max] : sliceWindowOf(state, value.axis.type),
+        sliceResolution: resolution === undefined ? undefined : getSomeorUndefined(resolution)?.type,
     });
 }
 
@@ -83,10 +87,16 @@ function writeWindow(slice: SliceBindValue, scale: PlanScale, min: PlanInstantVa
 export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootValue): void {
     for (const eff of effects) {
         const slice = sliceOf(value);
+        const record = value.recordSlice?.type === "some" ? value.recordSlice.value.slice : undefined;
+        const bound = slice !== undefined || record !== undefined;
+        const write = (scale: PlanScale, min: PlanInstantValue, max: PlanInstantValue) => {
+            if (record !== undefined) setRecordSliceWindow(record, instantOrder(min), instantOrder(max));
+            else if (slice !== undefined) writeWindow(slice, scale, min, max);
+        };
         switch (eff.t) {
             case "slice.setRange": {
-                const scale = slice !== undefined ? currentScale(value) : undefined;
-                if (slice !== undefined && scale !== undefined) writeWindow(slice, scale, eff.min, eff.max);
+                const scale = bound ? currentScale(value) : undefined;
+                if (scale !== undefined) write(scale, eff.min, eff.max);
                 break;
             }
             case "slice.clearRange":
@@ -94,18 +104,28 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 // axis that states none takes its window FROM the range
                 // (#822), so clearing it would leave the canvas nothing to
                 // draw on: the brush moves that window, and never removes it.
-                if (slice !== undefined && axisStatesWindow(value.axis)) slice.setRange(none);
+                if (axisStatesWindow(value.axis)) {
+                    if (record !== undefined) clearRecordSliceWindow(record);
+                    else slice?.setRange(none);
+                }
                 break;
             case "slice.setResolution": {
                 // A resolution is a TIME-axis fact — the segment only mounts
                 // there (a number axis has `step`; an ordinal list no unit).
-                if (slice === undefined) break;
+                if (!bound) break;
                 const scale = currentScale(value);
                 if (scale === undefined || scale.kind !== "time" || scale.window.min.type !== "time") break;
                 // Zoom to the new resolution keeping the CURRENT column count
                 // (12 weeks showing → DAY shows 12 days), anchored at the window
                 // start on the new period edges — ONE write for both, the
                 // window closed as every window write is (`rangeOf`).
+                // A record's resolution only re-buckets the canvas. Its date
+                // range remains the narrowing; zooming must not fetch new rows.
+                if (record !== undefined) {
+                    record.setResolution(some(variant(eff.resolution, null)) as Parameters<typeof record.setResolution>[0]);
+                    break;
+                }
+                if (slice === undefined) break;
                 const interval = resolutionInterval(eff.resolution as PlanResolution);
                 const from = interval.floor(scale.window.min.value);
                 const to = interval.offset(from, scale.n);
@@ -139,7 +159,7 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 // The now instant is an AXIS fact, so reaching it means moving
                 // the WINDOW — slice state. An unbound canvas has no writable
                 // window, so the rung idles there, like the resolution segment.
-                if (slice === undefined) break;
+                if (!bound) break;
                 const scale = currentScale(value);
                 const nowInstant = axisNow(value.axis);
                 if (scale === undefined || nowInstant === undefined) break;
@@ -147,14 +167,14 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 // count, now a third of the way in (ahead is where the plan
                 // lives) — snap + `n` periods on the scale's own domain.
                 const from = scale.offset(scale.floor(nowInstant), -Math.floor(scale.n / 3));
-                writeWindow(slice, scale, from, scale.offset(from, scale.n));
+                write(scale, from, scale.offset(from, scale.n));
                 break;
             }
             case "pan": {
-                if (slice === undefined) break;
+                if (!bound) break;
                 const scale = currentScale(value);
                 if (scale === undefined) break;
-                writeWindow(slice, scale, scale.offset(scale.window.min, eff.buckets), scale.offset(scale.window.max, eff.buckets));
+                write(scale, scale.offset(scale.window.min, eff.buckets), scale.offset(scale.window.max, eff.buckets));
                 break;
             }
         }

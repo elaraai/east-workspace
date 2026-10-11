@@ -31,6 +31,10 @@ export const elementsSlots = [
 /** An element that moves (#825) is picked up where it sits. */
 const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleObject;
 
+/** Hide text below one whole mono glyph plus an ellipsis. Quantities follow
+ * the label: removing only the label promotes a clipped quantity into its line. */
+const hideShortText = { "@container (width < 2ch)": { display: "none" } } satisfies SystemStyleObject;
+
 /** Their base styles. */
 export const elementsBase = {
     // ── Span bars — base geometry; `data-state` drives the truth table ──
@@ -121,12 +125,13 @@ export const elementsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        "@container (width < 2ch)": { display: "none" },
+        ...hideShortText,
     },
     // A span's quantity — the label's own weight (#949: one weight per span).
     // It never shrinks: when it does not fit beside the label it wraps out of
     // the bar's line, whole (#1258).
     barQty: {
+        ...hideShortText,
         opacity: 0.72,
         fontWeight: "semibold",
         flexShrink: 0,
@@ -185,7 +190,7 @@ export const elementsBase = {
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        "@container (width < 2ch)": { display: "none" },
+        ...hideShortText,
     },
     // Quantity in/out port glyph on a span row.
     port: {
@@ -295,6 +300,12 @@ export const elementsBase = {
         // the 24px buttons and a 4px gap.
         "[data-plan-controls='1'] &": { right: "40px" },
         "[data-plan-controls='2'] &": { right: "64px" },
+        // An automatic maximum stays on the heading line at every chart height,
+        // with real flex space so it cannot collide with the title or controls.
+        "&[data-compact]": {
+            position: "static", transform: "none", marginInlineStart: "auto", paddingInlineStart: "8px",
+            textStyle: "mono.xs", fontWeight: "normal", letterSpacing: "normal", textTransform: "none", flexShrink: 0,
+        },
     },
     chartTickRight: {
         position: "absolute",

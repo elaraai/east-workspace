@@ -23,14 +23,14 @@
  *
  * The k-th match is NOT the k-th row of that run: a series emits any number of
  * canvas rows per source element, so the element delta the control steps by is
- * not a row delta (#582). A jump LOADS to the target element and the canvas
- * holds the first match.
+ * not a row delta (#582). A jump reads the target element's key, loads its
+ * window and reveals the first canvas row belonging to that exact match.
  *
  * @packageDocumentation
  */
 
 import { StringType, parseFor, type EastTypeValue } from "@elaraai/east";
-import type { DatasetKeyMatchRange, DatasetKeyQuery } from "@elaraai/east-ui-components";
+import type { DatasetKeyMatchRange, DatasetKeyQuery, DatasetKeySearchProps } from "@elaraai/east-ui-components";
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface PlanSearch {
@@ -47,9 +47,8 @@ export interface PlanSearch {
      *  query the control holds asked again at a new snapshot: the view stays
      *  where it is. */
     find: (query: DatasetKeyQuery, again?: boolean) => Promise<DatasetKeyMatchRange>;
-    /** Label the popup from the LOADED head of the match run (anchored by the
-     *  sought key; empty until the target's windows land). */
-    listRange: (row: number, limit: number) => Promise<string[]>;
+    /** Read the bounded head of the match run from the source, preserving each entry's position. */
+    listRange: DatasetKeySearchProps["onListRange"];
     /** Jump to match at global element `row`. */
     jump: (row: number) => void;
     /** Drop the query and its jump target. */
