@@ -3,7 +3,6 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { hostname } from 'node:os';
 import { unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Command } from 'commander';
@@ -31,11 +30,6 @@ function guarded<A extends unknown[]>(action: (...args: A) => Promise<void>): (.
   return async (...args) => { try { await action(...args); } catch (error) { exitError(formatError(error)); } };
 }
 function shellArg(value: string): string { return /^[a-zA-Z0-9_:/.,@+-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`; }
-function instanceName(): string {
-  let name = hostname().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  if (!/^[a-z]/.test(name)) name = `host-${name}`;
-  return name.slice(0, 24).replace(/-+$/, '') || 'local';
-}
 
 async function configured(client: HubClient, flags: ConfigFlags): Promise<HubConfig> {
   const config = { ...await client.getConfig() };
@@ -58,7 +52,9 @@ function printFleet(status: Status): void {
   for (const rack of status.racks) {
     const capacity = status.capacity.racks.find((entry) => entry.rackId === rack.rackId);
     const bundled = bundledE3Version(rack.agentVersion);
-    const state = capacity?.pendingApproval ? 'pending-approval' : !capacity?.healthy ? 'stale'
+    const state = rack.lastBootId.type === 'none' ? 'enrolled-not-started'
+      : capacity?.pendingApproval ? 'pending-approval' : !capacity?.healthy ? 'stale'
+      : rack.tiers.length === 0 ? 'no-runtimes'
       : bundled === null ? 'incompatible: bundled e3 unknown'
         : !agentVersionAtLeast(bundled, E3_RACK_VERSION) ? `incompatible: agent e3 ${bundled} < project e3 ${E3_RACK_VERSION}` : 'ready';
     console.log(`${rack.label}  ${rack.rackId.slice(0, 12)}  ${rack.tiers.join(',')}  ${Number(capacity?.busy ?? 0n)}/${Number(rack.capacity)}  ${rack.agentVersion}  ${bundled ?? '?'}  ${printFor(DateTimeType)(rack.lastSeenAt)}  ${state}`);
@@ -128,34 +124,32 @@ export function createRackCommand(): Command {
       console.log(`Listen: ${config.listen.type === 'some' ? `${config.listen.value.host}:${Number(config.listen.value.port)}` : 'off'}`);
       console.log(`Allow: ${config.allow.join(', ') || 'all'}\nIdle-exit: ${Number(config.idleExitMinutes)} min\nAdvertise URL: ${config.advertiseUrl.type === 'some' ? config.advertiseUrl.value : 'listener origin'}`);
     }));
-  rack.command('enroll').description('Print an install command enrolling a separate rack-agent instance against this machine')
-    .option('--label <label>', 'Rack label').option('--listen <host:port>', 'VPN/LAN listener address')
-    .option('--allow <ip,...>', 'Allowed rack IP addresses').option('--instance <name>', 'Separate rack-agent instance (default: this hostname)')
-    .option('--tiers <list>', 'Stock runtime images', 'node,py').option('--ttl <min>', 'Single-use enrollment lifetime', '15')
-    .option('--max-vms <n>', 'Concurrent VMs for this instance (not a CPU/memory reservation)', '2')
-    .option('--gpus <selection>', 'GPU selection for this instance', 'none').option('--no-wait', 'Print the command and return')
-    .action(guarded(async (flags: ConfigFlags & { label?: string; instance?: string; tiers: string; ttl: string; wait: boolean; maxVms: string; gpus: string }) => {
-      const instance = flags.instance ?? instanceName();
-      if (!/^[a-z][a-z0-9-]{0,23}$/.test(instance)) throw new Error('--instance must start with a lowercase letter and use up to 24 lowercase letters, digits or hyphens');
-      const tiers = flags.tiers.split(',');
-      if (tiers.length === 0 || tiers.some((tier) => !['node', 'py', 'py-datascience', 'c', 'full'].includes(tier))) throw new Error('Unknown --tiers runtime');
-      const maxVms = integer(flags.maxVms, '--max-vms');
+  rack.command('enroll').description('Print a single-use token for interactive enrollment inside a prepared rack worker VM')
+    .option('--label <label>', 'Wait for a new registration with this worker label').option('--listen <host:port>', 'VPN listener address')
+    .option('--allow <ip,...>', 'Allowed rack IP addresses').option('--ttl <min>', 'Single-use enrollment lifetime', '15')
+    .option('--no-wait', 'Print the enrollment handoff and return')
+    .addHelpText('after', '\nConfigure worker resources, runtime tiers and GPU allocation on the rack host. Enrollment does not start an agent or authorize task execution.')
+    .action(guarded(async (flags: ConfigFlags & { label?: string; ttl: string; wait: boolean }) => {
       const client = await connectHub({ log: console.log });
       const config = await configured(client, flags);
       if (config.listen.type === 'none') throw new Error('Configure a reachable address: e3 rack enroll --listen <vpn-ip>:7331');
       const before = new Set((await client.status()).racks.map((rack) => rack.rackId));
       const mint = await client.enroll({ label: flags.label === undefined ? none : some(flags.label), ttlMinutes: some(BigInt(integer(flags.ttl, '--ttl', 1, 1440))) });
-      const args = ['--instance', instance, '--api-url', mint.apiUrl, '--token', mint.enrollmentToken, '--e3-version', mint.e3Version,
-        '--tiers', flags.tiers, '--max-vms', String(maxVms), '--gpus', flags.gpus, ...(flags.label === undefined ? [] : ['--label', flags.label])];
-      console.log(`Enrollment token for this machine (single use, expires ${printFor(DateTimeType)(mint.expiresAt)}).\nOn the rack host run:\n\n  sudo ./e3-rack install ${args.map(shellArg).join(' ')}\n`);
+      const executable = shellArg(`/opt/e3-rack/releases/${mint.e3Version}/e3-rack`);
+      const allocation = "'/var/lib/e3-rack/<agent-uuid>/allocation.json'";
+      const vpnHttp = mint.apiUrl.startsWith('http:') ? ' --allow-vpn-http' : '';
+      console.log(`Single-use enrollment (expires ${printFor(DateTimeType)(mint.expiresAt)} UTC).\nSource origin: ${mint.apiUrl}\nMatching e3-rack release: ${mint.e3Version}\nEnrollment token: ${mint.enrollmentToken}\n\nInside the prepared worker VM, using the verified matching release:\n  sudo ${executable} configure --allocation ${allocation}${vpnHttp}\n  sudo ${executable} enroll --allocation ${allocation}${vpnHttp}\n\nUse the host-provisioned allocation path. Enter the source origin during configure and the token at enroll's hidden prompt; do not put them in shell arguments or plaintext files.${flags.label === undefined ? '' : '\nUse the same worker label in configure as supplied to --label.'}${vpnHttp ? '\nHTTP requires an authenticated VPN and host authorization for this exact endpoint.' : ''}\nEnrollment does not start the agent or enable task claims. Worker provisioning, service activation and capacity admission are separate steps.\n`);
       if (!flags.wait) return;
       while (Date.now() < mint.expiresAt.getTime()) {
         const status = await client.status();
-        const enrolled = status.racks.find((rack) => !before.has(rack.rackId) && rack.healthy && rack.lastBootId.type === 'some' && (flags.label === undefined || rack.label === flags.label));
-        if (enrolled !== undefined) { console.log(`✓ ${enrolled.label} enrolled — runtimes ${enrolled.tiers.join(',')} · ${Number(enrolled.capacity)} slots · agent ${enrolled.agentVersion}`); printFleet(status); return; }
+        const enrolled = status.racks.find((rack) => !before.has(rack.rackId) && (flags.label === undefined || rack.label === flags.label));
+        if (enrolled !== undefined) {
+          console.log(`New registration observed: ${enrolled.label} (${enrolled.rackId}). Check the worker's enrollment result; this does not confirm activation or task readiness.`);
+          printFleet(status); return;
+        }
         await delay(Math.min(2000, Math.max(1, mint.expiresAt.getTime() - Date.now())));
       }
-      throw new Error('Enrollment token expired; run e3 rack enroll again');
+      throw new Error('No matching new registration observed before token expiry; inspect the worker enrollment result and e3 rack list before minting another token');
     }));
 
   // A repository precedes the verb for consistency with the issue's CLI:

@@ -13,6 +13,7 @@ import { East, IntegerType, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { LocalStorage, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
+import { RackEnrollRequestType, RackEnrollResponseType } from '@elaraai/e3-rack/protocol';
 import { TestRackAgent } from '@elaraai/e3-rack/testing';
 import { runE3Command, spawnE3Command, waitFor, type CliResult } from './helpers.js';
 
@@ -43,15 +44,55 @@ async function enrolled() {
   ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0'));
   const status = ok(await f.cli('rack', 'status'));
   const origin = /Listener: up (http:\/\/\S+)/.exec(status)?.[1]; assert(origin, status);
-  const command = ok(await f.cli('rack', 'enroll', '--label', 't', '--no-wait'));
-  assert.match(command, new RegExp(`--e3-version ${E3_RACK_VERSION.replaceAll('.', '\\.')}`));
-  assert.match(command, /--max-vms 2 --gpus none/);
-  const token = /--token (e3rk_enroll_\S+)/.exec(command)?.[1]; assert(token, command);
-  assert(command.includes(`--api-url ${origin}`));
+  const handoff = ok(await f.cli('rack', 'enroll', '--label', 't', '--no-wait'));
+  assert(handoff.includes(`Matching e3-rack release: ${E3_RACK_VERSION}`));
+  assert.match(handoff, /configure --allocation '[^']+' --allow-vpn-http/);
+  assert.match(handoff, /enroll --allocation '[^']+' --allow-vpn-http/);
+  const token = /^Enrollment token: (e3rk_enroll_\S+)$/m.exec(handoff)?.[1]; assert(token, handoff);
+  assert(handoff.includes(`Source origin: ${origin}`));
+  for (const command of handoff.split('\n').filter((line) => line.startsWith('  sudo '))) {
+    assert(!command.includes(token)); assert(!command.includes(origin));
+    assert.doesNotMatch(command, /--token|--api-url| install /);
+  }
   const agent = await TestRackAgent.enroll(origin, token, { label: 't' }); cleanup.push(() => agent.close());
   assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
   return { ...f, agent, client: new HubClient(f.home) };
 }
+
+it('observes a new enrollment before the managed worker starts or advertises capacity', async () => {
+  const f = await enrolled(); // The old same-label registration must not finish the new wait.
+  const initial = await f.client.status(); assert.equal(initial.racks.length, 1);
+  assert(initial.rackListener.type === 'up');
+  const enrolling = spawnE3Command(['rack', 'enroll', '--label', 't'], f.repo, { env: f.env });
+  cleanup.push(async () => { enrolling.kill('SIGKILL'); await enrolling.result; });
+  await waitFor(() => enrolling.getStdout().includes('Enrollment token: '));
+  const token = /^Enrollment token: (e3rk_enroll_\S+)$/m.exec(enrolling.getStdout())?.[1]; assert(token);
+  const peer = new TestRackAgent({ apiUrl: initial.rackListener.value.origin, workDir: join(f.home, 'enrollment-peer') });
+  cleanup.push(() => peer.close());
+  const registration = await peer.post('enroll', RackEnrollRequestType, { enrollmentToken: token,
+    hostInfo: { label: 't', tiers: [], capacity: 0n, agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}` } }, RackEnrollResponseType);
+  let result: CliResult | undefined;
+  const finished = enrolling.result.then((value) => { result = value; });
+  await waitFor(() => result !== undefined);
+  await finished;
+  const output = ok(result!);
+  assert(output.includes(`New registration observed: t (${registration.rackId})`));
+  assert.match(output, /does not confirm activation or task readiness/);
+  const row = output.split('\n').find((line) => line.includes(registration.rackId.slice(0, 12)) && line.includes('0/0'));
+  assert(row, output); assert.match(row, /enrolled-not-started$/);
+  assert((await f.client.status()).racks.some((rack) => rack.rackId === registration.rackId && rack.lastBootId.type === 'none'));
+});
+
+it('prints the advertised HTTPS source without the VPN HTTP opt-in', async () => {
+  const f = await fixture();
+  ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0', '--advertise-url', 'https://rack-source.example.invalid'));
+  const output = ok(await f.cli('rack', 'enroll', '--no-wait'));
+  assert.match(output, /^Source origin: https:\/\/rack-source.example.invalid$/m);
+  assert.doesNotMatch(output, /--allow-vpn-http|--token|--api-url| install /);
+  const help = ok(await f.cli('rack', 'enroll', '--help'));
+  assert.doesNotMatch(help, /--instance|--tiers|--max-vms|--gpus/);
+  assert.match(help, /prepared\s+rack\s+worker\s+VM/);
+});
 
 it('round-trips policy, auto-starts and stops the hub, and delegates an enabled CLI run', async () => {
   const f = await enrolled();

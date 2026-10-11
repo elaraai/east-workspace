@@ -6,38 +6,59 @@ One hub per operating-system user coordinates the rack fleet across projects.
 
 ## Connect a rack
 
-The rack must reach this machine over a trusted LAN or VPN. Use the machine's
-address on that network, and keep it reachable while work runs:
+The rack must reach this machine over an authenticated VPN, or HTTPS through a
+TLS terminator. Use the machine's reachable address, and keep it available while
+work runs:
 
 ```sh
-e3 rack enroll --listen 100.64.0.10:7331 --label workshop --instance local-dev
+e3 rack enroll --listen 100.64.0.10:7331 --label workshop
 ```
 
-This starts the hub, creates a short-lived single-use enrollment token, and
-prints the exact command to run on the Linux rack host. It uses the companion
-`e3-rack` installer from e3-cloud, pins the project's e3 release, selects
-`node,py`, and explicitly sets `--max-vms 2 --gpus none`. The command has this
-shape (use the actual token and version printed by enrollment):
+This starts the hub and prints the **source origin**, matching e3-rack release,
+and a short-lived single-use enrollment token. The source origin is this
+machine's rack listener, for example `http://100.64.0.10:7331`, not a repository
+URL or the rack server's address. `localhost` on the rack would point back at
+the worker itself.
+
+Use the matching, verified companion release from e3-cloud **inside an already
+prepared worker VM**. Replace the public allocation path below with the one the
+host provisioner supplies; do not write allocation JSON yourself:
 
 ```sh
-sudo ./e3-rack install --instance local-dev --api-url http://100.64.0.10:7331 \
-  --token <enrollment-token> --e3-version <project-version> \
-  --tiers node,py --max-vms 2 --gpus none --label workshop
-sudo systemctl status e3-rack-agent@local-dev
-sudo journalctl -u e3-rack-agent@local-dev -f
+sudo /opt/e3-rack/releases/1.0.86/e3-rack configure \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --allow-vpn-http
+sudo /opt/e3-rack/releases/1.0.86/e3-rack enroll \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --allow-vpn-http
 ```
 
-The instance has its own service, configuration and credentials. Choose a
-distinct instance name when the host already serves cloud workloads. Instances
-share physical CPU, memory, disks and devices; `--max-vms` limits VM count, not
-CPU or memory reservations. GPU routing is opportunistic and is not a promise
-of GPU availability. Select the required runtime images with `--tiers`.
+`configure` asks for the source origin, worker label (`workshop` here), runtime
+settings and optional private-registry access. `enroll` asks for the one-time
+token. Both use hidden terminal prompts. The worker stores origins, identities,
+settings and registry credentials together in encrypted storage; no token or
+source address is included in the printed shell commands. The enrollment token
+is intentionally displayed by this local minting command: do not copy its
+output into logs or a plaintext file.
 
-The enrollment command waits for the first heartbeat; `--no-wait` returns
-after printing the install command. Use `--allow <rack-ip,...>` to restrict the
-listener's clients. The listener is HTTP with bearer credentials and expiring
-object capabilities: bind it only on a trusted private network, or put TLS in
-front of it and configure `e3 rack config --advertise-url https://…`.
+`--allow-vpn-http` is needed on both worker commands only for an endpoint carried
+over an authenticated VPN. The host's endpoint policy must also authorize that
+exact destination. For HTTPS, configure `e3 rack config --advertise-url https://…`
+and omit the HTTP opt-in. `--allow <rack-ip,...>` restricts the local listener's
+clients; it does not provide transport encryption.
+
+The local command waits for a **new registration**, including one with no boot,
+tiers or capacity yet; `--no-wait` returns after printing the handoff. A label
+filters the observed registrations, so compare the result with the worker's
+enrollment result. Enrollment does not prove service activation or readiness.
+`e3 rack list` shows `enrolled-not-started` before a first heartbeat.
+
+Independent agents belong to separate worker VMs, each with its own identity,
+encrypted configuration and host-enforced resource allocation. Whole GPUs are
+assigned through the host lifecycle, independently of this enrollment command.
+The named host manager, source management, multi-source admission and capacity
+activation are still being completed in [cloud #253](https://github.com/elaraai/e3-cloud/issues/253).
+The current managed runtime accepts one source per worker; successful enrollment
+alone is not an end-to-end deployment. See the companion's
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/991b854ea0e5cec719f8e55c32e17a982aef0cd9/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 
@@ -141,15 +162,16 @@ accept a runner factory; they do not import Node-only hub code.
 ## Compatibility and verification boundaries
 
 If `rack status` reports a listener error, confirm the configured VPN/LAN
-address is present on this machine and the port is free. After a VPN address
-changes, update `e3 rack config --listen <new-ip>:7331` and the agent's API URL.
-If a rack is incompatible, install an agent executable whose bundled e3 is
-at least the project's release, then select that release and the required
-tiers. `--e3-version` selects runtime images; it cannot upgrade the decoder
-compiled into an older agent. The first use of a new release may need runtime
-images to be built or fetched. Check its systemd journal while waiting. If a task stays
-local, inspect `rack policy show`, the task's runner/platforms and host-access
-dependencies; `--rack-only` cannot override eligibility.
+address is present on this machine and the port is free. Prefer a stable VPN
+address. A changed source address needs a deliberate managed source transition;
+re-running worker `configure` preserves an enrolled source's origin and identity.
+If a rack is incompatible, its executable's bundled e3 must be upgraded along
+with its runtime images. Managed `configure` deliberately refuses a release
+change: use the reviewed version transition once that companion workflow is
+available. Do not switch its executable symlink or erase its service plan and
+journals to bypass this guard. If a task stays local, inspect `rack policy show`,
+the task's runner/platforms and host-access dependencies; `--rack-only` cannot
+override eligibility.
 
 Public package entries are `@elaraai/e3-rack` (local hub/client/routing/runner
 APIs), `@elaraai/e3-rack/protocol` (wire types),
@@ -164,9 +186,11 @@ Those tests do not establish KVM/hardware acceptance for the deployed agent.
 The pinned cloud source bundles e3 1.0.85, while current workspace main is
 1.0.86. Rebuild/release the companion agent against e3 1.0.86 or newer before
 delegating from this workspace release; an older bundle falls back locally.
-Cloud #193 still needs request deadlines and durable completion retry for
-intermittent connectivity. The explicit installer flags above avoid relying
-on the unsafe multi-instance defaults tracked by cloud #192.
+The companion [PR #254](https://github.com/elaraai/e3-cloud/pull/254) implements
+request deadlines, durable completion retry, lockstep releases and encrypted
+worker configuration, alongside the ongoing managed lifecycle work. Those
+changes are separate from the main protocol pin above and remain subject to
+their own CI, service and hardware acceptance.
 
 See [the epic reconciliation](../../design/e3-rack-reconciliation.md) for the
 changes required by current cloud and workspace APIs, wire migration rules,

@@ -726,12 +726,14 @@ Outputs:
 ### Rack Delegation
 
 Keep a local repository and delegate selected task bodies to a rack reachable
-over a trusted LAN or VPN. First enroll a separate agent instance, then choose
-which task names may run there:
+over an authenticated VPN or HTTPS. First enroll a prepared worker VM, then
+choose which task names may run there once its service and capacity are active:
 
 ```sh
-e3 rack enroll --listen <vpn-ip>:7331 --instance local-dev
-# Run the printed installer command on the rack host; enrollment waits for its heartbeat.
+e3 rack enroll --listen <vpn-ip>:7331 --label workshop
+# Inside the prepared worker VM, run the printed configure/enroll commands.
+# Enter the source origin and token at their hidden prompts; no secret arguments.
+# Enrollment observes registration, not service activation or task readiness.
 e3 rack policy . set 'train_*' rack --size large
 e3 dataflow run . dev --rack
 e3 watch src/index.ts . dev --start --rack
@@ -761,8 +763,9 @@ matching `@elaraai/e3-rack` package installed.
 
 Use `e3 rack list`, `e3 rack remove <id-or-label>` and `e3 rack stop` to manage
 the shared hub. See the [rack setup guide](packages/e3-rack/README.md) for
-installer prerequisites, multi-instance resource sharing, policy commands,
-version compatibility and the outstanding cloud-agent reliability work.
+worker prerequisites, encrypted connection configuration, independent VM
+allocations, policy commands, version compatibility and the remaining managed
+host/source lifecycle and capacity-activation work.
 
 ### Ad-hoc Run
 

@@ -20,7 +20,10 @@ import { TestRackAgent } from '@elaraai/e3-rack/testing';
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture() {
-  const repo = await mkdtemp(join(tmpdir(), 'e3-injected-')); cleanup.push(() => rm(repo, { recursive: true, force: true }));
+  const repo = await mkdtemp(join(tmpdir(), 'e3-injected-'));
+  // A completed run can still be releasing its filesystem bookkeeping when
+  // HTTP shutdown finishes. Match the other CLI fixtures' bounded cleanup.
+  cleanup.push(() => rm(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   assert(repoInit(repo).success);
   const input = e3.input('injected_text', StringType, variant('value', 'four'));
   const task = e3.task('injected_length', [input], East.function([StringType], IntegerType, (_$, text) => text.length()));

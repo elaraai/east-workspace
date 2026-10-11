@@ -90,7 +90,7 @@ What do you need?
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `e3 rack enroll --listen <host:port> [--instance <name>]` | Starts the user-wide hub and prints a single-use companion installer command; waits for the agent's heartbeat. Use a trusted LAN/VPN address reachable from the rack. | `e3 rack enroll --listen 100.64.0.10:7331 --instance local-dev` |
+| `e3 rack enroll --listen <host:port> [--label <label>] [--no-wait]` | Starts the user-wide hub and prints the source origin, matching release and single-use token for the companion's hidden prompts. Waits for a new registration, not activation; use a reachable VPN address or HTTPS terminator. | `e3 rack enroll --listen 100.64.0.10:7331 --label workshop` |
 | `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards. Size: serverless, small, medium, large, xlarge. | `e3 rack policy . set 'train_*' rack --size large` |
 | `e3 rack policy [repo] enable\|disable\|mode <opt-in\|auto>` | Enable/disable saved opt-in; `mode auto` selects eligible unmatched tasks. Defaults: disabled, opt-in. | `e3 rack policy . enable` |
 | `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
@@ -110,14 +110,24 @@ configurations qualify; commands, custom environments/platforms and unscannable
 IR stay local. Host file/environment/network access stays local unless a rule
 deliberately grants `--allow-host-access` and its resources exist on the rack.
 
-The printed command installs a separate `e3-rack-agent@<instance>` service on
-the Linux rack host. It pins the project's e3 version and explicitly selects
-`--tiers node,py --max-vms 2 --gpus none`; override these deliberately. Separate
-instances share physical resources: max-vms is a VM-count limit, not a CPU or
-memory reservation. GPU placement is opportunistic. Keep the private network
-connection available while work runs. Agent request deadlines and durable
-completion retry remain companion cloud #193 work; hardware acceptance is
-separate from the local real-runner test agent.
+The handoff targets a prepared independent worker VM with the matching verified
+`e3-rack` release. Its `configure --allocation <host-provisioned-path>` prompts
+for the source origin, worker label and settings; `enroll --allocation <path>`
+prompts for the one-time token. Origins and credentials are encrypted together.
+HTTP needs `--allow-vpn-http` on both commands, an authenticated VPN and host
+authorization for that exact endpoint; HTTPS does not need that opt-in. Never
+put a source address or token in worker command arguments or plaintext files.
+The local mint intentionally displays its token; do not log that output.
+
+Enrollment does not start services or authorize task claims. The local CLI
+observes a new registration (optionally filtered by label); compare it with the
+worker's result. Before a first heartbeat, status is `enrolled-not-started`.
+Resources and mutable whole-GPU assignments belong to the host lifecycle, not
+local enrollment flags. Managed execution currently accepts one source; named
+host/source management, multi-source admission, capacity activation and hardware
+acceptance remain companion cloud #253 work. Separate clients require separate
+worker VMs. Request deadlines and durable completion retry are implemented in
+companion PR #254, separately from the original main protocol pin.
 
 Policy is `<repo>/rack/policy.beast2`; hub state is `~/.e3/rack` (or
 `E3_RACK_HOME`). The control schema currently requires protocol 1 exactly.

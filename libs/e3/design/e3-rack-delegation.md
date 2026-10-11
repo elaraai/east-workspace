@@ -20,14 +20,19 @@ flowchart LR
   CLI[CLI or local API server] --> Session[Repository session]
   Session --> Repo[Local repository]
   Session <-->|private socket| Hub[One hub per OS user]
-  Agent[Rack agent instance] -->|outbound HTTP over VPN or LAN| Hub
-  Agent --> VM[Task or unit VM]
+  Agent[Rack agent in an independent worker VM] -->|outbound HTTPS or HTTP over VPN| Hub
+  Agent --> VM[Task or unit microVM]
 ```
 
 The rack initiates every request. The developer machine must remain reachable
 for lease polling, object transfer, logs and completion. No cloud account or
-cloud control plane participates in a local lease. Agent instances on a rack
-have separate identities and services but share physical resources.
+cloud control plane participates in a local lease. Separate agents occupy
+independent worker VMs, with separate identities, encrypted source configuration
+and host-enforced resource allocations. Their number and whole-GPU assignments
+are mutable through the host lifecycle. There is no cross-agent task scheduler.
+Multiple mutually trusted sources per agent are a companion implementation goal;
+the managed runtime currently accepts one source, and untrusted clients require
+separate worker VMs.
 
 ## Package layout
 
@@ -160,6 +165,15 @@ IP allowlist narrows the HTTP listener. A rack sees only its lease's input
 closure and declared output targets, not arbitrary repository objects or local
 paths. HTTP requires a trusted private network or an external TLS terminator.
 
+The local `enroll` command prints the source origin, matching release and
+short-lived token separately. The companion's worker-local `configure` and
+`enroll` take source information and secrets through hidden terminal prompts,
+then persist them encrypted. HTTP is an explicit authenticated-VPN opt-in,
+subject to host endpoint policy. No printed worker command contains a token or
+source address. A new registration is observable before the worker starts;
+enrollment, service activation and capacity admission are distinct stages.
+Worker provisioning and the final source/lifecycle CLI remain companion work.
+
 ## Testing
 
 `TestRackAgent` speaks the real wire, stages the input closure, executes stock
@@ -174,8 +188,11 @@ tests. These are not evidence of KVM or deployed-rack acceptance.
 
 The package exposes cloud-compatible shared seams without importing or changing
 the closed repository. Cloud may adopt those seams in its own change. The
-current agent protocol can serve the local hub; the explicitly printed
-multi-instance flags avoid relying on cloud #192's unfinished default changes.
-Cloud #193 still needs request deadlines and durable completion retries.
+current agent protocol can serve the local hub. Companion PR #254 implements
+request deadlines, durable completion retries, lockstep releases and encrypted
+worker enrollment. The local handoff follows its prepared-worker commands,
+while named host/source management and capacity activation remain cloud #253
+work. In particular, the enrollment child advertises zero capacity; activation
+must update that registration before local dispatch can admit work.
 Cloud #195's real-agent/hardware acceptance remains distinct from the test agent.
 See the reconciliation for the status of every companion and deferred feature.
