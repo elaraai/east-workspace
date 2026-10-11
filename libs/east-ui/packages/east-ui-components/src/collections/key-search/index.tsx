@@ -233,8 +233,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const placeholder = useMemo(() => {
         const fields = structKeyFields(keyType);
-        if (fields !== null) return `Search keys (${fields.map((f) => f.name).join(', ')})`;
-        return keyType.type === 'String' ? 'Search keys' : `Find key (${keyType.type})`;
+        if (fields !== null) return `Search Records (${fields.map((f) => f.name).join(', ')})`;
+        return keyType.type === 'String' ? 'Search Records' : `Search Records (${keyType.type})`;
     }, [keyType]);
 
     // The standard Combobox renderer takes a host-constructed decoded

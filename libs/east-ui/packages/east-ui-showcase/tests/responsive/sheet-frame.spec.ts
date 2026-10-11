@@ -537,7 +537,7 @@ test.describe("The Sheet's frame — the key search on a phone (#1221)", () => {
                 fits: [...row.children].every((el) => el.getBoundingClientRect().right <= edge + 0.5),
                 save: save !== undefined && save.right <= edge + 0.5,
             };
-        })).toEqual({ seek: "1", icon: "Search keys", fits: true, save: true });
+        })).toEqual({ seek: "1", icon: "Search Records", fits: true, save: true });
         const icon = toolbar.locator("[data-key-search='icon']");
         await icon.tap();
         await expect(page.locator("[data-key-search='popover'] input")).toBeFocused();

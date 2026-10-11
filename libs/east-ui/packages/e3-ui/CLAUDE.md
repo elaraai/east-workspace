@@ -86,7 +86,7 @@ index keys, pages and view membership. Save includes hidden entries and confirms
 through primary reads at the committed revision. A filtered-out row is neither
 a deletion nor evidence that a mutation completed. New unsaved rows are a
 separate draft layer; do not append existing hidden drafts to another narrowing.
-Existing Search keys remains primary-key navigation, separate from field search.
+Existing Search Records remains primary-key navigation, separate from field search.
 
 After confirmed Save, shared `RecordSliceSaveNotice` reports rows that actually
 left the active narrowing. Use `prepareRecordSliceSave` through the shared

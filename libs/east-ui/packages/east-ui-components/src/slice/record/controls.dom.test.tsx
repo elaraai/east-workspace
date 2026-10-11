@@ -5,7 +5,7 @@
  */
 
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { DateTimeType, IntegerType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -13,7 +13,7 @@ import { RecordSliceConfigType, RecordSliceStateType, recordChoiceWhere, type Re
 import { system } from "../../theme/index.js";
 import { getStore, initializeStore, trackKey } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { RecordSliceFieldEditor, RecordSliceSummary } from "./index.js";
+import { RecordSliceFieldEditor, RecordSliceSummary, useRecordSliceToolbarItems } from "./index.js";
 import { RecordSliceBrush } from "./brush.js";
 
 // Ark's positioner and keyboard list scrolling need browser layout APIs.
@@ -71,6 +71,26 @@ function fixture(fields: Field[]) {
     return { slice, count, domain, suggest, pulse, show };
 }
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+test("folded narrowing has one heading per field and one keyboard-accessible editor at a time", async () => {
+    const f = fixture([field({}), field({ fieldId: "due", label: "Due", kind: "datetime", values: [] })]);
+    function Rail() { return <>{useRecordSliceToolbarItems(f.slice)[0]!.forms.at(-1)}</>; }
+    render(<ChakraProvider value={system}><Rail /></ChakraProvider>);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Narrowing:/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByText("Status")).toHaveLength(1);
+    const status = within(dialog).getByRole("button", { name: "Status" });
+    await user.click(status);
+    expect(dialog.querySelectorAll('[data-record-slice-editor]')).toHaveLength(1);
+    expect(within(dialog).getAllByText("Status")).toHaveLength(1);
+    await user.keyboard("{ArrowDown}{Enter}");
+    await waitFor(() => expect(dialog.querySelector('[data-record-slice-editor="status"]')).toBeNull());
+    expect(dialog.querySelectorAll('[data-record-slice-editor]')).toHaveLength(1);
+    expect(dialog.querySelector('[data-record-slice-editor="due"]')).not.toBeNull();
+    expect(f.slice.read().where.size).toBe(0);
+    expect(f.slice.range).not.toHaveBeenCalled();
+});
 
 test("known choices distinguish pending, zero and failure; Retry and external state update both editors and summary", async () => {
     const f = fixture([field({})]);

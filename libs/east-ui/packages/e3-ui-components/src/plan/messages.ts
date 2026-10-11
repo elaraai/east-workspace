@@ -532,7 +532,7 @@ export const planMessages: PlanMessages = {
         `${result} of ${total} rows${n > 0 ? ` · ${active} ${plural(n, "filter", "filters")}` : ""}`,
     summaryShort: ({ result, total }) => `${result} of ${total}`,
     scopeBadge: () => "loaded rows only",
-    keySearch: () => "Search keys",
+    keySearch: () => "Search Records",
     overlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     overlapsShort: ({ count }) => count,
     overlapsLabel: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")} — select the first pair`,

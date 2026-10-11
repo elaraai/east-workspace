@@ -609,7 +609,7 @@ export const sheetMessages: SheetMessages = {
     contextOption: ({ n, count }) => (n === 0 ? "none" : `±${count}`),
     lensCount: ({ n, count, context }) => `${count} ${plural(n, "match", "matches")}${context !== undefined ? ` · ${context} context` : ""}`,
     scopeBadge: () => "loaded rows only",
-    keySearch: () => "Search keys",
+    keySearch: () => "Search Records",
 
     tabList: () => "Views",
     tabAll: () => "All",

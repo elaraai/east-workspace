@@ -77,3 +77,30 @@ test("Date range clearing one segment disables Apply; completing it preserves ti
     await user.click(apply);
     expect(onApply).toHaveBeenCalledWith(print(new Date("2026-10-09T09:10:11.123Z")), props.to);
 });
+
+test.each([true, false])("date drafts offer a start and calendar duration without applying on open (exclusive=%s)", async exclusive => {
+    const print = printFor(DateTimeType);
+    const onApply = vi.fn();
+    const props = { kind: "datetime" as const, label: "Due", from: "", to: "", exclusive,
+        defaultFrom: print(new Date("2028-01-31T00:00:00Z")), onApply };
+    const view = render(editor(props));
+    const start = screen.getByRole("group", { name: "Due from" });
+    expect(within(start).queryByRole("spinbutton", { name: /hour/i })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Due until" })).toBeNull();
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "1 month" }));
+    // A late domain read must not overwrite a duration the user has chosen.
+    view.rerender(editor({ ...props, defaultFrom: print(new Date("2028-02-10T00:00:00Z")) }));
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    const end = Date.parse("2028-02-29T00:00:00Z") - (exclusive ? 0 : 1);
+    expect(onApply).toHaveBeenLastCalledWith(props.defaultFrom, print(new Date(end)));
+    fireEvent.click(screen.getByRole("button", { name: "Include time" }));
+    fireEvent.click(screen.getByRole("button", { name: "Include time" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenLastCalledWith(props.defaultFrom, print(new Date(end)));
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    expect(screen.getByRole("group", { name: exclusive ? "Due until" : "Due to" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Include time" }));
+    expect(within(start).getByRole("spinbutton", { name: /hour/i })).toBeTruthy();
+});

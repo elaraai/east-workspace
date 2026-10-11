@@ -9,7 +9,7 @@
  * clusters first, in the rail's order (search, the range, the filter builder,
  * the terminal chip, the icon), then the Plan's own (the user's decision): the
  * summary shortens to its count; the resolution segment folds into its menu,
- * then the grain segment, the summary hides; the key search folds into its
+ * then the fold-all toggle, the summary hides; the key search folds into its
  * icon; the history item folds last, to its buttons. A segment's menu chip
  * draws Font Awesome's caret (#1263). jsdom lays nothing out,
  * so each item's width is stubbed by the form it shows, every fold giving room
@@ -17,6 +17,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
+import { useMemo } from "react";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, toEastTypeValue, variant, some, none } from "@elaraai/east";
@@ -33,6 +34,9 @@ import { scheduleEventKey, scheduleOverlaps } from "../shared/schedule/overlaps.
 import type { PlanEntryRef } from "./use-plan-editing.js";
 import type { PlanScale } from "./scale.js";
 import { PLAN_WORDS } from "./words.js";
+import { createPlanController } from "./controller/index.js";
+import { PlanControllerContext } from "./controller/react.js";
+import { rowKey } from "./plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -46,7 +50,7 @@ const row = { px: 0 };
 const FORM_PX: Record<string, readonly number[]> = {
     cluster: [300, 240, 160, 110, 40],
     seek: [200, 44],
-    grain: [170, 90],
+    groups: [170, 90],
     range: [200, 80],
     resolution: [150, 80],
     summary: [260, 120],
@@ -136,6 +140,16 @@ type ChromeParts = Partial<Omit<PlanChrome, "styles">>;
 
 /** The Plan's items on the frame's one row, as its frame lays them out — with the overlaps among its events, when a test gives them. */
 function Harness({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlaps }) {
+    const controller = useMemo(() => {
+        const value = createPlanController({ grain: parts.grain ?? "resource", collapsed: [] });
+        // This layout fixture declares one parent; controller behavior has its own tests.
+        value.groupKeys = () => parts.grain === undefined ? [] : [rowKey("group")];
+        return value;
+    }, [parts.grain]);
+    return <PlanControllerContext.Provider value={controller}><Items parts={parts} {...(overlaps === undefined ? {} : { overlaps })} /></PlanControllerContext.Provider>;
+}
+
+function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlaps }) {
     const styles = useSlotRecipe({ key: "plan" })() as unknown as Record<string, Record<string, unknown>>;
     const chrome: PlanChrome = {
         words: PLAN_WORDS, styles, storageKey: "plan.toolbar", scale: WEEKLY,
@@ -176,7 +190,7 @@ function stateOf(container: HTMLElement): Map<string, number> {
  *  builder, the terminal chip, the icon), then the Plan's own, the history last. */
 const LADDER: ReadonlyArray<readonly [string, number]> = [
     ["cluster", 1], ["range", 1], ["cluster", 2], ["cluster", 3], ["cluster", 4],
-    ["summary", 1], ["resolution", 1], ["grain", 1], ["summary", 2], ["history", 1],
+    ["summary", 1], ["resolution", 1], ["groups", 1], ["summary", 2], ["history", 1],
 ];
 
 /** A seekable canvas's ladder, its key search in it: the key search's step,
@@ -214,10 +228,10 @@ function needs(forms: ReadonlyMap<string, number>): number {
 }
 
 describe("the Plan's toolbar items (#952, #1193)", () => {
-    test("they are one row in §7.1's order: the rail's narrowing, the grain, the range, the resolution; at the end the summary and the history (PB20)", () => {
+    test("they are one row in §7.1's order: the rail's narrowing, the fold toggle, the range, the resolution; at the end the summary and the history (PB20)", () => {
         row.px = 4000;
         const { container } = render(<ChakraProvider value={system}><Harness parts={everything(sliceHandle())} /></ChakraProvider>);
-        expect([...stateOf(container).keys()]).toEqual(["cluster", "grain", "range", "resolution", "summary", "history"]);
+        expect([...stateOf(container).keys()]).toEqual(["cluster", "groups", "range", "resolution", "summary", "history"]);
         const end = [...container.querySelectorAll("[data-toolbar-item][data-toolbar-end]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(end).toEqual(["summary"]);
         // A Plan approves and rejects nothing (#1260): no review item, no batch verbs.
@@ -231,17 +245,16 @@ describe("the Plan's toolbar items (#952, #1193)", () => {
         expect(errored.container.querySelector('[role="alert"]')).toBeNull();
     });
 
-    test("a narrowing row folds the rail first, in its order, then the summary shortens, the resolution then the grain fold into menus, the summary hides, and the history folds last (PB21)", () => {
-        const start = new Map([["cluster", 0], ["grain", 0], ["range", 0], ["resolution", 0], ["summary", 0], ["history", 0]]);
+    test("a narrowing row folds the rail first, then the summary, resolution and fold toggle shorten, the summary hides, and the history folds last (PB21)", () => {
+        const start = new Map([["cluster", 0], ["groups", 0], ["range", 0], ["resolution", 0], ["summary", 0], ["history", 0]]);
         const c = walk(everything(sliceHandle()), start, LADDER);
-        // Folded all the way: the rail's icon, the range's chip, both segments
-        // as menus, no summary, and the history's buttons alone.
+        // Folded all the way: the rail's icon, the range's chip, resolution
+        // menu, fold-all icon, no summary, and the history's buttons alone.
         expect(c.querySelector("[data-toolbar-item='cluster'] [data-rail-rung='icon']")).not.toBeNull();
         expect(c.querySelector("[data-plan-segmenu='resolution']")!.textContent).toContain("WEEK");
-        expect(c.querySelector("[data-plan-segmenu='grain']")!.textContent).toContain("GROUP");
-        // Each menu's chip: its segment's words and Font Awesome's caret, never a written ▾ (#1263).
-        expect(["resolution", "grain"].map((name) => markOf(c.querySelector(`[data-plan-segmenu='${name}']`))))
-            .toEqual(["fas caret-down WEEK", "fas caret-down GROUP"]);
+        expect(c.querySelector("[data-plan-fold-all]")!.getAttribute("aria-label")).toBe("Expand all");
+        expect(markOf(c.querySelector("[data-plan-fold-all]"))).toBe("fas angles-down");
+        expect(markOf(c.querySelector("[data-plan-segmenu='resolution']"))).toBe("fas caret-down WEEK");
         expect(c.querySelector("[data-plan-seg]")).toBeNull();
         expect(c.querySelector("[data-slot='toolbarSummary']")).toBeNull();
         expect(c.querySelector("[data-history-form='buttons']")).not.toBeNull();
@@ -251,15 +264,15 @@ describe("the Plan's toolbar items (#952, #1193)", () => {
         const seekable = { ...everything(sliceHandle()), search: SEARCH };
         row.px = 4000;
         const wide = render(<ChakraProvider value={system}><Harness parts={seekable} /></ChakraProvider>);
-        // After the rail's narrowing and before the grain, in §7.1's order; its box with room.
-        expect([...stateOf(wide.container).keys()]).toEqual(["cluster", "seek", "grain", "range", "resolution", "summary", "history"]);
+        // After the rail's narrowing and before the fold toggle, in §7.1's order; its box with room.
+        expect([...stateOf(wide.container).keys()]).toEqual(["cluster", "seek", "groups", "range", "resolution", "summary", "history"]);
         expect(wide.container.querySelector('[data-toolbar-item="seek"] [data-part="dataset-key-search"]')).not.toBeNull();
         // The rail no longer offers a search of its own: one word, one meaning.
         expect(wide.container.querySelector('[data-toolbar-item="cluster"] [data-slice-fold="search"], [data-toolbar-item="cluster"] [title="Search"]')).toBeNull();
         cleanup();
         const c = walk({ search: SEARCH, history: historyProps() }, new Map([["seek", 0], ["history", 0]]), SEEK_LADDER);
         // The key search's icon, named in the Plan's words; no box.
-        expect(c.querySelector("[data-toolbar-item='seek'] [data-key-search='icon']")!.getAttribute("aria-label")).toBe("Search keys");
+        expect(c.querySelector("[data-toolbar-item='seek'] [data-key-search='icon']")!.getAttribute("aria-label")).toBe("Search Records");
         expect(c.querySelector("[data-part='dataset-key-search']")).toBeNull();
         expect(c.querySelector("[data-history-form='buttons']")).not.toBeNull();
     });

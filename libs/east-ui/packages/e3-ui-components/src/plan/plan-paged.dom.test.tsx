@@ -386,11 +386,15 @@ describe("Plan paged source (P-c)", () => {
         const queries: { type: string; value: unknown }[] = [];
         const w0 = [
             planRow("h1p1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            ...Array.from({ length: 11 }, (_, i) => planRow(`h1q${String(i).padStart(2, "0")}`, spanKind([]))),
             planRow("h2p9", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("h2q1", spanKind([])),
+            planRow("h2q2", spanKind([])),
         ];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
-            total: () => some(600n),
+            // Search reads the matched source range directly, at any offset.
+            page: (offset: bigint, limit: bigint) => some(w0.slice(Number(offset), Number(offset + limit))),
+            total: () => some(BigInt(w0.length)),
             id: "dom-test-seek",
             // The compiled handle's `seek` — `some(fn)` for a key-ordered
             // source. It answers in SOURCE ELEMENT indices.
@@ -419,7 +423,7 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
 
         // Typing reaches the SOURCE's seek as one debounced prefix query.
-        await userEvent.type(screen.getByPlaceholderText("Search keys"), "h2");
+        await userEvent.type(screen.getByPlaceholderText("Search Records"), "h2");
         await waitFor(() => expect(queries.length).toBeGreaterThan(0));
         expect(queries[0]!.type).toBe("prefix");
         expect(queries[0]!.value).toBe("h2");

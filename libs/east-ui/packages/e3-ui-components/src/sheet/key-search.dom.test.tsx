@@ -104,7 +104,7 @@ test("folded to its icon on a row short of room, the key search opens in its pop
     const ui = await mount(100);
     await waitFor(() => expect(ui.seek()?.getAttribute("data-toolbar-form")).toBe("1"));
     const icon = ui.seek()!.querySelector<HTMLElement>('[data-key-search="icon"]')!;
-    expect(icon.getAttribute("aria-label")).toBe("Search keys");
+    expect(icon.getAttribute("aria-label")).toBe("Search Records");
     await ui.command("f");
     const box = await popoverBox();
     await waitFor(() => expect(document.activeElement).toBe(box));

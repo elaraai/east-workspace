@@ -211,7 +211,7 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         await expect(toolbar.locator("[data-toolbar-item='review'], [data-slot='reviewMenu'], [data-review-batch]")).toHaveCount(0);
         await expect(toolbar.locator("[data-toolbar-item='history'] [data-slot='history']")).toBeVisible();
         const icon = toolbar.locator("[data-key-search='icon']");
-        await expect(icon).toHaveAttribute("aria-label", "Search keys");
+        await expect(icon).toHaveAttribute("aria-label", "Search Records");
         await icon.click();
         const input = page.locator("[data-key-search='popover'] input");
         await expect(input).toBeFocused();

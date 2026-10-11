@@ -60,7 +60,7 @@ export interface KeySearchToolbarOptions {
     side?: "start" | "end" | undefined;
     /** The rank of its fold step, from the box to its icon: {@link DEFAULT_RANK} when omitted. */
     rank?: number | undefined;
-    /** The icon's accessible name and the popover's head — `Search keys` when omitted. */
+    /** The icon's accessible name and the popover's head — `Search Records` when omitted. */
     label?: string | undefined;
 }
 
@@ -80,7 +80,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
     // The popover opens with the focus in its search box.
     const initialFocusEl = useCallback(() => boxRef.current?.querySelector<HTMLElement>("input") ?? null, []);
     if (search === undefined) return undefined;
-    const label = options.label ?? "Search keys";
+    const label = options.label ?? "Search Records";
     const active = typed.resetKey === search.resetKey && typed.text !== "";
     const box = (
         <DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find}

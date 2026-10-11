@@ -45,8 +45,17 @@ for (const theme of ["light", "dark"] as const) for (const host of ["roster", "s
             const statuses = main.locator('[data-row-id] [data-key="status"]');
             expect(await statuses.count()).toBeGreaterThan(0);
             expect(await statuses.allTextContents()).toEqual(Array(await statuses.count()).fill("Done"));
-            // Two thousand stored rows must still have a bounded mounted window.
+            // Fifty thousand stored rows must still have a bounded mounted window.
             expect(await main.locator("[data-row-id]").count()).toBeLessThan(100);
+            const before = await statuses.allTextContents();
+            const dates = await recordField(page, frame, "due");
+            const start = dates.getByRole("group", { name: "Due from" });
+            await expect(start.getByRole("spinbutton", { name: /year/i })).toHaveAttribute("aria-valuenow", "2026");
+            await expect(start.getByRole("spinbutton", { name: /hour/i })).toHaveCount(0);
+            await dates.getByRole("button", { name: "1 month", exact: true }).click();
+            await expect(dates.getByRole("button", { name: "Apply", exact: true })).toBeEnabled();
+            expect(await statuses.allTextContents()).toEqual(before);
+            await page.keyboard.press("Escape");
         } else {
             const rows = main.locator("[data-plan-row], [data-plan-card]");
             expect(await rows.count()).toBeGreaterThan(0);
@@ -66,7 +75,7 @@ for (const theme of ["light", "dark"] as const) for (const host of ["roster", "s
                 await page.mouse.up();
                 await expect.poll(() => main.innerText()).not.toBe(before);
             }
-            await containedRecordEditor(page, frame, id);
+            await containedRecordEditor(page, frame, host === "sheet" ? "due" : id);
         }
         expect(errors).toEqual([]);
     });

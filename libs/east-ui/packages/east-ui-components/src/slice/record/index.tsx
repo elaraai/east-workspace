@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
-import { DateTimeType, IntegerType, FloatType, parseFor, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, IntegerType, FloatType, parseFor, printFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
@@ -127,15 +127,8 @@ function StringSearch({ slice, field, run }: { slice: Bind; field: Field; run: (
 }
 
 /** Boundary seeks anchor presets to this index path, never to loaded rows. */
-function DatePresets({ slice, field, run }: { slice: Bind; field: Field; run: (action: () => unknown) => void }) {
-    const read = useCallback(() => slice.domain(field.fieldId), [slice, field.fieldId]);
-    const { result } = useTrackedEvaluation(read);
+function DatePresets({ slice, field, run, domain }: { slice: Bind; field: Field; run: (action: () => unknown) => void; domain: { min: number; max: number } | undefined }) {
     const words = useFormatters();
-    if (!result.ok) return <RecordSliceFailure slice={slice} message="Could not load date span" />;
-    const domain = result.value.type === "some" ? {
-        min: (readRecordChoice(field, result.value.value.from) as Date).getTime(),
-        max: (readRecordChoice(field, result.value.value.to) as Date).getTime(),
-    } : undefined;
     const { anchor, clamped } = presetAnchor(domain);
     const current = slice.read().where.get(field.fieldId);
     const choices = PRESETS.map(p => {
@@ -155,18 +148,28 @@ function DatePresets({ slice, field, run }: { slice: Bind; field: Field; run: (a
 function ScalarRange({ slice, field, choice, run }: { slice: Bind; field: Field; choice: Choice | undefined; run: (action: () => unknown) => void }) {
     const words = useFormatters();
     const kind = field.kind as SliceRangeKind;
+    const bounds = useCallback(() => kind === "datetime" ? slice.domain(field.fieldId) : none, [slice, field.fieldId, kind]);
+    const { result } = useTrackedEvaluation(bounds);
+    const domain = result.ok && result.value.type === "some" ? {
+        min: (readRecordChoice(field, result.value.value.from) as Date).getTime(),
+        max: (readRecordChoice(field, result.value.value.to) as Date).getTime(),
+    } : undefined;
+    const start = presetAnchor(domain).anchor;
+    start.setUTCHours(0, 0, 0, 0);
     const type = scalarTypes[kind];
     const read = parseFor(type); const print = printFor(type);
     const initial = choice?.type === "range" ? choice.value : { from: choice?.type === "values" ? choice.value[0] ?? "" : "", to: "" };
     const input = (text: string) => { const value = text === "" ? undefined : readRecordChoice(field, text); return value === undefined ? "" : print(value as ValueTypeOf<typeof type>); };
     const literal = (text: string) => { const parsed = read(text); if (!parsed.success) throw new Error(`Enter a valid ${field.label}`); return printRecordChoice(field, parsed.value); };
     return <SliceRangeEditor kind={kind} label={field.label} from={input(initial.from)} to={input(initial.to)} single={field.set} exclusive
+        {...(kind === "datetime" ? { defaultFrom: printFor(DateTimeType)(start) } : {})}
         proposal={(from, to) => {
             if (!read(from).success || (!field.set && !read(to).success)) return undefined;
             return proposalFor(slice, field, field.set ? variant("values", [literal(from)]) : variant("range", { from: literal(from), to: literal(to) }), words);
         }}
         onApply={(from, to) => run(() => field.set ? slice.choose(field.fieldId, [literal(from)]) : slice.range(field.fieldId, literal(from), literal(to)))}>
-        {kind === "datetime" && !field.set && <DatePresets slice={slice} field={field} run={run} />}
+        {kind === "datetime" && !result.ok && <RecordSliceFailure slice={slice} message="Could not load date span" />}
+        {kind === "datetime" && !field.set && <DatePresets slice={slice} field={field} run={run} domain={domain} />}
     </SliceRangeEditor>;
 }
 
@@ -230,17 +233,23 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
         version, activeCount: state.where.size, clear: () => { slice.clearAll(); },
         status: affordances.includes("summary") ? <RecordSliceSummary slice={slice} {...(options.noun === undefined ? {} : { noun: options.noun })} /> : undefined,
         describe: kind => {
-            if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? state.resolution.value.type : "Auto", active: state.resolution.type === "some", rank: 2 };
+            if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? `Resolution: ${state.resolution.value.type}` : "Auto", active: state.resolution.type === "some", rank: 2 };
             const field = byKind.get(kind);
             if (field === undefined) {
                 const selected = state.preset.type === "some" ? slice.config.presets.find(p => p.id === state.preset.value) : undefined;
-                return { kind, label: "Presets", icon: faUsers, text: selected?.name ?? "Presets", active: selected !== undefined, rank: 3 };
+                return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
             }
             const choice = state.where.get(field.fieldId);
             const range = !field.set && ["datetime", "integer", "float"].includes(field.kind);
             const search = field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
             return { kind, label: field.label, icon: range ? faCalendar : search ? faMagnifyingGlass : faFilter,
                 text: recordChoiceLabel(field, choice, words), active: choice !== undefined, rank: range ? 2 : search ? 1 : 3 };
+        },
+        renderEditor: kind => {
+            if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}
+                onPick={tag => slice.setResolution(some(variant(tag, null)))} />;
+            const field = byKind.get(kind);
+            return field === undefined ? <Presets slice={slice} /> : <RecordSliceFieldEditor slice={slice} field={field} />;
         },
         render: kind => {
             if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}

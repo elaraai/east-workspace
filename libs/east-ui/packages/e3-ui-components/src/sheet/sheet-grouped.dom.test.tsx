@@ -1089,7 +1089,7 @@ test("grouped key search jumps and steps between summaries without filtering chi
     fireEvent.mouseDown(ui.band("P1002")!.querySelector('[data-slot="fold"]')!, { button: 0 });
     expect(ui.lines("P1002")).toHaveLength(0);
     const count = ui.rows().length;
-    const search = ui.getByPlaceholderText("Search keys");
+    const search = ui.getByPlaceholderText("Search Records");
     ui.key("f", { ctrlKey: true });
     expect(document.activeElement).toBe(search);
     fireEvent.change(search, { target: { value: "P100" } });
@@ -1108,7 +1108,7 @@ test("grouped key search jumps and steps between summaries without filtering chi
     fireEvent.click(ui.getByRole("button", { name: "Previous match" }));
     await waitFor(() => expect(ui.band("P1001")!.querySelector('[data-key="$title"][data-selected]')).not.toBeNull());
     fireEvent.click(ui.getByRole("button", { name: "Clear search" }));
-    expect((ui.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("");
+    expect((ui.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("");
     expect(ui.band("P1002")!.hasAttribute("data-folded")).toBe(true);
     expect(ui.rows()).toHaveLength(count);
 });

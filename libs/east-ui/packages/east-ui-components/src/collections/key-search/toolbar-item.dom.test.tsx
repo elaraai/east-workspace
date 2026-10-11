@@ -116,7 +116,7 @@ test("the item is keyed seek, on the side it is given, its one step at its rank 
         .toEqual({ key: "seek", side: "end", forms: 2, rank: 20 });
     cleanup();
     const view = mount(44, search(), {});
-    expect(view.container.querySelector('[data-key-search="icon"]')?.getAttribute("aria-label")).toBe("Search keys");
+    expect(view.container.querySelector('[data-key-search="icon"]')?.getAttribute("aria-label")).toBe("Search Records");
     const plain = renderHook(() => useKeySearchToolbarItem(search()), { wrapper: ({ children }) => wrap(children) });
     expect(plain.result.current?.rank).toBe(100);
 });
@@ -167,7 +167,7 @@ test("its icon opens the box in the edit popover, the focus in its input, headed
 test("while a query is typed the item keeps its form however narrow the row — the row folds its other items around it; cleared, it folds", async () => {
     const source = search();
     const view = mount(510, source);
-    const input = screen.getByPlaceholderText("Search keys");
+    const input = screen.getByPlaceholderText("Search Records");
     await userEvent.type(input, "key");
     await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
     // The suggestions closed — an open list holds the item anyway — the query stands, as it does while its matches are stepped through.
@@ -178,7 +178,7 @@ test("while a query is typed the item keeps its form however narrow the row — 
     view.resize(154);
     expect(view.container.querySelector('[data-peer="short"]')).not.toBeNull();
     expect(view.form()).toBe("0");
-    expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("key");
+    expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("key");
     // Cleared, the query no longer holds it: it folds to its icon.
     await act(async () => { fireEvent.click(screen.getByLabelText("Clear search")); });
     await waitFor(() => expect(view.form()).toBe("1"));
@@ -187,7 +187,7 @@ test("while a query is typed the item keeps its form however narrow the row — 
 
 test("a search keyed afresh starts empty, and the query typed into the one before no longer holds the item", async () => {
     const view = mount(510, search("r1"));
-    await userEvent.type(screen.getByPlaceholderText("Search keys"), "key");
+    await userEvent.type(screen.getByPlaceholderText("Search Records"), "key");
     await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
     view.resize(154);
     expect(view.form()).toBe("0");
@@ -195,13 +195,13 @@ test("a search keyed afresh starts empty, and the query typed into the one befor
     view.resize(154, search("r2"));
     await waitFor(() => expect(view.form()).toBe("1"));
     view.resize(510, search("r2"));
-    expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("");
+    expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("");
 });
 
 test("a host's key for its search reaches it in either form: the box, its text selected; folded, the box in its popover, opened — or focused there when open; a toolbar with none, false", async () => {
     // The box: focused, its text selected.
     const wide = mount(510, search());
-    const input = screen.getByPlaceholderText("Search keys") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
     await userEvent.type(input, "key");
     input.blur();
     expect(focusKeySearch(wide.container.querySelector<HTMLElement>("[data-toolbar]"))).toBe(true);

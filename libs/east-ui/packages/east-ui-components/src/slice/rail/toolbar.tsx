@@ -5,7 +5,7 @@
 
 /** Shared Slice rail presentation: local and record adapters use one ladder. */
 import { useState, type ReactNode } from "react";
-import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Accordion, Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFilter, faChevronDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import type { ToolbarItem } from "../../toolbar/index.js";
@@ -32,9 +32,34 @@ export interface SliceRailModel {
     filterChips?: number;
     describe: (kind: string) => SliceRailDescriptor;
     render: (kind: string, index: number, foldChips: number | undefined) => ReactNode;
+    /** Direct editor bodies use one shared accordion, without nested field triggers. */
+    renderEditor?: (kind: string) => ReactNode;
     clear?: () => void;
     /** Complete status retained inside the editor when its toolbar item folds away. */
     status?: ReactNode;
+}
+
+/** One field heading, one open editor; Chakra owns keyboard and disclosure semantics. */
+function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly string[] }) {
+    const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const [expanded, setExpanded] = useState<string[]>([]);
+    return <Accordion.Root css={styles.railAccordion} collapsible value={expanded}
+        onValueChange={details => setExpanded(details.value)} lazyMount unmountOnExit>
+        {kinds.map(kind => {
+            const field = model.describe(kind);
+            const label = field.active ? field.text : field.label;
+            return <Accordion.Item key={kind} value={kind} data-slice-section={kind}>
+                <Accordion.ItemTrigger css={styles.railAccordionTrigger} title={label}
+                    {...(kind.startsWith("field:") ? { "data-record-slice-field": kind.slice(6) } : {})}>
+                    <Accordion.ItemIndicator><FontAwesomeIcon icon={faChevronDown} /></Accordion.ItemIndicator>
+                    <Box as="span" css={styles.railAccordionLabel} data-active={field.active ? "" : undefined}>{label}</Box>
+                </Accordion.ItemTrigger>
+                <Accordion.ItemContent css={styles.railAccordionContent}>
+                    {model.renderEditor?.(kind)}
+                </Accordion.ItemContent>
+            </Accordion.Item>;
+        })}
+    </Accordion.Root>;
 }
 
 /**
@@ -194,7 +219,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
             >
                 <SliceDensityContext.Provider value="editor">
                     <Box css={styles.railSections}>
-                        {kinds.map((kind, i) => (
+                        {model.renderEditor !== undefined ? <RailSections model={model} kinds={kinds} /> : kinds.map((kind, i) => (
                             <Box key={`sec-${kind}-${i}`} css={styles.railSection}>
                                 <Box as="span" css={styles.railSectionCaption}>{model.describe(kind).label}</Box>
                                 <Box css={styles.railSectionBody}>{model.render(kind, i, undefined)}</Box>

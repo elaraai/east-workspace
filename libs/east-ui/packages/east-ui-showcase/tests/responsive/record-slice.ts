@@ -20,6 +20,11 @@ export async function recordField(page: Page, frame: Locator, name: string) {
     await expect(page.getByRole("dialog")).toHaveCount(1);
     const editor = page.locator(`[data-record-slice-editor="${name}"]:visible`);
     await expect(editor).toBeVisible();
+    const sections = page.getByRole("dialog").locator("[data-slice-section]");
+    if (await sections.count()) {
+        await expect(page.getByRole("dialog").locator("[data-record-slice-editor]:visible")).toHaveCount(1);
+        await expect(page.getByRole("dialog").locator(`[data-record-slice-field="${name}"]`)).toHaveCount(1);
+    }
     return editor;
 }
 
@@ -35,7 +40,12 @@ export async function containedRecordEditor(page: Page, frame: Locator, name: st
     const toolbar = frame.locator('[data-frame-slot="toolbar"]');
     expect(await toolbar.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
     const editor = await recordField(page, frame, name);
+    if (name === "due") {
+        await editor.getByRole("button", { name: "Custom", exact: true }).click();
+        await editor.getByRole("button", { name: "Include time" }).click();
+    }
     expect(await page.getByRole("dialog").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    if (name === "due") await editor.getByRole("button", { name: "Apply", exact: true }).click();
     await editor.getByRole("button", { name: /^Clear / }).click();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);

@@ -36,6 +36,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameEyebrow", "frameEyebrowControls", "frameEyebrowMeta",
         "frameAffordanceIcon",
         "railCluster", "railAffordance", "railTrigger",
+        "railAccordion", "railAccordionTrigger", "railAccordionLabel", "railAccordionContent",
         "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
         "railStack", "railRow", "brushStack",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
@@ -179,6 +180,12 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             ...coarseHitArea({ position: true }),
         },
         // The sectioned editor the trigger opens: every family, flat, under its caption.
+        railAccordion: { borderWidth: "0", borderRadius: "0", overflow: "visible", minWidth: "0" },
+        railAccordionTrigger: { paddingX: "{spacing.1}", paddingY: "{spacing.2}", gap: "{spacing.2}", minHeight: "{sizes.8}",
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "-2px" } },
+        railAccordionLabel: { textStyle: "caption.eyebrow", color: "fg.subtle", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            "&[data-active]": { color: "brand.fg" } },
+        railAccordionContent: { paddingX: "{spacing.1}", paddingTop: "{spacing.1}", paddingBottom: "{spacing.3}", minWidth: "0", animation: "none" },
         railSections: {
             display: "flex",
             flexDirection: "column",
