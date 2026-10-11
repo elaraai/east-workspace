@@ -117,11 +117,21 @@ operation; downgrades never restore saved credentials or state. Keep both
 four-file releases available through receipt recovery. Services stay stopped
 and quarantined until separately activated and resumed.
 
+If the selected release never resumed, its exact recorded predecessor's
+`recover-release` uses the completed release receipt, current plan hash and a
+new operation at another generation increase. It requires either the original
+drained journal or a valid fenced journal with no operation at the failed
+generation, and verifies both releases against the recorded fingerprints. Any
+resume attempt, including one from a prior boot, prevents this recovery. Current
+credentials and journals are preserved; services remain stopped and quarantined.
+A release that resumed needs a fresh drain and normal `switch-release`; general
+journal repair and recovery after an undrainable resumed release remain open.
+
 The named host manager, source aliases, incompatible-state migrations,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/dc4147dee6458af183d083e6a817c1f1c0bcc4eb/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/846a7631fcf52a9b35fb7e6e1f7f0d49f9c63f6e/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 

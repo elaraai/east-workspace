@@ -152,7 +152,13 @@ allocation generation. It checks both managed-state contracts, updates only the
 runtime version in the current encrypted configuration, and preserves identities
 and journals through interruption or downgrade. Both four-file releases must stay
 available; a downgrade is a new operation, never a saved-state restore. Services
-stay stopped and quarantined. Named host management, source aliases, network
+stay stopped and quarantined. If the selected release never resumed, the exact
+recorded previous executable's `recover-release` binds the completed release
+receipt, current plan and new operation at another generation increase. It
+requires the original drain or a valid fenced journal with no operation at the
+failed generation, verifies both releases' recorded hashes, and preserves current
+credentials and journals. A prior resume attempt, even across reboot, refuses
+recovery. General journal repair remains unfinished. Named host management, source aliases, network
 activation, incompatible-state migrations and hardware acceptance remain
 companion cloud #253 work. This and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
