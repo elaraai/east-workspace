@@ -87,11 +87,22 @@ connections share the worker's lifecycle. They also share its process and
 credential trust boundary, so separate clients and developer environments need
 separate worker VMs. Independent agents have no shared e3 task scheduler.
 
-The named host manager, source removal/re-enrollment, managed updates,
+The companion now provides `e3-rack source list --allocation <path>` inside the
+worker. It lists source UUIDs and enrollment state; `--show-origins` displays
+origins only on a terminal. To disconnect or re-enroll, drain and stop the worker,
+revoke the selected rack at its source, then use `source remove` or `source reset`
+with `--allocation <path> --source <UUID> --acknowledge-revocation`. Confirm the
+UUID at the hidden prompt. Reset prints a **new** UUID for `enroll --source` and
+a fresh source token; it preserves the origin and keeps old caches/pending
+results out of the new identity. The flag acknowledges prior revocation; it does
+not revoke remotely. Other sources and retained data are preserved. Reconcile
+host endpoint policy before activation; the next boot remains fenced.
+
+The named host manager, source aliases, managed updates,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/d7b19213cc381abd62b7737d74bd6473a9ad8255/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/feat/rack-agent-reliability-versions/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 

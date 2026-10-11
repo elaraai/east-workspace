@@ -138,8 +138,15 @@ needed. All sources must be enrolled before startup. Each has its own identity,
 client, cache and completion journal; actual execution shares one worker-wide
 task/GPU limit. Per-source capacity reports are not additive reservations.
 Separate clients require separate worker VMs: a shared agent process can access
-all its sources' credentials. Named host management, source removal/re-enrollment,
-service/network activation, managed updates and hardware acceptance remain
+all its sources' credentials. Worker-local `source list --allocation <path>`
+prints UUIDs/enrollment status; `--show-origins` adds origins only on a terminal.
+After drain/stop and source-side revocation, `source remove` or `source reset`
+with `--allocation <path> --source <UUID> --acknowledge-revocation` asks for UUID
+confirmation. Reset prints a new UUID for fresh enrollment; old pending results
+and caches stay in the retired namespace. Other sources and retained data are
+preserved, and host endpoint policy must be reconciled before activation. The
+flag acknowledges revocation; it does not revoke remotely. Named host management,
+source aliases, service/network activation, managed updates and hardware acceptance remain
 companion cloud #253 work. This and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
 
