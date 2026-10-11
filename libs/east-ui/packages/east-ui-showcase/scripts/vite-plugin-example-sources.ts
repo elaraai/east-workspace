@@ -172,10 +172,14 @@ function extractRaw(filePath: string, code: string): Record<string, RawExample> 
  * carry them (`e3-showcase-package.ts`, #849).
  *
  * Only declarations reachable from an `example({...})` body are kept — the
- * transitive reference closure over the file's example bodies — so unrelated
- * leftovers are dropped. Returns the kept declarations in source order (with
- * each one's leading comments), or `""` when nothing is referenced. */
-function extractDependencies(filePath: string, code: string): string {
+ * transitive reference closure over the example bodies, including named
+ * imports from other local modules — so shared records remain visible and
+ * unrelated examples are dropped. Imported definitions precede their users;
+ * each declaration is shown once, with its leading comments. */
+export async function extractDependencies(
+    filePath: string, code: string, selected?: ReadonlySet<string>,
+    captured = new Set<string>(), expanded = new Set<string>(),
+): Promise<string> {
     const sf = ts.createSourceFile(
         filePath,
         code,
@@ -246,12 +250,12 @@ function extractDependencies(filePath: string, code: string): string {
 
     interface Decl { names: string[]; refs: Set<string>; text: string }
     const decls: Decl[] = [];
-    const roots = new Set<string>();
+    const roots = new Set<string>(selected);
     for (const stmt of sf.statements) {
         if (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt)) continue;
         const exFn = exampleFnOf(stmt);
         if (exFn) {
-            for (const r of refsOf(exFn)) roots.add(r);
+            if (selected === undefined) for (const r of refsOf(exFn)) roots.add(r);
             continue;
         }
         // Keep each statement's own leading comments (the explanatory blurb
@@ -280,7 +284,50 @@ function extractDependencies(filePath: string, code: string): string {
         }
     }
 
-    return decls.filter((_, i) => needed.has(i)).map((d) => d.text).join("\n\n");
+    // Mark before descending so shared helpers and cyclic imports cannot
+    // duplicate declarations or recursively expand forever.
+    const own = decls.filter((_, i) => {
+        const id = `${filePath}:${i}`;
+        if (!needed.has(i) || captured.has(id)) return false;
+        captured.add(id); return true;
+    }).map(d => d.text);
+    const refs = new Set(roots);
+    for (const i of needed) for (const ref of decls[i].refs) refs.add(ref);
+    const imported: string[] = [];
+    for (const stmt of sf.statements) {
+        if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)
+            || !stmt.moduleSpecifier.text.startsWith(".")) continue;
+        const bindings = stmt.importClause?.namedBindings;
+        if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+        const used = bindings.elements.filter(binding => refs.has(binding.name.text));
+        if (used.length === 0) continue;
+        const base = path.resolve(path.dirname(filePath), stmt.moduleSpecifier.text);
+        const candidates = /\.js$/.test(base)
+            ? [base.replace(/\.js$/, ".ts"), base.replace(/\.js$/, ".tsx"), base]
+            : [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")];
+        let source: { file: string; code: string } | undefined;
+        for (const file of candidates) {
+            try { source = { file, code: await fs.readFile(file, "utf8") }; break; }
+            catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "EISDIR") throw error;
+            }
+        }
+        if (source === undefined) throw new Error(`Cannot show example dependencies: ${stmt.moduleSpecifier.text} from ${filePath}`);
+        const names = new Set(used.map(binding => binding.propertyName?.text ?? binding.name.text).filter(name => {
+            const id = `${source.file}:${name}`;
+            if (expanded.has(id)) return false;
+            expanded.add(id); return true;
+        }));
+        if (names.size) imported.push(await extractDependencies(source.file, source.code, names, captured, expanded));
+        for (const binding of used) {
+            if (binding.propertyName === undefined) continue;
+            const id = `${filePath}:alias:${binding.name.text}`;
+            if (captured.has(id)) continue;
+            captured.add(id);
+            imported.push(`${binding.isTypeOnly || stmt.importClause?.isTypeOnly ? "type" : "const"} ${binding.name.text} = ${binding.propertyName.text};`);
+        }
+    }
+    return [...imported, ...own].filter(Boolean).join("\n\n");
 }
 
 /** Prettier-format an expression snippet by wrapping it in an assignment
@@ -355,7 +402,7 @@ async function buildSources(
         const captured: Record<string, CapturedSource> = {};
         for (const name of names) captured[name] = await capture(raw[name].fn);
         sources[keyPrefix + pathKey] = captured;
-        const deps = extractDependencies(filePath, code);
+        const deps = await extractDependencies(filePath, code);
         if (deps.trim()) dependencies[keyPrefix + pathKey] = await captureStatements(deps);
     }
     return { sources, dependencies };

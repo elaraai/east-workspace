@@ -173,3 +173,56 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         expect(failures).toEqual([]);
     });
 });
+
+for (const theme of ["light", "dark"] as const) {
+    test(`planWindows key search: unloaded suggestions, exact jumps and contained field controls — ${theme} @narrow`, async ({ page }) => {
+        const entry = await openExample(page, "planWindows", WINDOWS, theme);
+        const icon = entry.locator('[data-key-search="icon"]');
+        const narrow = await icon.isVisible();
+        if (narrow) await icon.click();
+        const search = page.locator('[data-part="dataset-key-search"]:visible');
+        const input = search.getByRole("combobox");
+        await input.fill("P-287");
+        const option = page.getByRole("option", { name: "P-2870", exact: true });
+        await expect(option).toBeVisible();
+        // The match is fetched for the popup before its canvas window is loaded.
+        await expect(entry.locator(rowSel("presses.span", "P-2870"))).toHaveCount(0);
+        await expect(search.getByRole("status")).toHaveText("10 matches");
+        const field = search.locator('[data-scope="combobox"][data-part="control"]');
+        expect(await field.evaluate(el => {
+            const box = el.getBoundingClientRect();
+            return [...el.querySelectorAll('[role="status"], button')].every(part => {
+                const r = part.getBoundingClientRect();
+                return r.left >= box.left && r.right <= box.right + 0.5 && r.top >= box.top && r.bottom <= box.bottom;
+            });
+        })).toBe(true);
+        await option.click();
+        await expect(search.getByRole("status")).toHaveText("1 of 10");
+        // The key is visible beside the readable press label, including in the phone's list.
+        await expect(entry.locator('[data-frame-slot="main"]')).toContainText("P-2870");
+        if (narrow) {
+            await settled(page);
+            await expect(entry.locator('[data-plan-card]').filter({ hasText: "P-2870" })).toBeInViewport();
+        }
+        await search.getByRole("button", { name: "Next match" }).click();
+        await expect(search.getByRole("status")).toHaveText("2 of 10");
+        await expect(entry.locator('[data-frame-slot="main"]')).toContainText("P-2871");
+        if (narrow) await expect(entry.locator('[data-plan-card]').filter({ hasText: "P-2871" })).toBeInViewport();
+        await search.getByRole("button", { name: "Previous match" }).click();
+        await expect(search.getByRole("status")).toHaveText("1 of 10");
+        await search.getByRole("button", { name: "Clear search" }).click();
+        await expect(search.getByRole("combobox")).toHaveValue("");
+        await search.getByRole("combobox").focus();
+        expect(await field.evaluate(el => {
+            const box = el.getBoundingClientRect();
+            // The field's outer two-pixel focus ring must fit every clipping ancestor.
+            for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+                const css = getComputedStyle(parent);
+                if (!/clip|hidden|auto|scroll/u.test(css.overflowX)) continue;
+                const bounds = parent.getBoundingClientRect();
+                if (box.left - 2 < bounds.left || box.right + 2 > bounds.right) return false;
+            }
+            return true;
+        })).toBe(true);
+    });
+}

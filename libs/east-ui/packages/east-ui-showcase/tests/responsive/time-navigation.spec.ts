@@ -2,13 +2,13 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
-/** The same date picker in both builders, against their live e3 examples. */
+/** The shared date picker in all three time builders, against their live e3 examples. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 const DAY = 86_400_000;
-async function open(page: Page, scope: "calendar" | "roster", theme: "light" | "dark") {
+async function open(page: Page, scope: "calendar" | "roster" | "plan", theme: "light" | "dark") {
     const name = scope === "calendar" ? "calendarOperations" : "rosterWarehouse";
-    const route = `e3/${scope}/${scope}/${name}`;
+    const route = scope === "plan" ? "e3/plan/plan-events/planPrintWorks" : `e3/${scope}/${scope}/${name}`;
     await page.goto(`/?theme=${theme}#${route}`);
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
     await entry.scrollIntoViewIfNeeded();
@@ -32,12 +32,12 @@ async function chooseView(page: Page, frame: Locator, name: string) {
     await settled(page);
 }
 for (const theme of ['light', 'dark'] as const) {
-    for (const scope of ['calendar', 'roster'] as const) {
+    for (const scope of ['calendar', 'roster', 'plan'] as const) {
         test(`${scope} shared date navigation and popup Today at every width (${theme}) @narrow`, async ({ page }) => {
             await page.clock.setFixedTime(new Date('2028-03-16T12:00:00Z'));
             await page.setViewportSize({ width: 2160, height: 1080 });
             const frame = await open(page, scope, theme);
-            if (scope === "calendar") await chooseView(page, frame, "Day");
+            if (scope !== "roster") await chooseView(page, frame, scope === "plan" ? "DAY" : "Day");
             // At every fold Today stays in the popup, and arrows follow the active unit.
             for (const width of [1440, 1024, 768, 390, 360, 294]) {
                 await resize(page, frame, width);
@@ -56,9 +56,49 @@ for (const theme of ['light', 'dark'] as const) {
                 await expect(page.getByRole('dialog')).toHaveCount(0);
                 const today = scope === 'calendar' ? Date.UTC(2026, 9, 1) : Date.UTC(2028, 2, 16);
                 await expect(nav).toHaveAttribute('data-time-anchor', String(today));
+                if (width === 1440) {
+                    await nav.locator('[data-time-trigger]').click();
+                    await page.getByRole('dialog').getByRole('radio', { name: 'Days', exact: true }).click();
+                    const todayCell = page.locator('[data-time-day][aria-current="date"]');
+                    await expect(todayCell).toHaveAttribute('data-selected', '');
+                    await expect(todayCell).toHaveCSS('box-shadow', 'none');
+                    await expect(todayCell).toHaveCSS('border-bottom-width', '0px');
+                    await expect(todayCell).toHaveCSS('border-left-width', '0px');
+                    await page.keyboard.press('Escape');
+                    await expect(page.getByRole('dialog')).toHaveCount(0);
+                }
+                if (scope === 'roster' && width === 1440) {
+                    await nav.locator('[data-time-trigger]').click();
+                    const current = page.locator('[data-time-week][aria-current="date"]');
+                    await expect(current).toHaveAttribute('data-selected', '');
+                    await expect(current).toHaveCSS('box-shadow', 'none');
+                    await expect(current).toHaveCSS('border-left-width', '0px');
+                    await page.keyboard.press('Escape');
+                    await expect(page.getByRole('dialog')).toHaveCount(0);
+                }
             }
         });
     }
+    test(`Plan picker, Slice range and brush share one window (${theme})`, async ({ page }, info) => {
+        test.skip(info.project.name !== 'desktop', 'The navigation fold contract covers touch above.');
+        const frame = await open(page, 'plan', theme);
+        const nav = frame.locator('[data-time-navigation=plan]');
+        await nav.locator('[data-time-trigger]').click();
+        await page.getByRole('dialog').getByRole('radio', { name: 'Range', exact: true }).click();
+        await expect(page.getByRole('dialog').getByRole('group', { name: 'Time range from' })).toBeVisible();
+        const before = await nav.getAttribute('data-time-anchor');
+        await page.getByRole('dialog').getByRole('button', { name: '7d', exact: true }).click();
+        await expect(nav).not.toHaveAttribute('data-time-anchor', before!);
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+        const anchor = Number(await nav.getAttribute('data-time-anchor'));
+        const lens = frame.locator('[data-plan-lens] line');
+        const start = await lens.evaluateAll(lines => lines.map(line => line.getAttribute('x1')));
+        await nav.locator('[data-time-trigger]').click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Next day', exact: true }).click();
+        await expect(nav).toHaveAttribute('data-time-anchor', String(anchor + DAY));
+        await expect.poll(() => lens.evaluateAll(lines => lines.map(line => line.getAttribute('x1')))).not.toEqual(start);
+    });
     test(`Calendar day/week/month picker and timeline recenter (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'The fold/Today contract runs on every touch project above.');
         await page.setViewportSize({ width: 2160, height: 1080 });

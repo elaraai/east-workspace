@@ -72,7 +72,7 @@ export const cutText = (root: Element): string[] => {
             if (across(r) > 0.5 && down(r) > 0.5 && !inside(r)) out.push(`${name}: its text "${own}" is cut`);
         }
         if (label === undefined) continue;
-        const qty = el.hasAttribute("data-run") ? spans.find((s) => s !== label) : undefined;
+        const quantities = el.hasAttribute("data-run") ? spans.filter((s) => s !== label) : [];
         const ls = getComputedStyle(label);
         const lr = label.getBoundingClientRect();
         // What shows of the label: its box, inside the element's clip.
@@ -92,12 +92,15 @@ export const cutText = (root: Element): string[] => {
             if (!inside(lr)) out.push(`${name}: its label "${text}" runs past the ${noun}'s edge`);
             else if (!whole && !ellipsized) out.push(`${name}: its label "${text}" is cut`);
             else if (!whole && shows < oneLetter - 0.5) out.push(`${name}: its label "${text}" shows ${shows.toFixed(1)}px, under one letter and the ellipsis (${oneLetter.toFixed(1)}px)`);
-            if (qty !== undefined) {
-                const q = qty.getBoundingClientRect();
-                const drawn = across(q) > 0.5 && down(q) > 0.5;
-                if (drawn && !(inside(q) && qty.scrollWidth <= qty.clientWidth)) out.push(`${name}: its quantity "${qty.textContent}" is cut`);
-                if (drawn && !whole) out.push(`${name}: its quantity squeezes its label "${text}" to ${label.clientWidth}px of ${label.scrollWidth}px`);
-            }
+
+        }
+        // Quantities still need checking when a short bar hides its label.
+        // Otherwise its first quantity can become the first flex item and clip.
+        for (const qty of quantities) {
+            const q = qty.getBoundingClientRect();
+            const drawn = drawnAt(qty) && across(q) > 0.5 && down(q) > 0.5;
+            if (drawn && !(inside(q) && qty.scrollWidth <= qty.clientWidth)) out.push(`${name}: its quantity "${qty.textContent}" is cut`);
+            if (drawn && (!drawnAt(label) || label.scrollWidth > label.clientWidth)) out.push(`${name}: its quantity draws without its whole label "${text}"`);
         }
     }
     return out;
