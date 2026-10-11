@@ -198,7 +198,7 @@ resources on the rack yourself.
 Current sources include optional first-claim queue timings in grant response
 headers. The companion agent records admission, input/image preparation, VM and
 guest startup milestones on its own monotonic clock. Its
-[latency benchmark and p50/p95 report](https://github.com/elaraai/e3-cloud/blob/ea58dca41fe753908e60cfa99cbe4c02f53681ac/scripts/rack/LATENCY.md)
+[latency benchmark and p50/p95 report](https://github.com/elaraai/e3-cloud/blob/998d879ac6c199e7f300bf9b9531293b4e8f5dc0/scripts/rack/LATENCY.md)
 separate cached CPU, GPU and first-use observations, including failures and
 missing data. Guest execution entry precedes runtime imports and CUDA startup;
 source queue time is separate and cannot be added as exact end-to-end latency.
