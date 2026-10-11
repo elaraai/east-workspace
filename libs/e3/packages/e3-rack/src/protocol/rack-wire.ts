@@ -126,7 +126,7 @@ export type RackHeartbeatRequest = ValueTypeOf<typeof RackHeartbeatRequestType>;
  * POST /rack/heartbeat response —
  * - `stop`: leases the agent should stop working on (cancelled by an
  *   operator, or superseded because the runner fell back to cloud).
- *   Cancellation SLA is therefore one heartbeat + VM kill.
+ *   This remains a backstop; /rack/lease/watch delivers prompt cancellation.
  * - `rotatedToken` (D12, #90): a successor rack token (shown once, hashed
  *   at rest server-side). The agent persists it and switches; the old
  *   token stays valid until the successor's first use, then for a short
@@ -142,6 +142,21 @@ export const RackHeartbeatResponseType = StructType({
   pendingApproval: BooleanType,
 });
 export type RackHeartbeatResponse = ValueTypeOf<typeof RackHeartbeatResponseType>;
+
+/** The most running leases one cancellation watch may name. */
+export const RACK_WATCH_MAX_LEASES = 128;
+
+/** POST /rack/lease/watch: hold a read-only request until named work must stop. */
+export const RackWatchRequestType = StructType({
+  runningLeases: ArrayType(RackLeaseRefType),
+});
+export type RackWatchRequest = ValueTypeOf<typeof RackWatchRequestType>;
+
+/** Cancellation notifications contain only references supplied by this caller. */
+export const RackWatchResponseType = StructType({
+  stop: ArrayType(RackLeaseRefType),
+});
+export type RackWatchResponse = ValueTypeOf<typeof RackWatchResponseType>;
 
 /** POST /rack/lease/extend request — refresh a running lease's visibility. */
 export const RackExtendRequestType = StructType({

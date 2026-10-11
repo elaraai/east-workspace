@@ -33,6 +33,7 @@
  */
 
 import { Hono } from 'hono';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Context, Next } from 'hono';
 import { rackBodyLimit } from './body-limit.js';
 import { BooleanType, none, some, variant } from '@elaraai/east';
@@ -45,6 +46,9 @@ import {
   RackHeartbeatRequestType,
   RackHeartbeatResponseType,
   RackExtendRequestType,
+  RackWatchRequestType,
+  RackWatchResponseType,
+  RACK_WATCH_MAX_LEASES,
   RackCompleteRequestType,
   RackCompleteResponseType,
   RackStorageRequestType,
@@ -117,6 +121,10 @@ export interface RackRouteOptions {
   leaseWindowMs?: number;
   /** Claim re-check interval while long-polling. */
   pollIntervalMs?: number;
+  /** Read-only cancellation watch window (default 20 s, capped at 20 s). */
+  watchWindowMs?: number;
+  /** Re-check cancellation while a watch is held (default 250 ms). */
+  watchPollIntervalMs?: number;
   /** Visibility window granted on claim and per extension. */
   visibilityMs?: number;
   /** #94 Slice B: published-env index — absent means env resolution is
@@ -267,6 +275,8 @@ export function createRackRoutes(
   const leaseWindowMs = options?.leaseWindowMs ?? DEFAULT_LEASE_WINDOW_MS;
   const pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const visibilityMs = options?.visibilityMs ?? DEFAULT_VISIBILITY_MS;
+  const watchWindowMs = Math.max(1, Math.min(20_000, options?.watchWindowMs ?? 20_000));
+  const watchPollIntervalMs = Math.max(1, options?.watchPollIntervalMs ?? 250);
   const envIndex = options?.envIndex;
   const e3Version = options?.e3Version;
   const { logs } = attempts;
@@ -276,6 +286,8 @@ export function createRackRoutes(
   app.use('/api/rack/lease', auth);
   app.use('/api/rack/heartbeat', auth);
   app.use('/api/rack/lease/extend', auth);
+  app.use('/api/rack/lease/watch', auth);
+  app.use('/api/rack/lease/watch', rackBodyLimit(256 * 1024));
   app.use('/api/rack/complete', auth);
   app.use('/api/rack/storage', auth);
   app.use('/api/rack/logs', auth);
@@ -541,6 +553,35 @@ export function createRackRoutes(
     }
 
     return sendSuccess(RackHeartbeatResponseType, { stop, rotatedToken, pendingApproval });
+  });
+
+  // Separate cancellation from health/rotation writes. This request stays
+  // open while work is held, and returns promptly after a terminal transition.
+  // It never claims work, extends visibility, or exposes another lease's data.
+  app.post('/api/rack/lease/watch', async (c) => {
+    const rackId = c.get('rackId');
+    let refs: RackLeaseRef[];
+    try {
+      refs = (await decodeBody(c, RackWatchRequestType)).runningLeases;
+      if (refs.length === 0 || refs.length > RACK_WATCH_MAX_LEASES
+        || refs.some(ref => [ref.repo, ref.leaseId].some(value => !value || Buffer.byteLength(value) > 1024 || /[\x00-\x1f\x7f]/.test(value)))
+        || new Set(refs.map(ref => JSON.stringify([ref.repo, ref.leaseId]))).size !== refs.length) throw new Error();
+    } catch { return c.text('Invalid cancellation watch', 400); }
+    const signal = options?.signal ? AbortSignal.any([c.req.raw.signal, options.signal]) : c.req.raw.signal;
+    const deadline = Date.now() + watchWindowMs;
+    for (;;) {
+      if (signal.aborted) return c.body(null, 204);
+      if (await settingsStore.getRack(rackId) === null) return unauthorized('Rack is deregistered');
+      const states = await Promise.all(refs.map(ref => leaseStore.get(ref.repo, ref.leaseId)));
+      const stop = refs.filter((_ref, i) => {
+        const lease = states[i];
+        return lease == null || lease.claimedBy !== rackId || lease.status !== 'claimed';
+      });
+      if (stop.length) return sendSuccess(RackWatchResponseType, { stop });
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return c.body(null, 204);
+      await delay(Math.min(watchPollIntervalMs, remaining), undefined, { signal }).catch(() => {});
+    }
   });
 
   // POST /api/rack/lease/extend — visibility refresh (the running lease's

@@ -14,6 +14,7 @@ import { E3_RACK_VERSION } from '../version.js';
 import { ROTATION_AGE_MS, ROTATION_GRACE_MS } from '../identity/machine-identity.js';
 import { RackEnrollRequestType, RackEnrollResponseType, RackLeaseRequestType, RackLeaseGrantType,
   RackHeartbeatRequestType, RackHeartbeatResponseType, RackExtendRequestType,
+  RackWatchRequestType, RackWatchResponseType, RACK_WATCH_MAX_LEASES,
   RackCompleteRequestType, RackCompleteResponseType, RackStorageRequestType, RackStorageResponseType,
   RackLogsRequestType, type RackLeaseRef, type RackLeaseResult } from '../protocol/index.js';
 
@@ -138,6 +139,34 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       assert.equal((await f.success(await f.complete(a.rackToken, lease.leaseId), RackCompleteResponseType)).disposition.type, 'discarded');
       const ref = { repo: f.repo, leaseId: lease.leaseId };
       assert.deepEqual((await f.success(await f.heartbeat(a.rackToken, [ref]), RackHeartbeatResponseType)).stop, [ref]);
+      assert.deepEqual((await f.success(await f.raw('lease/watch', RackWatchRequestType, { runningLeases: [ref] }, a.rackToken), RackWatchResponseType)).stop, [ref]);
+    });
+    void it('delivers cancellation through an open watch without a heartbeat or visibility extension', { timeout: 5000 }, async (t) => {
+      const f = await fixture(t); const a = await f.enroll(); const lease = await f.create();
+      await f.success(await f.claim(a.rackToken), RackLeaseGrantType);
+      const ref = { repo: f.repo, leaseId: lease.leaseId };
+      const response = f.raw('lease/watch', RackWatchRequestType, { runningLeases: [ref] }, a.rackToken);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const started = performance.now();
+      await f.dispatch.cancel(f.repo, lease.leaseId);
+      assert.deepEqual((await f.success(await response, RackWatchResponseType)).stop, [ref]);
+      assert(performance.now() - started < 1500, 'cancellation should not wait for the health heartbeat');
+    });
+    void it('bounds and authenticates cancellation watches and reveals only caller-supplied references', async (t) => {
+      const f = await fixture(t); const a = await f.enroll(); const b = await f.enroll(); const lease = await f.create();
+      await f.success(await f.claim(a.rackToken), RackLeaseGrantType);
+      const ref = { repo: f.repo, leaseId: lease.leaseId };
+      for (const bearer of ['', 'human-jwt', 'e3rk_bad']) {
+        assert.equal((await f.raw('lease/watch', RackWatchRequestType, { runningLeases: [ref] }, bearer)).status, 401);
+      }
+      for (const refs of [[], [ref, ref], [{ ...ref, repo: 'x'.repeat(1025) }],
+        Array.from({ length: RACK_WATCH_MAX_LEASES + 1 }, (_, i) => ({ repo: f.repo, leaseId: `lease-${i}` }))]) {
+        assert.equal((await f.raw('lease/watch', RackWatchRequestType, { runningLeases: refs }, a.rackToken)).status, 400);
+      }
+      // A foreign lease is indistinguishable from an unknown lease: stop your
+      // claimed work, with no status, identity, task or result returned.
+      const unknown = { ...ref, leaseId: 'unknown' };
+      assert.deepEqual((await f.success(await f.raw('lease/watch', RackWatchRequestType, { runningLeases: [ref, unknown] }, b.rackToken), RackWatchResponseType)).stop, [ref, unknown]);
     });
     void it('scopes objects and logs to held leases, and addresses logs by the claim-time attempt', async (t) => {
       const f = await fixture(t); const a = await f.enroll(); const b = await f.enroll(); const lease = await f.create(); await f.success(await f.claim(a.rackToken), RackLeaseGrantType);

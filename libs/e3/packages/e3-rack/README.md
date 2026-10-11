@@ -152,6 +152,19 @@ have distinct execution records. Timeouts and cancellation are not retried
 locally. Task failures are returned unless the policy explicitly enables
 `--retry-task-failures-locally`; infrastructure failures fall back locally.
 
+Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
+delegated work. A current companion agent keeps an outbound cancellation
+request open while work is active. The source checks the watched leases every
+250 ms and answers as soon as one stops; the agent aborts that task and destroys
+its VM before waiting for log delivery. Other tasks and sources keep running.
+The normal health heartbeat remains 15 seconds. Against an older source without
+this endpoint, the new agent uses a one-second heartbeat while busy.
+
+This targets cancellation delivery within about a second on a healthy connection;
+network failures and VM/GPU teardown can take longer. The CLI's cancellation
+message is not confirmation that the remote VM has exited. Killing the CLI
+without allowing its signal handler to run relies on lost-session cleanup.
+
 ```sh
 e3 rack status                         # does not start an absent hub
 e3 rack list
@@ -213,14 +226,15 @@ APIs), `@elaraai/e3-rack/protocol` (wire types),
 
 This implementation targets e3-cloud main at
 `43d9ac9d9a423b69450320f6a802a8191ffefd53`, with v2 task/unit leases and
-per-object uploads. Protocol golden fixtures come from that pinned source;
+per-object uploads. Existing protocol golden fixtures come from that pinned source;
+the additive cancellation-watch fixtures match companion PR #254.
 the test rack agent executes real e3 runners and exercises the transfer path.
 Those tests do not establish KVM/hardware acceptance for the deployed agent.
 The pinned cloud source bundles e3 1.0.85, while current workspace main is
 1.0.86. Rebuild/release the companion agent against e3 1.0.86 or newer before
 delegating from this workspace release; an older bundle falls back locally.
 The companion [PR #254](https://github.com/elaraai/e3-cloud/pull/254) implements
-request deadlines, durable completion retry, lockstep releases and encrypted
+request deadlines, prompt cancellation, durable completion retry, lockstep releases and encrypted
 worker configuration, alongside the ongoing managed lifecycle work. Those
 changes are separate from the main protocol pin above and remain subject to
 their own CI, service and hardware acceptance.

@@ -9,7 +9,7 @@ import { wireSamples } from './wire-samples.js';
 import { wireGolden } from './wire-golden.js';
 
 for (const sample of wireSamples) {
-  it(`encodes ${sample.name} identically to pinned e3-cloud main`, () => {
+  it(`encodes ${sample.name} identically to its e3-cloud protocol fixture`, () => {
     assert.equal(Buffer.from(sample.encode()).toString('hex'), wireGolden[sample.name]);
   });
 }

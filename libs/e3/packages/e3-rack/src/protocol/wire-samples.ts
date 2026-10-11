@@ -30,6 +30,8 @@ export const wireSamples = [
   sample('RackHeartbeatRequestType', wire.RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [ref], agentVersion: host.agentVersion, bootId: 'boot', cacheBytes: 123n }),
   sample('RackHeartbeatResponseType', wire.RackHeartbeatResponseType, { stop: [ref], rotatedToken: some('token'), pendingApproval: true }),
   sample('RackExtendRequestType', wire.RackExtendRequestType, ref),
+  sample('RackWatchRequestType', wire.RackWatchRequestType, { runningLeases: [ref] }),
+  sample('RackWatchResponseType', wire.RackWatchResponseType, { stop: [ref] }),
   sample('RackCompleteRequestType', wire.RackCompleteRequestType, { ...ref, resultJson: '{}', outputUploadId: some('upload'), inlineOutput: some(new Uint8Array([1, 2])) }),
   sample('RackObjectSizeType', wire.RackObjectSizeType, size),
   sample('RackObjectCommitType', wire.RackObjectCommitType, { ...size, version: 'receipt' }),
