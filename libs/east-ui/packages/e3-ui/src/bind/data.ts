@@ -34,6 +34,7 @@ import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-ty
 // importing the other's data layer. Paged data is bound: this is its producer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
+import { bindDataIndexed, type BindPagedIndexesOptions, type FieldIndexes, type IndexedPagedValue } from './data-indexed.js';
 
 // ============================================================================
 // Mode + binding descriptor types — shared with the Diff component.
@@ -590,6 +591,10 @@ export const DataPagedPrimitives = {
  * });
  * ```
  */
+function bindDataPaged<T extends EastType, const I extends FieldIndexes<T>>(
+    record: RecordDef<T>,
+    options: BindPagedIndexesOptions<T, I>,
+): IndexedPagedValue<T, I>;
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
 ): PagedValue<T>;
@@ -602,8 +607,12 @@ function bindDataPaged<T extends EastType, IK extends EastType, P extends EastTy
 // an unbound `T`. The overloads above carry the precise types.
 function bindDataPaged(
     dataset: DatasetDef<EastType> | TaskDef<EastType>,
-    options?: BindPagedIndexOptions<EastType, EastType, EastType>,
-): PagedValue<any> {
+    options?: BindPagedIndexOptions<EastType, EastType, EastType> | BindPagedIndexesOptions<EastType, FieldIndexes<EastType>>,
+): any {
+    if (options !== undefined && "indexes" in options) {
+        if (!("recordKind" in dataset) || dataset.recordKind !== "record") throw new Error("Data.bindPaged with indexes requires an e3.record");
+        return bindDataIndexed(dataset as RecordDef<EastType>, options);
+    }
     // A TaskDef binds its output dataset; a DatasetDef binds itself.
     const def = dataset.kind === 'task' ? dataset.output : dataset;
     // The source path comes from the def, so it is statically known by

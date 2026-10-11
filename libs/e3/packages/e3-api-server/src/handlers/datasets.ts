@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, compareFor, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, compareFor, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue, type option } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, type TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -907,6 +907,8 @@ export async function findDatasetKey(
         fieldValues.push(parsed.value);
       }
     }
+    let optionalPrefix = false;
+    let prefixValue: unknown = query.prefix;
     if (query.prefix !== undefined) {
       const prefixIdx = fieldValues.length;
       const prefixFieldType = structMeta !== null
@@ -915,12 +917,24 @@ export async function findDatasetKey(
       if (prefixFieldType === undefined) {
         return pageError('bad_request', `All ${structMeta!.length} key fields are exact — nothing left for a prefix`);
       }
-      if (prefixFieldType.type !== 'String') {
-        return pageError('bad_request', structMeta !== null
-          ? `prefix continues key field '${structMeta[prefixIdx]!.name}', which is ${prefixFieldType.type}, not String`
-          : `prefix search needs String keys; ${keysNoun} are ${formKeyType.type}`);
+      if (prefixFieldType.type === 'Variant') {
+        const cases = prefixFieldType.value as { name: string; type: EastTypeValue }[];
+        optionalPrefix = cases.length === 2
+          && cases.some(c => c.name === 'none' && c.type.type === 'Null')
+          && cases.some(c => c.name === 'some' && c.type.type === 'String');
       }
+      if (prefixFieldType.type !== 'String' && !optionalPrefix) {
+        return pageError('bad_request', structMeta !== null
+          ? `prefix continues key field '${structMeta[prefixIdx]!.name}', which is ${prefixFieldType.type}, not String or Option<String>`
+          : `prefix search needs String or Option<String> keys; ${keysNoun} are ${formKeyType.type}`);
+      }
+      if (optionalPrefix) prefixValue = some(query.prefix);
     }
+    const matchesPrefix = (value: unknown): boolean => {
+      if (!optionalPrefix) return (value as string).startsWith(query.prefix!);
+      const option = value as option<string>;
+      return option.type === 'some' && option.value.startsWith(query.prefix!);
+    };
     let keyValue: unknown;
     if (query.key !== undefined) {
       const parsed = parseFor(formKeyType)(query.key);
@@ -1042,20 +1056,21 @@ export async function findDatasetKey(
           const prefixCmp = fieldCmps[prefixIdx]!;
           lowerPred = (k) => {
             const c = lead(k);
-            return c !== 0 ? c > 0 : prefixCmp((formKey(k) as Record<string, unknown>)[prefixName], prefix) >= 0;
+            return c !== 0 ? c > 0 : prefixCmp((formKey(k) as Record<string, unknown>)[prefixName], prefixValue) >= 0;
           };
           upperPred = (k) => {
             const c = lead(k);
             if (c !== 0) return c > 0;
-            const field = (formKey(k) as Record<string, unknown>)[prefixName] as string;
-            return prefixCmp(field, prefix) > 0 && !field.startsWith(prefix);
+            const field = (formKey(k) as Record<string, unknown>)[prefixName];
+            return prefixCmp(field, prefixValue) > 0 && !matchesPrefix(field);
           };
         }
       } else {
-        // Scalar String keys — validation guarantees the prefix is set here.
-        const scalarPrefix = prefix!;
-        lowerPred = (k) => cmp(formKey(k), scalarPrefix) >= 0;
-        upperPred = (k) => cmp(formKey(k), scalarPrefix) > 0 && !(formKey(k) as string).startsWith(scalarPrefix);
+        // Scalar String / Option<String> keys: none sorts before every
+        // some(String), so the same pair of monotone predicates bounds only
+        // present strings, including for an empty prefix.
+        lowerPred = (k) => cmp(formKey(k), prefixValue) >= 0;
+        upperPred = (k) => cmp(formKey(k), prefixValue) > 0 && !matchesPrefix(formKey(k));
       }
       const lower = await locate(lowerPred);
       const upper = await locate(upperPred);

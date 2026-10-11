@@ -19,7 +19,7 @@
  */
 
 import { DatasetHashMismatchError, type DatasetFindQuery, type DatasetFindResult, type DatasetPage } from "@elaraai/e3-api-client";
-import { NullType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, parseFor, some, none, variant, type DictType, type EastType } from "@elaraai/east";
+import { NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, parseFor, some, none, variant, type DictType, type EastType } from "@elaraai/east";
 import { indexWindowType, type TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey, type PagedApi, type ReactiveDatasetCache, type RecordApi } from "./index.js";
 
@@ -109,6 +109,46 @@ export function countWholeReads(cache: ReactiveDatasetCache): WholeReads {
     };
 }
 
+/** Query bounds on the stand-in server, using the declared key types and East comparators. */
+function findRange(keys: readonly unknown[], type: EastType, query: DatasetFindQuery): { row: number; count: number } {
+    const parse = (type: EastType, text: string): unknown => {
+        const value = parseFor(type)(text);
+        if (!value.success) throw new Error(`Invalid key literal: ${text}`);
+        return value.value;
+    };
+    if ("key" in query) {
+        const key = parse(type, query.key);
+        const compare = compareFor(type);
+        const row = keys.filter(value => compare(value, key) < 0).length;
+        return { row, count: keys.filter(value => compare(value, key) === 0).length };
+    }
+    const leaves = (t: EastType, path: string[] = []): { type: EastType; path: string[] }[] => t.type === "Struct"
+        ? Object.entries(t.fields).flatMap(([name, child]) => leaves(child, [...path, name])) : [{ type: t, path }];
+    const fields = leaves(type);
+    const at = (key: unknown, path: string[]): unknown => path.reduce((value, name) => (value as Record<string, unknown>)[name], key);
+    const bound = (literals: readonly string[]) => {
+        const parsed = literals.map((text, i) => ({ value: parse(fields[i]!.type, text), compare: compareFor(fields[i]!.type), path: fields[i]!.path }));
+        return (key: unknown) => {
+            for (const field of parsed) { const order = field.compare(at(key, field.path), field.value); if (order !== 0) return order; }
+            return 0;
+        };
+    };
+    if ("from" in query || "to" in query) {
+        const from = bound(query.from ?? []);
+        const to = query.to === undefined ? undefined : bound(query.to);
+        const row = keys.filter(key => from(key) < 0).length;
+        return { row, count: keys.filter(key => from(key) >= 0 && (to === undefined || to(key) < 0)).length };
+    }
+    const exact = "fields" in query ? query.fields : [];
+    const prefix = query.prefix;
+    const compare = bound(exact);
+    const text = (key: unknown): string => at(key, fields[exact.length]!.path) as string;
+    const compareText = compareFor(StringType);
+    const before = (key: unknown): boolean => compare(key) < 0 || (compare(key) === 0 && prefix !== undefined && compareText(text(key), prefix) < 0);
+    return { row: keys.filter(before).length,
+        count: keys.filter(key => compare(key) === 0 && (prefix === undefined || text(key).startsWith(prefix))).length };
+}
+
 /**
  * The stand-in paging service over records — see the module docs.
  *
@@ -166,25 +206,14 @@ export function recordPaging(
             const record = recordOf(path);
             const hash = pinned(workspace, path, query.hash);
             if (query.index !== undefined) {
-                if (!("from" in query) || query.from?.[0] === undefined) throw new Error("an index is sought from its first day key");
-                requests.push(`${pathText(path)} index ${query.index} seek ${query.from[0]}`);
                 const { index, entries } = indexed(workspace, record, query.index);
-                const parsed = parseFor(index.keyType)(query.from[0]);
-                if (!parsed.success) throw new Error(`not a key of ${query.index}: ${query.from[0]}`);
-                const compare = compareFor(index.keyType);
-                const row = entries.filter(entry => compare(entry.ik, parsed.value) < 0).length;
-                return { found: row < entries.length, row, count: entries.length - row, hash };
+                requests.push(`${pathText(path)} index ${query.index} seek ${"from" in query ? query.from?.[0] ?? "" : ""} ${JSON.stringify(query)}`);
+                const result = findRange(entries.map(entry => entry.ik), index.keyType, query);
+                return { ...result, found: result.count > 0, hash };
             }
-            // By a key's text, as East prints it.
-            if (!("key" in query)) throw new Error("a record's own entries are sought by a key");
-            requests.push(`${pathText(path)} seek ${query.key}`);
-            const parsed = parseFor(record.type.key)(query.key);
-            if (!parsed.success) throw new Error(`not a key of ${pathText(path)}: ${query.key}`);
-            const compare = compareFor(record.type.key);
-            const keys = [...entriesOf(workspace, record).keys()];
-            const row = keys.filter((k) => compare(k, parsed.value) < 0).length;
-            const count = keys.filter((k) => compare(k, parsed.value) === 0).length;
-            return { found: count > 0, row, count, hash };
+            requests.push(`${pathText(path)} seek ${"key" in query ? query.key : JSON.stringify(query)}`);
+            const result = findRange([...entriesOf(workspace, record).keys()], record.type.key, query);
+            return { ...result, found: result.count > 0, hash };
         },
         watchRevision(workspace, path, onChange) {
             let told = revisionOf(workspace, path);

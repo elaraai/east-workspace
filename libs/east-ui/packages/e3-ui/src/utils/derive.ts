@@ -76,6 +76,7 @@ export function deriveManifest(
                 if (patch.type === 'some') paths.push(patch.value);
                 return;
             }
+            case "data_bind_indexed":
             case DATA_BIND_PAGED_PINNED:
             case DATA_BIND_PAGED: {
                 // arg[0] source TreePath. Paged sources are read by window, so

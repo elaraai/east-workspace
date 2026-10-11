@@ -18,6 +18,7 @@ import {
     DownloadImpl,
     ShareImpl,
 } from '@elaraai/east-ui-components';
+import { RecordSliceImpl } from '@elaraai/east-ui-components/platform';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { BindPlatform } from '../platform/bind-runtime.js';
 import { PagedPlatform } from '../platform/paged-runtime.js';
@@ -32,7 +33,7 @@ import type { QueryOverrides } from './types.js';
 // "Common traps"). UITaskPreview passes a manifest-scoped set instead; this is the unscoped fallback.
 const defaultPlatformImplementations: PlatformFunction[] =
     [
-        ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+        ...StateImpl, ...NavImpl, ...SliceImpl, ...RecordSliceImpl, ...SliceApplyImpl, ...OverlayImpl,
         ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
         ...BindPlatform, ...PagedPlatform, ...FuncPlatform, ...RecordPlatform,
     ];

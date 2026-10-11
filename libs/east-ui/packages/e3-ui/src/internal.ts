@@ -36,6 +36,7 @@ export {
     bindPagedPinnedPlatformFn,
     DataPagedPrimitives,
 } from './bind/data.js';
+export { bindIndexedPagedPlatformFn, DataIndexedPrimitives, type BindPagedIndexesOptions, type IndexedPagedValue } from './bind/data-indexed.js';
 export {
     Func,
     FuncStatusType,

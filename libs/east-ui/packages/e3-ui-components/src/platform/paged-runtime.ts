@@ -84,6 +84,7 @@ import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString, type ReactiveDatasetCacheInterface } from "./dataset-store.js";
 import { TrackedChannelStore } from "./tracked-channel.js";
+import { IndexedPagedRuntime } from "./indexed-paged.js";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through. Tests stub it; the
@@ -523,6 +524,8 @@ export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX):
 export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     private api: PagedApi | null = null;
     private workspace: string | null = null;
+    /** Field-index bindings share this runtime's existing reads. */
+    readonly indexed = new IndexedPagedRuntime(this);
 
     // Compiled-handle cache (issue #106 perf): buildHandle compiles several
     // East.functions per bind, and binds re-run every reactive frame. The
@@ -588,6 +591,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.workspace = null;
         this.reset();
         this.handleCache.clear();
+        this.indexed.clear();
     }
 
     /** Stop following every dataset, and drop what every snapshot delivered. */
@@ -1242,6 +1246,7 @@ export function clearPagedApi(api?: PagedApi): void {
 export const PagedPlatform: PlatformFunction[] = [
     defaultPagedRuntime.buildPlatform(null),
     defaultPagedRuntime.buildPinnedPlatform(null),
+    ...defaultPagedRuntime.indexed.platform(null),
     ...defaultPagedRuntime.buildPrimitives(),
 ];
 
@@ -1257,6 +1262,7 @@ export function createScopedPagedPlatform(pages: readonly TreePath[]): PlatformF
     return [
         defaultPagedRuntime.buildPlatform(allowed),
         defaultPagedRuntime.buildPinnedPlatform(allowed),
+        ...defaultPagedRuntime.indexed.platform(allowed),
         ...defaultPagedRuntime.buildPrimitives(),
     ];
 }

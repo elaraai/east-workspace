@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
-import { ArrayType, DictType, FunctionType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
+import { ArrayType, DictType, FunctionType, IntegerType, NullType, StringType, StructType, OptionType, East, variant, some, none } from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
 
 /**
@@ -237,7 +237,22 @@ export async function createKeyedRecordPackageZip(
       ($, _k, v) => ({ status: v.status, due: v.due })),
     value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
   });
-  const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus);
+  // Nullable String paths must support the same bounded prefix search as
+  // String paths. This small companion record leaves the segmented plans
+  // fixture's row type and index-count assertions unchanged.
+  const Contact = StructType({ group: StringType, name: OptionType(StringType) });
+  const contacts = e3.record('contacts', DictType(StringType, Contact), new Map([
+    ['a', { group: 'east', name: none }],
+    ['b', { group: 'east', name: some('Ada') }],
+    ['c', { group: 'east', name: some('Adam') }],
+    ['d', { group: 'east', name: some('Bea') }],
+    ['e', { group: 'west', name: some('Ada') }],
+    ['f', { group: 'east', name: some('Élodie') }],
+  ]));
+  const byName = e3.recordIndex('by_name', contacts, { on: ['name'] });
+  const byGroupName = e3.recordIndex('by_group_name', contacts, { on: ['group', 'name'] });
+  const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus,
+    contacts, byName, byGroupName);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
