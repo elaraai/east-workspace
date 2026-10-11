@@ -226,7 +226,7 @@ jobs:
         working-directory: libs/east-ui
         run: make test-responsive SHARD=${{ matrix.shard }}/8
 
-      # A failing spec's screenshot and trace (open the trace with
+      # A failing spec's DOM/network trace (open the trace with
       # `pnpm exec playwright show-trace <trace.zip>`).
       - name: Upload test results
         if: failure()

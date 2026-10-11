@@ -194,9 +194,7 @@ describe("the Slice (#850)", () => {
     test("the summary's counts are German", () => {
         const slice = { key: "", activeCount: () => 0n, resultCount: () => 1284n, totalCount: () => 50000n, clearFilters: () => null };
         const { container } = german(<EastChakraSliceSummary value={{ slice } as unknown as SliceSummaryValue} />);
-        const words = texts(container);
-        expect(words).toContain("1.284");
-        expect(words).toContain("of 50.000");
+        expect(texts(container).join(" ")).toContain("1.284 of 50.000 results");
     });
 });
 
@@ -210,6 +208,6 @@ describe("with no provider's locale, English (#850)", () => {
         cleanup();
         const slice = { key: "", activeCount: () => 0n, resultCount: () => 1284n, totalCount: () => 50000n, clearFilters: () => null };
         const { container } = german(<EastChakraSliceSummary value={{ slice } as unknown as SliceSummaryValue} />, "en-US");
-        expect(texts(container)).toEqual(expect.arrayContaining(["1,284", "of 50,000"]));
+        expect(texts(container).join(" ")).toContain("1,284 of 50,000 results");
     });
 });

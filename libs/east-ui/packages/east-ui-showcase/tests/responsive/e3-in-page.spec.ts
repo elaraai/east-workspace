@@ -189,6 +189,8 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await expect(status.getByText("SUCCEEDED", { exact: true })).toBeVisible();
         // `forecast(12, 1.05)` returns its growth argument.
         await expect(status.getByText(".some 1.05", { exact: true })).toBeVisible();
+        // The reader may be outside the virtualized doc list's mounted rows.
+        await page.evaluate(file => { location.hash = `#${file}/funcBindCall`; }, file);
         const call = entryOf(page, file, "funcBindCall");
         await call.scrollIntoViewIfNeeded();
         await expect(statValue(call, "Forecast")).toHaveText(".some 1.05");
@@ -332,6 +334,8 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await expect(status.getByText("IDLE", { exact: true })).toBeVisible();
         await status.getByRole("button", { name: "Run forecast" }).click();
         await expect(status.getByText(".some 1.05", { exact: true })).toBeVisible();
+        // The reader may be outside the virtualized doc list's mounted rows.
+        await page.evaluate(file => { location.hash = `#${file}/funcBindCall`; }, file);
         const call = entryOf(page, file, "funcBindCall");
         await call.scrollIntoViewIfNeeded();
         await expect(statValue(call, "Forecast")).toHaveText(".some 1.05");

@@ -669,7 +669,7 @@ describe('findDatasetKey', () => {
     const prefixErr = await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: '4' });
     assert.equal(prefixErr.status, 400);
     const prefixBody = await prefixErr.json() as { error: { type: string; message: string } };
-    assert.match(prefixBody.error.message, /String keys/);
+    assert.match(prefixBody.error.message, /String or Option<String> keys/);
   });
 
   it('Set datasets search elements like dict keys', async () => {
@@ -990,7 +990,7 @@ describe('findDatasetKey (through an index)', () => {
     assert.equal(intPrefix.status, 400);
     assert.match(intPrefix.error.message, /prefix continues key field 'week', which is Integer, not String/);
     assert.match((await refusal({ prefix: '4', index: 'by_due' })).error.message,
-      /prefix search needs String keys; the keys of index 'by_due' are Integer/);
+      /prefix search needs String or Option<String> keys; the keys of index 'by_due' are Integer/);
     // The collection's own key is not the index's.
     assert.equal((await refusal({ key: '(ik=42, k="p-000042")', index: 'by_due' })).error.type, 'key_parse_error');
 

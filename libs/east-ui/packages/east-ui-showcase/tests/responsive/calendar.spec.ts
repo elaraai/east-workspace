@@ -249,9 +249,12 @@ for (const theme of ["light", "dark"] as const) {
         await expect(footer).toHaveAttribute('data-builder-narrow', '');
         expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
         await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
-        const plan = page.locator('[data-plan-frame] [data-slot="footer"]').first();
+        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan-events/planPrintWorks"]') });
+        await planEntry.scrollIntoViewIfNeeded();
+        const plan = planEntry.locator('[data-plan-frame] [data-slot="footer"]').first();
         await expect(plan).toBeVisible({ timeout: 30_000 });
-        expect(await railStyle(plan)).toEqual(calendarFooter);
+        await settled(page);
+        await expect.poll(() => railStyle(plan)).toEqual(calendarFooter);
     });
 
     test(`indexed events inspect by key and save without losing fields (${theme})`, async ({ page }, info) => {
