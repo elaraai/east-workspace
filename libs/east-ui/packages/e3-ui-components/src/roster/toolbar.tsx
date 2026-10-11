@@ -8,7 +8,7 @@ import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/r
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation, faSliders } from "@fortawesome/free-solid-svg-icons";
 import { ChipMenu, historyToolbarItem, useSliceReactivity, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, railAffordanceKinds, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import { HOST_RANK, coarseHitArea, railAffordanceKinds, useRecordSliceToolbarItems, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -31,6 +31,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [slice, affordances, version]);
     const rail = useSliceToolbarItems(slice, [{ key: "roster.slice", kinds }]);
+    const record = value.recordSlice?.type === "some" ? value.recordSlice.value : undefined;
+    const recordRail = useRecordSliceToolbarItems(record?.slice, { noun: "people",
+        ...(record === undefined ? {} : { affordances: record.affordances.map(a => a.type) }),
+        ...(record?.persist.type === "some" ? { persist: record.persist.value.type } : {}),
+    });
     const chip = useRecipe({ key: "chip" });
     const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
     const period = (key: "day" | "week") => setView({ ...view, period: key });
@@ -73,7 +78,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const daySelect = <Seg label="Day of week" scope="roster" name="days" active={String(args.day)} onPick={day => setView({ ...view, date: start.getTime() + Number(day) * DAY })}
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
-        ...rail,
+        ...rail, ...recordRail,
         { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
         view.layout === "shifts" && { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={PERIODS} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },

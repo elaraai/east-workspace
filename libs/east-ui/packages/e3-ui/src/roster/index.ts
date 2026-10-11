@@ -8,8 +8,8 @@ import {
     OptionType, SetType, StringType, StructType, VariantType, none, some, variant,
     type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { EastUI, Editing, UIComponentType, type UIElement } from "@elaraai/east-ui";
-import { SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { EastUI, Editing, UIComponentType, type UIElement, type RowSourceInput } from "@elaraai/east-ui";
+import { isRecordSlice, recordSliceChrome, RecordSliceChromeType, RowSourceType, localSliceHandle, SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral, type RecordSliceChromeOptions } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType } from "../bind/data.js";
 import { Record, RecordBindingType } from "../bind/record.js";
 import * as T from "./types.js";
@@ -17,6 +17,7 @@ import { ScheduleClockType } from "../schedule/types.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterCheck, rosterRest } from "./rules.js";
 import { rosterPeople } from "./people.js";
+import { rosterVisibility } from "./visibility.js";
 import {
     RosterAuthorTabType, RosterPatchType, buildRosterTab, rosterActivitiesTab, rosterLibraryTab, rosterPatch, rosterPeopleTab,
     type RosterLibraryTab,
@@ -55,6 +56,7 @@ export const RosterPayloadType = StructType({
         weekStart: VariantType({ monday: NullType, sunday: NullType }),
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
     }), id: OptionType(StringType),
+    recordSlice: OptionType(RecordSliceChromeType), visibleSource: OptionType(RowSourceType(ArrayType(StringType))),
 });
 /** Carrier registered by e3-ui-components. */
 export const RosterComponent = EastUI.component("Roster", RosterPayloadType, { optional: true });
@@ -67,8 +69,8 @@ export interface RosterProps {
     window?: SubtypeExprOrValue<typeof RosterWindowType>;
     /** Complete resolved staff, commonly Roster.people(bound.read(), accessors). */
     people: SubtypeExprOrValue<ArrayType<T.RosterPersonType>>;
-    /** Visible staff keys computed with Slice.rows; coverage still uses complete staff. */
-    visiblePeople?: SubtypeExprOrValue<SetType<StringType>>;
+    /** Original staff keys, or Slice.rows(recordSlice); coverage still uses complete staff. */
+    visiblePeople?: RowSourceInput<SetType<StringType>>;
     /** Nonempty groups in display order, including their skills. */
     groups: SubtypeExprOrValue<ArrayType<T.RosterGroupType>>;
     /** Nonempty recurring shifts. */
@@ -101,8 +103,8 @@ export interface RosterProps {
         /** Typed target editor. */
         requirement?: SubtypeExprOrValue<typeof RosterRequirementFormType>;
     };
-    /** Author-bound Slice and shared toolbar controls; datetime ranges select the containing week. */
-    slice?: { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] };
+    /** Shared Slice toolbar. A record Slice narrows visible staff; a local date Slice can select the week. */
+    slice?: { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | RecordSliceChromeOptions;
     /** Initial view, persisted under id. */
     view?: { layout?: "shifts" | "people"; period?: "day" | "week"; date?: SubtypeExprOrValue<DateTimeType> };
     /** Week boundary; Monday by default. */
@@ -131,11 +133,15 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
         return tab.kind === "tab" ? East.value(variant("tab", buildRosterTab(tab)), RosterLibraryTabType)
             : East.value(variant(tab.kind, null), RosterLibraryTabType);
     });
+    const record = props.slice !== undefined && isRecordSlice(props.slice.slice);
+    const visibility = props.visiblePeople === undefined ? undefined : rosterVisibility(props.visiblePeople);
+    if (record && visibility?.source === undefined) throw new Error("Roster: pass Slice.rows(recordSlice) as visiblePeople alongside record Slice controls");
+    const local = props.slice as { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | undefined;
     const forms = typeof props.inspector === "object" ? props.inspector : {};
     return East.value({
         sourceId: props.weeks.binding.name, read: props.weeks.read, apply: Record.onApply(props.weeks, { keyed: true }),
         window: props.window === undefined ? none : some(props.window), people: props.people,
-        visiblePeople: props.visiblePeople === undefined ? none : some(props.visiblePeople), groups: props.groups, shifts: props.shifts,
+        visiblePeople: visibility?.inline === undefined ? none : some(visibility.inline), groups: props.groups, shifts: props.shifts,
         duties: props.duties ?? [], positions: props.positions ?? [{ key: "associate", label: "Associate", code: "", lead: false }],
         agencies: props.agencies ?? [], rules: { rest: props.rules?.rest ?? 10.0, lead: props.rules?.lead ?? true, trainer: props.rules?.trainer ?? true, skill: props.rules?.skill ?? true, agree: props.rules?.agree ?? true },
         costs: props.costs === undefined ? none : some(props.costs), forecast: props.forecast ?? new Map(), proposals: props.proposals ?? [],
@@ -144,14 +150,16 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
             assignment: forms.assignment === undefined ? none : some(forms.assignment),
             requirement: forms.requirement === undefined ? none : some(forms.requirement),
         }),
-        slice: props.slice === undefined ? none : some({ slice: props.slice.slice,
-            affordances: East.value((props.slice.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)) }),
+        slice: record || local === undefined ? none : some({ slice: localSliceHandle(local.slice),
+            affordances: East.value((local.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)) }),
         settings: {
             layout: variant(props.view?.layout ?? "shifts", null), period: variant(props.view?.layout === "people" ? "week" : props.view?.period ?? "day", null),
             date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
             density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
             requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
         }, id: props.id === undefined ? none : some(props.id),
+        recordSlice: record ? some(recordSliceChrome(props.slice as RecordSliceChromeOptions)) : none,
+        visibleSource: visibility?.source === undefined ? none : some(visibility.source),
     }, RosterPayloadType);
 }
 /** The tag, domain functions and authoring helpers. */
