@@ -364,6 +364,42 @@ for (const theme of ['light', 'dark'] as const) {
         await again.locator('[data-roster-assignment="s37"]').click();
         await expect(again.getByRole('spinbutton', { name: 'Custom overtime' })).toHaveValue('1.5');
     });
+    test(`group folding is shared by Shifts, People and phone cards (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme); await size(page, entry, 960);
+        const frame = entry.locator('[data-roster-frame]').first();
+        await view(page, frame, 'People');
+        const firstPerson = await frame.locator('[data-roster-person-row]').first().getAttribute('data-roster-person-row');
+        for (const key of ['inbound', 'picking', 'dispatch']) {
+            const group = frame.locator(`[data-roster-group="${key}"]`);
+            await expect(group).toHaveAttribute('aria-expanded', 'true');
+            await group.click();
+            await expect(group).toHaveAttribute('aria-expanded', 'false');
+        }
+        await expect(frame.locator('[data-roster-person-row]')).toHaveCount(0);
+        await view(page, frame, 'Shifts');
+        await expect(frame.locator('[data-roster-group][aria-expanded="false"]')).toHaveCount(3);
+        await expect(frame.locator('[data-roster-slot], [data-roster-requirement]')).toHaveCount(0);
+        await view(page, frame, 'Week');
+        await expect(frame.locator('[data-roster-slot]')).toHaveCount(0);
+        await view(page, frame, 'People');
+        const inbound = frame.locator('[data-roster-group="inbound"]');
+        await inbound.focus(); await page.keyboard.press('Enter');
+        await expect(inbound).toHaveAttribute('aria-expanded', 'true');
+        await expect(frame.locator(`[data-roster-person-row="${firstPerson}"]`)).toBeVisible();
+        await size(page, entry, 360);
+        await expect(frame.locator(`[data-roster-person-card="${firstPerson}"]`)).toBeVisible();
+        await inbound.click();
+        await expect(frame.locator('[data-roster-person-card]')).toHaveCount(0);
+        const again = await remount(page, 'rosterWarehouse'); await size(page, entry, 360);
+        await expect(again.locator('[data-roster-group][aria-expanded="false"]')).toHaveCount(3);
+        const reopen = again.locator('[data-roster-group="inbound"]');
+        await reopen.focus(); await page.keyboard.press('Space');
+        await expect(reopen).toHaveAttribute('aria-expanded', 'true');
+        await expect(again.locator(`[data-roster-person-card="${firstPerson}"]`)).toBeVisible();
+        expect(await again.locator('[data-roster-person-card]').count()).toBeLessThan(10);
+        await expect(again.locator('[aria-roledescription="draggable"], [data-roster-person-day]')).toHaveCount(0);
+    });
     test(`Roster uses app typography, quiet grips and Plan's footer (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'Desktop typography/hover; narrow geometry is tested separately.');
         await page.setViewportSize({ width: 2160, height: 1080 });
@@ -391,11 +427,25 @@ for (const theme of ['light', 'dark'] as const) {
         }));
         expect(await groupBands()).toEqual(Array.from({ length: 3 }, () => ({ left: true, width: true, align: 'left' })));
         const headings = frame.locator('[data-roster-column-header]');
+        const headerTypography = () => headings.evaluateAll(nodes => nodes.map(node => {
+            const s = getComputedStyle(node.firstElementChild ?? node);
+            return { family: s.fontFamily, size: s.fontSize, weight: s.fontWeight, lineHeight: s.lineHeight,
+                tracking: s.letterSpacing, casing: s.textTransform, numbers: s.fontVariantNumeric };
+        }));
+        const shiftType = (await headerTypography())[0]!;
+        expect(shiftType).toMatchObject({ size: '10px', weight: '600', lineHeight: '15px', tracking: '1.2px', casing: 'uppercase' });
+        expect(await headerTypography()).toEqual(Array.from({ length: 3 }, () => shiftType));
         expect(await headings.evaluateAll(nodes => nodes.length === 3 && nodes.every(el => getComputedStyle(el).textAlign === 'left'))).toBe(true);
         await view(page, frame, 'Week');
+        expect(await headerTypography()).toEqual(Array.from({ length: 28 }, () => shiftType));
+        expect(await headings.evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().height))).toEqual(Array(28).fill(28));
+        expect(await headings.first().evaluate(el => el.parentElement!.parentElement!.getBoundingClientRect().height)).toBe(58);
         expect(await headings.evaluateAll(nodes => nodes.length > 0 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
         expect(await groupBands()).toEqual(Array.from({ length: 3 }, () => ({ left: true, width: true, align: 'left' })));
         await view(page, frame, 'People');
+        expect(await headerTypography()).toEqual(Array.from({ length: 7 }, () => shiftType));
+        expect(await headings.evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().height))).toEqual(Array(7).fill(28));
+        expect(await headings.first().evaluate(el => el.parentElement!.getBoundingClientRect().height)).toBe(29);
         expect(await headings.evaluateAll(nodes => nodes.length === 7 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
         const peopleBands = await groupBands();
         expect(peopleBands.length).toBeGreaterThan(0);
@@ -406,7 +456,9 @@ for (const theme of ['light', 'dark'] as const) {
         expect(await scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
         expect((await groupBands()).every(b => b.left && b.width && b.align === 'left')).toBe(true);
         await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
-        const plan = page.locator('[data-plan-frame] [data-slot="footer"]').first(); await expect(plan).toBeVisible({ timeout: 30_000 });
+        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan-events/planPrintWorks"]') });
+        await planEntry.scrollIntoViewIfNeeded(); await settled(page);
+        const plan = planEntry.locator('[data-plan-frame] [data-slot="footer"]').first(); await expect(plan).toBeVisible({ timeout: 30_000 });
         expect(await railStyle(plan)).toEqual(actual);
     });
 }

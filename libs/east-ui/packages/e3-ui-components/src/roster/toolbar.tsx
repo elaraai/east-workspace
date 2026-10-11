@@ -13,7 +13,7 @@ import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { RosterCommands } from "./actions.js";
-import { DAY, dayStart, type Issue, type RosterStyles, type RosterValue, type Week } from "./model.js";
+import { DAY, type Issue, type RosterStyles, type RosterValue, type Week } from "./model.js";
 import type { useRosterWindow } from "./window.js";
 
 const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "People" }] as const;
@@ -49,11 +49,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         else if (key === "day" || key === "week") period(key);
         else if (key === "publish") commands.publish();
         else if (key === "previous") navigate(-1); else if (key === "next") navigate(1);
-        else if (key === "today") setView({ ...view, date: dayStart(Date.now()).getTime() }); else if (key === "issues") args.onIssues(); else displayChoice(key);
+        else if (key === "issues") args.onIssues(); else displayChoice(key);
     }}>
         {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         {view.layout === "shifts" && <><ChakraMenu.Separator />{PERIODS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}</>}
-        <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item><ChakraMenu.Item value="today">Today</ChakraMenu.Item>{value.inspector.type === "some" && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
+        <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector.type === "some" && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {commands.editing.available && commands.editing.week.status.type !== "published" && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
     // When the frame itself is narrower than a phone viewport, one popover

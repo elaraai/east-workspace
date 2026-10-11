@@ -149,7 +149,21 @@ for (const theme of ["light", "dark"] as const) {
         await viewChoice(page, frame, "Calendar"); await viewChoice(page, frame, "Month");
         await expect(frame.locator('[data-calendar-month-grid]')).toBeVisible();
         await expect(frame.locator('[data-outside]').first()).toBeVisible();
-        await frame.getByRole("button", { name: "Today", exact: true }).click();
+        for (const width of [1200, 1440]) {
+            await size(page, entry, width);
+            const month = frame.locator('[data-calendar-month-grid]');
+            await month.evaluate(el => { el.scrollLeft = 61; });
+            expect(await month.evaluate(el => {
+                const headings = [...el.querySelector('[data-calendar-header]')!.children];
+                const cells = [...el.querySelectorAll('[data-calendar-cell]')].slice(0, headings.length);
+                return headings.every((heading, i) => {
+                    const h = heading.getBoundingClientRect(), c = cells[i]!.getBoundingClientRect();
+                    return Math.abs(h.left - c.left) <= 1 && Math.abs(h.width - c.width) <= 1;
+                });
+            }), `${width}px month headings stay aligned with their dates`).toBe(true);
+        }
+        await frame.locator('[data-time-trigger]').click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Today', exact: true }).click();
         const more = frame.getByRole('button', { name: /more$/ }).first();
         await expect(more).toBeVisible(); await more.click();
         await expect(frame.locator('[data-calendar-time-grid]')).toBeVisible();
@@ -185,7 +199,13 @@ for (const theme of ["light", "dark"] as const) {
         const end = await job.evaluate(el => { const b = el.closest('[data-calendar-cell]')!.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height * 11 / 24 }; });
         await movePointer(page, edge, end.x, end.y);
         await page.mouse.up(); await expect(job).toHaveAttribute('data-drafted', '');
-        await job.focus(); await page.keyboard.press('Space'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Space');
+        await job.focus(); await page.keyboard.press('Space');
+        // The shared keyboard sensor attaches after the activation task; let
+        // its ghost and frame geometry settle before moving and dropping.
+        await expect(page.locator('[data-drag-ghost]')).toBeVisible(); await settled(page);
+        await page.keyboard.press('ArrowDown'); await settled(page);
+        await page.keyboard.press('Space');
+        await expect(job).not.toHaveAttribute('data-dragging', '');
         await expect(job).toHaveAttribute('aria-label', /6:15|06:15/);
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(created).not.toHaveAttribute('data-drafted', ''); await expect(job).not.toHaveAttribute('data-drafted', '');
@@ -269,10 +289,12 @@ for (const theme of ["light", "dark"] as const) {
         });
         const typography = async (element: Locator) => element.evaluate(el => {
             const s = getComputedStyle(el);
-            return { family: s.fontFamily, size: parseFloat(s.fontSize), weight: s.fontWeight, casing: s.textTransform };
+            return { family: s.fontFamily, size: parseFloat(s.fontSize), weight: s.fontWeight, casing: s.textTransform,
+                lineHeight: s.lineHeight, tracking: s.letterSpacing, numbers: s.fontVariantNumeric };
         });
         const heading = await typography(range.locator('[data-time-label]'));
-        expect(heading).toEqual(await typography(range.getByRole('button', { name: 'Today', exact: true })));
+        expect(heading).toEqual(await typography(range.locator('[data-time-trigger]')));
+        await expect(range.getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
         expect(await range.evaluate(el => {
             const buttons = [...el.querySelectorAll('button')];
             const boxes = buttons.map(button => button.getBoundingClientRect());
@@ -281,6 +303,19 @@ for (const theme of ["light", "dark"] as const) {
         })).toBe(true);
         const weekday = await typography(frame.locator('[data-calendar-day-heading] > span').first());
         expect(weekday.family).toBe(fonts.mono); expect(weekday.size).toBe(10); expect(weekday.weight).toBe("600"); expect(weekday.casing).toBe("uppercase");
+        for (const period of ['Day', 'Week']) {
+            await viewChoice(page, frame, period);
+            const headings = frame.locator('[data-calendar-day-heading]');
+            await expect(headings).toHaveCount(period === 'Week' ? 7 : 1);
+            for (const label of await headings.locator('> span').all()) expect(await typography(label)).toEqual(weekday);
+            expect((await frame.locator('[data-calendar-header]').boundingBox())!.height).toBe(28);
+            expect(await headings.evaluateAll(nodes => nodes.every(heading => {
+                const date = heading.getBoundingClientRect();
+                const count = heading.parentElement!.querySelector('[data-calendar-day-count]')!.getBoundingClientRect();
+                return Math.abs(date.top + date.height / 2 - count.top - count.height / 2) <= 1 && count.left >= date.right;
+            }))).toBe(true);
+        }
+        await viewChoice(page, frame, 'Day');
         const title = await typography(frame.locator('[data-calendar-event-title]:visible').first());
         expect(title.family).toBe(fonts.body); expect(title.size).toBe(12.5); expect(title.weight).toBe("600");
         const calendarAxis = await frame.locator('[data-calendar-cell]').first().evaluate(cell => {
@@ -304,21 +339,121 @@ for (const theme of ["light", "dark"] as const) {
         expect(await icon.getAttribute('data-prefix')).toBe('fas');
         expect(await icon.evaluate(el => [el.getBoundingClientRect().width, el.getBoundingClientRect().height])).toEqual([9, 9]);
         await viewChoice(page, frame, "Resources");
+        expect((await frame.locator('[data-calendar-header]').boundingBox())!.height).toBe(44);
         const resourceTitle = await typography(frame.locator('[data-calendar-resource-title]').first());
-        expect(resourceTitle.family).toBe(fonts.body); expect(resourceTitle.size).toBe(12.5); expect(resourceTitle.weight).toBe("600");
+        expect(resourceTitle).toEqual(weekday);
         await viewChoice(page, frame, "Timeline");
         const tick = await typography(frame.locator('[data-calendar-ruler="ticks"] > div').first());
         expect(tick.family).toBe(fonts.mono); expect(tick.size).toBe(10); expect(tick.weight).toBe("600");
         await viewChoice(page, frame, "Calendar"); await viewChoice(page, frame, "Month");
         const monthHeading = await typography(frame.locator('[data-calendar-month-grid] [data-month] > div > div').first());
         expect(monthHeading).toEqual(weekday);
+        expect((await frame.locator('[data-calendar-header]').boundingBox())!.height).toBe(28);
+        for (const label of await frame.locator('[data-calendar-day-number]').all()) expect(await typography(label)).toEqual(weekday);
+        await size(page, entry, 390);
+        for (const label of await frame.locator('[data-calendar-agenda-heading]').all()) expect(await typography(label)).toEqual(weekday);
+        // Column captions and dates share Plan's header recipe as well as the app font.
         // The time axis shares the Plan's actual computed type, not just a similar font family.
         await page.evaluate(() => { location.hash = "#e3/plan/plan/planTargetState"; });
-        const planTick = page.locator('[data-plan-frame] [data-slot="rulerTick"]').first();
+        const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan/planTargetState"]') });
+        await planEntry.scrollIntoViewIfNeeded(); await settled(page);
+        const planTick = planEntry.locator('[data-plan-frame] [data-slot="rulerTick"]').first();
         await expect(planTick).toBeVisible({ timeout: 30_000 });
+        const planCaption = planEntry.locator('[data-plan-frame] [data-slot="ruler"] > :first-child').first();
+        expect(await typography(planCaption)).toEqual(weekday);
         expect(await planTick.evaluate(el => {
             const s = getComputedStyle(el);
             return { family: s.fontFamily, size: s.fontSize, weight: s.fontWeight, casing: s.textTransform };
         })).toEqual(calendarAxis);
+    });
+}
+
+for (const theme of ["light", "dark"] as const) {
+    test(`Calendar timeline headers and collapsible groups share builder recipes (${theme})`, async ({ page }, info) => {
+        test.skip(info.project.name !== "desktop", "Timeline is desktop; the test also checks the narrow agenda and return.");
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator('[data-calendar-frame]').first();
+        await viewChoice(page, frame, 'Timeline');
+        const timeline = frame.locator('[data-calendar-timeline]');
+        const typography = (element: Locator) => element.evaluate(el => {
+            const s = getComputedStyle(el);
+            return { family: s.fontFamily, size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, tracking: s.letterSpacing, casing: s.textTransform };
+        });
+        const caption = await typography(frame.locator('[data-calendar-header-caption]'));
+        expect(caption.size).toBe('10px'); expect(caption.family).toContain('JetBrains Mono');
+        expect(caption.weight).toBe('600'); expect(caption.casing).toBe('uppercase');
+        for (const period of ['Day', 'Week', 'Month']) {
+            await viewChoice(page, frame, period);
+            expect((await frame.locator('[data-calendar-header]').boundingBox())!.height).toBe(57);
+            for (const band of await frame.locator('[data-calendar-ruler]').all()) {
+                expect((await band.boundingBox())!.height).toBe(28);
+                const style = await typography(band.locator('[data-calendar-ruler-label]').first());
+                expect(style.family).toBe(caption.family); expect(style.size).toBe(caption.size); expect(style.weight).toBe(caption.weight);
+            }
+            await timeline.evaluate(el => { el.scrollLeft += 127; }); await settled(page);
+            expect(await timeline.evaluate(el => {
+                const view = el.getBoundingClientRect();
+                return [...el.querySelectorAll('[data-calendar-ruler="units"] [data-calendar-ruler-label]')].some(label => {
+                    const r = label.getBoundingClientRect();
+                    return r.width > 0 && r.left >= view.left + 184 && r.right <= view.right;
+                });
+            }), `${period} has a visible unit caption after scrolling`).toBe(true);
+        }
+        await viewChoice(page, frame, 'Week');
+        const groups = frame.locator('[data-calendar-group]');
+        const first = groups.first();
+        const key = (await first.getAttribute('data-calendar-group'))!;
+        const groupStyle = (group: Locator) => group.evaluate(el => {
+            const s = getComputedStyle(el), content = getComputedStyle(el.querySelector('[data-schedule-group-content]')!), label = getComputedStyle(el.querySelector('[data-schedule-group-label]')!);
+            const icon = el.querySelector('svg')!.getBoundingClientRect();
+            return { height: el.getBoundingClientRect().height, background: s.backgroundColor, border: s.borderBottom,
+                padding: content.padding, gap: content.gap, family: label.fontFamily, size: label.fontSize, weight: label.fontWeight,
+                line: label.lineHeight, tracking: label.letterSpacing, icon: [icon.width, icon.height] };
+        });
+        const expectedStyle = await groupStyle(first);
+        expect(expectedStyle.height).toBe(38);
+        const rows = await first.evaluate(el => {
+            const keys: string[] = [];
+            for (let row = el.nextElementSibling; row && !row.hasAttribute('data-calendar-group'); row = row.nextElementSibling) {
+                const key = row.getAttribute('data-calendar-resource-row'); if (key !== null) keys.push(key);
+            }
+            return keys;
+        });
+        expect(rows.length).toBeGreaterThan(0);
+        await first.click(); await expect(first).toHaveAttribute('aria-expanded', 'false');
+        for (const key of rows) expect(await frame.locator("[data-calendar-resource-row]").evaluateAll((nodes, key) => nodes.some(node => node.getAttribute("data-calendar-resource-row") === key), key)).toBe(false);
+        expect(await groups.evaluateAll(nodes => nodes.every(el => Math.abs(el.getBoundingClientRect().width - el.parentElement!.getBoundingClientRect().width) <= 1))).toBe(true);
+        await timeline.evaluate(el => { el.scrollLeft += 127; }); await settled(page);
+        expect(await first.evaluate(el => {
+            const view = el.closest('[data-calendar-timeline]')!.getBoundingClientRect();
+            const label = el.querySelector('[data-schedule-group-label]')!.getBoundingClientRect();
+            return label.left >= view.left && label.right <= view.right;
+        })).toBe(true);
+        await viewChoice(page, frame, 'Calendar'); await viewChoice(page, frame, 'Timeline');
+        await expect(first).toHaveAttribute('aria-expanded', 'false');
+        for (const width of [390, 360]) {
+            await size(page, entry, width);
+            await expect(frame.locator('[data-calendar-agenda]')).toBeVisible();
+            await expect(frame.locator('[data-calendar-cell]')).toHaveCount(0);
+            for (const label of await frame.locator('[data-calendar-agenda-heading]').all()) expect(await typography(label)).toEqual(caption);
+        }
+        await size(page, entry, 1440); await expect(first).toHaveAttribute('aria-expanded', 'false');
+        await first.focus(); await page.keyboard.press('Enter'); await expect(first).toHaveAttribute('aria-expanded', 'true');
+        for (const key of rows) expect(await frame.locator("[data-calendar-resource-row]").evaluateAll((nodes, key) => nodes.filter(node => node.getAttribute("data-calendar-resource-row") === key).length, key)).toBe(1);
+        await page.keyboard.press('Space'); await expect(first).toHaveAttribute('aria-expanded', 'false');
+        // Both builders consume the same band, disclosure and type; remount also retains Calendar's fold.
+        await page.evaluate(() => { location.hash = '#e3/roster/roster/rosterWarehouse'; });
+        const rosterEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/roster/roster/rosterWarehouse"]') });
+        await rosterEntry.scrollIntoViewIfNeeded(); await settled(page);
+        const rosterGroup = rosterEntry.locator('[data-roster-group]').first();
+        await expect(rosterGroup).toBeVisible({ timeout: 30_000 });
+        expect(await groupStyle(rosterGroup)).toEqual(expectedStyle);
+        const dayHeaders = rosterEntry.locator('[data-roster-column-header]');
+        for (const header of await dayHeaders.all()) expect((await header.boundingBox())!.height).toBe(44);
+        await page.evaluate(() => { location.hash = '#e3/calendar/calendar/calendarOperations'; });
+        await entry.scrollIntoViewIfNeeded(); await settled(page);
+        const restored = frame.locator('[data-calendar-group]').filter({ has: page.getByText(key, { exact: true }) });
+        await expect(restored).toHaveAttribute('aria-expanded', 'false');
     });
 }

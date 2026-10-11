@@ -128,7 +128,6 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     return <Box css={styles.root} data-time-navigation={scope} data-time-period={period} data-time-anchor={date}>
         {!compact && <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
         {picker}
-        {!compact && <><Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
-            <Button size="xs" variant="ghost" onClick={() => choose(today)}>Today</Button></>}
+        {!compact && <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
     </Box>;
 }

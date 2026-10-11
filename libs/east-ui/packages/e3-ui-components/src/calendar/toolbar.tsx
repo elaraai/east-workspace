@@ -53,13 +53,12 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         if (layout !== undefined) setView({ ...view, layout: layout.key });
         else if (picked !== undefined && view.layout !== "resources") setView({ ...view, period: picked.key });
         else if (key === "overlaps") showOverlaps();
-        else if (key === "today") args.onNavigate(dayStart(now).getTime());
         else if (key === "previous" || key === "next") move(key === "previous" ? -1 : 1);
     }}>
         {LAYOUTS.map(layout => <ChakraMenu.Item value={layout.key} key={layout.key}>{layout.label}</ChakraMenu.Item>)}
         {view.layout !== "resources" && <><ChakraMenu.Separator />{PERIODS.map(p => <ChakraMenu.Item value={p.key} key={p.key}>{p.label}</ChakraMenu.Item>)}</>}
         <ChakraMenu.Separator />
-        <ChakraMenu.Item value="previous">Previous {period}</ChakraMenu.Item><ChakraMenu.Item value="today">Today</ChakraMenu.Item><ChakraMenu.Item value="next">Next {period}</ChakraMenu.Item>
+        <ChakraMenu.Item value="previous">Previous {period}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {period}</ChakraMenu.Item>
         {firstPair !== undefined && <ChakraMenu.Item value="overlaps">{overlaps.pairs.length} overlaps</ChakraMenu.Item>}
     </ChipMenu>;
     const controls = <>

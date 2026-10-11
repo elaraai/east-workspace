@@ -21,8 +21,11 @@ export function RosterFooter({ styles, narrow }: { styles: RosterStyles; narrow:
         const rail = ref.current; if (rail === null) return;
         const measure = () => {
             const items = [...rail.children];
+            const css = getComputedStyle(rail);
             const required = items.reduce((n, item) => n + item.getBoundingClientRect().width, 0)
-                + Math.max(0, items.length - 1) * Number.parseFloat(String(styles.footer?.gap ?? 14)) + 24;
+                + Math.max(0, items.length - 1) * (Number.parseFloat(css.columnGap) || 0)
+                + Number.parseFloat(css.paddingInlineStart) + Number.parseFloat(css.paddingInlineEnd)
+                + Number.parseFloat(css.borderInlineStartWidth) + Number.parseFloat(css.borderInlineEndWidth);
             setWrap(required > rail.getBoundingClientRect().width);
         };
         measure(); const observer = new ResizeObserver(measure); observer.observe(rail);

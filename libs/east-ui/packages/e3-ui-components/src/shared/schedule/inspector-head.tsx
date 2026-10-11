@@ -22,11 +22,11 @@ export function ScheduleInspectorHead({ styles, kind, title, when, status, pendi
                 <Box css={styles.eyebrow} data-inspector-kind="">{kind.name}</Box>
                 <Box css={styles.name} data-inspector-title="">{title}</Box>
                 <Box css={styles.when} data-inspector-when="">{when}</Box>
+                {(status !== undefined || pending !== undefined) && <Box css={styles.marks} data-inspector-marks="">
+                    {pending !== undefined && <Box as="span" css={styles.chip} data-state={pending}>{pending === "new" ? "New" : "Pending"}</Box>}
+                    {status !== undefined && <Box as="span" css={styles.status} data-tone={status.tone.type} data-ring={status.ring ? "" : undefined} data-inspector-status="">{status.label}</Box>}
+                </Box>}
             </Box>
         </Box>
-        {(status !== undefined || pending !== undefined) && <Box css={styles.marks}>
-            {pending !== undefined && <Box as="span" css={styles.chip} data-state={pending}>{pending === "new" ? "New" : "Pending"}</Box>}
-            {status !== undefined && <Box as="span" css={styles.status} data-tone={status.tone.type} data-ring={status.ring ? "" : undefined} data-inspector-status="">{status.label}</Box>}
-        </Box>}
     </Box>;
 }

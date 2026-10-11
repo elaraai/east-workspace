@@ -194,6 +194,56 @@ alignment explicit in slot recipes: Day shift details align left; compact Week
 and People day labels center over their cells. Test band geometry at wide and
 horizontally scrolled widths in both themes.
 
+Date column captions use `timeHeaderText` from the shared `time/axis.ts`
+recipe part, also used by Plan's band captions. Roster's Day shift labels,
+Week dates and People dates all apply `shiftLabel`; never put bare text in a
+header button and inherit body typography. Calendar's weekday and date number
+use the same header part, with no title-sized numeral or independent font
+size. Keep the complete label on one line. Compare computed family, size,
+weight, line height, tracking, case and numeral settings across every view,
+including all seven week dates and selected/current dates, in both themes.
+
+Header geometry is a separate requirement from typography. Roster's one-line
+Week date/shift and People column cells are 28px tall (plus the row rule).
+Day uses a 44px header: shift name and time on one line, summary on the next.
+Do not let three stacked text blocks determine its height.
+Use `headerGutter` for their captions, never the padded body-row `rowHead` or
+`peopleHead` slots. The Week gutter is one line too; it must not stretch an
+otherwise compact band. Assert actual row heights as well as text properties.
+Calendar's Day/Week date and event count share one 28px band, as do its Month
+weekday captions. Resource headers use 44px for the named resource and its
+metadata; Timeline has two 28px ruler bands plus the bottom rule. Its Resources
+caption uses Plan's `brushCaption`, not the body `rowHead` slot. Resource column
+names, month numbers and agenda dates use `timeHeaderText`; timeline resource
+rows and metadata reuse Plan's `gutterName`/`gutterSub`. Keep unit labels visible
+while scrolling. Test every period, resource headers, month cells and mobile
+agenda dates, including geometry and the app's actual computed fonts.
+Month headings and date cells must share the recipe's minimum track width;
+assert their left edges and widths match before and after horizontal scrolling.
+
+Audit renderer JSX as well as its recipe: fixed grid minima, track sizes,
+column counts fixed by a layout, padding and spacing belong in the recipe.
+Pass only data-dependent column counts and computed event/coverage positions
+inline (CSS variables are suitable). Sizing logic must read the recipe's
+computed padding, borders and gaps instead of repeating those values in JS;
+Roster's responsive footer measures those styles before fitting legend items.
+
+Calendar Timeline and Roster Shifts/People/narrow People cards reuse
+`shared/schedule/group-heading.tsx` and the theme's `schedule-group.ts` recipe
+part. One native disclosure button and persisted group-key fold state own
+click/Enter/Space, chevrons and `aria-expanded`. The band fills the entire
+scrolling canvas; its caption stays visible while panning. Fold the row list,
+including agency requests, rather than hiding already-mounted content. Preserve
+stable keys, selections, drafts and full-data calculations. Test identical
+computed band/label/icon styles between both builders, pointer and keyboard
+folding, view switches, resize and remount, including every group folded closed.
+
+Inspector shift controls use shared `Seg fullWidth`: equal buttons fill the
+strip, including its trailing edge. Schedule inspector marks sit beneath the
+subtitle in the title's text column. Status badges reuse the shared draft-chip
+geometry and type so paired badges align and wrap with a real gap. Verify both
+marks together and the segment widths in both themes at desktop and phone widths.
+
 Sharing the drag engine does not by itself make dragging responsive. Profile a
 realistic populated week. Keep shared drag handles/targets, but isolate sensor
 updates from heavy chip bodies and cache previews by drag and destination for
@@ -226,8 +276,9 @@ shared Button, Seg and SliceEditPopover and uses the shared UTC calendar
 arithmetic and app formatters. Keep BuilderFrame and this renderer detail out
 of the public authoring API.
 
-The full toolbar is previous / clickable current date or range / next / Today.
-The popup always has Today, including compact and combined View forms. Arrows
+The full toolbar is previous / clickable current date or range / next.
+Today belongs only in the date/week picker, including compact and combined
+View forms; omit its duplicate from the toolbar and View menu. Arrows
 step the effective view unit: Calendar Resources uses days, Roster People uses
 weeks, and other layouts use their active period. Keep invalid period controls
 absent. The picker's Days/Weeks choices select a date; they do not change the
@@ -257,6 +308,31 @@ hook can briefly render phone cards into a desktop main while BuilderFrame
 settles its panes. Verify the cold load as well as settled resize behavior.
 Show a loading state while the active record window is unresolved; do not
 render a forecast-only empty roster as though it were loaded data.
+
+Calendar and Roster pass their actual window-loading state to the internal
+`BuilderFrame.loading` prop. The frame owns one Chakra Skeleton surface and
+its loading slots in the `builderFrame` recipe. Keep its real regions mounted
+and measured underneath, inert and hidden from assistive technology; cover the
+whole frame rather than letting its toolbar, library and grid appear separately.
+The first resolved window also waits for the mounted content's fonts after
+layout measurement. Suppress initial pane-width transitions while covered.
+Do not use a fixed timeout or a skeleton sized from partial content. Subsequent
+loading keeps the frame, canvas, sessions and drafts mounted. Errors leave the
+loading state and show the existing error treatment.
+Keep the loading surface dense: body placeholders sit in fixed 40px rows with
+24px-high blocks, all in the shared recipe. Never stretch a few thin text bars
+through a tall host with `flex: 1` on each row. Spare body height stays empty;
+short hosts clip the placeholder list. Assert row height and placeholder-to-row
+height ratio at desktop and phone widths, not merely skeleton presence.
+
+Calendar waits for every requested event source and configured backlog; Roster
+waits for the active week's keyed result. An unresolved read is not an empty
+week. Keep these states distinct from a confirmed absent record and from
+background refreshes that still have usable data. Do not hide a missing read
+behind forecast-only content or a zero-event count. Test deliberately delayed
+pages and fonts, retained canvas identity, equal loading/loaded frame dimensions,
+no accessible controls under the skeleton, and the first visible layout at
+both desktop and phone widths in both themes.
 
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and

@@ -18,6 +18,7 @@ import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
+import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { EventActions } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
@@ -204,16 +205,15 @@ function TimeGrid(props: CalendarViewsProps) {
     const resources = props.view.layout === "resources";
     const columns = resources ? props.rows.map(row => ({ row, day: dayStart(props.view.date), label: row.label }))
         : props.range.days.map(day => ({ day, label: props.format.weekdayDate(day), row: undefined }));
-    const minWidth = 56 + columns.length * (resources ? 104 : columns.length === 1 ? 240 : 112);
     return <Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="">
-        <Box style={{ minWidth }}>
-            <Box css={props.styles.head}><Box css={props.styles.timeGutter} />{columns.map((column, i) => <chakra.button type="button" key={i} css={props.styles.columnHead}
+        <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.length === 1 ? "" : undefined} style={{ "--calendar-columns": columns.length } as CSSProperties}>
+            <Box css={props.styles.head} data-calendar-header="" data-resources={resources ? "" : undefined}><Box css={props.styles.timeGutter} />{columns.map((column, i) => <chakra.button type="button" key={i} css={props.styles.columnHead}
                 data-today={dateText(column.day) === dateText(props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
                 {column.row === undefined ? <>
                     <Box css={props.styles.dayHeading} data-calendar-day-heading=""><Box as="span" css={props.styles.weekday}>{props.format.weekday(column.day)}</Box><Box as="span" css={props.styles.dayDate}>{column.day.getUTCDate()}</Box></Box>
-                    <Box css={props.styles.columnMeta}>{props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length} events</Box>
+                    <Box css={props.styles.columnMeta} data-calendar-day-count="">{props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length} events</Box>
                 </> : <>
-                    <Box css={props.styles.title} data-calendar-resource-title="">{column.row.icon !== undefined && <FontAwesomeIcon icon={["fas", column.row.icon as IconName]} />} {column.label}</Box>
+                    <Box css={props.styles.resourceHeading} data-calendar-resource-title="">{column.row.icon !== undefined && <FontAwesomeIcon icon={["fas", column.row.icon as IconName]} />} {column.label}</Box>
                     <Box css={props.styles.columnMeta}>{column.row.meta} · {props.format.number(booked(props.items, column.row, column.day, new Date(column.day.getTime() + DAY)))} h booked</Box>
                 </>}
             </chakra.button>)}</Box>
@@ -252,22 +252,24 @@ function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
         measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
     }, [items.length]);
     return <DropLane props={props} from={day} to={next} resource={none} wholeDay css={props.styles.monthDay} elementRef={ref} outside={day.getUTCMonth() !== new Date(props.view.date).getUTCMonth()}>
-        <chakra.button type="button" css={props.styles.dayNumber} data-today={dateText(day) === dateText(props.now) ? "" : undefined} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>{day.getUTCDate() === 1 ? props.format.monthDay(day) : day.getUTCDate()}{dateText(day) === dateText(props.now) && " · TODAY"}</chakra.button>
+        <chakra.button type="button" css={props.styles.dayNumber} data-calendar-day-number="" data-today={dateText(day) === dateText(props.now) ? "" : undefined} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>{day.getUTCDate() === 1 ? props.format.monthDay(day) : day.getUTCDate()}{dateText(day) === dateText(props.now) && " · TODAY"}</chakra.button>
         {items.slice(0, limit).map(item => <EventBlock key={eventKey(item)} item={item} props={props} chip />)}
         {items.length > limit && <chakra.button type="button" css={props.styles.more} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>+{items.length - limit} more</chakra.button>}
     </DropLane>;
 }
 function MonthGrid(props: CalendarViewsProps) {
     const columns = props.value.settings.weekends ? 7 : 5;
-    return <Box css={props.styles.scroll} data-calendar-month-grid="">
-        <Box css={props.styles.head} data-month="">{props.range.days.slice(0, columns).map(day => <Box key={day.getTime()} css={props.styles.columnHead}><Box css={props.styles.weekday}>{props.format.weekday(day)}</Box></Box>)}</Box>
-        <Box css={props.styles.month} style={{ gridTemplateColumns: `repeat(${columns}, minmax(104px, 1fr))`, gridTemplateRows: `repeat(${props.range.days.length / columns}, minmax(128px, 1fr))` }}>
+    return <Box css={props.styles.scroll} data-calendar-month-grid="" style={{ "--calendar-month-columns": columns, "--calendar-month-rows": props.range.days.length / columns } as CSSProperties}>
+        <Box css={props.styles.head} data-calendar-header="" data-month="">{props.range.days.slice(0, columns).map(day => <Box key={day.getTime()} css={props.styles.columnHead}><Box css={props.styles.weekday}>{props.format.weekday(day)}</Box></Box>)}</Box>
+        <Box css={props.styles.month}>
             {props.range.days.map(day => <MonthDay key={day.getTime()} props={props} day={day} />)}
         </Box>
     </Box>;
 }
 
 function Timeline(props: CalendarViewsProps) {
+    const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
+    const groups = [...new Set(props.rows.map(row => row.group))];
     const laneHeight = props.value.settings.density.type === "compact" ? 26 : props.value.settings.density.type === "spacious" ? 40 : 32;
     const pixelsPerDay = timelinePixels(props.view.period);
     const scroll = useRef<HTMLDivElement>(null);
@@ -305,15 +307,19 @@ function Timeline(props: CalendarViewsProps) {
     const ticks = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "hour" : "day" })!;
     const units = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "day" : props.view.period === "week" ? "week" : "month" })!;
     return <Box ref={scroll} onScroll={onScroll} css={props.styles.scroll} data-calendar-timeline=""><Box css={props.styles.timeline} style={{ minWidth: width + 184 }}>
-        <Box css={props.styles.head}><Box css={props.styles.rowHead}>Resources</Box><Box css={props.styles.ruler}>
+        <Box css={props.styles.head} data-calendar-header="" data-timeline=""><Box css={props.styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={props.styles.ruler}>
             {[units, ticks].map((scale, i) => <Box key={i} css={props.styles.rulerRow} data-calendar-ruler={i === 0 ? "units" : "ticks"}>
                 {scale.buckets.map(bucket => <Box key={bucket.index} css={props.styles.rulerTick} style={{
                     left: `${Math.max(0, bucket.start.getTime() - props.range.from.getTime()) / duration * 100}%`,
                     width: `${(Math.min(props.range.to.getTime(), bucket.end.getTime()) - Math.max(props.range.from.getTime(), bucket.start.getTime())) / duration * 100}%`,
-                }}>{bucket.label}</Box>)}
+                }}><Box as="span" css={props.styles.rulerLabel} data-calendar-ruler-label="">{bucket.label}</Box></Box>)}
             </Box>)}
         </Box></Box>
-        {props.rows.map(row => {
+        {groups.map(group => {
+            const rows = props.rows.filter(row => row.group === group);
+            return <Fragment key={group}><GroupHeading scope="calendar" group={{ key: group, label: group || "Unassigned" }} styles={props.styles} collapsed={collapsed.includes(group)} toggle={toggle}>
+                <Box as="span" css={props.styles.groupMeta}>{rows.length} resources</Box>
+            </GroupHeading>{!collapsed.includes(group) && rows.map(row => {
             const items = props.items.filter(item => onResource(item, row));
             const spans = items.map(item => {
                 const start = item.start.type === "some" ? item.start.value.getTime() : 0;
@@ -321,19 +327,16 @@ function Timeline(props: CalendarViewsProps) {
                 return props.view.period === "month" ? { start: Math.floor(start / DAY) * DAY, end: Math.ceil(end / DAY) * DAY } : { start, end };
             });
             const lanes = packLanes(spans); const height = lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9;
-            const first = props.rows.findIndex(other => other.group === row.group) === props.rows.indexOf(row);
-            return <Fragment key={row.key}>
-                {first && <Box css={props.styles.group}><Box>{row.icon !== undefined && <FontAwesomeIcon icon={["fas", row.icon as IconName]} />} {row.group || "Unassigned"} · {props.rows.filter(other => other.group === row.group).length}</Box></Box>}
-                <Box css={props.styles.timelineRow}>
-                <Box css={props.styles.rowHead}><Box css={props.styles.title} data-calendar-resource-title="">{row.label}</Box><Box css={props.styles.columnMeta}>{row.meta} · {props.format.number(booked(items, row, props.visibleRange.from, props.visibleRange.to))} h booked</Box></Box>
+            return <Box key={row.key} css={props.styles.timelineRow} data-calendar-resource-row={row.key}>
+                <Box css={props.styles.rowHead}><Box css={props.styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><Box css={props.styles.columnMeta}>{row.meta} · {props.format.number(booked(items, row, props.visibleRange.from, props.visibleRange.to))} h booked</Box></Box>
                 <DropLane props={props} from={props.range.from} to={props.range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={props.styles.rowPlot} style={{ height }} draw={props.view.period !== "month"}>
                     {shadeBands({ min: props.range.from, max: props.range.to }, { hours: props.view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }).map((band, i) => <Box key={i} css={props.styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
                     {items.map((item, i) => <EventBlock key={eventKey(item)} item={item} props={props} window={props.range} along="x" geometry={{ top: 4 + lanes[i]!.lane * laneHeight, height: laneHeight - 4,
                         left: `${Math.max(0, spans[i]!.start - props.range.from.getTime()) / duration * 100}%`, width: `${(Math.min(props.range.to.getTime(), spans[i]!.end) - Math.max(props.range.from.getTime(), spans[i]!.start)) / duration * 100}%` }} />)}
                     {props.now >= props.range.from && props.now < props.range.to && <NowLine styles={props.styles} at={(props.now.getTime() - props.range.from.getTime()) / duration} data-calendar-now="" />}
                 </DropLane>
-            </Box></Fragment>;
-        })}
+            </Box>;
+        })}</Fragment>; })}
     </Box></Box>;
 }
 
@@ -344,7 +347,7 @@ function Agenda(props: CalendarViewsProps) {
             const next = new Date(day.getTime() + DAY);
             const items = chronological(props.items.filter(item => inWindow(item, day, next)));
             return <Box key={day.getTime()} css={props.styles.agendaDay} data-calendar-day={dateText(day)}>
-                <Box css={props.styles.agendaHead}>{props.format.weekdayDate(day)}</Box>
+                <Box css={props.styles.agendaHead} data-calendar-agenda-heading="">{props.format.weekdayDate(day)}</Box>
                 {items.length === 0 && <Box css={props.styles.empty}>Nothing scheduled</Box>}
                 {items.map(item => {
                     const id = eventKey(item);

@@ -37,7 +37,7 @@ describe("Shared time navigation", () => {
     });
     test("date trigger sits between the arrows, and popup Today chooses UTC today and closes", async () => {
         const { container, onChange } = mount();
-        expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(["Previous day", "Choose date", "Next day", "Today"]);
+        expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(["Previous day", "Choose date", "Next day"]);
         await open(container);
         expect(onChange).not.toHaveBeenCalled();
         await press(within(popup()).getByRole("button", { name: "Today" }));

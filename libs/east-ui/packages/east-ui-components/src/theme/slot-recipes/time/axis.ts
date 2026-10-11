@@ -7,3 +7,8 @@
 export const timeAxisText = {
     textStyle: "mono.xs", fontWeight: "semibold", textTransform: "uppercase", color: "fg.subtle",
 } as const;
+
+/** Column headings and band captions share the app's eyebrow, including date numerals. */
+export const timeHeaderText = {
+    textStyle: "eyebrow", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+} as const;

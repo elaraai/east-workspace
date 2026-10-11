@@ -127,15 +127,9 @@ export const inspectorBase = {
 
 /** A schedule status badge shared by Plan and Calendar inspectors. */
 export const INSPECTOR_STATUS = {
-    fontFamily: "mono",
-    fontSize: "9px",
-    fontWeight: "600",
-    letterSpacing: "0.12em",
-    lineHeight: "normal",
-    textTransform: "uppercase",
-    paddingX: "{spacing.1}",
-    paddingY: "1px",
-    borderRadius: "{radii.xs}",
+    ...inspectorBase.chip,
+    fontWeight: "semibold",
+    borderColor: "transparent",
     whiteSpace: "nowrap",
     "&[data-tone=success]": { background: "bg.success.subtle", color: "fg.success" },
     "&[data-tone=warning]": { background: "bg.warning.subtle", color: "fg.warning" },

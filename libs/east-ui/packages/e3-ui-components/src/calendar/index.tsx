@@ -4,13 +4,14 @@
  */
 
 /** e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
-import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useFormatters } from "@elaraai/east-ui-components";
+import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters } from "@elaraai/east-ui-components";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
@@ -58,12 +59,7 @@ function CalendarFrame(props: HostProps) {
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
     const format = useFormatters(); const words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
     const main = useRef<HTMLDivElement>(null);
-    const [narrow, setNarrow] = useState(false);
-    useLayoutEffect(() => {
-        const element = main.current; if (element === null) return;
-        const measure = () => { const width = element.getBoundingClientRect().width; if (width > 0) setNarrow(width < NARROW_WIDTH); };
-        measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
-    }, []);
+    const narrow = useContainerBelow(main, NARROW_WIDTH);
     const [refs, setRefs] = useState<CalendarRef[]>([]);
     const [error, setError] = useState<string>();
     const [reveal, setReveal] = useState<CalendarRef>();
@@ -109,7 +105,7 @@ function CalendarFrame(props: HostProps) {
         select(additive ? selected.has(id) ? refs.filter(ref => eventKey(ref) !== id) : [...refs, ref] : [ref]);
     }, [select, selected, refs]);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" toolbar={toolbar} start={start} end={end}
+        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={data.loading && data.error === undefined} toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
@@ -126,9 +122,9 @@ function CalendarFrame(props: HostProps) {
                     <Box as="span" css={styles.eventIcon}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box> {kind.name}
                 </Box>)}
             </Box>}>
-            <Box ref={main} css={styles.main} data-calendar-main="" data-calendar-narrow={narrow ? "" : undefined}>
-                <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
-                    selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />
+            <Box ref={main} css={styles.main} data-calendar-main="" aria-busy={data.loading && data.error === undefined} data-calendar-narrow={narrow ? "" : undefined}>
+                {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Calendar unavailable" message={data.error} /> : <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
+                    selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={commands} drag={drag} />}
             </Box>
         </BuilderFrame>
     </Box>;

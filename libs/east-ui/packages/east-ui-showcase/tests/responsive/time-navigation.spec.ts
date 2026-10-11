@@ -42,6 +42,7 @@ for (const theme of ['light', 'dark'] as const) {
             for (const width of [1440, 1024, 768, 390, 360, 294]) {
                 await resize(page, frame, width);
                 const nav = frame.locator(`[data-time-navigation=${scope}]`);
+                await expect(frame.locator('[data-frame-slot="toolbar"]').getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
                 const before = Number(await nav.getAttribute('data-time-anchor'));
                 await nav.locator('[data-time-trigger]').click();
                 const popup = page.getByRole('dialog');

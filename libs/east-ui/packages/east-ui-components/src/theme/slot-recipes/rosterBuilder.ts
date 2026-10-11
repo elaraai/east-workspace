@@ -9,37 +9,42 @@ import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
+import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
+import { timeHeaderText } from "./time/axis.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 
 export const rosterBuilderSlotRecipe = defineSlotRecipe({
     className: "east-roster-builder",
-    slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "head", "shiftHead", "shiftLabel", "time", "group", "groupLabel",
+    slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "actions", "pane", "paneFoot", "section", "status",
         "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
     base: {
         ...moveGhostBase,
+        ...scheduleGroupBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
-        main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
+        main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", "&[data-roster-grid=people]": { "--roster-columns": "8", "--roster-people-width": "1100px" } },
         scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
-        grid: { minWidth: "832px", "&[data-period=week]": { minWidth: "862px" }, "&[data-layout=people]": { minWidth: "1100px" } },
+        grid: { minWidth: "832px", "&[data-period=week]": { minWidth: "862px" } },
         row: { display: "grid", gridTemplateColumns: "148px repeat(var(--roster-columns), minmax(0, 1fr))", borderBottomWidth: "1px", borderColor: "border.subtle" },
         gutter: { position: "sticky", left: 0, zIndex: 3, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle" },
+        headerGutter: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", gap: "2px", padding: "4px 12px",
+            "&[data-week]": { minHeight: "28px", padding: "0 12px", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px" } },
         head: { position: "sticky", top: 0, zIndex: 5, background: "bg.surface" },
-        shiftHead: { minHeight: "52px", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", textAlign: "left", gap: "4px", padding: "8px 12px", borderLeftWidth: "1px", borderColor: "border.subtle", ...planRowFocus,
-            "&[data-week]": { minHeight: "52px", padding: "4px", alignItems: "center", textAlign: "center" }, "&[data-selected]": { background: "brand.subtle" } },
-        shiftLabel: { textStyle: "eyebrow", color: "fg.muted", whiteSpace: "nowrap" },
+        shiftHead: { height: "44px", minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", textAlign: "left", gap: "2px", padding: "4px 12px", borderLeftWidth: "1px", borderColor: "border.subtle", ...planRowFocus,
+            "&[data-week]": { height: "28px", padding: "0 4px", alignItems: "center", textAlign: "center" }, "&[data-selected]": { background: "brand.subtle" } },
+        shiftHeading: { ...timeHeaderText, display: "flex", alignItems: "center", gap: "8px", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap" },
+        shiftMeta: { textStyle: "mono.xs", color: "fg.muted", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        shiftLabel: { ...timeHeaderText, color: "fg.muted" },
         time: { textStyle: "mono.xs", color: "fg.subtle", whiteSpace: "nowrap" },
-        group: { display: "flex", width: "100%", textAlign: "left", alignItems: "center", gap: "8px", minHeight: "38px", padding: "7px 16px", background: "bg.panel", borderBottomWidth: "1px", borderColor: "border.subtle", ...planRowFocus, "& svg": fontAwesomeSize("10px") },
-        groupLabel: { textStyle: "h5" },
         rowHead: { padding: "12px 16px", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "5px", textAlign: "left", ...planRowFocus },
         eyebrow: { textStyle: "caption.eyebrow" },
         title: { textStyle: "body.sm", fontWeight: "semibold", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
         detail: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
         requirement: { minWidth: 0, padding: "10px 12px", display: "flex", flexDirection: "column", gap: "7px", borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left", ...planRowFocus },
         coverageHead: { display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "6px", minWidth: 0 },
-        metric: { textStyle: "num", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=danger]": { color: "fg.danger" } },
+        metric: { textStyle: "mono.tabular.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=danger]": { color: "fg.danger" } },
         coverageBar: { height: "10px", position: "relative", background: "bg.subtle", borderRadius: "2px", overflow: "visible" },
         coverageSegment: { position: "absolute", top: 0, bottom: 0, background: "brand.solid", "&[data-kind=agency]": { background: "teal.500" }, "&[data-kind=overtime]": { background: "purple.500" },
             "&[data-kind=requested]": { background: "transparent", border: "1px dashed", borderColor: "teal.500" }, "&[data-kind=open]": { background: "transparent", border: "1px dashed", borderColor: "fg.warning" } },

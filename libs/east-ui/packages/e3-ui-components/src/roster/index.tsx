@@ -71,7 +71,7 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const previous = data.weeks.get(new Date(window.start.getTime() - 7 * DAY));
     const published = data.weeks.get(window.start)?.status.type === "published";
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={published || value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" start={start} end={end} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={data.loading && data.error === undefined} start={start} end={end} toolbar={toolbar} onKeyDown={event => {
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event); if (action !== undefined && !value.settings.readOnly && !published) { event.preventDefault(); onAction(action); }
             else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.setView({ ...window.view, date: window.view.date + (event.key === "[" ? -7 : 7) * DAY }); }
@@ -85,7 +85,7 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The roster's additional checks could not run. Built-in checks are still shown." />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<RosterFooter styles={styles} narrow={narrow} />}>
-            <Box ref={main} css={styles.main} data-roster-main="" aria-busy={data.loading} data-roster-narrow={narrow ? "" : undefined}>{data.loading ? <StatusDisplay variant={data.error === undefined ? "loading" : "error"} title={data.error === undefined ? "Loading roster…" : "Roster unavailable"} {...(data.error === undefined ? {} : { message: data.error })} /> : <RosterViews {...viewProps} />}</Box>
+            <Box ref={main} css={styles.main} data-roster-main="" aria-busy={data.loading && data.error === undefined} data-roster-narrow={narrow ? "" : undefined}>{data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Roster unavailable" message={data.error} /> : <RosterViews {...viewProps} />}</Box>
         </BuilderFrame>
     </Box>;
 }
