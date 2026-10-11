@@ -153,7 +153,7 @@ The named host manager, source aliases, incompatible-state migrations,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/f8dff596277bb3085adaad96f59b40adf5b9c93b/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/72c5c629e1708421171d3c86b8d7cb470f46802e/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 
@@ -227,9 +227,13 @@ and upload retry waits. It stops parallel transfers and waits for their cleanup
 before deleting staging or releasing the invocation slot. A finished guest's VM
 is destroyed before waiting for output delivery. Each object/layer HTTP attempt
 has a 120-second deadline, including its body; cancellation interrupts it immediately.
-First-use image builds, environment composition and an in-progress VM boot still
-settle before their next cancellation check, so those preparation stages can delay
-full cleanup. Faster cancellation there remains [companion work](https://github.com/elaraai/e3-cloud/blob/f8dff596277bb3085adaad96f59b40adf5b9c93b/packages/e3-rack-agent/README.md#cancelling-delegated-work).
+Cancellation also reaches first-use image builds, environment composition,
+scratch-disk preparation and VM startup. A shared image build continues for its
+remaining leases; the last cancelled waiter stops it and waits for cleanup.
+Cancelled boots retain GPU ownership until process exit is confirmed, and
+uncertain teardown requires recovery. Filesystem operations and final publication
+already in progress still finish safely before cleanup; a process stuck in kernel I/O can
+delay that. See the [companion cancellation boundaries](https://github.com/elaraai/e3-cloud/blob/72c5c629e1708421171d3c86b8d7cb470f46802e/packages/e3-rack-agent/README.md#cancelling-delegated-work).
 
 This targets cancellation delivery within about a second on a healthy connection;
 network failures and VM/GPU teardown can take longer. The CLI's cancellation
