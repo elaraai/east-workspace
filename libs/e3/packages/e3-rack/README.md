@@ -195,6 +195,15 @@ resources on the rack yourself.
 
 ## Execution and recovery
 
+Current sources include optional first-claim queue timings in grant response
+headers. The companion agent records admission, input/image preparation, VM and
+guest startup milestones on its own monotonic clock. Its
+[latency benchmark and p50/p95 report](https://github.com/elaraai/e3-cloud/blob/ea58dca41fe753908e60cfa99cbe4c02f53681ac/scripts/rack/LATENCY.md)
+separate cached CPU, GPU and first-use observations, including failures and
+missing data. Guest execution entry precedes runtime imports and CUDA startup;
+source queue time is separate and cannot be added as exact end-to-end latency.
+This adds no persisted or BEAST2 wire field and requires no new credentials.
+
 After a cache miss, the local planner offers an eligible task or split-task
 unit to the hub. A compatible healthy agent claims it, downloads the task and
 its complete input object graph, executes in a VM, and streams logs. It uploads

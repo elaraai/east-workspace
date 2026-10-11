@@ -442,6 +442,7 @@ export function createRackRoutes(
           // A task or unit lease's claim runs an attempt, which the cloud
           // records: the rack cannot (#214)
           const attempt = isFunctionLease(candidate.event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
+          const claimKind = current.status === 'pending' ? 'initial' : 'reclaimed';
           const claimed = await leaseStore.claim(
             candidate.repo,
             candidate.leaseId,
@@ -461,7 +462,7 @@ export function createRackRoutes(
               await attempts.running(claimed, bootId);
             }
             await options?.onLeaseSignal?.({ kind: 'claimed', repo: claimed.repo, leaseId: claimed.leaseId, rackId });
-            return sendSuccess(RackLeaseGrantType, {
+            const response = sendSuccess(RackLeaseGrantType, {
               repo: claimed.repo,
               workspace: claimed.workspace,
               leaseId: claimed.leaseId,
@@ -470,6 +471,13 @@ export function createRackRoutes(
               eventJson: JSON.stringify(claimed.event),
               visibilityDeadline: new Date(claimed.visibilityDeadlineMs!),
             });
+            // Source wall-clock queue time only; never mix clocks across the network.
+            response.headers.set('x-e3-rack-claim-kind', claimKind);
+            const queueMs = (claimed.claimedAtMs ?? NaN) - claimed.createdAtMs;
+            if (claimKind === 'initial' && Number.isSafeInteger(queueMs) && queueMs >= 0) {
+              response.headers.set('x-e3-rack-queue-ms', String(queueMs));
+            }
+            return response;
           }
           return null;
           });

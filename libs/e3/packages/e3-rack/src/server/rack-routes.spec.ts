@@ -38,6 +38,41 @@ function deferred() {
   return { promise, resolve };
 }
 
+it('reports initial source queue time without treating a reclaim as fresh pickup', async () => {
+  const f = await fixture();
+  await f.enroll();
+  const empty = await f.claim();
+  assert.equal(empty.status, 204);
+  assert.equal(empty.headers.get('x-e3-rack-queue-ms'), null);
+  await f.create();
+  f.advance(250);
+  const initial = await f.claim();
+  await f.success(initial, RackLeaseGrantType);
+  assert.equal(initial.headers.get('x-e3-rack-claim-kind'), 'initial');
+  assert.equal(initial.headers.get('x-e3-rack-queue-ms'), '250');
+  f.advance(60_001);
+  await f.enroll();
+  const reclaimed = await f.claim();
+  await f.success(reclaimed, RackLeaseGrantType);
+  assert.equal(reclaimed.headers.get('x-e3-rack-claim-kind'), 'reclaimed');
+  assert.equal(reclaimed.headers.get('x-e3-rack-queue-ms'), null);
+});
+
+it('omits negative source clock observations and timings on unauthenticated requests', async () => {
+  const f = await fixture();
+  await f.enroll();
+  await f.create();
+  f.advance(-10);
+  const response = await f.claim();
+  await f.success(response, RackLeaseGrantType);
+  assert.equal(response.headers.get('x-e3-rack-claim-kind'), 'initial');
+  assert.equal(response.headers.get('x-e3-rack-queue-ms'), null);
+  const refused = await f.raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'boot' }, 'invalid');
+  assert.equal(refused.status, 401);
+  assert.equal(refused.headers.get('x-e3-rack-claim-kind'), null);
+  assert.equal(refused.headers.get('x-e3-rack-queue-ms'), null);
+});
+
 async function fixture(options: RackRouteOptions = {}) {
   let time = Date.now();
   const now = () => time;
