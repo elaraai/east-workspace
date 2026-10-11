@@ -258,15 +258,19 @@ export function Toolbar({ items, gap }: ToolbarProps) {
             }
         }
 
-        const available = row.getBoundingClientRect().width;
-        rowWidth.current = available;
+        const boxWidth = row.getBoundingClientRect().width;
+        rowWidth.current = boxWidth;
+        const computed = getComputedStyle(row);
+        const px = (value: string) => Number.parseFloat(value) || 0;
+        const available = boxWidth - px(computed.paddingLeft) - px(computed.paddingRight)
+            - px(computed.borderLeftWidth) - px(computed.borderRightWidth);
         // A row that is not laid out (not in the page yet, or no layout at
         // all) has nothing to fit: it folds nothing.
         if (available <= 0) return;
         const foldItems = list.map((it) => foldItemOf(it, held.get(it.key)));
         const sequence = foldSequence(foldItems);
         const widthOf = (i: number, form: number) => estimateWidth(cache.get(list[i]!.key)!.widths, form);
-        const gapPx = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+        const gapPx = px(computed.columnGap);
         const forms = formsAt(foldItems, sequence, chooseFolds(foldItems, sequence, widthOf, available, gapPx));
         if (list.every((it, i) => formOf(it) === forms[i])) {
             passes.current = 0;

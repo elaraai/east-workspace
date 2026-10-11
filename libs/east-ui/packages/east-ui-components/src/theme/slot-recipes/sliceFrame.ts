@@ -40,6 +40,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "railStack", "railRow", "brushStack",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd", "searchClear",
+        "searchCompact", "searchFull", "searchSuggestion", "searchIdentity", "searchLabel", "searchMeta",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
         "brushAxis", "brushWindow", "brushHandle",
     ],
@@ -259,6 +260,12 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         // fills it, so a tap anywhere on the pill but its hint lands in the box.
         // As the slice search's combobox control it takes that control's touch
         // floor, so a coarse pointer makes it a 44px field (#346, #1221).
+        searchCompact: { flex: "1 1 240px", minWidth: "0", width: "full", maxWidth: "480px" },
+        searchFull: { width: "full", minWidth: "0" },
+        searchSuggestion: { display: "flex", gap: "{spacing.3}", alignItems: "baseline", width: "full", minWidth: "0" },
+        searchIdentity: { textStyle: "mono.sm", fontWeight: "semibold", flexShrink: "0", minWidth: "6rem", maxWidth: "9rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        searchLabel: { flex: "1", minWidth: "0", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        searchMeta: { textStyle: "mono.sm", color: "fg.muted", flexShrink: "0", whiteSpace: "nowrap" },
         searchPill: {
             display: "flex",
             alignItems: "center",
@@ -279,7 +286,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             _focusWithin: { borderColor: "border.focus" },
             cursor: "text",
             width: "100%",
-            minWidth: "160px",
+            minWidth: "0",
             "& input": {
                 fontFamily: "mono",
                 fontSize: "11px",
@@ -328,6 +335,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         // value; clicking it empties the input AND the committed search. On a
         // coarse pointer a 44px tap target from its halo (#346, #1221).
         searchClear: {
+            "& svg": { fontSize: "{fontSizes.label.sm}" },
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",

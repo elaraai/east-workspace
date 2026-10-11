@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -12,7 +12,7 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
-import { useCoarsePointer } from "../../contracts/adaptive.js";
+import { SliceFieldChip } from "../choice.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -83,7 +83,6 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     const [cohortName, setCohortName] = useState("");
     // On a touch screen a clause chip draws no xmark (#1231): the chip is one
     // target, and its editor's foot removes the clause.
-    const coarse = useCoarsePointer();
 
     // A clause removed by Delete hands the focus on once the chips have drawn
     // again, as a Sheet tab's close does (#860): to the clause that takes its
@@ -137,18 +136,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             footLeft={<chakra.button type="button" css={edit.footDanger} onClick={() => { setOpen(null); removeClause(i); }}>Remove filter</chakra.button>}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Cancel</chakra.button>}
             trigger={
-                // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
-                <chakra.button type="button" css={[chip({ tone: "brand", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer" flexShrink={0}
-                    data-slice-clause={i} onKeyDown={onClauseKey(i)}>
-                    <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
-                    {/* The pointer's remove; the keyboard's is Delete on the chip. */}
-                    {!coarse && (
-                        <Box as="span" data-chip-remove="" aria-hidden="true" title="Remove filter"
-                            onClick={(e: MouseEvent) => { e.stopPropagation(); removeClause(i); }}>
-                            <FontAwesomeIcon icon={faXmark} />
-                        </Box>
-                    )}
-                </chakra.button>
+                <SliceFieldChip label={formatPredicate(pred, words)} active data-slice-clause={i}
+                    onKeyDown={onClauseKey(i)} onRemove={() => removeClause(i)} />
             }
         >
             {open === i

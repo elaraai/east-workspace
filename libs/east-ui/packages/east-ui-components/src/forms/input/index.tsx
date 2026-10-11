@@ -170,16 +170,20 @@ export function toChakraIntegerInput(value: IntegerInputValue): NumberInputRootP
     };
 }
 
+/** Raw edit state lets a form retain empty/invalid text without committing a stale number. */
+export interface NumericInputDraft { text: string; label: string; onChange: (text: string) => void }
 export interface EastChakraIntegerInputProps {
     value: IntegerInputValue;
+    draft?: NumericInputDraft;
 }
 
 
 /**
  * Renders an East UI IntegerInput value using Chakra UI Input component.
  */
-export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value }: EastChakraIntegerInputProps) {
+export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value, draft }: EastChakraIntegerInputProps) {
     const [props, setProps] = useState(toChakraIntegerInput(value));
+    const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
@@ -232,6 +236,10 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
         }
     }, [onFocusFn]);
 
+    if (draft !== undefined) return <Box css={draftStyles.root}><ChakraInput css={draftStyles.input}
+        aria-label={draft.label} value={draft.text} inputMode="numeric" onKeyDown={handleKeyDown}
+        onChange={event => draft.onChange(event.target.value)} /></Box>;
+
     return (
         <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
             {/* Mobile keyboards (#348): digits-only layout for integers. */}
@@ -247,7 +255,7 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => integerInputEqual(prev.value, next.value));
+}, (prev, next) => integerInputEqual(prev.value, next.value) && prev.draft === next.draft);
 
 
 const floatInputEqual = equivalentFor(Input.Types.Float);
@@ -281,14 +289,16 @@ export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps
 
 export interface EastChakraFloatInputProps {
     value: FloatInputValue;
+    draft?: NumericInputDraft;
 }
 
 
 /**
  * Renders an East UI FloatInput value using Chakra UI Input component.
  */
-export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }: EastChakraFloatInputProps) {
+export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, draft }: EastChakraFloatInputProps) {
     const [props, setProps] = useState(toChakraFloatInput(value));
+    const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
@@ -319,6 +329,10 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
         }
     }, [onFocusFn]);
 
+    if (draft !== undefined) return <Box css={draftStyles.root}><ChakraInput css={draftStyles.input}
+        aria-label={draft.label} value={draft.text} inputMode="decimal"
+        onChange={event => draft.onChange(event.target.value)} /></Box>;
+
     return (
         <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
             {/* Mobile keyboards (#348): decimal layout for floats. */}
@@ -333,7 +347,7 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => floatInputEqual(prev.value, next.value));
+}, (prev, next) => floatInputEqual(prev.value, next.value) && prev.draft === next.draft);
 
 
 // Pre-define equality functions at module level

@@ -135,15 +135,14 @@ export function SliceEditPopover({
         // middle: the triggers the editor stacks one to a row each keep a whole
         // 44px target, which their halos fill (#1253).
         return (
-            <Box display="flex" flexDirection="column" alignItems="flex-start" justifyContent="center" minHeight={{ _coarse: "44px" }}
-                gap="{spacing.1.5}" minWidth="0" width="full">
+            <Box css={styles.disclosure}>
                 {toggle}
                 {open && (
-                    <Box id={regionId} alignSelf="stretch" borderTopWidth="1px" borderColor="border.subtle" paddingTop="{spacing.2}">
-                        <Box as="span" textStyle="caption.eyebrow" color="fg.subtle">{label}</Box>
-                        <Box css={styles.body} padding="0" paddingTop="{spacing.2}" maxHeight="none">{children}</Box>
+                    <Box id={regionId} css={styles.disclosureRegion}>
+                        <Box as="span" css={styles.disclosureLabel}>{label}</Box>
+                        <Box css={[styles.body, styles.disclosureBody]}>{children}</Box>
                         {(footLeft !== undefined || footActions !== undefined) && (
-                            <Box css={styles.foot} padding="0" paddingTop="{spacing.2}" borderTopWidth="0">
+                            <Box css={[styles.foot, styles.disclosureFoot]}>
                                 {footLeft}
                                 <Box css={styles.footActions}>{footActions}</Box>
                             </Box>
@@ -168,11 +167,11 @@ export function SliceEditPopover({
             }}
         >
             {anchored
-                ? <ChakraPopover.Anchor ref={anchorRef} display="inline-flex">{anchor}</ChakraPopover.Anchor>
+                ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
                 : <ChakraPopover.Trigger asChild>{trigger}</ChakraPopover.Trigger>}
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content ref={contentRef} css={styles.content} padding="0" minWidth="0" maxWidth="none" width={size === "lg" ? "380px" : "320px"}>
+                    <ChakraPopover.Content ref={contentRef} css={styles.content}>
                         <ChakraPopover.Arrow>
                             <ChakraPopover.ArrowTip />
                         </ChakraPopover.Arrow>
@@ -180,7 +179,7 @@ export function SliceEditPopover({
                             <Box as="span" css={styles.headLabel}>{label}</Box>
                             <ChakraPopover.CloseTrigger asChild>
                                 <chakra.button type="button" css={styles.headClose} aria-label="Close">
-                                    <FontAwesomeIcon icon={faXmark} style={{ fontSize: "13px" }} />
+                                    <FontAwesomeIcon icon={faXmark} />
                                 </chakra.button>
                             </ChakraPopover.CloseTrigger>
                         </Box>

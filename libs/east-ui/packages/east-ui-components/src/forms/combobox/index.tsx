@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useState, useMemo, useCallback } from "react";
+import { memo, useState, useMemo, useCallback, type ReactNode } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Combobox as ChakraCombobox, createListCollection } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -57,6 +57,13 @@ export interface EastChakraComboboxProps {
      *  label is display-only and replacing — then re-syncing the controlled
      *  empty selection — would wipe the query), `"clear"` empties it. */
     selectionBehavior?: 'clear' | 'replace' | 'preserve';
+    /** Whether to filter labels against the input; false when the host already queried its source. */
+    filterItems?: boolean;
+    /** Host controls inside the field, in place of its default clear action. */
+    indicators?: ReactNode;
+    /** The empty popup's explanation; a host search can state pending or case-sensitive lookup. */
+    emptyText?: string;
+
 }
 
 /**
@@ -71,7 +78,7 @@ export interface EastChakraComboboxProps {
  * keyboard dismissed — moves the focus nowhere, and closes nothing, on any
  * device.
  */
-export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior }: EastChakraComboboxProps) {
+export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -93,11 +100,11 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
     }, [value.items]);
 
     const collection = useMemo(() => {
-        const filtered = allItems.filter(item =>
+        const filtered = filterItems ? allItems.filter(item =>
             item.label.toLowerCase().includes(inputValue.toLowerCase())
-        );
+        ) : allItems;
         return createListCollection({ items: filtered });
-    }, [allItems, inputValue]);
+    }, [allItems, inputValue, filterItems]);
 
     const handleValueChange = useCallback((details: { value: string[] }) => {
         setProps(prev => ({ ...prev, value: details.value }));
@@ -150,14 +157,14 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
             <ChakraCombobox.Control>
                 <ChakraCombobox.Input ref={box} placeholder={placeholder ?? "Search..."} />
                 <ChakraCombobox.IndicatorGroup>
-                    <ChakraCombobox.ClearTrigger><FontAwesomeIcon icon={faXmark} /></ChakraCombobox.ClearTrigger>
+                    {indicators === undefined ? <ChakraCombobox.ClearTrigger><FontAwesomeIcon icon={faXmark} /></ChakraCombobox.ClearTrigger> : indicators}
                     <ChakraCombobox.Trigger><FontAwesomeIcon icon={faChevronDown} /></ChakraCombobox.Trigger>
                 </ChakraCombobox.IndicatorGroup>
             </ChakraCombobox.Control>
             <Portal>
                 <ChakraCombobox.Positioner>
                     <ChakraCombobox.Content>
-                        <ChakraCombobox.Empty>No results found</ChakraCombobox.Empty>
+                        <ChakraCombobox.Empty>{emptyText ?? "No results found"}</ChakraCombobox.Empty>
                         {collection.items.map((item) => (
                             <ChakraCombobox.Item key={item.value} item={item}>
                                 {item.label}
@@ -169,4 +176,5 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
             </Portal>
         </ChakraCombobox.Root>
     );
-}, (prev, next) => comboboxRootEqual(prev.value, next.value) && prev.selectionBehavior === next.selectionBehavior);
+}, (prev, next) => comboboxRootEqual(prev.value, next.value) && prev.selectionBehavior === next.selectionBehavior
+    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText);

@@ -34,6 +34,9 @@ export const toolbarSlotRecipe = defineSlotRecipe({
             // `clip`, never `hidden`: the row must not become a scroll container.
             overflowX: "clip",
             overflowY: "visible",
+            // Reserve real space for the first and last control's focus ring.
+            // Clip margins do not extend a single-axis clip in every browser.
+            paddingInline: "{spacing.1}",
         },
         item: {
             display: "inline-flex",

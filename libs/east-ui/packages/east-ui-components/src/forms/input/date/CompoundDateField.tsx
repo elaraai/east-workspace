@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import { Box, Text, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
 import { useDateField, useDateSegment } from '@react-aria/datepicker';
 import { useDateFieldState } from '@react-stately/datepicker';
@@ -27,10 +27,12 @@ interface DateFieldProps extends AriaDateFieldProps<DateValue> {
   size?: "xs" | "sm" | "md" | "lg";
   value?: DateValue;
   onChange?: (value: DateValue | null) => void;
+  /** Whether every visible segment is complete and valid, including edits not yet emitted by React Aria. */
+  onCompleteChange?: (complete: boolean) => void;
   isReadOnly?: boolean;
 }
 
-export function DateField({ children, value, onChange, isReadOnly, size = "md", ...props }: DateFieldProps) {
+export function DateField({ children, value, onChange, onCompleteChange, isReadOnly, size = "md", ...props }: DateFieldProps) {
   const recipe = useSlotRecipe({ key: 'dateField' });
   const styles = recipe({ size });
   // Force en-GB locale for DD/MM/YYYY format
@@ -44,6 +46,14 @@ export function DateField({ children, value, onChange, isReadOnly, size = "md", 
     createCalendar,
     isReadOnly: isReadOnly ?? false
   });
+  // React Aria retains an incomplete/invalid segment draft without firing
+  // onChange. A form must not enable Apply for the previous valid value.
+  // Compare visible segments with the library's formatted, constrained date:
+  // this catches both placeholders and temporary dates such as February 30.
+  const formatted = state.dateFormatter.formatToParts(state.dateValue);
+  const complete = state.value !== null && !state.isInvalid && state.segments.every(segment =>
+    !segment.isEditable || (!segment.isPlaceholder && formatted.some(part => part.type === segment.type && part.value === segment.text)));
+  useEffect(() => { onCompleteChange?.(complete); }, [complete, onCompleteChange]);
   const fieldRef = useRef<HTMLDivElement>(null);
   const { fieldProps } = useDateField({ ...props, isReadOnly: isReadOnly ?? false }, state, fieldRef);
 
