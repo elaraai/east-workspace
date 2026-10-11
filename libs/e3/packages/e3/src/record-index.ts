@@ -20,9 +20,10 @@
  * one to the byte.
  */
 
-import type { EastType, FunctionExpr, SetType } from '@elaraai/east';
-import { Expr, NullType, printType } from '@elaraai/east';
+import type { DateTimeType, DictType, EastType, FunctionExpr, IntegerType, OptionType } from '@elaraai/east';
+import { East, Expr, NullType, SetType, StructType, printType } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
+import { intervalKey } from './record-interval.js';
 import { checkPure, sameEastType } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
@@ -51,9 +52,33 @@ export interface IndexFunction {
   toIR(): unknown;
 }
 
-/** What an index keys on: exactly one of `key` (one entry per row) or `keys`
- *  (one per element of a returned Set), and an optional covering projection. */
-export type RecordIndexSpec = {
+/** The own fields of a Dict record's struct row. */
+type RowFields<T> = T extends DictType<any, StructType<infer F>> ? F : Record<never, never>;
+/** A Set field indexes its elements; every other field indexes its value. */
+type FieldKey<T> = T extends SetType<infer K extends EastType> ? K : T extends EastType ? T : never;
+/** The field names carried by a field-index declaration. */
+type IndexOn<S> = S extends { interval: { from: infer F extends string } }
+  ? S extends { on: infer On extends readonly string[] } ? readonly [...On, F] : readonly [F]
+  : S extends { on: infer On extends readonly string[] } ? On : undefined;
+type IndexInterval<S> = S extends { interval: infer I } ? I : undefined;
+type IntervalField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends DateTimeType | OptionType<DateTimeType> ? F : never }[keyof RowFields<T>] & string;
+type IntervalPrefix<S, T> = S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
+  ? { [F in On[number]]: FieldKey<RowFields<T>[F]> } : Record<never, never>;
+
+/** What an index keys on: `on` (row fields), `interval` with optional leading
+ *  `on` fields, `key` (one computed entry per row), or `keys` (one per Set
+ *  element), and an optional covering projection.
+ *  @typeParam T - The owning record's state type
+ */
+export type RecordIndexSpec<T extends EastType = EastType> = {
+  /** Row fields in index order. One field uses its value as the key; several
+   *  use a struct in this order. Set fields fan out over their elements. */
+  on?: readonly (keyof RowFields<T> & string)[];
+  /** Preserve intervals intersecting a half-open time window, including
+   *  carry-in events, without day fan-out or duration lookbacks. `on`, when
+   *  present, names exact leading fields before this interval. Missing starts
+   *  remain selectable as Unset; missing or non-positive ends are instants. */
+  interval?: { from: IntervalField<T>; to: IntervalField<T> };
   /** `(K, V) -> IK` — one index entry per row. */
   key?: IndexFunction;
   /** `(K, V) -> Set<IK>` — one index entry per element, so a row that names
@@ -69,8 +94,11 @@ export type RecordIndexSpec = {
 type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? O : EastType) : EastType;
 
 /**
- * The index key a spec declares: `key`'s return, or the element of the Set
- * `keys` returns.
+ * The index key a spec declares: its row fields, `key`'s return, or the
+ * element of the Set `keys` returns.
+ *
+ * @typeParam S - The index spec as written
+ * @typeParam T - The owning record's state type, for field indexes
  *
  * @remarks
  * Read off the spec the caller actually wrote, so the factory's parameter
@@ -78,8 +106,13 @@ type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? 
  * its result carries the precise key type — which is what types a window read
  * through the index, and so every component that renders one.
  */
-export type IndexKeyOf<S> =
-  S extends { key: infer F } ? OutputOf<F>
+export type IndexKeyOf<S, T extends EastType = EastType> =
+  S extends { interval: { from: infer F extends keyof RowFields<T> & string } }
+    ? StructType<IntervalPrefix<S, T> & { __interval: IntegerType } & { [K in F]: RowFields<T>[K] }>
+  : S extends { on: readonly [infer F extends keyof RowFields<T>] } ? FieldKey<RowFields<T>[F]>
+  : S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
+    ? number extends On['length'] ? EastType : StructType<{ [K in On[number]]: FieldKey<RowFields<T>[K]> }>
+  : S extends { key: infer F } ? OutputOf<F>
   : S extends { keys: infer F } ? (OutputOf<F> extends SetType<infer IK> ? IK : EastType)
   : EastType;
 
@@ -89,6 +122,41 @@ export type ProjectionOf<S> =
   S extends { value: infer F } ? OutputOf<F>
   : 'value' extends keyof S ? EastType
   : NullType;
+
+/** Generate a pure key function from a field declaration. The normal index
+ *  build and mutation programs call it exactly as they call an authored key. */
+function fieldKey(name: string, keyType: EastType, valueType: EastType, on: readonly string[]): { fn: IndexFunction; multi: boolean } {
+  const rowType = valueType as StructType<Record<string, EastType>>;
+  if (rowType.type !== 'Struct') throw new Error(`e3.recordIndex '${name}' on requires a record with Struct rows`);
+  if (on.length === 0) throw new Error(`e3.recordIndex '${name}' on requires at least one field`);
+  if (new Set(on).size !== on.length) throw new Error(`e3.recordIndex '${name}' on must not repeat a field`);
+  const fields = on.map((field) => {
+    if (!Object.hasOwn(rowType.fields, field)) throw new Error(`e3.recordIndex '${name}' on names unknown row field '${field}'`);
+    const type = rowType.fields[field]!;
+    const set = (type as SetType).type === 'Set';
+    return { field, type: set ? (type as SetType).key : type, set };
+  });
+  const indexType = fields.length === 1 ? fields[0]!.type : StructType(Object.fromEntries(fields.map((f) => [f.field, f.type])));
+  const multi = fields.some((f) => f.set);
+  const output = multi ? SetType(indexType) : indexType;
+  // Types are checked above; the row's dynamic field names are erased only
+  // inside this generated East body, as in record-programs.ts.
+  const fn = East.function([keyType as never, rowType], output as never, ($: any, _key: any, row: any) => {
+    if (fields.length === 1) return row[fields[0]!.field];
+    if (!multi) return Object.fromEntries(fields.map((f) => [f.field, row[f.field]]));
+    const keys = $.let(new Set(), SetType(indexType));
+    const append = ($: any, at: number, values: Record<string, unknown>): void => {
+      const field = fields[at];
+      if (field === undefined) { $(keys.insert(values)); return; }
+      if (field.set) {
+        $.for(row[field.field], ($: any, element: any) => append($, at + 1, { ...values, [field.field]: element }));
+      } else append($, at + 1, { ...values, [field.field]: row[field.field] });
+    };
+    append($, 0, {});
+    return keys;
+  });
+  return { fn, multi };
+}
 
 /** The signature of a function an index declares, as the guards see it. */
 function signatureOf(fn: IndexFunction): { inputs: EastType[]; output: EastType } {
@@ -134,7 +202,7 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  * @param name - Index name: never `primary`, and one declaration per name on
  *   the record, which `e3.package` enforces when it folds indexes onto it
  * @param rec - The record to index
- * @param spec - Exactly one of `key` / `keys`, and an optional `value`
+ * @param spec - `on`, `key`, `keys`, or `interval` with optional leading `on`; optional covering `value`
  * @param config - Optional runner selection (known runtimes only)
  * @returns A RecordIndexDef to pass to `e3.package`
  *
@@ -151,21 +219,24 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  *            ($, k, v) => ({ title: v.title, owner: v.owner })),
  * });
  *
+ * // A row field supplies its own key type.
+ * const byDue = e3.recordIndex('by_due', plans, { on: ['due'] });
+ *
  * // Many keys per row: a Set return.
  * const byResource = e3.recordIndex('by_resource', plans, {
  *   keys: East.function([PlanKeyType, PlanRowType], SetType(ResourceRefType),
  *           ($, k, v) => v.resources),
  * });
  *
- * const pkg = e3.package('planning', '1.0.0', plans, byStatus, byResource);
+ * const pkg = e3.package('planning', '1.0.0', plans, byStatus, byDue, byResource);
  * ```
  */
-export function recordIndex<Name extends string, T extends EastType, S extends RecordIndexSpec>(
+export function recordIndex<Name extends string, T extends EastType, const S extends RecordIndexSpec<T>>(
   name: Name,
   rec: RecordDef<T>,
   spec: S,
   config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S>, ProjectionOf<S>> {
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>> & { interval: IndexInterval<S> } {
   if (!name) {
     throw new Error('e3.recordIndex requires a non-empty name');
   }
@@ -198,14 +269,17 @@ export function recordIndex<Name extends string, T extends EastType, S extends R
   const keyType = recordType.key;
   const valueType = recordType.value;
 
-  if ((spec.key === undefined) === (spec.keys === undefined)) {
+  if ([spec.interval ?? spec.on, spec.key, spec.keys].filter((part) => part !== undefined).length !== 1) {
     throw new Error(
       `e3.recordIndex '${name}' takes exactly one of 'key' (one entry per row) ` +
-      `or 'keys' (one per element of a returned Set)`,
+      `or 'keys' (one per element of a returned Set), 'on' (row fields), or 'interval' (with optional leading 'on' fields)`,
     );
   }
-  const multi = spec.keys !== undefined;
-  const keyFn = (spec.key ?? spec.keys)!;
+  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
+  const generated = spec.interval === undefined ? prefix
+    : intervalKey(name, keyType, valueType, spec.on ?? [], spec.interval, prefix);
+  const multi = generated?.multi ?? (spec.keys !== undefined);
+  const keyFn = generated?.fn ?? (spec.key ?? spec.keys)!;
 
   const runner = config?.runner ?? DEFAULT_RUNNER;
   // Validate eagerly so a bad runner fails at definition time, not export time.
@@ -240,12 +314,15 @@ export function recordIndex<Name extends string, T extends EastType, S extends R
     kind: 'recordIndex',
     name,
     record: rec,
+    on: (spec.interval !== undefined ? Object.freeze([...(spec.on ?? []), spec.interval.from])
+      : spec.on === undefined ? undefined : Object.freeze([...spec.on])) as IndexOn<S>,
+    interval: (spec.interval === undefined ? undefined : Object.freeze({ ...spec.interval })) as ({ readonly from: string; readonly to: string } | undefined) & IndexInterval<S>,
     keyFn,
     ...(spec.value !== undefined && { valueFn: spec.value }),
     multi,
     // The signature read above IS the type the spec's functions declare; the
     // casts only restate it at the TypeScript level.
-    keyType: indexKeyType as IndexKeyOf<S>,
+    keyType: indexKeyType as IndexKeyOf<S, T>,
     valueType: projectionType as ProjectionOf<S>,
     runner,
   };

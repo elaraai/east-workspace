@@ -20,15 +20,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DictType, East, IntegerType, NullType, SetType, SortedMap, StringType, StructType,
-  compareFor, printType,
+  DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
+  compareFor, equalFor, none, some, printType, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import { record } from './record.js';
 import { recordIndex } from './record-index.js';
-import { indexBuildProgram } from './record-programs.js';
+import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
+import { mutation } from './mutation.js';
 import { package_ } from './package.js';
 
-const RowType = StructType({ status: StringType, due: IntegerType, title: StringType, tags: SetType(StringType) });
+const RowType = StructType({ status: StringType, due: IntegerType, title: StringType, tags: SetType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
 const StatusKeyType = StructType({ status: StringType, due: IntegerType });
 const PlansType = DictType(StringType, RowType);
 
@@ -54,10 +55,10 @@ function emitted(recordType: typeof PlansType, def: ReturnType<typeof recordInde
   return out;
 }
 
-const rows = new SortedMap<string, { status: string; due: bigint; title: string; tags: Set<string> }>([
-  ['p1', { status: 'late', due: 3n, title: 'One', tags: new Set(['a', 'b']) }],
-  ['p2', { status: 'ok', due: 1n, title: 'Two', tags: new Set(['b']) }],
-  ['p3', { status: 'late', due: 2n, title: 'Three', tags: new Set() }],
+const rows = new SortedMap<string, ValueTypeOf<typeof RowType>>([
+  ['p1', { status: 'late', due: 3n, title: 'One', tags: new Set(['a', 'b']), start: some(new Date(0)), end: some(new Date(86_400_000)) }],
+  ['p2', { status: 'ok', due: 1n, title: 'Two', tags: new Set(['b']), start: some(new Date(100)), end: some(new Date(500)) }],
+  ['p3', { status: 'late', due: 2n, title: 'Three', tags: new Set(), start: none, end: none }],
 ], compareFor(StringType));
 
 describe('recordIndex — the declaration', () => {
@@ -84,6 +85,37 @@ describe('recordIndex — the declaration', () => {
     assert.equal(index.multi, true);
     assert.equal(printType(keyType), printType(StringType), 'the SET is unwrapped to its element');
     assert.equal(printType(valueType), printType(NullType));
+  });
+
+  it('types field indexes and keeps their declared field order', () => {
+    const one = recordIndex('by_status', plans(), { on: ['status'] });
+    const oneType: typeof StringType = one.keyType;
+    const fields: readonly ['status'] = one.on;
+    assert.equal(printType(oneType), printType(StringType));
+    assert.deepEqual(fields, ['status']);
+    const pair = recordIndex('by_status_due', plans(), { on: ['status', 'due'], value: titleOf });
+    const pairType: typeof StatusKeyType = pair.keyType;
+    const projection: typeof StringType = pair.valueType;
+    assert.equal(printType(pairType), printType(StatusKeyType));
+    assert.equal(printType(projection), printType(StringType));
+    assert.deepEqual(emitted(PlansType, pair, rows), emitted(PlansType, recordIndex('computed', plans(), { key: statusKey, value: titleOf }), rows));
+    const reversed = recordIndex('by_due_status', plans(), { on: ['due', 'status'] });
+    assert.deepEqual(Object.keys(reversed.keyType.fields), ['due', 'status']);
+    assert.equal(recordIndex('computed', plans(), { key: statusKey }).on, undefined);
+  });
+
+  it('fans a Set field out, alone and inside a compound key, and omits empty sets', () => {
+    const one = recordIndex('by_tag', plans(), { on: ['tags'] });
+    const keyType: typeof StringType = one.keyType;
+    assert.equal(printType(keyType), printType(StringType));
+    assert.equal(one.multi, true);
+    assert.deepEqual(emitted(PlansType, one, rows), emitted(PlansType, recordIndex('computed', plans(), { keys: tagKeys }), rows));
+    const pair = recordIndex('by_status_tag', plans(), { on: ['status', 'tags'] });
+    assert.deepEqual(emitted(PlansType, pair, rows), [
+      [{ ik: { status: 'late', tags: 'a' }, k: 'p1' }, null],
+      [{ ik: { status: 'late', tags: 'b' }, k: 'p1' }, null],
+      [{ ik: { status: 'ok', tags: 'b' }, k: 'p2' }, null],
+    ]);
   });
 
   it('is collected onto its record by the package', () => {
@@ -119,6 +151,17 @@ describe('recordIndex — the declaration', () => {
     it('both or neither of key and keys', () => {
       assert.throws(() => recordIndex('both', plans(), { key: statusKey, keys: tagKeys }), /exactly one of 'key'/);
       assert.throws(() => recordIndex('neither', plans(), {}), /exactly one of 'key'/);
+    });
+
+    it('invalid field declarations and a field declaration beside a computed key', () => {
+      assert.throws(() => recordIndex('empty', plans(), { on: [] }), /at least one field/);
+      assert.throws(() => recordIndex('repeat', plans(), { on: ['status', 'status'] }), /must not repeat/);
+      assert.throws(() => recordIndex('both', plans(), { on: ['status'], key: statusKey }), /exactly one/);
+      // @ts-expect-error — on names the record row's own fields
+      assert.throws(() => recordIndex('unknown', plans(), { on: ['missing'] }), /unknown row field 'missing'/);
+      const scalar = record('scalar', DictType(StringType, IntegerType), new Map());
+      // @ts-expect-error — scalar rows have no field to index
+      assert.throws(() => recordIndex('scalar', scalar, { on: ['status'] }), /Struct rows/);
     });
 
     it('a keys function that does not return a Set', () => {
@@ -209,5 +252,43 @@ describe('recordIndex — the build program', () => {
       emitted(PlansType, recordIndex('by_status', plans(), { key: statusKey }), new Map()),
       [],
     );
+  });
+});
+
+
+describe('recordIndex — fields through mutation and rebuild', () => {
+  it('maintains the same collections that a rebuild emits after insert, update and delete', () => {
+    const rec = plans();
+    const indexes = [
+      recordIndex('by_status_due', rec, { on: ['status', 'due'], value: titleOf }),
+      recordIndex('by_tag', rec, { on: ['tags'] }),
+      recordIndex('by_time', rec, { interval: { from: 'start', to: 'end' } }),
+      recordIndex('by_status_time', rec, { on: ['status'], interval: { from: 'start', to: 'end' } }),
+      recordIndex('by_tag_time', rec, { on: ['tags'], interval: { from: 'start', to: 'end' } }),
+    ];
+    const patch = mutation.patch(rec);
+    const assembled = package_('field_indexes', '1.0.0', rec, patch, ...indexes).records.plans!;
+    assert.deepEqual(assembled.indexes.by_status_due!.on, ['status', 'due']);
+    const after = new SortedMap<string, ValueTypeOf<typeof RowType>>([
+      ['p1', { status: 'ok', due: 4n, title: 'Updated', tags: new Set(['b', 'c']), start: none, end: none }],
+      ['p3', { ...rows.get('p3')!, start: some(new Date(500)), end: some(new Date(1500)) }],
+      ['p4', { status: 'new', due: 2n, title: 'Four', tags: new Set(['d']), start: some(new Date(1000)), end: some(new Date(2000)) }],
+    ], compareFor(StringType));
+    const diff = East.compile(East.function([PlansType, PlansType], PatchType(PlansType), (_$, before, after) => East.diff(before, after)), []);
+    const changes: Array<{ index: string; key: unknown; op: unknown }> = [];
+    const run = buildMutationProgram(assembled, patch).compile([]);
+    run(rows, diff(rows, after), (key: { type: string; value: unknown }, op: { value: unknown }) => {
+      changes.push({ index: key.type, key: key.value, op: op.value });
+      return null;
+    });
+    for (const index of indexes) {
+      const keyType = StructType({ ik: index.keyType, k: StringType });
+      const collection = DictType(keyType, index.valueType);
+      const before = new SortedMap(emitted(PlansType, index, rows) as never, compareFor(keyType));
+      const rebuilt = new SortedMap(emitted(PlansType, index, after) as never, compareFor(keyType));
+      const ops = new SortedMap(changes.filter((change) => change.index === index.name).map((change) => [change.key, change.op]) as never, compareFor(keyType));
+      const apply = East.compile(East.function([collection, PatchType(collection)], collection, (_$, value, patch) => East.applyPatch(value, patch)), []);
+      assert.equal(equalFor(collection)(apply(before as never, variant('patch', ops) as never), rebuilt as never), true, index.name);
+    }
   });
 });

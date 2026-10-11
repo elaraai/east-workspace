@@ -290,12 +290,14 @@ export interface RecordDef<T extends EastType = EastType, Path extends TreePath 
  * @typeParam T - The owning record's state type
  * @typeParam IK - The index key an entry sorts under
  * @typeParam P - The covering projection's type (`NullType` when there is none)
+ * @typeParam On - The row fields in index order, or undefined for a computed key
  */
 export interface RecordIndexDef<
   Name extends string = string,
   T extends EastType = EastType,
   IK extends EastType = EastType,
   P extends EastType = EastType,
+  On extends readonly string[] | undefined = readonly string[] | undefined,
 > {
   readonly kind: 'recordIndex';
   /** Index name — unique on the record, and never `primary`, which names the
@@ -303,6 +305,13 @@ export interface RecordIndexDef<
   readonly name: Name;
   /** The record this index is over. */
   readonly record: RecordDef<T>;
+  /** Row fields in key order for a field index; undefined for a computed key.
+   *  Authoring metadata: the generated key function remains the stored contract. */
+  readonly on: On;
+  /** Interval endpoints for an overlap index. Its final logical field is
+   *  `from`; the generated key inserts an internal interval node before it.
+   *  Authoring metadata only: ordinary maintained index programs store it. */
+  readonly interval?: { readonly from: string; readonly to: string } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi}. Kept as the
    *  expression so export can compose it into the generated programs, which
    *  reach it through its IR alone — so no call signature is claimed here. */
