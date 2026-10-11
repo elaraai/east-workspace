@@ -160,7 +160,9 @@ test.describe("Query builder (#940)", () => {
         const fitting = () => builder.evaluate((root) => {
             const row = root.querySelector("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]")!;
             const items = [...row.children].map((el) => el.getBoundingClientRect().width);
-            const need = items.reduce((sum, w) => sum + w, 0) + Number.parseFloat(getComputedStyle(row).columnGap) * (items.length - 1);
+            const style = getComputedStyle(row);
+            const need = items.reduce((sum, w) => sum + w, 0) + Number.parseFloat(style.columnGap) * (items.length - 1)
+                + Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
             return root.getBoundingClientRect().width - row.getBoundingClientRect().width + need;
         });
         const frameTo = async (frame: number) => {

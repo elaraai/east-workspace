@@ -12,7 +12,7 @@
  *      loaded what each example reads),
  *   2. the page does not scroll horizontally (wide components pan inside
  *      their own frames instead — the epic's containment invariant).
- * A failing page leaves its screenshot and trace in test-results/.
+ * A failing page leaves its DOM trace in test-results/.
  */
 
 import { test, expect } from "playwright/test";
@@ -35,7 +35,11 @@ for (const key of keys) {
         await page.waitForSelector("header", { timeout: 20_000 });
         // The deep link mounts this file's examples: its first example's
         // anchor (`#<pathKey>/<name>`), then the page at rest.
-        await expect(page.locator(`a[href^="#${key}/"]`).first()).toBeVisible();
+        const anchor = page.locator(`a[href^="#${key}/"]`).first();
+        await expect(anchor).toBeVisible();
+        // A long description can put the preview below the fold. Exercise
+        // its live content, not just its title and deferred placeholder.
+        await anchor.evaluate(el => el.closest("[data-index]")?.querySelector("[data-example-deferred]")?.scrollIntoView({ block: "nearest" }));
         await settled(page);
 
         // 1. No uncaught errors; no error overlay — the alert the showcase

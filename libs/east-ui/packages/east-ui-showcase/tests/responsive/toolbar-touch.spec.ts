@@ -202,8 +202,9 @@ async function touchFaults(entry: Locator): Promise<string[]> {
         }
         // Every control it shows — the tab's × the pointer's alone, and a popover's trigger whatever element
         // it is (the slice's chips, the rail's folded trigger) — a 44px tap target. A control inside a
-        // button is the button's. An input's field is 44px, and the input fills it: a tap 20px above or
-        // below the field's middle — inside its border — lands in the input itself.
+        // button is the button's. An input fills its field's 44px height: a tap 20px above or below
+        // its middle lands in the input. Sample its own column: a compound field also contains
+        // status text and buttons, which are checked separately below.
         const controls = [...band.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [role='radio'], [role='tab'], [role='button'], [aria-haspopup], [data-slot='tabClose']")]
             .filter((el) => el.checkVisibility({ visibilityProperty: true }))
             .filter((el) => el.parentElement?.closest("button, a[href], [role='button']") === null);
@@ -213,7 +214,8 @@ async function touchFaults(entry: Locator): Promise<string[]> {
             const field = input ? (el.closest("[data-part='control']") ?? el) : el;
             const t = field.getBoundingClientRect();
             if (input && t.height < 43.5) bad.push(`${named(el)}: its field is ${t.height.toFixed(1)}px tall`);
-            const x = t.left + t.width / 2;
+            const own = el.getBoundingClientRect();
+            const x = own.left + own.width / 2;
             const y = t.top + t.height / 2;
             for (const dy of input ? [-20, 20] : [-21, 21]) {
                 const hit = document.elementFromPoint(x, y + dy);

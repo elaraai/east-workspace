@@ -151,8 +151,11 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         // `dataBindVariants` writes the `threshold` input from its slider and
         // reads it back below (HAS GUARD); `dataBindStagedVariants`, just above
         // it, reads it as the server's value; `dataBindFloat` shows it.
+        // Activate the adjacent reader before the writer: cold offscreen
+        // previews defer their data reads until they enter the viewport.
+        const staged = await openEntry(page, file, "dataBindStagedVariants");
+        await expect(statValue(staged, "Server")).toHaveText("50");
         const variants = await openEntry(page, file, "dataBindVariants");
-        const staged = entryOf(page, file, "dataBindStagedVariants");
         await expect(variants.getByText("50.0", { exact: true })).toBeVisible();
         await expect(statValue(staged, "Server")).toHaveText("50");
 

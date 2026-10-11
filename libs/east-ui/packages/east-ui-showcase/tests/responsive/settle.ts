@@ -15,7 +15,7 @@ import { expect, type Page } from "playwright/test";
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
- * still loading, and every
+ * still loading, visible deferred previews have started, and every
  * virtualized row (the doc list's entries and any example's own) and the
  * document's width hold still across two frames, and then two more.
  *
@@ -33,7 +33,13 @@ export async function settled(page: Page): Promise<void> {
             const doc = document.scrollingElement ?? document.documentElement;
             // An example draws once its East has compiled, or failed to; an e3
             // example once e3 has started, or failed to.
-            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading]').length;
+            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading]').length
+                + [...document.querySelectorAll("[data-example-deferred]")].filter(el => {
+                    const box = el.getBoundingClientRect();
+                    const view = el.closest("[data-doc-scroll]")?.getBoundingClientRect()
+                        ?? { top: 0, bottom: innerHeight, left: 0, right: innerWidth };
+                    return box.bottom > view.top && box.top < view.bottom && box.right > view.left && box.left < view.right;
+                }).length;
             const rows = [...document.querySelectorAll("[data-index]")].map((row) => {
                 const box = row.getBoundingClientRect();
                 return `${row.getAttribute("data-index")}:${Math.round(box.top)}:${Math.round(box.height)}`;
@@ -44,6 +50,8 @@ export async function settled(page: Page): Promise<void> {
         await frames();
         const second = layout();
         await frames();
-        return first.waiting === 0 && first.at === second.at && second.at === layout().at;
+        const third = layout();
+        return [first, second, third].every(sample => sample.waiting === 0)
+            && first.at === second.at && second.at === third.at;
     }), { message: "the page kept laying itself out, or an example kept compiling or its e3 or builder loading", timeout: 20_000 }).toBe(true);
 }

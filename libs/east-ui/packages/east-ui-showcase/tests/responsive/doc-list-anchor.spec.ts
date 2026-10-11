@@ -89,3 +89,31 @@ test.describe("the doc list keeps a linked entry where the link put it", () => {
         await expect.poll(() => entryTop(page), { message: `a row above shrank ${GROWTH}px` }).toBe(at! + 2);
     });
 });
+
+test("a cold deep link starts visible examples, then loads an overscan preview when scrolled into view", async ({ page }) => {
+    await page.addInitScript(() => {
+        const started = new Set<string>();
+        Object.assign(window, { startedExamples: started });
+        new MutationObserver(() => {
+            for (const gate of document.querySelectorAll("[data-e3-start]")) {
+                const href = gate.closest("[data-index]")?.querySelector("a[href]")?.getAttribute("href");
+                if (href !== undefined && href !== null) started.add(href);
+            }
+        }).observe(document, { childList: true, subtree: true });
+    });
+    const file = "e3/roster/roster";
+    await page.goto(`/#${file}/rosterMinimal`);
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/rosterMinimal"]`) });
+    await expect(entry.locator("[data-builder-frame]")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    const started = await page.evaluate(() => [...(window as unknown as { startedExamples: Set<string> }).startedExamples]);
+    expect(started).toContain(`#${file}/rosterMinimal`);
+    expect(started.filter(href => href.startsWith("#e3/roster/roster-records/"))).toEqual([]);
+
+    const previous = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/rosterCustomInspector"]`) });
+    await expect(previous.locator("[data-example-deferred]")).toHaveCount(1);
+    await previous.scrollIntoViewIfNeeded();
+    await expect(previous.locator("[data-builder-frame]")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    await expect(previous.locator("[data-example-deferred], [data-builder-loading]")).toHaveCount(0);
+});

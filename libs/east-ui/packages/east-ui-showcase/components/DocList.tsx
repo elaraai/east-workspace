@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Box, chakra, Flex, Heading, Text } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { PatternEntry } from "./PatternEntry";
@@ -124,11 +124,20 @@ export function DocList({
         [entries, showCategories],
     );
     const parentRef = useRef<HTMLDivElement>(null);
+    const targetIndex = scrollTarget === undefined ? -1 : items.findIndex(item => scrollTarget.name !== undefined
+        ? item.kind === "entry" && item.groupKey === scrollTarget.pathKey && item.entry.name === scrollTarget.name
+        : item.kind === "head" && item.pathKey === scrollTarget.pathKey);
+    const itemKey = useCallback((index: number) => items[index].key, [items]);
 
     const virtualizer = useVirtualizer({
         count: items.length,
         getScrollElement: () => parentRef.current,
+        getItemKey: itemKey,
         estimateSize: i => estimateItem(items[i]),
+        // Start at the link, without first mounting the category's earlier
+        // examples. Measured heights refine this estimate below.
+        initialOffset: () => targetIndex < 0 ? 0
+            : PAD_START + items.slice(0, targetIndex).reduce((height, item) => height + estimateItem(item), 0),
         // Keep one adjacent entry mounted while asynchronous examples grow and
         // scroll anchoring settles. Larger overscan mounts several expensive
         // builders and adds their subscriptions to every interaction.
@@ -148,33 +157,23 @@ export function DocList({
      * the view. */
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
         const fold = (instance.scrollOffset ?? 0) + instance.scrollAdjustments;
+        // A link near the end may be clamped before it reaches the fold.
+        // Preserve that end position while a preceding preview grows,
+        // including one spanning the fold, or it pushes the linked row out
+        // of the mounted window before the reader can reach it.
+        const atEnd = instance.getTotalSize() - fold - (instance.scrollRect?.height ?? 0) <= 1;
+        if (atEnd && item.index < targetIndex) return true;
         return instance.itemSizeCache.has(item.key) ? item.end <= fold : item.start < fold;
     };
 
-    /* Reset scroll on entry-set change so switching to a shorter category
-     * doesn't leave the viewport pinned at an out-of-range offset. (A
-     * pending deep-link target supersedes the reset below.) */
-    useEffect(() => {
-        parentRef.current?.scrollTo({ top: 0 });
-    }, [entries]);
-
-    /* Deep-link jump: resolve the target to a virtualizer index. Rows are
-     * virtualized, so DOM anchors can't work — scrollToIndex is the only
-     * reliable navigation. Runs after the reset effect (declared later),
-     * and re-runs via `nonce` when the same hash is re-activated. */
-    useEffect(() => {
-        if (!scrollTarget) return;
-        const index = items.findIndex(item => scrollTarget.name !== undefined
-            ? item.kind === "entry" && item.groupKey === scrollTarget.pathKey && item.entry.name === scrollTarget.name
-            : item.kind === "head" && item.pathKey === scrollTarget.pathKey);
-        if (index < 0) return;
-        /* Double rAF: let the virtualizer mount + measure the first window
-         * before jumping, so dynamic row heights don't land us short. */
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-            virtualizer.scrollToIndex(index, { align: "start" });
-        }));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [scrollTarget, items]);
+    /* Navigate before paint. The virtualizer follows measurement changes;
+     * waiting for a first window at zero would start unrelated examples.
+     * A category without a link resets to its beginning. `nonce` permits
+     * revisiting the same link after scrolling away. */
+    useLayoutEffect(() => {
+        if (targetIndex >= 0) virtualizer.scrollToIndex(targetIndex, { align: "start" });
+        else virtualizer.scrollToOffset(0);
+    }, [entries, scrollTarget, targetIndex, virtualizer]);
 
     const virtualItems = virtualizer.getVirtualItems();
     const offset = virtualizer.scrollOffset ?? 0;
@@ -186,7 +185,7 @@ export function DocList({
 
     return (
         <Flex h="100%" minH={0} align="stretch">
-            <Box ref={parentRef} flex="1" minW={0} h="100%" overflowY="auto">
+            <Box ref={parentRef} data-doc-scroll="" flex="1" minW={0} h="100%" overflowY="auto">
                 <Box
                     position="relative"
                     maxW={CONTENT_MAX_WIDTH}

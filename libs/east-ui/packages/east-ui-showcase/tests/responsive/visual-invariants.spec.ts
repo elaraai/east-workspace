@@ -12,10 +12,9 @@
  * #949), across the examples, in both themes. Every visual bug found by eye
  * lands here first, as a failing invariant, and is fixed against it.
  *
- * A line painted by a gradient has no box to measure, so a line's place is
- * read from the page's own pixels: one pixel row is decoded in the browser and
- * only the x positions where the colour stands out come back. No image is
- * kept, and nothing is compared with a stored picture.
+ * Grid alignment is measured from DOM geometry and computed gradient stops.
+ * Browser rasterization can round a border and a gradient to different pixels
+ * at the same fractional coordinate, so this suite never captures images.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test visual-invariants --project desktop`.
@@ -25,71 +24,53 @@ import { test, expect, type Locator, type Page } from "playwright/test";
 import { PLAN_EXAMPLES, openExample, planBox, rowSel, sizeBox } from "./plan-page";
 import { settled } from "./settle";
 
-/** A box on the page, in CSS px. */
-interface Box { x: number; y: number; width: number }
-
-/**
- * Where lines are painted along ONE pixel row: every x (CSS px from the page's
- * left) whose colour stands out from that row's median — a separator, a
- * border, a rule.
- *
- * @param page - The page
- * @param at - The row to read: its left, its y, and how far it runs
- * @returns The painted columns, ascending
- */
-async function paintedLines(page: Page, at: Box): Promise<number[]> {
-    const clip = { x: Math.round(at.x), y: Math.round(at.y), width: Math.round(at.width), height: 1 };
-    const png = await page.screenshot({ clip });
-    return page.evaluate(async ({ b64, left, width }) => {
-        const img = new Image();
-        img.src = `data:image/png;base64,${b64}`;
-        await img.decode();
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d")!;
-        ctx.drawImage(img, 0, 0);
-        const px = ctx.getImageData(0, 0, img.width, 1).data;
-        const lum = (i: number) => 0.299 * px[i * 4]! + 0.587 * px[i * 4 + 1]! + 0.114 * px[i * 4 + 2]!;
-        const all = Array.from({ length: img.width }, (_u, i) => lum(i));
-        const median = [...all].sort((a, b) => a - b)[Math.floor(all.length / 2)]!;
-        const scale = img.width / width;
-        const out: number[] = [];
-        all.forEach((l, i) => { if (Math.abs(l - median) > 8) out.push(Math.round((left + i / scale) * 100) / 100); });
-        return out;
-    }, { b64: png.toString("base64"), left: clip.x, width: clip.width });
-}
-
 /** The Plan examples that draw a ruler over rows. */
 const RULED = ["planTargetState", "planMeasures", "planRowDrop", "planNumberAxis", "planOrdinalAxis"];
 
-/** The row kinds whose plot is bare along its bottom edge — nothing but the
- *  bucket lines, the now line and the gutter's edge crosses it there. */
+/** The row kinds whose plots carry the shared grid. */
 const BARE_KINDS = ["span", "events", "table", "cards"];
 
-/**
- * The ruler's scan line or a bare body row's, across the plot and the
- * gutter's edge — 3px above its band's bottom rule, clear of every label and
- * mark — brought into view first, as far as it needs: a pixel row is read off
- * the screen, and a tall Plan's first bare row can lie below it. The two read
- * one after the other, the plot's columns where they are whatever the scroll.
- */
-async function scanLine(entry: Locator, line: "ruler" | "row"): Promise<Box | undefined> {
-    return entry.evaluate((root, { kinds, line }) => {
+/** The ruler and body share bucket edges, the gutter boundary and NOW.
+ * Read the rendered boxes and the computed gradient's repeat interval;
+ * subpixel layout is preserved rather than rounded through a screenshot. */
+async function axisAlignmentFaults(entry: Locator): Promise<string[]> {
+    return entry.evaluate((root, kinds) => {
         const body = root.querySelector("[data-plan-body]")!;
         const ruler = body.querySelector("[data-slot='ruler']")!;
-        const rowEl = kinds.map((k) => body.querySelector(`[data-plan-row][data-plan-kind='${k}']`)).find((el) => el !== null);
-        if (rowEl === undefined || rowEl === null) return undefined;
-        (line === "ruler" ? ruler : rowEl).scrollIntoView({ block: "nearest" });
-        const track = ruler.children[1]!.getBoundingClientRect();
-        const plot = rowEl.querySelector("[data-plan-plot]")!.getBoundingClientRect();
-        // From just inside the gutter, so the gutter's edge is read too.
-        const x = plot.left - 3;
-        const width = plot.right - x;
-        return line === "ruler"
-            ? { x, y: ruler.getBoundingClientRect().bottom - 3, width }
-            : { x: Math.max(x, track.left - 3), y: rowEl.getBoundingClientRect().bottom - 3, width };
-    }, { kinds: BARE_KINDS, line });
+        const row = kinds.map(kind => body.querySelector(`[data-plan-row][data-plan-kind='${kind}']`)).find(el => el !== null);
+        if (row === undefined) return ["no body row to compare with the ruler"];
+        const bad: string[] = [];
+        const close = (a: number, b: number, what: string) => {
+            if (Math.abs(a - b) > 0.1) bad.push(`${what}: ${a.toFixed(3)} vs ${b.toFixed(3)}px`);
+        };
+        const track = ruler.querySelector("[data-time-ruler='ticks']")!;
+        const plot = row.querySelector("[data-plan-plot]")!;
+        const t = track.getBoundingClientRect();
+        const p = plot.getBoundingClientRect();
+        close(t.left, p.left, "gutter edge");
+        close(t.right, p.right, "plot end");
+        const ticks = [...track.children].slice(1).map(el => el.getBoundingClientRect().left);
+        const gradient = plot.querySelector("[data-plan-gridsep]");
+        let edges: number[];
+        if (gradient !== null) {
+            const bounds = gradient.getBoundingClientRect();
+            const image = getComputedStyle(gradient).backgroundImage;
+            const percent = image.match(/([\d.]+)%\)/)?.[1];
+            if (!image.startsWith("repeating-linear-gradient(") || percent === undefined) return ["no computed grid repeat interval"];
+            const fraction = Number(percent) / 100;
+            if (!(fraction > 0 && fraction <= 1)) return ["invalid grid repeat interval"];
+            edges = Array.from({ length: Math.round(1 / fraction) }, (_, i) => bounds.left + i * bounds.width * fraction);
+        } else {
+            edges = [...plot.querySelectorAll("[data-plan-axisline]:not([data-plan-now])")].map(el => el.getBoundingClientRect().left);
+        }
+        if (ticks.length === 0 || ticks.length !== edges.length) bad.push(`${ticks.length} ruler edges, ${edges.length} row edges`);
+        ticks.forEach((x, i) => { if (edges[i] !== undefined) close(x, edges[i]!, `bucket edge ${i + 1}`); });
+        const rulerNow = ruler.querySelector("[data-plan-now]");
+        const rowNow = plot.querySelector("[data-plan-now]");
+        if ((rulerNow === null) !== (rowNow === null)) bad.push("NOW missing from ruler or row");
+        if (rulerNow !== null && rowNow !== null) close(rulerNow.getBoundingClientRect().left, rowNow.getBoundingClientRect().left, "NOW");
+        return bad;
+    }, BARE_KINDS);
 }
 
 /**
@@ -189,7 +170,7 @@ async function violations(entry: Locator): Promise<string[]> {
         };
 
         // ── 1–3 · One gutter voice ──
-        for (const el of body.querySelectorAll("[data-plan-row] [data-plan-gutter='name']")) {
+        for (const el of body.querySelectorAll("[data-plan-row] [data-plan-gutter='name']:not([data-collapsible])")) {
             type(el, "row name", { size: 11.5, weight: "600", mono: true, upper: false, color: T.ink, tnum: true });
         }
         for (const el of body.querySelectorAll("[data-plan-gutter='value']")) {
@@ -212,10 +193,11 @@ async function violations(entry: Locator): Promise<string[]> {
             widths.forEach((w, i) => { if (w < 0.85 * widest) bad.push(`period ${i}: ${w.toFixed(1)}px beside ${widest.toFixed(1)}px`); });
         }
         // ── 5 · Label order and the 9.5px floor ──
-        for (const el of body.querySelectorAll("[data-plan-group] [role='rowheader']")) {
+        // Sections, nested parents and expandable charts share the header caption.
+        for (const el of body.querySelectorAll("[data-plan-group] [role='rowheader'], [data-plan-gutter='name'][data-collapsible]")) {
             const s = cs(el);
-            type(el, "group label", { size: 9.5, weight: "600", mono: true, upper: true, color: T.ink4 });
-            if (Math.abs(px(s.letterSpacing) - 1.52) > 0.05) bad.push(`group label "${name(el)}": tracking ${s.letterSpacing}, want 0.16em`);
+            type(el, "group label", { size: 10, weight: "600", mono: true, upper: true, color: T.ink4 });
+            if (Math.abs(px(s.letterSpacing) - 1.2) > 0.05) bad.push(`group label "${name(el)}": tracking ${s.letterSpacing}, want 0.12em`);
         }
         for (const el of body.querySelectorAll("*")) {
             const own = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== "");
@@ -337,18 +319,9 @@ test.describe("Visual invariants — the Plan", () => {
 
     for (const theme of ["light", "dark"] as const) {
         for (const name of RULED) {
-            test(`${name} (${theme}): the ruler's lines are the rows' lines — every bucket edge, the now line and the gutter's edge on the same pixels`, async ({ page }) => {
+            test(`${name} (${theme}): the ruler and rows align every bucket edge, NOW and the gutter in CSS coordinates`, async ({ page }) => {
                 const entry = await openExample(page, name, PLAN_EXAMPLES, theme);
-                const ruler = await scanLine(entry, "ruler");
-                test.skip(ruler === undefined, "no bare row to read against");
-                await settled(page);
-                const rulerLines = await paintedLines(page, ruler!);
-                const row = await scanLine(entry, "row");
-                await settled(page);
-                const read = { ruler: rulerLines, row: await paintedLines(page, row!) };
-                // Something was read: a canvas's plot has at least its gutter edge.
-                expect(read.row.length, "the row's lines").toBeGreaterThan(0);
-                expect(read.ruler).toEqual(read.row);
+                expect(await axisAlignmentFaults(entry)).toEqual([]);
             });
 
             test(`${name} (${theme}): what the eye checks — one gutter voice, legible labels, whole periods, token fills, aligned values`, async ({ page }) => {

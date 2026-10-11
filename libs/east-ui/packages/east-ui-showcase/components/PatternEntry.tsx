@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
@@ -12,6 +12,7 @@ import {
     Flex,
     HStack,
     SegmentGroup,
+    Skeleton,
     Tag,
     Text,
     type CodeBlockAdapter,
@@ -145,13 +146,28 @@ export const PatternEntry = memo(function PatternEntry({ entry }: { entry: Catal
  *  just keeps tiny artifacts (a lone badge) from collapsing it to a sliver.
  *  An e3 example renders through the gate that starts the e3 the page runs
  *  (#849). */
+const activatedExamples = new WeakSet<LiveEntry>();
+
 function LiveBody({ entry }: { entry: LiveEntry }) {
-    // One IR per example, so a remount renders what was compiled (example-ir).
-    const ir = exampleIr(entry);
-    const view = <EastFunction ir={ir} storageKey={`example-${entry.pathKey}-${entry.name}`} />;
+    const frame = useRef<HTMLDivElement>(null);
+    const [active, setActive] = useState(() => activatedExamples.has(entry));
+    useEffect(() => {
+        if (active || frame.current === null) return;
+        // Overscan keeps neighboring document rows measurable, but must not
+        // compile their East or subscribe to their records before they show.
+        const observer = new IntersectionObserver((entries) => {
+            if (!entries.some(item => item.isIntersecting)) return;
+            activatedExamples.add(entry);
+            setActive(true);
+            observer.disconnect();
+        }, { root: frame.current.closest("[data-doc-scroll]") });
+        observer.observe(frame.current);
+        return () => observer.disconnect();
+    }, [active, entry]);
     return (
         <>
             <Box
+                ref={frame}
                 layerStyle="frame"
                 bg="bg.surface"
                 p="5"
@@ -163,7 +179,7 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
                 // responsive Playwright sweep asserts).
                 overflowX="auto"
             >
-                {entry.section === SECTION_E3 ? <E3Gate entry={entry}>{view}</E3Gate> : view}
+                {active ? <LivePreview entry={entry} /> : <Skeleton height="56px" data-example-deferred="" />}
             </Box>
             {/* The un-inlined defs the body references (e3.input / record /
               * mutation) get their own disclosure, above source — present only
@@ -172,6 +188,13 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
             {entry.source && <Disclosure label="source" raw={entry.source.raw} />}
         </>
     );
+}
+
+/** Keep IR construction inside the visibility gate. Previously seen examples
+ * render immediately on remount, preserving the virtualizer's measurements. */
+function LivePreview({ entry }: { entry: LiveEntry }) {
+    const view = <EastFunction ir={exampleIr(entry)} storageKey={`example-${entry.pathKey}-${entry.name}`} />;
+    return entry.section === SECTION_E3 ? <E3Gate entry={entry}>{view}</E3Gate> : view;
 }
 
 /** A chevron-toggled disclosure wrapping a dark source block — the shared

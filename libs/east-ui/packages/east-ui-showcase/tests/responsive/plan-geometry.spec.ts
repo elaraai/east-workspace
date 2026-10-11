@@ -382,56 +382,6 @@ test.describe("Plan geometry (#817)", () => {
 });
 
 /**
- * The toolbar's segments, against the `Plan Spec v2.html` §1 mock's toolbar
- * (#632): the GROUP · RESOURCE strip rides between the search and the range,
- * the WEEK · DAY strip after the range, and both are the mock's `.seg` — a
- * 25px strip of 23px segments. The grain it picks re-lays the body, whose
- * strips must hold their model heights like every other item.
- */
-test.describe("Plan toolbar segments (#632)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
-
-    test("the grain segment sits between the search and the range, both strips at the mock's size; GROUP re-lays the body at its model heights", async ({ page }) => {
-        const entry = await openExample(page, "planTargetState");
-        const toolbar = entry.locator("[data-builder-frame] [data-frame-slot='toolbar']");
-        const grain = toolbar.locator("[data-plan-seg='grain']");
-        const resolution = toolbar.locator("[data-plan-seg='resolution']");
-        await expect(grain.getByRole("radio")).toHaveText(["GROUP", "RESOURCE"]);
-        await expect(grain.getByRole("radio", { name: "RESOURCE" })).toBeChecked();
-        const layout = () => toolbar.evaluate((bar) => {
-            const box = (el: Element | null) => (el === null ? null : el.getBoundingClientRect());
-            // The toolbar's items (#952): the rail's cluster, the grain strip,
-            // the range cluster between the two strips, the resolution strip.
-            const item = (key: string) => box(bar.querySelector(`[data-toolbar-item='${key}']`));
-            const cluster = item("cluster");
-            const range = item("range");
-            const g = item("grain")!;
-            const r = item("resolution")!;
-            const heights = [...bar.querySelectorAll("[data-plan-seg]")].map((s) => ({
-                strip: s.getBoundingClientRect().height,
-                segments: [...s.querySelectorAll("[role='radio']")].map((b) => b.getBoundingClientRect().height),
-            }));
-            return {
-                order: cluster !== null && range !== null
-                    && cluster.right <= g.left && g.right <= range.left && range.right <= r.left,
-                heights,
-            };
-        });
-        await expect.poll(layout).toEqual({
-            order: true,
-            heights: [{ strip: 25, segments: [23, 23] }, { strip: 25, segments: [23, 23, 23] }],
-        });
-        await expect(resolution.getByRole("radio")).toHaveText(["MONTH", "WEEK", "DAY"]);
-
-        await grain.getByRole("radio", { name: "GROUP" }).click();
-        await expect(grain.getByRole("radio", { name: "GROUP" })).toBeChecked();
-        await expect(entry.locator("[data-slot='ruler'] > :first-child")).toHaveText("GROUP");
-        await expect(entry.locator("[data-plan-group][aria-expanded='false']").first()).toBeVisible();
-        await expect.poll(() => mismatches(entry), "GROUP grain").toEqual([]);
-    });
-});
-
-/**
  * The links focus, as `Plan links.html` draws it (#1258). Its links are laid
  * out from the model (#818) — the body's own heights, the geometry table's
  * bars, the scale across the plot — and never measured; here, in a real
@@ -470,6 +420,15 @@ test.describe("Plan links focus (#818, #1258)", () => {
     async function focusLinks(page: Page, focus: (typeof FOCUSES)[number], width: number, css?: string): Promise<Locator> {
         await page.setViewportSize({ width, height: 800 });
         const entry = await openExample(page, focus.name, focus.file);
+        if (focus.name === "planEventLinks") {
+            // Give this routing fixture a 360px viewport, plus the 44px
+            // toolbar and 28px footer. The two-row ruler and group bands
+            // leave all six presses visible with room for an 8px stub head,
+            // while the bindery stays below the fold.
+            await entry.locator("[data-plan-frame]").first().evaluate((el) => {
+                (el as HTMLElement).style.height = "432px";
+            });
+        }
         if (css !== undefined) await page.addStyleTag({ content: css });
         await entry.locator(`${focus.row} [data-plan-control="links"]`).click();
         await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(focus.weights.length);

@@ -22,6 +22,17 @@ its cause, in the example's place (`data-e3-start="failed"`), with a Retry
 that starts e3 again. What loaded before renders at once, so a row the doc
 list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
+`DocList` starts at a deep link before mounting the first window. Overscan
+rows keep their headings and source disclosures, while `PatternEntry`
+defers IR compilation and e3 subscriptions until a preview intersects the
+document viewport. Previously activated examples render immediately on
+remount to preserve scroll anchoring. Responsive checks must bring a
+preview into view and wait for `settled`; offscreen deferred previews do
+not block readiness. Do not add retries, fixed sleeps or longer timeouts to
+cover unnecessary startup work. Touch checks measure an input's own column
+inside a compound field; toolbar fit calculations include its focus-ring
+padding. Axis alignment uses DOM geometry and computed styles, not pixel
+sampling.
 The query builder's calls go to that e3 (#1132): `E3Gate` renders each e3
 example under an `E3Provider` over it, so a run is a real one-shot call, or
 a real split call that e3 cuts into pieces, and a run weighs its datasets by
