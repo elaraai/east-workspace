@@ -15,7 +15,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import { TimeResolutionType, type TimeResolutionLiteral } from "../../contracts/time.js";
 import { SliceRangePickerType } from "./types.js";
 
@@ -50,7 +50,7 @@ export interface SliceRangeOptions {
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state()));
+ *         const slice = $.let(Slice.bind("demo.events", events, { range: "timestamp" }));
  *         return Slice.Range.Root({ slice });
  *     })),
  * );
@@ -69,7 +69,7 @@ function createSliceRange(
             )
             : options.resolutions as SubtypeExprOrValue<ArrayType<TimeResolutionType>>;
     return East.value(variant("SliceRange", {
-        slice: options.slice,
+        slice: localSliceHandle(options.slice),
         editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,
         resolutions: resolutions !== undefined ? some(resolutions) : none,
     }), UIComponentType);

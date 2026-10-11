@@ -38,7 +38,7 @@ import { UIComponentType } from "../../component.js";
 import { mapRowsBlock } from "../../shared/reify.js";
 import { type IconName } from "../../display/icon/types.js";
 import { StatusTokenType, type StatusTokenLiteral } from "../../style/interaction.js";
-import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     LibraryRootOf,
@@ -460,7 +460,7 @@ export interface LibraryConfig<R extends StructType> {
      * Slice chrome — pass the bound handle and the Library renders the frame
      * chassis itself: a rail mounting the `affordances` (default
      * `["filter", "search"]`) and a derived-count footer. Chrome only: feed
-     * the narrowed data explicitly via `data={Slice.rows([RowType], slice)}`,
+     * the narrowed data explicitly via `data={Slice.rows(slice)}`,
      * or keep filtered-out cards as dimmed context by feeding
      * `Slice.partition([RowType], slice)` and mapping `matched.not()` into the
      * card face's `filtered`. `brush` / `legend` / `breakdown` are rejected —
@@ -599,7 +599,7 @@ function buildRoot(
     }
     const sliceChromeValue = config.slice !== undefined
         ? East.value({
-            slice: config.slice,
+            slice: localSliceHandle(config.slice),
             affordances: East.value(
                 affordances.map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),

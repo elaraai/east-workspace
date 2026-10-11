@@ -3,11 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, StructType, example, some } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Roster } from "@elaraai/e3-ui";
-import { StaffScope, WarehouseConfig, WarehousePerson, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
+import { WarehouseConfig, WarehousePerson, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
 
 export const rosterWeeks = e3.record("roster_weeks", Roster.Types.Weeks, warehouseWeeks);
 export const rosterWeeksPatch = e3.mutation.patch(rosterWeeks);
@@ -27,12 +27,11 @@ export const rosterWarehouse = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterWarehouse.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterWarehouse.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         return <Box width="100%" height="760px"><Roster id="rosterWarehouse" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -58,12 +57,11 @@ export const rosterMobile = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterMobile.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterMobile.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         return <Box width="100%" maxWidth="390px" height="760px"><Roster id="rosterMobile" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -89,12 +87,11 @@ export const rosterPeople = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterPeople.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterPeople.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         return <Box width="100%" height="760px"><Roster id="rosterPeople" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -120,12 +117,11 @@ export const rosterWeek = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterWeek.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterWeek.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         return <Box width="100%" height="760px"><Roster id="rosterWeek" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -153,12 +149,13 @@ export const rosterWindowed = example({
         const history = $.let(Data.bindPaged(rosterWeeks));
         const WeekKey = StructType({ week: DateTimeType });
         const first = $.const(new Date("2028-03-12T00:00:00Z"), DateTimeType);
-        const scope = Slice.config(WeekKey, { fields: { week: { label: "Week", format: { date: "MMM D" } } }, rangeFieldId: "week" });
         // A bounded horizon of keys, independent of the record's rows and history.
         const horizon = $.let(East.Array.generate(13n, WeekKey, (_$2, i) => ({ week: first.addDays(i.subtract(6n).multiply(7n)) })));
-        const slice = $.let(Slice.bind([WeekKey], "ex.rosterWindowed.weeks", scope, Slice.state({
-            range: some(variant("datetime", { from: first, to: first.addDays(7n).addMilliseconds(-1n) })),
-        }), horizon, none));
+        const slice = $.let(Slice.bind("ex.rosterWindowed.weeks", horizon, {
+            fields: { week: { label: "Week", format: { date: "MMM D" } } },
+            range: "week",
+            initial: { week: { from: first, to: first.addDays(7n).addMilliseconds(-1n) } },
+        }));
         return <Box width="100%" height="760px"><Roster id="rosterWindowed" weeks={weeks} window={history}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -184,12 +181,11 @@ export const rosterMinimal = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterMinimal.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterMinimal.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         return <Box width="100%" height="760px"><Roster id="rosterMinimal" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -213,12 +209,11 @@ export const rosterPublished = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterPublished.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterPublished.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         return <Box width="100%" height="760px"><Roster id="rosterPublished" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
@@ -244,12 +239,11 @@ export const rosterCustomInspector = example({
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
         const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const scope = Slice.config(StaffScope, {
+        const slice = $.let(Slice.bind("ex.rosterCustomInspector.scope", rows, {
             fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            searchFieldIds: ["name", "team", "position"],
-        });
-        const slice = $.let(Slice.bind([StaffScope], "ex.rosterCustomInspector.scope", scope, Slice.state({}), rows, none));
-        const visible = $.let(Slice.rows([StaffScope], slice).toSet((_$2, person) => person.key));
+            search: ["name", "team", "position"],
+        }));
+        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
         const assignment = $.const(East.function([Roster.Types.Assignment, FunctionType([Roster.Types.Assignment], NullType)], UIComponentType, (_$2, row, update) =>
             <VStack><Field.FloatInput label="Custom overtime" value={row.overtime} min={0} max={4} step={0.5} onChange={(_$3, value) => update({ slot: row.slot, who: row.who, position: row.position, activity: row.activity, offset: row.offset, overtime: value, agreed: row.agreed })} /></VStack>));
         const requirement = $.const(East.function([Roster.Types.Requirement, FunctionType([Roster.Types.Requirement], NullType)], UIComponentType, (_$2, row, update) =>

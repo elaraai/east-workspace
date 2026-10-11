@@ -22,7 +22,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { SliceChromeType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceChromeType } from "../../platform/slice/index.js";
 import {
     FontFamilyType,
     type FontFamilyLiteral,
@@ -206,7 +206,10 @@ export function chartFrame(children: Array<ChartSpecValue>, options: ChartFrameO
         yScale2: options.yScale2 !== undefined ? some(variant(options.yScale2, null)) : none,
         tooltip: options.tooltip ? some({ cursor: none }) : none,
         legend:  options.legend ? some({ orientation: none, position: none }) : none,
-        slice:   options.slice !== undefined ? some(options.slice) : none,
+        slice:   options.slice === undefined ? none : options.slice instanceof Expr ? some(options.slice) : some({
+            slice: localSliceHandle(options.slice.slice),
+            affordances: options.slice.affordances,
+        }),
         children,
     }), ChartSpecType);
 }

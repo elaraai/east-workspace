@@ -8,8 +8,8 @@
  * and write one shared narrowing state, plus the platform that creates and
  * applies it. A *slice* is a typed view over a row collection: a range, a set
  * of filter predicates, a search, a breakdown dimension, and saved cohorts.
- * You build it with the platform members (`Slice.config` declares the fields,
- * `Slice.bind` binds rows + initial `Slice.state` under a stable id) and then
+ * Bind rows with `Slice.bind(key, rows, options)` or indexed records with
+ * `Slice.bindRecord(key, binding, options)`, then
  * drop in whichever `<Slice.*>` controls a surface needs — they all stay in
  * sync because they target the same bound handle.
  *
@@ -26,23 +26,20 @@
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
  * import { East, StructType, StringType, IntegerType, ArrayType, none } from "@elaraai/east";
- * import { Reactive, Slice, Table, UIComponentType } from "@elaraai/east-ui";
+ * import { Reactive, Slice, Table, UIComponentType, VStack } from "@elaraai/east-ui";
  *
  * const view = East.function([], UIComponentType, _$ => {
  *     const EventType = StructType({ scenario: StringType, sessions: IntegerType });
- *     const cfg = Slice.config(EventType, {
- *         fields: { scenario: { label: "Scenario" }, sessions: { label: "Sessions" } },
- *         searchFieldIds: ["scenario"],
- *     });
  *     return (
  *         <Reactive>{$ => {
  *             const data = $.const([{ scenario: "v3", sessions: 42n }], ArrayType(EventType));
- *             const slice = $.let(Slice.bind([EventType], "ex.slice", cfg, Slice.state(), data, none));
- *             const filtered = $.let(Slice.apply.where([EventType], slice.read(), cfg, data));
+ *             const slice = $.let(Slice.bind("ex.slice", data, { search: "scenario" }));
+ *             const filtered = $.let(Slice.rows(slice));
  *             return (
- *                 <Slice.Frame slice={slice} affordances={["filter", "search"]}>
+ *                 <VStack gap="3" align="stretch">
+ *                     <Slice.Rail slice={slice} affordances={["filter", "search"]} />
  *                     <Table data={filtered} columns={{ scenario: { header: "Scenario" }, sessions: { header: "Sessions" } }} />
- *                 </Slice.Frame>
+ *                 </VStack>
  *             );
  *         }}</Reactive>
  *     );
@@ -50,8 +47,8 @@
  * ```
  *
  * @remarks
- * Carries the slice platform alongside the tags: `Slice.config` (declares the
- * fields), `Slice.bind` (binds rows + initial state under a stable id),
+ * Carries the slice platform alongside the tags: `Slice.bind` (typed rows in hand),
+ * `Slice.bindRecord` (paged indexed records), `Slice.config` (pure apply configuration),
  * `Slice.state` (the initial-state builder), `Slice.apply` (the pure
  * narrowing — `Slice.apply.where`, `.breakdown`, …), and `Slice.Types` (every
  * East type: `State`, `Predicate`, `Range`, `Breakdown`, `Cohort`,
@@ -75,6 +72,7 @@ type SliceTags = {
     Rail: JsxTag<OptionsProps<typeof SliceFactory.Rail.Root>>;
     config: typeof SliceFactory.config;
     bind: typeof SliceFactory.bind;
+    bindRecord: typeof SliceFactory.bindRecord;
     rows: typeof SliceFactory.rows;
     partition: typeof SliceFactory.partition;
     partitionRowType: typeof SliceFactory.partitionRowType;
@@ -103,13 +101,10 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ country: StringType, sessions: IntegerType });
-     *     const cfg = Slice.config(EventType, { fields: { country: { label: "Country" }, sessions: { label: "Sessions" } } });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ country: "US", sessions: 42n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.summary", cfg, Slice.state({
-     *                 filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 10n) })],
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.summary", data, { initial: { sessions: { gte: 10n } } }));
      *             return <Slice.Summary slice={slice} />;
      *         }}</Reactive>
      *     );
@@ -125,7 +120,7 @@ export const Slice: SliceTags = {
      * A single time-range pill bound to a slice. Click it to open the picker
      * popover with presets (`Today / 7d / 30d / 90d / YTD / Custom…`), an
      * optional compare row, and the resolved window. Use it wherever a surface
-     * narrows by a `DateTime` field (the slice's `rangeFieldId`). Props are
+     * narrows by a `DateTime` field (the binding's `range` field). Props are
      * flat ({@link SliceRangeOptions}); the only required one is `slice`.
      *
      * @example
@@ -136,16 +131,10 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ timestamp: DateTimeType, sessions: IntegerType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { timestamp: { label: "Time" }, sessions: { label: "Sessions" } },
-     *         rangeFieldId: "timestamp",
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ timestamp: new Date(), sessions: 42n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.range", cfg, Slice.state({
-     *                 range: some(variant("datetimePreset", variant("last30d", null))),
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.range", data, { range: "timestamp", initial: { timestamp: { preset: "last30d" } } }));
      *             return <Slice.Range slice={slice} />;
      *         }}</Reactive>
      *     );
@@ -173,16 +162,10 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ scenario: StringType, sessions: IntegerType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { scenario: { label: "Scenario" }, sessions: { label: "Sessions" } },
-     *         searchFieldIds: ["scenario"],
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ scenario: "v3", sessions: 42n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.filter", cfg, Slice.state({
-     *                 filters: [variant("string", { fieldId: "scenario", op: variant("eq", "v3") })],
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.filter", data, { search: "scenario", initial: { scenario: ["v3"] } }));
      *             return <Slice.Filter slice={slice} unit="events" density="compact" />;
      *         }}</Reactive>
      *     );
@@ -196,12 +179,12 @@ export const Slice: SliceTags = {
     Filter: optionsTag(SliceFactory.Filter.Root),
     /**
      * Split-by-dimension picker bound to a slice. Dimension chips (the fields
-     * declared as `breakdownFieldIds`) set the active breakdown — the chosen
+     * declared in `breakdown`) set the active breakdown — the chosen
      * one is brand-tinted with a remove `×` — and a preview of the resulting
      * series is rendered from the platform-computed groups. Pair it with a
      * a `Chart.Series` layer / `Slice.Legend` to split a chart into series. Props are
      * flat ({@link SliceBreakdownOptions}); `density` defaults from the
-     * surrounding `Slice.Frame`.
+     * surrounding `Slice.Rail`.
      *
      * @example
      * ```tsx
@@ -211,16 +194,10 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ country: StringType, sessions: IntegerType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { country: { label: "Country" }, sessions: { label: "Sessions" } },
-     *         breakdownFieldIds: ["country"],
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ country: "US", sessions: 12n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.breakdown", cfg, Slice.state({
-     *                 breakdown: some({ fieldId: "country", limit: none }),
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.breakdown", data, { breakdown: ["country"], view: { breakdown: some({ fieldId: "country", limit: none }) } }));
      *             return <Slice.Breakdown slice={slice} density="compact" />;
      *         }}</Reactive>
      *     );
@@ -252,16 +229,10 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ region: StringType, sessions: IntegerType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { region: { label: "Region" }, sessions: { label: "Sessions" } },
-     *         breakdownFieldIds: ["region"],
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ region: "EU", sessions: 12n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.legend", cfg, Slice.state({
-     *                 breakdown: some({ fieldId: "region", limit: none }),
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.legend", data, { breakdown: ["region"], view: { breakdown: some({ fieldId: "region", limit: none }) } }));
      *             return <Slice.Legend slice={slice} />;
      *         }}</Reactive>
      *     );
@@ -276,8 +247,8 @@ export const Slice: SliceTags = {
     /**
      * Combobox typeahead over a slice dimension. Typing drives the bound
      * search state; suggestions come from the rows the bind projects through
-     * its `toMatch` function (so this control needs a slice bound with a
-     * `toMatch`), and selecting a suggestion commits it. Use it for
+     * its `match` function (so suggestions need the binding's
+     * `match` option), and selecting a suggestion commits it. Use it for
      * find-by-id / find-by-name narrowing. Props are flat
      * ({@link SliceSearchOptions}); `density` defaults from the surrounding rail.
      *
@@ -289,18 +260,12 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ sku: StringType, name: StringType, note: StringType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { sku: { label: "SKU" }, name: { label: "Name" }, note: { label: "Note" } },
-     *         searchFieldIds: ["sku"],
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ sku: "SKU-001", name: "Industrial fan", note: "spike" }], ArrayType(EventType));
-     *             const toMatch = $.const(East.function([EventType], Slice.Types.SearchMatch, ($, r) =>
-     *                 ({ id: r.sku, label: r.name, meta: some(r.note) })));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.search", cfg, Slice.state({
-     *                 search: some("SKU-001"),
-     *             }), data, some(toMatch)));
+         *             const slice = $.let(Slice.bind("ex.slice.search", data, { fields: { sku: { label: "SKU" }, name: {}, note: {} }, search: "sku",
+     *                 match: r => ({ id: r.sku, label: r.name, meta: some(r.note) }),
+     *                 view: { search: some("SKU-001") } }));
      *             return <Slice.Search slice={slice} density="compact" />;
      *         }}</Reactive>
      *     );
@@ -332,19 +297,11 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ sessions: IntegerType, plan_tier: StringType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { sessions: { label: "Sessions" }, plan_tier: { label: "Plan tier" } },
-     *         searchFieldIds: ["plan_tier"],
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ sessions: 18n, plan_tier: "pro" }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.cohort", cfg, Slice.state({
-     *                 cohorts: [{ id: "power-users", name: "Power users", filters: [
-     *                     variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
-     *                 ] }],
-     *                 activeCohorts: new Set(["power-users"]),
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.cohort", data, { search: "plan_tier",
+     *                 presets: [{ id: "power-users", name: "Power users", where: { sessions: { gte: 10n } }, active: true }] }));
      *             return <Slice.Cohort slice={slice} createdBy="d.park" reevaluateEvery="every 10 min" />;
      *         }}</Reactive>
      *     );
@@ -372,16 +329,10 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const OrderType = StructType({ region: StringType, qty: IntegerType });
-     *     const cfg = Slice.config(OrderType, { fields: { region: { label: "Region" }, qty: { label: "Qty" } } });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ region: "EU", qty: 40n }], ArrayType(OrderType));
-     *             const slice = $.let(Slice.bind([OrderType], "ex.slice.presets", cfg, Slice.state({
-     *                 cohorts: [{ id: "eu", name: "EU", filters: [
-     *                     variant("string", { fieldId: "region", op: variant("eq", "EU") }),
-     *                 ] }],
-     *                 activeCohorts: new Set(["eu"]),
-     *             }), data, none));
+     *             const slice = $.let(Slice.bind("ex.slice.presets", data, { presets: [{ id: "eu", name: "EU", where: { region: ["EU"] }, active: true }] }));
      *             return <Slice.Presets slice={slice} />;
      *         }}</Reactive>
      *     );
@@ -399,7 +350,7 @@ export const Slice: SliceTags = {
      * a family → family count chips → one `N narrowed` chip); under
      * compression every chip opens the sectioned `Slice.Edit` popover floating
      * over whatever sits below. Place it above components reading
-     * `Slice.rows([RowType], slice)` and the rail narrows them all — the new
+     * `Slice.rows(slice)` and the rail narrows them all — the new
      * composition model: data flows explicitly, chrome sits where the author
      * puts it. Props are flat ({@link SliceRailOptions}).
      *
@@ -411,15 +362,11 @@ export const Slice: SliceTags = {
      *
      * const view = East.function([], UIComponentType, _$ => {
      *     const EventType = StructType({ scenario: StringType, sessions: IntegerType });
-     *     const cfg = Slice.config(EventType, {
-     *         fields: { scenario: { label: "Scenario" }, sessions: { label: "Sessions" } },
-     *         searchFieldIds: ["scenario"],
-     *     });
-     *     return (
+         *     return (
      *         <Reactive>{$ => {
      *             const data = $.const([{ scenario: "v3", sessions: 42n }], ArrayType(EventType));
-     *             const slice = $.let(Slice.bind([EventType], "ex.slice.rail", cfg, Slice.state(), data, none));
-     *             const narrowed = $.let(Slice.rows([EventType], slice));
+     *             const slice = $.let(Slice.bind("ex.slice.rail", data, { search: "scenario" }));
+     *             const narrowed = $.let(Slice.rows(slice));
      *             return (
      *                 <VStack gap="3" align="stretch">
      *                     <Slice.Rail slice={slice} affordances={["filter", "search"]} />
@@ -438,7 +385,9 @@ export const Slice: SliceTags = {
     Rail: optionsTag(SliceFactory.Rail.Root),
     config: SliceFactory.config,
     bind: SliceFactory.bind,
-    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows([RowType], slice)`). */
+    /** Narrow a paged record through its declared field indexes. */
+    bindRecord: SliceFactory.bindRecord,
+    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows(slice)`). */
     rows: SliceFactory.rows,
     /** Full bound rows tagged `{ value, matched }` — the "keep the excluded" feed. */
     partition: SliceFactory.partition,

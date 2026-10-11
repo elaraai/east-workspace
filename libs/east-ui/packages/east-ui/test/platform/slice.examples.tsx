@@ -23,7 +23,7 @@ import { Button, Reactive, Separator, Text, VStack } from "@elaraai/east-ui";
 
 // ---------------------------------------------------------------------------
 // Each example below is self-contained: `UserEventType` is declared inside
-// every `fn` body, and the slice config is built via `Slice.config({...})`
+// every `fn` body, and each slice binds its rows with typed options
 // so the doc extractor renders complete, runnable snippets.
 // ---------------------------------------------------------------------------
 
@@ -39,18 +39,18 @@ export const sliceBindDefault = example({
         });
         return (
             <Reactive>{$ => {
-                const cfg = $.let(Slice.config(UserEventType, {
+                const scope = {
                     fields: {
                         timestamp: { label: "Time"     },
                         country:   { label: "Country"  },
                         sessions:  { label: "Sessions" },
                         sku:       { label: "SKU"      },
                     },
-                    rangeFieldId:      "timestamp",
-                    searchFieldIds:    ["sku", "country"],
-                    breakdownFieldIds: ["country"],
-                }));
-                const slice = $.let(Slice.bind([UserEventType], "demo.empty", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                    range:      "timestamp",
+                    search:    ["sku", "country"],
+                    breakdown: ["country"],
+                } as const;
+                const slice = $.let(Slice.bind("demo.empty", East.value([], ArrayType(UserEventType)), scope));
                 const state = $.let(slice.read(), Slice.Types.State);
                 return <Text>{East.str`Filters: ${state.filters.length()} · Cohorts: ${state.activeCohorts.size()}`}</Text>;
             }}</Reactive>
@@ -77,18 +77,18 @@ export const slicePredicates = example({
             <VStack gap="4" align="stretch">
                 <Separator label="ADD INTEGER PREDICATE" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.filter.int", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.filter.int", East.value([], ArrayType(UserEventType)), scope));
                         const onAdd = $.const(East.function([], NullType, $ => {
                             const pred = $.const(
                                 variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
@@ -100,18 +100,18 @@ export const slicePredicates = example({
                     }}</Reactive>
                 <Separator label="ADD STRING IN PREDICATE" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.filter.str", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.filter.str", East.value([], ArrayType(UserEventType)), scope));
                         const onAdd = $.const(East.function([], NullType, $ => {
                             const pred = $.const(
                                 variant("string", {
@@ -126,18 +126,18 @@ export const slicePredicates = example({
                     }}</Reactive>
                 <Separator label="DEFINE COHORT" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.cohort", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.cohort", East.value([], ArrayType(UserEventType)), scope));
                         const onDefine = $.const(East.function([], NullType, $ => {
                             const cohort = $.const({
                                 id:   "power-users",
@@ -162,18 +162,18 @@ export const slicePredicates = example({
                     }}</Reactive>
                 <Separator label="SET BREAKDOWN" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.breakdown", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.breakdown", East.value([], ArrayType(UserEventType)), scope));
                         const onClick = $.const(East.function([], NullType, $ => {
                             const b = $.const(
                                 some({ fieldId: "country", limit: some(5n) }),
@@ -185,18 +185,18 @@ export const slicePredicates = example({
                     }}</Reactive>
                 <Separator label="SET SEARCH" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.search", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.search", East.value([], ArrayType(UserEventType)), scope));
                         const onSet = $.const(East.function([], NullType, $ => {
                             const q = $.const(some("SKU-001"), OptionType(StringType));
                             $(slice.setSearch(q));
@@ -214,18 +214,18 @@ export const slicePredicates = example({
                     }}</Reactive>
                 <Separator label="SET VISIBLE" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.visible", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.visible", East.value([], ArrayType(UserEventType)), scope));
                         const onClick = $.const(East.function([], NullType, $ => {
                             const v = $.const(
                                 some(new Set(["US", "UK"])),
@@ -259,18 +259,18 @@ export const sliceRanges = example({
             <VStack gap="4" align="stretch">
                 <Separator label="SET RANGE PRESET" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.range.preset", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.range.preset", East.value([], ArrayType(UserEventType)), scope));
                         const onClick = $.const(East.function([], NullType, $ => {
                             const r = $.const(
                                 some(variant("datetimePreset", variant("last30d", null))),
@@ -282,18 +282,18 @@ export const sliceRanges = example({
                     }}</Reactive>
                 <Separator label="SET RANGE CUSTOM DATE TIME" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.range.dt", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.range.dt", East.value([], ArrayType(UserEventType)), scope));
                         const onClick = $.const(East.function([], NullType, $ => {
                             const r = $.const(
                                 some(variant("datetime", {
@@ -308,18 +308,18 @@ export const sliceRanges = example({
                     }}</Reactive>
                 <Separator label="SET RANGE INTEGER" align="start" />
                 <Reactive>{$ => {
-                        const cfg = $.let(Slice.config(UserEventType, {
+                        const scope = {
                             fields: {
                                 timestamp: { label: "Time"     },
                                 country:   { label: "Country"  },
                                 sessions:  { label: "Sessions" },
                                 sku:       { label: "SKU"      },
                             },
-                            rangeFieldId:      "timestamp",
-                            searchFieldIds:    ["sku", "country"],
-                            breakdownFieldIds: ["country"],
-                        }));
-                        const slice = $.let(Slice.bind([UserEventType], "demo.range.int", cfg, Slice.state(), East.value([], ArrayType(UserEventType)), none));
+                            range:      "timestamp",
+                            search:    ["sku", "country"],
+                            breakdown: ["country"],
+                        } as const;
+                        const slice = $.let(Slice.bind("demo.range.int", East.value([], ArrayType(UserEventType)), scope));
                         const onClick = $.const(East.function([], NullType, $ => {
                             const r = $.const(
                                 some(variant("integer", { from: 5n, to: 100n })),

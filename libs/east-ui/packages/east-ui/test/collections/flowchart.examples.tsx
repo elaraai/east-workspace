@@ -78,15 +78,14 @@ export const flowchartPlant = example({
                 { id: "l9", src: "RTP", dst: "PKD", kind: planned, trigger: none, vol: some(93.8), n: some(4311n), at: stamp, grade: "A", vessels: [] },
                 { id: "l10", src: "PKD", dst: "TFP", kind: planned, trigger: none, vol: none, n: none, at: stamp, grade: "A", vessels: [] },
             ], ArrayType(LinkRow)));
-            const cfg = Slice.config(LinkRow, {
+            const slice = $.let(Slice.bind("flowchart-plant", links, {
                 fields: {
                     grade: { label: "Grade" },
                     src: { label: "From" },
                     dst: { label: "To" },
                 },
-                searchFieldIds: ["src", "dst"],
-            });
-            const slice = $.let(Slice.bind([LinkRow], "flowchart-plant", cfg, Slice.state({}), links, none));
+                search: ["src", "dst"],
+            }));
             // Hover content is DEV-DEFINED (the Schematic contract): the
             // builder receives the hovered key and returns arbitrary UI.
             const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
@@ -119,7 +118,7 @@ export const flowchartPlant = example({
                 <Flowchart
                     states={states}
                     state={s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots })}
-                    links={Slice.rows([LinkRow], slice)}
+                    links={Slice.rows(slice)}
                     link={l => ({
                         key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
                         evidence: { volume: l.vol, count: l.n, measuredAt: some(l.at), unit: "kt" },

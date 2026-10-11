@@ -309,16 +309,15 @@ export const sheetStress = example({
                 { code: "P3210", family: "4-side planer" }, { code: "A7301", family: "assembly bench" },
             ], ArrayType(MachineType));
             // The work centres are searched through their display form — `3 x CNC router`, `A7301` — not their `.east` text.
-            const cfg = $.const(Slice.config(StressJob, {
+            const slice = $.let(Slice.bind("sheet_stress_slice", jobs.read(), {
                 fields: {
                     activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
                     notes:    { label: "Notes" },
                     stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) },
                     status:   { label: "Status" },
                 },
-                searchFieldIds: ["activity", "notes", "stations"],
+                search: ["activity", "notes", "stations"],
             }));
-            const slice = $.let(Slice.bind([StressJob], "sheet_stress_slice", cfg, Slice.state(), jobs.read(), none));
             const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_stress_views", [
                 { id: "spraying", name: "SPRAYING", narrowing: Slice.state({ search: some("spraying") }), context: 1n, reveals: [], folds: new Map() },
                 { id: "routers", name: "ROUTERS", narrowing: Slice.state({ search: some("router") }), context: 0n, reveals: [], folds: new Map() },
@@ -592,16 +591,14 @@ export const sheetWorkshop = example({
             ], ArrayType(BayType));
             // Every operation of every order: what the slice searches and filters — the work centres by their display text.
             const operations = $.let(orders.read().toArray((_$, o) => o.ops).flatMap((_$, ops) => ops));
-            const slice = $.let(Slice.bind([WorkshopOperation], "sheet_workshop",
-                Slice.config(WorkshopOperation, {
+            const slice = $.let(Slice.bind("sheet_workshop", operations, {
                     fields: {
                         activity: { label: "Activity", hints: ["Panel cutting", "Edge banding", "CNC routing", "Drilling", "Sanding", "Assembly", "Spray finish", "Wrapping", "Delivery"] },
                         notes:    { label: "Notes" },
                         machines: { label: "Work centres", text: o => Sheet.link.print(o.machines) },
                     },
-                    searchFieldIds: ["activity", "notes", "machines"],
-                }),
-                Slice.state(), operations, none));
+                    search: ["activity", "notes", "machines"],
+            }));
             const Ctx = Sheet.Types.DraftContext(WorkshopOrder, "ops", WorkshopActivity);
             const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
             const FloatFill = OptionType(Sheet.Types.Fill(FloatType));

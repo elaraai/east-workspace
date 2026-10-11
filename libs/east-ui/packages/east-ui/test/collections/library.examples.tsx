@@ -153,10 +153,6 @@ export const libraryLarge = example({
             }, CrewType);
             return row;
         }));
-        const cfg = Slice.config(CrewType, {
-            fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
-            searchFieldIds: ["name", "role", "depot"],
-        });
         return (
             <Reactive>{$ => {
                 const sizes = $.const(["auto", "scroll", "fill"], ArrayType(StringType));
@@ -167,8 +163,11 @@ export const libraryLarge = example({
                 }));
 
                 const crew = $.const(LIBRARY_LARGE_CARDS);
-                const slice = $.let(Slice.bind([CrewType], "ex.library.large.slice", cfg, Slice.state({}), crew, none));
-                const narrowed = $.let(Slice.rows([CrewType], slice));
+                const slice = $.let(Slice.bind("ex.library.large.slice", crew, {
+                    fields: { name: { label: "Name" }, role: { label: "Role" }, depot: { label: "Depot" } },
+                    search: ["name", "role", "depot"],
+                }));
+                const narrowed = $.let(Slice.rows(slice));
 
                 // An empty height string reads as "unbounded"; the wrapper Box
                 // only bounds in fill mode.
@@ -207,7 +206,7 @@ export const libraryLarge = example({
                             </Box>
                         }
                         spec={[
-                            Configurator.Spec("Cards", East.print(LIBRARY_LARGE_CARDS.size())),
+                            Configurator.Spec("Cards", East.print(crew.size())),
                         ]}
                     />
                 );

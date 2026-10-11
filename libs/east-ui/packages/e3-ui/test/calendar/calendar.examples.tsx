@@ -90,10 +90,9 @@ export const calendarOperations = example({
         const jobTemplates = $.let(Record.bind(calendarJobTemplates, []));
         const serviceTemplates = $.let(Record.bind(calendarServiceTemplates, []));
         const shiftTemplates = $.let(Record.bind(calendarShiftTemplates, []));
-        const cfg = Slice.config(CalendarFilter, {
-            fields: { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } },
-            searchFieldIds: ["title", "kind", "resource"],
-        });
+        const fields = { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } };
+        // The pure matcher applies this local Slice to each event kind.
+        const cfg = Slice.config(CalendarFilter, { fields, searchFieldIds: ["title", "kind", "resource"] });
         const jobScope = $.const(East.function([CalendarJob], CalendarFilter, (_$2, row) => ({
             title: row.title, kind: "Production", resourceKind: "Machines", resourceKey: row.machine.match({ some: (_$3, key) => key, none: () => "" }), resource: row.machine.match({ some: (_$3, key) => machines.read().get(key).name, none: () => "Unassigned" }),
             status: row.status.match({ planned: () => "Planned", active: () => "Active", done: () => "Done" }),
@@ -107,8 +106,8 @@ export const calendarOperations = example({
         const scope = $.let(jobs.read().toArray((_$2, row) => jobScope(row))
             .concat(services.read().toArray((_$2, row) => serviceScope(row)))
             .concat(shifts.read().toArray((_$2, row) => shiftScope(row))));
-        const slice = $.let(Slice.bind([CalendarFilter], "ex.calendarOperations.scope", cfg, Slice.state({}), scope, none));
-        const visible = $.let(Slice.rows([CalendarFilter], slice));
+        const slice = $.let(Slice.bind("ex.calendarOperations.scope", scope, { fields, search: ["title", "kind", "resource"] }));
+        const visible = $.let(Slice.rows(slice));
         // Preserve record keys while the same Slice scopes resource rows upstream.
         const visibleMachines = $.let(machines.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
             visible.some((_$3, row) => row.resourceKind.equal("Machines").and(() => row.resourceKey.equal(key))))));
@@ -158,10 +157,9 @@ export const calendarMobile = example({
         const jobTemplates = $.let(Record.bind(calendarJobTemplates, []));
         const serviceTemplates = $.let(Record.bind(calendarServiceTemplates, []));
         const shiftTemplates = $.let(Record.bind(calendarShiftTemplates, []));
-        const cfg = Slice.config(CalendarFilter, {
-            fields: { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } },
-            searchFieldIds: ["title", "kind", "resource"],
-        });
+        const fields = { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } };
+        // The pure matcher applies this local Slice to each event kind.
+        const cfg = Slice.config(CalendarFilter, { fields, searchFieldIds: ["title", "kind", "resource"] });
         const jobScope = $.const(East.function([CalendarJob], CalendarFilter, (_$2, row) => ({
             title: row.title, kind: "Production", resourceKind: "Machines", resourceKey: row.machine.match({ some: (_$3, key) => key, none: () => "" }), resource: row.machine.match({ some: (_$3, key) => machines.read().get(key).name, none: () => "Unassigned" }),
             status: row.status.match({ planned: () => "Planned", active: () => "Active", done: () => "Done" }),
@@ -175,8 +173,8 @@ export const calendarMobile = example({
         const scope = $.let(jobs.read().toArray((_$2, row) => jobScope(row))
             .concat(services.read().toArray((_$2, row) => serviceScope(row)))
             .concat(shifts.read().toArray((_$2, row) => shiftScope(row))));
-        const slice = $.let(Slice.bind([CalendarFilter], "ex.calendarMobile.scope", cfg, Slice.state({}), scope, none));
-        const visible = $.let(Slice.rows([CalendarFilter], slice));
+        const slice = $.let(Slice.bind("ex.calendarMobile.scope", scope, { fields, search: ["title", "kind", "resource"] }));
+        const visible = $.let(Slice.rows(slice));
         // Preserve record keys while the same Slice scopes resource rows upstream.
         const visibleMachines = $.let(machines.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
             visible.some((_$3, row) => row.resourceKind.equal("Machines").and(() => row.resourceKey.equal(key))))));
@@ -226,10 +224,9 @@ export const calendarReadOnly = example({
         const jobTemplates = $.let(Record.bind(calendarJobTemplates, []));
         const serviceTemplates = $.let(Record.bind(calendarServiceTemplates, []));
         const shiftTemplates = $.let(Record.bind(calendarShiftTemplates, []));
-        const cfg = Slice.config(CalendarFilter, {
-            fields: { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } },
-            searchFieldIds: ["title", "kind", "resource"],
-        });
+        const fields = { title: { label: "Title" }, kind: { label: "Kind" }, resourceKind: { label: "Resource kind" }, resource: { label: "Resource" }, status: { label: "Status" } };
+        // The pure matcher applies this local Slice to each event kind.
+        const cfg = Slice.config(CalendarFilter, { fields, searchFieldIds: ["title", "kind", "resource"] });
         const jobScope = $.const(East.function([CalendarJob], CalendarFilter, (_$2, row) => ({
             title: row.title, kind: "Production", resourceKind: "Machines", resourceKey: row.machine.match({ some: (_$3, key) => key, none: () => "" }), resource: row.machine.match({ some: (_$3, key) => machines.read().get(key).name, none: () => "Unassigned" }),
             status: row.status.match({ planned: () => "Planned", active: () => "Active", done: () => "Done" }),
@@ -243,8 +240,8 @@ export const calendarReadOnly = example({
         const scope = $.let(jobs.read().toArray((_$2, row) => jobScope(row))
             .concat(services.read().toArray((_$2, row) => serviceScope(row)))
             .concat(shifts.read().toArray((_$2, row) => shiftScope(row))));
-        const slice = $.let(Slice.bind([CalendarFilter], "ex.calendarReadOnly.scope", cfg, Slice.state({}), scope, none));
-        const visible = $.let(Slice.rows([CalendarFilter], slice));
+        const slice = $.let(Slice.bind("ex.calendarReadOnly.scope", scope, { fields, search: ["title", "kind", "resource"] }));
+        const visible = $.let(Slice.rows(slice));
         // Preserve record keys while the same Slice scopes resource rows upstream.
         const visibleMachines = $.let(machines.read().filter((_$2, _row, key) => slice.isActive().not().or(() =>
             visible.some((_$3, row) => row.resourceKind.equal("Machines").and(() => row.resourceKey.equal(key))))));
@@ -322,13 +319,14 @@ export const calendarWindowed = example({
         const days = $.let(Data.bindPaged(calendarJobs, { index: calendarJobsByDay, join: true }));
         const backlog = $.let(Data.bindPaged(calendarJobs, { index: calendarJobsUnscheduled, join: true }));
         const entries = $.let(Data.bindPaged(calendarJobs));
-        const cfg = Slice.config(CalendarDay, { fields: { day: { label: "Day", format: { date: "MMM D" } } }, rangeFieldId: "day" });
         const first = $.const(new Date("2026-10-01T00:00:00Z"), DateTimeType);
         // A bounded horizon of day keys, not a download of the event record.
         const horizon = $.let(East.Array.generate(31n, CalendarDay, (_$2, i) => ({ day: first.addDays(i) })));
-        const slice = $.let(Slice.bind([CalendarDay], "ex.calendarWindowed.days", cfg, Slice.state({
-            range: some(variant("datetime", { from: first, to: first.addDays(1n).addMilliseconds(-1n) })),
-        }), horizon, none));
+        const slice = $.let(Slice.bind("ex.calendarWindowed.days", horizon, {
+            fields: { day: { label: "Day", format: { date: "MMM D" } } },
+            range: "day",
+            initial: { day: { from: first, to: first.addDays(1n).addMilliseconds(-1n) } },
+        }));
         return <Box height="760px"><Calendar id="windowed" inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
             slice={{ slice, affordances: ["range"] }}
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}

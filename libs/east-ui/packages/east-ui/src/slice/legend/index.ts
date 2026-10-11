@@ -13,7 +13,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import { SliceLegendModeType, SliceLegendType } from "./types.js";
 
 export { SliceLegendModeType, SliceLegendType } from "./types.js";
@@ -34,12 +34,12 @@ export { SliceLegendModeType, SliceLegendType } from "./types.js";
  *
  * @example
  * ```ts
- * import { East } from "@elaraai/east";
+ * import { East, some, none } from "@elaraai/east";
  * import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events));
+ *         const slice = $.let(Slice.bind("demo.events", events, { breakdown: ["country"], view: { breakdown: some({ fieldId: "country", limit: none }) } }));
  *         return Slice.Legend.Root({ slice });               // facet bar
  *         // Slice.Legend.Root({ slice, mode: "visibility" }) — eye rail
  *     })),
@@ -50,7 +50,7 @@ function createSliceLegend(
     options: SliceLegendOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceLegend", {
-        slice: options.slice,
+        slice: localSliceHandle(options.slice),
         mode:  options.mode !== undefined ? some(variant(options.mode, null)) : none,
     }), UIComponentType);
 }

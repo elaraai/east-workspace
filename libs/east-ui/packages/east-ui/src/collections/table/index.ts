@@ -60,7 +60,7 @@ import {
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
 import { TickFormatType } from "../../format/types.js";
-import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { StatusValueType } from "../../feedback/status/types.js";
 import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
@@ -216,7 +216,7 @@ export interface TableOptions<ColumnKeys extends string = string, RowType extend
      * Slice chrome — pass the bound handle and the table renders the frame
      * chassis itself: a header rail mounting the `affordances` (default
      * `["filter", "search"]`) and a derived-count footer. Chrome only: feed
-     * the narrowed data explicitly via `data={Slice.rows([RowType], slice)}`.
+     * the narrowed data explicitly via `data={Slice.rows(slice)}`.
      * `brush` is rejected — a table has no continuous axis.
      */
     slice?: SubtypeExprOrValue<SliceBindType>;
@@ -857,7 +857,7 @@ export function createTable(
     }
     const sliceChromeValue = style?.slice !== undefined
         ? East.value({
-            slice: style.slice,
+            slice: localSliceHandle(style.slice),
             affordances: East.value(
                 (style.affordances ?? ["filter", "search"]).map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),

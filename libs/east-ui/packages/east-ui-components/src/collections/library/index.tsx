@@ -1161,7 +1161,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
  * option it renders the frame chassis itself — the listed affordances join
  * the Library's one toolbar row, folding on its ladder, and a derived-count
  * footer. Chrome only: the items are whatever the host fed
- * (`Slice.rows([RowType], slice)` or `Slice.partition` + `filtered`
+ * (`Slice.rows(slice)` or `Slice.partition` + `filtered`
  * upstream); the Library never narrows its own data.
  */
 export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChakraLibraryProps) {
