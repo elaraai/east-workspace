@@ -107,11 +107,21 @@ retry with the same operation; ciphertext and journals remain unchanged. This
 supports prepared GPU/VFIO assignments at the same executable release; the host
 still performs and verifies the physical move, and network quarantine remains.
 
-The named host manager, source aliases, managed updates,
+For a compatible upgrade or downgrade, the target verified executable's
+`switch-release` uses another completed drain, the previous plan hash and a new
+allocation generation, with unchanged resource/device budgets. Both binaries
+must report the same managed-state contract. It changes the runtime version in
+the **current** encrypted configuration, preserving all identities, registry
+access and journals. Interrupted commits stay guarded and retry with the same
+operation; downgrades never restore saved credentials or state. Keep both
+four-file releases available through receipt recovery. Services stay stopped
+and quarantined until separately activated and resumed.
+
+The named host manager, source aliases, incompatible-state migrations,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/476ae85c28a94bb6ef2c1544f1435e8cd63747c2/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/dc4147dee6458af183d083e6a817c1f1c0bcc4eb/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 
@@ -233,8 +243,8 @@ address. A changed source address needs a deliberate managed source transition;
 re-running worker `configure` preserves an enrolled source's origin and identity.
 If a rack is incompatible, its executable's bundled e3 must be upgraded along
 with its runtime images. Managed `configure` deliberately refuses a release
-change: use the reviewed version transition once that companion workflow is
-available. Do not switch its executable symlink or erase its service plan and
+change: use the companion's guarded `switch-release` workflow above. Releases
+without its managed-state compatibility contract are refused. Do not switch its executable symlink or erase its service plan and
 journals to bypass this guard. If a task stays local, inspect `rack policy show`,
 the task's runner/platforms and host-access dependencies; `--rack-only` cannot
 override eligibility.

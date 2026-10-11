@@ -149,8 +149,15 @@ flag acknowledges revocation; it does not revoke remotely. The companion's
 `reconcile-services` applies a host-provided next allocation and service budgets
 after a completed drain, with stopped units, the previous plan hash and exact
 operation/boot binding. It retains ciphertext/journals and network quarantine;
-it does not move a GPU, start a worker or change its executable release. Named host management,
-source aliases, service/network activation, managed updates and hardware acceptance remain
+it does not move a GPU, start a worker or change its executable release. For a
+compatible release change, invoke the target verified executable's `switch-release`
+with the same drain/plan bindings and unchanged resource budgets at the next
+allocation generation. It checks both managed-state contracts, updates only the
+runtime version in the current encrypted configuration, and preserves identities
+and journals through interruption or downgrade. Both four-file releases must stay
+available; a downgrade is a new operation, never a saved-state restore. Services
+stay stopped and quarantined. Named host management, source aliases, network
+activation, incompatible-state migrations and hardware acceptance remain
 companion cloud #253 work. This and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
 
