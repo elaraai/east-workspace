@@ -82,6 +82,7 @@ import {
     SheetColumnKindType,
     SheetColumnType,
     SheetViewType,
+    SheetRecordViewType,
     SheetEditType,
     SheetSelectionType,
     SheetFooterItemType,
@@ -172,6 +173,7 @@ export {
     type SheetColumnKindLiteral,
     SheetColumnType,
     SheetViewType,
+    SheetRecordViewType,
     SheetEditType,
     SheetSelectionType,
     SheetFooterItemType,
@@ -664,6 +666,8 @@ export interface SheetNamespace extends SheetTagType {
         Arity: typeof SheetArityType;
         /** One saved view ({@link SheetViewType}). */
         View: typeof SheetViewType;
+        /** One saved indexed-record view. */
+        RecordView: typeof SheetRecordViewType;
         /** The WIRE edit event ({@link SheetEditType}); internal gesture transport. */
         WireEdit: typeof SheetEditType;
         /** The selection ring's position ({@link SheetSelectionType}). */
@@ -765,6 +769,7 @@ const SHEET_MEMBERS = {
         Check: SheetCheckType,
         Arity: SheetArityType,
         View: SheetViewType,
+        RecordView: SheetRecordViewType,
         WireEdit: SheetEditType,
         Selection: SheetSelectionType,
         FooterItem: SheetFooterItemType,

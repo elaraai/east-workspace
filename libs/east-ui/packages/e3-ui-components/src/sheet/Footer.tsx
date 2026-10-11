@@ -12,6 +12,8 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useSheetWords } from "./words.js";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Sheet } from "@elaraai/e3-ui/internal";
@@ -43,10 +45,12 @@ export interface SheetFooterProps {
     onRetry?: (() => void) | undefined;
     /** The record's last save, from its commits — `saved 14:02` (a builder's, SB22). */
     saved?: string | undefined;
+    /** Exact, confirmed feedback when saved rows leave the indexed query. */
+    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry, saved }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry, saved, recordSlice }: SheetFooterProps) {
     // The transport line, in the sheet's words and the app's locale (#850, #861).
     const words = useSheetWords();
     const line = transport === undefined ? ""
@@ -66,6 +70,7 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
                     )}
                 </Box>
             )}
+            {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} />}
             {transport !== undefined && (
                 <Box as="span" css={styles.footerTransport} data-slot="footerTransport">
                     {transport.loading ? words.m.transportLoading({ line }) : line}

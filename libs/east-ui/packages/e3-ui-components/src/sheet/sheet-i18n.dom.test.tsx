@@ -99,8 +99,7 @@ const EDITABLE = East.function([], SheetPayloadType, ($) => {
 const LENS = East.function([], SheetPayloadType, ($) => {
     const rows = $.const(JOBS, ArrayType(JobType));
     const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-i18n-views", VIEWS));
-    const cfg = $.const(Slice.config(JobType, { fields: { activity: { label: "Activity" } }, searchFieldIds: ["activity"] }));
-    const slice = $.let(Slice.bind([JobType], "sheet_i18n_dom", cfg, Slice.state(), rows, none));
+    const slice = $.let(Slice.bind("sheet_i18n_dom", rows, { fields: { activity: { label: "Activity" } }, search: "activity" }));
     return Sheet.Payload({
         data: rows,
         columns: { activity: Sheet.column.text(JobType, { header: "Activity" }) },

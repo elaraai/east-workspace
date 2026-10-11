@@ -65,7 +65,7 @@ export interface SheetTabView {
     id: string;
     name: string;
     /** Rows the view's narrowing matches, live. */
-    count: number;
+    count: number | undefined;
     /** The hover title — the query, the context, the gestures. */
     title: string;
 }
@@ -74,7 +74,7 @@ export interface SheetTabsProps {
     styles: Styles;
     views: readonly SheetTabView[];
     /** The pinned whole-sheet tab's count — the planned rows. */
-    wholeCount: number;
+    wholeCount: number | undefined;
     /** The active view's id; `null` = the whole sheet. */
     active: string | null;
     /** The active view's narrowing differs from the slice's. */
@@ -208,12 +208,12 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                             <ChakraMenu.Content>
                                 <ChakraMenu.Item value={ALL} title={m.tabAllTitle()}>
                                     {m.tabAll()}
-                                    <Box as="span" css={menuStyles.itemCommand}>{words.number(wholeCount)}</Box>
+                                    <Box as="span" css={menuStyles.itemCommand}>{wholeCount === undefined ? "…" : words.number(wholeCount)}</Box>
                                 </ChakraMenu.Item>
                                 {views.map((v) => (
                                     <ChakraMenu.Item key={v.id} value={`${MENU_VIEW}${v.id}`} title={v.title}>
                                         {v.name}
-                                        <Box as="span" css={menuStyles.itemCommand}>{words.number(v.count)}</Box>
+                                        <Box as="span" css={menuStyles.itemCommand}>{v.count === undefined ? "…" : words.number(v.count)}</Box>
                                     </ChakraMenu.Item>
                                 ))}
                                 <ChakraMenu.Separator />
@@ -248,7 +248,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                     onDrop={dropAt(0)}
                 >
                     {m.tabAll()}
-                    <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(wholeCount)}</Box>
+                    <Box as="span" css={styles.tabCount} data-slot="tabCount">{wholeCount === undefined ? "…" : words.number(wholeCount)}</Box>
                 </Box>
                 {visible.map((v) => {
                     const on = active === v.id;
@@ -294,7 +294,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                             onDrop={dropAt(i)}
                         >
                             <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{v.name}</Box>
-                            <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(v.count)}</Box>
+                            <Box as="span" css={styles.tabCount} data-slot="tabCount">{v.count === undefined ? "…" : words.number(v.count)}</Box>
                             {on && dirty && (
                                 <Box as="span" css={styles.tabDot} data-slot="tabDot" title={m.tabDirty()} />
                             )}
@@ -328,7 +328,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                                 {hidden.map((v) => (
                                     <ChakraMenu.Item key={v.id} value={v.id} title={v.title}>
                                         {v.name}
-                                        <Box as="span" css={menuStyles.itemCommand}>{words.number(v.count)}</Box>
+                                        <Box as="span" css={menuStyles.itemCommand}>{v.count === undefined ? "…" : words.number(v.count)}</Box>
                                     </ChakraMenu.Item>
                                 ))}
                             </ChakraMenu.Content>

@@ -22,7 +22,7 @@ import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetViewValue } from "./values.js";
+import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetSavedView } from "./values.js";
 
 /** The slice's narrowing — the decoded `Slice.Types.State` a view snapshots. */
 export type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
@@ -328,9 +328,9 @@ export type SheetEffect =
     /** Re-ask the copilot for the edited row after the kind's latency (`instant` = 150 ms). */
     | { t: "schedule.suggest"; latency: "instant" | "idle" }
     /** The views changed — `onViewsChange`. */
-    | { t: "emit.views"; views: readonly SheetViewValue[] }
+    | { t: "emit.views"; views: readonly SheetSavedView[] }
     /** Write the slice's narrowing — a tab switch, a revert, the whole sheet. */
-    | { t: "slice.write"; state: SliceStateValue }
+    | { t: "slice.write"; state: SheetSavedView["narrowing"] }
     /** Focus the rail's search box (⌘/ · ⌘F). */
     | { t: "focus.search" };
 
@@ -386,11 +386,11 @@ export interface SheetMachineCtx {
     /** A new view's name when there is no query to name it from (#861) — the sheet's words, stored with the view. */
     viewName?: ((seq: number) => string) | undefined;
     /** The saved views, in order — the component's local layer over `views`. */
-    views?: readonly SheetViewValue[];
+    views?: readonly SheetSavedView[];
     /** The slice's current narrowing (`undefined` without a bound slice). */
-    narrowing?: SliceStateValue | undefined;
+    narrowing?: SheetSavedView["narrowing"] | undefined;
     /** The narrowing with nothing active — what the whole-sheet tab writes. */
-    emptyNarrowing?: SliceStateValue | undefined;
+    emptyNarrowing?: SheetSavedView["narrowing"] | undefined;
     /** Whether the active tab's saved narrowing differs from the slice's — derived by the component. */
     dirty?: boolean;
     /** What the row-space index holds (#740); absent ⇒ every index is a row or a blank. */

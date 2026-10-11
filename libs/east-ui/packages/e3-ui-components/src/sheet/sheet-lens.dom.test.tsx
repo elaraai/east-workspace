@@ -79,11 +79,10 @@ function buildLensSheet(library: readonly SheetLibraryTab[] = NO_LIBRARY): Sheet
         const rows = $.const(ROWS, ArrayType(JobType));
         const machines = $.const(MACHINES, ArrayType(MachineType));
         const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-lens-views", VIEWS));
-        const cfg = $.const(Slice.config(JobType, {
+        const slice = $.let(Slice.bind("sheet_lens_dom", rows, {
             fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, stations: { label: "Work centres", text: (r) => Sheet.link.print(r.stations) } },
-            searchFieldIds: ["activity", "notes", "stations"],
+            search: ["activity", "notes", "stations"],
         }));
-        const slice = $.let(Slice.bind([JobType], "sheet_lens_dom", cfg, Slice.state(), rows, none));
         return Sheet.Payload({
             data: rows,
             columns: {

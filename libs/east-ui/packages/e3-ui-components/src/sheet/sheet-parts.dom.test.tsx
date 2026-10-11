@@ -53,8 +53,7 @@ const VIEWS = [
 const program = East.compile(East.function([], SheetPayloadType, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "sheet-parts-dom", ROWS));
     const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-parts-views", VIEWS));
-    const cfg = $.const(Slice.config(Row, { fields: { activity: { label: "Activity" } }, searchFieldIds: ["activity"] }));
-    const slice = $.let(Slice.bind([Row], "sheet_parts_dom", cfg, Slice.state(), data.read(), none));
+    const slice = $.let(Slice.bind("sheet_parts_dom", data.read(), { fields: { activity: { label: "Activity" } }, search: "activity" }));
     return Sheet.Payload({
         data,
         columns: {

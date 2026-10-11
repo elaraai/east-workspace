@@ -71,7 +71,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { equivalentFor } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { pagedSnapshot, pagedSourceEqual } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -107,6 +107,8 @@ export interface SheetPaging {
     exhausted: boolean;
     /** Whether a requested window is still in flight. */
     loading: boolean;
+    /** The last query is still displayed while its replacement loads. */
+    replacing: boolean;
     /** Why the SOURCE could not be read — its `total()` or `revision()` threw — while its rows show (#853): chrome, never their replacement. */
     sourceError: string | undefined;
     /** Why the source could not be read before anything landed: there is nothing else to show, so this is the whole sheet (#853). */
@@ -127,7 +129,7 @@ export interface SheetPaging {
 
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, sourceError: undefined, error: undefined, sizeVersion: 0, jump: undefined,
+    exhausted: true, loading: false, replacing: false, sourceError: undefined, error: undefined, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
 
@@ -167,6 +169,9 @@ function emptyCache(source: SheetPagedSourceValue | undefined): SourceCache {
 /** Whether two paged sources serve the same rows: the same id AND equivalent
  *  functions — `page` is the bridge over the author's projection, so its
  *  captures are what the rows are projected WITH (#809). */
+const stringEqual = equalFor(StringType);
+const FIRST_WINDOW: Residency = { ...NO_RESIDENCY, lo: 0, hi: 0 };
+
 const pagedSourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.paged);
 
 /**
@@ -175,19 +180,20 @@ const pagedSourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.p
  * @param source - The decoded `paged` arm (undefined ⇒ inline sheet; idles)
  * @param heightOf - What one source row draws, in px — the body's own geometry (#855); a new function re-measures the landed windows
  * @param policy - Residency policy (defaults to the Plan's)
+ * @param family - Stable record identity; query changes within it retain the last usable view
  * @returns The resident rows, the bands, and the callbacks the renderer feeds
  */
 export function useSheetPaging(
     source: SheetPagedSourceValue | undefined,
     heightOf: (row: SheetRowValue) => number,
     policy: ResidencyOptions = DEFAULT_RESIDENCY,
+    family?: string,
 ): SheetPaging {
-    const [ledger, setLedger] = useState<WindowLedger>(() => createLedger(0, SHEET_PAGE_SIZE));
-    const [residency, setResidency] = useState<Residency>(NO_RESIDENCY);
+    const [storedLedger, setLedger] = useState<WindowLedger>(() => createLedger(0, SHEET_PAGE_SIZE));
+    const [storedResidency, setResidency] = useState<Residency>(NO_RESIDENCY);
     // The element the viewport is centred on — its window is the demand's,
     // and the run is the stretch nearest it (#876).
-    const [viewportAt, setViewportAt] = useState(0);
-    const viewportWindow = Math.floor(viewportAt / SHEET_PAGE_SIZE);
+    const [storedViewportAt, setViewportAt] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
     // A Retry reads again (#853): the read depends on it.
@@ -201,6 +207,15 @@ export function useSheetPaging(
     const cacheRef = useRef<SourceCache>(emptyCache(undefined));
     // The source the geometry was built for.
     const geometryRef = useRef(pagedSnapshot(undefined, undefined).source);
+    // Demand must reset BEFORE reading the replacement, not in a later effect:
+    // an old deep scroll position has no meaning in the new narrowed source.
+    const sourceChanged = !pagedSourceEqual(geometryRef.current, pagedSnapshot(source?.id, undefined).source);
+    const ledger = sourceChanged ? createLedger(0, SHEET_PAGE_SIZE) : storedLedger;
+    const residency = sourceChanged ? FIRST_WINDOW : storedResidency;
+    const viewportAt = sourceChanged ? 0 : storedViewportAt;
+    const viewportWindow = Math.floor(viewportAt / SHEET_PAGE_SIZE);
+    const displayed = useRef<{ family: string; source: string; result: SheetPaging } | undefined>(undefined);
+    const replacingRef = useRef(false);
 
     const read = useCallback(() => {
         void retries;
@@ -329,8 +344,9 @@ export function useSheetPaging(
             next = observeWindow(next, w, { px, rows: rows.length });
         }
         if (sourceChanged) {
-            setResidency(NO_RESIDENCY);
+            setResidency(FIRST_WINDOW);
             setViewportAt(0);
+            setIsScrolling(false);
         }
         if (next === ledger) return;
         setLedger(next);
@@ -443,7 +459,7 @@ export function useSheetPaging(
         // A pending jump owns the viewport (#854): until the sheet has shown its
         // target, a report is taken from where the sheet still IS, and moving
         // the demand there would move the run back and undo the jump.
-        if (jumpingRef.current) return;
+        if (jumpingRef.current || replacingRef.current) return;
         setViewportAt((current) => {
             if (at.kind === "band") {
                 // A band's own geometry: the head starts at the top, the tail
@@ -485,14 +501,14 @@ export function useSheetPaging(
     }
     const jump = target === undefined ? undefined : { window: target, settled };
 
-    if (source === undefined) return IDLE;
+    if (source === undefined) { displayed.current = undefined; replacingRef.current = false; return IDLE; }
 
     // Until anything has landed there is nothing to show beside a failure:
     // it is the whole sheet (#853).
     const nothingShown = value === undefined || !value.landedOnce;
     const failure = value?.failed[0]?.error ?? value?.sourceError;
     const exhausted = total !== undefined && run.from === 0 && run.rows.length >= total;
-    return {
+    const current: SheetPaging = {
         rows: run.rows,
         positions: run.positions,
         rowsOffset: run.from * SHEET_PAGE_SIZE,
@@ -502,6 +518,7 @@ export function useSheetPaging(
         total,
         exhausted,
         loading: value?.loading ?? false,
+        replacing: false,
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),
         sizeVersion,
@@ -511,4 +528,22 @@ export function useSheetPaging(
         clearJump,
         retry,
     };
+    const previous = displayed.current;
+    const sameFamily = family !== undefined && previous !== undefined && stringEqual(previous.family, family);
+    const replacement = sameFamily && !stringEqual(previous.source, source.id);
+    const ready = value?.total !== undefined && value.landed.some(window => window.w === 0);
+    replacingRef.current = replacement && !ready;
+    if (replacingRef.current && previous !== undefined) {
+        const reason = current.error ?? current.sourceError ?? current.failures[0]?.error;
+        return { ...current, rows: previous.result.rows, positions: previous.result.positions,
+            rowsOffset: previous.result.rowsOffset, failures: previous.result.failures,
+            head: previous.result.head, tail: previous.result.tail, total: previous.result.total,
+            exhausted: previous.result.exhausted, sizeVersion: previous.result.sizeVersion,
+            jump: undefined, replacing: true, loading: reason === undefined,
+            error: undefined, sourceError: reason };
+    }
+    if (family !== undefined && (current.rows.length > 0 || current.exhausted)) {
+        displayed.current = { family, source: source.id, result: current };
+    } else if (!sameFamily) displayed.current = undefined;
+    return current;
 }

@@ -16,13 +16,13 @@
  * @packageDocumentation
  */
 
-import { none as noneValue } from "@elaraai/east";
+import { clearSearch, narrowingQuery } from "./view-state.js";
 import { revealStep, viewName } from "./lens.js";
 import {
     EMPTY_LENS, clamp, same,
     type LensContext, type LensState, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetUiState, type Transition,
 } from "./sheet-types.js";
-import type { SheetViewValue } from "./values.js";
+import type { SheetSavedView } from "./values.js";
 
 const noop = (s: SheetUiState): Transition => ({ state: s, effects: [] });
 
@@ -49,14 +49,14 @@ function sameFolds(a: ReadonlyMap<string, boolean>, b: ReadonlyMap<string, boole
 }
 
 /** A view's lens — its context clamped to the switch's stops, its reveals as positions, its folds, no presses yet. */
-function lensOf(view: SheetViewValue): LensState {
+function lensOf(view: SheetSavedView): LensState {
     const n = Number(view.context);
     const context: LensContext = n >= 3 ? 3 : n >= 1 ? 1 : 0;
     return { context, reveals: new Set(view.reveals.map((p) => Number(p))), steps: new Map(), folds: new Map(view.folds) };
 }
 
 /** The active view, if any. */
-function activeView(s: SheetUiState, ctx: SheetMachineCtx): SheetViewValue | undefined {
+function activeView(s: SheetUiState, ctx: SheetMachineCtx): SheetSavedView | undefined {
     return s.tabs.active === null ? undefined : (ctx.views ?? []).find((v) => v.id === s.tabs.active);
 }
 
@@ -65,7 +65,7 @@ function activeView(s: SheetUiState, ctx: SheetMachineCtx): SheetViewValue | und
  * an unsaved narrowing is discarded on leave (B§8). The same array comes back
  * when nothing changed.
  */
-export function persistLens(s: SheetUiState, views: readonly SheetViewValue[]): readonly SheetViewValue[] {
+export function persistLens(s: SheetUiState, views: readonly SheetSavedView[]): readonly SheetSavedView[] {
     const a = s.tabs.active;
     if (a === null) return views;
     let changed = false;
@@ -146,12 +146,12 @@ export function createTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const narrowing = ctx.narrowing;
     if (narrowing === undefined) return noop(s);
     const kept = persistLens(s, ctx.views ?? []);
-    const query = narrowing.search.type === "some" ? narrowing.search.value : "";
+    const query = narrowingQuery(narrowing);
     let seq = s.tabs.seq;
     let id = `view-${seq}`;
     while (kept.some((v) => v.id === id)) { seq += 1; id = `view-${seq}`; }
     const name = viewName(query, seq, ctx.viewName);
-    const view: SheetViewValue = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) };
+    const view: SheetSavedView = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) };
     return {
         state: { ...s, tabs: { ...s.tabs, active: id, seq: seq + 1, renaming: null, renameVal: "" }, msg: { id: "tabSaved", name, query: query.trim() !== "" } },
         effects: [{ t: "emit.views", views: [...kept, view] }],
@@ -252,8 +252,8 @@ export function searchKey(s: SheetUiState, ctx: SheetMachineCtx, key: string): T
         const rung = escTabs(s, ctx);
         if (rung !== null) return { state: rung.state, effects: [...rung.effects, { t: "focus.sheet" }] };
         const effects: SheetEffect[] = [];
-        if (ctx.narrowing !== undefined && ctx.narrowing.search.type === "some") {
-            effects.push({ t: "slice.write", state: { ...ctx.narrowing, search: noneValue } });
+        if (ctx.narrowing !== undefined && narrowingQuery(ctx.narrowing) !== "") {
+            effects.push({ t: "slice.write", state: clearSearch(ctx.narrowing) });
         }
         effects.push({ t: "focus.sheet" });
         return { state: s, effects };

@@ -16,7 +16,9 @@
 import { useCallback, useMemo } from "react";
 import { OptionType, StringType, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useEditSession } from "@elaraai/east-ui-components";
+import { prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
 import { prepareCreation } from "./creation.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -25,6 +27,8 @@ import type { SheetEditValue, SheetPagedSourceValue, SheetRowValue } from "./val
 type Editing = ValueTypeOf<typeof SheetEditingType>;
 const stringEqual = equalFor(StringType);
 const encodeWire = encodeBeast2For(Sheet.Types.Row);
+const NO_ROWS: readonly SheetRowValue[] = [];
+const NO_POSITIONS: readonly number[] = [];
 const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
 /** A wire row's id — the entry it projects. */
 const sheetRowId = (row: SheetRowValue): string => row.id;
@@ -83,30 +87,36 @@ export interface SheetEditingResult {
 /**
  * Bind decoded callbacks and retain unresolved requests through remounts.
  *
- * @param editing - The decoded editing declaration
+ * @param declared - The decoded editing declaration
  * @param source - The windowed source — a session edits it only when it is pinned
  * @param rows - The source's resident rows
  * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
  * @param storageKey - The view's key
+ * @param recordSlice - The record query's primary-entry reader, independent of its narrowed windows
+ * @param replacing - Displayed rows belong to the previous query and cannot be edited
  * @param mint - On a sheet with loose rows between its groups (#846), mints a new line's id field — the field a loose row is identified by
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string): SheetEditingResult {
-    const ready = useMemo(() => authorReadiness(editing, rows, positions, source !== undefined), [editing, rows, positions, source]);
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false): SheetEditingResult {
+    const currentRows = replacing ? NO_ROWS : rows;
+    const currentPositions = replacing ? NO_POSITIONS : positions;
+    const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
+    const ready = useMemo(() => authorReadiness(editing, currentRows, currentPositions, source !== undefined), [editing, currentRows, currentPositions, source]);
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so nothing is drafted —
     // and the factory refuses such a source an apply.
     const pinned = useMemo(() => {
         if (source === undefined) return undefined;
         const { revision, refresh } = source;
-        return revision !== undefined && refresh !== undefined ? { ...source, revision, refresh } : undefined;
-    }, [source]);
+        return revision !== undefined && refresh !== undefined ? { ...source, revision, refresh, readCurrent: recordSlice?.readEntry } : undefined;
+    }, [source, recordSlice]);
+    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice), [recordSlice]);
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, rows, positions, storageKey, { idOf: sheetRowId, ready });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare });
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds): boolean => {
-        if ((!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
+        if (replacing || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
         const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
@@ -147,7 +157,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         const label = gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label);
-    }, [session, observed, original, codecs, editing, draftType, mint]);
+    }, [session, observed, original, codecs, editing, draftType, mint, replacing]);
     const layer = useMemo<LocalLayer>(() => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];
@@ -176,5 +186,5 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, codecs, version, rows, rowIndex]);
-    return { session, layer, record, original, drafts, available, version };
+    return { session, layer, record, original, drafts, available: available && !replacing, version };
 }

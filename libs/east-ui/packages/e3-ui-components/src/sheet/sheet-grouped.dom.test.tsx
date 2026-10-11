@@ -93,8 +93,7 @@ function buildGrouped(opts: Options = {}): SheetValue {
         const statuses = $.const(STATUSES, ArrayType(StatusType));
         const lines = $.const(LINES, ArrayType(LineType));
         const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-grouped-views", viewList));
-        const cfg = $.const(Slice.config(LineType, { fields: { task: { label: "Task" } }, searchFieldIds: ["task"] }));
-        const slice = $.let(Slice.bind([LineType], "sheet_grouped_dom", cfg, Slice.state(), lines, none));
+        const slice = $.let(Slice.bind("sheet_grouped_dom", lines, { fields: { task: { label: "Task" } }, search: "task" }));
         return Sheet.Payload({
             data: plans,
             columns: {

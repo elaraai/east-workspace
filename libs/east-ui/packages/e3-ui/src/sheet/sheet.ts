@@ -49,7 +49,7 @@ import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { UIComponentType, type UIElement } from "@elaraai/east-ui";
 import { EastUI, type DataRowType, type FieldHints, type PagedSource } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
-import { createSheetBuild, type SheetBindHandle, type SheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetStringField } from "./root.js";
+import { createSheetBuild, type SheetBindHandle, type SheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetIndexedOptions, type SheetStringField } from "./root.js";
 import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
@@ -58,6 +58,7 @@ import { buildTemplates, SheetTemplateWireType, type SheetTemplate, type SheetTe
 import { buildLibrary, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
 import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
+import type { OrderedRowSource } from "../utils/ordered-source.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 
 // ============================================================================
@@ -543,6 +544,10 @@ export function SheetTag<R extends StructType>(
 /** The PAGED arm — a windowed source of the same rows, positional or keyed; the row type rides structurally in its `page` signature. */
 export function SheetTag<R extends StructType>(
     props: { data: PagedSource<ArrayType<R>> | PagedSource<DictType<StringType, R>>; columns: SheetColumnSpec<R> } & SheetCommon<R> & SheetOptions<R>,
+): UIElement;
+/** Indexed record rows, in index order, with primary-key editing. */
+export function SheetTag<K extends EastType, R extends StructType, P extends EastType, IK extends EastType>(
+    props: { data: OrderedRowSource<K, R, P, IK>; columns: SheetColumnSpec<R> } & SheetCommon<R> & SheetIndexedOptions<K, R>,
 ): UIElement;
 export function SheetTag(props: { columns: unknown }): UIElement {
     return SheetComponent.Root(createSheetPayload(props as { columns: unknown } & { [prop: string]: unknown }));

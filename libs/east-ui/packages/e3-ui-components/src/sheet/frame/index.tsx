@@ -241,7 +241,7 @@ function SheetFrame({ value, keys, hidden, onToggleColumn }: SheetFrameProps) {
             banners={banners}
             start={library}
             end={inspector}
-            footer={<SheetFooter {...footer} saved={saved} />}
+            footer={<SheetFooter {...footer} saved={saved} recordSlice={value.sheet.recordSlice?.type === "some" ? value.sheet.recordSlice.value.slice : undefined} />}
             onKeyDown={onKeyDown}
         >
             <SheetRoot>

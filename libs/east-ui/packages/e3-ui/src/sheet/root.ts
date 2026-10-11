@@ -43,6 +43,9 @@ import {
     SliceAffordanceType,
     SliceBindType,
     SliceChromeType,
+    localSliceHandle,
+    RecordSliceBindType, isRecordSlice, recordSliceChrome,
+    type RecordSliceAffordance, type RecordSliceChromeOptions,
     TickFormatType,
     buildRowSource,
     resolveRowSource,
@@ -68,6 +71,7 @@ import {
     SheetCheckType,
     SheetSuggestType,
     SheetViewType,
+    SheetRecordViewType,
     SheetSelectionType,
     SheetFooterItemType,
     SheetStyleType,
@@ -109,6 +113,7 @@ import type { SheetEditsInput } from "./edits.js";
 import { buildSheetEditing } from "./editing-bridge.js";
 import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
+import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
 // ============================================================================
@@ -206,9 +211,11 @@ export interface SheetOptions<R extends StructType> {
     /** The row-proposal declaration. */
     suggest?: SheetSuggestInput<R>;
     /** The bound slice whose narrowing the lens draws. */
-    slice?: SubtypeExprOrValue<SliceBindType>;
+    slice?: SubtypeExprOrValue<SliceBindType> | SubtypeExprOrValue<RecordSliceBindType>;
     /** Rail affordances when `slice` is set. */
-    affordances?: SliceAffordanceLiteral[];
+    affordances?: SliceAffordanceLiteral[] | RecordSliceAffordance[];
+    /** Persist record narrowing using the shared Slice store. */
+    persist?: RecordSliceChromeOptions["persist"];
     /** The active view's id. */
     activeView?: SubtypeExprOrValue<OptionType<StringType>>;
     /** The whole collection with the edit applied (inline arm only). */
@@ -252,6 +259,13 @@ export interface SheetOptions<R extends StructType> {
         /** The gutter width, a CSS px size. */
         gutterWidth?: SubtypeExprOrValue<StringType>;
     };
+}
+
+/** A secondary-index view edits by original primary identity. */
+export interface SheetIndexedOptions<K extends EastType, R extends StructType> extends Omit<SheetOptions<R>, "onApply"> {
+    /** Checked keyed batch, usually Record.onApply(record, { keyed: true }). */
+    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>
+        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>;
 }
 
 /**
@@ -328,6 +342,8 @@ type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onP
     newGroup?: unknown;
     views?: SubtypeExprOrValue<ArrayType<SheetViewType>>;
     onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetViewType>], NullType>>;
+    recordViews?: SubtypeExprOrValue<ArrayType<SheetRecordViewType>>;
+    onRecordViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetRecordViewType>], NullType>>;
 };
 
 /**
@@ -547,6 +563,10 @@ export function createSheetRoot<R extends StructType>(
     columns: SheetColumnSpec<R>,
     options?: SheetOptions<R>,
 ): ExprType<SheetRootType>;
+/** Indexed windows retain their secondary order and edit by original primary key. */
+export function createSheetRoot<K extends EastType, R extends StructType, P extends EastType, IK extends EastType>(
+    data: OrderedRowSource<K, R, P, IK>, columns: SheetColumnSpec<R>, options?: SheetIndexedOptions<K, R>,
+): ExprType<SheetRootType>;
 export function createSheetRoot(
     data: unknown,
     columns: unknown,
@@ -626,7 +646,9 @@ function buildSheet(
     internal: SheetInternalOptions = {},
 ): SheetBuild {
     const opts = (options ?? {}) as SheetAnyOptions;
-    const resolved = resolveRowSource(data, "Sheet");
+    const incoming = resolveRowSource(data, "Sheet");
+    const ordered = incoming.kind === "ordered" ? orderedRowSource(incoming, "Sheet") : undefined;
+    const resolved = ordered?.resolved ?? incoming;
     // The source's rows: structs — or, with LOOSE rows between the groups
     // (#846), entries `Sheet.Types.Entry(P, "lines")`: a group, or a row of
     // the line type.
@@ -847,7 +869,9 @@ function buildSheet(
         : (r as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>);
     const makePositional = (collection: ExprType<EastType>) =>
         (collection as unknown as ExprType<ArrayType<EastType>>).map((_$, r) => rowOf(r, idAt(r)));
-    const rowsValue = buildRowSource(resolved, SheetRowsCollectionType, keyed ? makeKeyed : makePositional);
+    const makeOrdered = (collection: ExprType<EastType>) =>
+        (collection as ExprType<ArrayType<StructType>>).map((_$, entry) => rowOf(ordered!.valueOf(entry), ordered!.idOf(entry.key!)));
+    const rowsValue = buildRowSource(incoming, SheetRowsCollectionType, ordered !== undefined ? makeOrdered : keyed ? makeKeyed : makePositional);
 
     // The copilot's row proposals.
     const suggest = opts.suggest !== undefined
@@ -871,18 +895,37 @@ function buildSheet(
             throw new Error(`Sheet does not support the '${a}' affordance — it has no axis and no series. Mount search, filter or cohort.`);
         }
     }
-    const slice = opts.slice !== undefined
+    const record = opts.slice !== undefined && isRecordSlice(opts.slice);
+    const recordChrome = record ? recordSliceChrome({ slice: opts.slice as SubtypeExprOrValue<RecordSliceBindType>,
+        ...(opts.affordances === undefined ? {} : { affordances: opts.affordances as RecordSliceAffordance[] }),
+        ...(opts.persist === undefined ? {} : { persist: opts.persist }),
+    }) : undefined;
+    if (!record) {
+        for (const affordance of opts.affordances ?? []) {
+            if (!(affordance in SliceAffordanceType.cases)) throw new Error(`Sheet: local Slice does not support '${affordance}'`);
+        }
+    }
+    const slice = opts.slice !== undefined && !record
         ? East.value(some({
-            slice: opts.slice,
-            affordances: East.value((opts.affordances ?? ["search"]).map((a) => variant(a, null)), ArrayType(SliceAffordanceType)),
+            slice: localSliceHandle(opts.slice as SubtypeExprOrValue<SliceBindType>),
+            affordances: East.value(((opts.affordances ?? ["search"]) as SliceAffordanceLiteral[]).map((a) => variant(a, null)), ArrayType(SliceAffordanceType)),
         }), OptionType(SliceChromeType))
         : East.value(none, OptionType(SliceChromeType));
     if (opts.affordances !== undefined && opts.slice === undefined) {
         throw new Error("Sheet: `affordances` needs `slice` — the rail mounts them on the bound slice");
     }
 
+    if (recordChrome !== undefined && opts.views !== undefined) {
+        throw new Error("Sheet: a record Slice saves Array<Sheet.Types.RecordView>; use that type for the views binding");
+    }
+    if (recordChrome === undefined && opts.recordViews !== undefined) {
+        throw new Error("Sheet: Sheet.Types.RecordView requires a record Slice");
+    }
+
     const editing = buildSheetEditing(resolved, bridge, idField, {
         ...opts,
+        ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
+        ...(recordChrome === undefined ? {} : { sourceId: recordChrome.slice.sourceId }),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
     }, driver?.column);
@@ -941,6 +984,11 @@ function buildSheet(
         density:       opts.density !== undefined ? some(resolveTag(opts.density, DensityType)) : none,
         footer,
         style,
+        recordSlice: recordChrome === undefined ? none : some(recordChrome),
+        recordViews: East.value(opts.recordViews ?? [], ArrayType(SheetRecordViewType)),
+        onRecordViewsChange: opts.onRecordViewsChange === undefined ? none
+            : some(East.value(opts.onRecordViewsChange, FunctionType([ArrayType(SheetRecordViewType)], NullType))),
+        ordered: ordered !== undefined,
     }, SheetRootType);
     return { root, bridge, metas, registers: Object.keys(registers) };
 }

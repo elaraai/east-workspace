@@ -40,8 +40,8 @@
 import { useCallback, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Slice } from "@elaraai/east-ui/internal";
-import { radioGroupKey, HOST_RANK, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import type { RecordSliceChromeType, Slice } from "@elaraai/east-ui/internal";
+import { radioGroupKey, HOST_RANK, useSliceToolbarItems, useRecordSliceToolbarItems } from "@elaraai/east-ui-components/internal";
 import { type ToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
 import type { SheetTabsFold } from "./Tabs.js";
 import type { LensContext } from "./sheet-types.js";
@@ -83,6 +83,8 @@ export interface SheetToolbarTabs {
 export interface SheetToolbarProps {
     styles: Styles;
     slice: SliceBindValue | undefined;
+    /** Indexed record controls share the same toolbar and keep their field search. */
+    recordChrome?: ValueTypeOf<RecordSliceChromeType> | undefined;
     affordances: readonly string[];
     /** The lens count line — empty without a narrowing. */
     count: string;
@@ -107,7 +109,7 @@ export interface SheetToolbarProps {
  * @param props - What the items show and drive.
  * @returns The items, a falsy entry for each the sheet has no use for.
  */
-export function useSheetToolbarItemsFor({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, history }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useSheetToolbarItemsFor({ styles, slice, recordChrome, affordances, count, partial, tabs, context, search, onSearchKey, history }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // The toolbar's own words (#861).
     const words = useSheetWords();
     const { m } = words;
@@ -134,6 +136,11 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
             <Box css={styles.toolbarRail} data-slot="toolbarRail" onKeyDownCapture={onKeyDownCapture}>{form}</Box>
         )),
     };
+
+    const recordItems = useRecordSliceToolbarItems(recordChrome?.slice, recordChrome === undefined ? {} : {
+        affordances: recordChrome.affordances.map(a => a.type),
+        ...(recordChrome.persist.type === "some" ? { persist: recordChrome.persist.value.type } : {}),
+    });
 
     // The tabs: one tab at a time into `+n`, then the strip's own closing up,
     // and last the strip as one chip (#1221).
@@ -197,7 +204,8 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
         },
         seek,
         rail,
-        partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
+        ...recordItems,
+        partial && recordChrome === undefined && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
         history,
     ];
 }

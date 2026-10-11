@@ -40,6 +40,7 @@ import {
     type FunctionType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
+import { resolveRowSource } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import type { SheetInternalOptions } from "./root.js";
 
@@ -137,7 +138,12 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
         const page = windowType.type === "Struct" ? (windowType.fields as Record<string, EastType>)["page"] : undefined;
         const served = page !== undefined && page.type === "Function" && page.output.type === "Variant"
             ? (page.output.cases as Record<string, EastType>)["some"] : undefined;
-        if (served === undefined || !isTypeEqual(served, recordType)) {
+        const resolved = resolveRowSource(window, "Sheet");
+        const ordered = resolved.kind === "ordered" ? resolved : undefined;
+        const joined = ordered?.elementType.type === "Struct" ? ordered.elementType.fields.row : undefined;
+        const matchesIndex = ordered !== undefined && isTypeEqual(ordered.keyType, keyType)
+            && joined?.type === "Variant" && joined.cases.some !== undefined && isTypeEqual(joined.cases.some, entryType);
+        if (served === undefined || (!isTypeEqual(served, recordType) && !matchesIndex)) {
             throw new Error(`Sheet: \`window\` must page the record's entries — Data.bindPaged(record) over the same record — and this one serves ${served === undefined ? "no collection" : printType(served)}`);
         }
         // A paged keyed source is keyed already; its session is the window's.

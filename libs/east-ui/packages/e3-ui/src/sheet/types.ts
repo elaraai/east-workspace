@@ -50,7 +50,7 @@ import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
 import { DensityType, RowSourceType, StatusValueType } from "@elaraai/east-ui";
-import { SliceChromeType, SliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
+import { RecordSliceChromeType, RecordSliceStateType, SliceChromeType, SliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // Links — members, the typed link value, the cell
@@ -898,6 +898,18 @@ export const SheetViewType = StructType({
 export type SheetViewType = typeof SheetViewType;
 
 /**
+ * A saved indexed-record view. Keeps record narrowing separate from the
+ * existing local Slice wire; folds still belong to original record keys.
+ */
+export const SheetRecordViewType = StructType({
+    ...SheetViewType.fields,
+    narrowing: RecordSliceStateType,
+});
+/** Type alias for {@link SheetRecordViewType}. */
+export type SheetRecordViewType = typeof SheetRecordViewType;
+
+
+/**
  * Where an edit came from — provenance a host can measure copilot uptake by (B§1).
  *
  * @property typed - The planner typed it
@@ -1039,6 +1051,13 @@ export const SheetRootType = StructType({
     density:       OptionType(DensityType),
     footer:        ArrayType(SheetFooterItemType),
     style:         OptionType(SheetStyleType),
+    /** Indexed record controls, separate from the local Slice wire. */
+    recordSlice:   OptionType(RecordSliceChromeType),
+    /** Saved record narrowings, separate from local views. */
+    recordViews: ArrayType(SheetRecordViewType),
+    onRecordViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
+    /** Source order is authoritative, including when drafts are overlaid. */
+    ordered: BooleanType,
 });
 /** Type alias for {@link SheetRootType}. */
 export type SheetRootType = typeof SheetRootType;

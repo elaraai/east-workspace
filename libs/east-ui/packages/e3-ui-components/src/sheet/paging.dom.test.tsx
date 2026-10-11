@@ -66,8 +66,8 @@ const groupHeight = (): number => 150;
 /** The same rows after their sub rows opened. */
 const openedHeight = (): number => 50;
 
-function Harness({ src, heightOf = rowHeight }: { src: SheetPagedSourceValue; heightOf?: (row: SheetRowValue) => number }) {
-    const paging = useSheetPaging(src, heightOf);
+function Harness({ src, heightOf = rowHeight, family }: { src: SheetPagedSourceValue; heightOf?: (row: SheetRowValue) => number; family?: string }) {
+    const paging = useSheetPaging(src, heightOf, undefined, family);
     latest = paging;
     frames.push(paging.rows.length);
     return (
@@ -552,4 +552,41 @@ describe("sheet paging — a failure belongs to its window (#853)", () => {
             logged.mockRestore();
         }
     });
+});
+
+
+test("record narrowing replaces a deep window atomically, ignores stale scroll reports, and keeps usable rows through retry", async () => {
+    const base = source(50_000);
+    const { rerender } = render(<Harness src={base.value} family="jobs" />);
+    await waitFor(() => expect(latest!.rows).toHaveLength(600));
+    act(() => latest!.jumpToElement(40_000));
+    await waitFor(() => expect(latest!.jump?.settled).toBe(true));
+    act(() => latest!.clearJump());
+    const before = latest!;
+    const inFlight = new Set([0]);
+    const faults: Faults = { windows: new Map() };
+    const filtered = source(350, { inFlight, faults });
+    rerender(<Harness src={filtered.value} family="jobs" />);
+    expect(latest!.replacing).toBe(true);
+    expect(latest!.rows).toBe(before.rows);
+    expect(latest!.head).toEqual(before.head);
+    expect(filtered.asked.every(w => w < 2)).toBe(true);
+    report({ kind: "row", offset: 40_000 });
+    expect(filtered.asked.every(w => w < 2)).toBe(true);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+        faults.windows.set(0, "filter unavailable");
+        rerender(<Harness src={{ ...filtered.value }} family="jobs" />);
+        expect(latest!.sourceError).toBe("filter unavailable");
+        expect(latest!.error).toBeUndefined();
+        expect(latest!.rows).toBe(before.rows);
+        inFlight.clear(); faults.windows.clear();
+        act(() => latest!.retry());
+        await waitFor(() => expect(latest!.replacing).toBe(false));
+        expect(latest!.rows).toHaveLength(350);
+        expect(latest!.rowsOffset).toBe(0);
+        expect(latest!.head).toBeUndefined();
+        expect(latest!.sourceError).toBeUndefined();
+        expect(filtered.asked.every(w => w < 2)).toBe(true);
+    } finally { logged.mockRestore(); }
 });

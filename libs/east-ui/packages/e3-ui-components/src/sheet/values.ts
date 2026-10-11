@@ -72,3 +72,10 @@ export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
 export type SheetPagedSourceValue = WindowedSourceValue<SheetRootValue["rows"]>;
 /** One saved view — a slice-state snapshot plus the lens's context and reveals (B§8). */
 export type SheetViewValue = ValueTypeOf<typeof Sheet.Types.View>;
+
+/** One saved record narrowing and its lens presentation. */
+export type SheetRecordViewValue = ValueTypeOf<typeof Sheet.Types.RecordView>;
+/** Shared reducer view; the narrowing retains its local or record type. */
+export type SheetSavedView = Omit<SheetViewValue, "narrowing"> & {
+    narrowing: SheetViewValue["narrowing"] | SheetRecordViewValue["narrowing"];
+};
