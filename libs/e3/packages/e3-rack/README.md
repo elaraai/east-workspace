@@ -153,7 +153,7 @@ The named host manager, source aliases, incompatible-state migrations,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/964a4304948d914d9f387910d29b54deb999f8f2/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/f8dff596277bb3085adaad96f59b40adf5b9c93b/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 
@@ -221,6 +221,15 @@ request open while work is active. The source checks the watched leases every
 its VM before waiting for log delivery. Other tasks and sources keep running.
 The normal health heartbeat remains 15 seconds. Against an older source without
 this endpoint, the new agent uses a one-second heartbeat while busy.
+
+The companion also cancels input/layer downloads, output uploads, storage requests
+and upload retry waits. It stops parallel transfers and waits for their cleanup
+before deleting staging or releasing the invocation slot. A finished guest's VM
+is destroyed before waiting for output delivery. Each object/layer HTTP attempt
+has a 120-second deadline, including its body; cancellation interrupts it immediately.
+First-use image builds, environment composition and an in-progress VM boot still
+settle before their next cancellation check, so those preparation stages can delay
+full cleanup. Faster cancellation there remains [companion work](https://github.com/elaraai/e3-cloud/blob/f8dff596277bb3085adaad96f59b40adf5b9c93b/packages/e3-rack-agent/README.md#cancelling-delegated-work).
 
 This targets cancellation delivery within about a second on a healthy connection;
 network failures and VM/GPU teardown can take longer. The CLI's cancellation
