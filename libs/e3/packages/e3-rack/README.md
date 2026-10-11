@@ -62,11 +62,36 @@ Source boot approval, when required, remains a separate gate from worker resume.
 Independent agents belong to separate worker VMs, each with its own identity,
 encrypted configuration and host-enforced resource allocation. Whole GPUs are
 assigned through the host lifecycle, independently of this enrollment command.
-The named host manager, source management, multi-source admission and service/network
-activation are still being completed in [cloud #253](https://github.com/elaraai/e3-cloud/issues/253).
-The current managed runtime accepts one source per worker; successful enrollment
-alone is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/991b854ea0e5cec719f8e55c32e17a982aef0cd9/packages/e3-rack-agent/credentials/README.md).
+One worker can connect to up to 32 mutually trusted e3 sources. To add another,
+first drain the worker and stop its services and socket activation. Inside it:
+
+```sh
+sudo /opt/e3-rack/releases/1.0.86/e3-rack configure \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --add-source --allow-vpn-http
+sudo /opt/e3-rack/releases/1.0.86/e3-rack enroll \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --source '<new-source-uuid>' --allow-vpn-http
+```
+
+`configure --add-source` asks you to confirm that these sources may share the
+agent's trust boundary, then privately asks for the new origin. It prints the
+source UUID for `enroll`. Obtain that source's token with `e3 rack enroll` on
+the additional local e3 machine, or from the chosen cloud deployment. Omit the
+HTTP opt-in for HTTPS. The host must approve the additional endpoint. Existing
+identities and registry access are preserved, every source must be enrolled
+before startup, and the next boot remains fenced.
+
+Connections have separate clients, credentials, caches and completion journals.
+One worker-wide task/GPU limit bounds actual execution across them; per-source
+capacity reports must not be added together as physical reservations. All
+connections share the worker's lifecycle. They also share its process and
+credential trust boundary, so separate clients and developer environments need
+separate worker VMs. Independent agents have no shared e3 task scheduler.
+
+The named host manager, source removal/re-enrollment, managed updates,
+service/network activation and hardware acceptance remain
+[cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
+is not an end-to-end deployment. See the companion's
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/d7b19213cc381abd62b7737d74bd6473a9ad8255/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 

@@ -129,10 +129,18 @@ expires; lease polling cannot prolong it. Source boot approval, when required,
 remains an additional gate. This advertisement does not authorize host resource
 admission or removal of service/network quarantine.
 Resources and mutable whole-GPU assignments belong to the host lifecycle, not
-local enrollment flags. Managed execution currently accepts one source; named
-host/source management, multi-source admission, service/network activation and
-hardware acceptance remain companion cloud #253 work. Separate clients require separate
-worker VMs. Request deadlines and durable completion retry are implemented in
+local enrollment flags. The companion accepts up to 32 mutually trusted sources
+in one worker. After draining and stopping its services and sockets, use
+`configure --allocation <path> --add-source`, confirm the shared trust boundary,
+and enter the additional origin privately. It prints the new source UUID for
+`enroll --allocation <path> --source <UUID>`; add `--allow-vpn-http` to both when
+needed. All sources must be enrolled before startup. Each has its own identity,
+client, cache and completion journal; actual execution shares one worker-wide
+task/GPU limit. Per-source capacity reports are not additive reservations.
+Separate clients require separate worker VMs: a shared agent process can access
+all its sources' credentials. Named host management, source removal/re-enrollment,
+service/network activation, managed updates and hardware acceptance remain
+companion cloud #253 work. This and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
 
 Policy is `<repo>/rack/policy.beast2`; hub state is `~/.e3/rack` (or
