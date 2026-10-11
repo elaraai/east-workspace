@@ -121,7 +121,7 @@ export {
     type UIComponentOptions,
 } from "./extension.js";
 export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, slicePredicateMatches, sliceBreakdown, sliceSeries, sliceGroupKey, readSliceGroupKey, type SliceGroupKeyValues, cohortGroupOf, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
-export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
+export { localSliceHandle, SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 // Row-source contract (#567) — the contract's types, and the resolution every
 // collection shares.
@@ -129,6 +129,14 @@ export {
     Paged, PagedSourceType, PinnedSourceType, RowSourceType, type PagedSource, type PinnedSource, type RowSource,
     resolveRowSource, buildRowSource, buildPagedWindow, type ResolvedRowSource,
 } from "./contracts/source.js";
+export * from "./platform/slice/record-types.js";
+export * from "./platform/slice/record-chrome.js";
+export { RecordSliceRailComponent } from "./slice/record/index.js";
+export * from "./platform/slice/record-plan.js";
+export * from "./platform/slice/record.js";
+export * from "./runtime/record-slice-source.js";
+export * from "./runtime/record-slice.js";
+export { IndexedEntryType, IndexedSourceType, type IndexedSource } from "./contracts/indexed-source.js";
 export { PickStateType, PickItemType, PickBindType, PickPanelType, pickActive, createPickBind, pickItems } from "./contracts/pick.js";
 export { Pick } from "./pick/index.js";
 export {

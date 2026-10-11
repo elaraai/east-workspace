@@ -9,4 +9,5 @@ export * from "./clipboard.examples.js";
 export * from "./download.examples.js";
 export * from "./share.examples.js";
 export * from "./slice.examples.js";
+export * from "./slice-local.examples.js";
 export * from "./state.examples.js";
