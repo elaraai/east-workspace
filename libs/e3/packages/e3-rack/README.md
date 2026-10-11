@@ -92,9 +92,10 @@ worker. It lists source UUIDs and enrollment state; `--show-origins` displays
 origins only on a terminal. To disconnect or re-enroll, drain and stop the worker,
 revoke the selected rack at its source, then use `source remove` or `source reset`
 with `--allocation <path> --source <UUID> --acknowledge-revocation`. Confirm the
-UUID at the hidden prompt. Reset prints a **new** UUID for `enroll --source` and
-a fresh source token; it preserves the origin and keeps old caches/pending
-results out of the new identity. The flag acknowledges prior revocation; it does
+UUID at the hidden prompt. Reset prints a **new** UUID. Use it with `enroll
+--source`, supplying a fresh token obtained from the e3 source. Reset preserves
+the origin and keeps old caches/pending results out of the new identity.
+The flag acknowledges prior revocation; it does
 not revoke remotely. Other sources and retained data are preserved. Reconcile
 host endpoint policy before activation; the next boot remains fenced.
 
@@ -102,7 +103,7 @@ The named host manager, source aliases, managed updates,
 service/network activation and hardware acceptance remain
 [cloud #253](https://github.com/elaraai/e3-cloud/issues/253) work. Enrollment alone
 is not an end-to-end deployment. See the companion's
-[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/feat/rack-agent-reliability-versions/packages/e3-rack-agent/credentials/README.md).
+[worker configuration and service contract](https://github.com/elaraai/e3-cloud/blob/ef20d7e6fa7fefee694df776e167b8aa27991ebb/packages/e3-rack-agent/credentials/README.md).
 
 ## Select work
 
