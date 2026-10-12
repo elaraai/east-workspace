@@ -1,6 +1,7 @@
 name: Test east-ui
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -17,6 +18,11 @@ on:
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".npmrc"
+      - ".nvmrc"
   pull_request:
     branches: [main]
     paths:
@@ -30,6 +36,11 @@ on:
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".npmrc"
+      - ".nvmrc"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,11 +51,19 @@ jobs:
   # renderer and browser shards never repeat compilation.
   build:
     name: shared build
+    outputs:
+      responsive_count: ${{ steps.responsive.outputs.count }}
+      responsive_shards: ${{ steps.responsive.outputs.shards }}
+      responsive_total: ${{ steps.responsive.outputs.total }}
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PRs compare the merge result to its base parent, covering the whole
+          # PR. Pushes compare to before, including a push of multiple commits.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -92,6 +111,13 @@ jobs:
         working-directory: libs/east-ui
         run: make build
 
+      - name: Select responsive checks
+        id: responsive
+        working-directory: libs/east-ui
+        env:
+          RESPONSIVE_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^' || github.event.before }}
+        run: make select-responsive BASE="$RESPONSIVE_BASE" OUTPUT_DIR="$RUNNER_TEMP"
+
       - name: Package compiled workspaces
         run: |
           find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
@@ -101,7 +127,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: east-ui-build
-          path: ${{ runner.temp }}/east-ui-build.tar
+          path: |
+            ${{ runner.temp }}/east-ui-build.tar
+            ${{ runner.temp }}/responsive-tests.txt
+            ${{ runner.temp }}/responsive-impact.json
           compression-level: 1
           retention-days: 1
 
@@ -246,12 +275,13 @@ jobs:
 
   responsive:
     needs: build
-    name: responsive (${{ matrix.shard }}/16)
+    if: needs.build.outputs.responsive_count != '0'
+    name: responsive (${{ matrix.shard }}/${{ needs.build.outputs.responsive_total }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        shard: ${{ fromJSON(needs.build.outputs.responsive_shards) }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -283,7 +313,7 @@ jobs:
 
       - name: Responsive suite
         working-directory: libs/east-ui
-        run: make test-responsive SHARD=${{ matrix.shard }}/16
+        run: make test-responsive SHARD=${{ matrix.shard }}/${{ needs.build.outputs.responsive_total }} TEST_LIST="$RUNNER_TEMP/responsive-tests.txt"
 
       # A failing spec's DOM/network trace (open the trace with
       # `pnpm exec playwright show-trace <trace.zip>`).

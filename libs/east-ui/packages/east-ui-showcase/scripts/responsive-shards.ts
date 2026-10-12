@@ -60,13 +60,20 @@ function main(args: string[]): number {
     const forwarded = args.filter(arg => !arg.startsWith("--shard="));
     const tests = listTests(forwarded);
     const selected = selectShard(tests, shard);
+    // Discovery already applied any caller's test list. Execute the shard's
+    // narrower list alone, including when the caller used a separate argument.
+    const executionArgs: string[] = [];
+    for (let i = 0; i < forwarded.length; i++) {
+        if (forwarded[i] === "--test-list") { i++; continue; }
+        if (!forwarded[i].startsWith("--test-list=")) executionArgs.push(forwarded[i]);
+    }
     if (!selected.length) throw new Error(`Responsive shard ${shard} selected no tests`);
     console.log(`Responsive shard ${shard}: ${selected.length} of ${tests.length} tests (interleaved)`);
     const temporary = mkdtempSync(join(tmpdir(), "east-ui-responsive-"));
     try {
         const file = join(temporary, "tests.txt");
         writeFileSync(file, selected.join("\n") + "\n");
-        return spawnSync(process.execPath, [cli, "test", ...forwarded, `--test-list=${file}`], { stdio: "inherit" }).status ?? 1;
+        return spawnSync(process.execPath, [cli, "test", ...executionArgs, `--test-list=${file}`], { stdio: "inherit" }).status ?? 1;
     } finally {
         rmSync(temporary, { recursive: true, force: true });
     }

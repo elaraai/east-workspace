@@ -71,19 +71,42 @@ measures against is the read-only download in `../../app_design_system/`
 ## Keep responsive checks economical
 
 CI builds the dependency chain and showcase once, then distributes the same
-compiled workspace artifact to all test jobs, including 16 browser shards
+compiled workspace artifact to all test jobs, including up to 16 browser shards
 and four e3 renderer Vitest shards. Renderer Node specs run once in `rest`.
-Browser shards use two workers; keep this bounded because each page deploys
-an independent e3 workspace. Each job installs its own dependencies; browser
-jobs install Chromium. Keep every required runtime `dist` in that artifact;
+Browser shards use one worker. Each page deploys an independent e3 workspace;
+two concurrent browsers made cold starts exceed existing readiness deadlines
+on hosted runners. Parallelize across jobs, not cold starts within a runner.
+Each job installs its own dependencies; browser jobs install Chromium.
+Keep every required runtime `dist` in that artifact;
 do not make a shard silently rebuild it.
 
-`make test-responsive SHARD=n/16` uses `scripts/responsive-shards.ts` to
+`scripts/responsive-impact.ts` selects from the complete PR diff (the checked-out
+merge's first parent to the merge), or a push's `before` commit to its head.
+Do not select from just the latest PR commit: earlier changes still need their
+checks. Missing comparison history and manual workflow runs select everything.
+Documentation, unit specs and known CLI/native-only changes skip the
+browser jobs. A changed responsive spec selects all its applicable projects.
+Known e3 component renderer directories select their suites plus every shared
+suite; unclassified/new suites remain shared. IR, example data, shared components,
+themes, runtime, dependency and tooling changes select the full suite. Examples
+share records and task definitions across families, so do not infer isolation
+from their directory names. `e3-api-server` stays shared because e3-web imports
+its portable routes. New dependencies must broaden this mapping first.
+
+The build records the selected tests and reason in its job summary and build
+artifact. `make select-responsive BASE=<ref> OUTPUT_DIR=<dir>` reproduces the
+selection locally. `make test-responsive TEST_LIST=<dir>/responsive-tests.txt`
+runs it. The job count follows the selection (at most 16); a documentation-only
+change starts no browser runners. Package checks still run. Workflow dispatch
+is the explicit full-suite escape hatch.
+
+`make test-responsive SHARD=n/total` uses `scripts/responsive-shards.ts` to
 interleave Playwright's discovered, project-filtered tests across the jobs.
 The public `--test-list` interface selects them. Do not replace this with
 contiguous `playwright --shard`: that concentrates adjacent expensive builder
 cases in one job. A Node check asks Playwright to rediscover all 16 lists
-and verifies that every test runs exactly once. Keep workflows independent
+and verifies that every test runs exactly once; another check resolves the
+focused lists and their smaller shard sets through Playwright. Keep workflows independent
 under `fullyParallel`; dependent steps belong inside one test.
 
 Batch related read-only catalog routes in one browser context and use hash
@@ -144,7 +167,7 @@ and establish a stable hit target; a previous drop or tab change can scroll it.
 | `make east-ui-examples-html-all` | Snapshots every example to standalone HTML. |
 | `make east-ui-examples-html-<pathKey>` | Snapshots one example (e.g. `disclosure/tabs`). |
 | `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
-| `make test-responsive` | The Playwright suite in `tests/responsive/` (DOM specs over every catalog page, the shell, the code reference, the Plan's geometry, the Sheet's ring under the keyboard, the load, and the e3 the page runs, at desktop + mobile) against the built showcase, exactly as CI runs it; `SHARD=n/16` runs one CI shard. Each spec waits for the page to be at rest (`settle.ts`: no e3 example still starting, the layout still), never for a fixed time, and nothing retries. |
+| `make test-responsive` | The Playwright suite in `tests/responsive/` (DOM specs over every catalog page, the shell, the code reference, the Plan's geometry, the Sheet's ring under the keyboard, the load, and the e3 the page runs, at desktop + mobile) against the built showcase, exactly as CI runs it; `SHARD=n/total` runs one shard, with an optional `TEST_LIST` from `select-responsive`. Each spec waits for the page to be at rest (`settle.ts`: no e3 example still starting, the layout still), never for a fixed time, and nothing retries. |
 
 ## See also
 

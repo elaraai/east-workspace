@@ -28,7 +28,7 @@ E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' 
 .PHONY: build test test-group test-export lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
-        e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
+        e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) select-responsive help
 
 ## The packages: those under packages/, and the extension's webview
 PACKAGES := --filter='./packages/*' --filter='./packages/east-ui-extension/webview'
@@ -231,7 +231,8 @@ help:
 	@echo "  design            - Serve the design system's download (app_design_system/, read-only) on :5174"
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
-	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/16 optional)"
+	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile); SHARD=n/total and TEST_LIST=file optional"
+	@echo "  select-responsive BASE=ref OUTPUT_DIR=dir - Select browser checks from the complete diff to HEAD"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
@@ -244,7 +245,7 @@ help:
 ## The responsive suite (#357, #833): Playwright drives the BUILT showcase
 ## over every catalog page at desktop + mobile viewports. These are DOM specs
 ## (packages/east-ui-showcase/tests/responsive/) with no pixel comparisons.
-## CI runs exactly this target, sharded: `make test-responsive SHARD=1/16`.
+## CI runs this target across at most 16 shards, using the selected TEST_LIST.
 ##
 ## It serves what `make build` built, building the showcase only when its
 ## dist is missing, so rebuild after a change. A failing spec leaves its
@@ -254,4 +255,8 @@ help:
 test-responsive:
 	-pnpm --filter @elaraai/east-ui-showcase exec playwright install chromium
 	@test -f packages/east-ui-showcase/dist/index.html || $(MAKE) --no-print-directory build-showcase
-	pnpm --filter @elaraai/east-ui-showcase run test:responsive $(if $(SHARD),--shard=$(SHARD))
+	pnpm --filter @elaraai/east-ui-showcase run test:responsive $(if $(SHARD),--shard=$(SHARD)) $(if $(TEST_LIST),--test-list="$(TEST_LIST)")
+
+## Select responsive cases after the shared build; missing BASE runs everything.
+select-responsive:
+	pnpm --filter @elaraai/east-ui-showcase exec tsx scripts/responsive-impact.ts --base="$(BASE)" --output="$(OUTPUT_DIR)"

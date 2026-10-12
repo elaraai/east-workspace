@@ -25,10 +25,10 @@ export default defineConfig({
     testDir: "./tests/responsive",
     timeout: 60_000,
     fullyParallel: true,
-    // Each e3 page deploys a fresh in-browser workspace. Bound concurrency
-    // at two workers per shard; the two-CPU benchmark improves throughput
-    // without losing the isolation of record-editing workflows.
-    ...(process.env.CI ? { workers: 2 } : {}),
+    // Each e3 page deploys a fresh in-browser workspace. Two concurrent
+    // browsers made cold starts exceed readiness deadlines on hosted runners.
+    // Parallelize across the 16 jobs instead, preserving those deadlines.
+    ...(process.env.CI ? { workers: 1 } : {}),
     // A spec that is not deterministic under load is fixed, never retried.
     retries: 0,
     // A committed `test.only` would quietly shrink the CI run to one test.
