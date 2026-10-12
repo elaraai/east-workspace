@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-rack",
-  "version": "1.0.85",
+  "version": "1.0.86",
   "type": "module",
   "description": "Rack protocol, local hub and task delegation for e3",
   "main": "dist/src/index.js",
