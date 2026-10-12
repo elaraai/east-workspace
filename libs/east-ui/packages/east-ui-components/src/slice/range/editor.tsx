@@ -11,7 +11,7 @@ import { Input } from "@elaraai/east-ui/internal";
 import { EastChakraIntegerInput, EastChakraFloatInput } from "../../forms/input/index.js";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "../../forms/input/date/index.js";
 import { useFormatters } from "../../format/index.js";
-import { SliceChoiceGroup } from "../choice.js";
+import { SliceChoiceGroup, SliceFieldActions } from "../choice.js";
 
 export type SliceRangeKind = "datetime" | "integer" | "float";
 const READ = { datetime: parseFor(DateTimeType), integer: parseFor(IntegerType), float: parseFor(FloatType) };
@@ -38,6 +38,8 @@ export interface SliceRangeEditorProps {
     kind: SliceRangeKind; from: string; to: string; label: string;
     single?: boolean; exclusive?: boolean; immediate?: boolean;
     onApply: (from: string, to: string) => void;
+    onClear?: () => void;
+    clearDisabled?: boolean;
     children?: ReactNode;
     proposal?: (from: string, to: string) => { hint?: string; disabled: boolean } | undefined;
     /** Suggested draft only; opening an unfiltered field never applies these bounds. */
@@ -72,7 +74,7 @@ function BoundInput({ kind, value, label, time, onChange, onCompleteChange }: { 
 
 /** Keep invalid/partial input local and commit only complete, ordered bounds. */
 export function SliceRangeEditor({ kind, from: initialFrom, to: initialTo, label, single = false, exclusive = false,
-    immediate = false, onApply, children, proposal, defaultFrom, defaultTo }: SliceRangeEditorProps) {
+    immediate = false, onApply, onClear, clearDisabled, children, proposal, defaultFrom, defaultTo }: SliceRangeEditorProps) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
     const words = useFormatters();
     const [today] = useState(() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return PRINT.datetime(d); });
@@ -138,7 +140,8 @@ export function SliceRangeEditor({ kind, from: initialFrom, to: initialTo, label
         </Box>}
         {proposed?.hint && <Box css={styles.hint}>{proposed.hint}</Box>}
         {!complete && <Box css={styles.hint}>Enter {single ? "a valid value" : exclusive ? "valid bounds with From before Until" : "valid bounds with From at or before To"}.</Box>}
-        {!immediate && <Box css={styles.controlRow}><Button size="xs" variant="solid" disabled={!complete || proposed?.disabled}
-            onClick={() => onApply(from, to)}>Apply</Button></Box>}
+        <SliceFieldActions label={label} {...(onClear === undefined ? {} : { onClear })}
+            {...(clearDisabled === undefined ? {} : { clearDisabled })}
+            {...(immediate ? {} : { onApply: () => onApply(from, to), applyDisabled: !complete || proposed?.disabled === true })} />
     </Box>;
 }

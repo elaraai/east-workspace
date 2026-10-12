@@ -33,7 +33,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "chipToggle", "chipEdit", "hint", "hintError",
         "form", "field", "textArea", "hintRow", "hintAction",
         "anchor", "disclosure", "disclosureRegion", "disclosureLabel", "disclosureBody", "disclosureFoot",
-        "choiceList", "choice", "choiceLabel", "choiceCount", "choicePending", "controlRow", "fieldLabel",
+        "choiceList", "choice", "choiceLabel", "choiceCount", "choicePending", "controlRow", "fieldLabel", "fieldActions",
     ],
     base: {
         anchor: { display: "inline-flex" },
@@ -55,6 +55,9 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         choiceCount: { textStyle: "mono.sm", color: "fg.muted", fontVariantNumeric: "tabular-nums", flexShrink: "0" },
         choicePending: { display: "inline-block", verticalAlign: "middle", height: "{sizes.3}", width: "{sizes.6}", flexShrink: "0" },
         controlRow: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "{spacing.2}", minWidth: "0" },
+        // Space distinguishes actions from choices without another section
+        // divider. On touch, their 44 px hit areas also need clearance.
+        fieldActions: { marginTop: { base: "{spacing.2}", _coarse: "{spacing.5}" } },
         fieldLabel: { textStyle: "caption.eyebrow", color: "fg.subtle" },
         content: {
             padding: "0", minWidth: "0", maxWidth: "calc(100vw - {spacing.6})",

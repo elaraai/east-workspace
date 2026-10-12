@@ -54,6 +54,31 @@ export function SliceChoiceGroup({ choices, onPick, onRetry }: {
     </Box>)}</Box>;
 }
 
+/** Reset has one quiet action style, distinct from selectable value chips. */
+export function SliceClearButton({ label, onClick, disabled }: {
+    label: string; onClick: () => void; disabled?: boolean;
+}) {
+    return <Button size="xs" variant="ghost" disabled={disabled} onClick={onClick}>
+        <FontAwesomeIcon icon={faXmark} />{label}
+    </Button>;
+}
+
+/** One action row for immediate choices and draft ranges: reset left, apply right. */
+export function SliceFieldActions({ label, onClear, clearDisabled, onApply, applyDisabled }: {
+    label: string; onClear?: () => void; clearDisabled?: boolean;
+    onApply?: () => void; applyDisabled?: boolean;
+}) {
+    const styles = useSlotRecipe({ key: "sliceEdit" })();
+    if (onClear === undefined && onApply === undefined) return null;
+    return <Box css={[styles.controlRow, styles.fieldActions]} data-slice-field-actions="">
+        {onClear !== undefined && <SliceClearButton label={`Clear ${label}`} onClick={onClear}
+            {...(clearDisabled === undefined ? {} : { disabled: clearDisabled })} />}
+        {onApply !== undefined && <Box css={styles.footActions}>
+            <Button size="xs" variant="solid" disabled={applyDisabled} onClick={onApply}>Apply</Button>
+        </Box>}
+    </Box>;
+}
+
 /** Share immediate and asynchronous count presentation without losing bigint precision. */
 export function SliceCountSummary({ count, total, noun, children }: {
     count: bigint | undefined; total: bigint | undefined; noun: string; children?: ReactNode;

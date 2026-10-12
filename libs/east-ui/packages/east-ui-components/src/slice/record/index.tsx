@@ -11,7 +11,7 @@ import { DateTimeType, IntegerType, FloatType, parseFor, printFor, none, some, v
 import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
-import { SliceChoiceGroup, SliceCountSummary, SliceFieldChip } from "../choice.js";
+import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip } from "../choice.js";
 import { SliceRangeEditor, type SliceRangeKind } from "../range/editor.js";
 import { ResolutionSeg, type ResolutionTag } from "../range/index.js";
 import { useFormatters } from "../../format/index.js";
@@ -162,6 +162,7 @@ function ScalarRange({ slice, field, choice, run }: { slice: Bind; field: Field;
     const input = (text: string) => { const value = text === "" ? undefined : readRecordChoice(field, text); return value === undefined ? "" : print(value as ValueTypeOf<typeof type>); };
     const literal = (text: string) => { const parsed = read(text); if (!parsed.success) throw new Error(`Enter a valid ${field.label}`); return printRecordChoice(field, parsed.value); };
     return <SliceRangeEditor kind={kind} label={field.label} from={input(initial.from)} to={input(initial.to)} single={field.set} exclusive
+        onClear={() => run(() => slice.clear(field.fieldId))} clearDisabled={choice === undefined}
         {...(kind === "datetime" ? { defaultFrom: printFor(DateTimeType)(start) } : {})}
         proposal={(from, to) => {
             if (!read(from).success || (!field.set && !read(to).success)) return undefined;
@@ -180,6 +181,7 @@ export function RecordSliceFieldEditor({ slice, field }: { slice: Bind; field: F
     const [error, setError] = useState<string>();
     const state = slice.read();
     const choice = state.where.get(field.fieldId);
+    const scalar = ["datetime", "integer", "float"].includes(field.kind);
     const run = (action: () => unknown) => {
         try { action(); setError(undefined); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not apply this choice"); }
     };
@@ -187,9 +189,9 @@ export function RecordSliceFieldEditor({ slice, field }: { slice: Bind; field: F
             {field.set && <Box css={styles.hint}>Includes one value</Box>}
             {field.values.length > 0 && <KnownValues slice={slice} field={field} run={run} />}
             {field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId) && <StringSearch slice={slice} field={field} run={run} />}
-            {["datetime", "integer", "float"].includes(field.kind) && <ScalarRange slice={slice} field={field} choice={choice} run={run} />}
+            {scalar && <ScalarRange slice={slice} field={field} choice={choice} run={run} />}
         {error !== undefined && <Box css={styles.hintError} role="alert">{error}</Box>}
-        {choice !== undefined && <Button size="xs" variant="ghost" onClick={() => run(() => slice.clear(field.fieldId))}>Clear {field.label}</Button>}
+        {!scalar && <SliceFieldActions label={field.label} onClear={() => run(() => slice.clear(field.fieldId))} clearDisabled={choice === undefined} />}
     </Box>;
 }
 
@@ -200,8 +202,7 @@ function FieldChip({ slice, field }: { slice: Bind; field: Field }) {
     const choice = slice.read().where.get(field.fieldId);
     const label = recordChoiceLabel(field, choice, words);
     return <SliceEditPopover open={open} onOpenChange={setOpen} label={field.label} trigger={
-        <SliceFieldChip label={label} active={choice !== undefined} caret data-record-slice-field={field.fieldId}
-            removeLabel={`Clear ${field.label}`} {...(choice === undefined ? {} : { onRemove: () => { slice.clear(field.fieldId); } })} />
+        <SliceFieldChip label={field.label} aria-label={label} active={choice !== undefined} caret data-record-slice-field={field.fieldId} />
     }>{open && <RecordSliceFieldEditor slice={slice} field={field} />}</SliceEditPopover>;
 }
 

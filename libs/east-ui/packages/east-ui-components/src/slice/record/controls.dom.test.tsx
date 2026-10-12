@@ -77,7 +77,7 @@ test("folded narrowing has one heading per field and one keyboard-accessible edi
     function Rail() { return <>{useRecordSliceToolbarItems(f.slice)[0]!.forms.at(-1)}</>; }
     render(<ChakraProvider value={system}><Rail /></ChakraProvider>);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^Narrowing:/ }));
+    await user.click(screen.getByRole("button", { name: /^Filters:/ }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getAllByText("Status")).toHaveLength(1);
     const status = within(dialog).getByRole("button", { name: "Status" });

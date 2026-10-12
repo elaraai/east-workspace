@@ -11,6 +11,7 @@ import { faFilter, faChevronDown, type IconDefinition } from "@fortawesome/free-
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceEditPopover } from "../edit/index.js";
+import { SliceClearButton } from "../choice.js";
 
 /** One affordance's display, independent of its query engine. */
 export interface SliceRailDescriptor {
@@ -42,6 +43,7 @@ export interface SliceRailModel {
 /** One field heading, one open editor; Chakra owns keyboard and disclosure semantics. */
 function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly string[] }) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const chip = useRecipe({ key: "chip" });
     const [expanded, setExpanded] = useState<string[]>([]);
     return <Accordion.Root css={styles.railAccordion} collapsible value={expanded}
         onValueChange={details => setExpanded(details.value)} lazyMount unmountOnExit>
@@ -53,6 +55,9 @@ function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly
                     {...(kind.startsWith("field:") ? { "data-record-slice-field": kind.slice(6) } : {})}>
                     <Accordion.ItemIndicator><FontAwesomeIcon icon={faChevronDown} /></Accordion.ItemIndicator>
                     <Box as="span" css={styles.railAccordionLabel} data-active={field.active ? "" : undefined}>{label}</Box>
+                    {field.active && <Box as="span" css={[chip({ tone: "brand", caps: true, size: "sm" }), styles.railAccordionState]}>
+                        {kind === "presets" ? "Selected" : "Applied"}
+                    </Box>}
                 </Accordion.ItemTrigger>
                 <Accordion.ItemContent css={styles.railAccordionContent}>
                     {model.renderEditor?.(kind)}
@@ -128,7 +133,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
     const summaryChip = (key: string, d: SliceRailDescriptor): ReactNode => (
         <Box key={key} as="span" css={chip({ tone: d.active ? "brand" : "neutral", numeric: true })} data-slice-fold={d.kind}>
             <FontAwesomeIcon icon={d.icon} data-chip-icon="" />
-            <Box as="span">{d.text}</Box>
+            <Box as="span">{d.label}</Box>
         </Box>
     );
 
@@ -159,19 +164,15 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
             ranks.push(RAIL_RANK.icon);
         }
 
-        // The folded families, in the order the trigger shows them: their
-        // summary chips in fold order; merged, every family, the active first.
+        // Keep labels and ordering independent of selections: changing a
+        // filter must not resize its trigger or move the open popover.
         const folded = (form: RailForm): SliceRailDescriptor[] => form.show === "chips"
             ? foldOrder.slice(0, form.folded).map((o) => model.describe(kinds[o.i]!))
-            : kinds
-                .map((kind, idx) => ({ d: model.describe(kind), idx }))
-                .sort((a, b) => (b.d.active ? 1 : 0) - (a.d.active ? 1 : 0) || a.idx - b.idx)
-                .map((o) => o.d);
+            : kinds.map(kind => model.describe(kind));
 
         // What the folded families show: their summary chips in fold order;
-        // at the terminal form one chip that NAMES the cluster's contents
-        // (active families first, so an engaged narrowing leads); past it the
-        // icon alone, its tooltip naming them.
+        // at the terminal form a stable Filters label; past it the icon
+        // alone. The accessible name and editor retain the selected values.
         const trigger = (form: RailForm): ReactNode => {
             if (form.show === "chips") {
                 return foldOrder.slice(0, form.folded).map((o) => {
@@ -182,7 +183,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
             const descriptors = folded(form);
             const labels = descriptors.map((d) => d.text);
             const anyActive = descriptors.some((d) => d.active);
-            const icon = descriptors[0]?.icon ?? faFilter;
+            const icon = faFilter;
             if (form.show === "icon") {
                 return (
                     <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true })}
@@ -191,9 +192,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
                     </Box>
                 );
             }
-            const head = labels.slice(0, 2).join(" · ");
-            const extra = labels.length > 2 ? ` +${labels.length - 2}` : "";
-            return summaryChip("all", { kind: "all", label: "Narrowing", icon, text: labels.length > 0 ? head + extra : "Slice", active: anyActive });
+            return summaryChip("all", { kind: "all", label: "Filters", icon, text: "Filters", active: anyActive });
         };
 
         const editor = (form: RailForm): ReactNode => (
@@ -202,7 +201,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
                 onOpenChange={(o) => setOpen(o ? { key: cluster.key, chips: liveChips } : null)}
                 label={<>Narrowing · <Box as="span" css={styles.railActiveCount}>{`${activeCount} active`}</Box></>}
                 size="lg"
-                footLeft={model.clear === undefined ? undefined : <chakra.button type="button" css={btn({ variant: "ghost", size: "xs" })} onClick={model.clear}>Clear all</chakra.button>}
+                footLeft={model.clear === undefined ? undefined : <SliceClearButton label="Clear all" onClick={model.clear} />}
                 footActions={
                     <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} onClick={() => setOpen(null)}>
                         Done
@@ -211,7 +210,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
                 trigger={
                     // One button, named for what it folds (#1231) — the icon alone draws no words.
                     <chakra.button type="button" css={styles.railTrigger} data-slot="railTrigger"
-                        aria-label={`Narrowing: ${folded(form).map((d) => d.text).join(" · ")}`}>
+                        aria-label={`Filters: ${folded(form).map((d) => d.text).join(" · ")}`}>
                         {trigger(form)}
                         <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />
                     </chakra.button>

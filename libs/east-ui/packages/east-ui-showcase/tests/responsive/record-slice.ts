@@ -12,7 +12,7 @@ export async function recordField(page: Page, frame: Locator, name: string) {
         if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
     }
     else {
-        await frame.getByRole("button", { name: /^Narrowing:/ }).click();
+        await frame.getByRole("button", { name: /^Filters:/ }).click();
         const disclosure = page.getByRole("dialog").locator(`[data-record-slice-field="${name}"]`);
         // The shared editor retains its disclosure when closed and reopened.
         if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
