@@ -678,19 +678,25 @@ test.describe("the Ontology editor's icons are Font Awesome's, in the square the
 });
 
 test.describe("every icon is a Font Awesome solid icon, never a text glyph (#1263)", () => {
+    // Read-only pages share a browser and one e3 startup. Keep every declared
+    // example, theme and viewport, with a named step for each page's scan.
+    const batches = Array.from({ length: Math.ceil(FILES.length / 3) }, (_, i) => FILES.slice(i * 3, i * 3 + 3));
     for (const theme of ["light", "dark"] as const) {
-        for (const file of FILES) {
-            test(`${file} (${theme})`, async ({ page }) => {
+        for (const batch of batches) {
+            test(`${batch.join(", ")} (${theme})`, async ({ page }) => {
                 const pageErrors: string[] = [];
                 page.on("pageerror", (e) => pageErrors.push(String(e)));
-                await page.goto(`/?theme=${theme}#${encodeURIComponent(file)}`);
-                await page.waitForSelector("header", { timeout: 20_000 });
-                await expect(page.locator(`a[href^="#${file}/"]`).first()).toBeVisible();
-                await settled(page);
-                const walked = await walk(page, file);
-                expect(walked.examples.sort(), `the examples of ${file} the walk read`).toEqual(declared(file));
-                expect(walked.glyphs, `an element of ${file} draws a text glyph as its icon`).toEqual([]);
-                expect(pageErrors, `uncaught page errors on ${file}`).toEqual([]);
+                await page.goto(`/?theme=${theme}#${encodeURIComponent(batch[0]!)}`);
+                for (const file of batch) await test.step(file, async () => {
+                    await page.evaluate(file => { location.hash = file; }, file);
+                    await page.waitForSelector("header", { timeout: 20_000 });
+                    await expect(page.locator(`a[href^="#${file}/"]`).first()).toBeVisible();
+                    await settled(page);
+                    const walked = await walk(page, file);
+                    expect(walked.examples.sort(), `the examples of ${file} the walk read`).toEqual(declared(file));
+                    expect(walked.glyphs, `an element of ${file} draws a text glyph as its icon`).toEqual([]);
+                    expect(pageErrors, `uncaught page errors on ${file}`).toEqual([]);
+                });
             });
         }
     }

@@ -101,22 +101,22 @@ function tabRowsOf(frame: Locator) {
     }));
 }
 
-test.describe("every builder pane's tab row fits its pane (#1210)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured open at the desktop width; the phone's are measured below");
-
-    for (const builder of BUILDERS) {
-        for (const theme of ["light", "dark"] as const) {
-            test(`${builder.name}: each open pane's tabs inside its tab row, clear of the collapse control (${theme})`, async ({ page }) => {
-                const frame = await openFrame(page, builder, theme);
-                await expect.poll(async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past })))
-                    .toEqual(builder.panes.map((name) => ({ pane: `Collapse ${name}`, past: [] })));
+test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@desktop" }, () => {
+    const batches = [BUILDERS.slice(0, 3), BUILDERS.slice(3)];
+    for (const theme of ["light", "dark"] as const) {
+        for (const batch of batches) {
+            test(`${batch.map(builder => builder.name).join(", ")}: tabs stay clear of collapse controls (${theme})`, async ({ page }) => {
+                for (const builder of batch) await test.step(builder.name, async () => {
+                    const frame = await openFrame(page, builder, theme);
+                    await expect.poll(async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past })))
+                        .toEqual(builder.panes.map((name) => ({ pane: `Collapse ${name}`, past: [] })));
+                });
             });
         }
     }
 });
 
-test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", () => {
-    test.skip(({ isMobile }) => !isMobile, "measured on the phone");
+test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", { tag: "@mobile" }, () => {
 
     for (const builder of BUILDERS) {
         test(`${builder.name}: each pane, opened from its rail, its tabs inside its tab row, clear of the collapse control; a folded tab opens from the +n menu`, async ({ page }) => {

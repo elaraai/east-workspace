@@ -231,7 +231,7 @@ help:
 	@echo "  design            - Serve the design system's download (app_design_system/, read-only) on :5174"
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
-	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/8 optional)"
+	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/16 optional)"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
@@ -244,7 +244,7 @@ help:
 ## The responsive suite (#357, #833): Playwright drives the BUILT showcase
 ## over every catalog page at desktop + mobile viewports. These are DOM specs
 ## (packages/east-ui-showcase/tests/responsive/) with no pixel comparisons.
-## CI runs exactly this target, sharded: `make test-responsive SHARD=1/8`.
+## CI runs exactly this target, sharded: `make test-responsive SHARD=1/16`.
 ##
 ## It serves what `make build` built, building the showcase only when its
 ## dist is missing, so rebuild after a change. A failing spec leaves its

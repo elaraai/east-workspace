@@ -71,16 +71,18 @@ measures against is the read-only download in `../../app_design_system/`
 ## Keep responsive checks economical
 
 CI builds the dependency chain and showcase once, then distributes the same
-compiled workspace artifact to all test jobs, including eight browser shards
+compiled workspace artifact to all test jobs, including 16 browser shards
 and four e3 renderer Vitest shards. Renderer Node specs run once in `rest`.
-Each job installs its own dependencies; browser jobs install Chromium. Keep every required runtime `dist` in that
-artifact; do not make a shard silently rebuild it.
+Browser shards use two workers; keep this bounded because each page deploys
+an independent e3 workspace. Each job installs its own dependencies; browser
+jobs install Chromium. Keep every required runtime `dist` in that artifact;
+do not make a shard silently rebuild it.
 
-`make test-responsive SHARD=n/8` uses `scripts/responsive-shards.ts` to
+`make test-responsive SHARD=n/16` uses `scripts/responsive-shards.ts` to
 interleave Playwright's discovered, project-filtered tests across the jobs.
 The public `--test-list` interface selects them. Do not replace this with
 contiguous `playwright --shard`: that concentrates adjacent expensive builder
-cases in one job. A Node check asks Playwright to rediscover all eight lists
+cases in one job. A Node check asks Playwright to rediscover all 16 lists
 and verifies that every test runs exactly once. Keep workflows independent
 under `fullyParallel`; dependent steps belong inside one test.
 
@@ -88,10 +90,18 @@ Batch related read-only catalog routes in one browser context and use hash
 navigation so e3 starts once per batch. Use named `test.step` blocks for every
 route and retain its full error/containment assertions. Keep mutation workflows
 isolated. Test geometry at several widths on one mounted example instead of
-repeating a cold e3 deployment for each width. Keep explicit remount tests where
-remount is the behavior under test. Tag desktop-only and mobile-only groups so
+repeating a cold e3 deployment for each width. Group inspector selections and
+read-only frame checks on one mounted example, closing touch overlays between
+steps. A sweep that explicitly sets its viewport and checks both 390px and
+360px runs once per pointer mode; do not tag it for a third identical sweep.
+Keep explicit remount tests where remount is the behavior under test. Tag desktop-only and mobile-only groups so
 project selection excludes them before sharding. Do not trade coverage for
 speed with retries, longer timeouts or fewer supported widths/themes.
+
+A stable row layout does not mean a rotating caret has finished: await its
+actual animations before comparing bounding boxes. Before a drag driven by
+raw mouse coordinates, use locator actionability to bring its card into view
+and establish a stable hit target; a previous drop or tab change can scroll it.
 
 ## Key scripts
 
@@ -134,7 +144,7 @@ speed with retries, longer timeouts or fewer supported widths/themes.
 | `make east-ui-examples-html-all` | Snapshots every example to standalone HTML. |
 | `make east-ui-examples-html-<pathKey>` | Snapshots one example (e.g. `disclosure/tabs`). |
 | `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
-| `make test-responsive` | The Playwright suite in `tests/responsive/` (DOM specs over every catalog page, the shell, the code reference, the Plan's geometry, the Sheet's ring under the keyboard, the load, and the e3 the page runs, at desktop + mobile) against the built showcase, exactly as CI runs it; `SHARD=n/8` runs one CI shard. Each spec waits for the page to be at rest (`settle.ts`: no e3 example still starting, the layout still), never for a fixed time, and nothing retries. |
+| `make test-responsive` | The Playwright suite in `tests/responsive/` (DOM specs over every catalog page, the shell, the code reference, the Plan's geometry, the Sheet's ring under the keyboard, the load, and the e3 the page runs, at desktop + mobile) against the built showcase, exactly as CI runs it; `SHARD=n/16` runs one CI shard. Each spec waits for the page to be at rest (`settle.ts`: no e3 example still starting, the layout still), never for a fixed time, and nothing retries. |
 
 ## See also
 

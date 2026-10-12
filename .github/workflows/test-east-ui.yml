@@ -246,12 +246,12 @@ jobs:
 
   responsive:
     needs: build
-    name: responsive (${{ matrix.shard }}/8)
+    name: responsive (${{ matrix.shard }}/16)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     env:
       NODE_OPTIONS: --max-old-space-size=4096
 
@@ -283,7 +283,7 @@ jobs:
 
       - name: Responsive suite
         working-directory: libs/east-ui
-        run: make test-responsive SHARD=${{ matrix.shard }}/8
+        run: make test-responsive SHARD=${{ matrix.shard }}/16
 
       # A failing spec's DOM/network trace (open the trace with
       # `pnpm exec playwright show-trace <trace.zip>`).

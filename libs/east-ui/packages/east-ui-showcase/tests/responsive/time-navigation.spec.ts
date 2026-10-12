@@ -33,8 +33,10 @@ async function chooseView(page: Page, frame: Locator, name: string) {
 }
 for (const theme of ['light', 'dark'] as const) {
     for (const scope of ['calendar', 'roster', 'plan'] as const) {
-        test(`${scope} shared date navigation and popup Today at every width (${theme}) @narrow`, async ({ page }) => {
+        test(`${scope} shared date navigation and popup Today at every width (${theme})`, async ({ page }) => {
             await page.clock.setFixedTime(new Date('2028-03-16T12:00:00Z'));
+            // One sweep per pointer mode already measures 390px and 360px.
+            // Repeating it in mobile-narrow would use the same viewport again.
             await page.setViewportSize({ width: 2160, height: 1080 });
             const frame = await open(page, scope, theme);
             if (scope !== "roster") await chooseView(page, frame, scope === "plan" ? "DAY" : "Day");
