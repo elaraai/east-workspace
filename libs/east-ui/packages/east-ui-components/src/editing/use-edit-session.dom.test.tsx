@@ -71,10 +71,11 @@ test("a keyed source places every entry in key order, and its base is its Dict s
 test("a keyed paged source's reconcile seeks each entry by its key's `.east` literal — a String key quoted (#880)", async () => {
     initializeStore(new UIStore());
     const queries: string[] = [];
+    let revision = "r1";
     const source: EditSource<Bar> = {
         page: (offset, count) => some(BARS.slice(Number(offset), Number(offset + count))),
-        revision: () => some("r1"),
-        refresh: () => null,
+        revision: () => some(revision),
+        refresh: () => { revision = "r2"; return null; },
         seek: some((query) => {
             if (query.type === "key") queries.push(query.value);
             const at = query.type === "key" ? RUNS.findIndex((run) => printString(run.id) === query.value) : -1;

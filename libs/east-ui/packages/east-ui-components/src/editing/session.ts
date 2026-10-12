@@ -135,6 +135,8 @@ interface Conflicted {
     readonly targets: ReadonlyMap<string, Target>;
     /** The source's issues: the source's own (`entry` empty), and its words for each entry it may name. */
     readonly issues: readonly EditIssue[];
+    /** Membership facts at one immutable revision, independent of page eviction. */
+    checked?: { revision: string; matches: Map<string, boolean> };
 }
 
 interface Submission<W> {
@@ -146,6 +148,8 @@ interface Submission<W> {
     after: Map<string, EntryVersion<W>>;
     /** Each entry the request changes. */
     targets: Map<string, Target>;
+    /** Confirmed identities and whether their saved value is exact; no source rows. */
+    checked: Map<string, boolean>;
     base: Base;
     revision: string | undefined;
     /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
@@ -582,7 +586,7 @@ export class EditSession<W> {
             }]));
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
-            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, base: this.cloneBase(this.base), revision: undefined };
+            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, checked: new Map(), base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
@@ -654,6 +658,24 @@ export class EditSession<W> {
     }
 
     /**
+     * Request only unresolved primary identities at this revision. Page caches
+     * remain bounded; confirmed facts belong to the retained session instead.
+     * @param revision - The source revision currently available to the reader
+     * @returns The next small batch needing confirmation or conflict naming
+     */
+    readIdsAt(revision: string): readonly string[] {
+        const request = this.submission;
+        if (request !== undefined && this.status === "reconciling") {
+            if (request.revision === undefined || !stringEqual(revision, request.revision)) return [];
+            return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, 8);
+        }
+        const conflict = this.conflicted;
+        if (conflict === undefined || this.status !== "conflict" || stringEqual(revision, conflict.revision)) return [];
+        const checked = conflict.checked !== undefined && stringEqual(revision, conflict.checked.revision) ? conflict.checked.matches : undefined;
+        return [...conflict.targets.keys()].filter(id => !checked?.has(id)).slice(0, 8);
+    }
+
+    /**
      * Retire the drafts once the source reads back as the acknowledged request
      * left it: an inline positional source's whole collection, its order
      * included; an inline keyed source's own entries, whatever another write
@@ -680,12 +702,26 @@ export class EditSession<W> {
         let exact = true;
         if (request.expected !== undefined) {
             if (!blobEqual(this.encodeCollection(base.value), request.expected)) return false;
-        } else {
+        } else if (base.type === "snapshot") {
             for (const [id, target] of request.targets) {
-                const now = base.type === "snapshot" ? this.heldIn(base.value, id) : read(id);
-                if (now === undefined || !this.leftAs(now, target)) return false;
+                const now = this.heldIn(base.value, id);
+                if (!this.leftAs(now, target)) return false;
                 exact &&= this.domainEqual(now, target.after);
             }
+        } else {
+            const before = request.checked.size;
+            for (const [id, target] of request.targets) {
+                if (request.checked.has(id)) continue;
+                const now = read(id);
+                if (now !== undefined && this.leftAs(now, target)) request.checked.set(id, this.domainEqual(now, target.after));
+            }
+            if (request.checked.size !== request.targets.size) {
+                // Advancing schedules the next bounded batch, even when the
+                // pages just read are the reader's last tracked dependencies.
+                if (request.checked.size !== before) this.changed();
+                return false;
+            }
+            for (const match of request.checked.values()) exact &&= match;
         }
         this.base = this.cloneBase(base); this.baseline = new Map(request.after);
         this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;
@@ -728,12 +764,21 @@ export class EditSession<W> {
     nameConflicts(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
         const conflict = this.conflicted;
         if (conflict === undefined || this.status !== "conflict" || base.type !== "revision" || stringEqual(base.value, conflict.revision)) return false;
-        const named: string[] = [];
-        for (const [id, target] of conflict.targets) {
-            const now = read(id);
-            if (now === undefined) return false;
-            if (!this.applies(now, target)) named.push(id);
+        if (conflict.checked === undefined || !stringEqual(conflict.checked.revision, base.value)) {
+            conflict.checked = { revision: base.value, matches: new Map() };
         }
+        const checked = conflict.checked.matches;
+        const before = checked.size;
+        for (const [id, target] of conflict.targets) {
+            if (checked.has(id)) continue;
+            const now = read(id);
+            if (now !== undefined) checked.set(id, this.applies(now, target));
+        }
+        if (checked.size !== conflict.targets.size) {
+            if (checked.size !== before) this.changed();
+            return false;
+        }
+        const named = [...conflict.targets.keys()].filter(id => !checked.get(id));
         this.conflicted = undefined;
         const said = new Map(conflict.issues.filter((issue) => issue.entry !== "").map((issue) => [issue.entry, issue] as const));
         const own = conflict.issues.filter((issue) => issue.entry === "");

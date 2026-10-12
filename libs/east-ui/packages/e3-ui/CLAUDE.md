@@ -88,6 +88,13 @@ a deletion nor evidence that a mutation completed. New unsaved rows are a
 separate draft layer; do not append existing hidden drafts to another narrowing.
 Existing Search Records remains primary-key navigation, separate from field search.
 
+Page eviction must never evict session drafts or history. Keep the existing
+bounded page caches: saving more entries than a cache holds must still finish.
+Accumulate confirmation and filter-membership facts by original identity at one
+revision, independently of cached rows. Do not require every edited page to be
+resident simultaneously. Verify hidden edits, eviction, Undo/Redo, remount and
+checked Save together with a batch larger than the cache capacity.
+
 After confirmed Save, shared `RecordSliceSaveNotice` reports rows that actually
 left the active narrowing. Use `prepareRecordSliceSave` through the shared
 session lifecycle; capture membership before the mutation and resolve it again

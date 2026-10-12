@@ -110,7 +110,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const { revision, refresh } = source;
         return revision !== undefined && refresh !== undefined ? { ...source, revision, refresh, readCurrent: recordSlice?.readEntry } : undefined;
     }, [source, recordSlice]);
-    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice), [recordSlice]);
+    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
         useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare });
 

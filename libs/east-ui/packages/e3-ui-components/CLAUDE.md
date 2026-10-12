@@ -119,6 +119,21 @@ the committed revision; absence from the filtered result proves nothing about
 Save. Roster still saves one complete active week and calculates over complete
 staff, whatever people the indexed visibility query hides.
 
+Keep page eviction enabled and independent of sessions. `PagedRuntime` retains
+at most 24 decoded windows; record Slice retains 32 windows capped at 2,048 rows
+each. Never raise those bounds or pin every page to make Save or a scan finish.
+Use the shared session's bounded primary-read batches and retain only confirmed
+facts at the committed revision. Save membership checks also accumulate facts
+at one revision. Partial provider pages must resume within their bounded window.
+
+For a complete active query, reuse `PagedScan`: retain its projected result and
+next unread offset, discard progress on revision/query replacement, and release
+obsolete results with their tracked reader. Schedule's internal scan operation
+also lets gestures reuse an active result through weak references. Do not cache
+historical query results or restart at zero after each asynchronous page. Test
+scans and Save batches exceeding both cache capacities, and prove that an old
+page is fetched again after eviction while its draft remains intact.
+
 Use the shared session `prepare` seam with `prepareRecordSliceSave`, then render
 `RecordSliceSaveNotice` in the host's existing footer. Capture exact membership
 before sending the checked mutation and recheck after primary-key confirmation.

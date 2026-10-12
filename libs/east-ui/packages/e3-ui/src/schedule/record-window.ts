@@ -5,15 +5,15 @@
 
 /** Schedule's typed adapter to record Slice's indexed queries. */
 import {
-    ArrayType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StructType,
+    ArrayType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
     isSubtype, isTypeEqual, none, some, variant, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { RecordSliceBindType, RecordSliceChoiceType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
-import { SCHEDULE_INDEX_PAGE } from "./window.js";
+import { RecordSliceBindType, RecordSliceChoiceType, RecordSliceWhereType, recordSliceReadPlatform } from "@elaraai/east-ui/internal";
 
 /** Minimal typed query reader; additional index-entry fields remain opaque. */
 export function ScheduleRecordSliceType<K extends EastType, R extends EastType>(key: K, row: R) {
     return StructType({ ...RecordSliceBindType.fields,
+        data: StructType({ id: StringType, revision: FunctionType([], OptionType(StringType)) }),
         pageWhere: FunctionType([RecordSliceWhereType, IntegerType, IntegerType],
             OptionType(ArrayType(StructType({ key, row: OptionType(row) })))),
     });
@@ -41,6 +41,7 @@ export function scheduleRecordWindow(input: unknown, key: EastType, row: EastTyp
     const Type = ScheduleRecordSliceType(key, row);
     const type = Expr.type(value as Expr);
     const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : {};
+    const data = fields.data;
     const page = fields.pageWhere;
     const output = page?.type === "Function" ? page.output : undefined;
     const collection = output?.type === "Variant" ? output.cases.some : undefined;
@@ -49,6 +50,8 @@ export function scheduleRecordWindow(input: unknown, key: EastType, row: EastTyp
         && page.inputs.every((input: EastType, i: number) => isTypeEqual(input, Type.fields.pageWhere.inputs[i]!))
         && entry?.type === "Struct" && entry.fields.key !== undefined && entry.fields.row !== undefined
         && isTypeEqual(entry.fields.key, key) && isTypeEqual(entry.fields.row, OptionType(row))
+        && data?.type === "Struct"
+        && Object.entries(Type.fields.data.fields).every(([name, expected]) => data.fields[name] !== undefined && isSubtype(data.fields[name]!, expected))
         && Object.entries(RecordSliceBindType.fields).every(([name, expected]) => fields[name] !== undefined && isSubtype(fields[name]!, expected));
     if (!fits) throw new Error(`${label}: slice must be Slice.bindRecord over this event record with joined rows`);
     const source = value as unknown as ExprType<typeof Type>;
@@ -80,28 +83,21 @@ export function scheduleRecordWindow(input: unknown, key: EastType, row: EastTyp
         }
         $(where.insert(start, time));
         const result = $.let(none, OptionType(Held));
-        $.match(src.countWhere(where), { some: ($2, count) => {
-            const held = $2.let(new Map(), Held);
-            const offset = $2.let(0n);
-            const landed = $2.let(true);
-            $2.while(offset.less(count).and(() => landed), $3 => {
-                const limit = $3.let(count.subtract(offset).less(SCHEDULE_INDEX_PAGE).ifElse(() => count.subtract(offset), () => SCHEDULE_INDEX_PAGE));
-                $3.match(src.pageWhere(where, offset, limit), {
-                    none: $4 => { $4.assign(landed, false); },
-                    some: ($4, entries) => {
-                        $4.if(entries.size().equal(0n), $5 => { $5.error(`${label}: the indexed window changed; retry`); });
-                        $4.for(entries, ($5, entry) => {
-                            $5.match(entry.row, {
-                                none: $6 => { $6.error(`${label}: slice requires Data.bindPaged with join: true`); },
-                                some: ($6, value) => { $6(held.insert(entry.key as never, value as never)); },
-                            });
-                        });
-                        $4.assign(offset, offset.add(entries.size()));
-                    },
+        // Preserve the actual window's wire type (including its index key and
+        // covering value); only the two validated entry fields are inspected.
+        const Entries = collection as ArrayType<StructType<{ key: EastType; row: OptionType<EastType> }>>;
+        $.match(recordSliceReadPlatform([Entries], src.data.id, src.data.revision, src.countWhere, src.pageWhere, where), {
+            some: ($2, entries) => {
+                const held = $2.let(new Map(), Held);
+                $2.for(entries, ($3, entry) => {
+                    $3.match(entry.row, {
+                        none: $4 => { $4.error(`${label}: slice requires Data.bindPaged with join: true`); },
+                        some: ($4, value) => { $4(held.insert(entry.key as never, value as never)); },
+                    });
                 });
-            });
-            $2.if(landed, $3 => { $3.assign(result, some(held)); });
-        } });
+                $2.assign(result, some(held));
+            },
+        });
         return result;
     }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>>;
 }

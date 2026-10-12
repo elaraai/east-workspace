@@ -13,13 +13,15 @@ import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, PinnedSourceType,
-    type RecordSliceBinding,
+    recordSliceReadPlatform, type RecordSliceBinding,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
 import { getStore, trackKey } from "../state-runtime.js";
 import type { UIStoreInterface } from "../state-store.js";
 import { getRegisteredPlatformImplementations, registerPlatformImplementation } from "../registry.js";
+import { PagedScan } from "../../collections/paged-scan.js";
+import { readResource } from "../../reactive/read-scope.js";
 
 type Config = ValueTypeOf<RecordSliceConfigType>;
 type State = ValueTypeOf<RecordSliceStateType>;
@@ -51,6 +53,21 @@ interface BindingEntry {
 // compiled handles or source caches. Serialization carries a complete descriptor
 // so a decoded handle also works without re-running its original bind.
 const bindings = new WeakMap<UIStoreInterface, Map<string, BindingEntry>>();
+// Gestures read the same query outside a tracked evaluation. They may reuse
+// an active reader's scan, but these weak references never keep its rows alive
+// after that reader changes query or unmounts. Even the lookup keys are bounded.
+const scans = new WeakMap<UIStoreInterface, Map<string, WeakRef<PagedScan<unknown, unknown[]>>>>();
+function activeScan(key: string): PagedScan<unknown, unknown[]> {
+    const store = getStore();
+    let held = scans.get(store);
+    if (held === undefined) { held = new Map(); scans.set(store, held); }
+    let scan = held.get(key)?.deref();
+    if (scan === undefined) scan = new PagedScan<unknown, unknown[]>(() => [], (rows, next) => { rows.push(...next); });
+    held.delete(key); held.set(key, new WeakRef(scan));
+    if (held.size > 64) held.delete(held.keys().next().value!);
+    return scan;
+}
+
 
 function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const [key, source, config, initial] = descriptor;
@@ -187,6 +204,17 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
         };
     }),
     ...primitives,
+    recordSliceReadPlatform.implement((collection: EastTypeValue) => {
+        if (collection.type !== "Array") throw new Error("A record scan requires an array of index entries");
+        const typeKey = printType(fromEastTypeValue(collection));
+        return (...args: unknown[]) => {
+            const [id, revision, total, page, where] = args as [string, () => option<string>,
+                (where: Where) => option<bigint>, (where: Where, offset: bigint, limit: bigint) => option<unknown[]>, Where];
+            const key = `record-scan:${id}:${typeKey}:${printWhere(where)}`;
+            const scan = readResource(key, () => activeScan(key));
+            return scan.read(revision, () => total(where), (offset, limit) => page(where, offset, limit));
+        };
+    }),
     ];
 }
 

@@ -234,7 +234,8 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, st
     // and an event read by its key, decoded.
     const sources = useMemo(() => kinds.map((kind, i): EditHistorySource<ScheduleEntryRef> => {
         const editing = applyMode === "auto" ? { ...kind.editing, mode: variant("auto", null) } : kind.editing;
-        const prepare = prepareRecordSliceSave(recordSlice?.sourceId === editing.sourceId ? recordSlice : undefined);
+        const prepare = prepareRecordSliceSave(recordSlice?.sourceId === editing.sourceId ? recordSlice : undefined,
+            kind.entries.type === "some" ? kind.entries.value.revision : undefined);
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;

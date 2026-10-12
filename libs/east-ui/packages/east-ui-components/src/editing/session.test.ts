@@ -342,3 +342,39 @@ test("failed preparation sends no mutation, retains every draft and permits a fr
     expect(applied).toBe(1);
     expect(session.error).toBeUndefined();
 });
+
+
+test("large Saves confirm in bounded primary-key batches without retaining decoded pages", async () => {
+    const session = keyed("r1");
+    const ids = Array.from({ length: 40 }, (_, i) => `J${i}`);
+    session.record(ids.map(id => ({ id, before: job(cut), after: job({ ...cut, qty: 5n }) })), "typed", "Edit many jobs");
+    await session.apply();
+    expect(session.readIdsAt("r1")).toEqual([]);
+    const read: string[] = [];
+    for (let batch = 0; batch < 5; batch++) {
+        const loaded = new Set(session.readIdsAt("r2"));
+        expect(loaded.size).toBe(8);
+        read.push(...loaded);
+        expect(session.reconcile(variant("revision", "r2"), id => loaded.has(id) ? some({ ...cut, qty: 5n }) : undefined)).toBe(batch === 4);
+        if (batch < 4) expect(session.pending).toBe(40);
+        // Only this batch is resident. The next call cannot read it again.
+    }
+    expect(read).toEqual(ids);
+    expect(session.status).toBe("idle");
+    expect(session.pending).toBe(0);
+    session.undo();
+    expect(session.pending).toBe(40);
+});
+
+test("partial conflict naming restarts on a new revision and preserves every draft", async () => {
+    const session = conflicting([recordIssue, said("J1"), said("J2")]);
+    await session.apply();
+    expect(session.nameConflicts(variant("revision", "r2"), id => id === "J1" ? some({ ...cut, qty: 9n }) : undefined)).toBe(false);
+    expect(session.readIdsAt("r2")).toEqual(["J2"]);
+    expect(session.readIdsAt("r3")).toEqual(["J1", "J2"]);
+    expect(session.nameConflicts(variant("revision", "r3"), id => id === "J2" ? none : undefined)).toBe(false);
+    expect(session.readIdsAt("r3")).toEqual(["J1"]);
+    expect(session.nameConflicts(variant("revision", "r3"), id => id === "J1" ? some(cut) : undefined)).toBe(true);
+    expect(session.issues).toEqual([said("J2")]);
+    expect(session.pending).toBe(2);
+});

@@ -245,7 +245,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         };
     }, [editing, paged, recordSlice]);
 
-    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice), [recordSlice]);
+    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(
         editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready, prepare });
     sessionRef.current = session;

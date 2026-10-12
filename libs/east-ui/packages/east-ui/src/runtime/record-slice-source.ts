@@ -50,14 +50,16 @@ function cache<K, V>(map: Map<K, V>, key: K, value: V, cap: number): void {
  * Adapts an indexed source to the pinned-source paging contract. Work depends
  * on the selected ranges and requested window, not the record's size. The
  * provider owns asynchronous requests, cancellation, errors and retries.
- * Completed results alone are memoized, in bounded caches per revision.
+ * Partial and completed windows share the same bounded cache per revision.
+ * Partial windows resume after the last completed provider page, so eviction
+ * cannot make a long sequence of short pages restart indefinitely.
  *
  * @typeParam T - An entry; its contents are opaque to this adapter.
  */
 export class RecordSliceSource<T> {
     private revision: string | undefined;
     private readonly resolved = new Map<string, RecordSliceRuns>();
-    private readonly pages = new Map<RecordSliceRuns, Map<string, T[]>>();
+    private readonly pages = new Map<RecordSliceRuns, Map<string, { rows: T[]; complete: boolean }>>();
     private pageCount = 0;
 
     /** @param reader - Existing indexed-source reads, sharing one revision. */
@@ -136,11 +138,20 @@ export class RecordSliceSource<T> {
         if (resolved.type === "none") return none;
         const result = resolved.value;
         const key = `${offset}:${limit}`;
-        const hit = this.pages.get(result)?.get(key);
-        if (hit !== undefined) return some(hit);
-        const rows: T[] = [];
-        let skip = offset;
-        let remaining = limit < MAX_PAGE_ROWS ? limit : MAX_PAGE_ROWS;
+        let windows = this.pages.get(result);
+        let window = windows?.get(key);
+        if (window === undefined) {
+            // Partial windows count towards the same cap as completed ones.
+            if (this.pageCount >= MAX_CACHED_PAGES) { this.pages.clear(); this.pageCount = 0; windows = undefined; }
+            if (windows === undefined) { windows = new Map(); this.pages.set(result, windows); }
+            window = { rows: [], complete: false };
+            windows.set(key, window);
+            this.pageCount++;
+        }
+        if (window.complete) return some(window.rows);
+        const rows = window.rows;
+        let skip = offset + BigInt(rows.length);
+        let remaining = (limit < MAX_PAGE_ROWS ? limit : MAX_PAGE_ROWS) - BigInt(rows.length);
         for (const run of result.runs) {
             if (remaining === 0n) break;
             if (skip >= run.count) { skip -= run.count; continue; }
@@ -159,12 +170,7 @@ export class RecordSliceSource<T> {
                 remaining -= count;
             }
         }
-        // Bound the aggregate retained pages, even across many narrowings.
-        if (this.pageCount >= MAX_CACHED_PAGES) { this.pages.clear(); this.pageCount = 0; }
-        let windows = this.pages.get(result);
-        if (windows === undefined) { windows = new Map(); this.pages.set(result, windows); }
-        windows.set(key, rows);
-        this.pageCount++;
+        window.complete = true;
         return some(rows);
     }
 

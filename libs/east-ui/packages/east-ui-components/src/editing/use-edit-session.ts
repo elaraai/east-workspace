@@ -133,9 +133,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads };
         const revision = source?.revision();
         if (revision?.type !== "some" || source === undefined) return undefined;
-        const naming = session.naming;
-        const ids = session.status === "reconciling" ? [...session.entries.keys()]
-            : naming !== undefined && !stringEqual(revision.value, naming.revision) ? naming.ids : [];
+        const ids = session.readIdsAt(revision.value);
         for (const id of ids) {
             if (source.readCurrent !== undefined) {
                 const current = source.readCurrent(id);

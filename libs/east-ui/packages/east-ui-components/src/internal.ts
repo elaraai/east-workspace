@@ -64,6 +64,7 @@ export { recordSliceWindow, recordSliceDomain, setRecordSliceWindow, clearRecord
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead } from "./reactive/tracked.js";
+export { PagedScan } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
 // Keyboard and sizing primitives, and a control's touch target on a coarse
 // pointer — its halo, the row's widths kept (#346, #1221).

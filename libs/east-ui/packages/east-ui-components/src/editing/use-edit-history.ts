@@ -20,7 +20,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { DictType, StringType, decodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType, type option } from "@elaraai/east";
+import { DictType, decodeBeast2For, fromEastTypeValue, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { getStore } from "../platform/state-runtime.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
@@ -120,8 +120,6 @@ interface Observed {
     readonly reads: ReadonlyMap<string, ReadonlyMap<string, option<unknown>>>;
 }
 
-const stringEqual = equalFor(StringType);
-
 /** An entry the session holds no version of: absent, nowhere. */
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
 /** Where every entry of a keyed source stands: in its key order. */
@@ -192,9 +190,7 @@ export function useEditHistory<W>(
                 const revision = part.paged.revision();
                 if (revision.type !== "some") continue;
                 const { session } = part;
-                const naming = session.naming;
-                const ids = session.status === "reconciling" ? [...session.entries.keys()]
-                    : naming !== undefined && !stringEqual(revision.value, naming.revision) ? naming.ids : [];
+                const ids = session.readIdsAt(revision.value);
                 const got = new Map<string, option<unknown>>();
                 for (const id of ids) {
                     const entry = part.paged.entry(id);

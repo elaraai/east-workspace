@@ -224,3 +224,16 @@ export const RecordSlicePrimitives = {
     readEntry: op("read_entry", [StringType], OptionType(OptionType(BlobType))),
     contains: op("contains", [RecordSliceWhereType, StringType], OptionType(BooleanType)),
 };
+
+/**
+ * Read one active indexed result incrementally in the renderer's read scope.
+ * The result belongs to that reader; this does not extend either page cache.
+ * @internal
+ */
+export const recordSliceReadPlatform = East.genericPlatform("slice_record_scan", ["C"], [
+    StringType,
+    FunctionType([], OptionType(StringType)),
+    FunctionType([RecordSliceWhereType], OptionType(IntegerType)),
+    FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType("C" as const)),
+    RecordSliceWhereType,
+], OptionType("C" as const), { optional: true });

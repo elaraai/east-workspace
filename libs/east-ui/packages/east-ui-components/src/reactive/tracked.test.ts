@@ -11,6 +11,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { registerReactiveTracker, type ReactiveTracker } from "./tracker.js";
 import { createTrackedRead } from "./tracked.js";
+import { readResource } from "./read-scope.js";
 
 /** A tracker with explicit channels: `read(key)` records, `fire(key)` notifies. */
 function channelTracker(id: string) {
@@ -132,4 +133,23 @@ describe("createTrackedRead", () => {
         registered("after-rearm");
         expect(invalidated).toBe(2);
     });
+});
+
+
+test("scan progress belongs to its reader and is released on a query change or unmount", () => {
+    const first = createTrackedRead(() => {});
+    const second = createTrackedRead(() => {});
+    cleanups.push(() => first.release(), () => second.release());
+    const query = (key: string) => () => readResource(key, () => ({ cursor: 0 }));
+    const original = first.run(query("all"));
+    expect(first.run(query("all"))).toEqual(original);
+    const other = second.run(query("all"));
+    if (!original.ok || !other.ok) throw new Error("The fixture read failed");
+    expect(other.value).not.toBe(original.value);
+    first.run(query("narrowed"));
+    const reset = first.run(query("all"));
+    expect(reset.ok && reset.value).not.toBe(original.value);
+    first.release();
+    const remounted = first.run(query("all"));
+    expect(remounted.ok && remounted.value).not.toBe(reset.ok && reset.value);
 });

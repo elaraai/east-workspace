@@ -6,7 +6,7 @@
 /** Exact post-Save feedback, shared by every indexed record editor. */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@chakra-ui/react";
-import { decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
+import { StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditSessionBinding } from "../../editing/session.js";
 import { getStore } from "../../platform/state-runtime.js";
@@ -18,6 +18,7 @@ type Slice = ValueTypeOf<RecordSliceBindType>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
 type Prepare = NonNullable<EditSessionBinding<unknown>["prepare"]>;
 const same = equalFor(RecordSliceWhereType);
+const sameRevision = equalFor(StringType);
 const encode = encodeBeast2For(RecordSliceWhereType);
 const decode = decodeBeast2For(RecordSliceWhereType);
 
@@ -47,6 +48,28 @@ function settled<T>(read: () => option<T>): Promise<T> {
     });
 }
 
+/** Keep membership facts, never decoded pages. A revision change restarts the
+ * check; only a small batch of missing identities is requested at a time. */
+function membership(ids: readonly string[], revision: () => option<string>, contains: (id: string) => option<boolean>) {
+    let at: string | undefined;
+    const results = new Map<string, boolean>();
+    return (): option<ReadonlyMap<string, boolean>> => {
+        const before = revision();
+        if (before.type === "none") { at = undefined; results.clear(); return none; }
+        if (at === undefined || !sameRevision(at, before.value)) { at = before.value; results.clear(); }
+        let pending = 0;
+        for (const id of ids) {
+            if (results.has(id)) continue;
+            const included = contains(id);
+            if (included.type === "some") results.set(id, included.value);
+            else if (++pending === 8) break;
+        }
+        const after = revision();
+        if (after.type === "none" || !sameRevision(before.value, after.value)) { at = undefined; results.clear(); return none; }
+        return results.size === ids.length ? some(results) : none;
+    };
+}
+
 /** Ephemeral feedback follows the UI store's lifetime, like the session. */
 class SaveNotice {
     private version = 0;
@@ -69,23 +92,21 @@ class SaveNotice {
         this.changed();
     }
 
-    confirm(slice: Slice, where: Where, ids: readonly string[]): void {
+    confirm(slice: Slice, where: Where, ids: readonly string[], revision: () => option<string>): void {
         if (!same(slice.read().where, where)) return;
         this.scope(where);
         const generation = ++this.generation;
         const run = () => {
             if (generation !== this.generation || !same(slice.read().where, where)) return;
             this.pending = true; this.error = undefined; this.changed();
+            const read = membership(ids, revision, id => slice.contains(where, id));
             void settled(() => {
                 if (generation !== this.generation || !same(slice.read().where, where)) return some(undefined);
+                const included = read();
+                if (included.type === "none") return none;
                 let count = 0;
-                let pending = false;
-                for (const id of ids) {
-                    const included = slice.contains(where, id);
-                    if (included.type === "none") pending = true;
-                    else if (!included.value) count++;
-                }
-                return pending ? none : some(count);
+                for (const matches of included.value.values()) if (!matches) count++;
+                return some(count);
             }).then(count => {
                 if (generation !== this.generation || count === undefined || !same(slice.read().where, where)) return;
                 this.count = count; this.pending = false; this.retry = undefined; this.changed();
@@ -120,28 +141,27 @@ function notice(slice: Slice): SaveNotice {
  * query do not count as leaving; a newly inserted row outside it does.
  * Changing the query cancels the notice, while Save still includes all drafts.
  */
-export function prepareRecordSliceSave(slice: Slice | undefined): Prepare | undefined {
-    if (slice === undefined) return undefined;
+export function prepareRecordSliceSave(slice: Slice | undefined, revision: (() => option<string>) | undefined): Prepare | undefined {
+    if (slice === undefined || revision === undefined) return undefined;
     const model = notice(slice);
     return async targets => {
         const where = decode(encode(slice.read().where));
         if (where.size === 0) return () => {};
+        // Deletions already have their own action. New rows outside the query
+        // count as leaving; existing hidden drafts were never in this view.
+        const existing: string[] = [];
+        const created: string[] = [];
+        for (const [id, target] of targets) {
+            if (target.after.type === "none") continue;
+            (target.before.type === "none" ? created : existing).push(id);
+        }
+        const read = membership(existing, revision, id => slice.contains(where, id));
         const candidates = await settled(() => {
             if (!same(slice.read().where, where)) return some<string[]>([]);
-            const ids: string[] = [];
-            let pending = false;
-            for (const [id, target] of targets) {
-                // Deletions already have their own action; this line explains
-                // saved values disappearing because they no longer match.
-                if (target.after.type === "none") continue;
-                if (target.before.type === "none") { ids.push(id); continue; }
-                const included = slice.contains(where, id);
-                if (included.type === "none") pending = true;
-                else if (included.value) ids.push(id);
-            }
-            return pending ? none : some(ids);
+            const included = read();
+            return included.type === "none" ? none : some([...created, ...existing.filter(id => included.value.get(id))]);
         });
-        return () => model.confirm(slice, where, candidates);
+        return () => model.confirm(slice, where, candidates, revision);
     };
 }
 
