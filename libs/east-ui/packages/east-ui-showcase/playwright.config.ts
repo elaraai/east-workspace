@@ -55,10 +55,12 @@ export default defineConfig({
     projects: [
         {
             name: "desktop",
+            grepInvert: /@mobile/,
             use: { viewport: { width: 1280, height: 800 } },
         },
         {
             name: "mobile",
+            grepInvert: /@desktop/,
             use: {
                 viewport: { width: 390, height: 844 },
                 isMobile: true,
@@ -69,6 +71,7 @@ export default defineConfig({
         {
             // The tightest mainstream width — interaction smoke only.
             name: "mobile-narrow",
+            grepInvert: /@desktop/,
             grep: /@narrow/,
             use: {
                 viewport: { width: 360, height: 740 },

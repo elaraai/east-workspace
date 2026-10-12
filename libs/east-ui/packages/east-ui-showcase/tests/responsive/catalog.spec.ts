@@ -26,38 +26,44 @@ test("catalog manifest is non-trivial", () => {
     expect(keys.length).toBeGreaterThan(100);
 });
 
-for (const key of keys) {
-    test(`catalog ${key}`, async ({ page }) => {
+// Related read-only routes share one browser and e3 startup. Each route still
+// gets the full containment/error contract and its own named trace step.
+const batches = Array.from({ length: Math.ceil(keys.length / 4) }, (_, i) => keys.slice(i * 4, i * 4 + 4));
+for (const batch of batches) {
+    test(`catalog ${batch.join(", ")}`, async ({ page }) => {
         const pageErrors: string[] = [];
         page.on("pageerror", (e) => pageErrors.push(String(e)));
 
-        await page.goto(`/#${encodeURIComponent(key)}`);
-        await page.waitForSelector("header", { timeout: 20_000 });
-        // The deep link mounts this file's examples: its first example's
-        // anchor (`#<pathKey>/<name>`), then the page at rest.
-        const anchor = page.locator(`a[href^="#${key}/"]`).first();
-        await expect(anchor).toBeVisible();
-        // A long description can put the preview below the fold. Exercise
-        // its live content, not just its title and deferred placeholder.
-        await anchor.evaluate(el => el.closest("[data-index]")?.querySelector("[data-example-deferred]")?.scrollIntoView({ block: "nearest" }));
-        await settled(page);
+        await page.goto(`/#${encodeURIComponent(batch[0]!)}`);
+        for (const key of batch) await test.step(key, async () => {
+            await page.evaluate(key => { location.hash = key; }, key);
+            await page.waitForSelector("header", { timeout: 20_000 });
+            // The deep link mounts this file's examples: its first example's
+            // anchor (`#<pathKey>/<name>`), then the page at rest.
+            const anchor = page.locator(`a[href^="#${key}/"]`).first();
+            await expect(anchor).toBeVisible();
+            // A long description can put the preview below the fold. Exercise
+            // its live content, not just its title and deferred placeholder.
+            await anchor.evaluate(el => el.closest("[data-index]")?.querySelector("[data-example-deferred]")?.scrollIntoView({ block: "nearest" }));
+            await settled(page);
 
-        // 1. No uncaught errors; no error overlay — the alert the showcase
-        //    surfaces a render or module failure as says so itself
-        //    (`data-showcase-error`); and no e3 example in its error's place
-        //    (`data-e3-start="failed"`).
-        expect(pageErrors, `uncaught page errors on #${key}`).toEqual([]);
-        expect(await page.locator("[data-showcase-error]").count(), `error overlay on #${key}`).toBe(0);
-        expect(
-            await page.locator('[data-e3-start="failed"]').count(),
-            `an e3 example on #${key} whose e3 did not start, or whose reads did not load`,
-        ).toBe(0);
+            // 1. No uncaught errors; no error overlay — the alert the showcase
+            //    surfaces a render or module failure as says so itself
+            //    (`data-showcase-error`); and no e3 example in its error's place
+            //    (`data-e3-start="failed"`).
+            expect(pageErrors, `uncaught page errors on #${key}`).toEqual([]);
+            expect(await page.locator("[data-showcase-error]").count(), `error overlay on #${key}`).toBe(0);
+            expect(
+                await page.locator('[data-e3-start="failed"]').count(),
+                `an e3 example on #${key} whose e3 did not start, or whose reads did not load`,
+            ).toBe(0);
 
-        // 2. No page-level horizontal overflow.
-        const overflow = await page.evaluate(() => {
-            const doc = document.scrollingElement ?? document.documentElement;
-            return doc.scrollWidth - window.innerWidth;
+            // 2. No page-level horizontal overflow.
+            const overflow = await page.evaluate(() => {
+                const doc = document.scrollingElement ?? document.documentElement;
+                return doc.scrollWidth - window.innerWidth;
+            });
+            expect(overflow, `horizontal page overflow on #${key}`).toBeLessThanOrEqual(1);
         });
-        expect(overflow, `horizontal page overflow on #${key}`).toBeLessThanOrEqual(1);
     });
 }

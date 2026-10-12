@@ -68,6 +68,31 @@ the page, in both themes. Never read a screenshot. The design system it
 measures against is the read-only download in `../../app_design_system/`
 (see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design source).
 
+## Keep responsive checks economical
+
+CI builds the dependency chain and showcase once, then distributes the same
+compiled workspace artifact to all test jobs, including eight browser shards
+and four e3 renderer Vitest shards. Renderer Node specs run once in `rest`.
+Each job installs its own dependencies; browser jobs install Chromium. Keep every required runtime `dist` in that
+artifact; do not make a shard silently rebuild it.
+
+`make test-responsive SHARD=n/8` uses `scripts/responsive-shards.ts` to
+interleave Playwright's discovered, project-filtered tests across the jobs.
+The public `--test-list` interface selects them. Do not replace this with
+contiguous `playwright --shard`: that concentrates adjacent expensive builder
+cases in one job. A Node check asks Playwright to rediscover all eight lists
+and verifies that every test runs exactly once. Keep workflows independent
+under `fullyParallel`; dependent steps belong inside one test.
+
+Batch related read-only catalog routes in one browser context and use hash
+navigation so e3 starts once per batch. Use named `test.step` blocks for every
+route and retain its full error/containment assertions. Keep mutation workflows
+isolated. Test geometry at several widths on one mounted example instead of
+repeating a cold e3 deployment for each width. Keep explicit remount tests where
+remount is the behavior under test. Tag desktop-only and mobile-only groups so
+project selection excludes them before sharding. Do not trade coverage for
+speed with retries, longer timeouts or fewer supported widths/themes.
+
 ## Key scripts
 
 - `scripts/discover-example-files.ts` — finds every `*.examples.ts`

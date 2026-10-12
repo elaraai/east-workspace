@@ -41,24 +41,31 @@ build:
 test:
 	pnpm -r $(PACKAGES) run test
 
-## The groups CI runs side by side (GROUP=components, ir or rest), so the
-## longest sets the wall clock rather than their sum. Together they run every
-## package's tests once: `rest` is every package the other two don't name, so
-## a new package lands there.
+## The four CI groups together run every package's tests once. The e3
+## renderer's Vitest files are sharded; its Node specs stay in `rest` once.
+## New packages land in `rest` automatically.
 TEST_GROUP_components := --filter=@elaraai/east-ui-components
 TEST_GROUP_ir := --filter=@elaraai/east-ui --filter=@elaraai/e3-ui
 TEST_GROUP_rest := --filter='./packages/*' --filter='./packages/east-ui-extension/webview' \
-                   --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui'
+                   --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui' \
+                   --filter='!@elaraai/e3-ui-components'
 
 ifneq ($(filter test-group,$(MAKECMDGOALS)),)
-ifeq ($(filter components ir rest,$(GROUP)),)
-$(error test-group needs GROUP=components, ir or rest)
+ifeq ($(filter components ir e3-components rest,$(GROUP)),)
+$(error test-group needs GROUP=components, ir, e3-components or rest)
 endif
 endif
 
-## Run one of CI's test groups, as its job does (GROUP=components, ir or rest)
+## Run one CI group; SHARD=n/4 applies to GROUP=e3-components only.
 test-group:
+ifeq ($(GROUP),e3-components)
+	pnpm --filter @elaraai/e3-ui-components run test:components $(if $(SHARD),--shard=$(SHARD))
+else
 	pnpm -r $(TEST_GROUP_$(GROUP)) run test
+ifeq ($(GROUP),rest)
+	pnpm --filter @elaraai/e3-ui-components run test:node
+endif
+endif
 
 ## Export east-ui's suites as IR to EAST_UI_TEST_IR, this checkout's
 ## tmp/east-ui-tests
@@ -217,7 +224,7 @@ help:
 	@echo ""
 	@echo "  build             - Build all packages"
 	@echo "  test              - Run tests"
-	@echo "  test-group GROUP=components|ir|rest - Run one of CI's three test groups"
+	@echo "  test-group GROUP=components|ir|e3-components|rest - Run a CI group (e3-components supports SHARD=n/4)"
 	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"

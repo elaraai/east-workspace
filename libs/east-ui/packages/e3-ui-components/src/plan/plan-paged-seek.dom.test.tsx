@@ -182,14 +182,14 @@ function pagedOf(root: PlanRootValue) {
 
 /** Wrap the compiled source so every window request is recorded, delegating to
  *  the real closure — the behaviour stays East's, only the calls are observed. */
-function withRecordedWindows(root: PlanRootValue): { root: PlanRootValue; asked: number[] } {
+function withRecordedWindows(root: PlanRootValue, pending: (offset: number) => boolean = () => false): { root: PlanRootValue; asked: number[] } {
     const asked: number[] = [];
     const paged = pagedOf(root);
     const spied = {
         ...paged,
         page: (offset: bigint, limit: bigint) => {
             asked.push(Number(offset) / PLAN_PAGE_SIZE);
-            return paged.page(offset, limit);
+            return pending(Number(offset)) ? none : paged.page(offset, limit);
         },
     };
     return { root: { ...root, rows: variant("paged", spied) }, asked };
@@ -267,7 +267,8 @@ describe("Plan paged random access (#567/#574/#577)", () => {
     test("seeking element 3,000 REBASES — the windows in between are never fetched", async () => {
         const restore = emulateWindowScroll();
         try {
-            const { root, asked } = withRecordedWindows(buildPagedPlan());
+            let holdHead = false;
+            const { root, asked } = withRecordedWindows(buildPagedPlan(), offset => holdHead && offset < TARGET - 2 * PLAN_PAGE_SIZE);
             const { container } = renderPlan(root, "plan-jump");
             await waitFor(() => {
                 expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
@@ -295,23 +296,28 @@ describe("Plan paged random access (#567/#574/#577)", () => {
                 expect(container.querySelector(unitRow(TARGET_KEY))).toBeTruthy();
             }, { timeout: 10_000 });
             expect(window.scrollY).toBeGreaterThan(0);
-            // ...and the head it left behind is described by a band, not by
-            // rows: scrolled back to the top, the band is what is there.
-            act(() => { window.scrollTo({ top: 0 }); });
-            const head = container.querySelector('[data-plan-window-band="head"]');
-            expect(head).toBeTruthy();
-            expect(Number(head!.getAttribute("data-plan-elements"))).toBeGreaterThan(2_000);
-            expect(container.querySelector(unitRow("u0000"))).toBeNull();
-
-            // The point of paging: it jumped, it did not walk. Everything between
-            // the opening ring and the target ring stayed unread.
+            // Record the jump's reads before scrolling elsewhere: returning
+            // to the head legitimately requests the opening windows again.
             const target = Math.floor(TARGET / PLAN_PAGE_SIZE);
             const newly = asked.filter((w) => !beforeJump.has(w));
             expect(newly.length).toBeGreaterThan(0);
             for (const w of newly) expect(w).toBeGreaterThanOrEqual(target - 2);
             expect(asked).not.toContain(8);
             expect(asked).not.toContain(10);
+
+            // The virtualizer publishes scroll updates independently of the
+            // native event. Keep the return-to-head read pending so observing
+            // its placeholder cannot race an immediate synchronous page load.
+            holdHead = true;
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => {
+                const head = container.querySelector('[data-plan-window-band="head"]');
+                expect(head).toBeTruthy();
+                expect(Number(head!.getAttribute("data-plan-elements"))).toBeGreaterThan(2_000);
+                expect(container.querySelector(unitRow("u0000"))).toBeNull();
+            });
         } finally {
+            cleanup();
             restore();
         }
     }, 30_000);
@@ -356,6 +362,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             expect(window.scrollY).toBe(readerAt);
             expect(container.querySelector(unitRow("u2850"))).toBeTruthy();
         } finally {
+            cleanup();
             restore();
         }
     }, 30_000);
@@ -492,6 +499,7 @@ describe("the same canvas inline and paged (#822)", () => {
             // One read of each window served both blocks.
             expect([...asked].sort((a, b) => a - b)).toEqual([0, 1]);
         } finally {
+            cleanup();
             if (own !== undefined) Object.defineProperty(window, "innerHeight", own);
             else delete (window as { innerHeight?: number }).innerHeight;
             restore();

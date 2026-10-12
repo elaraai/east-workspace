@@ -36,20 +36,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The packages' tests in the three groups libs/east-ui/Makefile names
-  # (`make test-group`), side by side, so the longest sets the wall clock
-  # rather than their sum: east-ui-components; east-ui and e3-ui; and the rest,
-  # every package the other two don't name, which also lints.
-  test:
-    name: test (${{ matrix.group }})
+  # Compile once. Every test job consumes this exact dependency/package build;
+  # renderer and browser shards never repeat compilation.
+  build:
+    name: shared build
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [components, ir, rest]
     env:
       NODE_OPTIONS: --max-old-space-size=4096
-
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +73,73 @@ jobs:
       - name: Build e3 (dependency)
         working-directory: libs/e3
         run: make build
+
+      - name: Build east-py-datascience TypeScript (dependency)
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
+
+      # `make lint` runs the East rules through eslint-plugin-east (#963),
+      # which loads east-diagnostics' rules from its dist.
+      - name: Build east-diagnostics (dependency)
+        working-directory: libs/east-diagnostics
+        run: make build
+
+      - name: Build eslint-plugin-east (dependency)
+        working-directory: libs/eslint-plugin-east
+        run: make build
+
+      - name: Build east-ui packages
+        working-directory: libs/east-ui
+        run: make build
+
+      - name: Package compiled workspaces
+        run: |
+          find libs/east libs/east-node libs/east-web libs/e3 libs/east-ui libs/east-py/packages/east-py-datascience libs/east-diagnostics libs/eslint-plugin-east \
+            -type d -name node_modules -prune -o -type d -name dist -print -prune > "$RUNNER_TEMP/east-ui-build-paths"
+          tar -cf "$RUNNER_TEMP/east-ui-build.tar" -T "$RUNNER_TEMP/east-ui-build-paths"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: east-ui-build
+          path: ${{ runner.temp }}/east-ui-build.tar
+          compression-level: 1
+          retention-days: 1
+
+  # Three package groups plus the separately sharded e3 renderer group cover
+  # every package once (see libs/east-ui/Makefile). `rest` also owns lint and
+  # the renderer's Node specs, and builds the CLI integration runners.
+  test:
+    needs: build
+    name: test (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [components, ir, rest]
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-build
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
 
       # e3-ui-cli's query-plans and query-equivalence specs send their calls to
       # every stock runner on PATH: east-node, which the package holds, east-c,
@@ -131,24 +191,6 @@ jobs:
         if: matrix.group == 'rest'
         run: east-py version
 
-      - name: Build east-py-datascience TypeScript (dependency)
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
-
-      # `make lint` runs the East rules through eslint-plugin-east (#963),
-      # which loads east-diagnostics' rules from its dist.
-      - name: Build east-diagnostics (dependency)
-        working-directory: libs/east-diagnostics
-        run: make build
-
-      - name: Build eslint-plugin-east (dependency)
-        working-directory: libs/eslint-plugin-east
-        run: make build
-
-      - name: Build east-ui packages
-        working-directory: libs/east-ui
-        run: make build
-
       - name: Lint
         if: matrix.group == 'rest'
         working-directory: libs/east-ui
@@ -163,13 +205,47 @@ jobs:
           E3_UI_INTEGRATION: "1"
         run: make test-group GROUP=${{ matrix.group }}
 
-  # The showcase's Playwright suite (#833): every catalog page at desktop and
-  # mobile, the shell, the code reference, the Plan's geometry and the load.
-  # Each shard runs the same `make test-responsive` a developer runs. Shards
-  # take an equal count of tests, and the slow ones (the e3 and catalog
-  # pages) sit together, so eight shards spread them where four left two
-  # shards with most of the suite.
+  e3-components:
+    needs: build
+    name: test (e3-components ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-build
+          path: ${{ runner.temp }}
+
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
+
+      # Node specs run once in test (rest); these four jobs cover every
+      # renderer Vitest file once, with two workers per runner.
+      - name: e3 renderer tests
+        working-directory: libs/east-ui
+        run: make test-group GROUP=e3-components SHARD=${{ matrix.shard }}/4
+
   responsive:
+    needs: build
     name: responsive (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     strategy:
@@ -193,30 +269,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build east (dependency)
-        working-directory: libs/east
-        run: make build
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-ui-build
+          path: ${{ runner.temp }}
 
-      - name: Build east-node (dependency)
-        working-directory: libs/east-node
-        run: make build
-
-      # e3-web, which e3 builds, runs East programs on east-web-std.
-      - name: Build east-web (dependency)
-        working-directory: libs/east-web
-        run: make build
-
-      - name: Build e3 (dependency)
-        working-directory: libs/e3
-        run: make build
-
-      - name: Build east-py-datascience TypeScript (dependency)
-        working-directory: libs/east-py/packages/east-py-datascience
-        run: pnpm run build
-
-      - name: Build east-ui packages
-        working-directory: libs/east-ui
-        run: make build
+      - name: Restore compiled workspaces
+        run: tar -xf "$RUNNER_TEMP/east-ui-build.tar"
 
       - name: Install Chromium
         working-directory: libs/east-ui
