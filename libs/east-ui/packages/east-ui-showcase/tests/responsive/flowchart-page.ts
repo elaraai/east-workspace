@@ -175,6 +175,10 @@ export async function boxOf(locator: Locator): Promise<Box> {
  * @returns Where the card was pressed
  */
 export async function pickUp(page: Page, card: Locator): Promise<{ x: number; y: number }> {
+    // Opening a tab can scroll the document after an earlier drop. Locator
+    // hover brings the card into view and waits for a stable, reachable hit
+    // target; raw mouse coordinates alone can press below the viewport.
+    await card.hover();
     const box = await boxOf(card);
     const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.move(at.x, at.y);

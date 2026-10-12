@@ -555,6 +555,12 @@ test.describe("Visual invariants — the Table", () => {
             for (let i = 0; i < 20 && await closed.count() > 0; i++) await closed.first().click();
             await expect(closed).toHaveCount(0);
             await settled(page);
+            // Opening a branch rotates its button. The row layout can already
+            // be stable while that rotation still widens its bounding box.
+            // Measure the final geometry after the actual transitions finish.
+            await entry.locator("[data-slot='treeToggle']").evaluateAll(async toggles => {
+                await Promise.all(toggles.flatMap(toggle => toggle.getAnimations().map(animation => animation.finished)));
+            });
             const read = await entry.evaluate((root, step) => {
                 const out: string[] = [];
                 const trs = [...root.querySelectorAll<HTMLElement>("tbody tr[data-depth]")];
@@ -655,6 +661,12 @@ test.describe("Visual invariants — the Matrix", () => {
             for (let i = 0; i < 20 && await closed.count() > 0; i++) await closed.first().click();
             await expect(closed).toHaveCount(0);
             await settled(page);
+            // Opening a branch rotates its button. The row layout can already
+            // be stable while that rotation still widens its bounding box.
+            // Measure the final geometry after the actual transitions finish.
+            await entry.locator("[data-slot='treeToggle']").evaluateAll(async toggles => {
+                await Promise.all(toggles.flatMap(toggle => toggle.getAnimations().map(animation => animation.finished)));
+            });
             const read = await entry.evaluate((root, step) => {
                 const out: string[] = [];
                 const rows = [...root.querySelectorAll<HTMLElement>("[data-row-key][data-depth]")].map((el) => {
