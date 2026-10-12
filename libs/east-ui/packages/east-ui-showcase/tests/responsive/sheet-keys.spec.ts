@@ -26,8 +26,8 @@ import { settled } from "./settle";
 
 /** Open one Sheet example's page — a route under `e3/sheet/` — and return its
  *  entry (the virtualized doc row holding its anchor and its live sheet). */
-async function openExample(page: Page, route: string): Promise<Locator> {
-    await page.goto(`/#e3/sheet/${route}`);
+async function openExample(page: Page, route: string, theme: "light" | "dark" = "light"): Promise<Locator> {
+    await page.goto(`/?theme=${theme}#e3/sheet/${route}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     const entry = page.locator("[data-index]", { has: page.locator(`a[href="#e3/sheet/${route}"]`) });
@@ -97,6 +97,48 @@ function ring(entry: Locator): Promise<{ key: string | null; sideways: boolean; 
 }
 
 test.describe("the Sheet's ring stays on screen (#860)", () => {
+    for (const theme of ["light", "dark"] as const) {
+        test(`all four selection edges stay visible beside the gutter and beneath the header (${theme})`, async ({ page, isMobile }) => {
+            const entry = await openExample(page, `sheet-records/sheetRecordIndexes${isMobile ? "Mobile" : ""}`, theme);
+            for (const row of [0, 3]) {
+                const cell = entry.locator("[data-slot=row]").nth(row).locator("[data-slot=cell]").first();
+                await pressCell(page, cell);
+                await expect(cell.locator("[data-slot=ring]")).toHaveCount(1);
+                const paint = await cell.evaluate(el => {
+                    const ring = el.querySelector<HTMLElement>("[data-slot=ring]")!;
+                    const box = ring.getBoundingClientRect();
+                    const cell = el.getBoundingClientRect();
+                    const row = el.closest("[data-slot=row]")!;
+                    const rows = Array.from(el.closest("[data-sheet-card]")!.querySelectorAll("[data-slot=row]"));
+                    const next = rows[rows.indexOf(row) + 1]!.getBoundingClientRect();
+                    const shadow = getComputedStyle(ring).boxShadow;
+                    const edges = [
+                        [(box.left + box.right) / 2, box.top + .5],
+                        [box.right - .5, (box.top + box.bottom) / 2],
+                        [(box.left + box.right) / 2, box.bottom - .5],
+                        [box.left + .5, (box.top + box.bottom) / 2],
+                    ];
+                    // Let hit-testing expose whether another painted layer
+                    // covers an edge; restore the non-interactive ring at once.
+                    const pointerEvents = ring.style.pointerEvents;
+                    ring.style.pointerEvents = "auto";
+                    try {
+                        return {
+                            shadow,
+                            rowGap: next.top - row.getBoundingClientRect().bottom,
+                            inside: box.left >= cell.left && box.top >= cell.top && box.right <= cell.right && box.bottom <= cell.bottom,
+                            uncovered: edges.map(([x, y]) => document.elementFromPoint(x, y) === ring),
+                        };
+                    } finally { ring.style.pointerEvents = pointerEvents; }
+                });
+                expect(paint.shadow).toMatch(/0px 0px 0px 2px inset$/);
+                expect(paint.inside).toBe(true);
+                expect(paint.rowGap).toBeGreaterThanOrEqual(0);
+                expect(paint.uncovered).toEqual([true, true, true, true]);
+            }
+        });
+    }
+
     test("End brings the last column into view sideways, and Home the first — in the frame's main", async ({ page }) => {
         const entry = await openExample(page, "sheet/sheetWorkshop");
         // A press puts the ring on the first order's first operation — a line, never its band; a press never scrolls (the cell is under the pointer).
@@ -127,6 +169,11 @@ test.describe("the Sheet's ring stays on screen (#860)", () => {
         expect(await frame.evaluate((el) => el.scrollHeight > el.clientHeight), "the rows run past the frame's bottom").toBe(true);
         await pressCell(page, entry.locator("[data-sheet-card] [data-slot='row'] [data-slot='cell']").first());
         await expect.poll(async () => (await ring(entry)).key).toBe("task");
+        // Centering the first cell can leave the frame's foot below the
+        // phone's viewport. Test the sheet's own scroll with its frame in view.
+        await frame.scrollIntoViewIfNeeded();
+        await settled(page);
+        expect((await frame.boundingBox())!.y + (await frame.boundingBox())!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
         for (let i = 0; i < 30; i++) await page.keyboard.press("ArrowDown");
         await expect.poll(async () => (await ring(entry)).down).toBe(true);
         expect(await frame.evaluate((el) => el.scrollTop > 0), "the frame scrolled to the ring's row").toBe(true);

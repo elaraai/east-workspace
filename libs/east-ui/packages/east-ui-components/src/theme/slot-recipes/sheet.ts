@@ -29,9 +29,10 @@
  *     on a 2 px brand insertion line. States:
  *     hover `bg.panel` · picked `brandTint` · group band `bg.panel` · dirty 8 %
  *     warn. A group's identity is its band and the connector — no per-group colour.
- *   - Cells: min-height 36, padding 6/10, 1 px `border.subtle` bottom and
- *     right; text 13 `fg`; mono values 12; ghosts `fg.subtle`; unit mono 9.5.
- *   - Selection: 2 px inset brand ring at inset −1; range wash brandTint at
+ *   - Rows: density height including the 1 px bottom rule. Cells leave room
+ *     for that rule, with padding 6/10 and a 1 px `border.subtle` right edge;
+ *     text 13 `fg`; mono values 12; ghosts `fg.subtle`; unit mono 9.5.
+ *   - Selection: 2 px brand ring inside the cell; range wash brandTint at
  *     .55; the editor overlays at inset −1 with a 2 px ring (z 10); a parse
  *     error ring in the neg hue (z 11). The ring IS the field chrome: the
  *     common fields it holds (the date field's segments, the number field
@@ -810,7 +811,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         cell: {
             position: "relative",
-            minHeight: "36px",
+            // The virtual row height includes its bottom rule. Adding that
+            // pixel twice overlaps the next row and hides the selection edge.
+            minHeight: "calc({sizes.density.row.md} - 1px)",
             paddingX: "10px",
             paddingY: "6px",
             display: "flex",
@@ -926,14 +929,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         ring: {
             position: "absolute",
-            inset: "-1px",
+            // Stay inside every cell edge: adjacent isolated rows and the
+            // sticky header/gutter must never cover part of the 2 px ring.
+            inset: "0",
             boxShadow: "inset 0 0 0 2px var(--chakra-colors-brand-solid)",
             pointerEvents: "none",
             zIndex: "4",
-            // The row under the sticky header: the header would cover the ring's top pixel, so it stays inside the cell.
-            "[data-first] &": { top: "0" },
-            // Keep both pixels visible beside the sticky gutter, including group titles.
-            "[data-slot=gutter] + [data-slot=cell] > &": { left: "0" },
         },
         rangeWash: {
             position: "absolute",
@@ -1857,9 +1858,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { cell: { minHeight: "27px", paddingY: "3px", paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
+            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
             md: {},
-            lg: { cell: { minHeight: "42px", paddingY: "9px", paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
+            lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
         },
     },
     defaultVariants: { size: "md" },
