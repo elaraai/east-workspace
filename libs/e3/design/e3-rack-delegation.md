@@ -30,15 +30,15 @@ cloud control plane participates in a local lease. Separate agents occupy
 independent worker VMs, with separate identities, encrypted source configuration
 and host-enforced resource allocations. Their number and whole-GPU assignments
 are mutable through the host lifecycle. There is no cross-agent task scheduler.
-Multiple mutually trusted sources per agent are a companion implementation goal;
-the managed runtime currently accepts one source, and untrusted clients require
-separate worker VMs.
+The companion managed runtime supports up to 32 mutually trusted sources per
+agent. Untrusted clients require separate worker VMs.
 
 ## Package layout
 
 `@elaraai/e3-rack` owns protocol, identity, registry, leases, routes, hub,
 client, routing and runner adapters. Its root exports the public local APIs;
-`./protocol` exports shared wire types; `./testing` exports the real-runner
+`./protocol` exports shared wire types; `./server` exports shared control-plane
+mechanisms without local hub/filesystem/runner adapters; `./testing` exports the real-runner
 test agent and contract suites; `./hub-main` starts the hub process. Core only
 knows the optional task-body hook; it has no dependency on rack code.
 
@@ -81,7 +81,10 @@ same canonical repository and release shares one lease. A late subscriber
 receives its current claim. A live compatible session takes over repository
 operations when an owner departs. Per-lease fences cover attempt transitions,
 commits, cancellation and logs; registration fences cover heartbeat/removal
-and boot approval. v2 completion lacks an attempt identity, so a prior
+and boot approval. Shared registration patches also use the registry's atomic
+`compareAndSetRack`, so distributed control planes preserve concurrent changes
+and never recreate a revoked identity. Its contract suite covers every backend;
+no wire or file schema changes. v2 completion lacks an attempt identity, so a prior
 claimant cannot reclaim the same lease and ambiguously complete a new attempt.
 
 The storage bridge proxies streams through a live session. Capabilities are
@@ -133,7 +136,7 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 | Infrastructure failure or lost lease | End the rack attempt and run locally with a fresh execution identity. |
 | Timeout | Record an error; no local retry. The host also enforces the deadline. |
 | One subscriber cancels | Detach it and record its cancellation; preserve shared work. |
-| Last subscriber cancels | Cancel lease, stop on the agent's next heartbeat, record cancelled; no local retry. |
+| Last subscriber cancels | Cancel lease, notify the agent's cancellation watch, record cancelled; no local retry. |
 | Hub dies | Local fallback; existing owner liveness rules identify the dead hub's attempt. |
 
 Results retain the usual execution identity, unit flag, output, peak memory and

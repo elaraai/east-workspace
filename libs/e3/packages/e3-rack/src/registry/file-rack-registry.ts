@@ -59,21 +59,40 @@ export class FileRackRegistry implements RackRegistry {
     const rack = copyRegistration(registration);
     return this.queue.run(async () => {
       await this.ready;
-      const old = this.state.racks.get(rack.rackId);
-      const heartbeatOnly = old !== undefined && equal(old, { ...rack, lastSeenAt: old.lastSeenAt, healthy: old.healthy, agentVersion: old.agentVersion });
-      const next = decode(encode(this.state));
-      next.racks.set(rack.rackId, rack);
-      if (!heartbeatOnly || this.now() - this.lastWrite >= 30_000) await this.write(next);
-      else {
-        this.state = next;
-        this.dirty = true;
-        this.timer ??= setTimeout(() => {
-          this.timer = undefined;
-          void this.flush().catch((err: unknown) => { this.failure = err; });
-        }, Math.max(1, 30_000 - (this.now() - this.lastWrite)));
-        this.timer.unref();
-      }
+      await this.replace(rack);
     });
+  }
+
+  /** {@inheritDoc RackRegistry.compareAndSetRack} */
+  async compareAndSetRack(expected: RackRegistration, registration: RackRegistration): Promise<boolean> {
+    if (expected.rackId !== registration.rackId) throw new Error('Rack identity cannot change');
+    const before = copyRegistration(expected);
+    const rack = copyRegistration(registration);
+    return this.queue.run(async () => {
+      await this.ready;
+      const current = this.state.racks.get(before.rackId);
+      if (current === undefined || !equal(current, before)) return false;
+      await this.replace(rack);
+      return true;
+    });
+  }
+
+  /** Applies a replacement under the mutation queue, preserving heartbeat coalescing. */
+  private async replace(rack: RackRegistration): Promise<void> {
+    const old = this.state.racks.get(rack.rackId);
+    const heartbeatOnly = old !== undefined && equal(old, { ...rack, lastSeenAt: old.lastSeenAt, healthy: old.healthy, agentVersion: old.agentVersion });
+    const next = decode(encode(this.state));
+    next.racks.set(rack.rackId, rack);
+    if (!heartbeatOnly || this.now() - this.lastWrite >= 30_000) await this.write(next);
+    else {
+      this.state = next;
+      this.dirty = true;
+      this.timer ??= setTimeout(() => {
+        this.timer = undefined;
+        void this.flush().catch((err: unknown) => { this.failure = err; });
+      }, Math.max(1, 30_000 - (this.now() - this.lastWrite)));
+      this.timer.unref();
+    }
   }
 
   deleteRack(id: string): Promise<boolean> {

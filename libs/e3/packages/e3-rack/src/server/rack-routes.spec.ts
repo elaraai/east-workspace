@@ -296,8 +296,8 @@ it('does not resurrect a rack when revocation overlaps an in-flight heartbeat up
   const f = await fixture();
   const { rackId } = await f.enroll();
   const entered = deferred(); const release = deferred();
-  const put = f.registry.putRack.bind(f.registry);
-  f.registry.putRack = async (rack) => { entered.resolve(); await release.promise; await put(rack); };
+  const replace = f.registry.compareAndSetRack.bind(f.registry);
+  f.registry.compareAndSetRack = async (expected, rack) => { entered.resolve(); await release.promise; return replace(expected, rack); };
   const heartbeat = f.heartbeat();
   await entered.promise;
   const revoked = f.coordinator.run('@rack', rackId, () => f.registry.deleteRack(rackId));
@@ -306,6 +306,37 @@ it('does not resurrect a rack when revocation overlaps an in-flight heartbeat up
   assert.equal(await revoked, true);
   assert.equal(await f.registry.getRack(rackId), null);
   assert.equal((await f.heartbeat()).status, 401);
+});
+
+it('does not recreate a rack revoked by another control-plane process during a heartbeat', async () => {
+  const f = await fixture();
+  const { rackId } = await f.enroll();
+  const read = f.registry.getRack.bind(f.registry);
+  let reads = 0;
+  f.registry.getRack = async (id) => {
+    const current = await read(id);
+    if (++reads === 2) await f.registry.deleteRack(id);
+    return current;
+  };
+  assert.equal((await f.heartbeat()).status, 401);
+  assert.equal(await f.registry.getRack(rackId), null);
+});
+
+it('preserves a concurrent drain while updating a polling rack\'s advertised tiers', async () => {
+  const f = await fixture();
+  const { rackId } = await f.enroll();
+  const read = f.registry.getRack.bind(f.registry);
+  let reads = 0;
+  f.registry.getRack = async (id) => {
+    const current = await read(id);
+    if (++reads === 2) await f.registry.putRack({ ...current!, healthy: false, capacity: 0n });
+    return current;
+  };
+  assert.equal((await f.raw('lease', RackLeaseRequestType, { tiers: ['node', 'py'], bootId: 'boot' })).status, 204);
+  const current = (await f.registry.getRack(rackId))!;
+  assert.equal(current.healthy, false);
+  assert.equal(current.capacity, 0n);
+  assert.deepEqual(current.tiers, ['node', 'py']);
 });
 
 it('activates zero-capacity enrollment, preserves busy capacity, and withdraws it on drain and stale heartbeats', async () => {

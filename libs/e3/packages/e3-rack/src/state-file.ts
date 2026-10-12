@@ -15,20 +15,7 @@ const Envelope = StructType({ release: StringType, format: IntegerType, value: B
 const encode = encodeBeast2For(Envelope);
 const decode = decodeBeast2For(Envelope);
 
-/** Serializes a store's mutations; failed mutations do not poison the queue. @internal */
-export class MutationQueue {
-  private tail: Promise<unknown> = Promise.resolve();
-
-  /** Runs the operation after every preceding operation has settled. */
-  run<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.tail.then(operation);
-    this.tail = result.catch(() => undefined);
-    return result;
-  }
-
-  /** Waits for all operations already queued. */
-  async idle(): Promise<void> { await this.tail; }
-}
+export { MutationQueue } from './mutation-queue.js';
 
 /** Reads a hub state payload, refusing an unknown format. @internal */
 export async function readStateFile(file: string): Promise<Uint8Array | null> {

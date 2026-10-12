@@ -305,8 +305,20 @@ override eligibility.
 
 Public package entries are `@elaraai/e3-rack` (local hub/client/routing/runner
 APIs), `@elaraai/e3-rack/protocol` (wire types),
+`@elaraai/e3-rack/server` (shared control-plane mechanisms without local hub startup),
 `@elaraai/e3-rack/testing` (test agent and contracts), and
 `@elaraai/e3-rack/hub-main` (hub process entry point).
+
+Hosts adopt shared routes, dispatch, identity and store interfaces through the
+server entry; this avoids importing the local hub's filesystem/runner adapters.
+They implement `RackRegistry.compareAndSetRack`:
+replace exactly the observed registration, atomically, and refuse a missing or
+changed record. `updateRack` retries a patch against the latest value. This
+preserves revocation, boot approval and drain state across concurrent requests;
+a process-local coordinator alone cannot protect a distributed control plane.
+Run `rackRegistryContract` from the testing entry against each backend. The file
+registry retains its single-writer hub lock and heartbeat coalescing. This changes
+no persisted or wire schema.
 
 This implementation targets e3-cloud main at
 `43d9ac9d9a423b69450320f6a802a8191ffefd53`, with v2 task/unit leases and

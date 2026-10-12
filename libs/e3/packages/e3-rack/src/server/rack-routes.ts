@@ -67,7 +67,7 @@ import {
   type RackWriteTarget,
 } from '../protocol/index.js';
 import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
-import type { RackRegistry } from '../registry/rack-registry.js';
+import { updateRack, type RackRegistry } from '../registry/rack-registry.js';
 import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
 import type { RackStorageBridge } from './storage-bridge.js';
@@ -334,13 +334,7 @@ export function createRackRoutes(
 
   /** Serialize registration patches with revocation. Only heartbeats refresh health. */
   const touchRack = (rackId: string, patch: (registration: RackRegistration) => Partial<RackRegistration> = () => ({})): Promise<RackRegistration | null> =>
-    coordinator.run('@rack', rackId, async () => {
-      const registration = await settingsStore.getRack(rackId);
-      if (registration === null) return null;
-      const updated = { ...registration, ...patch(registration) };
-      await settingsStore.putRack(updated);
-      return updated;
-    });
+    coordinator.run('@rack', rackId, () => updateRack(settingsStore, rackId, patch));
 
   // POST /api/rack/enroll — exchange a single-use enrollment token for a
   // long-lived rack token. The enrollment token is the sole authentication.

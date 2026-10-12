@@ -4,7 +4,7 @@
  */
 
 import { DateTimeType, DictType, NullType, OptionType, StringType, StructType, VariantType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from '@elaraai/east';
-import { MutationQueue } from '../state-file.js';
+import { MutationQueue } from '../mutation-queue.js';
 import type { MachineIdentityStore, RackTokenRecord } from './machine-identity.js';
 
 /** The hub's credentials, hashed at rest. */

@@ -11,6 +11,14 @@ import { join } from 'node:path';
 import { equalFor, none, some } from '@elaraai/east';
 import { RackRegistrationType, type RackRegistration } from '../protocol/registration.js';
 import { FileRackRegistry } from './file-rack-registry.js';
+import { rackRegistryContract } from '../testing/rack-registry-contract.js';
+
+rackRegistryContract('file', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'e3r-registry-'));
+  const registry = new FileRackRegistry(home);
+  t.after(async () => { await registry.flush(); await rm(home, { recursive: true, force: true }); });
+  return registry;
+});
 
 it('persists enrollment and revocation immediately and coalesces only heartbeat fields', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'e3r-'));
@@ -27,7 +35,8 @@ it('persists enrollment and revocation immediately and coalesces only heartbeat 
   const before = await readFile(file);
   for (let i = 0; i < 8; i++) {
     now += 1000;
-    await registry.putRack({ ...rack, lastSeenAt: new Date(now), agentVersion: '0.5.1', healthy: false });
+    const before = (await registry.getRack('rack'))!;
+    assert.equal(await registry.compareAndSetRack(before, { ...before, lastSeenAt: new Date(now), agentVersion: '0.5.1', healthy: false }), true);
   }
   assert.deepEqual(await readFile(file), before);
   assert.equal((await registry.getRack('rack'))?.healthy, false);
