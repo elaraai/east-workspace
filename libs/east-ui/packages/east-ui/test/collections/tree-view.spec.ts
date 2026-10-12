@@ -47,12 +47,12 @@ describe("TreeView", (test) => {
     });
 
     test("creates item with indicator", $ => {
-        const item = $.let(TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }));
+        const item = $.let(TreeView.Item("readme", "README.md", { prefix: "fas", name: "file" }));
 
         $(Assert.equal(item.unwrap().unwrap("Item").value, "readme"));
         $(Assert.equal(item.unwrap().unwrap("Item").indicator.hasTag("some"), true));
         $(Assert.equal(item.unwrap().unwrap("Item").indicator.unwrap("some").name, "file"));
-        $(Assert.equal(item.unwrap().unwrap("Item").indicator.unwrap("some").prefix, "far"));
+        $(Assert.equal(item.unwrap().unwrap("Item").indicator.unwrap("some").prefix, "fas"));
     });
 
     test("creates item with colored indicator", $ => {
@@ -271,8 +271,8 @@ describe("TreeView", (test) => {
                 ], { prefix: "fas", name: "folder", color: "fg.warning" }),
                 TreeView.Item("index", "index.ts", { prefix: "fas", name: "file-code", color: "link" }),
             ], { prefix: "fas", name: "folder", color: "fg.warning" }),
-            TreeView.Item("package", "package.json", { prefix: "far", name: "file" }),
-            TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
+            TreeView.Item("package", "package.json", { prefix: "fas", name: "file" }),
+            TreeView.Item("readme", "README.md", { prefix: "fas", name: "file" }),
         ], {
             label: "Project",
             variant: "subtle",

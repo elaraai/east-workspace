@@ -13,7 +13,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid } from "../../display/icon/types.js";
 import {
     NavListType,
     NavSectionType,
@@ -48,6 +48,8 @@ export {
  *   from data — a rail of the pages a record holds, say
  * @param style - Optional configuration (`onSelect`, `surface`, `background`)
  * @returns An East expression representing the NavList
+ * @throws When an item's icon is not a Font Awesome solid icon — East UI draws
+ *   the solid set only (#1263)
  *
  * @remarks
  * Pure callback primitive: emits `onSelect(key)` when an item is
@@ -88,6 +90,7 @@ function createNavList(
             label: s.label !== undefined ? some(s.label) : none,
             items: East.value(
                 s.items.map(it => {
+                    refuseNonSolid("NavList item icon", it.icon);
                     const iconExpr = it.icon !== undefined
                         ? some(East.value({
                             prefix: it.icon.prefix,

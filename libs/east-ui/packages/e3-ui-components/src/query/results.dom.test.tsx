@@ -11,26 +11,29 @@
  *
  * - **R1**: a run is one one-shot call over the root, the counting program in
  *   the visual view and the jq in the jq view; a new run abandons the old;
- *   opening a saved query runs it, an edit or a new query never does.
+ *   opening a saved query runs it, an edit or a new query never does; before
+ *   any run the empty state's mark is Font Awesome's play (#1263).
  * - **R2, R8**: a fresh visual run counts the shape lines — 40, 16, 16, 16, 16
  *   and 10 for the default query.
  * - **R3**: an edit makes the result stale — the banner, the dashed body, the
  *   shape lines plain again.
  * - **R4**: each way a run gives no result, worded.
  * - **R5**: the footer — the count, the fields, the run, what it read.
- * - **R6**: downloads — the CSV's text and name, the BEAST2's bytes.
+ * - **R6**: downloads — the CSV's text and name, the BEAST2's bytes; the note
+ *   after one closed by Font Awesome's xmark, named Close (#1263).
  * - **R7**: the Table and the Value tree through the production renderers,
  *   picked by the result and overridden by the toolbar until the next run.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { ArrayType, IntegerType, StructType, decodeBeast2, decodeEastIR, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, variant } from "@elaraai/east";
 import { ApiError } from "@elaraai/e3-api-client";
 import type { ExecuteResult } from "@elaraai/e3-types";
+import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import type { QueryCall } from "./hooks.js";
 import {
-    FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
+    act, FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
 } from "./query.test-utils.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
@@ -120,6 +123,9 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
         const fixture = fixtureCall({ hold: true });
         await mountBuilder(fixture.call);
         expect([fixture.requests.length, results().querySelector("[data-query-results-idle]") !== null, footer().count]).toEqual([0, true, "No result yet"]);
+        // The idle state's mark is Font Awesome's play — Run is the way to a result — never a written ⏎ (#1263).
+        const idle = results().querySelector<HTMLElement>("[data-query-results-idle]")!;
+        expect(markOf(within(idle).getByRole("heading").parentElement!.previousElementSibling)).toBe("fas play");
         await openQuery(variant("saved", TOP.name));
         expect(fixture.requests).toHaveLength(1);
         expect(results().querySelector("[data-query-results-running]")!.textContent).toBe("Reading customers and orders");
@@ -295,6 +301,12 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
             expect(fromEastTypeValue(typed.type).type).toBe("Array");
             expect(equalFor(ArrayType(Row))((typed.value as { order: bigint }[]).map((r) => ({ order: r.order })), expected.map((r) => ({ order: r.order })))).toBe(true);
             expect(banners()).toEqual(["Downloaded top-shipped-orders-2026.beast2 — the result as the run returned it, with its type."]);
+            // The note's close is Font Awesome's xmark, named Close, and closes it (#1263).
+            const note = document.querySelector<HTMLElement>("[data-query-strips] [role=status]")!;
+            const close = within(note).getByRole("button", { name: "Close" });
+            expect([markOf(close), foreignIcons(note)]).toEqual(["fas xmark", []]);
+            await act(async () => { fireEvent.click(close); });
+            expect(banners()).toEqual([]);
             // A text with a comma is quoted, RFC 4180's way; and a jq run's BEAST2 is the bytes the run returned.
             await typeJq(".orders[:2] | map({order: .id, note: \"big, shipped\"})");
             await run();

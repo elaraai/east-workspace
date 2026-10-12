@@ -6,6 +6,14 @@
 /**
  * Pagination slot recipe — numbered page chips with prev/next triggers.
  *
+ * The root is the room the pagination is given (#1268): its container's full
+ * inline size whichever form it draws, never held open by what it draws, so
+ * the renderer's compact form — the `page / total` readout below 360px —
+ * reads the room. Its bar holds prev, the page strip or the readout, and
+ * next, laid out as the root was; the bar sits in the room where the
+ * container would place the pagination — a flex container's own
+ * justification (the configurator's stage centres it), the start otherwise.
+ *
  * @packageDocumentation
  */
 
@@ -14,9 +22,10 @@ import { coarseHitArea } from "../../style/hit-area.js";
 
 export const paginationSlotRecipe = defineSlotRecipe({
     className: "elara-pagination",
-    slots: ["root", "item", "ellipsis", "prevTrigger", "nextTrigger"],
+    slots: ["root", "bar", "item", "ellipsis", "prevTrigger", "nextTrigger"],
     base: {
-        root: { display: "inline-flex", alignItems: "center", gap: "{spacing.1}" },
+        root: { display: "flex", justifyContent: "inherit", width: "full", minWidth: 0 },
+        bar: { display: "flex", alignItems: "center", gap: "{spacing.1}" },
         item: {
             display: "inline-flex",
             alignItems: "center",

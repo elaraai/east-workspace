@@ -22,6 +22,10 @@ import './studio/library.js';             // → implementUIComponent(StudioLibr
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
+import './calendar/index.js';
+import './roster/index.js';
+import './plan/index.js';                 // → implementUIComponent(PlanComponent, EastChakraPlanPayload)
+import './sheet/frame/index.js';          // → implementUIComponent(SheetComponent, EastChakraSheet)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -106,6 +110,55 @@ export {
 } from './query/hooks.js';
 export * from './query/calls.js';
 
+// The Plan (#1177, #1191, #1193) — its renderer registers itself against the
+// Plan extension on import, and lays the canvas out in its frame — and its
+// words (#820): the message table, and the provider that overrides it for a
+// subtree (its locale is react-aria's `I18nProvider`).
+export {
+    EastChakraPlan,
+    EastChakraPlanPayload,
+    type EastChakraPlanProps,
+    type EastChakraPlanPayloadProps,
+    type PlanValue,
+    type PlanRootValue,
+    type PlanRowValue,
+} from './plan/index.js';
+export {
+    PlanMessagesProvider,
+    planMessages,
+    type PlanMessages,
+    type PlanMessagesProviderProps,
+    type PlanAxisWord,
+    type PlanChartLayerWord,
+    type PlanFocusTagWord,
+    type PlanGrainWord,
+    type PlanHorizonUnit,
+    type PlanMarkWord,
+    type PlanPart,
+    type PlanStateWord,
+} from './plan/messages.js';
+
+// The Sheet (#1179, #1216) — its renderer registers itself against the Sheet
+// extension on import, and lays the sheet out in its frame — and its words
+// (#861): the message table, and the provider that overrides it for a
+// subtree (its locale is react-aria's `I18nProvider`).
+export { EastChakraSheet, type EastChakraSheetProps, type SheetValue } from './sheet/frame/index.js';
+export type { SheetRootValue, SheetRowValue, SheetCellValue } from './sheet/index.js';
+export {
+    SheetMessagesProvider,
+    sheetMessages,
+    type SheetMessages,
+    type SheetMessagesProviderProps,
+    type SheetArityWord,
+    type SheetHalfWord,
+    type SheetHistoryWord,
+    type SheetInspectorTabWord,
+    type SheetLevelWord,
+    type SheetLibraryTabWord,
+    type SheetScopeWord,
+    type SheetToneWord,
+} from './sheet/messages.js';
+
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';
 export { InputPreview, type InputPreviewProps } from './components/InputPreview.js';
@@ -127,3 +180,9 @@ export { VirtualizedLogViewer, type VirtualizedLogViewerProps, type LogMatches }
 // A preview's controls, drawn in its host's header (#1209): the handle the
 // host gives a preview as `controls`, and what a log view does for it.
 export { usePreviewControls, type PreviewControls, type LogViewerControls } from './components/preview-controls.js';
+
+// The e3 record Calendar registers its extension on import.
+export { EastChakraCalendar, type EastChakraCalendarProps, type CalendarValue } from "./calendar/index.js";
+
+// The record-backed staffing roster, with its internal shared builder frame.
+export { EastChakraRoster, type EastChakraRosterProps, type RosterValue } from "./roster/index.js";

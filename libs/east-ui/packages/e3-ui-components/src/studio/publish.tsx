@@ -26,7 +26,9 @@
  *
  * Its layout, its bar and its banner are the `studioPublish` recipe's — the
  * banner the design system's, on the theme's banner layer styles — and its
- * buttons the `button` recipe's.
+ * buttons the `button` recipe's. Every mark is Font Awesome's, never a text
+ * glyph (#1263): a change's sign its plus, minus or plus-minus, the banner's
+ * the paired status icon of its tone.
  *
  * @packageDocumentation
  */
@@ -34,7 +36,9 @@
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronDown, faDesktop, faMobileScreen, faTabletScreenButton } from "@fortawesome/free-solid-svg-icons";
+import {
+    faChevronDown, faCircleCheck, faDesktop, faMinus, faMobileScreen, faPlus, faPlusMinus, faTabletScreenButton, faTriangleExclamation,
+} from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioPublishPayloadType } from "@elaraai/e3-ui/internal";
 import { useFormatters } from "@elaraai/east-ui-components";
@@ -210,7 +214,7 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                                             return (
                                                 <Box as="li" key={`${row.change.value.cell}-${kind}-${i}`} css={styles.change} data-publish-change={kind}>
                                                     <Box as="span" css={styles.sign} data-sign={kind} aria-hidden>
-                                                        {kind === "added" ? "+" : kind === "removed" ? "−" : "±"}
+                                                        <FontAwesomeIcon icon={kind === "added" ? faPlus : kind === "removed" ? faMinus : faPlusMinus} />
                                                     </Box>
                                                     <Box css={styles.changeText}>
                                                         <Box as="span" css={styles.changeLine}>
@@ -227,7 +231,9 @@ export const StudioPublishPreview = memo(function StudioPublishPreview({ value, 
                                 {standing === "ready" && live !== undefined && (
                                     <Box css={styles.banner} layerStyle={tone === "change" ? "banner.change" : "banner.guard"}
                                         data-tone={tone} role={tone === "warning" ? "alert" : "status"} data-publish-banner={tone}>
-                                        <Box as="span" css={styles.bannerGlyph} aria-hidden>{tone === "change" ? "△" : "!"}</Box>
+                                        <Box as="span" css={styles.bannerIcon} aria-hidden>
+                                            <FontAwesomeIcon icon={tone === "change" ? faCircleCheck : faTriangleExclamation} />
+                                        </Box>
                                         <Box as="span" css={styles.bannerText}>
                                             {tone === "change" ? m.logicUnchanged() : m.logicChangedIn({ version: liveVersion, components: changed })}
                                         </Box>

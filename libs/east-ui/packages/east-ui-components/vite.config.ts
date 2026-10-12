@@ -20,6 +20,14 @@ export default defineConfig({
         // `Data.bind` runtime) register implementations without pulling in the
         // component barrel (Chakra, overlays, react-markdown → `document`).
         platform: resolve(__dirname, 'src/platform.ts'),
+        // `@elaraai/east-ui-components/internal` — the renderers' shared
+        // building blocks, for the sibling renderer packages (e3-ui-components'
+        // Plan and Sheet, #1177, #1179). Not an app API.
+        internal: resolve(__dirname, 'src/internal.ts'),
+        // `@elaraai/east-ui-components/testing` — the renderer tests' DOM
+        // helpers (React's `act` and the DOM, no test framework), for the
+        // sibling renderer packages' tests.
+        testing: resolve(__dirname, 'src/testing.ts'),
       },
       name: 'EastUIReact',
       formats: ['es', 'cjs'],
@@ -31,6 +39,11 @@ export default defineConfig({
         'react-dom',
         'react/jsx-runtime',
         '@chakra-ui/react',
+        // The locale's context, as React's and Chakra's: one for every
+        // renderer package. The sibling packages' renderers (e3-ui-components'
+        // Plan) read it too, and the host's one `I18nProvider` must reach them
+        // all — bundled, each package would hold a context of its own.
+        '@react-aria/i18n',
         'shiki',
       ].includes(id) || id.startsWith('node:') || id.startsWith('@elaraai/')
         // Self-hosted brand fonts — leave the `import "@fontsource-variable/*"`

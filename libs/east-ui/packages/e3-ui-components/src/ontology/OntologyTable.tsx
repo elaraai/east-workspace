@@ -21,6 +21,12 @@
  * - clicking a chip or the expanded "open" affordance selects the node in
  *   the shared properties drawer.
  *
+ * What a collapse hides — a row's flow detail, a group's body, the graph
+ * warnings — stays mounted, so it animates open and shut, and is `inert`
+ * while shut: out of the tab order, the accessibility tree and the pointer's
+ * way (#1270). Each such region says which it is (`data-ontology-collapse`)
+ * and whether it is open (`data-open`).
+ *
  * Styling rides the shared theme: `table` slot recipe for the grid chrome,
  * kind accents from `accents.ts`, and the `spec-pulse-live` keyframe for
  * cycle badges.
@@ -30,9 +36,10 @@
 
 import { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { Box, HStack, Portal, Text, Tooltip, VStack, chakra, useSlotRecipe } from '@chakra-ui/react';
-import { FiAlertTriangle, FiArrowDownRight, FiArrowUpRight, FiChevronDown, FiRefreshCw } from 'react-icons/fi';
+import { faArrowDown, faArrowUp, faArrowsRotate, faChevronDown, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
 
 import { NODE_KIND_ACCENT } from './accents.js';
+import { OntologyMark } from './mark.js';
 import type { Ontology as OntologyValue } from './types.js';
 import {
     projectTable,
@@ -214,7 +221,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                         {row.cyclic && (
                             <Tip label={`Resource cycle: ${[row.name, ...row.cycleWith].join(' → ')} → ${row.name}`}>
                                 <Box color="brand.fg" display="inline-flex">
-                                    <FiRefreshCw size={11} />
+                                    <OntologyMark icon={faArrowsRotate} size="11" />
                                 </Box>
                             </Tip>
                         )}
@@ -241,7 +248,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                 display="inline-flex"
                                 flexShrink={0}
                             >
-                                <FiChevronDown size={12} />
+                                <OntologyMark icon={faChevronDown} size="12" />
                             </Box>
                         </HStack>
                         {row.agents.length > 0 && (
@@ -288,7 +295,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                     {row.lints.length > 0 && (
                         <Tip label={<VStack alignItems="stretch" gap="0.5">{row.lints.map(l => <Text key={l} fontSize="body.sm">{l}</Text>)}</VStack>}>
                             <Box as="span" display="inline-flex" color="status.warn">
-                                <FiAlertTriangle size={13} />
+                                <OntologyMark icon={faTriangleExclamation} size="13" />
                             </Box>
                         </Tip>
                     )}
@@ -303,7 +310,8 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                         gridTemplateRows={isExpanded ? '1fr' : '0fr'}
                         transition="grid-template-rows 220ms ease"
                     >
-                        <Box overflow="hidden" minH="0">
+                        <Box overflow="hidden" minH="0" inert={!isExpanded}
+                            data-ontology-collapse="detail" data-open={isExpanded ? '' : undefined}>
                             <Box
                                 px="4" py="3"
                                 bg="bg.panel"
@@ -318,20 +326,20 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                 >
                                     <FlowList
                                         label="Upstream"
-                                        icon={<FiArrowUpRight size={11} />}
+                                        icon={<OntologyMark icon={faArrowUp} size="11" />}
                                         neighbors={row.upstream}
                                         hovered={hovered} setHovered={setHovered} onSelect={onSelect}
                                     />
                                     <FlowList
                                         label="Downstream"
-                                        icon={<FiArrowDownRight size={11} />}
+                                        icon={<OntologyMark icon={faArrowDown} size="11" />}
                                         neighbors={row.downstream}
                                         hovered={hovered} setHovered={setHovered} onSelect={onSelect}
                                     />
                                     {row.cyclic && (
                                         <VStack alignItems="stretch" gap="1">
                                             <HStack gap="1" color="brand.fg">
-                                                <FiRefreshCw size={11} />
+                                                <OntologyMark icon={faArrowsRotate} size="11" />
                                                 <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                                                     Cycle
                                                 </Text>
@@ -344,7 +352,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                     {row.lints.length > 0 && (
                                         <VStack alignItems="stretch" gap="1">
                                             <HStack gap="1" color="fg.warning">
-                                                <FiAlertTriangle size={11} />
+                                                <OntologyMark icon={faTriangleExclamation} size="11" />
                                                 <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                                                     Warnings
                                                 </Text>
@@ -443,7 +451,7 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
                     transition="transform 180ms ease"
                     display="inline-flex"
                 >
-                    <FiChevronDown size={14} />
+                    <OntologyMark icon={faChevronDown} size="14" />
                 </Box>
                 <Box w="8px" h="8px" borderRadius="full"
                      bg={group.id === null ? 'border.strong' : NODE_KIND_ACCENT.objective} flexShrink={0} />
@@ -454,7 +462,7 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
                 {group.lintCount > 0 && (
                     <Tip label={`${group.lintCount} completeness warnings in this group`}>
                         <HStack gap="1" color="fg.warning">
-                            <FiAlertTriangle size={12} />
+                            <OntologyMark icon={faTriangleExclamation} size="12" />
                             <Text fontFamily="mono" fontSize="label.sm" fontWeight="bold">{group.lintCount}</Text>
                         </HStack>
                     </Tip>
@@ -468,7 +476,8 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
 
             {/* Animated collapse of the group's body. */}
             <Box display="grid" gridTemplateRows={isCollapsed ? '0fr' : '1fr'} transition="grid-template-rows 220ms ease">
-                <Box overflow="hidden" minH="0">
+                <Box overflow="hidden" minH="0" inert={isCollapsed}
+                    data-ontology-collapse="group" data-open={isCollapsed ? undefined : ''}>
                     {group.sections.length > 0 && group.processCount > 0 && (
                         <chakra.table css={headerCss} style={{ tableLayout: 'fixed' }}>
                             <Box as="colgroup">
@@ -578,16 +587,17 @@ export const OntologyTable = memo(function OntologyTable({ ontology, onSelectNod
                     onClick={() => setShowLints(v => !v)}
                 >
                     <HStack gap="1.5" color="fg.warning">
-                        <FiAlertTriangle size={12} />
+                        <OntologyMark icon={faTriangleExclamation} size="12" />
                         <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                             {projection.lints.length} graph warnings
                         </Text>
                         <Box transform={showLints ? 'rotate(180deg)' : 'none'} transition="transform 180ms ease" display="inline-flex">
-                            <FiChevronDown size={11} />
+                            <OntologyMark icon={faChevronDown} size="11" />
                         </Box>
                     </HStack>
                     <Box display="grid" gridTemplateRows={showLints ? '1fr' : '0fr'} transition="grid-template-rows 200ms ease">
-                        <Box overflow="hidden" minH="0">
+                        <Box overflow="hidden" minH="0" inert={!showLints}
+                            data-ontology-collapse="lints" data-open={showLints ? '' : undefined}>
                             <VStack alignItems="stretch" gap="0.5" pt="1.5">
                                 {projection.lints.map(l => (
                                     <Text key={l} fontSize="body.sm" color="fg.muted">{l}</Text>

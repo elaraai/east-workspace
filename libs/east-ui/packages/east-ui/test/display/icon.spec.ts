@@ -5,9 +5,24 @@
 
 import { Icon } from "../../src/display/icon/index.js";
 import { describeEast as describe, Assert, TestImpl } from "@elaraai/east-node-std";
-import { type ExprType } from "@elaraai/east";
+import { East, NullType, none, type ExprType } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
+import {
+    Banner, Button, CommandPalette, EditableChip, EmptyState, IconButton, List, MetricChip, NavList, Stat, Status, Text,
+    Toggle, TreeView,
+} from "@elaraai/east-ui/internal";
 import * as ex from "./icon.examples.js";
+
+/** What building throws — `""` when it builds. */
+function refusal(build: () => unknown): string {
+    try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+}
+
+/** The words a factory refuses an icon of another set with (#1263). */
+function refused(where: string, prefix: string, name: string): string {
+    return `${where}: \`${prefix} ${name}\` is not a Font Awesome solid icon (#1263) — East UI draws solid icons only: ` +
+        `use a solid one, as \`{ prefix: "fas", name: "${name}" }\``;
+}
 
 describe("Icon", (test) => {
     Assert.examples(test, {
@@ -76,18 +91,74 @@ describe("Icon", (test) => {
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").borderRadius.unwrap("some"), "full"));
     });
 
-    test("creates regular icon", $ => {
-        const icon = $.let(Icon.Root({ prefix: "far", name: "heart" }));
+    // =========================================================================
+    // Solid only (#1263): East UI draws Font Awesome's solid set alone
+    // =========================================================================
 
-        $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "far"));
-        $(Assert.equal(icon.unwrap().unwrap("Icon").name, "heart"));
+    test("a regular or brands icon is refused at build, naming it and a solid one (#1263)", $ => {
+        $(Assert.equal(East.value(refusal(() => Icon.Root({ prefix: "far", name: "heart" } as never))),
+            "Icon: `far heart` is not a Font Awesome solid icon (#1263) — East UI draws solid icons only: " +
+            "use a solid one, as `{ prefix: \"fas\", name: \"heart\" }`"));
+        $(Assert.equal(East.value(refusal(() => Icon.Root({ prefix: "fab", name: "github" } as never))), refused("Icon", "fab", "github")));
     });
 
-    test("creates brands icon", $ => {
-        const icon = $.let(Icon.Root({ prefix: "fab", name: "github" }));
+    test("an icon's style names its set by one case, solid — the regular, light, thin and brands cases are gone (#1263)", $ => {
+        $(Assert.equal(East.value(Object.keys(Icon.Types.Variant.cases)), ["solid"]));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "star", variant: "solid" }));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").variant.unwrap("some").hasTag("solid"), true));
+    });
 
-        $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "fab"));
-        $(Assert.equal(icon.unwrap().unwrap("Icon").name, "github"));
+    test("every factory that takes an icon by value refuses another set, naming itself (#1263)", $ => {
+        // An icon payload, which the types hold to `"fas"` — and an Icon value,
+        // whose prefix the types leave a string: the refusal holds both.
+        const payload = { prefix: "far", name: "bookmark" } as never;
+        const value = { prefix: "far", name: "bookmark", label: none, style: none };
+        const noop = East.function([], NullType, (_$) => { /* noop */ });
+        const builds: Record<string, () => unknown> = {
+            "IconButton": () => IconButton.Root({ prefix: "far", name: "bookmark", label: "Save" } as never),
+            "IconButton loadingIcon": () => IconButton.Root({ prefix: "fas", name: "rotate", label: "Refresh", loadingIcon: value }),
+            "Button startIcon": () => Button.Root("Save", { startIcon: value }),
+            "Button endIcon": () => Button.Root("Next", { endIcon: payload }),
+            "Button loadingIcon": () => Button.Root("Save", { loadingIcon: value }),
+            "Toggle icon": () => Toggle.Root("Lock columns", { pressed: false, icon: payload }),
+            "TreeView.Item": () => TreeView.Item("readme", "README.md", payload),
+            "TreeView.Branch": () => TreeView.Branch("docs", "docs", [TreeView.Item("readme", "README.md")], payload),
+            "NavList item icon": () => NavList.Root([{ items: [{ key: "x", label: "X", icon: payload }] }]),
+            "Banner icon": () => Banner.Root({ status: "info", title: "Ship", icon: value }),
+            "Status icon": () => Status.Root({ label: "Shipping", value: "info", icon: payload }),
+            "EmptyState icon": () => EmptyState.Root({ title: "Nothing here", icon: value }),
+            "Stat.Indicator icon": () => Stat.Indicator("up", { icon: value }),
+            "Stat indicator icon": () => Stat.Root({ label: "Revenue", value: "$45,231", indicator: { direction: "up", icon: value } }),
+            "List markerIcon": () => List.Root(["Item"], { markerIcon: value }),
+            "MetricChip icon": () => MetricChip.Root(Text.Root("+12.5%"), { tone: "positive", icon: value }),
+            "EditableChip trigger": () => EditableChip.Root(Text.Root("Scenario"), { trigger: value }),
+            "CommandPalette command icon": () => CommandPalette.Root([{ id: "x", label: "X", action: noop, icon: value }]),
+        };
+        for (const [where, build] of Object.entries(builds)) {
+            $(Assert.equal(East.value(refusal(build)), refused(where, "far", "bookmark")));
+        }
+    });
+
+    test("each factory builds a solid icon it is given as it did (#1263)", $ => {
+        const solid = { prefix: "fas", name: "bookmark", label: none, style: none };
+        const noop = East.function([], NullType, (_$) => { /* noop */ });
+        const builds: (() => unknown)[] = [
+            () => IconButton.Root({ prefix: "fas", name: "bookmark", label: "Save", loadingIcon: solid }),
+            () => Button.Root("Save", { startIcon: solid, endIcon: { prefix: "fas", name: "bookmark" }, loadingIcon: solid }),
+            () => Toggle.Root("Lock columns", { pressed: false, icon: { prefix: "fas", name: "bookmark" } }),
+            () => TreeView.Branch("docs", "docs", [TreeView.Item("readme", "README.md", { prefix: "fas", name: "file" })], { prefix: "fas", name: "folder" }),
+            () => NavList.Root([{ items: [{ key: "x", label: "X", icon: { prefix: "fas", name: "gear" } }] }]),
+            () => Banner.Root({ status: "info", title: "Ship", icon: solid }),
+            () => Status.Root({ label: "Shipping", value: "info", icon: { prefix: "fas", name: "truck" } }),
+            () => EmptyState.Root({ title: "Nothing here", icon: solid }),
+            () => Stat.Indicator("up", { icon: solid }),
+            () => Stat.Root({ label: "Revenue", value: "$45,231", indicator: { direction: "up", icon: solid } }),
+            () => List.Root(["Item"], { markerIcon: solid }),
+            () => MetricChip.Root(Text.Root("+12.5%"), { tone: "positive", icon: solid }),
+            () => EditableChip.Root(Text.Root("Scenario"), { trigger: solid }),
+            () => CommandPalette.Root([{ id: "x", label: "X", action: noop, icon: solid }]),
+        ];
+        $(Assert.equal(East.value(builds.map(refusal)), builds.map(() => "")));
     });
 
     test("creates folder icon", $ => {
@@ -197,16 +268,16 @@ describe("Icon", (test) => {
     // =========================================================================
 
     test("creates folder-open icon for tree view", $ => {
-        const icon = $.let(Icon.Root({ prefix: "far", name: "folder-open" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "folder-open" }));
 
-        $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "far"));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "fas"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "folder-open"));
     });
 
     test("creates file icon for tree view", $ => {
-        const icon = $.let(Icon.Root({ prefix: "far", name: "file", size: "sm" }));
+        const icon = $.let(Icon.Root({ prefix: "fas", name: "file", size: "sm" }));
 
-        $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "far"));
+        $(Assert.equal(icon.unwrap().unwrap("Icon").prefix, "fas"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").name, "file"));
         $(Assert.equal(icon.unwrap().unwrap("Icon").style.unwrap("some").size.unwrap("some").hasTag("sm"), true));
     });

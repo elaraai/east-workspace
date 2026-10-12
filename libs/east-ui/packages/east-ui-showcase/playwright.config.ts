@@ -25,6 +25,9 @@ export default defineConfig({
     testDir: "./tests/responsive",
     timeout: 60_000,
     fullyParallel: true,
+    // Each e3 page deploys a fresh in-browser workspace. Keep one browser
+    // worker per CI shard so cold deploys and DOM tracing do not compete.
+    ...(process.env.CI ? { workers: 1 } : {}),
     // A spec that is not deterministic under load is fixed, never retried.
     retries: 0,
     // A committed `test.only` would quietly shrink the CI run to one test.
@@ -41,10 +44,10 @@ export default defineConfig({
     },
     use: {
         baseURL: "http://localhost:4173",
-        // A failing spec leaves its screenshot and trace in test-results/,
-        // which CI uploads.
-        screenshot: "only-on-failure",
-        trace: "retain-on-failure",
+        // A failing spec leaves its DOM/network trace in test-results/.
+        // Geometry and behavior checks need no screenshot capture.
+        screenshot: "off",
+        trace: { mode: "retain-on-failure", screenshots: false },
         ...(executablePath
             ? { launchOptions: { executablePath, args: ["--no-sandbox"] } }
             : {}),

@@ -421,11 +421,15 @@ encoded size, so wide rows get segments of a few rows and a one-row edit stays
 cheap. A view reads every field of the rows it shows, so keep a bulky payload it
 does not display in a second record keyed the same way.
 
-#### Secondary indexes — `e3.recordIndex(name, record, { key | keys, value? })`
+#### Secondary indexes — `e3.recordIndex(name, record, { on | key | keys, value? })`
 
 A second collection over a Dict record, in another sort order, maintained in the
-same commit, so a view by an attribute is a page rather than a scan. `key`
-gives one entry per row; `keys` returns a Set, one entry per element (a row
+same commit, so a view by an attribute is a page rather than a scan. `on`
+names row fields in index order: one field uses its value as the key, several
+use a Struct in that order, and a Set field gives an entry per element. It
+also carries field metadata for `Data.bindPaged(record, { indexes })` and
+`Slice.bindRecord` (see **e3-ui**). `key` gives one computed entry per row;
+`keys` returns a Set, one entry per element (a row
 naming five resources appears five times, an empty set not at all); `value` is a
 projection a view renders without touching the record. The functions are pure
 and synchronous, since an index maintained commit by commit must equal its
@@ -436,6 +440,8 @@ lacks, drops one it no longer declares, and runs nothing for the rest; a build
 is a split task over the record.
 
 ```typescript
+const byDue = e3.recordIndex('by_due', plans, { on: ['due'] });
+const byOwnerDue = e3.recordIndex('by_owner_due', plans, { on: ['owner', 'due'] });
 const byOwner = e3.recordIndex('by_owner', plans, {
   key:   East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),
   value: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.title),
@@ -444,8 +450,39 @@ const byResource = e3.recordIndex('by_resource', plans, {
   keys: East.function([StringType, PlanType], SetType(StringType), ($, _id, plan) => plan.resources),
 });
 const pkg = e3.package('planning', '1.0.0',
-  plans, addPlan, reschedule, e3.mutation.patch(plans), byOwner, byResource);
+  plans, addPlan, reschedule, e3.mutation.patch(plans), byDue, byOwnerDue, byOwner, byResource);
 ```
+
+For events that must remain visible while they overlap a selected time window,
+declare `interval: { from: 'start', to: 'end' }`. Both fields must be DateTime
+or Option<DateTime>. Optional `on` fields are exact leading choices:
+
+```typescript
+const byTime = e3.recordIndex('by_time', events, {
+  interval: { from: 'start', to: 'end' },
+});
+const byStatusTime = e3.recordIndex('by_status_time', events, {
+  on: ['status'], interval: { from: 'start', to: 'end' },
+});
+```
+
+An interval index uses the ordinary index build, mutation and paging machinery.
+It stores at most three entries per event per leading-field combination,
+independent of duration. The record Slice adapter resolves a half-open
+`[from, to)` window with at most 55 disjoint bounded queries per exact prefix;
+each matching original record occurs once, including events that started
+earlier or span the whole window. It never scans the record or guesses a
+maximum duration. An event ending at `from` is outside; an instant at `from`
+is inside and one at `to` is outside. A missing or non-positive end is an
+instant. A missing start remains selectable as Unset/backlog.
+
+Use `on: ['start']` only when the intended query is **starts within**, since it
+cannot preserve carry-in events. When both declarations are available, a Slice
+range on the start field uses the interval declaration. The generated interval
+keys are query machinery; record edits and sessions always target the original
+primary key. Calendar's `Calendar.events(binding, { slice, entries, … })`
+requires a matching interval declaration and the primary `entries` binding to
+confirm saves even after an edit leaves the selected window.
 
 #### Migrations — how a record's type changes
 

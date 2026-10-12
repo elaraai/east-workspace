@@ -74,7 +74,7 @@ test("a library example prints its platform calls as the implementing package ex
 
 test("a JSX-authored UI example keeps its source, is tsx, and has no python", async () => {
   const index = await buildSearchIndex(INDEX);
-  const [ui] = hits(index, "Plan drag drop series", "east-ui");
+  const [ui] = hits(index, "Plan drag drop series", "e3-ui");
   assert.ok(ui, "a UI example is searchable");
   assert.deepEqual(ui.languages, ["tsx"]);
   assert.equal(typeof ui.source, "string");

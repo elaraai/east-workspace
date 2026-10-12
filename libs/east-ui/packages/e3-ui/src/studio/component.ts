@@ -167,15 +167,18 @@ function canonicalIR(ir: IR): IR {
                 : (field === "type" && typeof value === "object") || field === "type_parameters" ? value
                     : walk(value);
         }
-        const v = out as { type?: unknown; value?: { name?: unknown } };
-        if (v.type === "Variable" && v.value !== undefined && typeof v.value.name === "string") {
-            const name = v.value.name;
-            let canonical = names.get(name);
-            if (canonical === undefined) {
-                canonical = `v${names.size}`;
-                names.set(name, canonical);
+        const value = out["value"];
+        if (out["type"] === "Variable" && value !== null && typeof value === "object") {
+            const variable = value as Record<string, unknown>;
+            const name = variable["name"];
+            if (typeof name === "string") {
+                let canonical = names.get(name);
+                if (canonical === undefined) {
+                    canonical = `v${names.size}`;
+                    names.set(name, canonical);
+                }
+                out["value"] = { ...variable, name: canonical };
             }
-            v.value = { ...v.value, name: canonical };
         }
         return out;
     };

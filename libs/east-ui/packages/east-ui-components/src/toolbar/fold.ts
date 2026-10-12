@@ -14,6 +14,13 @@
  * shortest prefix of it whose row fits. An item's own steps apply in order:
  * a step ranked below an earlier step of its item waits for that one.
  *
+ * Steps of several items that share a BUNDLE apply together (#1229): a chip
+ * that takes the place of several controls draws in the same step that hides
+ * them, so no prefix the toolbar renders splits a bundle — it takes all of its
+ * steps or none. A bundle's steps share one rank, so they sit side by side in
+ * the sequence; were they to differ, the bundle would apply as one at its last
+ * step's place, every step between its first and its last applying with it.
+ *
  * @packageDocumentation
  */
 
@@ -30,13 +37,16 @@ export interface FoldItem {
     readonly empty: readonly boolean[];
     /** The form the item keeps while it holds an open overlay, else `undefined`. */
     readonly held: number | undefined;
+    /** Each fold step's bundle, when it has one: `bundles[i]` is the step from form `i` to `i + 1`. */
+    readonly bundles?: readonly (string | undefined)[] | undefined;
 }
 
-/** One fold step: which item folds, to which form, at what rank. */
+/** One fold step: which item folds, to which form, at what rank, and the bundle it applies with. */
 export interface FoldStep {
     readonly item: number;
     readonly to: number;
     readonly rank: number;
+    readonly bundle?: string | undefined;
 }
 
 /**
@@ -54,11 +64,36 @@ export function foldSequence(items: readonly FoldItem[]): FoldStep[] {
         let floor = -Infinity;
         for (let to = 1; to < it.forms; to++) {
             floor = Math.max(floor, it.ranks[to - 1] ?? 0);
-            steps.push({ item, to, rank: floor });
+            const bundle = it.bundles?.[to - 1];
+            steps.push(bundle === undefined ? { item, to, rank: floor } : { item, to, rank: floor, bundle });
         }
     });
     // Stable: equal ranks keep item order, and an item's steps their own order.
     return steps.sort((a, b) => a.rank - b.rank);
+}
+
+/**
+ * Whether applying the first `folds` steps of the sequence would split a
+ * bundle: take some of its steps and leave the rest. With a bundle's steps at
+ * sequence indices `i1 < … < im`, a prefix of length `folds` splits it when
+ * `i1 < folds ≤ im`.
+ *
+ * @param sequence - The fold sequence ({@link foldSequence})
+ * @param folds - How many steps would apply
+ * @returns Whether that prefix splits a bundle
+ */
+export function splitsBundle(sequence: readonly FoldStep[], folds: number): boolean {
+    const first = new Map<string, number>();
+    const last = new Map<string, number>();
+    sequence.forEach((step, i) => {
+        if (step.bundle === undefined) return;
+        if (!first.has(step.bundle)) first.set(step.bundle, i);
+        last.set(step.bundle, i);
+    });
+    for (const [bundle, i1] of first) {
+        if (i1 < folds && folds <= last.get(bundle)!) return true;
+    }
+    return false;
 }
 
 /**
@@ -107,8 +142,8 @@ export function rowWidth(
 
 /**
  * How many steps of the sequence to apply: the fewest whose row fits the
- * box. When even the last does not fit, every step applies — the row then
- * clips at its end.
+ * box, never a number that splits a bundle ({@link splitsBundle}). When even
+ * the last does not fit, every step applies — the row then clips at its end.
  *
  * @param items - The toolbar's items
  * @param sequence - Their fold sequence
@@ -125,6 +160,7 @@ export function chooseFolds(
     gap: number,
 ): number {
     for (let folds = 0; folds < sequence.length; folds++) {
+        if (splitsBundle(sequence, folds)) continue;
         if (rowWidth(items, formsAt(items, sequence, folds), widthOf, gap) <= available + FIT_TOLERANCE_PX) return folds;
     }
     return sequence.length;

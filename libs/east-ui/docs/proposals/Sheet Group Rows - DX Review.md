@@ -19,7 +19,7 @@ paged source of groups
 
 I would preserve the typed line columns, registers, driver, link cells, and group-aware suggestion context. I would change the summary API, line identity, structural edit events, and capability declarations.
 
-**Search remains source-backed and returns groups. There is no local search in this proposal.** In particular, I would not reproduce the mock's “Painting only” line filtering, locally calculated search matches, or a locally enumerated global plan picker.
+**Search remains source-backed and returns groups. There is no local search in this proposal.** In particular, I would not reproduce the mock's “Spraying only” line filtering, locally calculated search matches, or a locally enumerated global plan picker.
 
 ## What exists, and what the mock changes
 

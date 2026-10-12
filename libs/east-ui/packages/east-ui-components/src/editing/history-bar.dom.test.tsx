@@ -46,14 +46,14 @@ function setup() {
 
 test("the bar speaks the words its collection hands it, and each action is the collection's to run", () => {
     const ui = setup();
-    for (const name of ["⟦Undo", "⟦Redo", "⟦Discard", "⟦Apply changes"]) expect(ui.getByRole("button", { name })).toBeTruthy();
+    for (const name of ["⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]) expect(ui.getByRole("button", { name })).toBeTruthy();
     expect((ui.getByRole("button", { name: "⟦Undo" }) as HTMLButtonElement).disabled).toBe(true);
     // No issues: the issues button keeps its place, hidden.
     expect(ui.container.querySelector('[data-slot="historyIssues"]')!.hasAttribute("data-empty")).toBe(true);
     ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
     ui.refresh();
     fireEvent.click(ui.getByRole("button", { name: "⟦Undo" }));
-    fireEvent.click(ui.getByRole("button", { name: "⟦Apply changes" }));
+    fireEvent.click(ui.getByRole("button", { name: "⟦Save" }));
     expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["undo", "apply"]);
 });
 
@@ -62,13 +62,13 @@ test("an incomplete draft counts as an issue the bar goes to; the status and the
     const incomplete: EntryVersion<string> = { draft: { id: variant("value", "a"), end: variant("missing", null) }, wire: "a to ?", place: start };
     ui.session.record([{ id: "a", before: version(1n), after: incomplete }], "typed", "Clear the end");
     ui.refresh();
-    expect((ui.getByRole("button", { name: "⟦Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((ui.getByRole("button", { name: "⟦Save" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(ui.getByRole("button", { name: "⟦1 issue" }));
     expect(ui.onIssue).toHaveBeenCalledWith(expect.objectContaining({ entry: "a", field: some("end") }));
     ui.session.status = "applying";
     ui.session.error = SESSION_TEXT.noRevision;
     ui.refresh();
-    expect(ui.getByRole("status").textContent).toBe("⟦Applying changes…");
+    expect(ui.getByRole("status").textContent).toBe("⟦Saving…");
     expect(ui.getByRole("alert").textContent).toBe(`⟦${SESSION_TEXT.noRevision}`);
     ui.session.error = "Refused by the host";
     ui.refresh();

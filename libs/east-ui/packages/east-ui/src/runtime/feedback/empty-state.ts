@@ -14,10 +14,10 @@ import { optionsTag, type JsxTag } from "../combinators.js";
  * Zero-state placeholder — fills the space where a list, table, or panel would
  * be when there is nothing to show, and tells the user why and what to do next.
  * Use it for no-results, nothing-created-yet, and error states. `title` and
- * `description` carry the message, a `glyph` (mono text) or `icon` sets the
- * visual anchor, and `actions` offers the recovery affordance (clear filters,
- * create the first item, retry). Every option is a flat prop
- * ({@link EmptyStateOptions}).
+ * `description` carry the message, `icon` — a Font Awesome solid icon — sets
+ * the visual anchor, and `actions` offers the recovery affordance (clear
+ * filters, create the first item, retry). Every option is a flat prop
+ * ({@link EmptyStateOptions}); a text `glyph` is removed (#1263) and refused.
  *
  * @example
  * ```tsx
@@ -28,7 +28,7 @@ import { optionsTag, type JsxTag } from "../combinators.js";
  * const noResults = East.function([], UIComponentType, _$ => (
  *     <EmptyState
  *         title="No results"
- *         glyph="·   ·   ·"
+ *         icon={{ prefix: "fas", name: "magnifying-glass" }}
  *         description="Try clearing filters or broadening your search."
  *         actions={<Button variant="outline">Clear filters</Button>}
  *     />

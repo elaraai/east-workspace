@@ -8,7 +8,9 @@
  * back off from 1 s to 30 s, each a random point in the second half of its
  * own, for as long as the view is mounted, and its failure ends as soon as the
  * cache holds the dataset, whoever brought it in. So a preview showing
- * "Preload failed" after a transient error renders without a remount.
+ * "Preload failed" after a transient error renders without a remount. A
+ * record its view reads a window at a time is no preload of it (#1199): it
+ * is never fetched whole.
  */
 
 import { useMemo } from "react";
@@ -265,5 +267,50 @@ describe("a UITaskPreview whose preload fails", () => {
         for (let i = 0; i < 10 && screen.queryByText("Load failed") === null; i++) await advance(10);
         expect(screen.queryByText("Preload failed")).toBe(null);
         expect(screen.getByText("Load failed")).toBeTruthy();
+    });
+});
+
+describe("a UITaskPreview over a record it also reads a window at a time (#1199)", () => {
+    /** The jobs record: bound with `Record.bind`, and read a window at a time with `Data.bindPaged`. */
+    const JOBS: TreePath = [variant("field", "records"), variant("field", "jobs")];
+    /** The output's status: an Integer value. */
+    const STATUS = encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
+        path: ".out", type: toEastTypeValue(IntegerType), refType: "value", hash: some("1".repeat(64)), size: some(9n), segments: none, rows: none,
+    }));
+    /** A ui task binding the record both ways: its manifest's `records` and `pages` name it, and its `paths` do not. */
+    const TASK = encodeBeast2For(ResponseType(TaskDetailsType))(variant("success", {
+        name: "view",
+        hash: "2".repeat(64),
+        body: variant("east", { program: "3".repeat(64) }),
+        runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
+        inputs: [],
+        output: { path: [variant("field", "out")], kind: variant("value", null) },
+        role: variant("ui", { paths: [], functions: [], records: ["jobs"], pages: [JOBS] }),
+    }));
+
+    test("preloads none of it and polls none of it: the record's content is never fetched whole", async () => {
+        const fetched: string[] = [];
+        vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+            fetched.push(url);
+            if (url.includes("/tasks/view")) return new Response(TASK.slice(), { status: 200 });
+            if (url.includes("/datasets/out?status=true")) return new Response(STATUS.slice(), { status: 200 });
+            return statusRoute(url) ?? FAILURE();
+        }));
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        render(
+            <ChakraProvider value={system}>
+                <E3Provider config={{ apiUrl: API, workspace: "w" }} queryClient={client}>
+                    <ReactiveDatasetProvider><UITaskPreview task="view" pollInterval={60_000} /></ReactiveDatasetProvider>
+                </E3Provider>
+            </ChakraProvider>,
+        );
+        // Nothing to preload: it goes on to its output, whose value fails here.
+        for (let i = 0; i < 10 && screen.queryByText("Load failed") === null; i++) await advance(10);
+        expect(screen.queryByText("Preload failed")).toBe(null);
+        expect(screen.getByText("Load failed")).toBeTruthy();
+        // A poll goes by, and still nothing of the record is fetched.
+        await advance(60_000);
+        expect(fetched.some((url) => url.includes("/tasks/view"))).toBe(true);
+        expect(fetched.filter((url) => url.includes("/datasets/records/jobs"))).toEqual([]);
     });
 });

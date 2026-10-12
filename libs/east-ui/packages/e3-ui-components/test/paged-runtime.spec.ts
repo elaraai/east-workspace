@@ -19,9 +19,12 @@ import {
     DictType,
     FloatType,
     IntegerType,
+    SortedMap,
     StringType,
     StructType,
+    compareFor,
     encodeBeast2For,
+    equalFor,
     none,
     some,
     toEastTypeValue,
@@ -109,6 +112,15 @@ function gatedApi(initial: string | null = R1) {
             const next = pending.shift();
             assert.ok(next, "expected an in-flight page request");
             next.resolve(page(elements, next.window, total));
+        },
+        /** Release the oldest in-flight fetch with a window already encoded — a source of another type. */
+        releaseEncoded(data: Uint8Array, count: number, total: number) {
+            const next = pending.shift();
+            assert.ok(next, "expected an in-flight page request");
+            next.resolve({
+                data, totalElements: total, totalBytes: data.length, totalExact: true,
+                segmentCount: 0, offset: next.window.offset, count, hash: next.window.hash ?? "",
+            });
         },
         /** Fail the oldest in-flight fetch. */
         fail(err: unknown) {
@@ -397,6 +409,77 @@ describe("PagedRuntime", () => {
 
         runtime.clear(second.api);
         assert.throws(() => callPage(runtime, 0n, 2n), /no paging service/);
+    });
+});
+
+/** A keyed source — its windows Dicts in key order — and its handle, typed from the contract East declares. */
+const Keyed = DictType(StringType, Row);
+type KeyedHandle = ValueTypeOf<ReturnType<typeof PagedSourceType<typeof Keyed>>>;
+
+describe("PagedRuntime — a window a landed one covers (#1217)", () => {
+    const four = [{ id: "a", v: 1.0 }, { id: "b", v: 2.0 }, { id: "c", v: 3.0 }, { id: "d", v: 4.0 }];
+
+    test("is answered from it — the same rows at the same revision, nothing fetched, one identity", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        callPage(runtime, 0n, 4n);
+        g.release(four, 10);
+        await settle();
+
+        // A sheet's read of one entry it is about to draft, beside the window it draws.
+        const cut = callPage(runtime, 1n, 2n);
+        assert.ok(cut.type === "some");
+        assert.equal(equalFor(RowsType)(cut.value, [four[1]!, four[2]!]), true);
+        assert.equal(g.calls.length, 1, "no fetch of its own");
+        const again = callPage(runtime, 1n, 2n);
+        assert.ok(again.type === "some");
+        assert.equal(again.value, cut.value, "the answer is kept in its own channel");
+        assert.deepEqual(callTotal(runtime), some(10n));
+    });
+
+    test("over a keyed source, a Dict's entries in key order", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        const handle = runtime.buildHandle(toEastTypeValue(Keyed), opsPath, NO_INDEX, "pinned") as unknown as KeyedHandle;
+        const entries = new SortedMap(four.map((r) => [r.id, r] as const), compareFor(StringType));
+        handle.page(0n, 4n);
+        g.releaseEncoded(encodeBeast2For(Keyed)(entries), 4, 4);
+        await settle();
+
+        const cut = handle.page(2n, 1n);
+        assert.ok(cut.type === "some");
+        assert.equal(equalFor(Keyed)(cut.value, new SortedMap([["c", four[2]!]], compareFor(StringType))), true);
+        assert.equal(g.calls.length, 1);
+    });
+
+    test("a window covers what it holds — one the server trimmed covers only its own count", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        callPage(runtime, 0n, 4n);
+        g.release(four.slice(0, 2), 10);   // asked for four, trimmed to two
+        await settle();
+
+        assert.equal(callPage(runtime, 1n, 1n).type, "some", "inside what it holds");
+        assert.equal(g.calls.length, 1);
+        assert.equal(callPage(runtime, 1n, 2n).type, "none", "past what it holds: fetched");
+        assert.deepEqual(g.calls[1], { offset: 1, limit: 2, hash: R1 });
+    });
+
+    test("a window of another index, or of another snapshot, answers nothing", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        callPage(runtime, 0n, 4n);
+        g.release(four, 4);
+        await settle();
+
+        const byStatus = handleOf(runtime, rowsTypeValue, opsPath, "pinned", { index: "by_status", join: false });
+        assert.equal(byStatus.page(1n, 2n).type, "none", "an index's rows are another row space");
+        assert.deepEqual(g.calls[1], { offset: 1, limit: 2, hash: R1, index: "by_status", join: false });
+
+        assert.equal(callPage(runtime, 1n, 2n).type, "some");
+        g.move(R2);
+        assert.equal(callPage(runtime, 1n, 2n).type, "none", "a move drops the window and its cut");
+        assert.deepEqual(g.calls[2], { offset: 1, limit: 2, hash: R2 });
     });
 });
 

@@ -16,6 +16,7 @@ import { Box, chakra, Portal, Text, Tooltip, useRecipe, useSlotRecipe } from "@c
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
@@ -30,8 +31,8 @@ type Styles = Record<string, Record<string, unknown>>;
  * @typeParam W - The collection's projection of an entry
  */
 export interface HistoryBarProps<W> {
-    /** The editing session. */
-    session: EditSession<W>;
+    /** The editing session — or one history over several (`EditHistory`, #1194), which reads as one session does. */
+    session: EditSession<W> | EditHistory<W>;
     /** The collection's words. */
     words: EditingWords;
     /** An open editor is committed before the requested history action. */
@@ -46,6 +47,12 @@ export interface HistoryBarProps<W> {
      * issues button go; an error still shows.
      */
     buttonsOnly?: boolean | undefined;
+    /**
+     * Whether the bar shows the session's error under its buttons: `true` by
+     * default. A host that shows the error itself — a builder's banners
+     * ({@link SessionBanners}) — passes `false`, so its toolbar keeps one row.
+     */
+    showError?: boolean | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
@@ -76,7 +83,7 @@ function HistoryButton({ label, tip = label, icon, disabled, styles, onClick }: 
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false, showError = true }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -104,6 +111,6 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
                     icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} onClick={() => onAction("apply")} />}
         </Box>
-        {session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
+        {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
     </Box>;
 }

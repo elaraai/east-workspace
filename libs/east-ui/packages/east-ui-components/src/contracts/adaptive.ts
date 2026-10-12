@@ -13,9 +13,11 @@
  * - **Container width** (`useContainerBreakpoint` / `useContainerBelow`):
  *   components adapt to the box they render in — a splitter pane, a task
  *   preview, a webview — never to the viewport. Both hooks observe the
- *   referenced element with a shared, rAF-coalesced `ResizeObserver` and
- *   re-render only when the derived value crosses a threshold (not on
- *   every pixel).
+ *   referenced element with a `ResizeObserver` and re-render only when the
+ *   derived value crosses a threshold (not on every pixel) — before the
+ *   frame at the new width paints, as the shared toolbar and the builder
+ *   frame take a width, so a component never paints a frame of the layout it
+ *   is leaving (#1259).
  * - **Pointer capability** (`useCoarsePointer` / `useHoverCapable`): a
  *   global media fact, mirroring the theme conditions `_coarse`
  *   (`@media (pointer: coarse)`) and `_hoverNone` (`@media (hover: none)`)
@@ -26,7 +28,8 @@
  * `false` for coarse, `true` for hover-capable.
  */
 
-import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { flushSync } from "react-dom";
 
 /** Container width class: `compact < compactBelow ≤ regular < wideAbove ≤ wide`. */
 export type ContainerBreakpoint = "compact" | "regular" | "wide";
@@ -49,35 +52,35 @@ function classify(width: number, compactBelow: number, wideAbove: number): Conta
 }
 
 /**
- * Observe an element's inline size and call `onWidth` (rAF-coalesced) when
- * it changes. Shared plumbing for the two public container hooks.
+ * Observe an element's inline size and call `onWidth` when it changes, what
+ * it sets committed before the frame paints. Shared plumbing for the two
+ * public container hooks.
  */
 function useContainerWidthEffect(
     ref: RefObject<HTMLElement | null>,
     onWidth: (width: number) => void,
 ): void {
+    const measured = useRef<{ width: number; listener: typeof onWidth } | undefined>(undefined);
+    const measure = useCallback(() => {
+        const el = ref.current;
+        if (el === null || typeof ResizeObserver === "undefined") return;
+        const width = el.getBoundingClientRect().width;
+        if (width > 0 && (measured.current?.width !== width || measured.current.listener !== onWidth)) {
+            measured.current = { width, listener: onWidth };
+            onWidth(width);
+        }
+    }, [ref, onWidth]);
+    // A parent frame may settle its pane placement during the same commit.
+    // Recheck after each commit so the initial narrow render is corrected
+    // before paint, without waiting for the first ResizeObserver delivery.
+    useLayoutEffect(measure);
     useLayoutEffect(() => {
         const el = ref.current;
-        if (!el || typeof ResizeObserver === "undefined") return;
-        let frame = 0;
-        const measure = () => {
-            frame = 0;
-            const width = el.getBoundingClientRect().width;
-            if (width > 0) onWidth(width);
-        };
-        const ro = new ResizeObserver(() => {
-            if (frame === 0) frame = requestAnimationFrame(measure);
-        });
+        if (el === null || typeof ResizeObserver === "undefined") return;
+        const ro = new ResizeObserver(() => flushSync(measure));
         ro.observe(el);
-        measure();
-        return () => {
-            ro.disconnect();
-            if (frame !== 0) cancelAnimationFrame(frame);
-        };
-        // The consumer's callback identity is intentionally not a dependency:
-        // both public hooks pass stable setters derived from state.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ref]);
+        return () => ro.disconnect();
+    }, [ref, measure]);
 }
 
 /**
@@ -96,9 +99,9 @@ export function useContainerBreakpoint(
     const compactBelow = thresholds?.compactBelow ?? DEFAULT_COMPACT_BELOW;
     const wideAbove = thresholds?.wideAbove ?? DEFAULT_WIDE_ABOVE;
     const [breakpoint, setBreakpoint] = useState<ContainerBreakpoint>("regular");
-    useContainerWidthEffect(ref, (width) => {
+    useContainerWidthEffect(ref, useCallback((width: number) => {
         setBreakpoint(classify(width, compactBelow, wideAbove));
-    });
+    }, [compactBelow, wideAbove]));
     return breakpoint;
 }
 
@@ -115,9 +118,9 @@ export function useContainerBreakpoint(
  */
 export function useContainerBelow(ref: RefObject<HTMLElement | null>, px: number): boolean {
     const [below, setBelow] = useState(false);
-    useContainerWidthEffect(ref, (width) => {
+    useContainerWidthEffect(ref, useCallback((width: number) => {
         setBelow(width < px);
-    });
+    }, [px]));
     return below;
 }
 

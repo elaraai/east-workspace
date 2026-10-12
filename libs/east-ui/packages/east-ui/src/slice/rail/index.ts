@@ -14,7 +14,9 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { isRecordSlice, recordSliceChrome, type RecordSliceChromeOptions } from "../../platform/slice/record-chrome.js";
+import { RecordSliceRailComponent } from "../record/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import {
     SliceAffordanceType,
     type SliceAffordanceLiteral,
@@ -24,7 +26,7 @@ import {
 export type SliceRailAffordance = SliceAffordanceLiteral | SubtypeExprOrValue<SliceAffordanceType>;
 
 /** Options for `Slice.Rail.Root`. */
-export interface SliceRailOptions {
+export interface LocalSliceRailOptions {
     /** The bound slice (from `Slice.bind`) every affordance writes to. */
     slice: SubtypeExprOrValue<SliceBindType>;
     /**
@@ -59,10 +61,13 @@ export interface SliceRailOptions {
     brush?: { axis?: boolean; count?: boolean; buckets?: number };
 }
 
+/** Both arms use the shared rail; record affordances stay typed separately. */
+export type SliceRailOptions = LocalSliceRailOptions | RecordSliceChromeOptions;
+
 /**
  * Creates a `Slice.Rail` — the slice affordance cluster as a standalone
  * strip. This is the *entire* slice chrome in one row: place it above any
- * components reading `slice.rows()` (a Stat row, a Table, a Chart — chrome
+ * components reading `Slice.rows(slice)` (a Stat row, a Table, a Chart — chrome
  * suppressed on each) and the rail narrows them all. Components that take a
  * `slice` chrome option mount this same rail inside their own header, so the
  * slice reads identically everywhere.
@@ -74,16 +79,18 @@ export interface SliceRailOptions {
  * ```tsx
  * <VStack gap="3" align="stretch">
  *     <Slice.Rail slice={slice} affordances={["filter", "search"]} />
- *     <Table rows={slice.rows()} columns={columns} />
+ *     <Table data={Slice.rows(slice)} columns={columns} />
  * </VStack>
  * ```
  */
-function createSliceRail(options: SliceRailOptions): ExprType<UIComponentType> {
+function createSliceRail(input: SliceRailOptions): ExprType<UIComponentType> {
+    if (isRecordSlice(input.slice)) return RecordSliceRailComponent.Root(recordSliceChrome(input as RecordSliceChromeOptions));
+    const options = input as LocalSliceRailOptions;
     const affordances = (options.affordances ?? []).map(a =>
         typeof a === "string" ? variant(a, null) : a,
     );
     return East.value(variant("SliceRail", {
-        slice: options.slice,
+        slice: localSliceHandle(options.slice),
         affordances: East.value(affordances, ArrayType(SliceAffordanceType)),
         persist: options.persist !== undefined ? some(variant(options.persist, null)) : none,
         brush: options.brush !== undefined

@@ -23,7 +23,8 @@
  *   Save — commits the query as one patch on the record, once it is finished
  *   and checks;
  * - **the layout**, the shared `BuilderFrame` (#1125): the one toolbar (#936:
- *   the history item, Copy jq, Save… and Run); the result's strips as its
+ *   the history item, Copy jq, Save… and Run — a row short of room folding
+ *   Copy jq and Save… into one ⋯ chip, #1229); the result's strips as its
  *   banners, under the toolbar, the builder's full width; the pane at its
  *   start, with the tabs Query — Visual · jq at the top of its body —
  *   Datasets and Library, its open tab and its collapse the builder's to
@@ -50,12 +51,12 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, EmptyStateView, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, usePersistedState,
+    BannerView, BuilderFrame, EmptyStateView, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, usePersistedState,
     useTrackedEvaluation,
     type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
@@ -127,12 +128,6 @@ function refusalOf(session: EditSession<QueryEntry>, words: EditingWords): strin
     if (session.error !== undefined) return sessionErrorText(session.error, words);
     if (session.stale) return words.m.historyStatus({ status: "stale" });
     return words.m.historyStatus({ status: session.status === "idle" ? "applying" : session.status });
-}
-
-/** Whether a key press is typed into a field, whose own undo it is. */
-function inField(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
 /**
@@ -369,7 +364,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             setPane({ collapsed: false });
             return;
         }
-        if (inField(event.target)) return;
+        // A field typed into keeps its own undo.
+        if (typedInto(event.target)) return;
         const action = historyShortcut(event);
         if (action === undefined) return;
         event.preventDefault();
@@ -407,6 +403,11 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         <QuerySavePopover open={naming} onOpenChange={setNaming} trigger={trigger}
             name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
     );
+    // Save… folded into the toolbar's ⋯ chip (#1229): the popover hangs from the chip.
+    const saveFrom = (anchor: ReactNode) => (
+        <QuerySavePopover open={naming} onOpenChange={setNaming} anchor={anchor}
+            name={editor.header.name} taken={taken} description={editor.header.description} generated={generated} onSave={onSave} />
+    );
 
     // ── The save state: Saved for a moment after a save, then quiet ─────
     const [fresh, setFresh] = useState(false);
@@ -434,6 +435,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         history: historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction }),
         copyText: () => editor.program,
         save: savePopover,
+        saveFrom,
+        onSaveAs: () => setNaming(true),
         saving: naming,
         running: run.status === "running",
         onRun,

@@ -2136,6 +2136,31 @@ function isValueConstructorCall(call, ctx) {
   const callee = call.expression;
   return t.isIdentifier(callee) && (callee.text === "variant" || callee.text === "some") && resolvesToEastImport(callee, ctx.checker, t);
 }
+function mentionsEastValueType(node, ctx, seen) {
+  const t = ctx.ts;
+  if (node.kind === t.SyntaxKind.AnyKeyword || node.kind === t.SyntaxKind.UnknownKeyword)
+    return true;
+  if (t.isTypeReferenceNode(node)) {
+    const named = ctx.checker.getSymbolAtLocation(node.typeName);
+    const symbol = named !== void 0 && (named.flags & t.SymbolFlags.Alias) !== 0 ? ctx.checker.getAliasedSymbol(named) : named;
+    const declarations = symbol?.declarations ?? [];
+    if (declarations.some((d) => declaredByEast(d) || t.isTypeParameterDeclaration(d)))
+      return true;
+    if (symbol !== void 0 && !seen.has(symbol)) {
+      seen.add(symbol);
+      if (declarations.some((d) => t.isTypeAliasDeclaration(d) && mentionsEastValueType(d.type, ctx, seen)))
+        return true;
+    }
+  }
+  return t.forEachChild(node, (child) => mentionsEastValueType(child, ctx, seen) ? true : void 0) === true;
+}
+function writtenInEastValues(signature, index, ctx) {
+  const params = signature.getParameters();
+  const declaration = params[Math.min(index, params.length - 1)]?.valueDeclaration;
+  if (declaration === void 0 || !ctx.ts.isParameter(declaration) || declaration.type === void 0)
+    return true;
+  return mentionsEastValueType(declaration.type, ctx, /* @__PURE__ */ new Set());
+}
 function parameterTypeAt(signature, index, call, ctx) {
   const t = ctx.ts;
   const params = signature.getParameters();
@@ -2183,7 +2208,10 @@ function flowOf(e, ctx) {
       if (signature !== void 0 && declaration !== void 0 && declaredByEastPackage(declaration)) {
         const index = args.indexOf(node);
         const param = parameterTypeAt(signature, index, parent, ctx);
-        return param !== void 0 && isEastExprType(param) ? "program" : "value";
+        if (param !== void 0 && isEastExprType(param))
+          return "program";
+        if (declaredByEast(declaration) || writtenInEastValues(signature, index, ctx))
+          return "value";
       }
       return east ? "value" : "host";
     }

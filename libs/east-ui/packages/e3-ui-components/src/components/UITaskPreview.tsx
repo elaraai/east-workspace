@@ -43,6 +43,7 @@ import {
 } from '@elaraai/east-ui-components';
 import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
+import { RecordSliceImpl } from '@elaraai/east-ui-components/platform';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
 import {
@@ -147,7 +148,7 @@ export const UITaskPreview = memo(function UITaskPreview({
                     // (see east-contribute "Common traps"). The manifest-SCOPED data/func/record binds follow.
                     ...StateImpl,
                     ...NavImpl,
-                    ...SliceImpl,
+                    ...SliceImpl, ...RecordSliceImpl,
                     ...SliceApplyImpl,
                     ...OverlayImpl,
                     ...ClipboardImpl,

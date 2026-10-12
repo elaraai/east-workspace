@@ -18,7 +18,7 @@ import {
 import { OverflowType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid } from "../../display/icon/types.js";
 import {
     ListVariantType,
     ListMarkerType,
@@ -67,6 +67,8 @@ type ListItemInput =
  *                is forwarded as-is.
  * @param style - Optional visual-style configuration.
  * @returns An East expression representing the list component.
+ * @throws When `markerIcon` is a value of another set than Font Awesome's
+ *   solid — East UI draws the solid set only (#1263)
  */
 function createList(
     items:
@@ -102,6 +104,7 @@ function buildListVisualStyle(style: ListStyle): ExprType<ListVisualStyleType> {
 
     const markerValue = (() => {
         if (style.markerIcon !== undefined) {
+            refuseNonSolid("List markerIcon", style.markerIcon);
             return East.value(
                 variant("icon", style.markerIcon as SubtypeExprOrValue<IconType>),
                 ListMarkerType,

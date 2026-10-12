@@ -9,6 +9,8 @@ import {
     TreeView as ChakraTreeView,
     createTreeCollection,
 } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, match, some, none, type OptionType, type VariantType, type ValueTypeOf } from "@elaraai/east";
 import { TreeView, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -186,7 +188,9 @@ function IndicatorIcon({ indicator }: { indicator: IconOptionValue }) {
 }
 
 /**
- * Recursively renders tree nodes as Branch or Item based on children.
+ * Recursively renders tree nodes as Branch or Item based on children. A
+ * branch leads with Font Awesome's chevron-right, which the indicator's
+ * styles turn down while it is open (#1263) — Chakra draws none there.
  */
 function TreeNodeRenderer({ node, indexPath }: TreeNodeRendererProps) {
     const hasChildren = node.children.length > 0;
@@ -196,7 +200,7 @@ function TreeNodeRenderer({ node, indexPath }: TreeNodeRendererProps) {
             <ChakraTreeView.NodeProvider node={node} indexPath={indexPath}>
                 <ChakraTreeView.Branch>
                     <ChakraTreeView.BranchControl>
-                        <ChakraTreeView.BranchIndicator />
+                        <ChakraTreeView.BranchIndicator><FontAwesomeIcon icon={faChevronRight} /></ChakraTreeView.BranchIndicator>
                         {node.indicator && <IndicatorIcon indicator={node.indicator} />}
                         <ChakraTreeView.BranchText>{node.label}</ChakraTreeView.BranchText>
                     </ChakraTreeView.BranchControl>

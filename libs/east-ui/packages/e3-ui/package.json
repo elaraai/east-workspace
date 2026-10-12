@@ -29,6 +29,7 @@
   "files": [
     "dist/src",
     "dist/test/**/*.examples.*",
+    "dist/test/roster/warehouse.*",
     "!dist/**/*.spec.*",
     "README.md",
     "CONTRIBUTING.md",
@@ -73,10 +74,12 @@
     "@elaraai/e3-core": "workspace:*",
     "@elaraai/east-node-std": "workspace:*",
     "@elaraai/east-py-datascience": "workspace:*",
+    "@elaraai/eslint-plugin-east": "workspace:*",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "eslint": "^9",
+    "eslint-plugin-headers": "^1.3.3",
     "typescript": "~5.9.2"
   }
 }

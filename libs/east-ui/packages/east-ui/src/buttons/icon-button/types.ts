@@ -40,9 +40,9 @@ export type IconButtonAttentionType = typeof IconButtonAttentionType;
 /** String-literal shorthands for {@link IconButtonAttentionType}. */
 export type IconButtonAttentionLiteral = "none" | "pulse" | "ring";
 import { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, type SolidIconPrefix } from "../../display/icon/types.js";
 import type { IconPayload } from "../button/types.js";
-import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+import type { IconName } from "@fortawesome/fontawesome-common-types";
 
 // Re-export ButtonVariantType for convenience
 export { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
@@ -128,8 +128,8 @@ export interface IconButtonStyle {
  * `aria-label`. Omitting it at the factory layer is a TypeScript compile
  * error (the positional `label` argument enforces this).
  *
- * @property prefix - Font Awesome prefix (`fas` / `far` / `fab`)
- * @property name - Font Awesome icon name (`xmark` / `bars` / `save` / ...)
+ * @property prefix - Font Awesome prefix: `fas`, the solid set, the one East UI draws (#1263)
+ * @property name - Font Awesome icon name (`xmark` / `bars` / `floppy-disk` / ...)
  * @property label - Required aria-label for screen readers
  * @property loadingIcon - Icon swapped in when `loading` is true (e.g. a spinner)
  * @property loading - Loading state — renderer shows a spinner and blocks interaction
@@ -170,7 +170,7 @@ export type IconButtonType = typeof IconButtonType;
  * {@link IconButtonStyle}) all sit flat. The factory composes the visual fields
  * into the nested IR `style` struct internally.
  *
- * @property prefix - Font Awesome icon prefix (`"fas"`, `"far"`, …) — required
+ * @property prefix - Font Awesome icon prefix: `"fas"`, the solid set (#1263) — required
  * @property name - Font Awesome icon name — required
  * @property label - Accessible label (aria-label) — required
  * @property loadingIcon - Icon shown in place of the main icon when `loading` is true
@@ -179,13 +179,13 @@ export type IconButtonType = typeof IconButtonType;
  * @property onClick - Click-handler callback
  */
 export interface IconButtonOptions extends IconButtonStyle {
-    /** Font Awesome icon prefix (`"fas"`, `"far"`, …) — required. */
-    prefix: IconPrefix;
+    /** Font Awesome icon prefix: `"fas"`, the solid set, the one East UI draws (#1263) — required; another is refused at build. */
+    prefix: SolidIconPrefix;
     /** Font Awesome icon name — required. */
     name: IconName;
     /** Accessible label (aria-label) — required. */
     label: string;
-    /** Icon swapped in when `loading` is true (e.g. a spinner) */
+    /** Icon swapped in when `loading` is true (e.g. a spinner): a solid icon (#1263) */
     loadingIcon?: IconPayload | SubtypeExprOrValue<IconType>;
     /** Loading state — renderer shows a spinner and blocks interaction */
     loading?: SubtypeExprOrValue<BooleanType>;

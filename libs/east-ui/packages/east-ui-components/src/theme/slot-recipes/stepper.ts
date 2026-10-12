@@ -14,10 +14,16 @@
  * the value a pane is editing. `size` is where it sits: `sm` in a toolbar
  * row, `md` in a pane's field rows.
  *
+ * On a coarse pointer each button keeps its size and takes a 44px tap target
+ * from its halo (#346, #1229) — the value between them keeps the two apart.
+ * The strip clips nothing, which would clip the halos: its end buttons round
+ * their own outer corners inside its border.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const stepperSlotRecipe = defineSlotRecipe({
     className: "elara-stepper",
@@ -30,7 +36,6 @@ export const stepperSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderStyle: "solid",
             borderRadius: "md",
-            overflow: "hidden",
             fontFamily: "mono",
             fontVariantNumeric: "tabular-nums",
         },
@@ -45,6 +50,10 @@ export const stepperSlotRecipe = defineSlotRecipe({
             "& svg": { fontSize: "9px" },
             _focusVisible: { outline: "none", boxShadow: "focus" },
             _disabled: { cursor: "not-allowed" },
+            ...coarseHitArea({ position: true }),
+            // The strip's corner, less its border, on the end buttons.
+            "&:first-of-type": { borderStartStartRadius: "calc({radii.md} - 1px)", borderEndStartRadius: "calc({radii.md} - 1px)" },
+            "&:last-of-type": { borderStartEndRadius: "calc({radii.md} - 1px)", borderEndEndRadius: "calc({radii.md} - 1px)" },
         },
         value: {
             display: "inline-flex",

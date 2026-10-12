@@ -17,6 +17,7 @@ import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnExc
 import { printTypeValue } from "../../compile/runtime.js";
 import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
 import type { AnalyzedIR } from "../../analyze.js";
+import { markAsync } from "../../analyze_async.js";
 import type { PlatformFunction } from "../../platform.js";
 import { SourceMap, with_source_map } from "../../location.js";
 
@@ -248,7 +249,17 @@ export function buildPlatformContext(options?: Beast2DecodeOptions): PlatformDec
  * {@link EAST_SOURCE_MAP_SYMBOL}). This is the codec-independent tail of function
  * decoding — the caller has already decoded the IR and its capture values.
  *
- * @param ir - the decoded Function or AsyncFunction IR
+ * @remarks
+ * Before the IR compiles, its nodes are marked with whether each awaits
+ * ({@link markAsync}): the compiler reads it, and the IR's wire does not carry
+ * it, so a body compiled without it would run every statement synchronously,
+ * and a statement after an awaited call would read its promise (#1207). The
+ * IR is not checked again, as a build checked it: over a UI payload's types
+ * that would make a decode ten to forty times slower. A platform function the
+ * decode was not given is stubbed by the compiler, so the value decodes
+ * wherever it is read, and only a call needs the platform.
+ *
+ * @param ir - the decoded Function or AsyncFunction IR, whose nodes are marked in place
  * @param isAsync - whether the declared type is AsyncFunction
  * @param captureContext - decoded capture values keyed by capture name
  * @param typeContext - capture types keyed by capture name
@@ -264,8 +275,7 @@ export function finishDecodedFunction(
   platformCtx: PlatformDecodeContext,
   sourceMap: SourceMap | null,
 ): (...inputs: any[]) => any {
-  // Compile IR to callable function — mutate in place to avoid object spread allocations
-  (ir.value as any).isAsync = isAsync;
+  markAsync(ir, platformCtx.asyncPlatformFns);
   // The compile snapshots the AMBIENT source map (compile_internal's
   // fresh_ctx), so it must run under the map the blob carried: that is the
   // map the IR's loc_ids index, and the only one that makes a runtime error
@@ -274,7 +284,7 @@ export function finishDecodedFunction(
   // against which the blob's ids mean nothing. A blob without a map compiles
   // under an empty one for the same reason (#626).
   const compiled = with_source_map(sourceMap ?? new SourceMap(), () =>
-    compile_internal(ir as any as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
+    compile_internal(ir as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
   const rawFn = compiled(captureContext);
 
   const fn = isAsync

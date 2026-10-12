@@ -196,5 +196,24 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual(await find({ fields: ['"late"'], index: 'by_status' }), { found: true, row: 0, count: late });
       assert.deepEqual(await find({ key: '(status="late", due=9)', index: 'by_status' }), { found: true, row: 3, count: 1 });
     });
+    it('searches nullable String fields through scalar and compound indexes without including Unset', async (t) => {
+      const ctx = await withRecord(t);
+      const opts = await ctx.opts();
+      const path = [variant('field', 'records'), variant('field', 'contacts')];
+      const find = async (query: DatasetFindQuery) => {
+        const { found, row, count } = await datasetFindKey(ctx.config.baseUrl, ctx.repoName, WS, path, query, opts);
+        return { found, row, count };
+      };
+      assert.deepEqual(await find({ index: 'by_name', prefix: 'Ad' }), { found: true, row: 1, count: 3 });
+      assert.deepEqual(await find({ index: 'by_name', prefix: '' }), { found: true, row: 1, count: 5 });
+      assert.deepEqual(await find({ index: 'by_name', key: '.none' }), { found: true, row: 0, count: 1 });
+      assert.deepEqual(await find({ index: 'by_name', prefix: 'É' }), { found: true, row: 5, count: 1 });
+      assert.deepEqual(await find({ index: 'by_group_name', fields: ['"east"'], prefix: 'Ad' }),
+        { found: true, row: 1, count: 2 });
+      assert.deepEqual(await find({ index: 'by_group_name', fields: ['"east"'], prefix: '' }),
+        { found: true, row: 1, count: 4 });
+      assert.deepEqual(await find({ index: 'by_group_name', fields: ['"west"'], prefix: 'Z' }),
+        { found: false, row: 6, count: 0 });
+    });
   });
 }

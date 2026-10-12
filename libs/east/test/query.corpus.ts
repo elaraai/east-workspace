@@ -25,13 +25,13 @@
  */
 
 import {
-  ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IRType, IntegerType, NeverType, NullType,
-  OptionType, SortedMap, StringType, StructType,
+  ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, EastIR, EastTypeType, FloatType, IRType, IntegerType, NeverType,
+  NullType, OptionType, SortedMap, StringType, StructType,
   JqLiteralType, JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
   QuerySpanType,
-  canonicalTypeValue, checkJq, compareFor, encodeBeast2For, encodeEastIR, equalFor, none, parseJq, printJq, setLocationCapture, some,
-  toEastTypeValue, translateJq, variant,
-  type CheckJqResult, type EastType, type ValueTypeOf,
+  canonicalTypeValue, checkJq, compareFor, encodeBeast2For, encodeEastIR, equalFor, isTypeValueEqual, none, parseJq, printJq,
+  setLocationCapture, some, toEastTypeValue, translateJq, variant,
+  type CheckJqResult, type EastType, type EastTypeValue, type FunctionIR, type ValueTypeOf,
 } from "../src/index.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { MESSAGES } from "../src/query/jq/messages.js";
@@ -512,8 +512,9 @@ export const QueryCorpusEntryType = StructType({
   /** The call of the `Query` builtin `East.jq` makes of the case (#1041): the
    *  IR of an East function of the checked input's fields (a root's each
    *  field, or the one input) that makes it, the checked query and its
-   *  translation, built without source locations but the jq text's; none for
-   *  a case that does not check. python's is held to it. */
+   *  translation, built without source locations but the jq text's, its
+   *  recursive types' ids renamed canonically (#1207); none for a case that
+   *  does not check. python's is held to it. */
   called: OptionType(IRType),
   /** `printJq(parseJq(program))`: the canonical text; empty for a program
    *  that does not parse. */
@@ -534,8 +535,9 @@ export const QueryCorpusEntryType = StructType({
   /** The checker's diagnostics, lints included. */
   diagnostics: ArrayType(QueryErrorType),
   /** The translation, as `encodeEastIR` writes `translateJq(checked).fn()`, built
-   *  without source locations but the jq text's; none for a case that does
-   *  not check. python's translator is held to it (#926). */
+   *  without source locations but the jq text's, its recursive types' ids
+   *  renamed canonically (#1207); none for a case that does not check.
+   *  python's translator is held to it (#926). */
   translated: OptionType(BlobType),
 });
 
@@ -596,8 +598,9 @@ function entryFor(c: QueryCorpusCase): ValueTypeOf<typeof QueryCorpusEntryType> 
 
 /**
  * A checked case's translation as the corpus fixture holds it: its IR and
- * source map, built without the locations of the code that builds it, so the
- * bytes depend on the case alone.
+ * source map, built without the locations of the code that builds it, its
+ * recursive types' ids renamed canonically ({@link withCanonicalRecursiveIds}),
+ * so the bytes depend on the case alone.
  *
  * @param checked - the case, checked
  * @returns `encodeEastIR` of the translation's function
@@ -605,7 +608,10 @@ function entryFor(c: QueryCorpusCase): ValueTypeOf<typeof QueryCorpusEntryType> 
 export function translatedBytes(checked: CheckJqResult): Uint8Array {
   setLocationCapture(false);
   try {
-    return encodeEastIR(translateJq(checked).fn().toIR());
+    const built = translateJq(checked).fn().toIR();
+    const program = new EastIR(withCanonicalRecursiveIds(built.ir) as FunctionIR);
+    program.source_map = built.source_map;
+    return encodeEastIR(program);
   } finally {
     setLocationCapture(true);
   }
@@ -615,7 +621,8 @@ export function translatedBytes(checked: CheckJqResult): Uint8Array {
  * A checked case's call of the `Query` builtin as the corpus fixture holds it
  * (#1041): an East function of the checked input's fields (a root's each
  * field, or the one input) whose body is the call `East.jq` makes, built
- * without the locations of the code that builds it.
+ * without the locations of the code that builds it, its recursive types' ids
+ * renamed canonically ({@link withCanonicalRecursiveIds}).
  *
  * @param checked - the case, checked
  * @returns the function's IR
@@ -626,10 +633,129 @@ export function calledIR(checked: CheckJqResult): ValueTypeOf<typeof IRType> {
     const translation = translateJq(checked);
     const input = checked.inputType;
     const params = checked.source.root ? Object.values((input as StructType).fields) as EastType[] : [input];
-    return East.function(params, translation.resultType, ($, ...inputs) => translation.call(...inputs)).toIR().ir;
+    return withCanonicalRecursiveIds(East.function(params, translation.resultType, ($, ...inputs) => translation.call(...inputs)).toIR().ir);
   } finally {
     setLocationCapture(true);
   }
+}
+
+/** The IR's type, which {@link renameRecursiveIds} walks an IR by. */
+const IR_TYPE = toEastTypeValue(IRType);
+/** The type of the type values an IR holds. */
+const TYPE_TYPE = toEastTypeValue(EastTypeType);
+
+/**
+ * An IR value with every recursive type's id it holds renamed, wrappers and
+ * refs alike, the IR walked by its type.
+ *
+ * @remarks
+ * What the IR shares, the renamed IR shares: a type or a node met again is
+ * the one renamed the first time. A built IR shares its types between nodes,
+ * and beast2 writes a shared container once, so a copy per node would hold
+ * the same program in ten times the bytes.
+ *
+ * @param ir - an IR value
+ * @param rename - the new id of each old one, asked in the order the walk meets them
+ * @returns the same program under the new ids
+ */
+export function renameRecursiveIds(ir: ValueTypeOf<typeof IRType>, rename: (id: bigint) => bigint): ValueTypeOf<typeof IRType> {
+  const renamedTypes = new WeakMap<EastTypeValue, EastTypeValue>();
+  const renameType = (t: EastTypeValue): EastTypeValue => {
+    let renamed = renamedTypes.get(t);
+    if (renamed === undefined) {
+      renamed = renameTypeOnce(t);
+      renamedTypes.set(t, renamed);
+    }
+    return renamed;
+  };
+  const renameTypeOnce = (t: EastTypeValue): EastTypeValue => {
+    switch (t.type) {
+      case "Never": case "Null": case "Boolean": case "Integer":
+      case "Float": case "String": case "DateTime": case "Blob":
+        return t;
+      case "Ref": case "Array": case "Set": case "Vector": case "Matrix":
+        return variant(t.type, renameType(t.value)) as EastTypeValue;
+      case "Dict":
+        return variant("Dict", { key: renameType(t.value.key), value: renameType(t.value.value) });
+      case "Struct": case "Variant":
+        return variant(t.type, (t.value as { name: string; type: EastTypeValue }[]).map(({ name, type }) => ({ name, type: renameType(type) }))) as EastTypeValue;
+      case "Function": case "AsyncFunction":
+        return variant(t.type, { inputs: t.value.inputs.map(renameType), output: renameType(t.value.output) }) as EastTypeValue;
+      case "Recursive": {
+        const payload = t.value;
+        return payload.type === "ref"
+          ? variant("Recursive", variant("ref", rename(payload.value)))
+          : variant("Recursive", variant("wrapper", { id: rename(payload.value.id), inner: renameType(payload.value.inner) }));
+      }
+    }
+  };
+  // The IR's own recursion, by the id its refs name.
+  const nodes = new Map<bigint, EastTypeValue>();
+  const walked = new WeakMap<object, unknown>();
+  const walk = (value: any, type: EastTypeValue): any => {
+    if (isTypeValueEqual(type, TYPE_TYPE)) return renameType(value as EastTypeValue);
+    switch (type.type) {
+      case "Recursive": {
+        const payload = type.value;
+        if (payload.type === "ref") return walk(value, nodes.get(payload.value)!);
+        nodes.set(payload.value.id, payload.value.inner);
+        return walk(value, payload.value.inner);
+      }
+      case "Struct": case "Variant": case "Array": {
+        let renamed = walked.get(value);
+        if (renamed === undefined) {
+          renamed = walkOnce(value, type);
+          walked.set(value, renamed);
+        }
+        return renamed;
+      }
+      default:
+        // A scalar: an IR holds no Set, Dict, Ref, Vector, Matrix or function.
+        return value;
+    }
+  };
+  const walkOnce = (value: any, type: EastTypeValue): unknown => {
+    switch (type.type) {
+      case "Struct":
+        return Object.fromEntries((type.value as { name: string; type: EastTypeValue }[]).map(({ name, type: field }) => [name, walk(value[name], field)]));
+      case "Variant": {
+        const arm = (type.value as { name: string; type: EastTypeValue }[]).find(({ name }) => name === value.type)!;
+        return variant(value.type, walk(value.value, arm.type));
+      }
+      default:
+        return value.map((element: unknown) => walk(element, (type as Extract<EastTypeValue, { type: "Array" }>).value));
+    }
+  };
+  return walk(ir, IR_TYPE);
+}
+
+/**
+ * An IR value with its recursive types' ids renamed canonically, through one
+ * table for the whole value: each id is numbered from 0 in the order a walk of
+ * the IR, by its type, first meets it.
+ *
+ * @remarks
+ * A recursive type's id is a runtime artefact, numbered as the process builds
+ * its types, so it moves when the modules load in another order: a new import
+ * in the beast2 decoder renumbered every query call the fixture held (#1207).
+ * Renamed, the IR's bytes depend on the case alone, as
+ * {@link canonicalTypeValue} makes a type value's. One table serves the whole
+ * IR, since a node's type may name by `ref` a wrapper another node's type
+ * holds, as an unwrapped recursive value's type does.
+ *
+ * @param ir - an IR value
+ * @returns the same program, its recursive types' ids renamed
+ */
+export function withCanonicalRecursiveIds(ir: ValueTypeOf<typeof IRType>): ValueTypeOf<typeof IRType> {
+  const ids = new Map<bigint, bigint>();
+  return renameRecursiveIds(ir, (id) => {
+    let renamed = ids.get(id);
+    if (renamed === undefined) {
+      renamed = BigInt(ids.size);
+      ids.set(id, renamed);
+    }
+    return renamed;
+  });
 }
 
 /**

@@ -1,7 +1,8 @@
 /**
- * Collections showcase — every collections (DataList, Matrix, Plan, Table,
- * TreeView) example wrapped as a UI task and bundled into
- * `east-ui-showcase-collections@<pkg.version>`.
+ * Collections showcase — every collections (DataList, Matrix, Pagination,
+ * Table, TreeView) example wrapped as a UI task and bundled into
+ * `east-ui-showcase-collections@<pkg.version>`. The Plan is e3-ui's, and has
+ * its own category (`plan.ts`).
  *
  * Run via `make start-collections` or `make collections`.
  */

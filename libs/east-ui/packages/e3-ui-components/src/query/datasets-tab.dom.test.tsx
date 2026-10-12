@@ -22,7 +22,7 @@ vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
     datasetGetStatus: vi.fn(),
 }));
 
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { IntegerType, equalFor, none, some, toEastTypeValue, variant } from "@elaraai/east";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
@@ -30,7 +30,7 @@ import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "./model/words.js";
 import { sourceKind, sourceSize } from "./datasets-tab.js";
 import {
-    CUSTOMERS, CustomersType, HASHES, ORDERS, OrdersType, fixtureCall, mountBuilder, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
+    act, CUSTOMERS, CustomersType, HASHES, ORDERS, OrdersType, fixtureCall, mountBuilder, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
 } from "./query.test-utils.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */

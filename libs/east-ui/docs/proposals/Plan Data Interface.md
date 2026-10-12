@@ -176,17 +176,17 @@ builder (§3.5a).
                 Chart.Line(r.kind.unwrap("kpi").points, { x: p => p.at, y: p => p.v }),
                 { breach: { below: 92 } })],
         }),
-        Plan.series.span(OpsRow, {                        // family: machines
-            match: r => r.kind.hasTag("machine"),
+        Plan.series.span(OpsRow, {                        // family: presses
+            match: r => r.kind.hasTag("press"),
             key: r => r.id, label: r => r.id, id: true,
-            runs: r => r.kind.unwrap("machine").runs,
-            groupBy: [r => r.line], rollup: "union", unit: "t",
+            runs: r => r.kind.unwrap("press").runs,
+            groupBy: [r => r.hall], rollup: "union", unit: "k sheets",
         }),
-        Plan.series.group({ key: "docks", label: "Docks · In" }, [
-            Plan.series.buckets(OpsRow, {                 // family: docks, under the band
-                match: r => r.kind.hasTag("dock"),
+        Plan.series.group({ key: "vans", label: "Deliveries · Local" }, [
+            Plan.series.buckets(OpsRow, {                 // family: vans, under the band
+                match: r => r.kind.hasTag("van"),
                 key: r => r.id, label: r => r.name,
-                events: r => r.kind.unwrap("dock").events,
+                events: r => r.kind.unwrap("van").events,
             }),
         ]),
         Plan.series.table(OpsRow, {                       // family: orders
@@ -263,10 +263,10 @@ mechanical:
 ```tsx
 // ── e3 package: ONE raw input; families discriminated by a variant field ──
 const OpsRow = StructType({
-    id: StringType, line: StringType, section: StringType,
+    id: StringType, hall: StringType, section: StringType,
     kind: VariantType({
-        machine: StructType({ runs: ArrayType(Plan.Types.Run) }),
-        dock:    StructType({ events: ArrayType(Plan.Types.BucketEvent) }),
+        press:   StructType({ runs: ArrayType(Plan.Types.Run) }),
+        van:     StructType({ events: ArrayType(Plan.Types.BucketEvent) }),
         order:   StructType({ raw: ArrayType(StructType({ at: DateTimeType, value: OptionType(FloatType) })) }),
     }),
 });
@@ -281,16 +281,16 @@ const dash = e3.ui("plan", { ops }, _$ => (
         // would re-inline per use).
         const series = $.const([
             Plan.series.span(OpsRow, {
-                match: r => r.kind.hasTag("machine"),
+                match: r => r.kind.hasTag("press"),
                 key: r => r.id, label: r => r.id, id: true,
-                runs: r => r.kind.unwrap("machine").runs,
-                groupBy: [r => r.line], rollup: "union", unit: "t",
+                runs: r => r.kind.unwrap("press").runs,
+                groupBy: [r => r.hall], rollup: "union", unit: "k sheets",
             }),
-            Plan.series.group({ key: "docks", label: "Docks · In" }, [
+            Plan.series.group({ key: "vans", label: "Deliveries · Local" }, [
                 Plan.series.buckets(OpsRow, {
-                    match: r => r.kind.hasTag("dock"),
+                    match: r => r.kind.hasTag("van"),
                     key: r => r.id, label: r => r.id,
-                    events: r => r.kind.unwrap("dock").events,
+                    events: r => r.kind.unwrap("van").events,
                 }),
             ]),
             Plan.series.table(OpsRow, {

@@ -3,8 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { East } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { EmptyState, Text, Button } from "@elaraai/east-ui/internal";
+import { EmptyState, Text, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./empty-state.examples.js";
 
 describeEast("EmptyState", (test) => {
@@ -47,6 +48,25 @@ describeEast("EmptyState", (test) => {
         const icon = e.unwrap().unwrap("EmptyState").icon.unwrap("some");
         $(Assert.equal(icon.prefix, "fas"));
         $(Assert.equal(icon.name, "folder-plus"));
+    });
+
+    // =========================================================================
+    // No text glyph (#1263): every icon is a Font Awesome solid icon
+    // =========================================================================
+
+    test("a text glyph is refused at build, naming its remedy: `icon`, a Font Awesome solid icon (#1263)", $ => {
+        const refusal = (() => {
+            try { EmptyState.Root({ title: "Nothing here", glyph: "·   ·   ·" } as Parameters<typeof EmptyState.Root>[0]); return ""; }
+            catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(refusal), "EmptyState: `glyph` is removed (#1263) — an empty state's mark is a Font Awesome solid icon: " +
+            "give `icon` instead, as `{ prefix: \"fas\", name: \"<icon>\" }`"));
+    });
+
+    test("the EmptyState arm carries no glyph — its icon is its one mark (#1263)", $ => {
+        const fields = ["icon", "title", "description", "actions", "style"];
+        $(Assert.equal(East.value(Object.keys(UIComponentType.node.cases.EmptyState.fields)), fields));
+        $(Assert.equal(East.value(Object.keys(EmptyState.Types.EmptyState.fields)), fields));
     });
 
     test("creates empty state with string description (coerced)", $ => {

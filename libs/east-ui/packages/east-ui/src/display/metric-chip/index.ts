@@ -17,7 +17,7 @@ import {
 
 import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { IconType } from "../icon/types.js";
+import { IconType, refuseNonSolid } from "../icon/types.js";
 import {
     MetricChipToneType,
     MetricChipEmphasisType,
@@ -122,6 +122,8 @@ function buildMetricChipStyle(options: MetricChipOptions): ExprType<MetricChipSt
  *   `"negative"` / `"neutral"` / `"info"`, or East expression); plus optional
  *   `unit` / `icon` content + visual style fields.
  * @returns An East expression of type `UIComponentType`
+ * @throws When `icon` is a value of another set than Font Awesome's solid —
+ *   East UI draws the solid set only (#1263)
  *
  * @remarks
  * The default palette is driven by `tone`; overrides can be applied via
@@ -147,6 +149,7 @@ function createMetricChip(
     value: SubtypeExprOrValue<UIComponentType>,
     options: MetricChipOptions,
 ): ExprType<UIComponentType> {
+    refuseNonSolid("MetricChip icon", options.icon);
     const toneValue = typeof options.tone === "string"
         ? East.value(variant(options.tone, null), MetricChipToneType)
         : options.tone;

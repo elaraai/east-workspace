@@ -6,6 +6,9 @@
 /**
  * TreeView slot recipe — indented branches (the `.diff-tree` pattern).
  * Items read as body text with mono key accents applied consumer-side.
+ * A branch leads with Font Awesome's chevron-right (#1263), the Table's
+ * nested-row caret's 11px in its own square, which Chakra's indicator styles
+ * turn down while the branch is open.
  *
  * @packageDocumentation
  */
@@ -38,7 +41,7 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             _hover: { background: "bg.subtle" },
         },
         branchTrigger: { color: "fg.muted", cursor: "pointer", _hover: { color: "fg" } },
-        branchIndicator: { color: "fg.muted", transitionProperty: "transform", transitionDuration: "{durations.fast}" },
+        branchIndicator: { display: "inline-flex", color: "fg.muted", fontSize: "11px", "--fa-width": "1em", transitionProperty: "transform", transitionDuration: "{durations.fast}" },
         branchText: { fontSize: "{fontSizes.body}", color: "fg" },
         branchContent: { paddingLeft: "{spacing.4}" },
         item: {

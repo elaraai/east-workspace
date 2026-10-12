@@ -11,16 +11,20 @@
  * the placed component (B4), a card's click and the drag source (B5), the
  * Pages tab (B6), what is hidden and narrowed (B7). The canvas (#995): the one
  * toolbar and the page's status (B8), the selection bar (B9), the grid panel
- * (B10), a dropped card's cell (B11), Apply as one patch commit and a conflict
+ * (B10), a dropped card's cell (B11), Save as one patch commit and a conflict
  * (B12), the panes (B13), Preview, Publish, Desktop and Tablet (B14). The
  * inspector (#996): its pane and rail (B15), the selected placement
- * (B16–B18), its layout edits (B20, B12), nothing selected (B21), and the
+ * (B16–B18), its layout edits (B20, B12) — the height select's chevron and
+ * check Font Awesome's (#1263) — nothing selected (B21), and the
  * palette counting unsaved drafts. Save as template (D7, #997). The publish
  * preview (#998), in the canvas's place: its bar (E1), the page (E2), the
- * aside (E3–E5) and the footer (E6).
+ * aside (E3–E5) — every mark in it Font Awesome's (#1263) — and the footer
+ * (E6). The toolbar on a row short of room
+ * (#1229): its ladder, the ⋯ chip's bundle and menu, and Save as template
+ * hung from the chip.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -31,6 +35,7 @@ import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
 } from "@elaraai/east-ui-components";
+import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import {
     RecordBindHandleType, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -451,7 +456,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await waitFor(() => expect(tile(container, "c-trend").textContent).toBe("7 pages"));
     }, 30_000);
 
-    test("B11: a component dropped from the palette becomes a cell at its span, storing its fingerprint — Apply saves it", async () => {
+    test("B11: a component dropped from the palette becomes a cell at its span, storing its fingerprint — Save commits it", async () => {
         const { container } = await mountBuilder();
         const end = container.querySelector<HTMLElement>("[data-snap-grid-end]")!;
         await act(async () => {
@@ -465,30 +470,30 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(rows).toHaveLength(3);
         const dropped = rows[2]![0]!;
         expect(spanOf(container, dropped)).toBe("6");
-        await press("Apply changes");
+        await press("Save");
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         const cell = overview.value.draft.cells.at(-1)!;
         expect([cell.key, cell.component, cell.span, cell.fingerprint]).toEqual([dropped, "orders_by_week", 6n, ordersPrint]);
     }, 30_000);
 
-    test("B12: Apply is one patch commit on the page, and the toolbar says when it saved", async () => {
+    test("B12: Save is one patch commit on the page, and the toolbar says when it saved", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "]" });
         expect(spanOf(container, "c-trend")).toBe("9");
-        await press("Apply changes");
+        await press("Save");
         expect(await commits()).toEqual(["patch", "$init"]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 9n]]);
         expect(container.querySelector("[data-snap-grid-saved]")!.textContent).toMatch(/^Saved · \d\d:\d\d$/);
-        expect((screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     }, 30_000);
 
     test("B12: a save another landed first is a conflict, in the history item's words — and the other save stands", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "[" });
-        // Another operator's save lands between this Apply's read and its commit.
+        // Another operator's save lands between this Save's read and its commit.
         const other = await readRecord();
         const before = other.get(OVERVIEW)!;
         if (before.type !== "page") throw new Error("expected a page");
@@ -503,10 +508,10 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
             }
             return forward(ws, record, mutation, request);
         };
-        await press("Apply changes");
+        await press("Save");
         // The commit is refused, and the canvas, reading the page back, finds its source moved under its drafts.
         expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
-        expect((screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
         expect(await commits()).toEqual(["patch", "$init"]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
@@ -642,6 +647,20 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(frame().style.height).toBe("");
     }, 30_000);
 
+    test("B20: the height select's chevron and the picked height's check are Font Awesome's, never Chakra's own (#1263)", async () => {
+        const { container } = await mountBuilder();
+        await select(container, "c-trend");
+        const trigger = inspector(container).querySelector<HTMLElement>("[data-inspector-height]")!;
+        const control = trigger.closest<HTMLElement>('[data-scope="select"][data-part="control"]')!;
+        expect(markOf(control.querySelector('[data-part="indicator"]'))).toBe("fas chevron-down");
+        await act(async () => { fireEvent.click(trigger); });
+        const checks = screen.getAllByRole("option").map((option) => [option.textContent, option.querySelector<HTMLElement>('[data-part="item-indicator"]')!] as const);
+        expect([...new Set(checks.map(([, check]) => markOf(check)))]).toEqual(["fas check"]);
+        // Shown on the height the placement has: its content's.
+        expect(checks.filter(([, check]) => !check.hidden).map(([name]) => name)).toEqual(["Auto"]);
+        expect([...foreignIcons(control), ...foreignIcons(screen.getByRole("listbox"))]).toEqual([]);
+    }, 30_000);
+
     test("B20: the alignment segments set where the placement sits in a taller row", async () => {
         const { container } = await mountBuilder();
         await select(container, "c-trend");
@@ -651,12 +670,12 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(screen.getByRole("button", { name: "Center" }).getAttribute("aria-pressed")).toBe("true");
     }, 30_000);
 
-    test("B12: the inspector's edits are drafts of the page's session — Apply commits them in the page's one patch", async () => {
+    test("B12: the inspector's edits are drafts of the page's session — Save commits them in the page's one patch", async () => {
         const { container } = await mountBuilder();
         await select(container, "c-trend");
         await press("Increase span");
         await press("Stretch");
-        await press("Apply changes");
+        await press("Save");
         expect(await commits()).toEqual(["patch", "$init"]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
@@ -691,7 +710,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
 
     test("D7: it names a template — offering the page's title — and saves the open page, as last saved, in one commit", async () => {
         const { container } = await mountBuilder();
-        // A draft not yet applied is not what it saves.
+        // A draft the canvas has not saved is not what it saves.
         await keyOn(container, "c-trend", { key: "]" });
         const popover = await openPopover();
         // The design system's edit popover, hanging from the button: its head names the page it saves.
@@ -706,7 +725,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.title).toBe("Overview template");
         expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
-        // The page's draft is still the canvas's to apply.
+        // The page's draft is still the canvas's to save.
         expect(spanOf(container, "c-trend")).toBe("9");
     }, 30_000);
 
@@ -765,9 +784,10 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
     const preview = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-studio-publish]")!;
     /** An element of the preview, by its data attribute. */
     const part = (c: HTMLElement, name: string) => preview(c).querySelector<HTMLElement>(`[data-publish-${name}]`);
-    /** The change list's rows: each one's sign, its words and its detail. */
+    /** The change list's rows: each one's sign — the Font Awesome icon it draws (#1263) — its words and its detail. */
     const rows = (c: HTMLElement) => [...preview(c).querySelectorAll("[data-publish-change]")]
-        .map((row) => [...row.children].flatMap((el) => (el.children.length > 0 && el.tagName === "DIV" ? [...el.children] : [el])).map((el) => el.textContent));
+        .map((row) => [...row.children].flatMap((el) => (el.children.length > 0 && el.tagName === "DIV" ? [...el.children] : [el]))
+            .map((el) => (el.hasAttribute("data-sign") ? markOf(el) : el.textContent)));
     /** The footer's buttons. */
     const saveButton = (c: HTMLElement) => part(c, "save") as HTMLButtonElement;
     const publishButton = (c: HTMLElement) => part(c, "publish") as HTMLButtonElement;
@@ -823,8 +843,8 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "versions")!.lastElementChild!.textContent).toBe("v4");
         expect(part(container, "count")!.textContent).toBe("2 changes since v3");
         expect(rows(container)).toEqual([
-            ["±", "Resized Revenue trend", "span 12 → 8"],
-            ["+", "Added Breakdown bars", "row 2 · span 4"],
+            ["fas plus-minus", "Resized Revenue trend", "span 12 → 8"],
+            ["fas plus", "Added Breakdown bars", "row 2 · span 4"],
         ]);
         expect(part(container, "facts")!.textContent).toBe("AudienceField ops · 24 usersRolloutImmediate");
         expect(publishButton(container).textContent).toBe("Publish v4 to Staging");
@@ -839,9 +859,22 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
         expect(part(container, "versions")!.textContent).toBe("Overview · v1");
         expect(part(container, "count")!.textContent).toBe("2 changes · first version");
-        expect(rows(container)).toEqual([["+", "Added KPI rail", "row 1 · span 12"], ["+", "Added Revenue trend", "row 2 · span 8"]]);
+        expect(rows(container)).toEqual([["fas plus", "Added KPI rail", "row 1 · span 12"], ["fas plus", "Added Revenue trend", "row 2 · span 8"]]);
         expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).textContent).toBe("Publish v1 to Staging");
+    }, 30_000);
+
+    test("E3: a placement the draft removes since the live version is signed with Font Awesome's minus (#1263)", async () => {
+        const { container } = await mountBuilder();
+        await openPage("f-regional");
+        await keyOn(container, "p-kpi", { key: "Delete" });
+        await press("Preview");
+        // The changes in the draft's order, then what it removed.
+        expect(rows(container).map((row) => row.slice(0, 2))).toEqual([
+            ["fas plus-minus", "Resized Revenue trend"],
+            ["fas plus", "Added Breakdown bars"],
+            ["fas minus", "Removed KPI rail"],
+        ]);
     }, 30_000);
 
     test("E3: a page live as it stands is up to date — nothing to publish, and no banner", async () => {
@@ -872,17 +905,17 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await previewPage("f-regional");
         const banner = () => part(container, "banner")!;
         expect(banner().getAttribute("data-tone")).toBe("change");
-        // The design system's banner: its glyph, then its words.
-        expect([banner().firstElementChild!.textContent, banner().lastElementChild!.textContent])
-            .toEqual(["△", "Component logic unchanged — only layout changed. Safe to publish."]);
+        // The design system's banner: its icon — Font Awesome's paired status icon of its tone (#1263) — then its words.
+        expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
+            .toEqual(["fas circle-check", "Component logic unchanged — only layout changed. Safe to publish."]);
         await act(async () => { fireEvent.click(part(container, "exit")!); });
         await previewPage("c-monthly");
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
         expect(part(container, "count")!.textContent).toBe("1 change since v3");
         expect(banner().getAttribute("data-tone")).toBe("warning");
         expect(banner().getAttribute("role")).toBe("alert");
-        expect([banner().firstElementChild!.textContent, banner().lastElementChild!.textContent])
-            .toEqual(["!", "Logic changed since v3 in Orders by week — its placements publish with its new code"]);
+        expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
+            .toEqual(["fas triangle-exclamation", "Logic changed since v3 in Orders by week — its placements publish with its new code"]);
     }, 30_000);
 
     test("E4: the banner's words — one component is its; several are theirs, named in the order they are placed", () => {
@@ -908,13 +941,13 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "versions")!.textContent).toBe("Regional · v4 live");
     }, 30_000);
 
-    test("E6: with drafts on the canvas, the page shown is the drafted one; Publish applies them first — the canvas's own commit — then publishes them", async () => {
+    test("E6: with drafts on the canvas, the page shown is the drafted one; Publish saves them first — the canvas's own commit — then publishes them", async () => {
         const { container } = await mountBuilder();
         await openPage("f-regional");
         await keyOn(container, "p-trend", { key: "[" });
         await press("Preview");
         // The preview shows what will publish: the trend at 7, unsaved.
-        expect(rows(container)[0]).toEqual(["±", "Resized Revenue trend", "span 12 → 7"]);
+        expect(rows(container)[0]).toEqual(["fas plus-minus", "Resized Revenue trend", "span 12 → 7"]);
         expect(saveButton(container).disabled).toBe(false);
         await act(async () => { fireEvent.click(publishButton(container)); });
         await settle();
@@ -928,7 +961,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(saveButton(container).disabled).toBe(true);
     }, 30_000);
 
-    test("E6: Save as draft is the canvas's Apply alone — one commit to the draft, nothing published", async () => {
+    test("E6: Save as draft is the canvas's Save alone — one commit to the draft, nothing published", async () => {
         const { container } = await mountBuilder();
         await openPage("f-regional");
         await keyOn(container, "p-trend", { key: "[" });
@@ -965,5 +998,203 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "refused")!.getAttribute("role")).toBe("alert");
         expect(part(container, "refused")!.textContent).toBe("Another write changed this page first — review it and publish again");
         expect(await commits()).toEqual(["patch", "$init"]);
+    }, 30_000);
+});
+
+describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () => {
+    // jsdom lays nothing out: a toolbar row's box is `row.px`, an item's width is
+    // its form's in FORM_PX (a hidden form has no box), and the gap is 10px. The
+    // rows' ResizeObservers are captured, so a test moves the width as a browser does.
+    const row = { px: 0 };
+    /** Each item's width in each of its forms, widest first — none for a form that hides it. */
+    const FORM_PX: Readonly<Record<string, ReadonlyArray<number | undefined>>> = {
+        status: [57], grid: [110], readout: [62], zoom: [100, 45], rule: [1], history: [300, 136], widths: [150, 72],
+        "save-template": [124], preview: [71], publish: [66], more: [undefined, 40],
+    };
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element> }[] = [];
+    class CapturingObserver {
+        private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element> };
+        constructor(cb: ResizeObserverCallback) { this.entry = { cb, targets: new Set() }; observers.push(this.entry); }
+        observe(el: Element) { this.entry.targets.add(el); }
+        unobserve(el: Element) { this.entry.targets.delete(el); }
+        disconnect() { this.entry.targets.clear(); }
+    }
+    const widthOf = (el: Element): number => {
+        if (el.hasAttribute("data-toolbar")) return row.px;
+        const key = el.getAttribute("data-toolbar-item");
+        return key === null ? 0 : FORM_PX[key]?.[Number(el.getAttribute("data-toolbar-form"))] ?? 0;
+    };
+    const realRect = Element.prototype.getBoundingClientRect;
+    const realObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    beforeAll(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = CapturingObserver;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const width = widthOf(this);
+            return { x: 0, y: 0, left: 0, top: 0, width, height: 30, right: width, bottom: 30, toJSON() { return {}; } } as DOMRect;
+        };
+    });
+    beforeEach(() => {
+        const computed = window.getComputedStyle.bind(window);
+        vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element, pseudo?: string | null) => {
+            const style = computed(el, pseudo);
+            if (!el.hasAttribute("data-toolbar")) return style;
+            return new Proxy(style, { get: (target, prop) => (prop === "columnGap" ? "10px" : Reflect.get(target, prop)) });
+        });
+    });
+    afterEach(() => { vi.restoreAllMocks(); });
+    afterAll(() => {
+        Element.prototype.getBoundingClientRect = realRect;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realObserver;
+    });
+
+    /** Move the rows' width and deliver it as the browser does. */
+    function resize(px: number) {
+        row.px = px;
+        act(() => {
+            for (const o of observers) {
+                const rowEl = [...o.targets].find((t) => t.hasAttribute("data-toolbar") && t.isConnected);
+                if (rowEl !== undefined) o.cb([{ target: rowEl } as ResizeObserverEntry], {} as ResizeObserver);
+            }
+        });
+    }
+    /** The canvas's toolbar row. */
+    const bar = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-frame-slot=toolbar] [data-toolbar]")!;
+    /** Each item's form of its forms, as the toolbar says it folded them. */
+    const stateOf = (c: HTMLElement) => new Map(bar(c).getAttribute("data-toolbar-state")!.split(";").map((part) => {
+        const [key, of] = part.split("=");
+        return [key!, Number(of!.split("/")[0])] as const;
+    }));
+    /** The row a configuration needs: every drawn form's width, and a 10px gap between drawn items. */
+    function needs(forms: ReadonlyMap<string, number>): number {
+        const widths = [...forms].flatMap(([key, form]) => {
+            const px = FORM_PX[key]![form];
+            return px === undefined ? [] : [px];
+        });
+        return widths.reduce((a, b) => a + b, 0) + 10 * Math.max(0, widths.length - 1);
+    }
+    /** The ladder, move by move — the View chip's bundle one move of two steps, the ⋯ chip's one of four. */
+    const MOVES: ReadonlyArray<ReadonlyArray<readonly [string, number]>> = [
+        [["grid", 1]], [["readout", 1]], [["widths", 1]], [["zoom", 1], ["widths", 2]],
+        [["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1]], [["status", 1]], [["history", 1]],
+    ];
+    /** The ⋯ chip, while the row draws it. */
+    const chipOf = (c: HTMLElement) => bar(c).querySelector<HTMLElement>("[data-studio-more]");
+    /** The View chip, while the row draws it. */
+    const viewChipOf = (c: HTMLElement) => bar(c).querySelector<HTMLElement>("[data-snap-grid-view]");
+    /** The menu a chip opens. */
+    const menuOf = (chip: HTMLElement) => document.getElementById(chip.getAttribute("aria-controls")!)!;
+    /** A chip's menu's items. */
+    const menuItems = (chip: HTMLElement) => [...menuOf(chip).querySelectorAll<HTMLElement>("[role=menuitem], [role=menuitemradio]")];
+    /** Opens a chip's menu. */
+    async function openMenu(chip: HTMLElement) {
+        await act(async () => { fireEvent.click(chip); });
+        await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("true"));
+    }
+    /** Picks an item of a chip's menu as a pointer does: pressed on it, then its click. */
+    async function pick(chip: HTMLElement, words: string) {
+        const found = menuItems(chip).find((el) => el.textContent === words);
+        if (found === undefined) throw new Error(`no item “${words}”`);
+        await act(async () => { fireEvent.pointerDown(found); });
+        await act(async () => { fireEvent.click(found); });
+        await settle();
+    }
+    /** Waits the frames in which a popover opened starts to hear Esc and a click outside: Zag defers that a frame. */
+    const frames = () => act(async () => { await new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }); });
+
+    test("one ladder: the canvas's own steps — the zoom into the View chip as the widths hide, one move — then Save as template, Preview and Publish into the ⋯ chip, one move; the status, and the history item last", async () => {
+        row.px = 4000;
+        const { container } = await mountBuilder();
+        expect(bar(container).getAttribute("data-toolbar-ladder"))
+            .toBe("grid>1 readout>1 widths>1 zoom>1 widths>2 save-template>1 preview>1 publish>1 more>1 status>1 history>1");
+        let forms = new Map([
+            ["status", 0], ["grid", 0], ["readout", 0], ["zoom", 0], ["rule", 0], ["history", 0], ["widths", 0],
+            ["save-template", 0], ["preview", 0], ["publish", 0], ["more", 0],
+        ]);
+        expect(stateOf(container)).toEqual(forms);
+        // Each configuration holds in exactly the row it needs, and a pixel less takes the next move — and only that.
+        for (const move of MOVES) {
+            const room = needs(forms);
+            resize(room);
+            expect(stateOf(container), `${room}px`).toEqual(forms);
+            forms = new Map(forms);
+            for (const [key, form] of move) forms.set(key, form);
+            resize(room - 1);
+            expect(stateOf(container), `${room - 1}px, ${move.map(([k, f]) => `${k}→${f}`).join(" + ")}`).toEqual(forms);
+        }
+        // Folded all the way: the View chip, the rule, the history item's buttons and the ⋯ chip — Save as template's anchor.
+        expect(toolbarItems(container)).toEqual(["zoom", "rule", "history", "more"]);
+        expect([viewChipOf(container)!.getAttribute("aria-label"), chipOf(container)!.getAttribute("aria-label")]).toEqual(["View", "More"]);
+        expect(chipOf(container)!.parentElement!.getAttribute("data-part")).toBe("anchor");
+    }, 30_000);
+
+    test("the ⋯ chip's menu holds Save as template…, Preview and Publish: Preview and Publish open the publish preview in the canvas's place; the View chip's widths draw the canvas at theirs", async () => {
+        row.px = 1;
+        const { container } = await mountBuilder();
+        const canvas = () => container.querySelector<HTMLElement>("[data-studio-canvas]")!;
+        for (const words of ["Preview", "Publish"]) {
+            await openMenu(chipOf(container)!);
+            expect(menuItems(chipOf(container)!).map((el) => el.textContent)).toEqual(["Save as template…", "Preview", "Publish"]);
+            await pick(chipOf(container)!, words);
+            expect([container.querySelector("[data-studio-publish]") !== null, canvas().hidden], words).toEqual([true, true]);
+            await act(async () => { fireEvent.click(container.querySelector("[data-publish-exit]")!); });
+            await settle();
+            expect([container.querySelector("[data-studio-publish]"), canvas().hidden]).toEqual([null, false]);
+        }
+        await openMenu(viewChipOf(container)!);
+        expect(menuItems(viewChipOf(container)!).map((el) => `${el.textContent}${el.getAttribute("aria-checked") === "true" ? " (checked)" : ""}`))
+            .toEqual(["Zoom out", "Zoom in", "Desktop (checked)", "Tablet"]);
+        await pick(viewChipOf(container)!, "Tablet");
+        expect(container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style.maxWidth).toBe("1024px");
+    }, 30_000);
+
+    test("the ⋯ chip's Save as template… opens its popover hung from the chip: it saves the open page, as last saved, in one commit, and the focus is back on the chip", async () => {
+        row.px = 1;
+        const { container } = await mountBuilder();
+        await openMenu(chipOf(container)!);
+        await pick(chipOf(container)!, "Save as template…");
+        await frames();
+        const popover = within(screen.getByRole("dialog"));
+        // The popover hangs from the chip, whose menu has closed.
+        expect([chipOf(container)!.parentElement!.getAttribute("data-part"), chipOf(container)!.getAttribute("aria-expanded")]).toEqual(["anchor", "false"]);
+        expect(popover.getByText("Save as template ·").textContent).toBe("Save as template · Overview");
+        expect((popover.getByRole("textbox", { name: "Template name" }) as HTMLInputElement).value).toBe("Overview template");
+        await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); });
+        await settle();
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect(await commits()).toEqual(["patch", "$init"]);
+        const template = (await readRecord()).get({ project: "ops", page: "Overview template" })!;
+        if (template.type !== "template") throw new Error("expected a template");
+        expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
+        await waitFor(() => expect(document.activeElement).toBe(chipOf(container)));
+    }, 30_000);
+
+    test("while a template is open, the ⋯ chip's Save as template… is disabled, and says why", async () => {
+        row.px = 1;
+        const { container } = await mountBuilder();
+        await openPage("e-starter");
+        await openMenu(chipOf(container)!);
+        const saveAs = menuItems(chipOf(container)!)[0]!;
+        expect([saveAs.textContent, saveAs.getAttribute("aria-disabled"), saveAs.title])
+            .toEqual(["Save as template…", "true", "A template is open — open a page to save it as a template"]);
+        await pick(chipOf(container)!, "Save as template…");
+        expect(screen.queryByRole("dialog")).toBeNull();
+    }, 30_000);
+
+    test("while Save as template's popover hangs from the ⋯ chip, the chip and the three it holds keep their forms as the row widens — the canvas's own items and the status unfold around it; closed, the row unfolds", async () => {
+        row.px = 1;
+        const { container } = await mountBuilder();
+        await openMenu(chipOf(container)!);
+        await pick(chipOf(container)!, "Save as template…");
+        await frames();
+        resize(4000);
+        expect(stateOf(container)).toEqual(new Map([
+            ["status", 0], ["grid", 0], ["readout", 0], ["zoom", 0], ["rule", 0], ["history", 0], ["widths", 0],
+            ["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1],
+        ]));
+        await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" })); });
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        await waitFor(() => expect(stateOf(container).get("more")).toBe(0));
+        expect(["save-template", "preview", "publish"].map((key) => stateOf(container).get(key))).toEqual([0, 0, 0]);
+        expect(await commits()).toEqual(["$init"]);
     }, 30_000);
 });

@@ -12,6 +12,13 @@ export default defineConfig({
         globals: true,
         environment: "node",
         include: ["src/**/*.test.{ts,tsx}"],
+        // A file's first test pays the file's cold import and first render —
+        // the Plan's (#1177) all of east-ui-components and e3-ui; with every
+        // suite running at once on a CI runner that alone passes 5s.
+        testTimeout: 20_000,
+        // jsdom builder suites import and compile the same large East graph.
+        // Bound parallel work instead of extending individual test deadlines.
+        ...(process.env.CI ? { maxWorkers: 2 } : {}),
     },
     define: {
         "process.env": {},

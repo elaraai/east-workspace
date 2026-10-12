@@ -46,7 +46,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { reifyAccessor } from "../../shared/reify.js";
-import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     ChartSpecType,
@@ -897,7 +897,7 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
 
     const sliceChrome = opts.slice !== undefined
         ? East.value({
-            slice: opts.slice,
+            slice: localSliceHandle(opts.slice),
             affordances: East.value(
                 (opts.affordances ?? ["breakdown", "range"]).map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),
@@ -943,7 +943,7 @@ function createSliceSeries(
     slice: SubtypeExprOrValue<SliceBindType>,
     options: ChartSliceSeriesOptions,
 ): SeriesLayer {
-    const handle = East.value(slice, SliceBindType);
+    const handle = localSliceHandle(slice);
     return {
         kind: "series",
         mark: options.mark ?? "line",

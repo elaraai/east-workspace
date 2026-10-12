@@ -21,7 +21,7 @@ import {
 import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
 import { TickFormatType } from "../../format/types.js";
-import { IconType } from "../icon/types.js";
+import { IconType, refuseNonSolid } from "../icon/types.js";
 import {
     StatIndicatorType,
     StatDirectionType,
@@ -160,6 +160,7 @@ function buildIndicator(
             : none;
         let iconOpt;
         if (input.icon !== undefined) {
+            refuseNonSolid("Stat indicator icon", input.icon);
             iconOpt = some(input.icon as ExprType<IconType>);
         } else if (input.sentiment !== undefined) {
             // paired-icon injection
@@ -196,6 +197,8 @@ function buildIndicator(
  *   (`helpText` / `baseline` / `delta` / `info` / `indicator`), `format`,
  *   and visual style fields (see {@link StatStyle})
  * @returns An East expression of type `UIComponentType`
+ * @throws When the indicator's `icon` is a value of another set than Font
+ *   Awesome's solid — East UI draws the solid set only (#1263)
  *
  * @remarks
  * **Indicator shorthand:**

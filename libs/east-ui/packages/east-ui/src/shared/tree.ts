@@ -9,7 +9,7 @@
  * A Table's and a Matrix's rows nest the way the Plan's do (#822): a row
  * carries its children, to any depth, through `tree={{ children, collapsed }}`.
  * The walk is ONE reified East function over the data — an explicit stack,
- * since depth is data (the Plan's walk, `collections/plan/series.ts`) — that
+ * since depth is data (the Plan's walk, e3-ui's `plan/series.ts`) — that
  * turns the author's elements into the component's own rows, each parent
  * followed by its subtree, each with its depth.
  *

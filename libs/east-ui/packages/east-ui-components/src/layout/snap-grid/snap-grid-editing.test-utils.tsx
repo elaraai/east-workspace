@@ -31,7 +31,7 @@ import { system } from "../../theme/index.js";
 import { getStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
-import { pointAt } from "../../dnd/dnd.test-utils.js";
+import { pointAt } from "../../testing/drag-layer.js";
 import { EastChakraSnapGrid, type SnapGridValue } from "./index.js";
 
 // ── The page's data ─────────────────────────────────────────────────────────

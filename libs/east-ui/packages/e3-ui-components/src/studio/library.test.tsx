@@ -10,8 +10,9 @@
  * Templates row, Blank grid first (D3); the Pages row, "Open in builder →"
  * and the dashed card (D4); a new page, one commit, in the popover under the
  * New page button, from the toolbar and from a template's card, and a name
- * taken refused in it (D5); the search, Sort and Grid · List (D6). The
- * surface tells the host which page it opened.
+ * taken refused in it, its template picker's chevron and checks Font
+ * Awesome's (D5, #1263); the search, Sort and Grid · List (D6). The surface
+ * tells the host which page it opened.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -24,6 +25,7 @@ import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/
 import {
     DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
 } from "@elaraai/east-ui-components";
+import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import {
     RecordBindHandleType, Studio, StudioKeyType, StudioPagesType, builderKeys, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -382,11 +384,17 @@ describe("<Studio.Library> — a new page (#997)", () => {
         expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["$init"]);
     }, 30_000);
 
-    test("D5: the template picker offers Blank grid and the project's templates", async () => {
+    test("D5: the template picker offers Blank grid and the project's templates; its chevron and the picked one's check are Font Awesome's (#1263)", async () => {
         await mountLibrary();
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New page in ops" })); });
         await settle();
         await act(async () => { fireEvent.click(document.querySelector("[data-page-library-template]")!); });
         expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Blank grid", "Empty", "Summary"]);
+        const control = document.querySelector("[data-page-library-template]")!.closest<HTMLElement>('[data-scope="select"][data-part="control"]')!;
+        expect(markOf(control.querySelector('[data-part="indicator"]'))).toBe("fas chevron-down");
+        const checks = screen.getAllByRole("option").map((o) => o.querySelector<HTMLElement>('[data-part="item-indicator"]')!);
+        expect(checks.map((check) => [markOf(check), check.hidden])).toEqual([["fas check", false], ["fas check", true], ["fas check", true]]);
+        // No icon of Chakra's own is left in the picker.
+        expect([...foreignIcons(control), ...foreignIcons(screen.getByRole("listbox"))]).toEqual([]);
     }, 30_000);
 });

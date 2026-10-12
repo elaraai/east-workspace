@@ -16,7 +16,11 @@
  * `read()` re-renders, and drops the history cache so the next `history()`
  * refetches. `commit.<name>` is the same write awaited, on the same channel:
  * it resolves to the server's outcome, and a conflict fetches the record and
- * its history again before it settles.
+ * its history again before it settles. The refresh is the workspace poll's,
+ * which fetches the content of the paths the manifest preloads and no other:
+ * a record also bound with `Data.bindPaged` (#1199) is not among them, so it
+ * is never fetched whole — its windows hear its new revision through the
+ * poll's hash watch instead.
  *
  * All handles bound to the same record in the same workspace share one mutation
  * channel (mutations serialize server-side under compare-and-swap). Mutation

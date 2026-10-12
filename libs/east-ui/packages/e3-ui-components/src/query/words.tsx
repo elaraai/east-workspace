@@ -6,8 +6,8 @@
 /**
  * The query builder's words in React (#935) — the model's message table
  * (`model/messages.ts`) in effect for a subtree, with the locale's formatters,
- * and the editing session's words in the builder's own: its history item's
- * Apply is **Save**.
+ * and the editing session's words, the shared table every builder's history
+ * item speaks: its commit is **Save** (#1260).
  *
  * English is the default. A host overrides any subset for a subtree with
  * {@link QueryMessagesProvider}; numbers format in the locale react-aria's
@@ -57,7 +57,7 @@ export interface QueryMessagesProviderProps {
  * ```tsx
  * const GERMAN: Partial<QueryMessages> = {
  *     tab: ({ tab }) => (tab === "query" ? "Abfrage" : tab === "datasets" ? "Datensätze" : "Bibliothek"),
- *     save: () => "Speichern",
+ *     saveAs: () => "Speichern…",
  * };
  *
  * <I18nProvider locale="de-DE">
@@ -86,13 +86,13 @@ export function useQueryWords(): QueryWords {
 }
 
 /**
- * The editing session's words, in the builder's: its history item's Apply is
- * the builder's Save.
+ * The editing session's words for the builder's history item: the shared
+ * table, whose commit is Save in every builder (#1260), with the locale's
+ * formatters.
  *
  * @returns The words the history item speaks
  */
 export function useQueryEditingWords(): EditingWords {
     const formatters = useFormatters();
-    const messages = useQueryMessages();
-    return useMemo(() => ({ ...formatters, m: { ...editingMessages, apply: messages.save } }), [formatters, messages]);
+    return useMemo(() => ({ ...formatters, m: editingMessages }), [formatters]);
 }

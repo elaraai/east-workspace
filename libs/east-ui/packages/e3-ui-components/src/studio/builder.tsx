@@ -13,7 +13,10 @@
  *   placements: every gesture a draft of the page's editing session, Apply one
  *   patch through the record's patch write (`saveCells`). Its one toolbar
  *   holds the page's status, the canvas's own items, Save as template, Preview
- *   and Publish; its selection bar names the selected placement.
+ *   and Publish; its selection bar names the selected placement. A row short
+ *   of room (#1229), once the canvas's own items have folded, folds Save as
+ *   template, Preview and Publish into one ⋯ chip, whose menu holds the three
+ *   — Save as template… opening its popover from the chip — then the status.
  * - **The palette** ({@link useStudioPalette}) is the pane before it, **the
  *   inspector** ({@link StudioInspector}) the body of the pane after it; the
  *   inspector's edits are requests the canvas takes as one gesture each. Both
@@ -33,7 +36,8 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Button as ChakraButton, HStack as ChakraHStack, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, Button as ChakraButton, HStack as ChakraHStack, Menu as ChakraMenu, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import {
     ArrayType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -43,7 +47,9 @@ import {
 } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
+    ChipMenu,
     EmptyStateView,
+    SNAP_GRID_HOST_RANK,
     SnapGridEditor,
     implementUIComponent,
     useFormatters,
@@ -92,6 +98,17 @@ const CELL_DRAFT_TYPE = toEastTypeValue(EditingDraftFieldType(StudioCellType));
 const keyEqual = equalFor(StudioKeyType);
 const printKey = printFor(StudioKeyType);
 const NOTHING_SELECTED: UiState = { selected: none, request: none };
+
+/**
+ * The fold order of the builder's own toolbar items (#1229), after every step
+ * of the canvas's own ({@link SNAP_GRID_HOST_RANK}) and before the history
+ * item's: Save as template, Preview and Publish fold into the ⋯ chip in one
+ * step, then the page's status goes.
+ */
+const RANK_MORE = SNAP_GRID_HOST_RANK;
+const RANK_STATUS = SNAP_GRID_HOST_RANK + 10;
+/** The fold of Save as template, Preview and Publish into the ⋯ chip: one bundle, applied together. */
+const MORE_BUNDLE = "studio.more";
 
 /** Props of {@link EastChakraStudioBuilder}. */
 export interface EastChakraStudioBuilderProps {
@@ -149,6 +166,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [applying, setApplying] = useState<ApplyState>(variant("idle", null));
     const [drafted, setDrafted] = useState<{ page: string; cells: readonly Cell[] } | undefined>(undefined);
     const [previewing, setPreviewing] = useState(false);
+    // Save as template's popover, opened from the ⋯ chip's menu (#1229).
+    const [naming, setNaming] = useState(false);
     // A page opened from anywhere — the palette, the page library — opens with nothing selected.
     const shown = useRef(openName);
     useEffect(() => {
@@ -308,30 +327,49 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             return east.nameWriteRefusal(outcome, name);
         },
     }), [title, entry, taken, handle, east, open]);
+    // Folded, the three are one ⋯ chip: its menu holds them, and Save as
+    // template… opens their popover from the chip, which holds its item open.
+    const more = (
+        <StudioSaveTemplate value={saveTemplate} open={naming} onOpenChange={setNaming} anchor={
+            <ChipMenu label={m.more()} icon={faEllipsis} data="data-studio-more" onSelect={(picked) => {
+                if (picked === "save-template") setNaming(true);
+                else if (picked === "preview" || picked === "publish") setPreviewing(true);
+            }}>
+                <ChakraMenu.Item value="save-template" disabled={!saveTemplate.enabled}
+                    {...(saveTemplate.enabled ? {} : { title: m.templateOpen() })}>{m.saveAsTemplateItem()}</ChakraMenu.Item>
+                <ChakraMenu.Item value="preview">{m.preview()}</ChakraMenu.Item>
+                <ChakraMenu.Item value="publish">{m.publish()}</ChakraMenu.Item>
+            </ChipMenu>
+        } />
+    );
     const toolbar = {
         start: [status !== undefined && statusStyles !== undefined && {
             key: "status",
             side: "start",
             version: status.label,
+            rank: RANK_STATUS,
             forms: [
                 <ChakraHStack css={statusStyles.root} data-studio-status={status.tone}>
                     <Box as="span" css={statusStyles.indicator} />
                     <Box css={statusStyles.label}>{status.label}</Box>
                 </ChakraHStack>,
+                null,
             ],
         } satisfies ToolbarItem],
         end: [
-            { key: "save-template", side: "end", forms: [<StudioSaveTemplate value={saveTemplate} />] } satisfies ToolbarItem,
             {
-                key: "preview",
-                side: "end",
-                forms: [<ChakraButton variant="outline" data-studio-preview="" onClick={() => setPreviewing(true)}>{m.preview()}</ChakraButton>],
+                key: "save-template", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
+                forms: [<StudioSaveTemplate value={saveTemplate} />, null],
             } satisfies ToolbarItem,
             {
-                key: "publish",
-                side: "end",
-                forms: [<ChakraButton variant="outline" data-studio-open-publish="" onClick={() => setPreviewing(true)}>{m.publish()}</ChakraButton>],
+                key: "preview", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
+                forms: [<ChakraButton variant="outline" data-studio-preview="" onClick={() => setPreviewing(true)}>{m.preview()}</ChakraButton>, null],
             } satisfies ToolbarItem,
+            {
+                key: "publish", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
+                forms: [<ChakraButton variant="outline" data-studio-open-publish="" onClick={() => setPreviewing(true)}>{m.publish()}</ChakraButton>, null],
+            } satisfies ToolbarItem,
+            { key: "more", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE, held: naming, forms: [null, more] } satisfies ToolbarItem,
         ],
     };
 

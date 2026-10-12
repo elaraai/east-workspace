@@ -24,6 +24,7 @@
  */
 
 import { getReactiveTrackers, subscribeTrackers } from "./tracker.js";
+import { ReadScope } from "./read-scope.js";
 
 /** The outcome of one tracked run — the value, or what the closure threw. */
 export type TrackedReadResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
@@ -56,6 +57,7 @@ export interface TrackedRead {
  * @returns The handle
  */
 export function createTrackedRead(onInvalidate: () => void): TrackedRead {
+    const scope = new ReadScope();
     let keyUnsubs: (() => void)[] = [];
     let registryUnsub: (() => void) | undefined;
     let released = false;
@@ -73,7 +75,7 @@ export function createTrackedRead(onInvalidate: () => void): TrackedRead {
             for (const t of trackers) t.enableTracking();
             let outcome: TrackedReadResult<T>;
             try {
-                outcome = { ok: true, value: fn() };
+                outcome = { ok: true, value: scope.run(fn) };
             } catch (error) {
                 outcome = { ok: false, error };
             }
@@ -91,6 +93,7 @@ export function createTrackedRead(onInvalidate: () => void): TrackedRead {
         },
         release() {
             released = true;
+            scope.clear();
             clearKeys();
             registryUnsub?.();
             registryUnsub = undefined;

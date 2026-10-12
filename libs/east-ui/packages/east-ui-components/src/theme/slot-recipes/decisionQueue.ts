@@ -131,8 +131,12 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             "&[data-collapsible]": { cursor: "pointer" },
         },
+        /* A section's caret: Font Awesome's caret, right while collapsed and
+         * down while open (#1263), its own width in the 12px column, not Font
+         * Awesome's fixed 1.25em. */
         groupCaret: {
-            fontFamily: "mono",
+            "--fa-width": "auto",
+            display: "inline-flex",
             fontSize: "10px",
             color: "fg.subtle",
             width: "12px",

@@ -34,8 +34,8 @@ export const iconBasic = example({
 // ============================================================================
 
 export const iconStyles = example({
-    keywords: ["Icon", "Root", "fas", "far", "fab", "FontAwesome", "prefix", "name", "glyph", "solid", "regular", "brands", "size", "xs", "sm", "md", "lg", "xl", "2xl", "color", "tint", "colorPalette", "opacity", "background", "borderRadius", "padding", "tile", "label", "aria-hidden", "decorative", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "toggle"],
-    description: "Icon configurator — glyph, size, tint, opacity, tile and padding axes driving one live glyph; the aside sets it on a text baseline and toggles a star / heart on click",
+    keywords: ["Icon", "Root", "fas", "FontAwesome", "prefix", "name", "glyph", "solid", "size", "xs", "sm", "md", "lg", "xl", "2xl", "color", "tint", "colorPalette", "opacity", "background", "borderRadius", "padding", "tile", "label", "aria-hidden", "decorative", "Reactive", "State", "SegmentGroup", "Switch", "Configurator", "getTag", "configurator", "interactive", "toggle"],
+    description: "Icon configurator — icons are Font Awesome's solid set, the one East UI draws: glyph, size, tint, opacity, tile and padding axes driving one live icon; the aside sets it on a text baseline and toggles a star / heart on click",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
@@ -64,7 +64,7 @@ export const iconStyles = example({
                     { label: "disc",  background: "bg.success.subtle", radius: "full" },
                 ], ArrayType(StructType({ label: StringType, background: StringType, radius: StringType })));
 
-                const glyphBind   = $.let(State.bind([StringType], "icon_glyph", "solid"));
+                const glyphBind   = $.let(State.bind([StringType], "icon_glyph", "bookmark"));
                 const sizeBind    = $.let(State.bind([StringType], "icon_size", "2xl"));
                 const tintBind    = $.let(State.bind([StringType], "icon_tint", "fg.default"));
                 const opacityBind = $.let(State.bind([FloatType], "icon_opacity", 1.0));
@@ -111,15 +111,16 @@ export const iconStyles = example({
                 // The glyph axis is the one that carries its own rendered value:
                 // a Font Awesome identity is a COMPILE-TIME pair — `prefix` and
                 // `name` take host literals, never expressions — so each row
-                // holds the built icon beside the identity it renders. Still one
-                // array: the control, the preview and the spec readout all read
-                // these same rows, and every icon takes the live style axes.
+                // holds the built icon beside the identity it renders. Every row
+                // is of Font Awesome's solid set (`fas`), the one East UI draws
+                // (#1263). Still one array: the control, the preview and the
+                // spec readout all read these same rows, and every icon takes
+                // the live style axes.
                 const glyphs = $.const([
-                    { label: "regular", prefix: "far", name: "bookmark", icon: <Icon prefix="far" name="bookmark" size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
-                    { label: "solid",   prefix: "fas", name: "bookmark", icon: <Icon prefix="fas" name="bookmark" size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
-                    { label: "github",  prefix: "fab", name: "github",   icon: <Icon prefix="fab" name="github"   size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
-                    { label: "twitter", prefix: "fab", name: "twitter",  icon: <Icon prefix="fab" name="twitter"  size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
-                    { label: "react",   prefix: "fab", name: "react",    icon: <Icon prefix="fab" name="react"    size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
+                    { label: "bookmark",    prefix: "fas", name: "bookmark",    icon: <Icon prefix="fas" name="bookmark"    size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
+                    { label: "code-branch", prefix: "fas", name: "code-branch", icon: <Icon prefix="fas" name="code-branch" size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
+                    { label: "comment",     prefix: "fas", name: "comment",     icon: <Icon prefix="fas" name="comment"     size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
+                    { label: "atom",        prefix: "fas", name: "atom",        icon: <Icon prefix="fas" name="atom"        size={size} color={tint} opacity={opacity} background={tile.background} borderRadius={tile.radius} padding={pad} /> },
                 ], ArrayType(StructType({ label: StringType, prefix: StringType, name: StringType, icon: UIComponentType })));
 
                 const glyph = $.let(glyphs.filter((_$, g) => g.label.equal(gKey)).get(0n));

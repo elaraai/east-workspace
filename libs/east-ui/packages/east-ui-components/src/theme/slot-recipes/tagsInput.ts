@@ -7,12 +7,26 @@
  * TagsInput slot recipe — the control wears the shared input chrome (wrapping
  * its chips); each committed value is a brand-tint chip with a brand-d delete ×.
  *
+ * Each size's control is at least the shared input's one line
+ * (`fieldHeights`, #1220): a row of the design system's 22px chips, and the
+ * box a tag is typed into, centred in it — so tags with one row of chips, or
+ * none, sit on the line a text of their size does, and grow a row at a time.
+ * Chakra's default recipe sizes the chips and the box by its own variables
+ * (24px and 28px); these heights replace them. A chip's delete is Font
+ * Awesome's xmark (#1263) in the square Chakra's icon took — 80% of the
+ * delete's own box, a third less than the chip height Chakra sizes it by:
+ * Font Awesome's own height is 1em, outranking the `_icon` size, so the
+ * delete's font is the icon's size, and `--fa-width` its width.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+
+/** A chip's height, and the typed box's beside it: the design system's tag chip. */
+const CHIP = "22px";
 
 export const tagsInputSlotRecipe = defineSlotRecipe({
     className: "elara-tags-input",
@@ -28,7 +42,6 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             flexWrap: "wrap",
             gap: "6px",
             paddingInline: "8px",
-            paddingBlock: "6px",
             width: "100%",
             cursor: "text",
             // Chakra's tagsInput control adds its own focus ring as a 1px solid
@@ -43,13 +56,14 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "{spacing.1}",
+            height: CHIP,
             background: "{colors.brandTint}",
             borderWidth: "1px",
             borderColor: "{colors.brand.500}",
             color: "brand.fg",
             borderRadius: "{radii.sm}",
             paddingInline: "10px",
-            paddingBlock: "4px",
+            paddingBlock: "0",
             fontSize: "{fontSizes.body.sm}",
             fontWeight: "medium",
             lineHeight: "1",
@@ -61,12 +75,15 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             fontWeight: "normal",
             display: "inline-flex",
             alignItems: "center",
+            fontSize: "calc(var(--tags-input-item-height) / 1.5 * 0.8)",
+            "--fa-width": "1em",
             /* Touch (#346). */
             ...coarseHitArea({ position: true }),
         },
         input: {
             flex: 1,
             minWidth: "80px",
+            height: CHIP,
             border: "none",
             outline: "none",
             background: "transparent",
@@ -74,8 +91,22 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.body.sm}",
             color: "fg",
             paddingInline: "6px",
-            paddingBlock: "4px",
+            paddingBlock: "0",
             _placeholder: { color: "fg.subtle" },
+            /* Touch (#346): 16px text, as every input's — a phone zooms into a smaller focused field. */
+            _coarse: { fontSize: TOUCH_FONT_FLOOR },
         },
     },
+    variants: {
+        // The control's line, the chips' row centred in it: (height − border − chip) ÷ 2 above and
+        // below. Touch (#346): the 44px floor, as the plain input's — set with each size's own, which
+        // a base rule would lose to.
+        size: {
+            xs: { control: { minHeight: fieldHeights.sm, paddingBlock: "1px", _coarse: { minHeight: "44px" } } },
+            sm: { control: { minHeight: fieldHeights.sm, paddingBlock: "1px", _coarse: { minHeight: "44px" } } },
+            md: { control: { minHeight: fieldHeights.md, paddingBlock: "4px", _coarse: { minHeight: "44px" } } },
+            lg: { control: { minHeight: fieldHeights.lg, paddingBlock: "10px", _coarse: { minHeight: "44px" } } },
+        },
+    },
+    defaultVariants: { size: "md" },
 });

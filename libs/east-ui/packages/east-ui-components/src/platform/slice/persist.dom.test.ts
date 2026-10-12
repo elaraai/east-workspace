@@ -24,7 +24,7 @@ import {
 } from "./index.js";
 import { initializeStore } from "../state-runtime.js";
 import { UIStore } from "../state-store.js";
-import { sliceConfig } from "./slice.test-utils.js";
+import { sliceConfig } from "../../testing/slice.js";
 
 const byName = new Map(SliceImpl.map(p => [p.name, p.fn]));
 const call = (name: string, ...args: unknown[]): unknown =>

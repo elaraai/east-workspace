@@ -7,7 +7,9 @@
  * Checkbox slot recipe — brand accent.
  *
  * Spec rule: `accent-color: brand-d` on every interactive control. Default
- * Chakra blue would clash with the deep-teal palette.
+ * Chakra blue would clash with the deep-teal palette. The control's mark is
+ * Font Awesome's check, or its minus while indeterminate (#1263), filling
+ * the control's box as Chakra's checkmark did.
  *
  * @packageDocumentation
  */
@@ -40,11 +42,12 @@ export const checkboxSlotRecipe = defineSlotRecipe({
             color: "fg.inverse",
             transitionProperty: "background, border-color",
             transitionDuration: "{durations.fast}",
-            // Chakra's Checkmark icon sets stroke-width:3 (in a 24-unit viewBox,
-            // ~1.25px here) as an UNLAYERED style, which outranks any layered
-            // recipe rule — so this override must be !important to land. Thicken
-            // it to read as the spec's bold tick.
-            "& svg": { strokeWidth: "5px !important" },
+            // The mark fills the control's box, as Chakra's checkmark did
+            // (`boxSize: full`): its width through `--fa-width`, its height
+            // over Font Awesome's own 1em — an UNLAYERED style, which outranks
+            // any layered recipe rule, so this one must be !important to land.
+            "--fa-width": "100%",
+            "& svg": { height: "100% !important" },
             _disabled: {
                 background: "bg.subtle",
                 borderColor: "border.subtle",

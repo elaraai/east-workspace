@@ -15,7 +15,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import { SliceCohortModeType, SliceCohortPickerType } from "./types.js";
 
 export { SliceCohortModeType, SliceCohortPickerType } from "./types.js";
@@ -76,13 +76,12 @@ export type SlicePresetsOptions = Omit<SliceCohortOptions, "mode">;
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state({
- *             cohorts: [{
+ *         const slice = $.let(Slice.bind("demo.events", events, {
+ *             presets: [{
  *                 id: "power-users", name: "Power users",
- *                 filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })],
+ *                 where: { sessions: { gte: 20n } }, active: true,
  *             }],
- *             activeCohorts: new Set(["power-users"]),
- *         })));
+ *         }));
  *         return Slice.Cohort.Root({
  *             slice,
  *             reevaluateEvery: "every 10 min",
@@ -95,7 +94,7 @@ function createSliceCohort(
     options: SliceCohortOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceCohort", {
-        slice:           options.slice,
+        slice:           localSliceHandle(options.slice),
         createdBy:       options.createdBy !== undefined ? some(options.createdBy) : none,
         lastEdited:      options.lastEdited !== undefined ? some(options.lastEdited) : none,
         reevaluateEvery: options.reevaluateEvery !== undefined ? some(options.reevaluateEvery) : none,

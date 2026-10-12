@@ -38,7 +38,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, DensityType, UIComponentType, type DensityLiteral } from "@elaraai/east-ui";
-import { SliceAffordanceType, SliceBindType, reifyAccessor, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { localSliceHandle, SliceAffordanceType, SliceBindType, reifyAccessor, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 
 import { DecisionHandleRefType, type DecisionHandleLike } from "./bind.js";
 import { DecisionType, DecisionUpdateType } from "./types.js";
@@ -182,10 +182,10 @@ export const DecisionQueueComponent = EastUI.component("DecisionQueue", Decision
  * @property onApply - Optional per-row Apply side-effect hook.
  * @property onReject - Optional per-row Reject side-effect hook.
  * @property slice - Author-bound slice handle over the queue — the `Table`
- *   pattern, with an ordinary `Slice.config` over the decision envelope and
+ *   pattern, with inferred fields over the decision envelope and
  *   the handle's own queue union as the rows feed:
- *   `Slice.bind([Decision.Types.Decision], key, cfg, Slice.state({…}),
- *   handle.queue(), none)`. You own the key (per-surface scopes over one
+ *   `Slice.bind(key, handle.queue(), { fields, search, initial })`.
+ *   You own the key (per-surface scopes over one
  *   handle, shareable with any other component) and the config (which fields
  *   the rail offers; the queue's narrowing matches with the same bound
  *   config). Narrowing applies before the urgency sort and the routine split
@@ -320,7 +320,7 @@ export const DecisionQueue: {
         }
         const slice = options.slice === undefined
             ? none
-            : some(East.value(options.slice, SliceBindType));
+            : some(localSliceHandle(options.slice));
         const affordances = sliceAffordances === undefined || sliceAffordances.length === 0
             ? none
             : some(East.value(sliceAffordances.map(a => variant(a, null)), ArrayType(SliceAffordanceType)));

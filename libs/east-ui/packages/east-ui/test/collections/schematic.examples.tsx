@@ -117,18 +117,15 @@ export const schematicStress = example({
     description: "Stress probe — 3,000 generated items exercise the LOD ladder and Slice chrome (rail + ghosting) at scale; the pan/zoom perf budget with slice on",
     fn: East.function([], UIComponentType, (_$) => {
         const EquipType = StructType({ id: StringType, x: FloatType, y: FloatType, load: FloatType, kind: StringType });
-        const cfg = Slice.config(EquipType, {
-            fields: { id: { label: "ID" }, kind: { label: "Kind" } },
-            searchFieldIds: ["id", "kind"],
-        });
         return (
             <Reactive>{$ => {
                 const data = $.const(STRESS_GRID_ITEMS, ArrayType(EquipType));
                 // Seed a filter so ~3/4 of the items are slice-excluded (ghosted) —
                 // exercises the slice-effect paint path as well as the rail chrome.
-                const slice = $.let(Slice.bind([EquipType], "ex.schematic.stress", cfg, Slice.state({
-                    filters: [variant("string", { fieldId: "kind", op: variant("eq", "unit") })],
-                }), data, none));
+                const slice = $.let(Slice.bind("ex.schematic.stress", data, {
+                    fields: { id: { label: "ID" }, kind: { label: "Kind" } }, search: ["id", "kind"],
+                    initial: { kind: ["unit"] },
+                }));
                 const tagged = $.let(Slice.partition([EquipType], slice));
                 return (
                     <Schematic
@@ -610,15 +607,7 @@ export const schematicSlice = example({
             { id: "E", x: 10.0, y: 6.4, kind: "pack" },
         ];
         const EffectEquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType, st: OptionType(StatusTokenType) });
-        const effectCfg = Slice.config(EffectEquipType, {
-            fields: { id: { label: "ID" }, kind: { label: "Kind" } },
-            searchFieldIds: ["id", "kind"],
-        });
         const FilterEquipType = StructType({ id: StringType, x: FloatType, y: FloatType, kind: StringType });
-        const filterCfg = Slice.config(FilterEquipType, {
-            fields: { id: { label: "ID" }, kind: { label: "Kind" } },
-            searchFieldIds: ["id", "kind"],
-        });
         return (
             <VStack gap="4" align="stretch">
                 <Separator label="SLICE EFFECT" align="start" />
@@ -627,9 +616,10 @@ export const schematicSlice = example({
                         // Seed an active filter (kind = "unit") so two rows already fail
                         // the narrowing — the effect is visible at first render: the
                         // "pack" / "pallets" units ghost out, the "unit" survivors pulse.
-                        const slice = $.let(Slice.bind([EffectEquipType], "ex.schematic.effect", effectCfg, Slice.state({
-                            filters: [variant("string", { fieldId: "kind", op: variant("eq", "unit") })],
-                        }), data, none));
+                        const slice = $.let(Slice.bind("ex.schematic.effect", data, {
+                    fields: { id: { label: "ID" }, kind: { label: "Kind" } }, search: ["id", "kind"],
+                    initial: { kind: ["unit"] },
+                }));
                         // Full set tagged with pass/fail — excluded rows STAY (ghosted),
                         // rather than the pre-narrowed `Slice.rows`.
                         const tagged = $.let(Slice.partition([EffectEquipType], slice));
@@ -693,7 +683,9 @@ export const schematicSlice = example({
                 <Reactive>{$ => {
                         const data = $.const(SCHEMATIC_SELECT_FILTER_DATA, ArrayType(FilterEquipType));
                         // No initial filter — everything matches until a selection writes one.
-                        const slice = $.let(Slice.bind([FilterEquipType], "ex.schematic.selfilter", filterCfg, Slice.state({}), data, none));
+                        const slice = $.let(Slice.bind("ex.schematic.selfilter", data, {
+                            fields: { id: { label: "ID" }, kind: { label: "Kind" } }, search: ["id", "kind"],
+                        }));
                         // Full set tagged pass/fail; a marquee selection writes `in(id, keys)`
                         // via sliceSelectField, so the non-selected re-tag excluded → ghost.
                         const tagged = $.let(Slice.partition([FilterEquipType], slice));

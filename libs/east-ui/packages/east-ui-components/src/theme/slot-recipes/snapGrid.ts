@@ -497,20 +497,28 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             },
         },
         // The end zone's words: at rest, while a drag can land, and while a
-        // drop there — or under the last row — would make a new row.
+        // drop there — or under the last row — would make a new row. The two
+        // under a drag lead with Font Awesome's caret, in their words' ink and
+        // size, its own width, not Font Awesome's fixed 1.25em (#1263).
         endZoneRest: {
             "[data-drop-valid] > * > &": { display: "none" },
         },
         endZoneDragging: {
+            "--fa-width": "auto",
             display: "none",
-            "[data-drop-valid] > * > &": { display: "inline" },
+            alignItems: "center",
+            gap: "{spacing.1.5}",
+            "[data-drop-valid] > * > &": { display: "inline-flex" },
             [`${TAKEN}:not([data-snap-grid-drop='none']) > * > &`]: { display: "none" },
             [`[data-snap-grid-drop='end']${TAKEN} ~ [data-snap-grid-end] > * > &`]: { display: "none" },
         },
         endZoneTarget: {
+            "--fa-width": "auto",
             display: "none",
-            [`${TAKEN}:not([data-snap-grid-drop='none']) > * > &`]: { display: "inline" },
-            [`[data-snap-grid-drop='end']${TAKEN} ~ [data-snap-grid-end] > * > &`]: { display: "inline" },
+            alignItems: "center",
+            gap: "{spacing.1.5}",
+            [`${TAKEN}:not([data-snap-grid-drop='none']) > * > &`]: { display: "inline-flex" },
+            [`[data-snap-grid-drop='end']${TAKEN} ~ [data-snap-grid-end] > * > &`]: { display: "inline-flex" },
         },
         ghost: {
             display: "inline-flex",

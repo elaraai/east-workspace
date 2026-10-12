@@ -13,6 +13,7 @@ import {
 
 import { SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
+import { refuseNonSolid } from "../../display/icon/types.js";
 import {
     CommandPaletteType,
     CommandPaletteStyleType,
@@ -35,6 +36,8 @@ export {
  * @param commands - Array of command items
  * @param style - Optional styling + behaviour configuration
  * @returns An East expression representing the CommandPalette
+ * @throws When a command's `icon` is a value of another set than Font
+ *   Awesome's solid — East UI draws the solid set only (#1263)
  *
  * @remarks
  * Default keyboard trigger is `"mod+k"` (⌘K / Ctrl+K). Each command
@@ -94,6 +97,7 @@ function createCommandPalette(
         groupLabelColor: style!.groupLabelColor !== undefined ? some(style!.groupLabelColor) : none,
     }, CommandPaletteStyleType) : undefined;
 
+    for (const c of commands) refuseNonSolid("CommandPalette command icon", c.icon);
     const commandsExpr = East.value(
         commands.map(c => East.value({
             id: c.id,

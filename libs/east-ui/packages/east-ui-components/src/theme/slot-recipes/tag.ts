@@ -9,7 +9,9 @@
  * Slots:
  *  - `root` — outer container (inline-flex + padding + border).
  *  - `label` — text content (body 12.5 / weight 500).
- *  - `closeTrigger` — the trailing × dismiss button.
+ *  - `closeTrigger` — the trailing dismiss button: Font Awesome's xmark
+ *    (#1263), as a chip's remove takes it — 0.8em of the tag's text, its own
+ *    width. Chakra's own icon took no size there and drew nothing.
  *
  * Default `variant="outline"` is the spec base chip; `brand` / `dashed`
  * variants follow the spec `.chip.brand` / `.chip.dashed`.
@@ -49,6 +51,8 @@ export const tagSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             color: "fg.subtle",
             cursor: "pointer",
+            fontSize: "0.8em",
+            "--fa-width": "auto",
             _hover: { color: "fg" },
         },
     },

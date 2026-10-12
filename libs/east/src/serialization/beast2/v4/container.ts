@@ -88,10 +88,48 @@ interface DecodeContext extends PlatformDecodeContext {
 // =============================================================================
 
 /**
+ * The IR's codec for one codec build: built the first time a function type
+ * needs it, then shared by every other function type the build reaches. A
+ * function value carries its IR, so each function type used to build the whole
+ * IRType codec of its own — a type holding many function fields paid for it
+ * once per field, and UIComponentType holds 727. It is built in the build's own
+ * recursion context, as each function type's was: the value table's entries
+ * resolve the IR's recursive types through that context. The context is the
+ * key, since a build threads one through every call.
+ */
+const irEncoderOfBuild = new WeakMap<Map<bigint, ValueEncoder>, ValueEncoder>();
+const irDecoderOfBuild = new WeakMap<Map<bigint, ValueDecoder>, ValueDecoder>();
+
+/** The IR's encoder for the build whose recursion context is `typeCtx`. */
+function irEncoderFor(typeCtx: Map<bigint, ValueEncoder>): ValueEncoder {
+  let enc = irEncoderOfBuild.get(typeCtx);
+  if (enc === undefined) {
+    enc = buildEncoder(irTypeValue, typeCtx);
+    irEncoderOfBuild.set(typeCtx, enc);
+  }
+  return enc;
+}
+
+/** The IR's decoder for the build whose recursion context is `typeCtx`. */
+function irDecoderFor(typeCtx: Map<bigint, ValueDecoder>): ValueDecoder {
+  let dec = irDecoderOfBuild.get(typeCtx);
+  if (dec === undefined) {
+    dec = buildDecoder(irTypeValue, typeCtx);
+    irDecoderOfBuild.set(typeCtx, dec);
+  }
+  return dec;
+}
+
+/**
  * Build a value encoder closure tree for the given type.
  * The tree is built once and reused for every encode call.
+ *
+ * @param type - the type to encode
+ * @param typeCtx - recursive-type resolution context shared across the tree
+ * @returns the encoder closure
+ * @internal Exported for the codec's own specs.
  */
-function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = new Map()): ValueEncoder {
+export function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = new Map()): ValueEncoder {
   switch (type.type) {
     case "Never":
       return () => { throw new Error("Cannot encode value of type Never"); };
@@ -184,8 +222,8 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
 
     case "Function":
     case "AsyncFunction": {
-      // Build IR encoder in the same typeCtx so recursive types resolve correctly
-      const fnIrEncoder = buildEncoder(irTypeValue, typeCtx);
+      // The build's one IR encoder, in its typeCtx so recursive types resolve.
+      const fnIrEncoder = irEncoderFor(typeCtx);
       const captureEncoderCache = new Map<EastTypeValue, ValueEncoder>();
 
       return (value: any, writer: BufferWriter, ctx: EncodeContext) => {
@@ -241,8 +279,13 @@ function buildEncoder(type: EastTypeValue, typeCtx: Map<bigint, ValueEncoder> = 
 /**
  * Build a value decoder closure tree for the given type.
  * The tree is built once and reused for every decode call.
+ *
+ * @param type - the type to decode
+ * @param typeCtx - recursive-type resolution context shared across the tree
+ * @returns the decoder closure
+ * @internal Exported for the codec's own specs.
  */
-function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = new Map()): ValueDecoder {
+export function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = new Map()): ValueDecoder {
   switch (type.type) {
     case "Never":
       return () => { throw new Error("Cannot decode value of type Never"); };
@@ -348,7 +391,7 @@ function buildDecoder(type: EastTypeValue, typeCtx: Map<bigint, ValueDecoder> = 
     case "AsyncFunction": {
       const isAsync = type.type === "AsyncFunction";
       const fnType = type;
-      const fnIrDecoder = buildDecoder(irTypeValue, typeCtx);
+      const fnIrDecoder = irDecoderFor(typeCtx);
       const captureDecoderCache = new Map<EastTypeValue, ValueDecoder>();
 
       return (reader: BufferReader, ctx: DecodeContext) => {

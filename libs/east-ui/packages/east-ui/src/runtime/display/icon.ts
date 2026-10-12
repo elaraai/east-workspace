@@ -11,9 +11,10 @@ import { Icon as IconFactory, type IconStyle } from "../../display/icon/index.js
 import { optionsTag, type JsxTag } from "../combinators.js";
 
 /**
- * Icon — a single Font Awesome glyph, addressed by `prefix` (fas solid, far
- * regular, fab brands) and `name`. It takes no children; everything is a flat
- * prop — the glyph identity plus `size` and `colorPalette` ({@link IconStyle}).
+ * Icon — a single Font Awesome solid icon, addressed by `prefix` (`fas`, the
+ * solid set — East UI draws no other, #1263) and `name`. It takes no children;
+ * everything is a flat prop — the icon identity plus `size` and `colorPalette`
+ * ({@link IconStyle}). Another prefix is refused at build.
  *
  * @example
  * ```tsx
@@ -21,10 +22,10 @@ import { optionsTag, type JsxTag } from "../combinators.js";
  * import { East } from "@elaraai/east";
  * import { Icon, HStack, UIComponentType } from "@elaraai/east-ui";
  *
- * const glyphs = East.function([], UIComponentType, _$ => (
+ * const icons = East.function([], UIComponentType, _$ => (
  *     <HStack gap="4">
  *         <Icon prefix="fas" name="house" />
- *         <Icon prefix="fab" name="github" />
+ *         <Icon prefix="fas" name="code-branch" />
  *     </HStack>
  * ));
  * ```

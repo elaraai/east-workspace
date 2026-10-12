@@ -6,9 +6,9 @@
 /**
  * EmptyState slot recipe — pattern_spec/spec.css `.empty`.
  *
- * Centered prose block: 36 px paddingX, 28 px paddingY, mono 36 px glyph
- * indicator in `border.strong`, title 15 px / 600 ink, description 13.5 px
- * `fg.muted`.
+ * Centered prose block: 36 px paddingX, 28 px paddingY, a 36 px icon
+ * indicator in `border.strong` — Font Awesome's, never a text glyph (#1263) —
+ * title 15 px / 600 ink, description 13.5 px `fg.muted`.
  *
  * @packageDocumentation
  */
@@ -31,13 +31,13 @@ export const emptyStateSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.10}",
             gap: "{spacing.2}",
         },
+        /* The icon: its size is the indicator's font size (Chakra's `_icon`
+         * sizes it 1em), in the strong rule. */
         indicator: {
-            fontFamily: "mono",
             fontSize: "36px",
             color: "border.strong",
             marginBottom: "{spacing.3}",
             lineHeight: "1",
-            letterSpacing: "{letterSpacings.wide}",
         },
         title: {
             fontSize: "{fontSizes.title.xs}",   // 15 — the design system's empty-state title
@@ -58,10 +58,13 @@ export const emptyStateSlotRecipe = defineSlotRecipe({
         },
     },
     variants: {
+        // Each size's icon is its own: Chakra's recipe, merged beneath, gives
+        // the indicator a text style per size (60px at lg), which outranks a
+        // font size — so each size clears it (#1263).
         size: {
-            sm: { content: { paddingX: "{spacing.5}", paddingY: "{spacing.6}" }, indicator: { fontSize: "24px" } },
-            md: { content: { paddingX: "{spacing.8}", paddingY: "{spacing.10}" }, indicator: { fontSize: "36px" } },
-            lg: { content: { paddingX: "{spacing.10}", paddingY: "{spacing.16}" }, indicator: { fontSize: "48px" } },
+            sm: { content: { paddingX: "{spacing.5}", paddingY: "{spacing.6}" }, indicator: { textStyle: "none", fontSize: "24px" } },
+            md: { content: { paddingX: "{spacing.8}", paddingY: "{spacing.10}" }, indicator: { textStyle: "none", fontSize: "36px" } },
+            lg: { content: { paddingX: "{spacing.10}", paddingY: "{spacing.16}" }, indicator: { textStyle: "none", fontSize: "48px" } },
         },
     },
     defaultVariants: {

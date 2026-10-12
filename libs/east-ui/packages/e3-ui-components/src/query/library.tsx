@@ -118,6 +118,9 @@ const SORTS: ReadonlyArray<{ key: Sort; icon: IconDefinition }> = [
 /** How many of a query's steps its wireframe draws before it counts the rest. */
 const WIRE_STEPS = 4;
 
+/** The empty state's icon: an empty box, as a Library's — Font Awesome's open box (#1263). */
+const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
+
 /** Props of {@link EastChakraQueryLibrary}. */
 export interface EastChakraQueryLibraryProps {
     /** The payload, decoded. */
@@ -538,7 +541,7 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
                     )}
                     {empty !== undefined ? (
                         <Box css={styles.empty} data-query-library-empty="">
-                            <EmptyStateView glyph="∅" title={empty.title} description={
+                            <EmptyStateView icon={EMPTY_ICON} title={empty.title} description={
                                 <Box as="ul" css={styles.emptyList}>
                                     {empty.hints.map((hint) => <li key={hint}>{hint}</li>)}
                                 </Box>

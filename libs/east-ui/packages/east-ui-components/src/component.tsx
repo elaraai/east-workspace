@@ -52,7 +52,6 @@ import { EastChakraMatrix } from "./collections/matrix";
 import { EastChakraPagination } from "./collections/pagination";
 import { EastChakraTable } from "./collections/table";
 import { EastChakraTreeView } from "./collections/tree-view";
-import { EastChakraPlan } from "./collections/plan";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
 import { EastChakraNavList } from "./navigation/nav-list";
 import { EastChakraApp } from "./navigation/app";
@@ -81,14 +80,10 @@ import { EastChakraTrace } from "./display/trace";
 import { EastChakraLibrary } from "./collections/library";
 import { EastChakraDeck, EastChakraDeckReadout, EastChakraDeckRows, EastChakraDeckNote } from "./collections/deck";
 import { EastChakraValueTree } from "./collections/value-tree";
-import { EastChakraRoster } from "./collections/roster";
-import { EastChakraBoard } from "./collections/board";
-import { EastChakraCalendar } from "./collections/calendar";
 import { EastChakraSchematic } from "./collections/schematic";
 import { EastChakraFlowchart } from "./collections/flowchart";
 import { EastChakraMap } from "./collections/map";
 import { EastChakraBlend } from "./collections/blend";
-import { EastChakraSheet } from "./collections/sheet";
 import { EastChakraAvatarGroup } from "./display/avatar-group";
 import {
     EastChakraStringInput,
@@ -263,21 +258,16 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Matrix: (v) => <EastChakraMatrix value={v} storageKey={childKey(storageKey, "Matrix")} />,
             Pagination: (v) => <EastChakraPagination value={v} storageKey={childKey(storageKey, "Pagination")} />,
             Table: (v) => <EastChakraTable value={v} storageKey={childKey(storageKey, "Table")} />,
-            Plan: (v) => <EastChakraPlan value={v} storageKey={childKey(storageKey, "Plan")} />,
             Library: (v) => <EastChakraLibrary value={v} storageKey={childKey(storageKey, "Library")} />,
             Deck: (v) => <EastChakraDeck value={v} storageKey={childKey(storageKey, "Deck")} />,
             DeckReadout: (v) => <EastChakraDeckReadout value={v} />,
             DeckRows: (v) => <EastChakraDeckRows value={v} />,
             DeckNote: (v) => <EastChakraDeckNote value={v} />,
             ValueTree: (v) => <EastChakraValueTree value={v} storageKey={childKey(storageKey, "ValueTree")} />,
-            Roster: (v) => <EastChakraRoster value={v} storageKey={childKey(storageKey, "Roster")} />,
-            Board: (v) => <EastChakraBoard value={v} storageKey={childKey(storageKey, "Board")} />,
-            Calendar: (v) => <EastChakraCalendar value={v} storageKey={childKey(storageKey, "Calendar")} />,
             Schematic: (v) => <EastChakraSchematic value={v} storageKey={childKey(storageKey, "Schematic")} />,
             Flowchart: (v) => <EastChakraFlowchart value={v} storageKey={childKey(storageKey, "Flowchart")} />,
             Map: (v) => <EastChakraMap value={v} storageKey={childKey(storageKey, "Map")} />,
             Blend: (v) => <EastChakraBlend value={v} storageKey={childKey(storageKey, "Blend")} />,
-            Sheet: (v) => <EastChakraSheet value={v} storageKey={childKey(storageKey, "Sheet")} />,
 
             // Charts
             Sparkline: (v) => <EastChakraSparkline value={v} />,

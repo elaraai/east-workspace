@@ -292,6 +292,18 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])(...args()), fn.toIR().compile([])(...args()));
   });
 
+  test("a construction `$.return`ed from a branch prints bare and rebuilds with the declared output's type", async () => {
+    const Check = VariantType({ ok: StringType, refused: NullType });
+    const fn = East.function([StringType], Check, ($, name) => {
+      $.if(East.equal(name, ""), $ => { $.return(variant("refused", null)); });   // one case of the declared variant
+      return variant("ok", name);
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /\$\.return\(variant\("refused", null\)\);/, source);
+    const main = await roundTrip(fn, "returned construction");
+    assert.deepEqual(main.toIR().compile([])(""), variant("refused", null));
+  });
+
   test("layout: a callback returning a struct hugs the `=>` and breaks inside, as prettier prints `=> ({`", async () => {
     const Row = StructType({ alphabetical: IntegerType, betamax: IntegerType, gamma_ray: IntegerType, delta_wing: IntegerType, epsilon_naught: IntegerType, zeta_function: IntegerType });
     const fn = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {

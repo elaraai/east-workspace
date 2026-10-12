@@ -36,7 +36,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import {
     decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, toEastTypeValue, variant,
     type EastType,
@@ -52,7 +52,7 @@ import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySpli
 import { byteWords, queryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf } from "./one-shot.js";
 import {
-    ORDERS, ROOT, fixtureCall, fixtureDatasets, fixtureSplit, fixtureStatus, mountBuilder, openQuery, recordHarness, savedQuery, savedRecord, settle,
+    act, ORDERS, ROOT, fixtureCall, fixtureDatasets, fixtureSplit, fixtureStatus, mountBuilder, openQuery, recordHarness, savedQuery, savedRecord, settle,
     type FixtureWeights,
 } from "./query.test-utils.js";
 

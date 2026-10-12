@@ -5,6 +5,8 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { Tag as ChakraTag, type TagRootProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Tag } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -66,7 +68,12 @@ export interface EastChakraTagProps {
     value: TagValue;
 }
 
-/** Renders an East UI Tag value using Chakra v3 `Tag`. */
+/**
+ * Renders an East UI Tag value using Chakra v3 `Tag`. A closable tag's close
+ * is Font Awesome's xmark, never Chakra's own icon, and is named for the tag
+ * it removes — `Remove <label>`, as the renderers' other removes are named
+ * (#1263).
+ */
 export const EastChakraTag = memo(function EastChakraTag({ value }: EastChakraTagProps) {
     const props = useMemo(() => toChakraTag(value), [value]);
     const closable = useMemo(() => getSomeorUndefined(value.closable), [value.closable]);
@@ -85,7 +92,7 @@ export const EastChakraTag = memo(function EastChakraTag({ value }: EastChakraTa
         <ChakraTag.Root {...props} {...(density !== undefined ? ({ density } as TagRootProps) : {})}>
             <ChakraTag.Label>{value.label}</ChakraTag.Label>
             {closable && (
-                <ChakraTag.CloseTrigger onClick={onCloseFn ? handleClose : undefined} />
+                <ChakraTag.CloseTrigger aria-label={`Remove ${value.label}`} onClick={onCloseFn ? handleClose : undefined}><FontAwesomeIcon icon={faXmark} /></ChakraTag.CloseTrigger>
             )}
         </ChakraTag.Root>
     );

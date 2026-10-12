@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, AsyncFunctionType, DictType, East, Expr, IntegerType, NullType, StringType, StructType, isTypeEqual, variant,
+    ArrayType, AsyncFunctionType, DictType, East, Expr, IntegerType, NullType, StringType, StructType, VariantType, isTypeEqual, variant,
     type BlockBuilder, type EastType,
 } from "@elaraai/east";
 import { Editing, Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
@@ -139,7 +139,53 @@ describeEast("Record.onApply", (test) => {
                 set: East.function([Page, ArrayType(Cell)], Page, (_$, page, cells) => ({ title: page.title, cells })),
                 idField: "key",
             });
-        }), /`get` must be an East function from the record's entry to an Array of row structs/);
+        }), /`get` must be an East function from the record's entry to an Array of rows — row structs, or entries of groups and loose rows/);
+    });
+
+    test("inside one entry the rows may be entries of groups and loose rows — a Sheet's — each arm carrying the id", _ => {
+        const Line = StructType({ id: StringType, task: StringType });
+        const Group = StructType({ id: StringType, name: StringType, lines: ArrayType(Line) });
+        const Entry = Editing.Types.Entry(Group, "lines");
+        const Plan = StructType({ entries: ArrayType(Entry) });
+        const plans = e3.record("loose_plans", DictType(StringType, Plan), new Map());
+        const plansPatch = e3.mutation.patch(plans);
+        const inside = typeOf($ => {
+            const record = $.let(Record.bind(plans, [plansPatch]));
+            return Record.onApply(record, {
+                entry: "week",
+                get: East.function([Plan], ArrayType(Entry), (_$, plan) => plan.entries),
+                set: East.function([Plan, ArrayType(Entry)], Plan, (_$, _plan, entries) => ({ entries })),
+                idField: "id",
+            });
+        });
+        assert.ok(isTypeEqual(inside, AsyncFunctionType([Editing.Types.ChangeSet(Entry)], Editing.Types.ApplyResult)));
+        // An arm that is not a struct is no row; an arm without the id names no entry.
+        const Odd = VariantType({ group: Group, note: StringType });
+        const Oddly = StructType({ entries: ArrayType(Odd) });
+        const odd = e3.record("odd_plans", DictType(StringType, Oddly), new Map());
+        const oddPatch = e3.mutation.patch(odd);
+        assert.throws(() => typeOf($ => {
+            const record = $.let(Record.bind(odd, [oddPatch]));
+            return Record.onApply(record, {
+                entry: "week",
+                get: East.function([Oddly], ArrayType(Odd), (_$, plan) => plan.entries),
+                set: East.function([Oddly, ArrayType(Odd)], Oddly, (_$, _plan, entries) => ({ entries })),
+                idField: "id",
+            });
+        }), /an Array of rows — row structs, or entries of groups and loose rows/);
+        const Unnamed = VariantType({ group: Group, row: StructType({ task: StringType }) });
+        const Unnamedly = StructType({ entries: ArrayType(Unnamed) });
+        const unnamed = e3.record("unnamed_plans", DictType(StringType, Unnamedly), new Map());
+        const unnamedPatch = e3.mutation.patch(unnamed);
+        assert.throws(() => typeOf($ => {
+            const record = $.let(Record.bind(unnamed, [unnamedPatch]));
+            return Record.onApply(record, {
+                entry: "week",
+                get: East.function([Unnamedly], ArrayType(Unnamed), (_$, plan) => plan.entries),
+                set: East.function([Unnamedly, ArrayType(Unnamed)], Unnamedly, (_$, _plan, entries) => ({ entries })),
+                idField: "id",
+            });
+        }), /"id" must be a String field on every entry/);
     });
 
     test("the Sheet over a record binds the record and pages it — no new platform bind", _ => {

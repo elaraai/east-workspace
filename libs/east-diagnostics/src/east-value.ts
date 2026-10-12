@@ -169,6 +169,36 @@ function isValueConstructorCall(call: ts.CallExpression, ctx: RuleContext): bool
     resolvesToEastImport(callee, ctx.checker, t);
 }
 
+/** Does the type written at `node` name an East value type — `ValueTypeOf<…>`,
+ * an alias of one, a type East declares, or a type parameter, which may be any
+ * value — anywhere in it? `any` and `unknown` may hold one too. */
+function mentionsEastValueType(node: ts.Node, ctx: RuleContext, seen: Set<ts.Symbol>): boolean {
+  const t = ctx.ts;
+  if (node.kind === t.SyntaxKind.AnyKeyword || node.kind === t.SyntaxKind.UnknownKeyword) return true;
+  if (t.isTypeReferenceNode(node)) {
+    const named = ctx.checker.getSymbolAtLocation(node.typeName);
+    const symbol = named !== undefined && (named.flags & t.SymbolFlags.Alias) !== 0 ? ctx.checker.getAliasedSymbol(named) : named;
+    const declarations = symbol?.declarations ?? [];
+    if (declarations.some((d) => declaredByEast(d) || t.isTypeParameterDeclaration(d))) return true;
+    // An alias is what it names — each followed once, so a recursive one ends.
+    if (symbol !== undefined && !seen.has(symbol)) {
+      seen.add(symbol);
+      if (declarations.some((d) => t.isTypeAliasDeclaration(d) && mentionsEastValueType(d.type, ctx, seen))) return true;
+    }
+  }
+  return t.forEachChild(node, (child) => (mentionsEastValueType(child, ctx, seen) ? true : undefined)) === true;
+}
+
+/** Is the parameter `signature`'s argument `index` binds written in East's value
+ * types (see {@link mentionsEastValueType})? One with no declared type may hold
+ * any value. */
+function writtenInEastValues(signature: ts.Signature, index: number, ctx: RuleContext): boolean {
+  const params = signature.getParameters();
+  const declaration = params[Math.min(index, params.length - 1)]?.valueDeclaration;
+  if (declaration === undefined || !ctx.ts.isParameter(declaration) || declaration.type === undefined) return true;
+  return mentionsEastValueType(declaration.type, ctx, new Set());
+}
+
 /** The type of the parameter `call`'s argument `index` binds — a rest
  * parameter's element type. */
 function parameterTypeAt(signature: ts.Signature, index: number, call: ts.Node, ctx: RuleContext): ts.Type | undefined {
@@ -223,7 +253,12 @@ function flowOf(e: ts.Expression, ctx: RuleContext): Flow {
         // decoded value — an East function value's, an encoder's — takes a value.
         const index = args.indexOf(node as ts.Expression);
         const param = parameterTypeAt(signature, index, parent, ctx);
-        return param !== undefined && isEastExprType(param) ? "program" : "value";
+        if (param !== undefined && isEastExprType(param)) return "program";
+        // East's own functions take decoded values. Another East package's takes
+        // one where the parameter is written in East's value types; one written
+        // in host types alone — a DOM test helper's `ReadonlyMap<Element, Rect>`,
+        // a pixel count — takes the host's (#1177).
+        if (declaredByEast(declaration) || writtenInEastValues(signature, index, ctx)) return "value";
       }
       return east ? "value" : "host";
     }

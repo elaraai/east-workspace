@@ -102,7 +102,7 @@ function writeState(key: string, state: SliceState): void {
     getStore().write(key, encodeState(state));
     // Every slice mutation funnels through here — the one choke point the
     // opt-in persistence write-back needs (#168).
-    schedulePersist(key);
+    scheduleSlicePersist(key);
 }
 
 function updateState(key: string, fn: (s: SliceState) => SliceState): null {
@@ -168,10 +168,13 @@ function persistNow(key: string): void {
     if (entry === undefined) return;
     const encoded = getStore().read(key);
     if (encoded === undefined) return;
-    writePersistedBlob(key, entry.mode, bytesToBase64url(encoded));
+    // Storage may be unavailable (private browsing or a full quota). The
+    // in-memory edit remains valid; a persistence timer must not crash the UI.
+    try { writePersistedBlob(key, entry.mode, bytesToBase64url(encoded)); } catch { /* keep the in-memory state */ }
 }
 
-function schedulePersist(key: string): void {
+/** Debounce a mutation through the shared local / record Slice persistence. */
+export function scheduleSlicePersist(key: string): void {
     const entry = persistedSlices.get(key);
     if (entry === undefined) return;
     if (entry.timer !== undefined) clearTimeout(entry.timer);
@@ -187,14 +190,15 @@ function schedulePersist(key: string): void {
  *
  * @param key - the slice's store key
  * @param mode - where the state persists (`local` / `session` / `url`)
+ * @param hydrate - Validates and writes a persisted state; record slices supply their own codec.
  */
-export function enableSlicePersistence(key: string, mode: SlicePersistMode): void {
+export function enableSlicePersistence(key: string, mode: SlicePersistMode, hydrate: (bytes: Uint8Array) => void = bytes => writeState(key, decodeState(bytes))): void {
     if (persistedSlices.has(key)) return;
     persistedSlices.set(key, { mode, timer: undefined });
-    const blob = readPersistedBlob(key, mode);
-    if (blob === undefined) return;
     try {
-        writeState(key, decodeState(base64urlToBytes(blob)));
+        const blob = readPersistedBlob(key, mode);
+        if (blob === undefined) return;
+        hydrate(base64urlToBytes(blob));
     } catch {
         /* stale / foreign blob (e.g. an older wire shape) — keep the seed */
     }

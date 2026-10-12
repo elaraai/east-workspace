@@ -34,7 +34,7 @@ import { Global } from '@emotion/react';
 // @ts-expect-error — `?inline` returns the stylesheet as a string at build time.
 import xyflowCss from '@xyflow/react/dist/style.css?inline';
 import { Box, HStack, Input, Menu, Portal, SegmentGroup, Text } from '@chakra-ui/react';
-import { FiList, FiSearch, FiShare2, FiX } from 'react-icons/fi';
+import { faList, faMagnifyingGlass, faShareNodes, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { Ontology } from '@elaraai/e3-ui/internal';
 import { implementUIComponent } from '@elaraai/east-ui-components';
@@ -53,6 +53,7 @@ import {
     type OntologyNodeKind,
 } from './types.js';
 import { NODE_KIND_ACCENT } from './accents.js';
+import { OntologyMark } from './mark.js';
 import { useFlowState } from './flow-state.js';
 import { useBindingOntology } from './bind-runtime.js';
 import { useIsDarkMode } from './use-color-mode.js';
@@ -269,7 +270,7 @@ function OntologyEditorBody({
                     <HStack gap="2">
                         <Box position="relative" flex="1">
                             <Box position="absolute" left="2" top="50%" transform="translateY(-50%)" color="fg.subtle" zIndex={1} pointerEvents="none">
-                                <FiSearch size={14} />
+                                <OntologyMark icon={faMagnifyingGlass} size="14" />
                             </Box>
                             <Input
                                 size="sm"
@@ -293,7 +294,7 @@ function OntologyEditorBody({
                                     onClick={() => setSearchQuery('')}
                                     _hover={{ color: 'fg' }}
                                 >
-                                    <FiX size={14} />
+                                    <OntologyMark icon={faXmark} size="14" />
                                 </Box>
                             )}
                             {searchMatchIds && (
@@ -591,13 +592,13 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                         <SegmentGroup.Indicator />
                         <SegmentGroup.Item value="graph">
                             <SegmentGroup.ItemText>
-                                <HStack gap="1.5"><FiShare2 size={11} /> Graph</HStack>
+                                <HStack gap="1.5"><OntologyMark icon={faShareNodes} size="11" /> Graph</HStack>
                             </SegmentGroup.ItemText>
                             <SegmentGroup.ItemHiddenInput />
                         </SegmentGroup.Item>
                         <SegmentGroup.Item value="table">
                             <SegmentGroup.ItemText>
-                                <HStack gap="1.5"><FiList size={11} /> Table</HStack>
+                                <HStack gap="1.5"><OntologyMark icon={faList} size="11" /> Table</HStack>
                             </SegmentGroup.ItemText>
                             <SegmentGroup.ItemHiddenInput />
                         </SegmentGroup.Item>

@@ -66,7 +66,8 @@ test.describe("Studio page library (#997)", () => {
                 rule: [Math.round(rule.width), Math.round(rule.height)], afterRule: rule.right <= action.left,
                 action: [Math.round(band.right - action.right), Math.round(action.height)],
             };
-        })).toEqual({ band: 44, rows: 1, search: [16, 300], rule: [1, 18], afterRule: true, action: [16, 28] });
+        // The frame's 16px inset plus the shared toolbar's 4px focus-ring clearance.
+        })).toEqual({ band: 44, rows: 1, search: [20, 300], rule: [1, 18], afterRule: true, action: [20, 28] });
     });
 
     test("D2: the pane is 224px wide beside the rows, its rows 32px tall; the shown project in the brand", async ({ page }) => {

@@ -12,14 +12,15 @@ import { Avatar, Button, Configurator, HStack, SegmentGroup, Select, Slider, Sty
 // ============================================================================
 
 export const avatarBasic = example({
-    keywords: ["Avatar", "Root", "name", "basic"],
-    description: "User profile images",
+    keywords: ["Avatar", "Root", "name", "basic", "initials", "fallback", "user", "icon"],
+    description: "User profile images — a name's initials, and with no name the person icon",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <HStack gap="3">
                 <Avatar name="John Doe" />
                 <Avatar name="Jane Smith" colorPalette="brand" />
                 <Avatar name="Bob Wilson" colorPalette="success" />
+                <Avatar />
             </HStack>
         );
     }),

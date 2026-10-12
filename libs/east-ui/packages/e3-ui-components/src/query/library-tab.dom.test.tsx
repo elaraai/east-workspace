@@ -18,11 +18,11 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
-import { CUSTOMERS, fixtureCall, mountBuilder, recordHarness, savedQuery, savedRecord, settle } from "./query.test-utils.js";
+import { act, CUSTOMERS, fixtureCall, mountBuilder, recordHarness, savedQuery, savedRecord, settle } from "./query.test-utils.js";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
 

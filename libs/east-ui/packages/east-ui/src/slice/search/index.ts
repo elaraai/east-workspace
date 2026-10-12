@@ -16,7 +16,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType, SliceSearchMatchType, SliceSearchMatchArrayType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType, SliceSearchMatchType, SliceSearchMatchArrayType } from "../../platform/slice/index.js";
 import { SliceSearchType } from "./types.js";
 
 export { SliceSearchType } from "./types.js";
@@ -24,7 +24,7 @@ export { SliceSearchMatchType, SliceSearchMatchArrayType } from "../../platform/
 
 /** Options for `Slice.Search`. */
 export interface SliceSearchOptions {
-    /** The bound slice (from `Slice.bind`, with a `toMatch` projection). */
+    /** The bound slice (from `Slice.bind`, with a `match` projection). */
     slice: SubtypeExprOrValue<SliceBindType>;
     /** Recent queries rendered in the focused footer. */
     recent?: SubtypeExprOrValue<ArrayType<StringType>>;
@@ -37,10 +37,10 @@ export interface SliceSearchOptions {
 /**
  * Creates a `Slice.Search` — a typeahead over a slice dimension. Typing drives
  * `state.search`; suggestions come from `slice.matches()` (the bind projects
- * matching rows via the `toMatch` given at `Slice.bind`); selecting one commits
+ * matching rows via the `match` given at `Slice.bind`); selecting one commits
  * it via `slice.setSearch(some(id))`. All built-in.
  *
- * @param slice   - The bound slice (from `Slice.bind`, with a `toMatch` projection)
+ * @param slice   - The bound slice (from `Slice.bind`, with a `match` projection)
  * @param options - Optional `recent`
  * @returns An East expression of type `UIComponentType`
  *
@@ -51,9 +51,9 @@ export interface SliceSearchOptions {
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events, {
- *             toMatch: East.function([EventType], Slice.Types.SearchMatch, ($, r) =>
- *                 East.value({ id: r.sku, label: r.name, meta: some(r.note) }, Slice.Types.SearchMatch)),
+ *         const slice = $.let(Slice.bind("demo.events", events, {
+ *             search: "sku",
+ *             match: r => ({ id: r.sku, label: r.name, meta: some(r.note) }),
  *         }));
  *         return Slice.Search.Root({ slice });
  *     })),
@@ -64,7 +64,7 @@ function createSliceSearch(
     options: SliceSearchOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceSearch", {
-        slice: options.slice,
+        slice: localSliceHandle(options.slice),
         recent: options.recent ?? [],
         density: options.density !== undefined ? some(variant(options.density, null)) : none,
         editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,

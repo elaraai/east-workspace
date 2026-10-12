@@ -8,7 +8,7 @@
  *
  * # Two platforms, one model
  *
- *   - `Slice.bind<T>(key, config)`      — stateful. Browser-local reactive
+ *   - `Slice.bind(key, rows, options)`      — stateful. Browser-local reactive
  *                                          state + structured mutators.
  *                                          Implemented by the host (React
  *                                          renderer).
@@ -64,6 +64,7 @@
 
 import {
     East,
+    Expr,
     StringType,
     NullType,
     BooleanType,
@@ -86,6 +87,8 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 
+import { bindRecord } from "./record.js";
+import { bindLocal } from "./local.js";
 import { ChartXType } from "../../charts/spec/types.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 import { ValueFormatType } from "../../contracts/format.js";
@@ -298,7 +301,7 @@ export type SliceFieldFormat =
     | { date: string } | { time: string } | { datetime: string };
 
 /** Build the {@link ValueFormatType} variant value for a field-format shorthand. */
-function toValueFormat(f: SliceFieldFormat): unknown {
+export function toValueFormat(f: SliceFieldFormat): ValueTypeOf<ValueFormatType> {
     if (typeof f === "string") return variant(f, null);
     if ("currency" in f) return variant("currency", { code: f.currency.code ?? "USD", compact: f.currency.compact ?? false });
     if ("date" in f) return variant("date", f.date);
@@ -386,8 +389,8 @@ export interface SliceUserConfig<
  *     breakdownFieldIds: ["country"],
  * }));
  *
- * const slice = $.let(Slice.bind([UserEventType], "demo.events", cfg, Slice.state()));
- * const filtered = $.let(Slice.apply.where([UserEventType], slice.read(), cfg, events));
+ * const state = $.let(Slice.state({}));
+ * const filtered = $.let(Slice.apply.where([UserEventType], state, cfg, events));
  * ```
  *
  * @typeParam RowType - The row's East StructType (passed positionally)
@@ -1067,6 +1070,24 @@ export const SliceBindType = StructType({
 });
 export type SliceBindType = typeof SliceBindType;
 
+/**
+ * Project an authoring handle onto the frozen, non-generic component wire.
+ * @param input - A local handle, including its typed data reader.
+ * @returns The original SliceBindType payload, evaluated once.
+ * @internal
+ */
+export function localSliceHandle(input: SubtypeExprOrValue<SliceBindType>): ExprType<SliceBindType> {
+    const source = East.value(input);
+    const type = Expr.type(source as Expr);
+    if (type.type !== "Struct" || type.fields.data === undefined) return East.value(input, SliceBindType);
+    return East.function([], SliceBindType, $ => {
+        const handle = $.const(source);
+        return East.value(Object.fromEntries(Object.keys(SliceBindType.fields).map(name =>
+            [name, (handle as unknown as ExprType<StructType>)[name]])) as never, SliceBindType);
+    })();
+}
+
+
 // ============================================================================
 // slice_* primitives — low-level host I/O backing a Slice.bind handle's methods
 // (issue #106)
@@ -1166,7 +1187,8 @@ export const SliceBindPrimitives = {
     cohortCounts: slice_cohort_counts,
 } as const;
 
-const slice_bind = East.genericPlatform("slice_bind", ["T"],
+/** The unchanged local runtime call, shared by the typed authoring factory. @internal */
+export const slice_bind = East.genericPlatform("slice_bind", ["T"],
     [StringType, SliceConfigType, SliceStateType, ArrayType("T"), OptionType(FunctionType(["T"], SliceSearchMatchType))],
     SliceBindType,
     { optional: true },
@@ -1175,14 +1197,26 @@ const slice_bind = East.genericPlatform("slice_bind", ["T"],
 /**
  * The narrowed rows for a bound slice — every row bound at `Slice.bind`
  * that passes the active narrowing. The explicit, typed data feed for
- * consumers: `rows={Slice.rows([EventType], slice)}`. A component's `slice`
+ * consumers: `rows={Slice.rows(slice)}`. A component's `slice`
  * chrome option never narrows data itself.
  */
-const slice_rows = East.genericPlatform("slice_rows", ["T"],
+export const slice_rows = East.genericPlatform("slice_rows", ["T"],
     [SliceBindType],
     ArrayType("T"),
     { optional: true },
 );
+
+/** Read current local rows lazily, including changes made after binding. */
+function rows<T extends EastType>(slice: ExprType<StructType<{ data: FunctionType<[], T> }>>): ExprType<T>;
+/** Read the narrowed data retained by a typed record Slice handle. */
+function rows<T extends EastType>(slice: ExprType<StructType<{ data: T }>>): ExprType<T>;
+function rows(input: unknown): ExprType<EastType> {
+    const handle = East.value(input as SubtypeExprOrValue<StructType>);
+    const type = Expr.type(handle as Expr);
+    if (type.type !== "Struct" || type.fields.data === undefined) throw new Error("Slice.rows needs a typed Slice.bind or Slice.bindRecord handle");
+    const data = (handle as ExprType<StructType>).data!;
+    return type.fields.data.type === "Function" ? (data as ExprType<FunctionType<[], EastType>>)() : data;
+}
 
 /**
  * Materialise the concrete partition-row East type for a row type — one bound
@@ -1220,7 +1254,7 @@ const slice_partition = East.genericPlatform("slice_partition", ["T"],
 /**
  * The slice-chrome payload every slice-accepting component carries — the
  * bound handle plus the affordances its rail mounts. Chrome only: the
- * component's data is always fed explicitly (`Slice.rows([RowType], slice)`).
+ * component's data is always fed explicitly (`Slice.rows(slice)`).
  */
 export const SliceChromeType = StructType({
     slice: SliceBindType,
@@ -1309,78 +1343,33 @@ const slice_apply_breakdown = East.genericPlatform("slice_apply_breakdown", ["T"
 // ============================================================================
 
 /**
- * Slice platform — typed narrowing state for the `Slice.*` UI family.
- *
- * @example
- * ```ts
- * import { East, ArrayType, StringType, IntegerType, NullType, variant, some, none } from "@elaraai/east";
- * import { Reactive, Slice, Text, UIComponentType } from "@elaraai/east-ui";
- *
- * // 1. Declare the row type
- * const UserEventType = StructType({
- *     timestamp: DateTimeType,
- *     country:   StringType,
- *     sessions:  IntegerType,
- * });
- *
- * const view = East.function([], UIComponentType, (_$) => {
- *     return Reactive.Root(East.function([], UIComponentType, $ => {
- *         // 2. Bind with a config declaring available dimensions
- *         const slice = $.let(Slice.bind("view.events", East.value({
- *             fields: new Map([
- *                 ["timestamp", variant("datetime", { label: "Time",     accessor: East.function([UserEventType], DateTimeType, ($, r) => r.timestamp) })],
- *                 ["country",   variant("string",   { label: "Country",  accessor: East.function([UserEventType], StringType,   ($, r) => r.country)   })],
- *                 ["sessions",  variant("integer",  { label: "Sessions", accessor: East.function([UserEventType], IntegerType,  ($, r) => r.sessions)  })],
- *             ]),
- *             timeFieldId:       some("timestamp"),
- *             searchFieldIds:    ["country"],
- *             breakdownFieldIds: ["country"],
- *         })));
- *
- *         // 3. Add a TYPED filter — `integerGte` carries an IntegerType, not a parsed string
- *         $(slice.addFilter(East.value({
- *             fieldId: "sessions",
- *             op:      variant("integerGte", 10n),
- *         }, Slice.Types.Predicate)));
- *
- *         // 4. Apply: pure narrowing engine
- *         //    const filtered = $.let(Slice.apply.where(slice.read(), config, events));
- *
- *         const state = $.let(slice.read(), Slice.Types.State);
- *         return Text.Root(East.str`${state.filters.length()} active filters`);
- *     }));
- * });
- * ```
+ * Slice platform — typed narrowing for local rows and indexed records.
+ * `bind` infers its row type from the data; `bindRecord` infers available
+ * fields from the binding's indexes. Both handles carry their narrowed
+ * data, read with `Slice.rows(slice)`.
  */
 export const Slice = {
     /**
-     * Bind a slice to a named key. Returns a closure struct UI components
-     * plug into and downstream consumers read.
+     * Bind local rows under a named key. Fields are inferred from the row.
+     * `initial` and `presets` seed the store once; rebinding preserves the
+     * current controls and supplies the latest rows.
      *
-     * The third argument is the initial `SliceState` — built ergonomically
-     * with `Slice.state({...})` (omitted fields default to "no narrowing
-     * active"). First bind for a key seeds the store with it; subsequent
-     * binds return a fresh closure struct over the existing state and ignore
-     * the initial value. `read()` tracks the dependency so `Reactive.Root`
-     * re-renders on change.
-     *
-     * @example
      * ```ts
-     * // Empty slice — all defaults
-     * const slice = $.let(Slice.bind([EventType], "view.events", cfg, Slice.state({})));
-     *
-     * // Seeded — a preset range and an active cohort on first bind
-     * const seeded = $.let(Slice.bind([EventType], "view.seeded", cfg, Slice.state({
-     *     range:         some(variant("datetimePreset", variant("last30d", null))),
-     *     cohorts:       [{ id: "power", name: "Power users", filters: [] }],
-     *     activeCohorts: new Set(["power"]),
-     * })));
+     * const slice = $.let(Slice.bind("view.events", events));
+     * const seeded = $.let(Slice.bind("view.seeded", events, {
+     *     range: "timestamp",
+     *     initial: { timestamp: { preset: "last30d" } },
+     *     presets: [{ id: "power", name: "Power users", where: { sessions: { gte: 20n } }, active: true }],
+     * }));
      * ```
      */
-    bind: slice_bind,
+    bind: Object.assign(bindLocal, { implement: slice_bind.implement }),
 
-    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows([RowType], slice)`). */
-    rows: slice_rows,
+    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows(slice)`). */
+    rows: Object.assign(rows, { implement: slice_rows.implement }),
+
+    /** Narrow a record through the fields its bound indexes order on. */
+    bindRecord,
 
     /**
      * The FULL bound rows, each tagged `{ value, matched }` — the "keep the
@@ -1398,7 +1387,8 @@ export const Slice = {
      * // })
      * ```
      */
-    partition: slice_partition,
+    partition: Object.assign(<T extends EastType>(types: [T], handle: SubtypeExprOrValue<SliceBindType>) =>
+        slice_partition(types, localSliceHandle(handle)), { implement: slice_partition.implement }),
 
     /** Materialise the `{ value, matched }` partition-row type for a row type. */
     partitionRowType: slicePartitionRowFor,

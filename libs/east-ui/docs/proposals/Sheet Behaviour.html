@@ -7,8 +7,8 @@
 <!--
   Sheet — behaviour contract of the interactive prototype.
   Sanitised from the claude.ai/design prototype spec ("Smart Planning Grid - Spec", 8 Sep 2026):
-  the client domain was genericised to a discrete manufacturing plant (activities, machines, lines,
-  families, sites) so nothing here names a customer, a product or an upstream system. Every rule below is
+  its domain is a joinery workshop (activities, machines, bays,
+  families, sites), so nothing here names a customer, a product or an upstream system. Every rule below is
   implemented in the companion prototype `Sheet Spec.html` unless marked HOST-SUPPLIED.
   The east-ui component design that maps this contract onto the IR lives in `Sheet Spec.md`.
   Self-contained: design-system tokens inline; fonts from Google Fonts (needs network).
@@ -255,18 +255,18 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
 <main class="sheet">
   <div class="eyebrow-line">Component specification · East · @elaraai/east-ui</div>
   <h1>Sheet — a declarative planning sheet</h1>
-  <p class="lede">A generalised spreadsheet component. The host supplies a <b>data source</b> (rows), a <b>declarative column schema</b>, and <b>registers</b> (lookup tables); the component supplies typed parsing, inline autocomplete, directed link cells, a copilot that fills and proposes rows, search with context bands, saved-view tabs, and Excel round-tripping. Nothing in the component knows about the plant. Every plant value in this document is an <span class="ex">example</span> of what the schema has to be able to express, taken from the P-40 · Q3 configuration the prototype runs.</p>
+  <p class="lede">A generalised spreadsheet component. The host supplies a <b>data source</b> (rows), a <b>declarative column schema</b>, and <b>registers</b> (lookup tables); the component supplies typed parsing, inline autocomplete, directed link cells, a copilot that fills and proposes rows, search with context bands, saved-view tabs, and Excel round-tripping. Nothing in the component knows about the workshop. Every workshop value in this document is an <span class="ex">example</span> of what the schema has to be able to express, taken from the C-18 · Q3 configuration the prototype runs.</p>
   <p class="stamp">Source of truth: Sheet Spec.html (the interactive prototype) · 8 Sep 2026 · every rule below is implemented there unless marked <span class="ex host">host-supplied</span> (still hard-coded in the prototype, to become configuration). The east-ui mapping — IR, factories, JSX, renderer — is Sheet Spec.md.</p>
 
   <h2>1 · Contract</h2>
-  <p>The prototype is a controlled React component. It renders from <code>rows</code> and reports every mutation; persistence, sync and the upstream system (<span class="ex">example</span> the plant ERP) are the host's.</p>
+  <p>The prototype is a controlled React component. It renders from <code>rows</code> and reports every mutation; persistence, sync and the upstream system (<span class="ex">example</span> the workshop ERP) are the host's.</p>
   <table>
     <thead><tr><th style="width:24%;">Prop</th><th>Meaning</th></tr></thead>
     <tbody>
       <tr><td class="m">rows</td><td>Array of records keyed by column <code>key</code>, plus a stable <code>id</code>. Empty strings mean empty. The component pads the sheet with blank rows (§7) but reports only real rows back.</td></tr>
       <tr><td class="m">columns</td><td>Ordered column declarations (§2). Each names a <code>type</code> from the type registry and parameterises it.</td></tr>
       <tr><td class="m">types</td><td>Optional overrides/extensions of the built-in type registry (§3). A type declares how a cell parses, displays, ghosts, how long it waits before suggesting, and whether it can be edited.</td></tr>
-      <tr><td class="m">registers</td><td>Named lookup tables: <code>{ name: rows[] }</code>. A register row is an object with a display key and any extra fields declarations may point at. <span class="ex">example</span> activities, stations (machines · lines · families), sites, statuses.</td></tr>
+      <tr><td class="m">registers</td><td>Named lookup tables: <code>{ name: rows[] }</code>. A register row is an object with a display key and any extra fields declarations may point at. <span class="ex">example</span> activities, stations (machines · bays · families), sites, statuses.</td></tr>
       <tr><td class="m">driver</td><td>The <code>lookup</code> column whose register row parameterises the rest of the row — units, durations, direction. Other declarations reference it by path (<code>driver.days</code>, <code>driver.uom</code>, <code>driver.sides</code>). <span class="ex">example</span> Activity.</td></tr>
       <tr><td class="m">suggest</td><td>Copilot configuration (§5): fill providers per column, row patterns, learning on/off, lookahead. <code>ghostEnabled</code> and <code>suggestAhead</code> are surfaced as tweaks.</td></tr>
       <tr><td class="m">owned</td><td>Predicate marking rows the host system owns (no copilot, stamped columns read-only). <span class="ex">example</span> <code>row.orderCode || row.status === 'CANCELLED'</code>.</td></tr>
@@ -284,8 +284,8 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
     <tbody>
       <tr><td class="m">of</td><td>lookup · reference · enum · link</td><td>Register name the values come from.</td></tr>
       <tr><td class="m">derive</td><td>date · quantity</td><td>Deterministic rule for the ghost: <code>{ from: key, plus: 'driver.days' }</code>. <span class="ex">example</span> End = Start + activity.days.</td></tr>
-      <tr><td class="m">uomFrom</td><td>quantity</td><td>Path to the unit label. <span class="ex">example</span> <code>driver.uom</code> → pcs, lots, pallets.</td></tr>
-      <tr><td class="m">members</td><td>link · set</td><td>Member kinds the register exposes: <code>{ kind, identified, countable, resolvesTo }</code>. <i>Identified</i> names one thing; <i>countable</i> may carry a count (“4 × kind”) and resolves to an identified kind later. <span class="ex">example</span> machine (identified) · range (identified) · line, family (countable → machine).</td></tr>
+      <tr><td class="m">uomFrom</td><td>quantity</td><td>Path to the unit label. <span class="ex">example</span> <code>driver.uom</code> → pcs, batches, pallets.</td></tr>
+      <tr><td class="m">members</td><td>link · set</td><td>Member kinds the register exposes: <code>{ kind, identified, countable, resolvesTo }</code>. <i>Identified</i> names one thing; <i>countable</i> may carry a count (“4 × kind”) and resolves to an identified kind later. <span class="ex">example</span> machine (identified) · range (identified) · bay, family (countable → machine).</td></tr>
       <tr><td class="m">multiple</td><td>link · set</td><td>Count grammar: <code>{ forms: ['N x kind','kind x N'], ops: ['x','X','*','×'], appliesTo: 'countable' }</code>.</td></tr>
       <tr><td class="m">sides</td><td>link</td><td>Where direction is declared: <code>{ from: 'driver.sides', values: { both, from, to, in }, locks: { from: { to: 'external', in: 'in place' }, to: { from: 'external' } } }</code>. Lock labels are display strings the host chooses.</td></tr>
       <tr><td class="m">arity</td><td>link</td><td>How many members a side should hold: <code>{ of: 'destination', from: 'qty', per: 'family' }</code> — read in the strip while that side is edited (§4.6).</td></tr>
@@ -301,9 +301,9 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
 { key:'activity', label:'Activity',        sub:'activity register',      type:'lookup',   of:'activities' },        // driver
 { key:'qty',      label:'Qty',             sub:'uom per activity',       type:'quantity', uomFrom:'driver.uom' },
 { key:'notes',    label:'Notes',           sub:'free text',              type:'text' },
-{ key:'stations', label:'Work centres',    sub:'from → to · 4 x lathe · machine · line', type:'link', of:'stations',
+{ key:'stations', label:'Work centres',    sub:'from → to · 4 x router · machine · bay', type:'link', of:'stations',
   members:[ {kind:'machine',identified:true}, {kind:'range',identified:true},
-            {kind:'line',countable:true,resolvesTo:'machine'}, {kind:'family',countable:true,resolvesTo:'machine'} ],
+            {kind:'bay',countable:true,resolvesTo:'machine'}, {kind:'family',countable:true,resolvesTo:'machine'} ],
   multiple:{ forms:['N x kind','kind x N'], ops:['x','X','*','×'], appliesTo:'countable' },
   sides:{ from:'driver.sides', locks:{ from:{ to:'external', in:'in place' }, to:{ from:'external' } } },
   arity:{ of:'destination', from:'qty', per:'family' }, store:'as-typed',
@@ -332,7 +332,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
     </tbody>
   </table>
   <h3>3.1 Candidate scoring (lookup · reference · enum)</h3>
-  <p>Whole-string prefix (0) → every typed word prefixes some word, or any word prefix (1) → initials in order, ≥2 chars (2) → substring (3); ties broken by how often the value already appears in this sheet. Only a <i>prefix</i> match ghosts inline as a grey suffix after the caret. A non-prefix match (alias, fuzzy, range) previews on the right of the editor as a replacement (<code>→ Machining - Roughing</code>) and is taken with Tab. With an empty buffer nothing is armed: the strip lists what the field <i>accepts</i> — for the driver column ranked by what usually follows the row above, then by sheet frequency — and Tab cannot write a value the planner never chose. ⌥] ⌥[ ⌥↓ ⌥↑ cycle the armed candidate.</p>
+  <p>Whole-string prefix (0) → every typed word prefixes some word, or any word prefix (1) → initials in order, ≥2 chars (2) → substring (3); ties broken by how often the value already appears in this sheet. Only a <i>prefix</i> match ghosts inline as a grey suffix after the caret. A non-prefix match (alias, fuzzy, range) previews on the right of the editor as a replacement (<code>→ Routing - Nesting</code>) and is taken with Tab. With an empty buffer nothing is armed: the strip lists what the field <i>accepts</i> — for the driver column ranked by what usually follows the row above, then by sheet frequency — and Tab cannot write a value the planner never chose. ⌥] ⌥[ ⌥↓ ⌥↑ cycle the armed candidate.</p>
 
   <h2>4 · Link type</h2>
   <p>A link is a directed hyperedge: two sets with a direction. Each half is a set of members drawn from the column's register; the direction is optional because the driver may declare only one side. The cell always draws both halves once the row has a driver value, so direction is visible without opening anything.</p>
@@ -340,11 +340,11 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   <table>
     <thead><tr><th style="width:26%;">Typed <span class="ex">example</span></th><th>Kind · rule</th></tr></thead>
     <tbody>
-      <tr><td class="m">M2140 · m2140 · 2140</td><td><b>identified</b> — register code, case-insensitive; bare digits try the register's prefix. Meta from the register (<i>CNC lathe</i>).</td></tr>
-      <tr><td class="m">M2140-45 · 2140-2145</td><td><b>range</b> — expands to every register member in the numeric span, short upper bound completed from the lower. A hyphen is a range only between two unspaced bare numbers; spaced, or beside a name, it is an arrow.</td></tr>
-      <tr><td class="m">Line 2 · the 2 line · bay</td><td><b>countable by name/alias</b> — leading “the” dropped. Meta <i>line · 96</i>.</td></tr>
-      <tr><td class="m">120t · 120 T · lathe</td><td><b>countable by attribute</b> — a family the register knows, not one machine: a name or alias, or a number + unit tried with its spacing normalised (<code>120t</code> and <code>120 t</code> both reach the <i>120 t press</i> family).</td></tr>
-      <tr><td class="m">4 x lathe · Line 2 × 3 · 3*bay</td><td><b>counted member</b> — <code>N x kind</code> / <code>kind x N</code> with the declared ops, countable kinds only. Label <code>4 × CNC lathe</code>, meta <i>unassigned</i> (a count names no one in particular), carries <code>n</code> and <code>of</code>. A trailing qualifier (“… north hall”) becomes its own text token. Multiplying an identified member is kept as text with the reason.</td></tr>
+      <tr><td class="m">R2140 · r2140 · 2140</td><td><b>identified</b> — register code, case-insensitive; bare digits try the register's prefix. Meta from the register (<i>CNC router</i>).</td></tr>
+      <tr><td class="m">R2140-45 · 2140-2145</td><td><b>range</b> — expands to every register member in the numeric span, short upper bound completed from the lower. A hyphen is a range only between two unspaced bare numbers; spaced, or beside a name, it is an arrow.</td></tr>
+      <tr><td class="m">Bay 2 · the 2 bay · dry fit</td><td><b>countable by name/alias</b> — leading “the” dropped. Meta <i>bay · 96</i>.</td></tr>
+      <tr><td class="m">3m · 3 M · router</td><td><b>countable by attribute</b> — a family the register knows, not one machine: a name or alias, or a number + unit tried with its spacing normalised (<code>3m</code> and <code>3 m</code> both reach the <i>3 m beam saw</i> family).</td></tr>
+      <tr><td class="m">4 x router · Bay 2 × 3 · 3*dry fit</td><td><b>counted member</b> — <code>N x kind</code> / <code>kind x N</code> with the declared ops, countable kinds only. Label <code>4 × CNC router</code>, meta <i>unassigned</i> (a count names no one in particular), carries <code>n</code> and <code>of</code>. A trailing qualifier (“… north hall”) becomes its own text token. Multiplying an identified member is kept as text with the reason.</td></tr>
       <tr><td class="m">TBC</td><td><b>placeholder</b> — dashed chip.</td></tr>
       <tr><td class="m">anything else</td><td><b>text</b> — kept as typed, dashed. Entry is never blocked.</td></tr>
       <tr><td class="m">, · &gt; -&gt; =&gt; → “ - ”</td><td>Comma separates members in a half; any arrow form separates From from To.</td></tr>
@@ -381,11 +381,11 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   <h3>4.5 Autocomplete and prediction</h3>
   <ul>
     <li>Candidates: exact identified code → identified codes by prefix when the input looks like a code → countable names/aliases, each followed by an <i>enumerate</i> alternative listing its free identified members → identified codes by prefix otherwise → other countables → placeholder. Members already in the cell are never offered twice. A range shows one candidate: its expansion.</li>
-    <li>Inline ghost is the top prefix candidate's suffix (<code>m21</code><span class="ghost">40</span>). No candidates: the strip states the grammar and keeps the text.</li>
-    <li>Prediction runs only while the buffer is empty, per half, never into a locked half: the last row with the same driver value → its members normalised through the register; else the counted form <code>n × kind</code> where <code>n = ⌈arity.from ÷ per⌉</code> (<span class="ex">example</span> ⌈qty ÷ 300 pieces per machine⌉ · lot drivers n = qty · hour, carton and pallet drivers none · cap 12). Dashed after the input; the strip lists them with an enumerate alternative naming that many free members. Once a half has named members the count proposal is withdrawn. For from-only drivers the proposal lands in From.</li>
+    <li>Inline ghost is the top prefix candidate's suffix (<code>r21</code><span class="ghost">40</span>). No candidates: the strip states the grammar and keeps the text.</li>
+    <li>Prediction runs only while the buffer is empty, per half, never into a locked half: the last row with the same driver value → its members normalised through the register; else the counted form <code>n × kind</code> where <code>n = ⌈arity.from ÷ per⌉</code> (<span class="ex">example</span> ⌈qty ÷ 300 pieces per machine⌉ · batch drivers n = qty · hour, carton and pallet drivers none · cap 12). Dashed after the input; the strip lists them with an enumerate alternative naming that many free members. Once a half has named members the count proposal is withdrawn. For from-only drivers the proposal lands in From.</li>
   </ul>
   <h3>4.6 Arity</h3>
-  <p>While the <code>arity.of</code> half is being edited the strip meta reads <i>4 × CNC lathe implied · 3 named so far</i> — never inside the cell. Named = each identified member once, a counted member by its count; text and placeholders do not count. Fewer than implied: <i>named so far</i>; more: <i>more than the quantity needs</i>; equal: <i>named</i>.</p>
+  <p>While the <code>arity.of</code> half is being edited the strip meta reads <i>4 × CNC router implied · 3 named so far</i> — never inside the cell. Named = each identified member once, a counted member by its count; text and placeholders do not count. Fewer than implied: <i>named so far</i>; more: <i>more than the quantity needs</i>; equal: <i>named</i>.</p>
 
   <h2>5 · Copilot</h2>
   <p>Suggestions are rebuilt against the row <i>as it would be</i> if the open editor committed, after the type's latency. Rows matching <code>owned</code> are never touched; nothing is proposed into an occupied slot.</p>
@@ -394,18 +394,18 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   <table>
     <thead><tr><th style="width:16%;">Provider</th><th>Rule</th><th style="width:34%;"><span class="ex">example</span> in the prototype</th></tr></thead>
     <tbody>
-      <tr><td class="m">derive</td><td>The column's <code>derive</code> declaration.</td><td>End = Start + driver.days · <i>+4d · Machining</i></td></tr>
+      <tr><td class="m">derive</td><td>The column's <code>derive</code> declaration.</td><td>End = Start + driver.days · <i>+4d · Routing</i></td></tr>
       <tr><td class="m">history</td><td>Same value as the last row with this driver value.</td><td>Qty <i>like WO-26003</i>; Work centres <i>same stations as row 3</i></td></tr>
       <tr><td class="m">sequence</td><td>Nearest dated row above + a declared step; else a declared anchor.</td><td>Start = week after row n; else next Monday <span class="ex host">host-supplied</span></td></tr>
       <tr><td class="m">default</td><td>Expression over the driver row.</td><td>Qty = rate × 8 h <span class="ex host">host-supplied</span></td></tr>
-      <tr><td class="m">phrase</td><td>Template per driver family, with row values interpolated.</td><td>Machining → “Machine 1,200 P-40 blanks” <span class="ex host">host-supplied</span></td></tr>
+      <tr><td class="m">phrase</td><td>Template per driver family, with row values interpolated.</td><td>Routing → “Nest 1,200 C-18 panels” <span class="ex host">host-supplied</span></td></tr>
       <tr><td class="m">capacity</td><td>The link count form (§4.5).</td><td><i>capacity · 1,200 pcs ÷ 300 per machine</i></td></tr>
     </tbody>
   </table>
   <h3>5.2 Suggested rows</h3>
   <ul>
-    <li><b>Patterns</b> (<span class="ex host">host-supplied</span>): <code>{ when(row), rows(row) → [{ activity, start, end, qty, notes, … }] }</code>. <span class="ex">example</span> Machining - Roughing → an inspection of the lots on the same days + a finishing pass at end +3…+7 d; Painting with “rework” in the notes → a rework pass, then a re-inspection a week later.</li>
-    <li><b>Learned followers</b> (built in): the driver value that most often followed this one in the sheet (rows sorted by start, gap 0–60 d), placed at the average gap with that follower's last quantity and notes · <i>Painting followed Machining 3× in this plan · +7d</i>. Used when no pattern matches.</li>
+    <li><b>Patterns</b> (<span class="ex host">host-supplied</span>): <code>{ when(row), rows(row) → [{ activity, start, end, qty, notes, … }] }</code>. <span class="ex">example</span> Routing - Nesting → an inspection of the batches on the same days + a profiling pass at end +3…+7 d; Spraying with “rework” in the notes → a rework pass, then a re-inspection a week later.</li>
+    <li><b>Learned followers</b> (built in): the driver value that most often followed this one in the sheet (rows sorted by start, gap 0–60 d), placed at the average gap with that follower's last quantity and notes · <i>Spraying followed Routing 3× in this plan · +7d</i>. Used when no pattern matches.</li>
     <li>At most <code>suggestAhead</code> rows (default 2), rendered as dashed-topped hatched rows under the anchor with real row numbers. Gutter: <b>✓</b> adds (⏎ when selected), <b>×</b> rejects (⌫) and remembers the pairing so it is not offered after that driver again. Click selects (3px brand bar); esc deselects, esc again dismisses all. Taking a row re-anchors and looks forward so the next is already waiting.</li>
     <li>Rejected fills are remembered per row and key; ⌫ on the armed target rejects just that cell.</li>
   </ul>
@@ -453,7 +453,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
       <tr><td class="k">Not editing, suggestions pending</td><td><i>suggested</i> · one chip per pending fill (next target armed) plus <i>+n rows</i> · provenance · <i>⇥ walk · ⌘⏎ row · ⌘⇧⏎ all · esc</i>. Clicking a chip takes it.</td></tr>
     </tbody>
   </table>
-  <p>Footer: counts · a state-sensitive key hint (selected suggestion, whole rows selected, greys pending, or the basics) · a right-aligned <code>aria-live</code> message for every action (<i>Took Painting — next one suggested below</i>, <i>Pasted 3×5 from clipboard</i>).</p>
+  <p>Footer: counts · a state-sensitive key hint (selected suggestion, whole rows selected, greys pending, or the basics) · a right-aligned <code>aria-live</code> message for every action (<i>Took Spraying — next one suggested below</i>, <i>Pasted 3×5 from clipboard</i>).</p>
 
   <h2>10 · Clipboard and autosave</h2>
   <ul>
@@ -482,32 +482,32 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   <p>The registers the prototype ships with, showing the shape each has to have. Driver rows carry <code>uom · rate · fte · days · sides</code>; link members carry code, attribute and parent; countables carry aliases.</p>
   <pre>registers: {
   activities: [   // driver
-    { name:'Machining',            uom:'pcs',     rate:60,  fte:2, days:4, sides:'both' },
-    { name:'Machining - Roughing', uom:'pcs',     rate:80,  fte:2, days:4, sides:'both' },
-    { name:'Painting',             uom:'pcs',     rate:50,  fte:3, days:4, sides:'both' },
-    { name:'Inspection',           uom:'lots',    rate:4,   fte:2, days:4, sides:'in'   },
+    { name:'Routing',              uom:'pcs',     rate:60,  fte:2, days:4, sides:'both' },
+    { name:'Routing - Nesting',    uom:'pcs',     rate:80,  fte:2, days:4, sides:'both' },
+    { name:'Spraying',             uom:'pcs',     rate:50,  fte:3, days:4, sides:'both' },
+    { name:'Inspection',           uom:'batches', rate:4,   fte:2, days:4, sides:'in'   },
     { name:'Rework',               uom:'pcs',     rate:20,  fte:2, days:3, sides:'in'   },
-    { name:'Receiving',            uom:'pallets', rate:20,  fte:1, days:1, sides:'to'   },
-    { name:'Shipping',             uom:'pallets', rate:20,  fte:1, days:1, sides:'from' },
+    { name:'Intake',               uom:'pallets', rate:20,  fte:1, days:1, sides:'to'   },
+    { name:'Delivery',             uom:'pallets', rate:20,  fte:1, days:1, sides:'from' },
     … ],
   stations: {
-    machine: [ { code:'M2140', family:'CNC lathe', line:'Line 2' }, … 22 ],      // identified
-    line:    [ { code:'L2', name:'Line 2', n:96, al:['line 2','l2','the 2 line'] },
-               { code:'TB', name:'Test bay', n:9, al:['test bay','the test bay','bay'] }, … ],
-    family:  [ { name:'CNC lathe', al:['lathe','lathes','cnc'] }, { name:'120 t press', al:['press','presses','120t','120 t'] }, … ] },
-  sites:    [ 'NP-North plant', 'EP-East plant', … ],
+    machine: [ { code:'R2140', family:'CNC router', bay:'Bay 2' }, … 22 ],      // identified
+    bay:     [ { code:'B2', name:'Bay 2', n:96, al:['bay 2','b2','the 2 bay'] },
+               { code:'DF', name:'Dry-fit area', n:9, al:['dry-fit area','the dry-fit area','dry fit'] }, … ],
+    family:  [ { name:'CNC router', al:['router','routers','cnc'] }, { name:'3 m beam saw', al:['saw','saws','3m','3 m'] }, … ] },
+  sites:    [ 'MS-Machine shop', 'SP-Spray shop', … ],
   statuses: [ { w:'PLANNED', c:'ink-4' }, { w:'RELEASED', c:'brand-d' }, { w:'IN PROGRESS', c:'warn' },
               { w:'COMPLETE', c:'pos' }, { w:'CANCELLED', c:'neg' } ] }
 owned: row => !!row.orderCode || row.status === 'CANCELLED'
 suggest: { ahead:2, triggers:['activity','start','end','qty','notes','stations'], learn:true,
            fill:{ start:'sequence(7d | next monday)', end:'derive', qty:'history | default(rate*8)',
                   notes:'phrase', stations:'history | capacity' },
-           patterns:[ roughingFollowUps, paintingRework, paintingPackaging, reworkReinspect ] }</pre>
+           patterns:[ nestingFollowUps, sprayingRework, sprayingWrapping, reworkReinspect ] }</pre>
 
   <h2>13 · Still hard-coded in the prototype</h2>
   <ul>
     <li>Fill providers <code>sequence</code>, <code>default</code>, <code>phrase</code> and the four row patterns are functions in the component — to move behind <code>suggest</code>. (In the east-ui design these become East-function providers: see Sheet Spec.md §4.)</li>
-    <li>The count unit for capacity predictions (300 pieces per machine, the CNC lathe family) and the per-uom arity rules (lots = count, hours / cartons / pallets = none, cap 12) — to become <code>arity.per</code> resolution against the register plus a per-uom map on the driver.</li>
+    <li>The count unit for capacity predictions (300 pieces per machine, the CNC router family) and the per-uom arity rules (batches = count, hours / cartons / pallets = none, cap 12) — to become <code>arity.per</code> resolution against the register plus a per-uom map on the driver.</li>
     <li>Register shapes are static arrays; <code>registers</code> should accept the same shapes from the data source. Footer counts and the sync status are strings the host will own.</li>
     <li>Declared but not evaluated: <code>check</code> entries other than <code>exists</code>; <code>store:'canonical'</code>; <code>showRegisterMeta</code>.</li>
   </ul>

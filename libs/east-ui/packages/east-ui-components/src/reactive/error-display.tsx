@@ -11,6 +11,8 @@
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Alert, Box, Code, Stack, Text } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { STATUS_ICON } from "../contracts/paired-icon.js";
 
 export interface EastErrorDisplayProps {
     title: string;
@@ -46,6 +48,11 @@ export function explainEastError(message: string): string | undefined {
     return undefined;
 }
 
+/**
+ * The error alert: its title, the message, the general cause when one is
+ * known, the region and the stack. Its mark is the danger status's paired
+ * Font Awesome icon (`STATUS_ICON.danger`), never Chakra's own (#1263).
+ */
 export function EastErrorDisplay({ title, message, stack, context }: EastErrorDisplayProps) {
     const hint = explainEastError(message);
     return (
@@ -53,7 +60,7 @@ export function EastErrorDisplay({ title, message, stack, context }: EastErrorDi
         // CLI) can detect an East compile/render failure without scraping the
         // human-facing title text.
         <Alert.Root status="error" data-east-error="true">
-            <Alert.Indicator />
+            <Alert.Indicator><FontAwesomeIcon icon={STATUS_ICON.danger} /></Alert.Indicator>
             <Stack gap="2" flex="1">
                 <Alert.Title>{title}</Alert.Title>
                 <Alert.Description>

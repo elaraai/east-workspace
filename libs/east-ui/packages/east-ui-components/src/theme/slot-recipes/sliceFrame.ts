@@ -27,6 +27,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const sliceFrameSlotRecipe = defineSlotRecipe({
     className: "elara-slice-frame",
@@ -35,10 +36,12 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameEyebrow", "frameEyebrowControls", "frameEyebrowMeta",
         "frameAffordanceIcon",
         "railCluster", "railAffordance", "railTrigger",
+        "railAccordion", "railAccordionTrigger", "railAccordionLabel", "railAccordionState", "railAccordionContent",
         "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
         "railStack", "railRow", "brushStack",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
         "searchPill", "searchKbd", "searchClear",
+        "searchCompact", "searchFull", "searchSuggestion", "searchIdentity", "searchLabel", "searchMeta",
         "legendRail", "legendItem", "legendSwatch", "legendLabel", "legendValue",
         "brushAxis", "brushWindow", "brushHandle",
     ],
@@ -165,7 +168,8 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
         },
         // The folded families' trigger — their summary chips (one terminal
-        // chip, or the icon alone, as the cluster folds further) and a caret.
+        // chip, or the icon alone, as the cluster folds further) and a caret;
+        // on a coarse pointer a 44px tap target from its halo (#346, #1221).
         railTrigger: {
             display: "inline-flex",
             alignItems: "center",
@@ -173,8 +177,18 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             cursor: "pointer",
             "& [data-rail-caret]": { fontSize: "8px", opacity: 0.6 },
+            ...coarseHitArea({ position: true }),
         },
         // The sectioned editor the trigger opens: every family, flat, under its caption.
+        railAccordion: { borderWidth: "0", borderRadius: "0", overflow: "visible", minWidth: "0" },
+        // Keep the heading's height when its state badge appears or clears.
+        railAccordionTrigger: { paddingX: "{spacing.1}", paddingY: "{spacing.2}", gap: "{spacing.2}", minHeight: { base: "{sizes.9}", _coarse: "{sizes.11}" },
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "-2px" } },
+        railAccordionLabel: { textStyle: "caption.eyebrow", color: "fg.subtle", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            "&[data-active]": { color: "brand.fg" } },
+        // Applied/Selected shares the chip recipe; this slot only places it.
+        railAccordionState: { marginLeft: "auto", flexShrink: "0" },
+        railAccordionContent: { paddingX: "{spacing.1}", paddingTop: "{spacing.1}", paddingBottom: "{spacing.3}", minWidth: "0", animation: "none" },
         railSections: {
             display: "flex",
             flexDirection: "column",
@@ -252,12 +266,23 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
 
         // Compact search — the closed `.search` pill in the eyebrow's right zone.
         // Magnifier glyph + placeholder + `/` kbd hint; opens the dropdown below.
+        // The pill is 28px — the 16px hint in 5px of padding — and the input
+        // fills it, so a tap anywhere on the pill but its hint lands in the box.
+        // As the slice search's combobox control it takes that control's touch
+        // floor, so a coarse pointer makes it a 44px field (#346, #1221).
+        searchCompact: { flex: "1 1 240px", minWidth: "0", width: "full", maxWidth: "480px" },
+        searchFull: { width: "full", minWidth: "0" },
+        searchSuggestion: { display: "flex", gap: "{spacing.3}", alignItems: "baseline", width: "full", minWidth: "0" },
+        searchIdentity: { textStyle: "mono.sm", fontWeight: "semibold", flexShrink: "0", minWidth: "6rem", maxWidth: "9rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        searchLabel: { flex: "1", minWidth: "0", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        searchMeta: { textStyle: "mono.sm", color: "fg.muted", flexShrink: "0", whiteSpace: "nowrap" },
         searchPill: {
             display: "flex",
             alignItems: "center",
             gap: "{spacing.1.5}",
             paddingX: "10px",
-            paddingY: "5px",
+            paddingY: "0",
+            minHeight: "28px",
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "4px",
@@ -271,14 +296,15 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             _focusWithin: { borderColor: "border.focus" },
             cursor: "text",
             width: "100%",
-            minWidth: "160px",
+            minWidth: "0",
             "& input": {
                 fontFamily: "mono",
                 fontSize: "11px",
-                // Strip Chakra's default ~40px input box — the pill's own padding
-                // sets the height; the input is just the text run inside it.
+                // Strip Chakra's default ~40px input box — the pill sets the
+                // height, and the input stretches to fill it.
                 height: "auto",
                 minHeight: "0",
+                alignSelf: "stretch",
                 lineHeight: "1.2",
                 paddingInline: "0",
                 paddingBlock: "0",
@@ -316,8 +342,10 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
         },
         // The clear (×) affordance — shown only when the search box carries a
-        // value; clicking it empties the input AND the committed search.
+        // value; clicking it empties the input AND the committed search. On a
+        // coarse pointer a 44px tap target from its halo (#346, #1221).
         searchClear: {
+            "& svg": { fontSize: "{fontSizes.label.sm}" },
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -329,6 +357,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             flexShrink: 0,
             transition: "color 0.12s ease, background 0.12s ease",
             _hover: { color: "fg", background: "bg.canvas" },
+            ...coarseHitArea({ position: true }),
         },
 
         // Slice.Legend — bare inline rail beneath a chart (spec `Slice.Legend`):

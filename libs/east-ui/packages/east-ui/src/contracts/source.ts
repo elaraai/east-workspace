@@ -268,7 +268,7 @@ export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSo
  * @property refresh - Move the source: `some(hash)` to that snapshot — after a
  *   write the view confirmed — or `none` to the one the source holds now.
  */
-export const PinnedSourceType = <C extends EastType>(c: C) => StructType({
+export const PinnedSourceType = <C extends EastType | string>(c: C) => StructType({
     id:       StringType,
     page:     FunctionType([IntegerType, IntegerType], OptionType(c)),
     total:    FunctionType([], OptionType(IntegerType)),

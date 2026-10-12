@@ -3,16 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Box as ChakraBox, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
+import { Box as ChakraBox, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas, faAnglesLeft, faAnglesRight, faAnglesUp, faAnglesDown } from "@fortawesome/free-solid-svg-icons";
+import { fas, faAnglesLeft, faAnglesRight, faAnglesUp, faAnglesDown, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Dock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { fitTabs, type TabRowMeasure } from "./fold.js";
 
 // The rail's `icon` is a dynamic Font Awesome name (e.g. "book"); register
 // the free-solid set so it resolves by name (idempotent — safe if already added).
@@ -77,8 +79,8 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
 export interface DockPaneProps {
     /** Where the pane keeps its open tab, and its collapsed state when persisted. */
     storageKey: string;
-    /** The tabs, each with its body; with none, `body` is the pane's one body under its label. */
-    tabs?: ReadonlyArray<{ key: string; label: string; body: ReactNode }> | undefined;
+    /** The tabs, each with its body and, after its label, any count of what it holds; with none, `body` is the pane's one body under its label. */
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | undefined; body: ReactNode }> | undefined;
     /** The body, when the pane has no tabs. */
     body?: ReactNode;
     /** Whether it collapses at all: `false`, it never collapses — no rail, and no collapse control. `true` by default. */
@@ -128,10 +130,18 @@ export interface DockPaneProps {
  * compact icon rail and stays in the document flow; the Dock's renderer, and
  * the pane a host renderer holds its own React in.
  *
- * Expanded, the pane's one row is its tab row — its tabs, or its label as the
- * only tab — with the collapse control at the row's end. Collapsed, the rail
- * holds the expand control, then the icon tile, the badge, the label and the
- * detail; while the pane is active the tile and the badge are the brand's.
+ * Expanded, the pane's one row is its tab row — its tabs, each with any count
+ * after its label, or its label as the only tab — with the collapse control at
+ * the row's end. A row narrower than its tabs folds them (#1210), as the
+ * Sheet's view tabs fold (#952): the counts leave the row first, kept in each
+ * tab's name; then the trailing tabs fold into a `+n` menu after the last
+ * that fits, the open tab always on the row, so no tab runs under the collapse
+ * control. The row measures its tabs drawn whole, before it paints, again as
+ * its room or its tabs change or fonts arrive ({@link fitTabs}); meanwhile the
+ * `+n` menu keeps its fold, so a measure never closes it (#1235). Collapsed,
+ * the rail holds the expand control, then the icon tile, the badge, the label
+ * and the detail; while the pane is active the tile and the badge are the
+ * brand's.
  *
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
@@ -229,21 +239,90 @@ export function DockPane(props: DockPaneProps) {
         if (onTabChangeFn) queueMicrotask(() => onTabChangeFn(key));
     }, [tabProp, setTabState, onTabChangeFn]);
     const ids = useId();
-    const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-    const onTabKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-        const last = tabs.length - 1;
-        const next = event.key === "ArrowRight" ? (index === last ? 0 : index + 1)
-            : event.key === "ArrowLeft" ? (index === 0 ? last : index - 1)
+    const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+
+    // ── The tab row's fold (#1210) ──────────────────────────────────────
+    // Measured with every tab drawn whole, and the menu's stand-in, in a
+    // layout effect: the row folds before it paints.
+    const foldable = !collapsed && tabs.length > 0;
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const [measuring, setMeasuring] = useState(true);
+    const [measure, setMeasure] = useState<TabRowMeasure | undefined>(undefined);
+    const signature = tabs.map((tab) => `${tab.key}\u0000${tab.label}\u0000${tab.count ?? ""}`).join("\u0001");
+    // Other tabs, or the row back from the rail, are measured again.
+    useLayoutEffect(() => { if (foldable) setMeasuring(true); }, [signature, foldable]);
+    // So is a change of the row's room, before the pane paints at it. The row
+    // is as wide as its pane leaves it, whatever it holds, so folding never
+    // changes what it observes.
+    useLayoutEffect(() => {
+        const row = rowRef.current;
+        if (!foldable || row === null || typeof ResizeObserver === "undefined") return undefined;
+        let room = row.clientWidth;
+        const ro = new ResizeObserver(() => {
+            if (Math.abs(row.clientWidth - room) <= 0.5) return;
+            room = row.clientWidth;
+            flushSync(() => setMeasuring(true));
+        });
+        ro.observe(row);
+        return () => ro.disconnect();
+    }, [foldable]);
+    // Fonts arriving change the tabs' widths, not the row's room.
+    useEffect(() => {
+        const fonts = typeof document === "undefined" ? undefined : document.fonts;
+        if (!foldable || fonts === undefined) return undefined;
+        const again = () => setMeasuring(true);
+        fonts.addEventListener("loadingdone", again);
+        return () => fonts.removeEventListener("loadingdone", again);
+    }, [foldable]);
+    useLayoutEffect(() => {
+        const row = rowRef.current;
+        if (!foldable || !measuring || row === null) return;
+        const width = (el: Element | null) => (el === null ? 0 : el.getBoundingClientRect().width);
+        const gapOf = (el: Element | null) => (el === null ? 0 : Number.parseFloat(getComputedStyle(el).columnGap) || 0);
+        const drawn = [...row.querySelectorAll<HTMLElement>('[role="tab"]')];
+        setMeasure({
+            room: row.clientWidth,
+            tabs: drawn.map(width),
+            counts: drawn.map((tab) => {
+                const count = tab.querySelector("[data-tab-count]");
+                return count === null ? 0 : width(count) + gapOf(tab);
+            }),
+            gap: gapOf(row.querySelector('[role="tablist"]')),
+            more: width(row.querySelector("[data-dock-more-measure]")) + gapOf(row),
+        });
+        setMeasuring(false);
+    }, [measuring, foldable, signature]);
+    const openIndex = Math.max(0, tabs.findIndex(tab => tab.key === openTab?.key));
+    // The fold the last measure gave; the row draws every tab while it measures again.
+    const measured = !foldable || measure === undefined || measure.tabs.length !== tabs.length
+        ? undefined
+        : fitTabs(measure, openIndex);
+    const fit = measuring ? undefined : measured;
+    // The tabs on the row, in order, and the ones in the `+n` menu. The menu
+    // keeps the last measure's fold while the row measures again, so it stays
+    // mounted: a font arriving, or the room or a count changing, never closes
+    // it (#1235).
+    const onRow = fit === undefined ? tabs.map((tab, index) => ({ tab, index })) : fit.shown.map(index => ({ tab: tabs[index]!, index }));
+    const inMenu = measured?.form === "folded" ? tabs.filter((_, index) => !measured.shown.includes(index)) : [];
+
+    // The arrow keys, Home and End move among the tabs on the row; the menu holds the rest.
+    const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, key: string) => {
+        const keys = onRow.map(({ tab }) => tab.key);
+        const at = keys.indexOf(key);
+        const last = keys.length - 1;
+        const next = event.key === "ArrowRight" ? (at === last ? 0 : at + 1)
+            : event.key === "ArrowLeft" ? (at === 0 ? last : at - 1)
                 : event.key === "Home" ? 0
                     : event.key === "End" ? last
                         : undefined;
         if (next === undefined) return;
         event.preventDefault();
-        openTabKey(tabs[next]!.key);
-        tabRefs.current[next]?.focus();
-    }, [tabs, openTabKey]);
+        openTabKey(keys[next]!);
+        tabRefs.current.get(keys[next]!)?.focus();
+    };
 
     const styles = useSlotRecipe({ key: "dock" })();
+    const menuStyles = useSlotRecipe({ key: "menu" })();
 
     // The control points where the pane goes: collapsing, toward the edge it
     // pins to; expanding, away from it.
@@ -331,28 +410,67 @@ export function DockPane(props: DockPaneProps) {
         <ChakraBox css={styles.root} {...rootAttrs} {...sizeProps} {...transition}>
             <ChakraBox key="header" css={styles.header}>
                 {tabs.length > 0 ? (
-                    <ChakraBox css={styles.tabList} role="tablist" {...(label !== undefined ? { "aria-label": label } : {})}>
-                        {tabs.map((tab, index) => {
-                            const open = tab.key === openTab?.key;
-                            return (
-                                <chakra.button
-                                    key={tab.key}
-                                    ref={(el: HTMLButtonElement | null) => { tabRefs.current[index] = el; }}
-                                    type="button"
-                                    role="tab"
-                                    id={`${ids}-tab-${index}`}
-                                    aria-controls={`${ids}-panel-${index}`}
-                                    aria-selected={open}
-                                    tabIndex={open ? 0 : -1}
-                                    css={styles.tab}
-                                    {...(open ? { "data-selected": "" } : {})}
-                                    onClick={() => openTabKey(tab.key)}
-                                    onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => onTabKeyDown(event, index)}
-                                >
-                                    {tab.label}
-                                </chakra.button>
-                            );
-                        })}
+                    <ChakraBox ref={rowRef} css={styles.tabs} data-dock-tabs="">
+                        <ChakraBox css={styles.tabList} role="tablist" {...(label !== undefined ? { "aria-label": label } : {})}
+                            data-fold={fit === undefined || fit.form === "full" ? undefined : fit.form}>
+                            {onRow.map(({ tab, index }) => {
+                                const open = tab.key === openTab?.key;
+                                const squeezed = open && fit?.squeezed === true;
+                                return (
+                                    <chakra.button
+                                        key={tab.key}
+                                        ref={(el: HTMLButtonElement | null) => { if (el === null) tabRefs.current.delete(tab.key); else tabRefs.current.set(tab.key, el); }}
+                                        type="button"
+                                        role="tab"
+                                        id={`${ids}-tab-${index}`}
+                                        aria-controls={`${ids}-panel-${index}`}
+                                        aria-selected={open}
+                                        tabIndex={open ? 0 : -1}
+                                        css={styles.tab}
+                                        {...(open ? { "data-selected": "" } : {})}
+                                        {...(squeezed ? { "data-squeezed": "", title: tab.label } : {})}
+                                        onClick={() => openTabKey(tab.key)}
+                                        onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => onTabKeyDown(event, tab.key)}
+                                    >
+                                        <ChakraBox as="span" css={styles.tabLabel}>{tab.label}</ChakraBox>
+                                        {/* The space keeps the label and the count apart in the tab's name; the row's gap spaces them on screen. */}
+                                        {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={styles.tabCount} data-tab-count="">{tab.count}</ChakraBox></>}
+                                    </chakra.button>
+                                );
+                            })}
+                        </ChakraBox>
+                        {measuring && (
+                            // The menu's stand-in, measured beside the tabs drawn whole: beside
+                            // the menu, never in its place, so an open menu stays open (#1235).
+                            <ChakraBox as="span" css={styles.tabMore} data-dock-more-measure="" aria-hidden>
+                                +{Math.max(1, tabs.length - 1)}
+                                <FontAwesomeIcon icon={faChevronDown} />
+                            </ChakraBox>
+                        )}
+                        {inMenu.length > 0 && (
+                            <ChakraMenu.Root positioning={{ placement: "bottom-end" }} onSelect={(detail) => openTabKey(detail.value)}>
+                                <ChakraMenu.Trigger asChild>
+                                    <chakra.button type="button" css={styles.tabMore} data-dock-more=""
+                                        aria-label={`${inMenu.length} more ${inMenu.length === 1 ? "tab" : "tabs"}`} title="More tabs">
+                                        +{inMenu.length}
+                                        <FontAwesomeIcon icon={faChevronDown} />
+                                    </chakra.button>
+                                </ChakraMenu.Trigger>
+                                <Portal>
+                                    <ChakraMenu.Positioner>
+                                        <ChakraMenu.Content>
+                                            {inMenu.map(tab => (
+                                                <ChakraMenu.Item key={tab.key} value={tab.key}>
+                                                    {tab.label}
+                                                    {/* As on a tab: the space keeps the label and the count apart in the item's name. */}
+                                                    {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={menuStyles.itemCommand}>{tab.count}</ChakraBox></>}
+                                                </ChakraMenu.Item>
+                                            ))}
+                                        </ChakraMenu.Content>
+                                    </ChakraMenu.Positioner>
+                                </Portal>
+                            </ChakraMenu.Root>
+                        )}
                     </ChakraBox>
                 ) : label !== undefined ? (
                     <ChakraBox as="span" css={styles.tab} data-selected="">{label}</ChakraBox>

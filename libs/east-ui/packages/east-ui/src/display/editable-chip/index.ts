@@ -19,7 +19,7 @@ import {
 
 import { DensityType, SizeType } from "../../style.js";
 import { UIComponentType } from "../../component.js";
-import { IconType } from "../icon/types.js";
+import { IconType, refuseNonSolid } from "../icon/types.js";
 import {
     EditableChipStyleType,
     type EditableChipOptions,
@@ -110,6 +110,8 @@ function buildEditableChipStyle(options: EditableChipOptions | undefined): ExprT
  * @param label - Rich label (UIComponent)
  * @param options - Optional `trigger` / `disabled` / `onClick` + visual style fields
  * @returns An East expression of type `UIComponentType`
+ * @throws When `trigger` is a value of another set than Font Awesome's solid —
+ *   East UI draws the solid set only (#1263)
  *
  * @remarks
  * When `trigger` is absent, the renderer substitutes a `faChevronDown`
@@ -132,6 +134,7 @@ function createEditableChip(
     label: SubtypeExprOrValue<UIComponentType>,
     options?: EditableChipOptions,
 ): ExprType<UIComponentType> {
+    refuseNonSolid("EditableChip trigger", options?.trigger);
     const styleValue = buildEditableChipStyle(options);
     const densityValue = options?.density !== undefined
         ? (typeof options.density === "string"

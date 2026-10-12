@@ -12,7 +12,8 @@
  *
  * Phase 2 wires the drawer to a read-only `node` lookup; in phase 3 the
  * `onUpdate` / `onDelete` callbacks become non-null and the edit footer
- * goes live.
+ * goes live. The type picker's chevron is Font Awesome's, never Chakra's own
+ * icon (#1263).
  *
  * @packageDocumentation
  */
@@ -21,6 +22,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
     Box, Drawer, Field, HStack, Input, NativeSelect, Portal, Text, Textarea, VStack,
 } from '@chakra-ui/react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import type { OntologyNode, OntologyNodeKind } from './types.js';
 import { ALL_NODE_KINDS } from './types.js';
 import { NODE_KIND_ACCENT } from './accents.js';
@@ -71,7 +74,7 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
                         >
                             {ALL_NODE_KINDS.map(nt => <option key={nt} value={nt}>{nt}</option>)}
                         </NativeSelect.Field>
-                        <NativeSelect.Indicator />
+                        <NativeSelect.Indicator><FontAwesomeIcon icon={faChevronDown} /></NativeSelect.Indicator>
                     </NativeSelect.Root>
                 </HStack>
             </Field.Root>

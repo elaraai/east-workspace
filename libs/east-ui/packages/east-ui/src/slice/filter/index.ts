@@ -15,7 +15,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import { SliceFilterType } from "./types.js";
 
 export { SliceFilterType } from "./types.js";
@@ -50,7 +50,7 @@ export interface SliceFilterOptions {
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state()));
+ *         const slice = $.let(Slice.bind("demo.events", events));
  *         return Slice.Filter.Root({ slice, unit: "events" });
  *     })),
  * );
@@ -60,7 +60,7 @@ function createSliceFilter(
     options: SliceFilterOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceFilter", {
-        slice:    options.slice,
+        slice:    localSliceHandle(options.slice),
         unit:     options.unit !== undefined ? some(options.unit) : none,
         density:  options.density !== undefined ? some(variant(options.density, null)) : none,
         editOpen: options.editOpen !== undefined ? some(options.editOpen) : none,

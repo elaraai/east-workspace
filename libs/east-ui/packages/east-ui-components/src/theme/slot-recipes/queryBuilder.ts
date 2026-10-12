@@ -338,9 +338,12 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
         },
+        /* The slot's caret: Font Awesome's caret-down (#1263), its own width,
+         * as the glyph it replaced, not Font Awesome's fixed 1.25em. */
         slotCaret: {
+            "--fa-width": "auto",
+            display: "inline-flex",
             flexShrink: "0",
-            fontFamily: "mono",
             fontSize: "9px",
             color: "fg.subtle",
         },

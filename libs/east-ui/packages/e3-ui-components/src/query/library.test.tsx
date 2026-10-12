@@ -16,7 +16,8 @@
  * - **L3**: the gallery — each card a wireframe of its query, its name, its
  *   description and its byline; a query with problems here, and one whose data
  *   sources aren't bound here, which says why instead of opening.
- * - **L4**: the search, Sort and Grid · List; the empty states.
+ * - **L4**: the search, Sort and Grid · List; the empty states, each marked
+ *   by Font Awesome's open box (#1263).
  * - **L5**: Recent — this viewer's runs, newest first, a run of a saved query
  *   opening the saved query.
  * - **L6**: Open in builder → and New query on — the builder's open query, the
@@ -26,19 +27,20 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import {
     OptionType, checkJq, decodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import { StateRuntime, formatters, system } from "@elaraai/east-ui-components";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
 import { clearPagedApi, initializePagedApi, type PagedApi } from "../platform/index.js";
 import { whenWords } from "./about.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import {
-    CustomersType, RECORD, WORKSPACE, fixtureCall, mountLibrary, recordHarness, savedQuery, savedRecord, settle, type RecordHarness,
+    act, CustomersType, RECORD, WORKSPACE, fixtureCall, mountLibrary, recordHarness, savedQuery, savedRecord, settle, type RecordHarness,
 } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
 
@@ -157,10 +159,12 @@ function opened(): QueryOpen | undefined {
     const bytes = StateRuntime.getStore().read(queryKeys(undefined).query);
     return bytes === undefined ? undefined : decodeOpen(bytes);
 }
-/** The empty state: its title and hints. */
+/** The empty state: its mark (each Font Awesome icon it draws, then any text), its title and hints. */
 const emptyState = () => {
     const empty = library().querySelector<HTMLElement>("[data-query-library-empty]");
-    return empty === null ? null : [within(empty).getByText(/^No /).textContent, [...empty.querySelectorAll("li")].map((li) => li.textContent)];
+    if (empty === null) return null;
+    const title = within(empty).getByRole("heading");
+    return [markOf(title.parentElement!.previousElementSibling), title.textContent, [...empty.querySelectorAll("li")].map((li) => li.textContent)];
 };
 
 /** Opens a menu from the keyboard, then arrows down to an item and picks it — Zag's pointer handling needs a real pointer. */
@@ -296,16 +300,16 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
     test("L4: nothing matching the search says so, with what to try — every query's search, or a filter's; no recent runs; no queries yet", async () => {
         await mountLibrary();
         await search("zzz");
-        expect(emptyState()).toEqual(["No queries match “zzz”", ["Check the spelling", "Search by query name, description or data source"]]);
+        expect(emptyState()).toEqual(["fas box-open", "No queries match “zzz”", ["Check the spelling", "Search by query name, description or data source"]]);
         await show("source:orders");
-        expect(emptyState()).toEqual(["No queries match “zzz”", ["Check the spelling", "Clear the filter to search every query"]]);
+        expect(emptyState()).toEqual(["fas box-open", "No queries match “zzz”", ["Check the spelling", "Clear the filter to search every query"]]);
         await search("");
         await show("recent");
-        expect(emptyState()).toEqual(["No recent runs", ["Run a query in the builder to see it here"]]);
+        expect(emptyState()).toEqual(["fas box-open", "No recent runs", ["Run a query in the builder to see it here"]]);
         cleanup();
         harness = recordHarness(savedRecord([]));
         await mountLibrary();
-        expect(emptyState()).toEqual(["No queries yet", ["Save a query in the builder"]]);
+        expect(emptyState()).toEqual(["fas box-open", "No queries yet", ["Save a query in the builder"]]);
         expect(screen.getByRole("textbox", { name: "Search queries" }).getAttribute("placeholder")).toBe("Search 0 queries…");
     }, 30_000);
 });

@@ -7,7 +7,8 @@
  * `<OntologyNode>` — ReactFlow custom node for the ontology editor.
  *
  * Follows the bsys `.lib-card` box: a flat bordered `paper` card, 2px
- * radius, **no top stripe** — a 32×32 brand-tinted icon on the left and a
+ * radius, **no top stripe** — a 32×32 brand-tinted icon block on the left,
+ * the kind's Font Awesome solid icon 18px square in it (#1263), and a
  * content column with the name (body 13/600) over a kind tag (mono 9.5/600
  * uppercase, kind-coloured). Optional top-right flag pill. Selected →
  * brand-tint fill + brand border. Four outlined connection handles.
@@ -15,29 +16,31 @@
  * @packageDocumentation
  */
 
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Box, Text, VStack } from '@chakra-ui/react';
-import type { ComponentType } from 'react';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import {
-    FiTarget, FiBarChart, FiCheckCircle, FiSettings, FiBox,
-    FiDatabase, FiShield, FiFileText, FiCpu, FiFolder, FiUser,
-} from 'react-icons/fi';
+    faBox, faBullseye, faChartSimple, faCircleCheck, faDatabase, faFileLines,
+    faFolder, faGear, faMicrochip, faShield, faUser,
+} from '@fortawesome/free-solid-svg-icons';
 import type { OntologyNodeKind } from './types.js';
 import { NODE_KIND_ACCENT } from './accents.js';
+import { OntologyMark } from './mark.js';
 
-const NODE_ICONS: Record<OntologyNodeKind, ComponentType<{ size?: number }>> = {
-    objective:   FiTarget,
-    kpi:         FiBarChart,
-    decision:    FiCheckCircle,
-    process:     FiSettings,
-    resource:    FiBox,
-    agent:       FiUser,
-    data:        FiDatabase,
-    policy:      FiShield,
-    document:    FiFileText,
-    computation: FiCpu,
-    group:       FiFolder,
+/** Each kind's icon: Font Awesome's solid icon nearest the Feather icon it replaced (#1263). */
+const NODE_ICONS: Record<OntologyNodeKind, IconDefinition> = {
+    objective:   faBullseye,
+    kpi:         faChartSimple,
+    decision:    faCircleCheck,
+    process:     faGear,
+    resource:    faBox,
+    agent:       faUser,
+    data:        faDatabase,
+    policy:      faShield,
+    document:    faFileLines,
+    computation: faMicrochip,
+    group:       faFolder,
 };
 
 /** Data the parent passes through to the ReactFlow node-renderer. */
@@ -70,7 +73,7 @@ const HANDLE_TARGET: React.CSSProperties = {
 };
 
 export const OntologyNode = memo(({ data, selected }: NodeProps<Node<OntologyFlowNodeData>>) => {
-    const Icon = useMemo(() => NODE_ICONS[data.type] ?? FiBox, [data.type]);
+    const icon = NODE_ICONS[data.type] ?? faBox;
     const isGroup = data.type === 'group';
     const isFocused = data.attention === 'focused';
     const isUnfocused = data.attention === 'unfocused';
@@ -122,7 +125,7 @@ export const OntologyNode = memo(({ data, selected }: NodeProps<Node<OntologyFlo
                 justifyContent="center"
                 flexShrink={0}
             >
-                <Icon size={18} />
+                <OntologyMark icon={icon} size="18" />
             </Box>
 
             {/* Content column: name over kind tag (+ optional description). */}

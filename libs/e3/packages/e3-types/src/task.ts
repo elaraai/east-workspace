@@ -91,7 +91,9 @@ export type TaskOutput = ValueTypeOf<typeof TaskOutputType>;
  *
  * @property paths - Dataset paths it reads or writes through `Data.bind`,
  *   including each bound record's own path, so the record's current value is
- *   preloaded and polled like any dataset.
+ *   preloaded and polled like any dataset — but a record it also reads a
+ *   window at a time (`pages`), which is never preloaded or polled whole
+ *   (#1199).
  * @property functions - Package functions it calls through `Func.bind`.
  * @property records - Records it binds through `Record.bind`.
  * @property pages - Dataset paths it reads a window at a time through

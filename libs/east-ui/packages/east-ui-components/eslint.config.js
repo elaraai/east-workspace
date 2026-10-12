@@ -42,21 +42,23 @@ const ONE_FORMATTER = [
   }
 ];
 
-// The Plan renderer derives over production row counts. A spread into a
-// call — `Math.max(...xs)`, `out.push(...xs)`, `new Set(...xs)` — passes
-// every element as a separate ARGUMENT, and past the engine's argument
-// limit (~125,000 on Node 22) it throws RangeError: a big band crashed
-// the canvas (#810). Array and object literals (`[...xs]`, `{...o}`) have
-// no such limit and stay allowed. The selectors are ESLint's AST syntax:
-// a `...` spread directly inside a function / constructor call.
-const PLAN_NO_SPREAD = [
+// The paged canvases' shared parts — the window ledger and the residency
+// policy, the Plan's and the Sheet's (both e3-ui-components' now, #1177,
+// #1179) — derive over production row counts. A spread into a call — `Math.max(...xs)`,
+// `out.push(...xs)`, `new Set(...xs)` — passes every element as a separate
+// ARGUMENT, and past the engine's argument limit (~125,000 on Node 22) it
+// throws RangeError: a big band crashed the Plan's canvas (#810). Array and
+// object literals (`[...xs]`, `{...o}`) have no such limit and stay allowed.
+// The selectors are ESLint's AST syntax: a `...` spread directly inside a
+// function / constructor call.
+const PAGING_NO_SPREAD = [
   {
     selector: 'CallExpression > SpreadElement',
-    message: 'No spread into a call under collections/plan/ — it throws RangeError past ~125,000 elements (#810). Use maxOf / minOf / appendAll from collections/plan/reductions.ts.'
+    message: 'No spread into a call in a paged canvas\'s shared parts — it throws RangeError past ~125,000 elements (#810). Loop instead.'
   },
   {
     selector: 'NewExpression > SpreadElement',
-    message: 'No spread into a constructor call under collections/plan/ — it throws RangeError past ~125,000 elements (#810). Build the arguments with a loop.'
+    message: 'No spread into a constructor call in a paged canvas\'s shared parts — it throws RangeError past ~125,000 elements (#810). Build the arguments with a loop.'
   }
 ];
 
@@ -72,18 +74,6 @@ const NO_MODALS = {
     message: "No modals: a form that makes or names something is the edit popover (SliceEditPopover) hanging from its trigger. The one modal is east-ui's <Dialog>, a confirmation step before a destructive or irreversible act — render it through that component, never Chakra's Dialog directly."
   }]
 };
-
-// The Sheet derives over production row counts too (#859): the same guard.
-const SHEET_NO_SPREAD = [
-  {
-    selector: 'CallExpression > SpreadElement',
-    message: 'No spread into a call under collections/sheet/ — it throws RangeError past ~125,000 elements (#859). Push in a loop.'
-  },
-  {
-    selector: 'NewExpression > SpreadElement',
-    message: 'No spread into a constructor call under collections/sheet/ — it throws RangeError past ~125,000 elements (#859). Build the arguments with a loop.'
-  }
-];
 
 export default [
   {
@@ -141,19 +131,10 @@ export default [
   },
   {
     // A later block REPLACES a rule's options for the files it matches, so the
-    // Plan's list carries the formatter guard as well as its own (#810).
-    files: ['src/collections/plan/**/*.ts', 'src/collections/plan/**/*.tsx'],
-    ignores: TESTS,
+    // paged canvases' shared parts carry the formatter guard as well as their own (#810).
+    files: ['src/collections/window-ledger.ts', 'src/collections/window-residency.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...PLAN_NO_SPREAD]
-    }
-  },
-  {
-    // The Sheet's own block, carrying the formatter guard as the Plan's does (#859).
-    files: ['src/collections/sheet/**/*.ts', 'src/collections/sheet/**/*.tsx'],
-    ignores: TESTS,
-    rules: {
-      'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...SHEET_NO_SPREAD]
+      'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...PAGING_NO_SPREAD]
     }
   },
   {

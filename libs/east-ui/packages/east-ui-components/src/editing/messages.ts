@@ -54,14 +54,34 @@ export interface EditingMessages {
     retryRefresh: () => string;
     /** Send the same request again. */
     retryRequest: () => string;
-    /** Apply. */
+    /** Save: what sends the drafts as one checked batch — the session's `apply`. */
     apply: () => string;
-    /** A source that applied a batch without its committed revision. */
+    /** A source that saved a batch without its committed revision. */
     applyNoRevision: () => string;
     /** A field whose text could not be read. */
     issueInvalid: (p: { value: string }) => string;
     /** A draft field with no value. */
     issueRequired: () => string;
+    /** An entry a Save's conflict names, which the session read changed, where its source gave no words for it (#1199). */
+    issueChanged: () => string;
+    /** A Save's conflict where the session read no entry changed, and its source said nothing of itself (#1199). */
+    issueSourceChanged: () => string;
+    /** The banner over a Save the source found conflicts in — `Save stopped — 2 conflicts with the source`. */
+    bannerConflict: (p: { n: number; count: string }) => string;
+    /** The banner over a Save the source refused. */
+    bannerRejected: () => string;
+    /** The banner over a write with no answer. */
+    bannerUnknown: () => string;
+    /** The banner over a Save whose result could not be read back. */
+    bannerConfirmFailed: () => string;
+    /** The banner over drafts the source moved under. */
+    bannerStale: () => string;
+    /** One of a Save's issues in its banner — `J-0002: Changed since this edit began`; `where` is empty for the source as a whole. */
+    bannerIssue: (p: { where: string; message: string }) => string;
+    /** The issues a banner leaves out — `and 4 more`. */
+    bannerMore: (p: { n: number; count: string }) => string;
+    /** A banner's title naming the source it reports on, where a history holds several (#1194) — `Print job: Save stopped — 1 conflict with the source`. */
+    bannerSource: (p: { source: string; title: string }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -71,10 +91,10 @@ export const editingMessages: EditingMessages = {
     historyStatus: ({ status }) => {
         switch (status) {
             case "stale": return "Source changed — review or discard these drafts";
-            case "applying": return "Applying changes…";
+            case "applying": return "Saving…";
             case "unknown": return "Awaiting confirmation — retry the same request";
-            case "reconciling": return "Applied — loading the confirmed revision…";
-            case "rejected": return "Changes rejected — revise the draft before applying";
+            case "reconciling": return "Saved — loading the confirmed revision…";
+            case "rejected": return "Changes rejected — revise the draft before saving";
             case "conflict": return "Source conflict — review or discard these drafts";
         }
     },
@@ -88,10 +108,20 @@ export const editingMessages: EditingMessages = {
     discardTip: () => "Discard changes",
     retryRefresh: () => "Retry refresh",
     retryRequest: () => "Retry request",
-    apply: () => "Apply changes",
-    applyNoRevision: () => "The source applied the batch without its committed revision; recover this request before continuing",
+    apply: () => "Save",
+    applyNoRevision: () => "The source saved the batch without its committed revision; recover this request before continuing",
     issueInvalid: ({ value }) => `Invalid input: ${value}`,
     issueRequired: () => "A value is required",
+    issueChanged: () => "Changed since this edit began",
+    issueSourceChanged: () => "The source changed since this edit began",
+    bannerConflict: ({ n, count }) => `Save stopped — ${count} ${plural(n, "conflict", "conflicts")} with the source`,
+    bannerRejected: () => "The source refused these changes",
+    bannerUnknown: () => "No answer from the source — the changes may have been saved",
+    bannerConfirmFailed: () => "Saved — the result could not be read back",
+    bannerStale: () => "The source changed under these drafts — Save is off, and nothing is rebased",
+    bannerIssue: ({ where, message }) => (where === "" ? message : `${where}: ${message}`),
+    bannerMore: ({ n, count }) => `and ${count} more ${plural(n, "issue", "issues")}`,
+    bannerSource: ({ source, title }) => `${source}: ${title}`,
 };
 
 /** The words an editing surface speaks: a table carrying the editing messages, and its locale's formatters. */
@@ -110,11 +140,15 @@ export const DRAFT_ISSUE_TEXT = {
 } as const;
 
 /**
- * The editing session's own error text, in its canonical English — what the
- * session holds; the history bar shows it in the surface's words.
+ * The editing session's own text, in its canonical English — its error, which
+ * the history bar shows in the surface's words, and the issues it names a
+ * conflict's entries with where the source gave no words of its own (#1199),
+ * read back where they show as the draft issues are.
  */
 export const SESSION_TEXT = {
     noRevision: editingMessages.applyNoRevision(),
+    changed: editingMessages.issueChanged(),
+    sourceChanged: editingMessages.issueSourceChanged(),
 } as const;
 
 /**

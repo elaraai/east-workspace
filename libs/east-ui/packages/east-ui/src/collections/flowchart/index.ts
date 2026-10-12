@@ -26,7 +26,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
-import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     FlowchartLinkKindType,
@@ -454,7 +454,7 @@ function buildRoot(
     }
     const sliceChromeValue = config.slice !== undefined
         ? East.value({
-            slice: config.slice,
+            slice: localSliceHandle(config.slice),
             affordances: East.value(
                 (config.affordances ?? ["filter", "search"]).map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),

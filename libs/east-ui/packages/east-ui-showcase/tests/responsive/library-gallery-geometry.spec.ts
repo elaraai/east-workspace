@@ -191,6 +191,7 @@ test.describe("Library gallery geometry (#1030)", () => {
                 layoutAtEnd: round(row.right - layout.right),
                 oneLine: Math.abs((search.top + search.bottom) / 2 - (layout.top + layout.bottom) / 2) < 0.5,
             };
-        })).toEqual({ rows: 1, band: 44, searchAtStart: 0, layoutAtEnd: 0, oneLine: true });
+        // The shared Toolbar reserves 4px at either end for the focus ring.
+        })).toEqual({ rows: 1, band: 44, searchAtStart: 4, layoutAtEnd: 4, oneLine: true });
     });
 });

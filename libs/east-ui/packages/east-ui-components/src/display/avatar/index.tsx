@@ -5,6 +5,8 @@
 
 import { memo, useMemo } from "react";
 import { Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faUser } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Avatar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -59,11 +61,41 @@ export function toChakraAvatar(value: AvatarValue): AvatarRootProps {
     };
 }
 
+/** Props for {@link AvatarFallback}. */
+export interface AvatarFallbackProps {
+    /** The name whose initials it draws; none, or empty, draws the person. */
+    readonly name: string | undefined;
+}
+
+/**
+ * An avatar's fallback — what shows while it has no image: a name's
+ * initials, or with no name the person, Font Awesome's solid `user`, never
+ * Chakra's own icon (#1263). The `avatar` recipe's `fallback` sets the person
+ * in the 1.2em square of the fallback's font that Chakra's icon took. Every
+ * avatar a renderer draws takes it: the Avatar's, an AvatarGroup's members',
+ * a Library gallery card's byline.
+ *
+ * @param props - The name ({@link AvatarFallbackProps})
+ * @returns Chakra's `Avatar.Fallback`, for an `Avatar.Root`
+ */
+export function AvatarFallback({ name }: AvatarFallbackProps) {
+    // Chakra draws a name's initials when it is given no children, and its own
+    // icon when it has no name either: the person takes that icon's place.
+    return (
+        <ChakraAvatar.Fallback name={name}>
+            {name ? undefined : <FontAwesomeIcon icon={faUser} data-avatar-person="" />}
+        </ChakraAvatar.Fallback>
+    );
+}
+
 export interface EastChakraAvatarProps {
     value: AvatarValue;
 }
 
-/** Renders an East UI Avatar value using Chakra v3 `Avatar`. */
+/**
+ * Renders an East UI Avatar value using Chakra v3 `Avatar` — a name's
+ * initials, or with no name the person ({@link AvatarFallback}).
+ */
 export const EastChakraAvatar = memo(function EastChakraAvatar({ value }: EastChakraAvatarProps) {
     const props = useMemo(() => toChakraAvatar(value), [value]);
     const src = useMemo(() => getSomeorUndefined(value.src), [value.src]);
@@ -74,7 +106,7 @@ export const EastChakraAvatar = memo(function EastChakraAvatar({ value }: EastCh
 
     return (
         <ChakraAvatar.Root {...props} {...(density !== undefined ? ({ density } as AvatarRootProps) : {})}>
-            <ChakraAvatar.Fallback name={name} />
+            <AvatarFallback name={name} />
             {src && <ChakraAvatar.Image src={src} />}
         </ChakraAvatar.Root>
     );

@@ -11,6 +11,8 @@
  * design system's large number, `--fs-num`). Unit: mono 10.5 (the design
  * system's unit suffix).
  * HelpText: `mono.tabular.sm` muted numerics.
+ * Indicator: Font Awesome's caret (#1263) in the 1em square Chakra's arrow
+ * took — Chakra sizes its height, `--fa-width` its width.
  *
  * @packageDocumentation
  */
@@ -53,6 +55,7 @@ export const statSlotRecipe = defineSlotRecipe({
         indicator: {
             display: "inline-flex",
             alignItems: "center",
+            "--fa-width": "1em",
         },
     },
     variants: {

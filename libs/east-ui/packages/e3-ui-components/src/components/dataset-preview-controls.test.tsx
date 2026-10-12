@@ -119,19 +119,19 @@ describe("a value shown inline (#1120)", () => {
         const { rerenderWith } = renderPreview({ editable: true });
         await vi.waitFor(() => expect(shown.rendered).toBe(true));
         expect(screen.getByText("Download")).toBeTruthy();
-        expect(screen.getByPlaceholderText("Search keys")).toBeTruthy();
+        expect(screen.getByPlaceholderText("Search Records")).toBeTruthy();
         expect(screen.getByText(/^3 entries · /)).toBeTruthy();
 
         rerenderWith({ editable: true, toolbar: false });
         expect(screen.queryByText("Download")).toBe(null);
-        expect(screen.queryByPlaceholderText("Search keys")).toBe(null);
+        expect(screen.queryByPlaceholderText("Search Records")).toBe(null);
         expect(screen.queryByText(/^3 entries · /)).toBe(null);
     });
 
     test("scrolls to a controlled search's first match, drawing no search box of its own", async () => {
         const { rerenderWith } = renderPreview({ editable: true, search: "b" });
         await vi.waitFor(() => expect(shown.scrollToRow).toBe(1));
-        expect(screen.queryByPlaceholderText("Search keys")).toBe(null);
+        expect(screen.queryByPlaceholderText("Search Records")).toBe(null);
         // The band's other controls stay.
         expect(screen.getByText("Download")).toBeTruthy();
 
@@ -146,7 +146,7 @@ describe("a value shown inline (#1120)", () => {
     test("tells onSearchChange the text of its own search box", async () => {
         const onSearchChange = vi.fn();
         renderPreview({ editable: true, onSearchChange });
-        await userEvent.type(await screen.findByPlaceholderText("Search keys"), "b");
+        await userEvent.type(await screen.findByPlaceholderText("Search Records"), "b");
         await vi.waitFor(() => expect(onSearchChange).toHaveBeenLastCalledWith("b"));
         await vi.waitFor(() => expect(shown.scrollToRow).toBe(undefined));
     });
@@ -166,11 +166,11 @@ describe("a value shown a page at a time (#1120)", () => {
         const { rerenderWith } = renderPreview({});
         await vi.waitFor(() => expect(shown.paging).toBeDefined());
         expect(screen.getByText("Download")).toBeTruthy();
-        expect(screen.getByPlaceholderText("Search keys")).toBeTruthy();
+        expect(screen.getByPlaceholderText("Search Records")).toBeTruthy();
 
         rerenderWith({ toolbar: false });
         expect(screen.queryByText("Download")).toBe(null);
-        expect(screen.queryByPlaceholderText("Search keys")).toBe(null);
+        expect(screen.queryByPlaceholderText("Search Records")).toBe(null);
         expect(screen.queryByText(/^3 entries · /)).toBe(null);
     });
 
@@ -183,7 +183,7 @@ describe("a value shown a page at a time (#1120)", () => {
         rerenderWith({ search: "c" });
         await vi.waitFor(() => expect(shown.paging?.scrollToRow).toBe(2));
         expect(vi.mocked(datasetFindKey)).toHaveBeenCalledWith(API, "default", "w", expect.anything(), { prefix: "c", hash: HASH }, expect.anything());
-        expect(screen.queryByPlaceholderText("Search keys")).toBe(null);
+        expect(screen.queryByPlaceholderText("Search Records")).toBe(null);
 
         rerenderWith({ search: "" });
         await vi.waitFor(() => expect(shown.paging?.scrollToRow).toBe(undefined));
@@ -193,7 +193,7 @@ describe("a value shown a page at a time (#1120)", () => {
         vi.mocked(datasetFindKey).mockResolvedValue({ found: false, row: 0, count: 0 } as never);
         const onSearchChange = vi.fn();
         renderPreview({ onSearchChange });
-        await userEvent.type(await screen.findByPlaceholderText("Search keys"), "c");
+        await userEvent.type(await screen.findByPlaceholderText("Search Records"), "c");
         await vi.waitFor(() => expect(onSearchChange).toHaveBeenLastCalledWith("c"));
     });
 });

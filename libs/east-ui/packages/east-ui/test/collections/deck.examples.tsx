@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example, none} from "@elaraai/east";
+import { ArrayType, East, FloatType, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Chart, Deck, HStack, Reactive, Tag, Text, VStack } from "@elaraai/east-ui";
 
@@ -66,10 +66,6 @@ export const deckSlice = example({
             fault:       { label: "Fault",       color: "danger",   pulse: true, hint: "needs attention" },
             offline:     { label: "Offline",     color: "neutral",               hint: "powered down" },
         });
-        const cfg = Slice.config(SliceLineType, {
-            fields: { name: { label: "Name" }, state: { label: "State" }, team: { label: "Team" } },
-            searchFieldIds: ["name", "state", "team"],
-        });
         return (
             <Reactive>{$ => {
                 const states = $.const(["running", "fault", "standby"], ArrayType(StringType));
@@ -84,8 +80,11 @@ export const deckSlice = example({
                     }, SliceLineType);
                     return row;
                 })));
-                const slice = $.let(Slice.bind([SliceLineType], "ex.deck.slice", cfg, Slice.state({}), lines, none));
-                const narrowed = $.let(Slice.rows([SliceLineType], slice));
+                const slice = $.let(Slice.bind("ex.deck.slice", lines, {
+                    fields: { name: { label: "Name" }, state: { label: "State" }, team: { label: "Team" } },
+                    search: ["name", "state", "team"],
+                }));
+                const narrowed = $.let(Slice.rows(slice));
                 return (
                     <Deck
                         data={narrowed}

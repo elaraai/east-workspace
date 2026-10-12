@@ -42,7 +42,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const pickPanelSlotRecipe = defineSlotRecipe({
     className: "elara-pick-panel",
-    slots: ["headMeta", "search", "searchInput", "empty", "row", "kind", "text", "label", "sub", "count", "eye"],
+    slots: ["headMeta", "search", "searchPill", "searchInput", "empty", "row", "kind", "text", "label", "sub", "count", "eye"],
     base: {
         // The header's right-hand count ("2 of 7"). `sliceFrame` has no text
         // slot at this size — its `frameEyebrowMeta` is a flex CONTAINER for
@@ -64,6 +64,13 @@ export const pickPanelSlotRecipe = defineSlotRecipe({
             padding: "8px 12px",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+        },
+        // The pill around the box — `sliceFrame.searchPill`'s, its input
+        // filling it. No combobox control holds it, as one holds the slice's
+        // search, so on a coarse pointer it is a 44px field of its own (#346,
+        // #1195): a tap anywhere on it but its clear button lands in the box.
+        searchPill: {
+            _coarse: { minHeight: "44px" },
         },
         // The bare input inside `sliceFrame.searchPill` — the pill owns the
         // border, background and type, so this only has to stop the browser

@@ -8,13 +8,13 @@ import { UIComponentType } from "@elaraai/east-ui";
 import { EmptyState, Button, HStack } from "@elaraai/east-ui";
 
 export const emptyStateNoResults = example({
-    keywords: ["EmptyState", "Root", "no results", "glyph", "filters"],
-    description: "No-results state with mono glyph and clear-filters action",
+    keywords: ["EmptyState", "Root", "no results", "icon", "filters"],
+    description: "No-results state with a Font Awesome icon and a clear-filters action",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <EmptyState
                 title="No results"
-                glyph="·   ·   ·"
+                icon={{ prefix: "fas", name: "magnifying-glass" }}
                 description="Try clearing filters or broadening your search."
                 actions={<Button variant="outline">Clear filters</Button>}
             />
@@ -24,13 +24,13 @@ export const emptyStateNoResults = example({
 });
 
 export const emptyStateNoScenarios = example({
-    keywords: ["EmptyState", "scenario", "create", "primary action", "glyph"],
-    description: "Primary empty state with a 'new scenario' call to action — mono glyph + brand-d CTA",
+    keywords: ["EmptyState", "scenario", "create", "primary action", "icon"],
+    description: "Primary empty state with a 'new scenario' call to action — a Font Awesome icon + brand-d CTA",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <EmptyState
                 title="No scenarios yet"
-                glyph="+ + +"
+                icon={{ prefix: "fas", name: "folder-plus" }}
                 description="Create your first scenario to start exploring what-if outcomes."
                 actions={
                     <HStack gap="2">
@@ -45,13 +45,13 @@ export const emptyStateNoScenarios = example({
 });
 
 export const emptyStateError = example({
-    keywords: ["EmptyState", "error", "glyph"],
-    description: "Error empty state — mono glyph stays rule-strong; status colour comes from surround, not glyph",
+    keywords: ["EmptyState", "error", "icon"],
+    description: "Error empty state — its icon stays rule-strong; the status colour comes from the surround, not the icon",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <EmptyState
                 title="Something went wrong"
-                glyph="!"
+                icon={{ prefix: "fas", name: "triangle-exclamation" }}
                 description="We couldn't load this section. Try refreshing."
                 actions={<Button>Retry</Button>}
             />

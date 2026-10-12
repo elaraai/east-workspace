@@ -1954,7 +1954,7 @@ const TableCore = function TableCore({
  * With the `slice` chrome option it renders the frame chassis itself — a
  * header rail mounting the listed affordances (the shared `SliceRailCluster`
  * ladder) and a derived-count footer. Chrome only: the rows are whatever the
- * host fed (`Slice.rows([RowType], slice)` upstream); the table never
+ * host fed (`Slice.rows(slice)` upstream); the table never
  * narrows its own data.
  */
 export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTableProps) {

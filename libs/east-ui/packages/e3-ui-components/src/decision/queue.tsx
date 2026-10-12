@@ -31,6 +31,8 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useRecipe, useSlotRecipe } from '@chakra-ui/react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCaretDown, faCaretRight } from '@fortawesome/free-solid-svg-icons';
 import { variant, type ValueTypeOf } from '@elaraai/east';
 import { DecisionQueue } from '@elaraai/e3-ui/internal';
 import { sliceMatches } from '@elaraai/east-ui/internal';
@@ -367,8 +369,9 @@ const RoutineGroup = memo(function RoutineGroup({ routine, acceptAll, leaving, n
 });
 
 // =============================================================================
-// Group head — one collapsible section band: caret, label · count, roll-up
-// summary, and the bulk Accept all on the routine section.
+// Group head — one collapsible section band: caret (Font Awesome's, #1263),
+// label · count, roll-up summary, and the bulk Accept all on the routine
+// section.
 // =============================================================================
 
 interface GroupHeadProps {
@@ -397,7 +400,11 @@ const GroupHead = memo(function GroupHead({ group, collapsible, collapsed, onTog
 
     return (
         <Box css={rs.groupHead} {...(collapsible ? { 'data-collapsible': '' } : {})} onClick={handleToggle}>
-            {collapsible && <Box as="span" css={rs.groupCaret}>{collapsed ? '▸' : '▾'}</Box>}
+            {collapsible && (
+                <Box as="span" css={rs.groupCaret} aria-hidden="true" data-collapsed={collapsed ? '' : undefined}>
+                    <FontAwesomeIcon icon={collapsed ? faCaretRight : faCaretDown} />
+                </Box>
+            )}
             <Box as="span" css={rs.groupLabel}>{group.label} · {words.number(group.decisions.length)}</Box>
             <Box as="span" css={rs.groupSummary}>
                 {words.value(group.total, format)}{group.pastSla > 0 ? ` · ${words.number(group.pastSla)} past SLA` : ''}

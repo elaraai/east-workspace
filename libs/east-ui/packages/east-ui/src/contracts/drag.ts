@@ -24,8 +24,7 @@ import {
 //
 // | Target  | `row`            | `slot`                                        |
 // |---------|------------------|-----------------------------------------------|
-// | Roster  | person key       | day key (e.g. `"wed"`)                        |
-// | Board   | area key         | shift key                                     |
+// | e3-ui Roster | group key | canonical East text of `{ day, group, shift }` |
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
 // | Plan    | the row id's canonical text (#822) | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as East prints a Float; `ordinal` ⇒ the value |
 // | SnapGrid | the row key, or `""` for a new row between rows (#990) | the pointed-at column, `"1"`–`"12"`; for a new row, the gap's index — `"0"` above the first row, `"n"` below the last |
@@ -40,9 +39,9 @@ import {
 // with `slot.parse(DateTimeType)`); an ordinal slot IS the value. Hosts map
 // keys straight back to their source data.
 //
-// The Plan prints every slot through the shared codecs
+// The Plan (e3-ui's `<Plan>`) prints every slot through the shared codecs
 // (`east-ui-components/src/dnd/slot-key.ts`, composed per axis arm in
-// `collections/plan/slot.ts`), which any future axis-bearing target must reuse
+// e3-ui-components' `plan/slot.ts`), which any future axis-bearing target must reuse
 // so a host parses every slot the same way. A Plan `row` is
 // the canonical `.east` text of the row's typed id (`PlanRowIdType` — its series
 // and the path of entry keys to it), so the grammar stays string-based: a host
@@ -246,7 +245,7 @@ export type DragEventType = typeof DragEventType;
  * sink is always structurally valid for a removable payload — removal policy
  * belongs to the host's `onDrag` handling, not the hover veto.
  *
- * A **throwing** predicate logs and allows (fail-open, the Board / Schematic
+ * A **throwing** predicate logs and allows (fail-open, the Schematic
  * validator convention) so a broken validator cannot brick the surface.
  * Verdicts are cached per candidate event for as long as the predicate is the
  * same function.

@@ -15,7 +15,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { autoDeriveMatches, autoDeriveFieldHints } from "../../src/platform/slice/index.js";
-import { integerField, sliceConfig, stringField, type SliceFieldSpec } from "../../src/platform/slice/slice.test-utils.js";
+import { integerField, sliceConfig, stringField, type SliceFieldSpec } from "../../src/testing/slice.js";
 
 /** A config exposing the given fields, searching `searchFieldIds`. */
 const cfg = (fields: Record<string, SliceFieldSpec>, searchFieldIds: string[] = []) => sliceConfig(fields, { searchFieldIds });

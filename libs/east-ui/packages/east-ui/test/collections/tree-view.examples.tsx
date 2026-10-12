@@ -48,9 +48,9 @@ export const treeViewVariants = example({
                 TreeView.Item("utils", "utils.ts", { prefix: "fas", name: "file-code", color: "link" }),
             ], { prefix: "fas", name: "folder", color: "fg.warning" }),
             TreeView.Branch("docs", "docs", [
-                TreeView.Item("readme", "README.md", { prefix: "far", name: "file" }),
+                TreeView.Item("readme", "README.md", { prefix: "fas", name: "file" }),
             ], { prefix: "fas", name: "folder", color: "fg.warning" }),
-            TreeView.Item("package", "package.json", { prefix: "far", name: "file" }),
+            TreeView.Item("package", "package.json", { prefix: "fas", name: "file" }),
         ];
         const TREE_VIEW_ORG_DATA = [
             TreeView.Branch("ceo", "CEO", [

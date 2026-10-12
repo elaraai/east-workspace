@@ -16,7 +16,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { toEastTypeValue, IntegerType, StringType, StructType } from "@elaraai/east";
@@ -58,7 +58,7 @@ describe("DatasetKeySearch", () => {
         const onJump = vi.fn();
         renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
 
-        const input = screen.getByPlaceholderText("Search keys");
+        const input = screen.getByPlaceholderText("Search Records");
         await userEvent.type(input, "k01");
         await waitFor(() => expect(onFind).toHaveBeenCalled());
         // The keystrokes collapse into one trailing query for the final text.
@@ -77,7 +77,7 @@ describe("DatasetKeySearch", () => {
         const onJump = vi.fn();
         renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
 
-        await userEvent.type(screen.getByPlaceholderText("Search keys"), "key");
+        await userEvent.type(screen.getByPlaceholderText("Search Records"), "key");
         await waitFor(() => expect(screen.getByText("key-100")).toBeTruthy());
         fireEvent.click(screen.getByText("key-100"));
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(100));
@@ -85,7 +85,7 @@ describe("DatasetKeySearch", () => {
         // Committing preserves the typed query — the label must not replace
         // it (the controlled empty selection re-syncing would then wipe the
         // input, the range and the held highlight).
-        expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("key");
+        expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("key");
 
         fireEvent.click(screen.getByLabelText("Next match"));
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(101));
@@ -101,7 +101,7 @@ describe("DatasetKeySearch", () => {
         const onJump = vi.fn();
         renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
 
-        const input = screen.getByPlaceholderText("Search keys");
+        const input = screen.getByPlaceholderText("Search Records");
         await userEvent.type(input, "a");
         await waitFor(() => expect(onFind).toHaveBeenCalled());
         await waitFor(() => expect(screen.getByText("2 matches")).toBeTruthy());
@@ -115,9 +115,9 @@ describe("DatasetKeySearch", () => {
         const onJump = vi.fn();
         renderSearch({ keyType: IntegerKey, onFind, onListRange, onJump });
 
-        const input = screen.getByPlaceholderText("Find key (Integer)");
+        const input = screen.getByPlaceholderText("Search Records (Integer)");
         await userEvent.type(input, "abc");
-        expect(await screen.findByText("Key is Integer")).toBeTruthy();
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Key is Integer"));
         // The debounce window passes without a request going out.
         await new Promise((resolve) => setTimeout(resolve, 320));
         expect(onFind).not.toHaveBeenCalled();
@@ -152,15 +152,22 @@ describe("DatasetKeySearch", () => {
 
     test("struct keys type ahead on the first field through the combobox", async () => {
         const onFind = vi.fn(async () => ({ found: true, row: 100, count: 10 }));
-        const onListRange = vi.fn(async () => ["press · 2"]);
+        const onListRange = vi.fn(async () => [{ row: 103, label: "press · 2" }]);
         const onJump = vi.fn();
         renderSearch({ keyType: MachineKey, onFind, onListRange, onJump });
 
         // The placeholder spells out the key's field names; one keystroke
         // (no debounce race) reaches the host as a first-field prefix.
-        const input = screen.getByPlaceholderText("Search keys (machine, shift)");
+        const input = screen.getByPlaceholderText("Search Records (machine, shift)");
         await userEvent.type(input, "p");
         await waitFor(() => expect(onFind).toHaveBeenCalledWith({ prefix: "p" }));
+        // Host matches need not contain the query's textual syntax. Nor need
+        // their source positions be contiguous when a view skips entries.
+        fireEvent.change(input, { target: { value: "press, 2" } });
+        await waitFor(() => expect(onFind).toHaveBeenLastCalledWith({ fields: ['"press"', '2'] }));
+        const option = await screen.findByRole("option", { name: "press · 2" });
+        fireEvent.click(option);
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(103));
     });
 
     test("the clear button empties the input, drops the query state, and tells the host", async () => {
@@ -170,18 +177,18 @@ describe("DatasetKeySearch", () => {
         const onClear = vi.fn();
         renderSearch({ keyType: StringKey, onFind, onListRange, onJump, onClear });
 
-        const input = screen.getByPlaceholderText("Search keys") as HTMLInputElement;
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
         await userEvent.type(input, "a");
         await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
         fireEvent.click(screen.getByLabelText("Clear search"));
         await waitFor(() => expect(onClear).toHaveBeenCalled());
         expect(screen.queryByText("3 matches")).toBeNull();
-        expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("");
+        expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("");
 
         // Emptying the input by hand clears the host highlight too.
-        await userEvent.type(screen.getByPlaceholderText("Search keys"), "b");
+        await userEvent.type(screen.getByPlaceholderText("Search Records"), "b");
         await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
-        await userEvent.clear(screen.getByPlaceholderText("Search keys"));
+        await userEvent.clear(screen.getByPlaceholderText("Search Records"));
         await waitFor(() => expect(onClear).toHaveBeenCalledTimes(2));
     });
 
@@ -191,11 +198,40 @@ describe("DatasetKeySearch", () => {
         const onInputChange = vi.fn();
         renderSearch({ keyType: StringKey, onFind, onListRange, onJump: vi.fn(), onInputChange });
 
-        await userEvent.type(screen.getByPlaceholderText("Search keys"), "ab");
+        await userEvent.type(screen.getByPlaceholderText("Search Records"), "ab");
         await waitFor(() => expect(onInputChange).toHaveBeenLastCalledWith("ab"));
         await waitFor(() => expect(screen.getByText("1 match")).toBeTruthy());
         fireEvent.click(screen.getByLabelText("Clear search"));
         await waitFor(() => expect(onInputChange).toHaveBeenLastCalledWith(""));
+    });
+
+    test("a host's source moving to another snapshot asks the query held again — its text kept, the new answer counted; none held, nothing asked (#1199)", async () => {
+        let answer = { found: true, row: 100, count: 3 };
+        const onFind = vi.fn(async (_query: unknown, _again?: boolean) => answer);
+        const onListRange = vi.fn(async () => ["a", "b", "c"]);
+        const onJump = vi.fn();
+        const props = { keyType: StringKey, onFind, onListRange, onJump };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
+        expect(onFind).toHaveBeenCalledTimes(1);
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" });
+        // The same snapshot again asks nothing.
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        expect(onFind).toHaveBeenCalledTimes(1);
+        // A new one: the query held, asked again — its text standing — and its answer the box's.
+        answer = { found: true, row: 98, count: 5 };
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={1} /></ChakraProvider>);
+        await waitFor(() => expect(screen.getByText("5 matches")).toBeTruthy());
+        expect(onFind).toHaveBeenCalledTimes(2);
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" }, true);
+        expect(input.value).toBe("a");
+        // Cleared, nothing is held: another snapshot asks nothing.
+        fireEvent.click(screen.getByLabelText("Clear search"));
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={2} /></ChakraProvider>);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(onFind).toHaveBeenCalledTimes(2);
     });
 
     test("misses report No matches; the control is the shared combobox recipe", async () => {
@@ -207,10 +243,65 @@ describe("DatasetKeySearch", () => {
         // The design system's combobox slot recipe — not a bespoke input.
         expect(view.container.querySelector('[class*="elara-combobox"]')).toBeTruthy();
 
-        await userEvent.type(screen.getByPlaceholderText("Search keys"), "zz");
+        await userEvent.type(screen.getByPlaceholderText("Search Records"), "zz");
         await waitFor(() => expect(screen.getByText("No matches")).toBeTruthy());
         expect(onListRange).not.toHaveBeenCalled();
         expect(screen.queryByLabelText("Next match")).toBeNull();
+        const control = view.container.querySelector('[data-scope="combobox"][data-part="control"]')!;
+        expect(control.contains(screen.getByText("No matches"))).toBe(true);
+        expect(control.contains(screen.getByLabelText("Clear search"))).toBe(true);
+        expect(screen.getByText("No matches. Keys are case-sensitive.")).toBeTruthy();
+    });
+});
+
+describe("DatasetKeySearch on a touch screen (#1228)", () => {
+    // A touch screen as Zag tells one: it then tracks no focus moving outside an open list.
+    beforeEach(() => { Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true }); });
+    afterEach(() => { delete (navigator as { maxTouchPoints?: number }).maxTouchPoints; });
+
+    /** The search beside a control outside it, its list open over three matches. */
+    async function openList(onJump = vi.fn()) {
+        const onFind = vi.fn(async () => ({ found: true, row: 100, count: 3 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => Array.from({ length: Math.min(limit, 3) }, (_, i) => `key-${row + i}`));
+        render(
+            <ChakraProvider value={system}>
+                <DatasetKeySearch keyType={StringKey} onFind={onFind} onListRange={onListRange} onJump={onJump} />
+                <button type="button">Elsewhere</button>
+            </ChakraProvider>,
+        );
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "key");
+        await waitFor(() => expect(screen.getByText("key-100")).toBeTruthy());
+        expect(document.querySelector('[data-scope="combobox"][data-part="content"][data-state="open"]')).not.toBeNull();
+        return input;
+    }
+
+    /** The search's list, while it is open. */
+    const openContent = () => document.querySelector('[data-scope="combobox"][data-part="content"][data-state="open"]');
+    /** Two animation frames: the combobox looks at a focus a frame after it moves, as Zag does. */
+    const frames = () => act(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+
+    test("a focus moved to a control outside the list closes it, the key and its matches kept", async () => {
+        await openList();
+        act(() => { screen.getByRole("button", { name: "Elsewhere" }).focus(); });
+        await waitFor(() => expect(openContent()).toBeNull());
+        expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("key");
+        expect(screen.getByText("3 matches")).toBeTruthy();
+        // The focus stays where it went: a close that put it back in the box would do so a frame later.
+        await frames();
+        expect(screen.getByRole("button", { name: "Elsewhere" })).toBe(document.activeElement);
+    });
+
+    test("a focus moved into the list keeps it open; a match tapped there is still taken", async () => {
+        const onJump = vi.fn();
+        await openList(onJump);
+        const item = screen.getByText("key-101").closest<HTMLElement>('[data-part="item"]')!;
+        act(() => { item.focus(); });
+        await frames();
+        expect(openContent()).not.toBeNull();
+        fireEvent.pointerDown(item, { pointerType: "touch", button: 0 });
+        fireEvent.click(item);
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(101));
     });
 });
 

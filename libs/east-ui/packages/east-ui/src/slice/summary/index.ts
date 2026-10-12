@@ -6,7 +6,7 @@
 import { type ExprType, type SubtypeExprOrValue, East, variant } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import { SliceSummaryType } from "./types.js";
 
 export { SliceSummaryType } from "./types.js";
@@ -26,7 +26,7 @@ export { SliceSummaryType } from "./types.js";
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events));
+ *         const slice = $.let(Slice.bind("demo.events", events));
  *         return Slice.Summary.Root({ slice });
  *     })),
  * );
@@ -35,7 +35,7 @@ export { SliceSummaryType } from "./types.js";
 function createSliceSummary(
     options: SliceSummaryOptions,
 ): ExprType<UIComponentType> {
-    return East.value(variant("SliceSummary", { slice: options.slice }), UIComponentType);
+    return East.value(variant("SliceSummary", { slice: localSliceHandle(options.slice) }), UIComponentType);
 }
 
 /**

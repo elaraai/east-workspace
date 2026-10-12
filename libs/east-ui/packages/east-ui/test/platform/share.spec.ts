@@ -21,7 +21,7 @@ describeEast("Share", (test) => {
                 text: none,
             }, Share.Types.LinkInput)));
         });
-        const value = $.let(East.value("ok"));
+        const value = $.let("ok");
         $(Assert.equal(value, "ok"));
         void fn;
     });

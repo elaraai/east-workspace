@@ -8,9 +8,11 @@ import {
     Box as ChakraBox,
     HStack as ChakraHStack,
     CloseButton as ChakraCloseButton,
+    useRecipe,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Banner } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -118,8 +120,8 @@ export interface BannerViewProps {
  * draws with words of its own. Surrounded by a 1 px coloured border at very
  * low tint per pattern_spec; the title is rendered semibold inline with the
  * leading icon and the description sits below in muted body. Actions and
- * dismiss button align right. `role` is `alert` for warning / error and
- * `status` otherwise.
+ * dismiss button align right — its mark Font Awesome's xmark (#1263). `role`
+ * is `alert` for warning / error and `status` otherwise.
  *
  * @remarks
  * The left-accent-stripe layout (4 px brand-colored stripe + bright Chakra
@@ -138,6 +140,8 @@ export function BannerView({
     const mark = STATUS_TO_MARK[status];
     const iconColor = iconColorProp ?? mark;
     const role = status === "warning" || status === "error" ? "alert" : "status";
+    // The close's xmark at the size Chakra's icon took in a small button.
+    const closeMark = useRecipe({ key: "iconButtonMark" })({ size: "sm" });
 
     return (
         <ChakraBox
@@ -186,7 +190,7 @@ export function BannerView({
                     <ChakraBox colorPalette="brand">{actions}</ChakraBox>
                 ) : null}
                 {dismissible ? (
-                    <ChakraCloseButton size="sm" onClick={onDismiss} />
+                    <ChakraCloseButton size="sm" css={closeMark} onClick={onDismiss}><FontAwesomeIcon icon={faXmark} /></ChakraCloseButton>
                 ) : null}
             </ChakraHStack>
         </ChakraBox>

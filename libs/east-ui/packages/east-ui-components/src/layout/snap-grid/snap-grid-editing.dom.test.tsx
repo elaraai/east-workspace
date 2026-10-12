@@ -9,7 +9,7 @@
  * the row that fits a joining tile (L10), the drop stages (L11), a dropped
  * card built by `create` and the veto (L12), the keyboard (L15), and every
  * gesture as one transaction of the shared session — undone, redone,
- * discarded and applied as one checked batch (L16). Then the builder's frame
+ * discarded and saved as one checked batch (L16). Then the builder's frame
  * (#995), laid out by the shared builder frame (#1125): the one toolbar, the
  * zoom and the design widths over a bound view, the selection bar, the saved
  * time, and the panes. Then a pane beside the
@@ -17,15 +17,18 @@
  * one gesture by the canvas's own rules, the rows the author hears the canvas
  * draw, and the history shortcuts from a pane. Then an Apply a screen asks
  * for (#998): answered under the id asked — at once with no drafts, once the
- * source confirms them, or refused in the canvas's words.
+ * source confirms them, or refused in the canvas's words. Then the toolbar a
+ * row short of room folds into chips (#1229): its ladder, the View chip's
+ * bundle, its menu, and its hold.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, cleanup, fireEvent } from "@testing-library/react";
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
+import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { layOut } from "../../dnd/dnd.test-utils.js";
+import { layOut } from "../../testing/drag-layer.js";
+import { faIcons, loneGlyphs } from "../../testing/icons.js";
 import {
     BLOCKED, SEED, type EditingSnapGrid, type TileValue,
     announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, hostWrites, key, layRows, marks,
@@ -228,12 +231,14 @@ describe("L11 — the drop stages", () => {
         const letGo = await hold(tileEl(c, "trend"), zone);
         expect(zone.hasAttribute("data-drop-active")).toBe(true);
         expect(zone.hasAttribute("data-drop-invalid")).toBe(false);
-        // Its words: at rest, while dragging, and as the target — CSS shows the one that applies.
-        expect([...zone.querySelectorAll("span")].map((s) => s.textContent)).toEqual([
-            "Drag from the library · new 12-col row",
-            "▾ Drop between rows, beside a tile, or here",
-            "▾ Drop component here · snaps to a new 12-col row",
+        // Its words: at rest, while dragging, and as the target — CSS shows the one that applies. The two
+        // under a drag lead with Font Awesome's caret, never a written ▾ (#1263).
+        expect([...zone.querySelectorAll("span")].map((s) => [s.textContent, faIcons(s, "caret-down").length, s.firstElementChild?.tagName.toLowerCase() ?? null])).toEqual([
+            ["Drag from the library · new 12-col row", 0, null],
+            ["Drop between rows, beside a tile, or here", 1, "svg"],
+            ["Drop component here · snaps to a new 12-col row", 1, "svg"],
         ]);
+        expect(loneGlyphs(zone)).toEqual([]);
         await letGo();
         expect(zone.hasAttribute("data-drop-active")).toBe(false);
         expect(c.querySelector("[data-snap-grid-insert]")).toBeNull();
@@ -374,11 +379,11 @@ describe("L16 — every gesture is one transaction", () => {
         await history(canvas, "Discard");
         expect(rowsDrawn(c)).toEqual(SEED_ROWS);
         expect(marks(c)).toEqual({});
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
         expect(canvas.writes()).toBe(0);
     }, 30_000);
 
-    test("Apply sends one checked batch — and the source holds the order the canvas shows", async () => {
+    test("Save sends one checked batch — and the source holds the order the canvas shows", async () => {
         const canvas = await mountSnapGrid();
         const c = canvas.container;
         await drop(tileEl(c, "board"), gapEl(c, 0));
@@ -388,7 +393,7 @@ describe("L16 — every gesture is one transaction", () => {
         await clickTile(c, "region");
         await key(c, { key: "Delete" }, "region");
         const drawn = rowsDrawn(c);
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.applies).toHaveLength(1);
         expect(canvas.writes()).toBe(1);
         // The source's order is the canvas's.
@@ -397,7 +402,7 @@ describe("L16 — every gesture is one transaction", () => {
         await canvas.confirm();
         expect(rowsDrawn(c)).toEqual(drawn);
         expect(marks(c)).toEqual({});
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
     }, 30_000);
 
     test("a height is written into the tile's own row — `some` for a height, `none` back to auto", async () => {
@@ -405,16 +410,16 @@ describe("L16 — every gesture is one transaction", () => {
         const c = canvas.container;
         await clickTile(c, "region");
         await dragHandle(c, "region", "height", { y: 250 });
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "region")!.height).toEqual(some(240n));
         await canvas.confirm();
         await clickTile(c, "region");
         await dragHandle(c, "region", "height", { y: -300 });
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "region")!.height).toEqual(none);
     }, 30_000);
 
-    test("the author's check marks the tile it refuses — and Apply waits for it", async () => {
+    test("the author's check marks the tile it refuses — and Save waits for it", async () => {
         const canvas = await mountSnapGrid({ ready: true });
         const c = canvas.container;
         await clickTile(c, "region");
@@ -422,10 +427,10 @@ describe("L16 — every gesture is one transaction", () => {
         expect(marks(c)).toEqual({ region: "pending" });
         await key(c, { key: "[" }, "region");
         expect(marks(c)).toEqual({ region: "invalid" });
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
         await history(canvas, "Undo");
         expect(marks(c)).toEqual({ region: "pending" });
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(false);
+        expect(historyButton(canvas, "Save").disabled).toBe(false);
     }, 30_000);
 });
 
@@ -500,13 +505,13 @@ describe("the builder's frame (#995)", () => {
         expect([...bar().children].map((el) => el.textContent)).toEqual(["", "Assignment board", "board · sales_daily"]);
     }, 30_000);
 
-    test("once the source confirms an Apply the toolbar says when it saved; a Discard clears it", async () => {
+    test("once the source confirms a Save the toolbar says when it saved; a Discard clears it", async () => {
         const canvas = await mountSnapGrid({ chrome: true });
         const c = canvas.container;
         const saved = () => c.querySelector("[data-snap-grid-saved]")?.textContent;
         expect(saved()).toBeUndefined();
         await drop(tileEl(c, "board"), gapEl(c, 0));
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         await canvas.confirm();
         expect(saved()).toMatch(/^Saved · \d\d:\d\d$/);
         expect(toolbarItems(c).slice(0, 3)).toEqual(["start-0", "grid", "saved"]);
@@ -601,7 +606,7 @@ describe("a pane beside the canvas (#996)", () => {
         expect(tileEl(c, "trend").getAttribute("data-align")).toBe("center");
         expect(labels(canvas)).toEqual(["Align Revenue trend"]);
         expect(origins(canvas)).toEqual(["typed"]);
-        await history(canvas, "Apply changes");
+        await history(canvas, "Save");
         expect(canvas.stored().find((t) => t.id === "trend")!.align.type).toBe("center");
         cleanup();
         initializeStore(new UIStore());
@@ -681,7 +686,7 @@ describe("an Apply a screen asks for (#998)", () => {
         await canvas.confirm();
         expect(canvas.boundApply()).toEqual(variant("applied", "ask-2"));
         expect(marks(c)).toEqual({});
-        expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
+        expect(historyButton(canvas, "Save").disabled).toBe(true);
     }, 30_000);
 
     test("each ask is answered under its own id", async () => {
@@ -714,5 +719,164 @@ describe("an Apply a screen asks for (#998)", () => {
         await canvas.hostAsksApply("ask-4");
         expect(canvas.boundApply()).toEqual(variant("refused", { id: "ask-4", reason: "Source changed — review or discard these drafts" }));
         expect(canvas.applies).toHaveLength(0);
+    }, 30_000);
+});
+
+describe("the toolbar folded into chips (#1229)", () => {
+    // jsdom lays nothing out: the row's box is `row.px`, an item's width is its
+    // form's in FORM_PX (a hidden form has no box), and the gap is 10px. The
+    // row's ResizeObserver is captured, so a test moves its width as a browser does.
+    const row = { px: 0 };
+    /** Each item's width in each of its forms, widest first. */
+    const FORM_PX: Record<string, readonly number[]> = {
+        "start-0": [57], grid: [110], readout: [62], zoom: [100, 45], rule: [1], history: [300, 136], widths: [150, 72], "end-0": [60],
+    };
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element> }[] = [];
+    class CapturingObserver {
+        private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element> };
+        constructor(cb: ResizeObserverCallback) { this.entry = { cb, targets: new Set() }; observers.push(this.entry); }
+        observe(el: Element) { this.entry.targets.add(el); }
+        unobserve(el: Element) { this.entry.targets.delete(el); }
+        disconnect() { this.entry.targets.clear(); }
+    }
+    const widthOf = (el: Element): number => {
+        if (el.hasAttribute("data-toolbar")) return row.px;
+        const key = el.getAttribute("data-toolbar-item");
+        return key === null ? 0 : FORM_PX[key]?.[Number(el.getAttribute("data-toolbar-form"))] ?? 0;
+    };
+    const realRect = Element.prototype.getBoundingClientRect;
+    const realObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    beforeAll(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = CapturingObserver;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const width = widthOf(this);
+            return { x: 0, y: 0, left: 0, top: 0, width, height: 30, right: width, bottom: 30, toJSON() { return {}; } } as DOMRect;
+        };
+    });
+    beforeEach(() => {
+        const computed = window.getComputedStyle.bind(window);
+        vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element, pseudo?: string | null) => {
+            const style = computed(el, pseudo);
+            if (!el.hasAttribute("data-toolbar")) return style;
+            return new Proxy(style, { get: (target, prop) => (prop === "columnGap" ? "10px" : Reflect.get(target, prop)) });
+        });
+    });
+    afterAll(() => {
+        Element.prototype.getBoundingClientRect = realRect;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realObserver;
+    });
+
+    /** Move the row's width and deliver it as the browser does. */
+    function resize(px: number) {
+        row.px = px;
+        act(() => {
+            for (const o of observers) {
+                const rowEl = [...o.targets].find((t) => t.hasAttribute("data-toolbar") && t.isConnected);
+                if (rowEl !== undefined) o.cb([{ target: rowEl } as ResizeObserverEntry], {} as ResizeObserver);
+            }
+        });
+    }
+    /** The frame's toolbar row. */
+    const bar = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-frame-slot=toolbar] [data-toolbar]")!;
+    /** Each item's form of its forms, as the toolbar says it folded them. */
+    const stateOf = (c: HTMLElement) => new Map(bar(c).getAttribute("data-toolbar-state")!.split(";").map((part) => {
+        const [key, of] = part.split("=");
+        return [key!, Number(of!.split("/")[0])] as const;
+    }));
+    /** The row a configuration needs: every drawn form's width, and a 10px gap between drawn items. */
+    function needs(forms: ReadonlyMap<string, number>): number {
+        const drawn = [...forms].flatMap(([key, form]) => {
+            const px = FORM_PX[key]![form];
+            return px === undefined ? [] : [px];
+        });
+        return drawn.reduce((a, b) => a + b, 0) + 10 * Math.max(0, drawn.length - 1);
+    }
+    /** The ladder, move by move — the View chip's bundle one move of two steps. */
+    const MOVES: ReadonlyArray<ReadonlyArray<readonly [string, number]>> = [
+        [["grid", 1]], [["readout", 1]], [["widths", 1]], [["zoom", 1], ["widths", 2]], [["start-0", 1]], [["history", 1]],
+    ];
+    /** The open menu's items: each one's role, its words and whether it is checked. */
+    const menuItems = () => [...document.querySelectorAll("[role=menuitem], [role=menuitemradio]")].map((el) =>
+        `${el.getAttribute("role")}:${el.textContent}${el.getAttribute("aria-checked") === "true" ? " (checked)" : ""}`);
+    /** Opens the chip's menu, once its items show. */
+    async function openMenu(chip: HTMLElement) {
+        await act(async () => { fireEvent.click(chip); });
+        await waitFor(() => expect(document.querySelectorAll("[role=menuitem]").length).toBeGreaterThan(0));
+    }
+    /** An item of the open menu, by its words. */
+    const menuItem = (words: string) => [...document.querySelectorAll<HTMLElement>("[role=menuitem], [role=menuitemradio]")]
+        .find((el) => el.textContent === words)!;
+    /** Picks an item as a pointer does: pressed on it, then its click. */
+    async function pick(words: string) {
+        const item = menuItem(words);
+        await act(async () => { fireEvent.pointerDown(item); });
+        await act(async () => { fireEvent.click(item); });
+    }
+
+    test("one ladder: the grid chip, the readout and the widths to their icons; then the zoom into the View chip as the widths hide, in one step; then the start items; the history last", async () => {
+        row.px = 4000;
+        const canvas = await mountSnapGrid({ chrome: true });
+        const c = canvas.container;
+        expect(bar(c).getAttribute("data-toolbar-ladder")).toBe("grid>1 readout>1 widths>1 zoom>1 widths>2 start-0>1 history>1");
+        let forms = new Map([["start-0", 0], ["grid", 0], ["readout", 0], ["zoom", 0], ["rule", 0], ["history", 0], ["widths", 0], ["end-0", 0]]);
+        expect(stateOf(c)).toEqual(forms);
+        // Each configuration holds in exactly the row it needs, and a pixel less takes the next move — and only that.
+        for (const move of MOVES) {
+            const room = needs(forms);
+            resize(room);
+            expect(stateOf(c), `${room}px`).toEqual(forms);
+            forms = new Map(forms);
+            for (const [key, form] of move) forms.set(key, form);
+            resize(room - 1);
+            expect(stateOf(c), `${room - 1}px, ${move.map(([k, f]) => `${k}→${f}`).join(" + ")}`).toEqual(forms);
+        }
+        // Folded all the way: the View chip, the rule, the history's buttons and the host's end item.
+        expect([...bar(c).querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["zoom", "rule", "history", "end-0"]);
+        expect(bar(c).querySelector("[data-snap-grid-view]")!.getAttribute("aria-label")).toBe("View");
+        expect(bar(c).querySelector("[data-snap-grid-zoom]")).toBeNull();
+    }, 30_000);
+
+    test("the View chip's menu does what the zoom and the widths do: Zoom out and Zoom in step by 10% and leave it open; a width is a choice of one, and closes it", async () => {
+        row.px = 1;
+        const canvas = await mountSnapGrid({ chrome: true });
+        const chip = bar(canvas.container).querySelector<HTMLElement>("[data-snap-grid-view]")!;
+        // The chip is Font Awesome's eye and its caret, never a written ▾ (#1263).
+        expect([chip.textContent, faIcons(chip, "eye").length, faIcons(chip, "caret-down").length]).toEqual(["", 1, 1]);
+        await openMenu(chip);
+        expect(menuItems()).toEqual(["menuitem:Zoom out", "menuitem:Zoom in", "menuitemradio:Desktop (checked)", "menuitemradio:Tablet"]);
+        const zoomShown = () => document.querySelector("[data-snap-grid-view-zoom]")!.textContent;
+        expect(zoomShown()).toBe("100%");
+        await pick("Zoom in");
+        expect(canvas.boundView()).toEqual({ width: null, zoom: 1.1 });
+        expect(zoomShown()).toBe("110%");
+        expect(chip.getAttribute("aria-expanded")).toBe("true");
+        await pick("Zoom out");
+        await pick("Zoom out");
+        expect(canvas.boundView().zoom).toBe(0.9);
+        expect(zoomShown()).toBe("90%");
+        await pick("Tablet");
+        expect(canvas.boundView()).toEqual({ width: "1024px", zoom: 0.9 });
+        await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("false"));
+        expect(canvas.container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style.maxWidth).toBe("1024px");
+        // Nothing the view holds is a gesture.
+        expect(canvas.patches).toHaveLength(0);
+    }, 30_000);
+
+    test("while the View chip's menu is open the row keeps its configuration: the widths never unfold beside it", async () => {
+        row.px = 1;
+        const canvas = await mountSnapGrid({ chrome: true });
+        const chip = bar(canvas.container).querySelector<HTMLElement>("[data-snap-grid-view]")!;
+        await openMenu(chip);
+        resize(4000);
+        expect(stateOf(canvas.container).get("zoom")).toBe(1);
+        expect(stateOf(canvas.container).get("widths")).toBe(2);
+        // Its own items unfold around it: they share no bundle with it.
+        expect(stateOf(canvas.container).get("grid")).toBe(0);
+        // Closed — the chip pressed again — the row takes the configuration for its width.
+        await act(async () => { fireEvent.click(chip); });
+        await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("false"));
+        resize(4000);
+        expect(stateOf(canvas.container).get("zoom")).toBe(0);
+        expect(stateOf(canvas.container).get("widths")).toBe(0);
     }, 30_000);
 });

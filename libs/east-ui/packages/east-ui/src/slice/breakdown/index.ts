@@ -13,7 +13,7 @@ import {
 } from "@elaraai/east";
 
 import { UIComponentType } from "../../component.js";
-import { SliceBindType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType } from "../../platform/slice/index.js";
 import { SliceBreakdownPickerType } from "./types.js";
 
 export { SliceBreakdownPickerType } from "./types.js";
@@ -45,7 +45,7 @@ export interface SliceBreakdownOptions {
  *
  * const view = East.function([], UIComponentType, _$ =>
  *     Reactive.Root(East.function([], UIComponentType, $ => {
- *         const slice = $.let(Slice.bind([EventType], "demo.events", cfg, Slice.state(), events));
+ *         const slice = $.let(Slice.bind("demo.events", events, { breakdown: ["country"] }));
  *         return Slice.Breakdown.Root({ slice });
  *     })),
  * );
@@ -55,7 +55,7 @@ function createSliceBreakdown(
     options: SliceBreakdownOptions,
 ): ExprType<UIComponentType> {
     return East.value(variant("SliceBreakdown", {
-        slice: options.slice,
+        slice: localSliceHandle(options.slice),
         density: options.density !== undefined ? some(variant(options.density, null)) : none,
     }), UIComponentType);
 }

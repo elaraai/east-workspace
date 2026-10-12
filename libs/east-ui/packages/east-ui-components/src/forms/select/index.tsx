@@ -6,6 +6,8 @@
 import { memo, useMemo, useCallback, useState } from "react";
 import { Portal } from "@chakra-ui/react";
 import { Select as ChakraSelect, createListCollection, type SelectRootProps } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Select } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -62,7 +64,9 @@ export interface EastChakraSelectProps {
 }
 
 /**
- * Renders an East UI Select value using Chakra UI Select component.
+ * Renders an East UI Select value using Chakra UI Select component. Its
+ * chevron and a picked item's check are Font Awesome's, never Chakra's own
+ * icons (#1263).
  */
 export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabel, portalled }: EastChakraSelectProps) {
     const [props, setProps] = useState(toChakraSelect(value));
@@ -111,7 +115,7 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabe
                     <ChakraSelect.ValueText placeholder={placeholder ?? "Select..."} />
                 </ChakraSelect.Trigger>
                 <ChakraSelect.IndicatorGroup>
-                    <ChakraSelect.Indicator />
+                    <ChakraSelect.Indicator><FontAwesomeIcon icon={faChevronDown} /></ChakraSelect.Indicator>
                 </ChakraSelect.IndicatorGroup>
             </ChakraSelect.Control>
             <Portal disabled={portalled === false}>
@@ -120,7 +124,7 @@ export const EastChakraSelect = memo(function EastChakraSelect({ value, ariaLabe
                         {collection.items.map((item) => (
                             <ChakraSelect.Item key={item.value} item={item}>
                                 {item.label}
-                                <ChakraSelect.ItemIndicator />
+                                <ChakraSelect.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraSelect.ItemIndicator>
                             </ChakraSelect.Item>
                         ))}
                     </ChakraSelect.Content>

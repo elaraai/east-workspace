@@ -1,4 +1,9 @@
 /**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
  * The Decision platform types — the lean envelope a reasoning/optimization task
  * emits and the Decide components render. Designed to be filled in one shot by
  * an agent: 5 required fields, the rest optional; primitives over structs;

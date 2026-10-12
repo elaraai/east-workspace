@@ -15,6 +15,7 @@ import {
 
 import { SizeType } from "../../style.js";
 import type { SizeLiteral } from "../../style.js";
+import type { SolidIconPrefix } from "../../display/icon/types.js";
 import { ButtonVariantType, type ButtonVariantLiteral } from "../button/types.js";
 
 // Re-export the shared ButtonVariantType for convenience.
@@ -92,8 +93,8 @@ export interface ToggleStyle {
 export interface ToggleOptions extends ToggleStyle {
     /** Current pressed state (required — Toggle has no internal state). */
     pressed: SubtypeExprOrValue<BooleanType>;
-    /** Optional leading icon */
-    icon?: { prefix: string; name: string };
+    /** Optional leading icon: a Font Awesome solid icon, `{ prefix: "fas", name }` — East UI draws no other (#1263) */
+    icon?: { prefix: SolidIconPrefix; name: string };
     /** Disabled state — renderer blocks interaction */
     disabled?: SubtypeExprOrValue<BooleanType>;
     /**

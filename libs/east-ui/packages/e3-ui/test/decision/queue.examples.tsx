@@ -425,7 +425,7 @@ export const decisionQueueSizing = example({
 // ============================================================================
 
 export const decisionQueueSlice = example({
-    keywords: ['DecisionQueue', 'Decide', 'slice', 'Slice.bind', 'Slice.config', 'seed', 'rail', 'filter', 'search', 'affordances', 'operator'],
+    keywords: ['DecisionQueue', 'Decide', 'slice', 'Slice.bind', 'initial', 'seed', 'rail', 'filter', 'search', 'affordances', 'operator'],
     description: 'The author-owned slice — Slice.bind over the decision envelope (rows = handle.queue()) seeded with a kind filter (shown as a removable chip); pass the handle as the queue\'s slice option to mount the rail; the same seed with no rail is an invisible author scope',
     fn: East.function([], UIComponentType, (_$) => {
         return (
@@ -433,13 +433,11 @@ export const decisionQueueSlice = example({
                 const decisions = $.let(Data.bind(queueDecisions, { mode: 'direct' }));
                 const judgements = $.let(Data.bind(queueJudgements, { mode: 'direct' }));
                 const handle = $.let(Decision.bind([RosterConstraint], { decisions: [decisions], judgements }));
-                const cfg = Slice.config(DecisionType, {
+                const slice = $.let(Slice.bind('ex.decision.queue.slice', handle.queue(), {
                     fields: { kind: { label: 'Kind' }, title: { label: 'Title' }, value: { label: 'Value' } },
-                    searchFieldIds: ['kind', 'title'],
-                });
-                const slice = $.let(Slice.bind([DecisionType], 'ex.decision.queue.slice', cfg, Slice.state({
-                    filters: [variant('string', { fieldId: 'kind', op: variant('eq', 'roster') })],
-                }), handle.queue(), none));
+                    search: ['kind', 'title'],
+                    initial: { kind: ['roster'] },
+                }));
                 return (
                     <DecisionQueue
                         handle={handle}

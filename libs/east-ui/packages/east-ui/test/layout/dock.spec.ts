@@ -14,7 +14,6 @@ describeEast("Dock", (test) => {
     // config struct encode + round-trip as valid East IR.
     Assert.examples(test, {
         dockVariants: ex.dockVariants,
-        dockBesidePlan: ex.dockBesidePlan,
         dockNested: ex.dockNested,
         dockTabs: ex.dockTabs,
         dockActive: ex.dockActive,

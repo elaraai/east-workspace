@@ -14,7 +14,7 @@ import {
 
 import { SizeType, ColorSchemeType } from "../../style.js";
 import type { SizeLiteral, ColorSchemeLiteral } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, type SolidIconPrefix } from "../../display/icon/types.js";
 
 // ============================================================================
 // Button Variant Type
@@ -132,13 +132,14 @@ export interface ButtonStyle {
  * style, so callers only need to supply the Font Awesome `prefix` + `name`.
  * Callers that want to tint / resize the icon independently can pass a
  * pre-built `Icon.Root(...)` expression instead — the factory accepts either
- * shape.
+ * shape. East UI draws Font Awesome's solid set only (#1263): another prefix
+ * is refused at build.
  *
- * @property prefix - Font Awesome prefix (`fas` / `far` / `fab`)
- * @property name - Font Awesome icon name (`save` / `spinner` / `arrow-right` / ...)
+ * @property prefix - Font Awesome prefix: `fas`, the solid set
+ * @property name - Font Awesome icon name (`floppy-disk` / `spinner` / `arrow-right` / ...)
  */
 export interface IconPayload {
-    prefix: string;
+    prefix: SolidIconPrefix;
     name: string;
 }
 

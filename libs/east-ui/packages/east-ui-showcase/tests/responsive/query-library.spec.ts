@@ -70,7 +70,8 @@ test.describe("Query library (#940)", () => {
                 };
             })).toEqual({
                 border: ["0px", "0px", "0px", "0px"],
-                band: 44, rows: 1, search: [16, 300], rule: [1, 18], afterRule: true, action: [16, 28],
+                // Frame inset plus the toolbar's focus-ring clearance.
+                band: 44, rows: 1, search: [20, 300], rule: [1, 18], afterRule: true, action: [20, 28],
             });
         });
     }

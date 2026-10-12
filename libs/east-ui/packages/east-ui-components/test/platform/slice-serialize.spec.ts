@@ -27,7 +27,7 @@ import { getRegisteredPlatformImplementations } from "../../src/platform/registr
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
 import { SliceImpl } from "../../src/platform/slice/index.js";
-import { sliceConfig } from "../../src/platform/slice/slice.test-utils.js";
+import { sliceConfig } from "../../src/testing/slice.js";
 
 const Row = StructType({ id: StringType, n: IntegerType });
 const rowTypeVal = toEastTypeValue(Row);

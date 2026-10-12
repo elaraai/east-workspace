@@ -31,7 +31,8 @@
  *
  * Its layout is the `studioLibrary` recipe's; its controls are the
  * theme's shared ones — the Library's search box, the `button` recipe, the
- * `seg` strip, the `status` dots, the edit popover and the `select`.
+ * `seg` strip, the `status` dots, the edit popover and the `select`, its
+ * chevron and check Font Awesome's (#1263).
  *
  * @packageDocumentation
  */
@@ -43,7 +44,7 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowDownAZ, faArrowDownZA, faCaretDown, faCheck, faFolder, faFolderOpen, faMagnifyingGlass, faPlus, faXmark,
+    faArrowDownAZ, faArrowDownZA, faCaretDown, faCheck, faChevronDown, faFolder, faFolderOpen, faMagnifyingGlass, faPlus, faXmark,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -393,7 +394,7 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
                         <ChakraSelect.ValueText />
                     </ChakraSelect.Trigger>
                     <ChakraSelect.IndicatorGroup>
-                        <ChakraSelect.Indicator />
+                        <ChakraSelect.Indicator><FontAwesomeIcon icon={faChevronDown} /></ChakraSelect.Indicator>
                     </ChakraSelect.IndicatorGroup>
                 </ChakraSelect.Control>
                 <Portal>
@@ -402,7 +403,7 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
                             {picker.items.map((item) => (
                                 <ChakraSelect.Item key={item.value} item={item}>
                                     {item.label}
-                                    <ChakraSelect.ItemIndicator />
+                                    <ChakraSelect.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraSelect.ItemIndicator>
                                 </ChakraSelect.Item>
                             ))}
                         </ChakraSelect.Content>

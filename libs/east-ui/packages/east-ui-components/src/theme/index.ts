@@ -58,6 +58,8 @@ import { iconButtonRecipe } from "./recipes/icon-button.js";
 import { separatorRecipe } from "./recipes/separator.js";
 import { skeletonRecipe } from "./recipes/skeleton.js";
 import { chipRecipe } from "./recipes/chip.js";
+import { iconButtonMarkRecipe } from "./recipes/icon-button-mark.js";
+import { ontologyMarkRecipe } from "./recipes/ontology-mark.js";
 
 import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tabsSlotRecipe } from "./slot-recipes/tabs.js";
@@ -68,8 +70,8 @@ import { menuSlotRecipe } from "./slot-recipes/menu.js";
 import { librarySlotRecipe } from "./slot-recipes/library.js";
 import { deckSlotRecipe } from "./slot-recipes/deck.js";
 import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
-import { rosterSlotRecipe } from "./slot-recipes/roster.js";
-import { boardSlotRecipe } from "./slot-recipes/board.js";
+import { timeNavigatorSlotRecipe } from "./slot-recipes/timeNavigator.js";
+import { rosterBuilderSlotRecipe } from "./slot-recipes/rosterBuilder.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { schematicSlotRecipe } from "./slot-recipes/schematic.js";
 import { flowchartSlotRecipe } from "./slot-recipes/flowchart.js";
@@ -141,6 +143,8 @@ import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
 import { studioBuilderSlotRecipe } from "./slot-recipes/studioBuilder.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
+import { sheetInspectorSlotRecipe } from "./slot-recipes/sheetInspector.js";
+import { planInspectorSlotRecipe } from "./slot-recipes/planInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
@@ -148,10 +152,13 @@ import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
 import { queryLibrarySlotRecipe } from "./slot-recipes/queryLibrary.js";
 import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
+import { fieldFormSlotRecipe } from "./slot-recipes/fieldForm.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
+import { nativeSelectSlotRecipe } from "./slot-recipes/nativeSelect.js";
+import { alertSlotRecipe } from "./slot-recipes/alert.js";
 
 const config = defineConfig({
     globalCss,
@@ -185,6 +192,8 @@ const config = defineConfig({
             separator:  separatorRecipe,
             skeleton:   skeletonRecipe,
             chip:       chipRecipe,
+            iconButtonMark: iconButtonMarkRecipe,
+            ontologyMark: ontologyMarkRecipe,
             /* Touch floor (#348) merged onto Chakra's default textarea
              * recipe — sub-16px focused fields make iOS Safari zoom. */
             textarea:   defineRecipe({
@@ -201,9 +210,9 @@ const config = defineConfig({
             library:         librarySlotRecipe,
             deck:            deckSlotRecipe,
             valueTree:       valueTreeSlotRecipe,
-            roster:          rosterSlotRecipe,
-            board:           boardSlotRecipe,
             calendar:        calendarSlotRecipe,
+            rosterBuilder:   rosterBuilderSlotRecipe,
+            timeNavigator:   timeNavigatorSlotRecipe,
             schematic:       schematicSlotRecipe,
             flowchart:       flowchartSlotRecipe,
             map:             mapSlotRecipe,
@@ -274,6 +283,8 @@ const config = defineConfig({
             decisionQueue:   decisionQueueSlotRecipe,
             studioBuilder:   studioBuilderSlotRecipe,
             studioInspector: studioInspectorSlotRecipe,
+            sheetInspector:  sheetInspectorSlotRecipe,
+            planInspector:   planInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,
@@ -281,10 +292,13 @@ const config = defineConfig({
             queryLibrary:    queryLibrarySlotRecipe,
             jqEditor:        jqEditorSlotRecipe,
             stepper:         stepperSlotRecipe,
+            fieldForm:       fieldFormSlotRecipe,
             toolbar:         toolbarSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
             queryAutocomplete: queryAutocompleteSlotRecipe,
             logViewer:       logViewerSlotRecipe,
+            nativeSelect:    nativeSelectSlotRecipe,
+            alert:           alertSlotRecipe,
         },
     },
 });

@@ -39,7 +39,7 @@ import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { type IconName } from "../../display/icon/types.js";
-import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
+import { localSliceHandle, SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
 import {
     SchematicItemType,
@@ -874,7 +874,7 @@ function buildRoot(
     }
     const sliceChromeValue = config.slice !== undefined
         ? East.value({
-            slice: config.slice,
+            slice: localSliceHandle(config.slice),
             affordances: East.value(
                 (config.affordances ?? ["search"]).map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),

@@ -27,7 +27,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, IntegerType, StringType, checkJq, decodeBeast2, equalFor, evaluateJq, none, some, variant } from "@elaraai/east";
 import type { ExecuteResult } from "@elaraai/e3-types";
@@ -36,7 +36,7 @@ import { JqEditor } from "./jq-editor.js";
 import { SummaryCache, summaryAt, type Summary } from "./model/summaries.js";
 import { usePartStyles } from "./parts.js";
 import {
-    FIXTURE_VALUE, FixtureType, ROOT, enabled, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
+    act, FIXTURE_VALUE, FixtureType, ROOT, enabled, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
 } from "./query.test-utils.js";
 import { parseSteps } from "./steps/parse.js";
 import { useQueryWords } from "./words.js";

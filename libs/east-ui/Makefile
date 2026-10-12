@@ -241,7 +241,7 @@ help:
 ##
 ## It serves what `make build` built, building the showcase only when its
 ## dist is missing, so rebuild after a change. A failing spec leaves its
-## screenshot and trace under packages/east-ui-showcase/test-results/. On
+## DOM/network trace under packages/east-ui-showcase/test-results/. On
 ## hosts Playwright can't provision a browser for (non-LTS Ubuntu), set
 ## E3_UI_CHROMIUM_PATH (or PW_EXECUTABLE_PATH) to a Chrome/Chromium binary.
 test-responsive:

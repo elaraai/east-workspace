@@ -2070,7 +2070,9 @@ export type BlockBuilder<Ret> = ((expr: Expr) => void) & {
   let: (<T>(expr: SubtypeExprOrValue<NoInfer<T>>, type: T) => ExprType<T>) & (<V>(expr: V) => ExprType<TypeOf<V>>),
   /** Reassign a variable defined with `let` to a new value. */
   assign: (<E extends Expr<any>>(variable: E, value: SubtypeExprOrValue<E[TypeSymbol]>) => ExprType<NullType>),
-  /** Return a value immediately from the current function */
+  /** Return a value immediately from the current function. A raw value — a
+   * literal, a `variant`, a struct of expressions — takes the function's
+   * declared output as its type. */
   return: (value: SubtypeExprOrValue<Ret>) => void,
   /** Break immediately from the indicated loop */
   break: (label: Label) => void,
@@ -2222,7 +2224,13 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       throw new Error(`Unreachable statement detected at ${printLocations(get_location())}`);
     }
 
-    const expAst = expr instanceof Expr ? Expr.ast(expr) : valueOrExprToAst(expr);
+    // A raw value takes the declared output as its type, as a tail return and
+    // `$.assign` do: `$.return(variant("a", x))` returns the whole variant, not
+    // a variant of its one case. A block with no declared output (`Never`)
+    // has no type to give it, and refuses it below.
+    const expAst = expr instanceof Expr ? Expr.ast(expr)
+      : isTypeEqual(return_type as EastType, NeverType) ? valueOrExprToAst(expr)
+      : valueOrExprToAstTyped(expr, return_type as EastType);
 
     if (!isSubtype(expAst.type, return_type as EastType)) {
       throw typeMismatchError(expAst.type, return_type as EastType, { loc_id: get_location_id() });

@@ -34,6 +34,7 @@ import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-ty
 // importing the other's data layer. Paged data is bound: this is its producer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
+import { bindDataIndexed, type BindPagedIndexesOptions, type FieldIndexes, type IndexedPagedValue } from './data-indexed.js';
 
 // ============================================================================
 // Mode + binding descriptor types — shared with the Diff component.
@@ -567,8 +568,8 @@ export const DataPagedPrimitives = {
  * @example
  * ```ts
  * import { ArrayType, DictType, East, StringType, variant } from "@elaraai/east";
- * import { Plan, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Data } from "@elaraai/e3-ui";
+ * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Plan } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
  * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
@@ -585,11 +586,15 @@ export const DataPagedPrimitives = {
  *         const axis = $.const(Plan.axis({
  *             window: { min: week(24n), max: week(42n) }, resolution: "week",
  *         }));
- *         return Plan.Root({ axis, data: paged, series });
+ *         return Plan({ axis, data: paged, series });
  *     }));
  * });
  * ```
  */
+function bindDataPaged<T extends EastType, const I extends FieldIndexes<T>>(
+    record: RecordDef<T>,
+    options: BindPagedIndexesOptions<T, I>,
+): IndexedPagedValue<T, I>;
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
 ): PagedValue<T>;
@@ -602,8 +607,12 @@ function bindDataPaged<T extends EastType, IK extends EastType, P extends EastTy
 // an unbound `T`. The overloads above carry the precise types.
 function bindDataPaged(
     dataset: DatasetDef<EastType> | TaskDef<EastType>,
-    options?: BindPagedIndexOptions<EastType, EastType, EastType>,
-): PagedValue<any> {
+    options?: BindPagedIndexOptions<EastType, EastType, EastType> | BindPagedIndexesOptions<EastType, FieldIndexes<EastType>>,
+): any {
+    if (options !== undefined && "indexes" in options) {
+        if (!("recordKind" in dataset) || dataset.recordKind !== "record") throw new Error("Data.bindPaged with indexes requires an e3.record");
+        return bindDataIndexed(dataset as RecordDef<EastType>, options);
+    }
     // A TaskDef binds its output dataset; a DatasetDef binds itself.
     const def = dataset.kind === 'task' ? dataset.output : dataset;
     // The source path comes from the def, so it is statically known by
@@ -622,7 +631,7 @@ function bindDataPaged(
     // read joins. A Dict would re-sort by its own key and throw that order
     // away, which is the whole reason the window is positional. The server
     // encodes the window with the same `indexWindowType`.
-    const record = def.type as unknown as { type: string; key: EastType; value: EastType };
+    const record = def.type;
     if (record.type !== 'Dict') {
         throw new Error(
             `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,

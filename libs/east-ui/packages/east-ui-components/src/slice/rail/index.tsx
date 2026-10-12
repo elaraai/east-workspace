@@ -17,7 +17,7 @@
  *   - rank 0 — the filter's trailing clause chips fold into `+M more`, one at
  *     a time;
  *   - ranks 1–5 — an affordance collapses into its cluster's summary chips,
- *     in {@link COLLAPSE_RANK} order: search 1, range 2, cohort and presets 3,
+ *     in the shared rail's collapse order: search 1, range 2, cohort and presets 3,
  *     breakdown 4, the filter builder 5 — the rest stay live;
  *   - rank 6 — the folded chips merge into one terminal chip that *names its
  *     contents* (`Filter · Search +1`, or `3 filters · EU +1` when narrowing)
@@ -34,14 +34,18 @@
  * the host never changes height. The editor is the terminal surface: nothing
  * folds inside it and nothing opens a further popover. While it is open the
  * cluster is held: the popover hangs from its trigger, so the toolbar keeps
- * the cluster's form and folds the rest of the row around it.
+ * the cluster's form and folds the rest of the row around it. A held cluster
+ * keeps the forms it had as its editor opened (#1231): a clause added there
+ * would put a chip's fold step before the held form, and the form it holds
+ * would be another one — the trigger growing under its popover. Its trigger
+ * is one button (#1231), named for what it folds.
  */
 
-import { useEffect, useState, memo, type ReactNode } from "react";
+import { useEffect, memo, type ReactNode } from "react";
+import "../record/rail.js";
 import { some, none, variant } from "@elaraai/east";
-import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, faChevronDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
+import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { faFilter, faLayerGroup, faUsers, faMagnifyingGlass, faCalendar, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -51,10 +55,8 @@ import { railAffordanceKinds } from "../rail-kinds.js";
 // (hoisted; charts/spec imports SliceRailCluster from here the same way).
 import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
 import { useFormatters } from "../../format/index.js";
-import { SliceDensityContext } from "../density";
 import { BrushStrip } from "../brush-strip.js";
 import { useSliceReactivity } from "../use-slice-reactivity";
-import { SliceEditPopover } from "../edit";
 import { EastChakraSliceFilter } from "../filter";
 import { EastChakraSliceSearch } from "../search";
 import { EastChakraSliceBreakdown } from "../breakdown";
@@ -62,6 +64,8 @@ import { EastChakraSliceRange } from "../range";
 import { EastChakraSliceCohort, cohortGroupOf } from "../cohort";
 import { EastChakraSliceLegend } from "../legend";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
+import { useSliceRailItems, type SliceRailClusterSpec } from "./toolbar.js";
+export type { SliceRailClusterSpec } from "./toolbar.js";
 
 /** The bound slice handle, decoded. */
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -75,26 +79,6 @@ const AFFORDANCE_META: Record<string, { icon: IconDefinition; label: string }> =
     search:    { icon: faMagnifyingGlass, label: "Search" },
     range:     { icon: faCalendar,        label: "Range" },
 };
-
-/**
- * Fold rank per affordance kind — the order affordances degrade from live
- * control to summary chip under width pressure. Lower folds first: `search`
- * and `range` summarise cheaply, so they go first; the `filter` clause builder
- * is the primary narrowing surface, so it stays live longest. A kind with no
- * entry folds mid-pack. Purely presentational — nothing here reaches East IR.
- */
-const COLLAPSE_RANK: Record<string, number> = {
-    search: 1,
-    range: 2,
-    cohort: 3,
-    presets: 3,
-    breakdown: 4,
-    filter: 5,
-};
-
-/** The rail's own fold ranks around {@link COLLAPSE_RANK}: the filter's
- *  clause chips fold first; the merged terminal chip and the icon last. */
-const RAIL_RANK = { chips: 0, terminal: 6, icon: 7 } as const;
 
 /** The first rank a host's own toolbar items fold at — after every step of the rail's. */
 export const HOST_RANK = 10;
@@ -163,28 +147,6 @@ function activeNarrowingCount(state: ValueTypeOf<typeof Slice.Types.State>): num
     return n;
 }
 
-/** One cluster of the rail — one item of the shared toolbar. */
-export interface SliceRailClusterSpec {
-    /** Its key in the toolbar. */
-    key: string;
-    /** The affordance kinds it holds, in mount order (`"filter"`, `"search"`, …). */
-    kinds: ReadonlyArray<string>;
-    /** Where it sits in the row: at its start (the default), or in its end cluster. */
-    side?: "start" | "end" | undefined;
-}
-
-/**
- * One form of a cluster: how many families have folded (in fold order), how
- * many of the filter's clause chips have folded into `+M more`, and how the
- * folded families show — as their summary chips, merged into the terminal
- * chip, or as the icon alone.
- */
-interface RailForm {
-    folded: number;
-    chips: number;
-    show: "chips" | "terminal" | "icon";
-}
-
 /** Mount the real Slice.* component for one affordance of a cluster. */
 function renderAffordance(slice: SliceBindValue, kind: string, i: number, foldChips: number | undefined): ReactNode {
     const v = { slice } as never;
@@ -213,149 +175,16 @@ function renderAffordance(slice: SliceBindValue, kind: string, i: number, foldCh
  * @returns One toolbar item per cluster
  */
 export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters: ReadonlyArray<SliceRailClusterSpec>): ToolbarItem[] {
-    const styles = useSlotRecipe({ key: "sliceFrame" })();
-    const chip = useRecipe({ key: "chip" });
-    const btn = useRecipe({ key: "button" });
-    // Every slice change can move what the rail shows — the chips, their words.
     const version = useSliceReactivity(slice?.key);
-    // The cluster whose sectioned editor is open. The editor is the terminal
-    // surface: every affordance of the cluster flat, in `editor` density,
-    // complete however far the cluster has folded.
-    const [open, setOpen] = useState<string | null>(null);
-    if (slice === undefined) return [];
-
-    const state = slice.read();
-    const dimensions = slice.dimensions();
-    const activeCount = activeNarrowingCount(state);
-
-    const summaryChip = (key: string, d: AffordanceDescriptor): ReactNode => (
-        <Box key={key} as="span" css={chip({ tone: d.active ? "brand" : "neutral", numeric: true })} data-slice-fold={d.kind}>
-            <FontAwesomeIcon icon={d.icon} data-chip-icon="" />
-            <Box as="span">{d.text}</Box>
-        </Box>
-    );
-
-    return clusters.filter((cluster) => cluster.kinds.length > 0).map((cluster): ToolbarItem => {
-        const kinds = cluster.kinds;
-        // Fold order: mount indices, lowest COLLAPSE_RANK first (a kind with
-        // no entry folds mid-pack).
-        const foldOrder = kinds
-            .map((kind, i) => ({ i, rank: COLLAPSE_RANK[kind] ?? 3 }))
-            .sort((a, b) => a.rank - b.rank || a.i - b.i);
-        const chipCount = kinds.includes("filter") ? state.filters.length : 0;
-        const forms: RailForm[] = [{ folded: 0, chips: 0, show: "chips" }];
-        const ranks: number[] = [];
-        for (let c = 1; c <= chipCount; c++) {
-            forms.push({ folded: 0, chips: c, show: "chips" });
-            ranks.push(RAIL_RANK.chips);
-        }
-        foldOrder.forEach((o, k) => {
-            forms.push({ folded: k + 1, chips: chipCount, show: "chips" });
-            ranks.push(o.rank);
-        });
-        if (kinds.length > 1) {
-            forms.push({ folded: kinds.length, chips: chipCount, show: "terminal" });
-            ranks.push(RAIL_RANK.terminal);
-            forms.push({ folded: kinds.length, chips: chipCount, show: "icon" });
-            ranks.push(RAIL_RANK.icon);
-        }
-
-        // What the folded families show: their summary chips in fold order;
-        // at the terminal form one chip that NAMES the cluster's contents
-        // (active families first, so an engaged narrowing leads); past it the
-        // icon alone, its tooltip naming them.
-        const trigger = (form: RailForm): ReactNode => {
-            if (form.show === "chips") {
-                return foldOrder.slice(0, form.folded).map((o) => {
-                    const d = affordanceDescriptor(kinds[o.i]!, state, dimensions);
-                    return summaryChip(`fold-${d.kind}-${o.i}`, d);
-                });
-            }
-            const descriptors = kinds
-                .map((kind, idx) => ({ d: affordanceDescriptor(kind, state, dimensions), idx }))
-                .sort((a, b) => (b.d.active ? 1 : 0) - (a.d.active ? 1 : 0) || a.idx - b.idx)
-                .map((o) => o.d);
-            const labels = descriptors.map((d) => d.text);
-            const anyActive = descriptors.some((d) => d.active);
-            const icon = descriptors[0]?.icon ?? faFilter;
-            if (form.show === "icon") {
-                return (
-                    <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true })}
-                        title={labels.length > 0 ? labels.join(" · ") : "Slice"} data-rail-rung="icon">
-                        <FontAwesomeIcon icon={icon} data-chip-icon="" />
-                    </Box>
-                );
-            }
-            const head = labels.slice(0, 2).join(" · ");
-            const extra = labels.length > 2 ? ` +${labels.length - 2}` : "";
-            return summaryChip("all", { kind: "all", icon, text: labels.length > 0 ? head + extra : "Slice", active: anyActive });
-        };
-
-        const editor = (form: RailForm): ReactNode => (
-            <SliceEditPopover
-                open={open === cluster.key}
-                onOpenChange={(o) => setOpen(o ? cluster.key : null)}
-                label={<>Narrowing · <Box as="span" css={styles.railActiveCount}>{`${activeCount} active`}</Box></>}
-                size="lg"
-                footActions={
-                    <chakra.button type="button" css={btn({ variant: "solid", size: "xs" })} onClick={() => setOpen(null)}>
-                        Done
-                    </chakra.button>
-                }
-                trigger={
-                    <Box css={styles.railTrigger} data-slot="railTrigger" onClick={() => setOpen(cluster.key)}>
-                        {trigger(form)}
-                        <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />
-                    </Box>
-                }
-            >
-                <SliceDensityContext.Provider value="editor">
-                    <Box css={styles.railSections}>
-                        {kinds.map((kind, i) => (
-                            <Box key={`sec-${kind}-${i}`} css={styles.railSection}>
-                                <Box as="span" css={styles.railSectionCaption}>{AFFORDANCE_META[kind]?.label ?? kind}</Box>
-                                <Box css={styles.railSectionBody}>{renderAffordance(slice, kind, i, undefined)}</Box>
-                            </Box>
-                        ))}
-                    </Box>
-                </SliceDensityContext.Provider>
-            </SliceEditPopover>
-        );
-
-        // One form: the live affordances in mount order — the filter showing
-        // the chips this form leaves it — then the folded families' trigger.
-        const render = (form: RailForm): ReactNode => {
-            const collapsed = new Set(foldOrder.slice(0, form.folded).map((o) => o.i));
-            return (
-                <SliceDensityContext.Provider value="compact">
-                    <Box css={styles.railCluster} data-slice-rail={cluster.key}>
-                        {kinds.map((kind, i) => {
-                            if (collapsed.has(i)) return null;
-                            const meta = AFFORDANCE_META[kind];
-                            return (
-                                <Box key={`af-${kind}-${i}`} css={styles.railAffordance} title={meta?.label}>
-                                    <Box as="span" css={styles.frameAffordanceIcon}>
-                                        {meta !== undefined && <FontAwesomeIcon icon={meta.icon} />}
-                                    </Box>
-                                    {renderAffordance(slice, kind, i, kind === "filter" ? form.chips : undefined)}
-                                </Box>
-                            );
-                        })}
-                        {form.folded > 0 && editor(form)}
-                    </Box>
-                </SliceDensityContext.Provider>
-            );
-        };
-
-        return {
-            key: cluster.key,
-            side: cluster.side,
-            forms: forms.map(render),
-            rank: ranks,
-            version,
-            held: open === cluster.key,
-        };
-    });
+    const state = slice?.read();
+    const dimensions = slice?.dimensions() ?? [];
+    return useSliceRailItems(slice === undefined || state === undefined ? undefined : {
+        version,
+        activeCount: activeNarrowingCount(state),
+        filterChips: state.filters.length,
+        describe: kind => ({ ...affordanceDescriptor(kind, state, dimensions), label: AFFORDANCE_META[kind]?.label ?? kind }),
+        render: (kind, i, foldChips) => renderAffordance(slice, kind, i, foldChips),
+    }, clusters);
 }
 
 export interface SliceRailClusterProps {
@@ -509,7 +338,7 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
 
 /**
  * Renders an East UI `Slice.Rail` — the cluster as a standalone strip.
- * Place above components reading `Slice.rows([RowType], slice)`; the strip
+ * Place above components reading `Slice.rows(slice)`; the strip
  * narrows them all. A cohort created via "Save as cohort" appends a cohort
  * affordance even when the author didn't list one (unless a `presets` bar —
  * which is already the cohort surface — is mounted, #319). With `"brush"` listed

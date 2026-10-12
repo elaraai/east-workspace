@@ -1017,10 +1017,10 @@ describeEast("Slice", (test) => {
         $(Assert.equal(cfg.fields.get("plan").getTag(), "text"));
         // Every string AND text field is searched by default.
         $(Assert.equal(cfg.searchFieldIds.length(), 3n));
-        const row = $.const(East.value({ activity: "Machining", station: { code: "M2140", n: 1n }, plan: { code: "CNC lathe", n: 4n } }, RowType));
-        const printed = $.const(Slice.state({ search: some("m2140") }));           // the station's `.east` text
-        const projected = $.const(Slice.state({ search: some("4 x cnc lathe") }));  // the plan's display form
-        const value = $.const(Slice.state({ search: some("machining") }));
+        const row = $.const(East.value({ activity: "Routing", station: { code: "R2140", n: 1n }, plan: { code: "CNC router", n: 4n } }, RowType));
+        const printed = $.const(Slice.state({ search: some("r2140") }));           // the station's `.east` text
+        const projected = $.const(Slice.state({ search: some("4 x cnc router") }));  // the plan's display form
+        const value = $.const(Slice.state({ search: some("routing") }));
         const nothing = $.const(Slice.state({ search: some("assembly") }));
         $(Assert.equal(Slice.apply.matches([RowType], printed, cfg, row), true));
         $(Assert.equal(Slice.apply.matches([RowType], projected, cfg, row), true));
@@ -1480,9 +1480,9 @@ pureTest("a text field is searched through its projection (fail-open) and never 
         ["broken",   variant("text", { label: "Broken", accessor: (): string => { throw new Error("no"); }, format: none })],
     ]);
     const config: EngineConfig = { ...engineConfig, fields, searchFieldIds: ["activity", "stations", "broken"] };
-    const row = { activity: "Machining", stations: ["M2140", "M2141"] };
-    nodeAssert.equal(sliceFieldText(config, "activity", row), "Machining");
-    nodeAssert.equal(sliceFieldText(config, "stations", row), "M2140 > M2141");
+    const row = { activity: "Routing", stations: ["R2140", "R2141"] };
+    nodeAssert.equal(sliceFieldText(config, "activity", row), "Routing");
+    nodeAssert.equal(sliceFieldText(config, "stations", row), "R2140 > R2141");
     nodeAssert.equal(sliceFieldText(config, "broken", row), undefined);
     nodeAssert.equal(sliceFieldText(config, "missing", row), undefined);
     // The predicate builder's field list skips the text fields.

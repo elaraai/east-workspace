@@ -20,7 +20,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { SizeType, ColorSchemeType } from "../../style.js";
-import { IconType } from "../../display/icon/types.js";
+import { IconType, refuseNonSolid } from "../../display/icon/types.js";
 import { Text } from "../../typography/text/index.js";
 import {
     ButtonStyleType,
@@ -150,6 +150,8 @@ export interface ButtonOptions extends ButtonStyle {
  * @param options - A single flat options bag (content / state / behaviour /
  *   visual fields)
  * @returns An East expression representing the Button component
+ * @throws When an icon slot holds an icon that is not Font Awesome's solid
+ *   set — East UI draws the solid set only (#1263)
  *
  * @remarks
  * Button is an interactive component for triggering actions. It supports
@@ -208,6 +210,9 @@ function createButton(
         : label as ExprType<UIComponentType>;
 
     const opts: ButtonOptions = options ?? {};
+    refuseNonSolid("Button startIcon", opts.startIcon);
+    refuseNonSolid("Button endIcon", opts.endIcon);
+    refuseNonSolid("Button loadingIcon", opts.loadingIcon);
     const { startIcon, endIcon, loadingText, loadingIcon, loading, disabled, onClick, ...visual } = opts;
     const hasVisual = Object.values(visual).some(field => field !== undefined);
     const styleValue = hasVisual ? buildButtonStyle(opts) : undefined;
@@ -294,6 +299,8 @@ export const Button = {
      * @param label - String (coerced to `Text.Root(s)`) or any UIComponentType expression
      * @param options - Main-level fields plus optional `style` sub-struct
      * @returns An East expression representing the Button component
+     * @throws When an icon slot holds an icon that is not Font Awesome's
+     *   solid set — East UI draws the solid set only (#1263)
      *
      * @remarks
      * Button is an interactive component for triggering actions. It supports

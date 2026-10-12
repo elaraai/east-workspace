@@ -8,14 +8,13 @@ import { Box, Float, IconButton as ChakraIconButton, useSlotRecipe, type IconBut
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
-import { far } from "@fortawesome/free-regular-svg-icons";
-import { fab } from "@fortawesome/free-brands-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { IconButton, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-library.add(fas, far, fab);
+// Font Awesome's solid set alone: East UI draws solid icons only (#1263).
+library.add(fas);
 
 const iconButtonEqual = equivalentFor(IconButton.Types.IconButton);
 

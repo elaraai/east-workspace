@@ -9,7 +9,8 @@
  * Default size `xs` = 22 px circular gray-on-paper with mono 10 px / 600
  * initials in `fg.strong` (`--ink-2`). `brand` variant flips to a
  * `brand.solid` fill with `brand.contrast` initials (spec `.mx-avatar` for
- * matrix grid).
+ * matrix grid). With no name, the fallback draws the person — Font Awesome's
+ * solid `user` (#1263) — in the square Chakra's own icon took.
  *
  * @packageDocumentation
  */
@@ -47,6 +48,10 @@ export const avatarSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             width: "100%",
             height: "100%",
+            /* The person (#1263) in the square Chakra's own icon took: 1.2em
+             * of the fallback's font each way — its font the height, and
+             * `--fa-width` the width. */
+            "& [data-avatar-person]": { fontSize: "1.2em", "--fa-width": "1em" },
         },
     },
     variants: {

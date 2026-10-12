@@ -4,21 +4,13 @@
  */
 
 import { memo, useMemo, useCallback, useState, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
-import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box } from "@chakra-ui/react";
+import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, type SystemStyleObject, Box, useFieldContext, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, parseFor, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import { useValueSync } from "../../hooks/useValueSync";
-
-/** Bordered shell wrapping the date/time segments — same chrome as every input. */
-const dateFieldShell = {
-    ...fieldChrome,
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "{spacing.2}",
-    _focusWithin: fieldFocusRing,
-};
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import {
     CompoundDateField,
@@ -36,6 +28,20 @@ const printInteger = printFor(IntegerType);
 const readInteger = parseFor(IntegerType);
 const printFloat = printFor(FloatType);
 const readFloat = parseFor(FloatType);
+const integerEqual = equalFor(IntegerType);
+const floatEqual = equalFor(FloatType);
+
+/**
+ * A number input's props after its value's data changed: the new value's —
+ * but the box's text kept as typed when it already reads the new number, the
+ * host writing back the number just typed (#1211). Rewritten mid-entry
+ * (`3` → `3.00`, `03` → `3`), the box's caret would no longer follow the
+ * text, and the next key would be lost. Any other number replaces the text.
+ */
+function keepTyped<T>(prev: NumberInputRootProps, next: NumberInputRootProps, number: T, read: (text: string) => { success: true; value: T } | { success: false }, equal: (a: T, b: T) => boolean): NumberInputRootProps {
+    const held = read(prev.value ?? "");
+    return held.success && equal(held.value, number) ? { ...next, value: prev.value } : next;
+}
 
 const stringInputEqual = equivalentFor(Input.Types.String);
 const stringInputDataEqual = equalFor(Input.Types.String);
@@ -164,21 +170,25 @@ export function toChakraIntegerInput(value: IntegerInputValue): NumberInputRootP
     };
 }
 
+/** Raw edit state lets a form retain empty/invalid text without committing a stale number. */
+export interface NumericInputDraft { text: string; label: string; onChange: (text: string) => void }
 export interface EastChakraIntegerInputProps {
     value: IntegerInputValue;
+    draft?: NumericInputDraft;
 }
 
 
 /**
  * Renders an East UI IntegerInput value using Chakra UI Input component.
  */
-export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value }: EastChakraIntegerInputProps) {
+export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ value, draft }: EastChakraIntegerInputProps) {
     const [props, setProps] = useState(toChakraIntegerInput(value));
+    const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useValueSync(value, integerInputDataEqual, () => setProps(toChakraIntegerInput(value)));
+    useValueSync(value, integerInputDataEqual, () => setProps((prev) => keepTyped(prev, toChakraIntegerInput(value), value.value, readInteger, integerEqual)));
 
     // Prevent invalid characters for integers (only digits, minus, and control keys)
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
@@ -226,6 +236,10 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
         }
     }, [onFocusFn]);
 
+    if (draft !== undefined) return <Box css={draftStyles.root}><ChakraInput css={draftStyles.input}
+        aria-label={draft.label} value={draft.text} inputMode="numeric" onKeyDown={handleKeyDown}
+        onChange={event => draft.onChange(event.target.value)} /></Box>;
+
     return (
         <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
             {/* Mobile keyboards (#348): digits-only layout for integers. */}
@@ -236,12 +250,12 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
                 onFocus={handleFocus}
             />
             <ChakraNumberInput.Control>
-                <ChakraNumberInput.IncrementTrigger />
-                <ChakraNumberInput.DecrementTrigger />
+                <ChakraNumberInput.IncrementTrigger><FontAwesomeIcon icon={faChevronUp} /></ChakraNumberInput.IncrementTrigger>
+                <ChakraNumberInput.DecrementTrigger><FontAwesomeIcon icon={faChevronDown} /></ChakraNumberInput.DecrementTrigger>
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => integerInputEqual(prev.value, next.value));
+}, (prev, next) => integerInputEqual(prev.value, next.value) && prev.draft === next.draft);
 
 
 const floatInputEqual = equivalentFor(Input.Types.Float);
@@ -253,6 +267,8 @@ export type FloatInputValue = ValueTypeOf<typeof Input.Types.Float>;
 
 /**
  * Converts an East UI FloatInput value to Chakra UI NumberInput.Root props.
+ * A precision is the box's number format too: shown when the box rests, at
+ * that many decimal places (#1211).
  */
 export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps {
     const precision = getSomeorUndefined(value.precision);
@@ -262,6 +278,7 @@ export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps
 
     return {
         value: displayValue,
+        ...(precision !== undefined ? { formatOptions: { minimumFractionDigits: Number(precision), maximumFractionDigits: Number(precision) } } : {}),
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
         step: getSomeorUndefined(value.step),
@@ -272,19 +289,21 @@ export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps
 
 export interface EastChakraFloatInputProps {
     value: FloatInputValue;
+    draft?: NumericInputDraft;
 }
 
 
 /**
  * Renders an East UI FloatInput value using Chakra UI Input component.
  */
-export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }: EastChakraFloatInputProps) {
+export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value, draft }: EastChakraFloatInputProps) {
     const [props, setProps] = useState(toChakraFloatInput(value));
+    const draftStyles = useSlotRecipe({ key: "numberInput" })({ size: props.size ?? "md" });
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useValueSync(value, floatInputDataEqual, () => setProps(toChakraFloatInput(value)));
+    useValueSync(value, floatInputDataEqual, () => setProps((prev) => keepTyped(prev, toChakraFloatInput(value), value.value, readFloat, floatEqual)));
 
     const handleValueChange = useCallback((details: { value: string }) => {
         const raw = details.value;
@@ -310,6 +329,10 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
         }
     }, [onFocusFn]);
 
+    if (draft !== undefined) return <Box css={draftStyles.root}><ChakraInput css={draftStyles.input}
+        aria-label={draft.label} value={draft.text} inputMode="decimal"
+        onChange={event => draft.onChange(event.target.value)} /></Box>;
+
     return (
         <ChakraNumberInput.Root {...props} onValueChange={handleValueChange}>
             {/* Mobile keyboards (#348): decimal layout for floats. */}
@@ -319,12 +342,12 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
                 onFocus={handleFocus}
             />
             <ChakraNumberInput.Control>
-                <ChakraNumberInput.IncrementTrigger />
-                <ChakraNumberInput.DecrementTrigger />
+                <ChakraNumberInput.IncrementTrigger><FontAwesomeIcon icon={faChevronUp} /></ChakraNumberInput.IncrementTrigger>
+                <ChakraNumberInput.DecrementTrigger><FontAwesomeIcon icon={faChevronDown} /></ChakraNumberInput.DecrementTrigger>
             </ChakraNumberInput.Control>
         </ChakraNumberInput.Root>
     );
-}, (prev, next) => floatInputEqual(prev.value, next.value));
+}, (prev, next) => floatInputEqual(prev.value, next.value) && prev.draft === next.draft);
 
 
 // Pre-define equality functions at module level
@@ -380,6 +403,8 @@ export interface ChakraDateTimeInputProps {
     timeValue: Time;
     precision: "date" | "time" | "datetime";
     disabled: boolean;
+    /** The input's size: the line its bordered box takes, as a text input of that size does (#1220). */
+    size: "xs" | "sm" | "md" | "lg";
 }
 
 /**
@@ -388,11 +413,13 @@ export interface ChakraDateTimeInputProps {
  */
 export function toChakraDateTimeInput(value: DateTimeInputValue): ChakraDateTimeInputProps {
     const dateValue = value.value;
+    const style = getSomeorUndefined(value.style);
     return {
         calendarDate: dateToCalendarDate(dateValue),
         timeValue: dateToTime(dateValue),
         precision: (getSomeorUndefined(value.precision)?.type as "date" | "time" | "datetime") ?? "datetime",
         disabled: getSomeorUndefined(value.disabled) ?? false,
+        size: (style === undefined ? undefined : getSomeorUndefined(style.size)?.type) ?? "md",
     };
 }
 
@@ -403,9 +430,12 @@ export interface EastChakraDateTimeInputProps {
 /**
  * Renders an East UI DateTimeInput value using compound date field components.
  * Supports date-only, time-only, and datetime modes based on the precision property.
+ * The bordered box around them is the `dateField` recipe's `shell`, at the
+ * input's size.
  */
 export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ value }: EastChakraDateTimeInputProps) {
     const [props, setProps] = useState(toChakraDateTimeInput(value));
+    const shell = (useSlotRecipe({ key: "dateField" })({ size: props.size }) as Record<string, SystemStyleObject>).shell;
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
 
     // Mirror the latest local props so handlers can read the cross-field
@@ -415,6 +445,16 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     propsRef.current = props;
 
     useValueSync(value, dateTimeInputDataEqual, () => setProps(toChakraDateTimeInput(value)));
+
+    // Inside a Field, as the field's Ark inputs are: its label names the date
+    // and the time, its help describes them, and its read-only holds them
+    // (#1147). Outside one, the input is as its value says.
+    const field = useFieldContext();
+    const labelled = field === undefined ? {} : {
+        "aria-labelledby": field.ids.label,
+        ...(field.ariaDescribedby !== undefined && { "aria-describedby": field.ariaDescribedby }),
+    };
+    const readOnly = props.disabled || field?.readOnly === true;
 
     // Handle date change
     const handleDateChange = useCallback((newDate: DateValue | null) => {
@@ -443,8 +483,8 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     // Render based on precision
     if (props.precision === "time") {
         return (
-            <Box css={dateFieldShell}>
-                <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={props.disabled}>
+            <Box css={shell}>
+                <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={readOnly} {...labelled}>
                     <TimeInput>
                         {({ segment }) => <TimeSegment segment={segment} />}
                     </TimeInput>
@@ -455,8 +495,8 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
 
     if (props.precision === "date") {
         return (
-            <Box css={dateFieldShell}>
-                <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
+            <Box css={shell}>
+                <CompoundDateField size={props.size} value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
                     <CompoundDateInput>
                         {({ segment }) => <CompoundDateSegment segment={segment} />}
                     </CompoundDateInput>
@@ -467,13 +507,13 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
 
     // Default: datetime (both date and time)
     return (
-        <Box css={dateFieldShell}>
-            <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
+        <Box css={shell}>
+            <CompoundDateField size={props.size} value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
                 <CompoundDateInput>
                     {({ segment }) => <CompoundDateSegment segment={segment} />}
                 </CompoundDateInput>
             </CompoundDateField>
-            <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={props.disabled}>
+            <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={readOnly} {...labelled}>
                 <TimeInput>
                     {({ segment }) => <TimeSegment segment={segment} />}
                 </TimeInput>

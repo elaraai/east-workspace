@@ -16,10 +16,12 @@ import {
 import { ColorSchemeType, OverflowType } from "../../style.js";
 import type { ColorSchemeLiteral, OverflowLiteral } from "../../style.js";
 import { PaddingType, MarginType } from "../../layout/style.js";
+import type { SolidIconPrefix } from "./solid.js";
 
 // Re-export Font Awesome types for convenience
-import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+import type { IconName } from "@fortawesome/fontawesome-common-types";
 export type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
+export { SOLID_PREFIX, refuseNonSolid, type SolidIconPrefix } from "./solid.js";
 
 // ============================================================================
 // Icon Size Type
@@ -71,25 +73,15 @@ export type IconSizeLiteral = "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
  * Font Awesome icon style/variant.
  *
  * @remarks
- * Determines which icon set to use.
+ * Names the icon set: East UI draws Font Awesome's solid set only (#1263), so
+ * `solid` is its one case — the regular, light, thin and brands sets came off
+ * with it.
  *
  * @property solid - Solid filled icons (fas)
- * @property regular - Regular outlined icons (far)
- * @property light - Light weight icons (fal) - requires FA Pro
- * @property thin - Thin weight icons (fat) - requires FA Pro
- * @property brands - Brand logos (fab)
  */
 export const IconVariantType = VariantType({
     /** Solid filled icons (fas) */
     solid: NullType,
-    /** Regular outlined icons (far) */
-    regular: NullType,
-    /** Light weight icons (fal) - requires FA Pro */
-    light: NullType,
-    /** Thin weight icons (fat) - requires FA Pro */
-    thin: NullType,
-    /** Brand logos (fab) */
-    brands: NullType,
 });
 
 /**
@@ -98,9 +90,9 @@ export const IconVariantType = VariantType({
 export type IconVariantType = typeof IconVariantType;
 
 /**
- * String literal type for icon variant values.
+ * String literal type for icon variant values: the solid set alone (#1263).
  */
-export type IconVariantLiteral = "solid" | "regular" | "light" | "thin" | "brands";
+export type IconVariantLiteral = "solid";
 
 // ============================================================================
 // Icon Style Type (component styling)
@@ -116,7 +108,7 @@ export type IconVariantLiteral = "solid" | "regular" | "light" | "thin" | "brand
  * struct.
  *
  * @property size - Icon size (xs / sm / md / lg / xl / 2xl)
- * @property variant - Icon style / weight (solid / regular / light / thin / brands)
+ * @property variant - Icon set: `solid`, the one East UI draws (#1263)
  * @property color - Explicit icon tint (CSS colour or Chakra colour token)
  * @property background - Explicit icon tile background override
  * @property colorPalette - Colour palette for the icon
@@ -169,7 +161,7 @@ export type IconStyleType = typeof IconStyleType;
  * `IconStyleType` sub-struct expected by the IR.
  *
  * @property size - Icon size (xs / sm / md / lg / xl / 2xl)
- * @property variant - Icon style / weight (solid / regular / light / thin / brands)
+ * @property variant - Icon set: `solid`, the one East UI draws (#1263)
  * @property color - Icon tint (CSS colour or Chakra colour token)
  * @property background - Icon tile background colour
  * @property colorPalette - Colour palette for the icon
@@ -188,8 +180,8 @@ export type IconStyleType = typeof IconStyleType;
  * @property margin - Margin (struct or shorthand for all 4 sides)
  */
 export interface IconStyle {
-    /** Font Awesome icon prefix (`"fas"`, `"far"`, …) — required. */
-    prefix: IconPrefix;
+    /** Font Awesome icon prefix: `"fas"`, the solid set, the one East UI draws (#1263) — required; another is refused at build. */
+    prefix: SolidIconPrefix;
     /** Font Awesome icon name — required. */
     name: IconName;
     /**
@@ -204,7 +196,7 @@ export interface IconStyle {
     label?: SubtypeExprOrValue<StringType>;
     /** Icon size (xs / sm / md / lg / xl / 2xl) */
     size?: SubtypeExprOrValue<IconSizeType> | IconSizeLiteral;
-    /** Icon style / weight (solid / regular / light / thin / brands) */
+    /** Icon set: `solid`, the one East UI draws (#1263) */
     variant?: SubtypeExprOrValue<IconVariantType> | IconVariantLiteral;
     /** Icon tint (CSS colour or Chakra colour token) */
     color?: SubtypeExprOrValue<StringType>;
@@ -258,7 +250,7 @@ export interface IconStyle {
  * `aria-label={label}`. Apps using Icon alongside text that already
  * describes the glyph should leave `label` unset.
  *
- * @property prefix - Font Awesome prefix (e.g. "fas", "far", "fab")
+ * @property prefix - Font Awesome prefix: `"fas"`, the solid set — East UI draws no other (#1263)
  * @property name - Font Awesome icon name (e.g. "user", "home", "chevron-right")
  * @property label - Accessible label — absent ⇒ decorative (aria-hidden), present ⇒ aria-label
  * @property style - Optional visual style sub-struct (see {@link IconStyleType})

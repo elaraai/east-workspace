@@ -13,6 +13,7 @@ import {
     getTrackersVersion,
 } from "./tracker.js";
 import { EastErrorBoundary, EastErrorDisplay, toEastErrorInfo } from "./error-display.js";
+import { ReadScope } from "./read-scope.js";
 
 /**
  * Value type for ReactiveComponent variant.
@@ -46,6 +47,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     // Re-render when trackers are added/removed (e.g. DatasetProvider mounts)
     const trackersVersion = useSyncExternalStore(subscribeTrackers, getTrackersVersion);
     const trackers = getReactiveTrackers();
+    const scope = useMemo(() => new ReadScope(), []);
 
     // Track which keys each tracker records
     const depsRef = useRef<Map<string, string[]>>(new Map());
@@ -65,7 +67,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
         for (const t of trackers) t.enableTracking();
 
         try {
-            const result = fn();
+            const result = scope.run(fn);
             const deps = new Map<string, string[]>();
             for (const t of trackers) {
                 deps.set(t.id, t.disableTracking());
@@ -83,7 +85,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
             depsSigRef.current = depsSignature(deps);
             return { ok: false, error: e };
         }
-    }, [fn, trackers]);
+    }, [fn, trackers, scope]);
 
     // Subscribe to the keys we depend on across all trackers
     const subscribe = useCallback((cb: () => void) => {

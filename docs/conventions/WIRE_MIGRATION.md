@@ -78,3 +78,43 @@ change to one is a new version of the thing, not an edit to it.
 - **The beast2 well-known type registry:** its ids are pinned.
 - **The segment manifest** (`$segments`): readers recognize it by its exact
   field set, so a changed struct is a different object to every reader.
+
+## Changes
+
+- **east-ui's `UIComponentType` loses its heatmap `Calendar` arm (#1144, #1146)** — package-borne. Re-export packages with the current SDK: variant case indexes after Calendar change. The record-backed calendar is e3-ui's single `<Calendar>` extension; its renderer is in e3-ui-components. The shared Schedule kind also gains the by-key event read, schedule roles and inspector/overlap fields used by Plan and Calendar. Application event, resource and template records retain their own types; no stored record migration is introduced.
+
+Each wire changed under this rule, with the kind it is.
+
+- **east-ui's `UIComponentType` loses its `Plan` arm (#1177, #1191)** —
+  package-borne. The canvas is e3-ui's `<Plan>`, carried as the `Plan`
+  extension, its payload the canvas, its event kinds and their resources. A
+  variant encodes its case by its index among its
+  cases, which are sorted by name, so every case after `Plan` moves down one,
+  and a UI value encoded under either type does not decode under the other.
+  A UI task carries the type in its IR and in what it outputs, so packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type.
+- **east-ui's `UIComponentType` loses its `Sheet` arm (#1179, #1216)** —
+  package-borne. The spreadsheet is e3-ui's `<Sheet>`, carried as the `Sheet`
+  extension, its payload the sheet and its panes. As with the Plan's arm,
+  every case after `Sheet` moves down one, so a UI value encoded under either
+  type does not decode under the other: packages are re-exported, and the
+  dataflow computes each UI task's output again under the new type.
+- **east-ui's `UIComponentType`'s `EmptyState` arm loses its `glyph` (#1263)**
+  — package-borne. An empty state's one mark is its `icon`, a Font Awesome
+  solid icon, and `EmptyState`'s text `glyph` is refused at build. The arm's
+  fields after `glyph` move up one, so a UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it.
+- **east-ui's `IconType` style `variant` keeps only `solid` (#1263)** —
+  package-borne. East UI draws Font Awesome's solid set only: an icon's
+  `prefix` stays a String, which a factory refuses at build when it is not
+  `"fas"`, naming the icon, and `IconVariantType` loses its `brands`, `light`,
+  `regular` and `thin` cases. `solid` moves from the fourth case to the first,
+  so an icon's style that names its variant under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. As with the EmptyState's glyph, no
+  repository upgrade step ships with it.
+
+- **east-ui's `UIComponentType` loses its `Board` and `Roster` arms (#1162, #1174)** — package-borne. Re-export packages and recompute UI task outputs: the sorted variant case indexes change. Staffing now uses e3-ui's `Roster` extension. Its new `Roster.Types.Weeks` is an application record type; this change does not rewrite an existing backend record or introduce a repository upgrade step. Applications adopting it declare and seed their own weeks record.

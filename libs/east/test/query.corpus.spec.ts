@@ -12,12 +12,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  BlobType, EastTypeType, JqType, StringType,
+  BlobType, EastTypeType, IRType, JqType, StringType,
   canonicalTypeValue, decodeBeast2For, equalFor, isTypeValueEqual, toEastTypeValue,
 } from "../src/index.js";
 import {
   PYTHON_CATALOG, QUERY_CORPUS, QUERY_WIRE_TYPES, QueryCorpusFixtureType,
-  assertFixtureCurrent, catalogJson, queryCorpusBytes, typeValueBytes,
+  assertFixtureCurrent, catalogJson, queryCorpusBytes, renameRecursiveIds, typeValueBytes, withCanonicalRecursiveIds,
 } from "./query.corpus.js";
 
 const CORPUS_FILE = new URL("../../test/fixtures/query-corpus.beast2", import.meta.url);
@@ -69,6 +69,26 @@ describe("query corpus", () => {
       assert.ok(isTypeValueEqual(typeValue, toEastTypeValue(type)), `${name} decodes to itself`);
       assert.ok(equalFor(EastTypeType)(typeValue, canonicalTypeValue(typeValue)), `${name} is canonically numbered`);
     }
+  });
+
+  test("each query call and translation holds its recursive types' ids canonically, so it does not depend on how the process numbered its types (#1207)", () => {
+    const equalIR = equalFor(IRType);
+    const decodeIR = decodeBeast2For(IRType);
+    let recursive = 0;
+    for (const entry of corpus.cases) {
+      const held = [
+        ...(entry.called.type === "some" ? [["call", entry.called.value] as const] : []),
+        ...(entry.translated.type === "some" ? [["translation", decodeIR(entry.translated.value)] as const] : []),
+      ];
+      for (const [what, ir] of held) {
+        assert.ok(equalIR(ir, withCanonicalRecursiveIds(ir)), `${entry.case.name}'s ${what} holds its ids canonically`);
+        // The same IR as a process that numbered its types otherwise builds it.
+        const elsewhere = renameRecursiveIds(ir, (id) => id + 1000n);
+        if (!equalIR(elsewhere, ir)) recursive += 1;
+        assert.ok(equalIR(withCanonicalRecursiveIds(elsewhere), ir), `${entry.case.name}'s ${what} renames back to itself`);
+      }
+    }
+    assert.ok(recursive > 0, "no query call or translation holds a recursive type, so nothing here was renamed");
   });
 
   test("every case is in the fixture, in corpus order, with its input type and program", () => {
