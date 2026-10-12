@@ -83,10 +83,11 @@ export type RecordSliceFieldType = typeof RecordSliceFieldType;
  * @property name - Source selector.
  * @property fields - Row fields in index order.
  * @property sets - Fields that fan out; all must be fixed to one exact value.
+ * @property structured - Index key is a Struct, including a single computed field.
  * @property interval - Final field represents overlap with an interval, using distinct start/carry-in queries.
  */
 export const RecordSliceIndexType = StructType({
-    name: StringType, fields: ArrayType(StringType), sets: SetType(StringType),
+    name: StringType, fields: ArrayType(StringType), sets: SetType(StringType), structured: BooleanType,
     interval: OptionType(StructType({ from: StringType, to: StringType, optional: BooleanType })),
 });
 export type RecordSliceIndexType = typeof RecordSliceIndexType;

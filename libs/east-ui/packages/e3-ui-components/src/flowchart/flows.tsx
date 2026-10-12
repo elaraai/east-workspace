@@ -29,11 +29,14 @@
  */
 
 import { useMemo, useState } from "react";
-import { Box, chakra, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { EastChakraLibrary, EmptyStateView, getSomeorUndefined, type LibraryItemValue, type LibraryValue } from "@elaraai/east-ui-components";
+import { LibraryCard, PagedLibrary } from "@elaraai/east-ui-components/internal";
+import type { FlowchartPagedRecord } from "./window.js";
+import { draftedEntry, type FlowSessions } from "./session.js";
 import { NamePopover } from "../shared/name-popover.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartFlowValue } from "./model.js";
@@ -59,11 +62,11 @@ export interface NewFlowProps {
     /** Every name the flowchart holds: its flows, and its new flows not yet saved. */
     readonly taken: ReadonlySet<string>;
     /** Starts a flow of a new name. */
-    readonly onCreate: (name: string) => void;
+    readonly onCreate: (name: string) => void | Promise<string | undefined>;
 }
 
-/** The flows' cards fill the pane and scroll there, every card mounted. */
-const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none });
+/** The flows' cards fill the pane and scroll there. */
+const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(true), columns: none, mediaPlacement: none, mediaSize: none });
 
 /** A flow's icon, on its card and in the empty state: Font Awesome's solid set. */
 const FLOW_ICON = "diagram-project";
@@ -135,8 +138,7 @@ export function NewFlow({ taken, onCreate, styles, words }: NewFlowProps & { rea
             confirm={m.createFlow()}
             cancel={m.cancel()}
             onConfirm={async (name) => {
-                onCreate(name);
-                return undefined;
+                return (await onCreate(name)) ?? undefined;
             }}
         />
     );
@@ -226,4 +228,30 @@ export function FlowsTab({ cards, open, onOpen, newFlow, id, storageKey, styles,
             )}
         </Box>
     );
+}
+
+/** The record's filtered, paged flow list; draft overlays use original record IDs. */
+export function PagedFlowsTab({ source, sessions, fresh, ...props }: Omit<FlowsTabProps, "cards"> & {
+    source: FlowchartPagedRecord;
+    sessions: FlowSessions;
+    fresh: readonly FlowCard[];
+}) {
+    const { id, styles, words, open, onOpen, newFlow } = props;
+    const libraryStyles = useSlotRecipe({ key: "library" })() as Styles;
+    return <Box css={styles.flowsTab} data-flowchart-flows="">
+        {fresh.length > 0 && <Box css={styles.flowsDrafts}>
+            {fresh.map(card => <LibraryCard key={card.name} libraryId={id} item={flowItem(card, card.name === open, words)}
+                dimOrder={[]} activeDims={[]} filtered={false} styles={libraryStyles} onCardClick={onOpen} onCardEnter={undefined} />)}
+        </Box>}
+        <Box css={styles.flowsList}>
+            <PagedLibrary source={source.window} id={id} onOpen={onOpen} item={row => {
+                const session = sessions.get(row.name);
+                const pending = (session?.pending ?? 0) > 0;
+                const draft = pending && session !== undefined ? draftedEntry(session, row.name) : undefined;
+                return flowItem({ name: row.name, label: draft?.name ?? row.name, flow: draft?.flow ?? row.flow, pending },
+                    open !== undefined && nameEqual(row.name, open), words);
+            }} />
+        </Box>
+        {newFlow !== undefined && <Box css={styles.flowsFoot}><NewFlow {...newFlow} styles={styles} words={words} /></Box>}
+    </Box>;
 }

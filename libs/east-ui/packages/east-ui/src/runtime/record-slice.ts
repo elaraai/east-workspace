@@ -8,7 +8,7 @@ import {
     StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { recordSliceFieldSchema, type RecordSliceFieldSchema } from "../platform/slice/record.js";
+import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import { planRecordSlice, recordChoiceWhere, recordPlanIndex, type RecordSlicePlan } from "../platform/slice/record-plan.js";
 import type { RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, RecordSliceChoiceType, RecordSliceCountType, RecordSliceDomainType } from "../platform/slice/record-types.js";
 import { RecordSliceSource, type RecordSliceReader } from "./record-slice-source.js";
@@ -63,14 +63,16 @@ export class RecordSliceController {
      * @param readState - Tracked state read.
      * @param writeState - Shared store write, including persistence.
      * @param primaryKey - Original key type; String ids stay raw, other ids are East literals.
+     * @param indexes - Type metadata for computed fields, carried by the source.
      */
     constructor(readonly source: RecordSliceBinding, readonly config: Config, row: StructType,
-        readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType) {
+        readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType) {
         this.encodeRow = encodeBeast2For(row);
         this.decodeRow = decodeBeast2For(row);
         this.windows = new RecordSliceSource(source);
+        const fieldTypes = recordSliceFieldTypes(row, indexes);
         for (const field of config.fields) {
-            const type = row.fields[field.fieldId];
+            const type = fieldTypes[field.fieldId];
             if (type === undefined) throw new Error(`Unknown field '${field.label}'`);
             const schema = recordSliceFieldSchema(type, field.fieldId);
             this.schemas.set(field.fieldId, schema);
@@ -186,7 +188,7 @@ export class RecordSliceController {
         let pending = false;
         const keyOf = (entry: RecordSliceEntry): unknown => {
             if (entry.ik.type !== index.name) throw new Error("The source returned a different ordering");
-            return index.fields.length === 1 && index.interval.type === "none" ? entry.ik.value : (entry.ik.value as Record<string, unknown>)[field];
+            return !index.structured ? entry.ik.value : (entry.ik.value as Record<string, unknown>)[field];
         };
         for (const run of bounds.value.runs) {
             if (run.count === 0n) continue;
@@ -198,10 +200,10 @@ export class RecordSliceController {
             const end = last.value[0];
             if (entry === undefined || end === undefined) throw new Error("The results changed while reading the range; retry");
             if (schema.optional && (keyOf(entry) as option<unknown>).type === "none") {
-                const fields = index.fields.length > 1 || index.interval.type === "some"
+                const fields = index.structured
                     ? index.fields.slice(0, position + 1).map(name => this.print.get(name)!((entry!.ik.value as Record<string, unknown>)[name])) : [];
                 if (index.interval.type === "some") fields.splice(index.fields.length - 1, 0, "0");
-                const query: ValueTypeOf<SeekQueryType> = index.fields.length === 1 && index.interval.type === "none" ? variant("key", print(none))
+                const query: ValueTypeOf<SeekQueryType> = !index.structured ? variant("key", print(none))
                     : variant("fields", { values: fields, prefix: none });
                 const unset = this.source.seek(index.name, query);
                 if (unset.type === "none") { pending = true; continue; }
@@ -334,7 +336,7 @@ export class RecordSliceController {
                 const entry = page.value[0];
                 if (entry === undefined) throw new Error("The results changed while searching; retry");
                 if (entry.ik.type !== index.name) throw new Error("The source returned a different ordering");
-                const key = index.fields.length === 1 ? entry.ik.value : (entry.ik.value as Record<string, unknown>)[field];
+                const key = !index.structured ? entry.ik.value : (entry.ik.value as Record<string, unknown>)[field];
                 const literal = this.print.get(field)!(key);
                 if (!seen.has(literal)) {
                     seen.add(literal);
@@ -342,7 +344,7 @@ export class RecordSliceController {
                     const value = schema.optional ? optional.type === "some" ? optional.value : "Unset" : key as string;
                     values.push(this.counted(field, literal, value));
                 }
-                const query: ValueTypeOf<SeekQueryType> = index.fields.length === 1 ? variant("key", literal)
+                const query: ValueTypeOf<SeekQueryType> = !index.structured ? variant("key", literal)
                     : variant("fields", { values: index.fields.slice(0, position + 1).map(name => this.print.get(name)!((entry.ik.value as Record<string, unknown>)[name])), prefix: none });
                 const next = this.source.seek(index.name, query);
                 if (next.type === "none") return none;

@@ -26,6 +26,8 @@ import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { useLayoutEffect, useRef } from "react";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
+import { I18nProvider } from "@react-aria/i18n";
+import { formatters } from "../../format/index.js";
 import { East, BooleanType, NullType, type ValueTypeOf } from "@elaraai/east";
 import { Dock, Text, State, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
@@ -229,6 +231,31 @@ describe("Dock — the pane's tab row and its rail", () => {
 });
 
 describe("DockPane — the open tab, driven by its host (K1, #935)", () => {
+    test("numeric rail counts abbreviate in the app locale, retaining the exact count and full tab count", () => {
+        initializeStore(new UIStore());
+        const ui = (locale: string, count: number, collapsed: boolean) => <ChakraProvider value={system}>
+            <I18nProvider locale={locale}><DockPane storageKey="dock-large-count" label="Library" collapsed={collapsed} badge={count}
+                tabs={[{ key: "flows", label: "Flows", count, body: "FLOWS" }]} /></I18nProvider>
+        </ChakraProvider>;
+        const view = render(ui("en-US", 2048, true));
+        for (const locale of ["en-US", "de-DE"]) {
+            for (const count of [0, 999, 2048, 999499, 1234567, 1234567890]) {
+                view.rerender(ui(locale, count, true));
+                const badge = view.container.querySelector("[data-dock-badge]")!;
+                expect(badge.getAttribute("title")).toBe(formatters(locale).number(count));
+                const full = formatters(locale).number(count);
+                const compact = formatters(locale).compact(count);
+                if (compact === full) expect(badge.textContent).toBe(full);
+                else {
+                    expect(badge.querySelector("[aria-hidden]")!.textContent).toBe(compact);
+                    expect(badge.lastElementChild!.textContent).toBe(full);
+                }
+            }
+            view.rerender(ui(locale, 1234567, false));
+            expect(view.getByRole("tab", { name: `Flows ${formatters(locale).number(1234567)}` })).toBeTruthy();
+        }
+    });
+
     const tabs = [
         { key: "query", label: "Query", body: "STEPS" },
         { key: "datasets", label: "Datasets", body: "SOURCES" },

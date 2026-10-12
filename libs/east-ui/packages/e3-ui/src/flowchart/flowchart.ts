@@ -18,6 +18,7 @@
  */
 
 import type { StringType, SubtypeExprOrValue } from "@elaraai/east";
+import type { RecordSliceChromeOptions } from "@elaraai/east-ui/internal";
 import type { UIElement } from "@elaraai/east-ui";
 import type { FlowchartSliceOptions } from "./canvas.js";
 import type { FlowchartLibraryTab, FlowchartOneFlowLibraryTab } from "./library.js";
@@ -42,6 +43,10 @@ import type { FlowchartFlowType, FlowchartFlowsType } from "./types.js";
 export function FlowchartTag(
     props: {
         record: FlowchartRecordHandle;
+        /** Page flows through Data.bindPaged(record), or Slice.rows of a record slice. */
+        window?: { readonly page: unknown; readonly total: unknown };
+        /** Shared index filters for the record's flows; never filters the open flow's children. */
+        slice?: RecordSliceChromeOptions;
         /** Over many flows, the one opened first. */
         flow?: SubtypeExprOrValue<StringType>;
         /** The library pane's tabs, in order, each a `Flowchart.library.*` call; left out, or empty, no library pane. */

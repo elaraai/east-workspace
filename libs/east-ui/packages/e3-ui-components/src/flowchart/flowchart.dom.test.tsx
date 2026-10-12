@@ -241,7 +241,11 @@ describe("LR · TD and find state (#1245)", () => {
 
     it("find state finds the open flow's states by key and by label, and a pick selects the state", async () => {
         const { container } = mount(payload(hostFlow(sortFlow())));
-        const box = within(container).getByPlaceholderText("Search keys");
+        const box = within(container).getByPlaceholderText("Find state");
+        await userEvent.click(box);
+        await waitFor(() => expect(screen.getAllByRole("option").map(o => o.textContent)).toEqual(["CH* · CH* label", "IND · IND label", "SRD · SRD label"]));
+        fireEvent.click(screen.getByRole("option", { name: "CH* · CH* label" }));
+        await waitFor(() => expect(container.querySelector('[data-flowchart-node="CH*"]')!.hasAttribute("data-selected")).toBe(true));
         await userEvent.type(box, "lab");
         // Every label holds the text: three states, in their keys' order.
         await waitFor(() => expect(within(container).getByText("3 matches")).toBeTruthy());
@@ -258,6 +262,9 @@ describe("LR · TD and find state (#1245)", () => {
         fireEvent.click(screen.getByText("IND · IND label"));
         await waitFor(() => expect(container.querySelector('[data-flowchart-node="IND"]')!.hasAttribute("data-selected")).toBe(true));
         expect(container.querySelector('[data-flowchart-node="SRD"]')!.hasAttribute("data-selected")).toBe(false);
+        fireEvent.change(box, { target: { value: "zzzz" } });
+        await waitFor(() => expect(screen.getByText("No matching states. Search by state key or label.")).toBeTruthy());
+        expect(screen.queryByText(/Keys are case-sensitive/)).toBeNull();
     });
 });
 

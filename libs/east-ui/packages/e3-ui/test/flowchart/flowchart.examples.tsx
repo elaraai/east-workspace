@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType,
     example, none, some, variant,
 } from "@elaraai/east";
 import { Badge, Box, Button, Configurator, Editing, HStack, Reactive, Slice, State, Switch, Text, UIComponentType, VStack } from "@elaraai/east-ui";
@@ -498,6 +498,89 @@ export const flowchartDetail = example({
             return (
                 <Box height="560px">
                     <Flowchart record={flows} canConnect={canConnect} inspector={{ state, transition }} name="detail" />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+
+// A network's route flowcharts: enough independent record entries to exercise
+// multiple pages and eviction. Each entry remains one complete graph.
+export const indexedFlows = e3.record("flowchart_indexed_flows", Flowchart.Types.Flows,
+    Flowchart.values(Object.fromEntries(Array.from({ length: 2048 }, (_, i) => {
+        const checks = [
+            { key: "CHK", label: "Checked", lane: "review" },
+            { key: "HLD", label: "Held", lane: "review" },
+            { key: "REL", label: "Released", lane: "review" },
+        ].slice(0, i % 4);
+        const states = [
+            { key: "ARV", label: "Arrived", lane: "intake" },
+            { key: "SCN", label: "Scanned", lane: "intake" },
+            ...checks,
+            { key: "LDD", label: "Loaded", lane: "dispatch" },
+        ];
+        return [`FLOW-${10000 + i}`, {
+            description: ["Inbound parcels", "Returns", "Collections"][i % 3]!,
+            lanes: [{ key: "intake", label: "Intake" },
+                ...(checks.length ? [{ key: "review", label: "Review" }] : []),
+                { key: "dispatch", label: "Dispatch" }],
+            states,
+            links: states.slice(1).map((state, j) => ({ from: states[j]!.key, to: state.key,
+                ...(j === 0 && i % 5 !== 0 ? { trigger: "route" } : {}) })),
+            triggers: i % 5 === 0 ? [] : [{ key: "route", label: "Route", owner:
+                ["sort-planner", "customs-desk", "shift-lead"][Math.floor(i / 4) % 3]! }],
+        }];
+    }))));
+export const indexedFlowsPatch = e3.mutation.patch(indexedFlows);
+export const flowsByDescription = e3.recordIndex("flowchart_by_description", indexedFlows, { on: ["description"] });
+// Slice derives controls from each computed index’s declared key type. Scalar
+// keys use the index name; a composite key supplies its field names.
+export const flowsByStateCount = e3.recordIndex("stateCount", indexedFlows, {
+    key: East.function([StringType, Flowchart.Types.Flow], IntegerType,
+        (_$, _id, flow) => flow.states.size()),
+});
+export const flowsByDescriptionStateCount = e3.recordIndex("flowchart_by_description_state_count", indexedFlows, {
+    key: East.function([StringType, Flowchart.Types.Flow], StructType({ description: OptionType(StringType), stateCount: IntegerType }),
+        (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() })),
+});
+export const flowsByLane = e3.recordIndex("lane", indexedFlows, {
+    keys: East.function([StringType, Flowchart.Types.Flow], SetType(StringType),
+        (_$, _id, flow) => flow.lanes.toSet((_$2, lane) => lane.key)),
+});
+export const flowsByDecisionOwner = e3.recordIndex("decisionOwner", indexedFlows, {
+    keys: East.function([StringType, Flowchart.Types.Flow], SetType(OptionType(StringType)),
+        (_$, _id, flow) => flow.triggers.toSet((_$2, trigger) => trigger.owner)),
+});
+
+export const flowchartRecordIndexes = example({
+    keywords: ["Flowchart", "record", "indexes", "computed indexes", "state count", "lane", "decision owner", "recordIndex", "Slice.bindRecord", "Slice.rows", "Data.bindPaged", "paging", "Flows tab", "mobile", "Save"],
+    description: "2,048 route flowcharts in a paged record. Shared Slice filters use maintained indexes on description, computed state count, lane and decision owner. Choose an exact description plus a state-count range together; lane and owner use exact membership. The Flows tab pages results, and drafts keep their original record ID through filtering and Save.",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(indexedFlows, [indexedFlowsPatch]));
+            const indexed = $.let(Data.bindPaged(indexedFlows, { indexes: [flowsByDescription, flowsByStateCount, flowsByDescriptionStateCount, flowsByLane, flowsByDecisionOwner] }));
+            const slice = $.let(Slice.bindRecord("flowchart.recordIndexes", indexed, {
+                fields: {
+                    description: { label: "Flows" },
+                    stateCount: { label: "State count" },
+                    lane: { label: "Lane" },
+                    decisionOwner: { label: "Decision owner" },
+                },
+                search: ["description", "lane", "decisionOwner"],
+                presets: [
+                    { id: "inbound", name: "Inbound", where: { description: ["Inbound parcels"] } },
+                    { id: "inbound-review", name: "Inbound · 4–6 states", where: { description: ["Inbound parcels"], stateCount: { from: 4n, to: 7n } } },
+                    { id: "review", name: "Review lane", where: { lane: ["review"] } },
+                    { id: "customs", name: "Customs decisions", where: { decisionOwner: ["customs-desk"] } },
+                ],
+            }));
+            return (
+                <Box width="100%" height="640px">
+                    <Flowchart record={flows} window={Slice.rows(slice)}
+                        slice={{ slice, affordances: ["fields", "search", "presets", "summary"] }}
+                        library={[Flowchart.library.flows()]} name="recordIndexes" />
                 </Box>
             );
         }}</Reactive>

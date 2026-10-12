@@ -5,7 +5,7 @@
 
 import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { Box as ChakraBox, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
+import { Box as ChakraBox, chakra, Menu as ChakraMenu, Portal, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faAnglesUp, faAnglesDown, faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -15,6 +15,7 @@ import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
+import { useFormatters } from "../../format/index.js";
 
 // The rail's `icon` is a dynamic Font Awesome name (e.g. "book"); register
 // the free-solid set so it resolves by name (idempotent — safe if already added).
@@ -80,7 +81,7 @@ export interface DockPaneProps {
     /** Where the pane keeps its open tab, and its collapsed state when persisted. */
     storageKey: string;
     /** The tabs, each with its body and, after its label, any count of what it holds; with none, `body` is the pane's one body under its label. */
-    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | undefined; body: ReactNode }> | undefined;
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | number | undefined; body: ReactNode }> | undefined;
     /** The body, when the pane has no tabs. */
     body?: ReactNode;
     /** Whether it collapses at all: `false`, it never collapses — no rail, and no collapse control. `true` by default. */
@@ -111,8 +112,8 @@ export interface DockPaneProps {
     icon?: string | undefined;
     /** Its name: the only tab without tabs, the rail's label, the control's words. */
     label?: string | undefined;
-    /** A badge on the rail. */
-    badge?: string | undefined;
+    /** A badge on the rail. Numeric counts use the shared compact formatter; their exact value remains accessible. */
+    badge?: string | number | undefined;
     /** Whether the rail's tile and badge are the brand's — what the pane shows is live. */
     active?: boolean | undefined;
     /** A line on the rail under its label. */
@@ -158,6 +159,8 @@ export interface DockPaneProps {
  */
 export function DockPane(props: DockPaneProps) {
     const { storageKey } = props;
+    const words = useFormatters();
+    const countText = (count: string | number) => typeof count === "number" ? words.number(count) : count;
     const collapsedProp = props.collapsed;
     const orientation = props.orientation ?? "horizontal";
     const side = props.side ?? "start";
@@ -166,6 +169,8 @@ export function DockPane(props: DockPaneProps) {
     const expandedSize = props.expandedSize ?? "280px";
     const railSize = props.railSize ?? "44px";
     const { icon, label, badge, detail } = props;
+    const badgeText = badge === undefined ? undefined : countText(badge);
+    const badgeCompact = typeof badge === "number" ? words.compact(badge) : badge;
     const active = props.active ?? false;
     const keepMounted = props.keepMounted ?? true;
     const lazy = props.lazy ?? false;
@@ -248,7 +253,7 @@ export function DockPane(props: DockPaneProps) {
     const rowRef = useRef<HTMLDivElement | null>(null);
     const [measuring, setMeasuring] = useState(true);
     const [measure, setMeasure] = useState<TabRowMeasure | undefined>(undefined);
-    const signature = tabs.map((tab) => `${tab.key}\u0000${tab.label}\u0000${tab.count ?? ""}`).join("\u0001");
+    const signature = words.locale + tabs.map((tab) => `${tab.key}\u0000${tab.label}\u0000${tab.count ?? ""}`).join("\u0001");
     // Other tabs, or the row back from the rail, are measured again.
     useLayoutEffect(() => { if (foldable) setMeasuring(true); }, [signature, foldable]);
     // So is a change of the row's room, before the pane paints at it. The row
@@ -397,7 +402,12 @@ export function DockPane(props: DockPaneProps) {
                             <FontAwesomeIcon icon={icon as IconName} />
                         </ChakraBox>
                     )}
-                    {badge !== undefined && badge !== "" && <ChakraBox as="span" css={styles.badge}>{badge}</ChakraBox>}
+                    {badge !== undefined && badge !== "" && <ChakraBox as="span" css={styles.badge} data-dock-badge="" title={badgeText}>
+                        {badgeCompact !== badgeText ? <>
+                            <chakra.span aria-hidden>{badgeCompact}</chakra.span>
+                            <VisuallyHidden>{badgeText}</VisuallyHidden>
+                        </> : badgeText}
+                    </ChakraBox>}
                     {label !== undefined && <ChakraBox as="span" css={styles.railLabel}>{label}</ChakraBox>}
                     {detail !== undefined && <ChakraBox as="span" css={styles.railDetail} data-dock-detail="">{detail}</ChakraBox>}
                 </ChakraBox>
@@ -434,7 +444,7 @@ export function DockPane(props: DockPaneProps) {
                                     >
                                         <ChakraBox as="span" css={styles.tabLabel}>{tab.label}</ChakraBox>
                                         {/* The space keeps the label and the count apart in the tab's name; the row's gap spaces them on screen. */}
-                                        {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={styles.tabCount} data-tab-count="">{tab.count}</ChakraBox></>}
+                                        {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={styles.tabCount} data-tab-count="">{countText(tab.count)}</ChakraBox></>}
                                     </chakra.button>
                                 );
                             })}
@@ -463,7 +473,7 @@ export function DockPane(props: DockPaneProps) {
                                                 <ChakraMenu.Item key={tab.key} value={tab.key}>
                                                     {tab.label}
                                                     {/* As on a tab: the space keeps the label and the count apart in the item's name. */}
-                                                    {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={menuStyles.itemCommand}>{tab.count}</ChakraBox></>}
+                                                    {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={menuStyles.itemCommand}>{countText(tab.count)}</ChakraBox></>}
                                                 </ChakraMenu.Item>
                                             ))}
                                         </ChakraMenu.Content>

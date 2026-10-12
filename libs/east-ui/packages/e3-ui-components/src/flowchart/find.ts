@@ -25,6 +25,8 @@ import { keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery, ty
 
 /** A state's key is a String: the search's text parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
+/** The empty local query lists states without reading another flow or any record page. */
+const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
 
 const keyOrder = compareFor(StringType);
 const keyEqual = equalFor(StringType);
@@ -97,6 +99,8 @@ export function useFindState(states: readonly FindableState[], resetKey: string,
     }, []);
     const clear = useCallback(() => { found.current = []; }, []);
     const any = states.length > 0;
-    return useMemo(() => (any ? { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear } : undefined),
+    return useMemo(() => (any ? { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear,
+        browseQuery: BROWSE_QUERY, noMatchesText: "No matching states. Search by state key or label.",
+    } : undefined),
         [any, resetKey, find, listRange, jump, clear]);
 }

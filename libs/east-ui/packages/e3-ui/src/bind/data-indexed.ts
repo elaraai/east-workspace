@@ -14,14 +14,23 @@ import { TreePathType } from "@elaraai/e3-types";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "@elaraai/east-ui/internal";
 
-/** Field indexes accepted by the indexed binding; computed keys have no field metadata. */
-export type FieldIndexes<T extends EastType> = readonly RecordIndexDef<string, T, EastType, EastType, readonly string[]>[];
+/** Field and computed index declarations accepted by Slice. */
+export type FieldIndexes<T extends EastType> = readonly RecordIndexDef<string, T, EastType, EastType, readonly string[] | undefined>[];
+/** The SDK supplies key types; empty collection markers retain them in the handle.
+ * RecordIndexDef does not preserve `multi` as a literal, so both marker types
+ * are possible statically. The declared index chooses the exact runtime type. */
+type ComputedMarker<T extends EastType> = ArrayType<T> | SetType<T>;
+type ComputedFields<D> = D extends { name: infer Name extends string; keyType: infer K extends EastType }
+    ? K extends StructType<infer F> ? { [N in keyof F]: ComputedMarker<F[N]> }
+        : { [N in Name]: ComputedMarker<K> } : Record<never, never>;
+type DeclaredFields<D> = D extends { on: readonly (infer F extends string)[] }
+    ? { [N in F]: FieldMarker<D, N> } : ComputedFields<D>;
 /** An interval start carries its end-field name in type metadata. */
 type FieldMarker<D, F> = D extends { interval: { from: F; to: infer End extends string } }
     ? StructType<{ [E in End]: NullType }> : NullType;
 /** Ordered fields of each named index, preserved in the source's East type. */
 type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
-    [D in I[number] as D["name"]]: StructType<{ [F in D["on"][number]]: FieldMarker<D, F> }>
+    [D in I[number] as D["name"]]: StructType<DeclaredFields<D>>
 }>;
 /** A common key space for a source that may read through any listed index. */
 type IndexKeys<K extends EastType, I extends FieldIndexes<EastType>> = VariantType<{
@@ -33,7 +42,10 @@ type IndexKeys<K extends EastType, I extends FieldIndexes<EastType>> = VariantTy
  *
  * @typeParam T - Record state type.
  * @typeParam I - The supplied field-index declarations.
- * @property indexes - Nonempty list of indexes declared with `on`, on this record.
+ * @property indexes - Nonempty list of this record's field or computed indexes.
+ * A computed scalar uses its index name as the field; Struct keys supply their
+ * own field names. A computed `keys` index must have one logical field so
+ * exact membership includes each primary row once. Types come from the index.
  * @property join - Include record rows (default true). False requires a covering
  * index without Set fields so the unfiltered view still has one entry per row.
  */
@@ -96,7 +108,7 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     if (options.indexes.length === 0) throw new Error("Data.bindPaged: indexes must list at least one field index");
     const names = new Set<string>();
     const fields: Record<string, StructType<Record<string, EastType>>> = {};
-    const metadata: Record<string, Record<string, null | Record<string, null>>> = {};
+    const metadata: Record<string, Record<string, unknown>> = {};
     const keyTypes: Record<string, EastType> = { primary: type.key };
     const projection = options.indexes[0]!.valueType;
     let singleEntryIndex = false;
@@ -104,18 +116,31 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         if (index.record.name !== record.name || !isSubtype(index.record.type, type) || !isSubtype(type, index.record.type)) {
             throw new Error(`Data.bindPaged: index '${index.name}' belongs to a different record`);
         }
-        if (index.on === undefined || index.on.length === 0) {
-            throw new Error(`Data.bindPaged: index '${index.name}' needs on: [field, ...] for Slice; computed key/keys indexes are read with { index }`);
+        const computed = index.on === undefined;
+        if (computed && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length === 0) {
+            throw new Error(`Data.bindPaged: computed index '${index.name}' needs at least one key field for Slice`);
         }
+        if (computed && index.multi && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length !== 1) {
+            throw new Error(`Data.bindPaged: computed keys index '${index.name}' needs one named field for Slice so exact membership cannot duplicate records; use { index } for an arbitrary compound fan-out`);
+        }
+        if (index.on?.length === 0) throw new Error(`Data.bindPaged: index '${index.name}' needs at least one field`);
         if (names.has(index.name)) throw new Error(`Data.bindPaged: repeated index '${index.name}'`);
         names.add(index.name);
         if (!isSubtype(index.valueType, projection) || !isSubtype(projection, index.valueType)) {
             throw new Error("Data.bindPaged: all listed indexes must have the same covering projection type");
         }
-        fields[index.name] = StructType(Object.fromEntries(index.on.map(field => [field,
-            index.interval?.from === field ? StructType({ [index.interval.to]: NullType }) : NullType])));
-        metadata[index.name] = Object.fromEntries(index.on.map(field => [field,
-            index.interval?.from === field ? { [index.interval.to]: null } : null]));
+        if (computed) {
+            const entries = index.keyType.type === "Struct"
+                ? Object.entries(index.keyType.fields as Record<string, EastType>) : [[index.name, index.keyType] as const];
+            fields[index.name] = StructType(Object.fromEntries(entries.map(([field, type]) =>
+                [field, index.multi ? SetType(type) : ArrayType(type)])));
+            metadata[index.name] = Object.fromEntries(entries.map(([field]) => [field, index.multi ? new Set() : []]));
+        } else {
+            fields[index.name] = StructType(Object.fromEntries(index.on!.map(field => [field,
+                index.interval?.from === field ? StructType({ [index.interval.to]: NullType }) : NullType])));
+            metadata[index.name] = Object.fromEntries(index.on!.map(field => [field,
+                index.interval?.from === field ? { [index.interval.to]: null } : null]));
+        }
         keyTypes[index.name] = index.keyType;
         singleEntryIndex ||= !index.multi;
     }

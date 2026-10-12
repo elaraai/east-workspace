@@ -134,7 +134,7 @@ export interface FlowchartInspectorEdit {
     /** Records the flow an edit leaves, as one transaction; whether it was recorded. */
     readonly record: (flow: FlowchartFlowValue, edit: FlowchartEdit) => boolean;
     /** Renames the open flow — refused, the footer saying why, for an empty name or one the flowchart holds; whether it was recorded. */
-    readonly rename: (name: string) => boolean;
+    readonly rename: (name: string) => boolean | Promise<boolean>;
     /** Duplicates the open flow into a new flow, which opens. */
     readonly duplicate: () => void;
     /** Deletes the open flow. */
@@ -801,7 +801,7 @@ function FlowView({ flow, held, name, heldName, styles, words, edit, available, 
         if (edit === undefined) return;
         if (keyEqual(path[0]!, "name")) {
             // A rename refused leaves the name as it was: the field shows it again.
-            if (!edit.rename(value as string)) refuse();
+            void Promise.resolve(edit.rename(value as string)).then(accepted => { if (!accepted) refuse(); }, refuse);
             return;
         }
         const now = edit.now();

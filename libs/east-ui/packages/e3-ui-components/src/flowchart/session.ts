@@ -57,6 +57,8 @@ import {
     StateRuntime, useDataStable, useEditSession,
     type BatchReadiness, type EditSession, type EditingValue, type EntryVersion, type Origin, type UIStoreInterface,
 } from "@elaraai/east-ui-components";
+import { prepareRecordSliceSave, type EditSource } from "@elaraai/east-ui-components/internal";
+import type { FlowchartPagedRecord } from "./window.js";
 import { flowReadiness } from "./edits.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartFlowValue } from "./model.js";
@@ -230,7 +232,16 @@ export function useKeptSessions(storageKey: string, key: string): { sessions: Fl
  */
 export function draftedEntry(session: EditSession<FlowRow>, name: string): FlowRow | null | undefined {
     const flows = session.applied() as FlowsValue | undefined;
-    if (flows === undefined) return undefined;
+    if (flows === undefined) {
+        // A revision-backed session has no whole snapshot to apply. Its
+        // complete entry drafts are already the graph the canvas draws.
+        const own = session.entries.get(name);
+        if (own?.draft !== undefined) return own.wire;
+        for (const [id, entry] of session.entries) {
+            if (!nameEqual(id, name) && entry.draft !== undefined && entry.wire !== undefined) return entry.wire;
+        }
+        return own === undefined ? undefined : null;
+    }
     const own = flows.get(name);
     if (own !== undefined) return { name, flow: own };
     // A rename drafted: the flow under the other name its session's entries hold.
@@ -258,6 +269,8 @@ export interface FlowSessionOptions {
     readonly sessions: FlowSessions;
     /** The flowchart's words: an issue's. */
     readonly words: FlowchartWords;
+    /** Pinned record reads, independent of the current filter. */
+    readonly paged?: FlowchartPagedRecord | undefined;
 }
 
 /** The open flow's session, and what the flowchart reads of it. */
@@ -281,8 +294,8 @@ export interface FlowSessionState {
  * @returns The session, and what the flowchart reads of it
  */
 export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
-    const { key, name, heldOf, apply, storageKey, sessions, words } = options;
-    const sourceId = name === undefined ? noFlowSourceId(key) : flowSourceId(key, name);
+    const { key, name, heldOf, apply, storageKey, sessions, words, paged } = options;
+    const sourceId = paged?.recordId ?? (name === undefined ? noFlowSourceId(key) : flowSourceId(key, name));
     const held = name === undefined ? undefined : heldOf(name);
     // The sessions move under their version: a rename's new name joins the snapshot as it is drafted.
     const keptVersion = useSyncExternalStore(sessions.subscribe, sessions.getSnapshot);
@@ -310,18 +323,26 @@ export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
         draftType: FLOW_DRAFT,
         children: none,
         keyType: some(FLOW_KEY),
-        snapshot: some(snapshot),
-        readEntry: (entry: string) => (name !== undefined && held !== undefined && nameEqual(entry, name) ? some(encodeFlow(held)) : none),
+        snapshot: paged === undefined ? some(snapshot) : none,
+        readEntry: paged === undefined
+            ? (entry: string) => (name !== undefined && held !== undefined && nameEqual(entry, name) ? some(encodeFlow(held)) : none)
+            : (entry: string) => { const read = paged.entry(entry); return read.type === "some" ? read.value : none; },
         onPatch: none,
         onApply: apply === undefined ? none : some(variant("async", apply)),
         mode: variant("batch", null),
-    }), [sourceId, snapshot, name, held, apply]);
+    }), [sourceId, snapshot, name, held, apply, paged]);
     const rows = useMemo((): FlowRow[] => (name !== undefined && held !== undefined ? [{ name, flow: held }] : []), [name, held]);
     const positions = useMemo(() => rows.map((_, i) => i), [rows]);
     // Two of one key hold Save off (FB22), each an issue on its flow.
     const ready = useCallback((entries: ReadonlyMap<string, EntryVersion<FlowRow>>): BatchReadiness =>
         flowReadiness(entries, (duplicate) => words.m.duplicateKey(duplicate)), [words]);
-    const edit = useEditSession<FlowRow>(editing, undefined, rows, positions, storageKey, { idOf: rowName, ready });
+    const source = useMemo((): EditSource<FlowRow> | undefined => paged === undefined ? undefined : ({
+        ...paged.window, readCurrent: paged.entry,
+    }), [paged]);
+    const recordSlice = paged?.chrome.type === "some" ? paged.chrome.value.slice : undefined;
+    const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
+    const view = paged === undefined ? storageKey : `${storageKey}:${name === undefined ? "none" : printName(name)}`;
+    const edit = useEditSession<FlowRow>(editing, source, rows, positions, view, { idOf: rowName, ready, prepare });
 
     // Each flow's session is kept by its name, for the Flows tab.
     useLayoutEffect(() => {
@@ -425,7 +446,7 @@ export function recordFlowDelete(state: Pick<FlowSessionState, "session" | "orig
 export function newFlows(sessions: FlowSessions, holds: (name: string) => boolean): Map<string, FlowRow> {
     const out = new Map<string, FlowRow>();
     for (const [name, session] of sessions.all()) {
-        if (holds(name) || session.pending === 0) continue;
+        if (holds(name) || session.pending === 0 || session.originals.get(name)?.draft !== undefined) continue;
         const drafted = draftedEntry(session, name);
         if (drafted !== null && drafted !== undefined) out.set(name, drafted);
     }

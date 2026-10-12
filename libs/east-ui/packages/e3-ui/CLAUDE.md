@@ -105,6 +105,44 @@ the notice when the query changes. A feedback retry never resubmits a mutation.
 The indexed binding's `recordId`, unlike its query/source ID, is independent of
 which index declarations a view lists and is the shared editing identity.
 
+### Flowchart records and indexed Flows lists
+
+One flow is one complete record entry. Bind the mutation door with
+`Record.bind`, and bind its browse source with `Data.bindPaged(record,
+{ indexes })` and `Slice.bindRecord`. Pass `window={Slice.rows(slice)}` and
+`slice={{ slice }}` to Flowchart. The Flows tab pages that ordered query through
+shared `PagedLibrary`/`VirtualRows`; never fetch every flow to render or search
+its cards. Record Slice owns indexed field choices, prefix search and counts.
+`Find state` searches the complete open graph by state key and label; it does
+not search all flow records. Keep those purposes clear in labels and examples.
+
+Computed filters use the index's own key type, including values derived from
+nested graph data. Scalar keys use the index name; Struct keys expose their
+named components. Never require a second field-type declaration or evaluate
+index functions over every record in the browser. Keep one-field fan-out
+filters to exact single-value membership so a flow with repeated nested values
+appears and counts once. Composite single-key indexes support combined choices;
+unsupported combinations must be explained by shared Slice, never approximated
+with loaded-page filtering. The example must cover a computed key changing on
+Save through real e3, in addition to primary-key draft retention.
+
+The open graph is read separately by its original primary key. Filtering the
+list must not close it, split its states across pages, or discard its drafts.
+Sessions use the primary record identity and original flow name, independent
+of the browse query. A save that moves the flow outside the narrowing still
+confirms through primary reads and reports the shared Save notice. Keep a
+pending session's confirmation subscribed when the user opens another flow.
+New-flow, rename and duplicate checks must look up the destination primary key,
+including names outside every loaded page and active filter.
+
+Use shared cards and card-sized recipe skeletons for pending rows. Do not wrap
+loaded cards in a text-line Skeleton: its fixed height breaks virtualization
+and makes cards overlap. Assert adjacent card bounds and bounded mounted counts.
+At phone widths, bundle orientation and Find state into the shared search
+popover's final View form before history folds; Filters and Save must remain
+inside the toolbar and clickable. Exercise indexed search, far scrolling,
+Save leaving a filter and draft retention in one real e3 workflow per device.
+
 ### Examples show the complete component definition inline
 
 Each example's `fn: East.function(...)` must show its own `Reactive` bindings,

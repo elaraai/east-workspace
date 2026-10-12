@@ -48,8 +48,9 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @remarks
  * `Indexes` is a struct of named indexes, each a struct of its ordered field
  * names with Null values, or a singleton struct naming the end field for an
- * interval start. Its East type preserves those names through `$.let`
- * without putting an East type value in the serialized handle. The row and
+ * interval start. Computed fields carry empty Array markers holding their key
+ * types, or empty Set markers for exact fan-out membership. Its East type
+ * preserves names and types through `$.let` without serializing type values. The row and
  * key types ride in `page`'s signature. Reads share one record revision.
  * `primary` always names the record itself; `total("primary")` counts rows,
  * never fan-out entries. Every pending read returns none and failures throw.

@@ -25,10 +25,10 @@
 
 import { Box, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Slice } from "@elaraai/east-ui/internal";
-import { HOST_RANK, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import type { Slice, RecordSliceChromeType } from "@elaraai/east-ui/internal";
+import { HOST_RANK, useSliceToolbarItems, useRecordSliceToolbarItems } from "@elaraai/east-ui-components/internal";
 import { useKeySearchToolbarItem, type Formatters, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
-import { Seg, SegMenu } from "../shared/seg.js";
+import { Seg, SegMenu } from "../shared/schedule/segments.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -47,6 +47,7 @@ export const FLOWCHART_RANK = {
     freshness: HOST_RANK,
     orientation: HOST_RANK + 1,
     seek: HOST_RANK + 2,
+    controls: HOST_RANK + 3,
 } as const;
 
 /** LR · TD's segments, in order. */
@@ -83,6 +84,8 @@ export interface FlowchartToolbarProps {
     readonly words: Formatters;
     /** The history item over the open flow's session (`historyToolbarItem`) — where the flowchart edits; `undefined` where it does not. */
     readonly history?: ToolbarItem | undefined;
+    /** Shared record-index controls for the Flows list. */
+    readonly recordChrome?: ValueTypeOf<RecordSliceChromeType> | undefined;
 }
 
 /**
@@ -92,11 +95,23 @@ export interface FlowchartToolbarProps {
  * @param props - What the items show and drive
  * @returns The items, a falsy entry for each the flowchart has no use for
  */
-export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, slice, affordances, words, history }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, slice, affordances, words, history, recordChrome }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // Find state: its box, or its icon, which opens the box, on a row short of room.
-    const seek = useKeySearchToolbarItem(find, { rank: FLOWCHART_RANK.seek, label: "Find state" });
+    const combine = recordChrome !== undefined && find !== undefined;
+    const seek = useKeySearchToolbarItem(find, {
+        rank: FLOWCHART_RANK.seek, label: "Find state",
+        compact: combine ? {
+            label: "View",
+            controls: <Box css={styles.toolbarControls}><Seg label="Orientation" name="orientation" scope="flowchart"
+                items={ORIENTATIONS} active={orientation} onPick={onOrientation} fullWidth /></Box>,
+        } : undefined,
+    });
     // The slice's rail, at the row's end.
     const rail = useSliceToolbarItems(slice, [{ key: "rail", kinds: affordances, side: "end" }])[0];
+    const recordRail = useRecordSliceToolbarItems(recordChrome?.slice, recordChrome === undefined ? {} : {
+        noun: "flows", affordances: recordChrome.affordances.map(a => a.type),
+        ...(recordChrome.persist.type === "some" ? { persist: recordChrome.persist.value.type } : {}),
+    });
     // The freshness chip: the shared chip, its dot first and its date muted after its label.
     const chipRecipe = useRecipe({ key: "chip" });
     const chip = freshness === undefined ? undefined : (
@@ -107,17 +122,21 @@ export function useFlowchartToolbarItems({ styles, find, orientation, onOrientat
         </Box>
     );
     return [
-        seek,
+        seek !== undefined && combine ? { ...seek, rank: [FLOWCHART_RANK.seek, FLOWCHART_RANK.controls],
+            bundle: [undefined, "flowchart.controls"] } : seek,
         {
             key: "orientation",
-            rank: FLOWCHART_RANK.orientation,
+            rank: combine ? [FLOWCHART_RANK.orientation, FLOWCHART_RANK.controls] : FLOWCHART_RANK.orientation,
+            bundle: combine ? [undefined, "flowchart.controls"] : undefined,
             forms: [
-                <Seg label="Orientation" name="orientation" data="data-flowchart-seg" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
-                <SegMenu label="Orientation" name="orientation" data="data-flowchart-segmenu" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
+                <Seg label="Orientation" name="orientation" scope="flowchart" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
+                <SegMenu label="Orientation" name="orientation" scope="flowchart" items={ORIENTATIONS} active={orientation} onPick={onOrientation} />,
+                ...(combine ? [null] : []),
             ],
         },
         chip !== undefined && { key: "freshness", rank: FLOWCHART_RANK.freshness, forms: [chip, null] },
         rail,
+        ...recordRail,
         history,
     ];
 }

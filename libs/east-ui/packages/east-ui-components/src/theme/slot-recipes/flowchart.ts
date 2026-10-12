@@ -44,7 +44,7 @@ const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
 export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
     slots: [
-        "root", "freshnessDot",
+        "root", "freshnessDot", "toolbarControls",
         "body", "scroll", "canvasWrap",
         "node", "ghostNode", "nodeCode", "nodeLabel", "nodeBadge",
         "laneDelete", "addLane", "laneSelected",
@@ -53,7 +53,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "legend", "legendTitle", "legendRow",
         "minimap",
         "footer", "footerFlow", "footerStrong", "footerNeg", "footerMessage", "footerSplit",
-        "flowsTab", "flowsList", "flowsFoot", "newFlow", "noFlows",
+        "flowsTab", "flowsDrafts", "flowsList", "flowsFoot", "newFlow", "noFlows",
     ],
     base: {
         /* Fills the box it is given and draws no border: the frame inside it
@@ -85,6 +85,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
 
         /* ── the freshness chip's dot — the chip itself is the shared
          *    `chip` recipe's, a toolbar item (#1245) ───────────────────── */
+        toolbarControls: { marginBottom: "3" },
         freshnessDot: {
             width: "6px",
             height: "6px",
@@ -452,6 +453,12 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
         },
         /* The cards: the shared Library, filling what the foot leaves. */
+        flowsDrafts: {
+            maxHeight: "160px", overflowY: "auto", flexShrink: 0,
+            display: "flex", flexDirection: "column", gap: "1.5",
+            paddingX: "14px", paddingY: "6px",
+            borderBottomWidth: "1px", borderColor: "border.subtle",
+        },
         flowsList: {
             flex: "1 1 0%",
             minWidth: 0,

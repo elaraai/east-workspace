@@ -70,6 +70,12 @@ const FIND_DEBOUNCE_MS = 250;
 const POPUP_LIMIT = 20;
 
 export interface DatasetKeySearchProps {
+    /** Optional bounded browse on opening an empty box. The source supplies the query; the popup still lists at most 20 rows. */
+    browseQuery?: DatasetKeyQuery | undefined;
+    /** A local search can describe its own matching instead of the default key-search hint. */
+    noMatchesText?: string | undefined;
+    /** Names the searched collection in the input; defaults to Search Records. */
+    label?: string | undefined;
     /** The searched collection's Dict key / Set element type. */
     keyType: EastTypeValue;
     /** Locates a query; literals are canonical `.east` text of
@@ -103,10 +109,11 @@ export interface DatasetKeySearchProps {
  * @returns the search combobox with its match count, range navigation and
  *   clear affordance
  */
-export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery }: DatasetKeySearchProps) {
+export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery, label, browseQuery, noMatchesText }: DatasetKeySearchProps) {
     const recipe = useSlotRecipe({ key: 'combobox' });
     const styles = recipe({ size: 'xs' });
     const [typed, setTyped] = useState(false);
+    const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [range, setRange] = useState<DatasetKeyMatchRange | null>(null);
     const [items, setItems] = useState<{ row: number; label: string }[]>([]);
@@ -186,6 +193,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         if (text === '') {
             resetQueryState();
             onClear?.();
+            if (open && browseQuery !== undefined) runFind(browseQuery);
             return;
         }
         const parsed = parseKeyInput(keyType, text);
@@ -201,11 +209,17 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         setHint(null);
         setLoading(true);
         debounceRef.current = setTimeout(() => runFind(parsed.query), FIND_DEBOUNCE_MS);
-    }, [keyType, runFind, resetQueryState, onClear, onInputChange]);
+    }, [keyType, runFind, resetQueryState, onClear, onInputChange, open, browseQuery]);
+
+    const handleOpen = useCallback((next: boolean) => {
+        setOpen(next);
+        if (next && !typed && browseQuery !== undefined) runFind(browseQuery);
+    }, [typed, browseQuery, runFind]);
 
     const clearSearch = useCallback(() => {
         resetQueryState();
         setTyped(false);
+        setOpen(false);
         setResetSeq((s) => s + 1);
         onClear?.();
         onInputChange?.('');
@@ -232,10 +246,11 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     }, [range, activeIdx, commit]);
 
     const placeholder = useMemo(() => {
+        const title = label ?? "Search Records";
         const fields = structKeyFields(keyType);
-        if (fields !== null) return `Search Records (${fields.map((f) => f.name).join(', ')})`;
-        return keyType.type === 'String' ? 'Search Records' : `Search Records (${keyType.type})`;
-    }, [keyType]);
+        if (fields !== null) return `${title} (${fields.map((f) => f.name).join(', ')})`;
+        return keyType.type === 'String' ? title : `${title} (${keyType.type})`;
+    }, [keyType, label]);
 
     // The standard Combobox renderer takes a host-constructed decoded
     // payload (data + JS callbacks) — the same fabrication the ValueTree's
@@ -251,13 +266,15 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         onChange: some((v: string) => commit(Number(v))),
         onChangeMultiple: none,
         onInputValueChange: some(handleInput),
-        onOpenChange: none,
+        onOpenChange: some(handleOpen),
         style: some({ size: some(variant('xs', null)), color: none, background: none, borderColor: none }),
-    }) as never, [items, placeholder, commit, handleInput]);
+    }) as never, [items, placeholder, commit, handleInput, handleOpen]);
 
     const status = hint !== null
         ? hint
-        : loading
+        : !typed
+            ? null
+            : loading
             ? 'Searching…'
             : range === null
             ? null
@@ -266,7 +283,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                 : activeIdx === -1
                     ? `${words.number(range.count)} ${range.count === 1 ? 'match' : 'matches'}`
                     : `${words.number(activeIdx + 1)} of ${words.number(range.count)}`;
-    const canStep = range !== null && range.found && range.count > 1;
+    const canStep = typed && range !== null && range.found && range.count > 1;
     const indicators = <>
         {status !== null && <chakra.span css={styles.searchStatus} role="status" title={status}>{status}</chakra.span>}
         {canStep && <>
@@ -286,9 +303,9 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     return (
         <Box css={[styles.search, { '--key-search-width': `${placeholder.length + (status === null ? 10 : 26)}ch` }]}
             onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
-            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false}
-                indicators={indicators} emptyText={loading ? 'Searching…' : hint ?? (keyType.type === 'String'
-                    ? 'No matches. Keys are case-sensitive.' : 'No matches')} />
+            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false} openOnClick={browseQuery !== undefined}
+                indicators={indicators} emptyText={loading ? 'Searching…' : hint ?? (range === null ? 'Type to search' : noMatchesText ?? (keyType.type === 'String'
+                    ? 'No matches. Keys are case-sensitive.' : 'No matches'))} />
         </Box>
     );
 });

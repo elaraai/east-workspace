@@ -51,6 +51,36 @@ function renderSearch(props: DatasetKeySearchProps) {
 }
 
 describe("DatasetKeySearch", () => {
+    test("an empty box waits for input; opt-in browsing lists a bounded window and clears back to suggestions", async () => {
+        const onFind = vi.fn(async (query: unknown) => ({ found: true, row: query && (query as { prefix?: string }).prefix === "" ? 0 : 40, count: 100 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => Array.from({ length: limit }, (_, i) => `state-${row + i}`));
+        const onJump = vi.fn();
+        const props = { keyType: StringKey, onFind, onListRange, onJump };
+        const view = renderSearch(props);
+        await userEvent.click(view.container.querySelector('[data-part="trigger"]')!);
+        expect(screen.getByText("Type to search")).toBeTruthy();
+        expect(onFind).not.toHaveBeenCalled();
+        view.unmount();
+
+        const browse = renderSearch({ ...props, label: "Find state", browseQuery: { prefix: "" } });
+        expect(onFind).not.toHaveBeenCalled(); // no eager request on mounting a toolbar
+        const input = screen.getByPlaceholderText("Find state");
+        await userEvent.click(input);
+        await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(20));
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "" });
+        expect(onListRange).toHaveBeenLastCalledWith(0, 20);
+        expect(screen.queryByRole("status")).toBeNull();
+        fireEvent.click(screen.getByRole("option", { name: "state-1" }));
+        await waitFor(() => expect(onJump).toHaveBeenLastCalledWith(1));
+        await userEvent.type(input, "s");
+        await waitFor(() => expect(onFind).toHaveBeenLastCalledWith({ prefix: "s" }));
+        await userEvent.clear(input);
+        await waitFor(() => expect(screen.getByRole("option", { name: "state-0" })).toBeTruthy());
+        fireEvent.click(screen.getByRole("option", { name: "state-2" }));
+        await waitFor(() => expect(onJump).toHaveBeenLastCalledWith(2));
+        expect((browse.getByPlaceholderText("Find state") as HTMLInputElement).value).toBe("");
+    });
+
     test("string keys type-ahead as one debounced prefix query listing the head of the range", async () => {
         const onFind = vi.fn(async () => ({ found: true, row: 100, count: 27 }));
         const onListRange = vi.fn(async (row: number, limit: number) =>

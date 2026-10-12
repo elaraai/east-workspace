@@ -192,6 +192,12 @@ component, nothing in east-ui.
   `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
   `empty` words say what an empty tab shows; a search or a filter that
   hides every card says `No matches` itself, in the shared empty state.
+- **Rail counts.** Pass a numeric `badge` for a count, keeping it numeric until
+  `DockPane` formats it with the shared locale formatter's `compact()`.
+  Its exact value remains available on hover and to assistive technology.
+  Numeric tab counts use the same formatter's full `number()` form. The dock
+  recipe bounds badges to the rail, including longer locale abbreviations;
+  builders must not implement their own abbreviation or badge styles.
 - **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
   row first, kept in each tab's name; then the trailing tabs fold into a
   `+n` menu after the last that fits, the open tab always on the row, so no

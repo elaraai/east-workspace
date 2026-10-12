@@ -164,7 +164,7 @@ export interface FlowchartLibraryProps {
     /** The tabs the payload lists, in order. */
     readonly library: FlowchartValue["library"];
     /** The Flows tab's body and its count; `undefined` over one flow, which lists no flows. */
-    readonly flows: { readonly body: ReactNode; readonly count: string } | undefined;
+    readonly flows: { readonly body: ReactNode; readonly count: number } | undefined;
     /** The names the flowchart keeps its viewer's state under. */
     readonly keys: FlowchartKeys;
     /** The flowchart's words. */
@@ -245,7 +245,7 @@ export function useFlowchartLibrary({ library, flows, keys, words, enter }: Flow
             return {
                 key: tabKey,
                 label: name,
-                count: words.number(value.items.length),
+                count: value.items.length,
                 body: (
                     <EastChakraLibrary value={value} storageKey={`${keys.library}.${tabKey}`} onCardEnter={enters.get(tabKey)}
                         empty={{ title: m.libraryEmpty({ tab: tab.type, name }), description: m.libraryEmptyHint({ tab: tab.type, name }) }} />
@@ -254,5 +254,5 @@ export function useFlowchartLibrary({ library, flows, keys, words, enter }: Flow
         });
         // Collapsed, the rail counts the first tab's cards (FB25).
         return { label: m.libraryPane(), icon: "layer-group", badge: tabs[0]!.count, size: LIBRARY_SIZE, persist: "local", tabs };
-    }, [library, flows, libraries, enters, keys, m, words]);
+    }, [library, flows, libraries, enters, keys, m]);
 }

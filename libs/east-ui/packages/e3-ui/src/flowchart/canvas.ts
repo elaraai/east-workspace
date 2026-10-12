@@ -33,7 +33,7 @@ import {
     StructType,
 } from "@elaraai/east";
 
-import { SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { localSliceHandle, SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
 
 /**
@@ -166,7 +166,7 @@ export function buildCanvas(options: FlowchartCanvasOptions, slice: FlowchartSli
     }
     const sliceChromeValue = slice.slice !== undefined
         ? East.value({
-            slice: slice.slice,
+            slice: localSliceHandle(slice.slice),
             affordances: East.value(
                 (slice.affordances ?? ["filter", "search"]).map(a => variant(a, null)),
                 ArrayType(SliceAffordanceType),

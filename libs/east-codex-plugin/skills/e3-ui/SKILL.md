@@ -293,13 +293,20 @@ inside it is text, so `"../config"` finds that key rather than a range.
 
 ### Indexed records and shared Slice
 
-Declare field indexes with `e3.recordIndex(name, record, { on: [fields...] })`.
+Declare field indexes with `e3.recordIndex(name, record, { on: [fields...] })`,
+or computed indexes with `key` / `keys`. Their existing declared key types
+supply the controls; do not redeclare those types in Slice. A scalar computed
+key uses the index name as its field; a Struct key supplies named fields in
+key order. `keys` accepts a scalar or a single-field Struct and permits one
+exact member, keeping pages and counts unique by primary ID. Arbitrary
+compound fan-out remains available through `{ index }`; Slice refuses it.
 `Data.bindPaged(record, { indexes: [declarations...] })` carries their field/key
 types and joins rows by default. Bind it with
 `Slice.bindRecord(key, binding, { fields, range, search, initial, presets })`.
 `Slice.rows(slice)` supplies an ordered, pinned source whose entries retain the
 original primary key. Pass it as Plan/Sheet data, or Roster `visiblePeople`,
-and give the same Slice handle to the component's `slice` prop. Existing
+or Flowchart `window`, and give the same Slice handle to the component's
+`slice` prop. Existing
 single-index `Data.bindPaged(record, { index, join })` remains separate.
 
 Controls come from indexed field types: unit Variant/Boolean/hints become choice
@@ -327,7 +334,8 @@ unsaved drafts. Roster still saves weekly assignments and calculates coverage
 over complete staff; its indexed staff query controls visibility only.
 
 Search examples: `planRecordIndexes`, `sheetRecordIndexes`,
-`calendarRecordIndexes`, `rosterRecordIndexes`, and their Mobile counterparts.
+`calendarRecordIndexes`, `rosterRecordIndexes`, their Mobile counterparts,
+and `flowchartRecordIndexes` (scalar, compound and membership computed keys).
 Each shows its full reactive bindings and JSX inline.
 
 ### `Func.bind(fn)`
@@ -1901,6 +1909,7 @@ const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Type
 ├─ Props:
 │   ├─ orientation (optional) — "LR" (default) | "TD" initial; the toolbar's LR · TD toggles it (view state, never a filter chip; TD swaps the handle axes) — the viewer's pick kept in the UI store under `name`, so a remount keeps it, the payload's value showing until they pick (#1246); freshness (optional) — the toolbar's chip { label, date? }
 │   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states, drawn in main's corner over the canvas, where it stays while the canvas scrolls
+│   ├─ window + slice={{ slice }} (optional, over record) — Data.bindPaged(record, { indexes }) → Slice.bindRecord → window={Slice.rows(slice)}; the Flows tab pages the query, indexed field search covers the full record, the active complete graph is read separately by primary ID; sessions survive filtering and eviction, and Save confirms through primary reads with the shared exit notice (`flowchartRecordIndexes`)
 │   ├─ slice + affordances (optional, over data) — the slice's rail at the toolbar's end (default ["filter","search"], narrowing the transitions); the host feeds Flowchart.over's links through Slice.rows; the footer derives `N links · narrowed from M · −%` + the planned/observed split
 │   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
 │   ├─ canConnect (optional) — fn(from, to) => Boolean: vetoes a pair BEFORE the connect draft snaps, and fails OPEN
@@ -1916,6 +1925,7 @@ const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Type
 | Signature | Description | Example |
 | --- | --- | --- |
 | `<Flowchart record={…} flow="…" />`, `Flowchart.values({ … })` | A record of flows by name, bound with its patch mutation; the canvas shows the flow opened last, else `flow`, else the first by name — a `flow` it doesn't hold named in a banner above main. LR · TD is the viewer's, kept under `name`. | `flowchartFlows` |
+| `<Flowchart record={flows} window={Slice.rows(slice)} slice={{ slice }} />` **❗** | Paged flow records through declared indexes and shared record Slice. Only nearby cards mount; the active graph and its drafts retain the original ID outside the narrowing. Search flows uses the description index; Find state searches the open graph. | `flowchartRecordIndexes` |
 | `library={[Flowchart.library.flows()]}` **❗** | The library pane's Flows tab (#1246): every flow by name — its description or its counts, the open one placed, one with drafts Pending — a click opening it, the open flow kept under `name`; where it edits, "+ New flow" opens a new flow, a draft insert Save commits through the record's patch mutation. Each flow keeps its own drafts. | `flowchartFlows` |
 | `library={[…, Flowchart.library.states(rows, {…}), Flowchart.library.transitions(rows, {…}), Flowchart.library.tab(rows, {…})]}` **❗** | The library's template and author's tabs (#1248): one card per row of each tab's own bound rows — an Array or a `Dict<String, T>`, apart from the flows and from the other tabs — its label, its meta and the tab's icon, grouped and searched; each template card a drag source, and an author's when its tab declares a `drop`, whose patch's type names what it lands on; a click selects a card, a second lets it go. | `flowchartLibrary` |
 | a library card dropped on the canvas, or ⏎ on it **❗** | Drag and drop (#1249): a state template adds a state on the lane at the row under the pointer, its key the drop's, made unique or minted; a transition template retypes the transition it lands on; an author's card sets its fields on what its drop's type names. ⏎ drops a card on the canvas's selection, and on a touch screen a tap on the selected card does too; refused, the ghost — or, for ⏎, the footer — says why. Each drop is one transaction. | `flowchartLibrary` |
@@ -1931,13 +1941,16 @@ const onApply = $.const(East.asyncFunction([StringType, PatchType(Flowchart.Type
 | `legend` / `minimap` / `readOnly` | The legend, on by default; the minimap, shown from 25 states unless given, in main's corner over the canvas; read only — no gesture, no drop, no history item, every field printed. Each a Boolean or an expression the host changes. | `flowchartVariants` |
 | `orientation="TD"` | Opens top down; after that LR · TD on the toolbar is the viewer's, kept under `name`. | `flowchartHandover` |
 | `name` | Names the flowchart when a surface holds two: its open flow, LR · TD, its panes' open tab and collapsed state, its library's cards and its drop target are kept under it. | every example but `flowchartFlows` |
-| `record` and `data` together, or neither; `onApply`, `slice` or `affordances` over a record; `flow` over one flow; a record of one flow, or of another type, or bound without its patch mutation; `affordances: ["brush"]`; `states=`, `links=`, … on the tag; `height` / `maxHeight`; a callback for an edit (`onAddState`, `onCreateLink`, …) or `linkMode`; `Flowchart.library.flows()` over one flow; a tab listed twice — the Flows tab or a template tab, or two of the author's tabs of one name; a data tab's rows of neither an Array nor a `Dict<String, T>`; a `drop` over another row's patch than its tab's; a `library` that is not a list of `Flowchart.library.*` calls; a hover card's prop — `stateHover`, `linkHover`, `triggerHover`; an `inspector` neither a Boolean nor `{ state, transition }`; a kind's own Details over another row, or returning no UI; and `density` **❗** | Refused at build, each naming the prop and the remedy; a transition card whose `drop` sets its transition's key, from or to is refused as the tab's cards are read. | — |
+| `record` and `data` together, or neither; `onApply` or top-level `affordances` over a record; a record Slice without `window`, or a local Slice over a record; `window` over data; `flow` over one flow; a record of one flow, or of another type, or bound without its patch mutation; `affordances: ["brush"]`; `states=`, `links=`, … on the tag; `height` / `maxHeight`; a callback for an edit (`onAddState`, `onCreateLink`, …) or `linkMode`; `Flowchart.library.flows()` over one flow; a tab listed twice — the Flows tab or a template tab, or two of the author's tabs of one name; a data tab's rows of neither an Array nor a `Dict<String, T>`; a `drop` over another row's patch than its tab's; a `library` that is not a list of `Flowchart.library.*` calls; a hover card's prop — `stateHover`, `linkHover`, `triggerHover`; an `inspector` neither a Boolean nor `{ state, transition }`; a kind's own Details over another row, or returning no UI; and `density` **❗** | Refused at build, each naming the prop and the remedy; a transition card whose `drop` sets its transition's key, from or to is refused as the tab's cards are read. | — |
 | `Flowchart.patch(Flowchart.Types.State, { key: "HLD", label: some("Held") })` | A patch over one of a flow's rows: the fields it sets, the rest `none`. | `flowchartLibrary` |
 
 Between the examples, every pane combination: none (`flowchartHandover`), a
 library (`flowchartVariants`), an inspector (`flowchartDepot`, read only;
 `flowchartDetail`, its own Details), and both (`flowchartFlows`,
-`flowchartLibrary`).
+`flowchartLibrary`, `flowchartRecordIndexes`). The indexed example has 2,048 flows
+and exercises backend search by description, computed state count, lane and
+decision owner, paging and original-ID Save. A composite description/state-count
+index lets those two filters combine; lane and owner use exact membership.
 
 Removed with #1245: the canvas's eyebrow (its controls are the toolbar's
 items) and `height` / `maxHeight` (the flowchart fills its box).

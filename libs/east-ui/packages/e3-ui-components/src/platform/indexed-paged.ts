@@ -17,7 +17,7 @@ import { TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types"
 import { datasetPathToString } from "./dataset-store.js";
 import type { PagedRuntime } from "./paged-runtime.js";
 
-type Metadata = Record<string, Record<string, null | Record<string, null>>>;
+type Metadata = Record<string, Record<string, unknown>>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
 type Range = ValueTypeOf<typeof SeekRangeType>;
 type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> };
@@ -59,8 +59,12 @@ export class IndexedPagedRuntime {
 
     private defaultIndex(schema: Schema, metadata: Metadata, joined: boolean): string {
         if (joined) return "primary";
-        const index = Object.keys(metadata).find(name =>
-            Object.keys(metadata[name]!).every(field => metadata[name]![field] === null && schema.row.fields[field]?.type !== "Set"));
+        const types = schema.args[3];
+        const index = Object.keys(metadata).find(name => {
+            const fields = types.type === "Struct" ? types.fields[name] : undefined;
+            return fields?.type === "Struct" && Object.entries(fields.fields as Record<string, EastType>).every(([field, marker]) =>
+                marker.type === "Array" || marker.type === "Null" && schema.row.fields[field]?.type !== "Set");
+        });
         if (index === undefined) throw new Error("A covering-only binding needs an index with one entry per record row");
         return index;
     }

@@ -69,6 +69,7 @@ const flowsEqual = equalFor(FlowsType);
 describeEast("Flowchart", (test) => {
     Assert.examples(test, {
         flowchartFlows: ex.flowchartFlows,
+        flowchartRecordIndexes: ex.flowchartRecordIndexes,
         flowchartVariants: ex.flowchartVariants,
         flowchartLibrary: ex.flowchartLibrary,
         flowchartDepot: ex.flowchartDepot,
@@ -908,9 +909,9 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
         ["`flow` over the host's one flow", (_$) => ({ data: INBOUND_VALUE, flow: "Inbound parcels" }),
             /^Error: Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart\.Types\.Flow — leave `flow` out$/],
         ["`slice` over a record", ($) => ({ record: $.let(flowsRecord()), slice: $.let(depotSlice($)) }),
-            /^Error: Flowchart: `slice` narrows the transitions a host builds its flow from, and a record's flows are the record's — pass the host's flow as data=\{Flowchart\.over/],
+            /^Error: Flowchart: record filters use window=/],
         ["`affordances` over a record", ($) => ({ record: $.let(flowsRecord()), affordances: ["filter"] }),
-            /^Error: Flowchart: `affordances` narrows the transitions a host builds its flow from/],
+            /^Error: Flowchart: record affordances belong inside slice=/],
         ["a record of one flow, with the remedy: a record of flows with one entry, or `data`", ($) => ({ record: $.let(flowRecord()) }),
             /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — e3's patch mutation writes only keyed records — and this record holds one flow: make it a record of flows with one entry \(Flowchart\.values\(\{ \[name\]: flow \}\)\), or pass the flow as `data`$/],
         ["a record of another type", ($) => ({ record: $.let(jobsRecord()) }),
@@ -1022,10 +1023,9 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
 });
 
 /** A slice over the depot's transitions — what a host narrows the links it builds its flow from with. */
-function depotSlice(_$: BlockBuilder<NullType>) {
-    const LinkRow = StructType({ src: StringType, dst: StringType });
-    const cfg = Slice.config(LinkRow, { fields: { src: { label: "From" } } });
-    return Slice.bind([LinkRow], "flowchart.spec.slice", cfg, Slice.state({}), [{ src: "ARV", dst: "SCN" }], none);
+function depotSlice($: BlockBuilder<NullType>) {
+    const links = $.const([{ src: "ARV", dst: "SCN" }]);
+    return Slice.bind("flowchart.spec.slice", links, { fields: { src: { label: "From" } } });
 }
 
 // ============================================================================

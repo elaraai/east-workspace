@@ -300,11 +300,11 @@ read only:
 
 ```tsx
 const scans = $.let(Data.bind(d.scanTransitions));
-const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}), scans.read(), none));
+const slice = $.let(Slice.bind("depot.scans", scans.read(), { fields: { src: { label: "Source" } }, search: ["src"] }));
 <Flowchart
     data={Flowchart.over(states, {
         state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-        links: Slice.rows([d.ScanRow], slice),
+        links: Slice.rows(slice),
         link:  l => ({ from: l.src, to: l.dst, kind: l.kind, evidence: { volume: l.parcels, unit: "parcels" } }),
         lanes: d.LANES,
     })}
@@ -318,7 +318,43 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 | Takes | `Record.bind(rec, [patch])`, `rec` of `Flowchart.Types.Flows` only (a lone flow is its one entry) | a value, an expression or a bind handle of `Flowchart.Types.Flows` or `Flowchart.Types.Flow`, the value's type picking the arm |
 | Many flows | The Flows tab lists them; `flow` opens one first | Over flows by name the same, read from the value; one flow has no Flows tab |
 | Edits | The session; Save through the record's patch mutation | Read only; with `onApply`, the session and the host's commit |
-| A slice | No | `slice` narrows what the host builds (`Flowchart.over` over `Slice.rows`) |
+| A slice | `window={Slice.rows(slice)}` with `slice={{ slice }}`: indexed flow-record browsing | `slice` narrows what the host builds (`Flowchart.over` over `Slice.rows`) |
+
+### 3.5 A large indexed record
+
+The tested `flowchartRecordIndexes` example binds 2,048 complete flow entries,
+maintained indexes for `description`, computed state count, lane and decision
+owner, and `Slice.bindRecord`. A composite description/state-count index
+supports their combined query. Key types come from each index declaration:
+scalar keys use the index name, Struct keys their field names. No stored Flow
+schema change or duplicate type declaration is needed. Lane and owner indexes
+fan out over their nested values; Slice permits one exact membership choice,
+so repeated values cannot duplicate a flow or inflate its count. Arbitrary
+compound fan-out needs a separate explicit query design and is refused by
+Slice rather than scanned or deduplicated in the browser.
+
+Its Flowchart receives
+`record={flows}`, `window={Slice.rows(slice)}`, `slice={{ slice }}` and
+`library={[Flowchart.library.flows()]}`. The record binding supplies the checked
+write; the window supplies ordered, bounded browse pages. The default record
+form without `window` remains appropriate for small records held whole.
+
+Record Slice search covers the full indexed record and pages its matches.
+The Flows list requests the visible rows plus nearby pages, using shared
+Library cards and VirtualRows. It does not filter loaded cards or scan the
+record for suggestions. The active graph is separately read by original ID,
+so it stays open when a filter or Save removes it from the list. Every flow
+keeps its original-ID session through query changes and page eviction. Save
+confirms through primary reads and uses the shared notice for flows leaving
+the active view. Confirmation remains live after switching to another flow.
+Creation, rename and duplicate names are checked by primary lookup even if
+they are outside the query or loaded pages. `Find state` remains a separate
+search of the open graph's state keys and labels.
+
+The indexed handle's packaged UI schema carries computed field-type markers,
+and Slice's index descriptor records whether keys are structured. This is a
+package wire change: rebuild/re-export affected UI tasks. Stored records,
+maintained indexes, commits and their history need no migration.
 
 ## 4. The options
 
@@ -335,7 +371,8 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 | `orientation`, `minimap`, `legend`, `freshness` | as today's | Unchanged. LR · TD is the viewer's, kept under `name`. |
 | `onSelectState`, `onSelectLink`, `onSelectTrigger`, `onTracePath` | as today's | Unchanged: told after the canvas selects. |
 | `canConnect` | as today's | Unchanged: vetoes a pair before the draft snaps. |
-| `slice`, `affordances` | as today's | Over `data` only (§3.4); its rail is toolbar items. |
+| `window` | `Data.bindPaged(record)` or `Slice.rows(recordSlice)` | Optional paged browse source over the same record; indexed windows require the matching record Slice chrome (§3.5). |
+| `slice`, `affordances` | Local Slice over `data`, or `{ slice, affordances?, persist? }` over a record window | Shared toolbar controls; local Slice narrows host transitions (§3.4), record Slice queries flow records (§3.5). Record affordances belong inside `slice`. |
 | `readOnly` | Boolean | No gesture edits, no drop lands, the inspector shows every field and edits none (FB38), the history item is gone. Selection and hover stay. |
 | `name` | string | Names the flowchart when a surface holds two (decision 13). |
 
@@ -401,8 +438,9 @@ or a decision.
 
 Each names the prop and the remedy:
 - both `record` and `data`, or neither; `onApply` over a record; `flow` over
-  one flow (`data` of `Flowchart.Types.Flow`); `slice` or `affordances` over a
-  record;
+  one flow (`data` of `Flowchart.Types.Flow`); a record Slice without a
+  window, a local Slice over a record, top-level record `affordances`, or a
+  window over `data`;
 - a callback today's flowchart took for an edit, or `linkMode` (§4.1, FB24):
   every gesture is a transaction of the editing session, which Save commits —
   through the record's patch mutation, or over `data` the host's `onApply`;
@@ -466,6 +504,7 @@ FlowchartPayloadType = StructType({
     canvas:    FlowchartCanvasType,                    // today's root, less the tables, the callbacks and the hover cards that go: the drawing options, selection, canConnect, slice
     source:    VariantType({                           // where the flows come from
         record: StructType({ read, history, commit: StructType({ patch }), apply }),   //   a record of flows by name, bound with its patch: Record.bind's handle, and `apply`, its session's Save — Record.onApply(record, { keyed: true }) over the batch (#1246)
+        paged: StructType({ recordId, window, entry, chrome, history, apply }), // bounded browse pages, primary reads, record Slice and checked Save
         data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked, and `apply`, its session's Save through the host's onApply (#1247), handed the batch's request id with its patch (#1275)
             flows: StructType({ value: Flowchart.Types.Flows, apply: OptionType(FlowchartSessionApplyType) }),   //   the batch as one patch of the flows, by name
             flow:  StructType({ value: Flowchart.Types.Flow,  apply: OptionType(FlowchartSessionApplyType) }),   //   the batch's one change as the flow's own patch
@@ -573,8 +612,12 @@ flowchart fills its parent and draws no border. Every style is a slot recipe's.
 | Find state: a search over the open flow's states by key and label; a pick selects the state and scrolls it into view | start | Folds to its icon, which opens the box in the edit popover (the shared key-search item's form) |
 | LR · TD | start | Folds to one chip naming the orientation, a menu of both |
 | The freshness chip | start | Goes |
-| The slice's rail, over `data` with `slice` | end | Folds first, through `useSliceToolbarItems` |
+| The slice rail | end | Shared local or record Slice toolbar items; record search pages the declared indexes |
 | The history item: status · issues · Undo · Redo · Discard · Save | end | Folds last, to its buttons; gone over read-only data |
+
+With record-index controls, a final bundled View popover holds Find state and
+orientation together before history folds. Filters and Save stay reachable
+inside the frame at phone and narrow-parent widths.
 
 On a touch screen every control in the row keeps its size and is a 44px tap
 target by its box or by its halo (`coarseHitArea`), never by growing the row.
@@ -671,7 +714,8 @@ has a test there. Today's canvas behaviour keeps holding.
 - **FB13.** `Flowchart.library.flows()` lists every flow in the record by name,
   each card its name and its description or counts, the open one placed, one
   with drafts marked Pending; a click opens it; the tab's search reads names and
-  descriptions.
+  descriptions for whole-value data. A record window instead uses shared record
+  Slice search and bounded pages (§3.5), preserving its query order.
 - **FB14.** "+ New flow" opens a `NamePopover` anchored to it; a name the record
   holds is refused there with the reason; a new name opens an empty flow, one
   lane, as a draft insert that Save commits and Discard drops.
@@ -755,7 +799,8 @@ has a test there. Today's canvas behaviour keeps holding.
 ### 9.7 The library pane (owner: the library)
 
 - **FB25.** The library holds the tabs `library` lists, in its order, each with
-  its count and a search. Collapsed, it is a rail with the first tab's count.
+  its count and appropriate search: record Slice for paged flows, Library search
+  for whole-value tabs. Collapsed, it is a rail with the first tab's count.
 - **FB26.** `Flowchart.library.states(rows, …)` and `transitions(rows, …)` list
   one card per row, read as `Sheet.library.tab` reads its rows; each card is a
   drag source; a click selects it, a click on the selected card lets it go.
@@ -826,7 +871,9 @@ has a test there. Today's canvas behaviour keeps holding.
 - **FB41.** Responsive specs measure the frame, the toolbar's fold order at
   desktop and phone widths, both themes, the panes, a state and a transition
   dropped, a move, and Save; the e3-ui skill documents `<Flowchart>` with
-  tested examples, and the plugin indexes are regenerated.
+  tested examples, and the plugin indexes are regenerated. The indexed example
+  also tests bounded cards, distant pages, prefix search, Save leaving a filter,
+  and retained drafts at desktop and both phone widths.
 
 ## 10. Drag and drop, as a table
 

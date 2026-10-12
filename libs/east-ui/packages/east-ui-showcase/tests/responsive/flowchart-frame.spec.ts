@@ -233,7 +233,7 @@ test.describe("The Flowchart's frame on a phone and on a touch screen (#1245)", 
             }
             // LR · TD's chip: its caret Font Awesome's solid caret-down (#1246), the chip recipe sizing it —
             // 8px tall, and its own width, never Font Awesome's fixed 1.25em, so the chip is no wider than a glyph made it.
-            const caret = root.locator("[data-flowchart-segmenu] [data-chip-caret] svg");
+            const caret = root.locator("[data-flowchart-segmenu] svg[data-chip-caret]");
             await expect(caret).toHaveCount(1);
             expect(await caret.evaluate((svg) => {
                 const box = svg.getBoundingClientRect();

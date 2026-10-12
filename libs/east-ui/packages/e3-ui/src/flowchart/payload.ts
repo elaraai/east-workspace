@@ -18,7 +18,8 @@
  *   batch committed through the patch mutation by `Record.onApply(record, {
  *   keyed: true })`. A record always holds flows by name (ruled 2026-10-07:
  *   e3's patch mutation writes only keyed records), so a lone flow is a
- *   one-entry record, or the host's;
+ *   one-entry record, or the host's. With `window`, only the paged browse
+ *   source and primary-entry read cross; the whole-record read is omitted;
  * - `data`, the host's flows by name or one flow — a value, an expression or a
  *   bind handle — the value's type picking the arm. Given the host's
  *   `onApply`, the arm carries the session's Save through it (#1247): the
@@ -73,6 +74,8 @@ import {
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EastUI, Editing, type UIComponentType } from "@elaraai/east-ui";
+import { flowchartWindow, FlowchartWindowType, FlowchartReadEntryType, FlowchartRecordChromeType } from "./window.js";
+import type { RecordSliceChromeOptions } from "@elaraai/east-ui/internal";
 import { Record as RecordBind, RecordOutcomeType } from "../bind/record.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { buildCanvas, FlowchartCanvasType, type FlowchartCanvasOptions, type FlowchartSliceOptions } from "./canvas.js";
@@ -166,10 +169,19 @@ export type FlowchartDataType = typeof FlowchartDataType;
  * Where a flowchart's flows come from.
  *
  * @property record - A record of flows by name, bound with its patch mutation
+ * @property paged - Bounded browse pages, primary-entry reads and shared record Slice chrome over a record
  * @property data - The host's flows by name, or one flow: the arm its value's type picked
  */
 export const FlowchartSourceType = VariantType({
     record: FlowchartFlowsHandleType,
+    paged: StructType({
+        recordId: StringType,
+        window: FlowchartWindowType,
+        entry: FlowchartReadEntryType,
+        chrome: FlowchartRecordChromeType,
+        history: FlowchartHistoryType,
+        apply: FlowchartSessionApplyType,
+    }),
     data: FlowchartDataType,
 });
 
@@ -349,11 +361,12 @@ export interface FlowchartCommon extends FlowchartCanvasOptions {
 /** The props, erased — what the implementation reads. */
 type FlowchartAnyProps = {
     record?: unknown;
+    window?: unknown;
     data?: unknown;
     onApply?: unknown;
     flow?: SubtypeExprOrValue<StringType>;
     library?: unknown;
-    slice?: FlowchartSliceOptions["slice"];
+    slice?: FlowchartSliceOptions["slice"] | RecordSliceChromeOptions;
     affordances?: FlowchartSliceOptions["affordances"];
     inspector?: unknown;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
@@ -453,7 +466,7 @@ function fieldOf(type: EastType | undefined, name: string): EastType | undefined
  * refused: e3's patch mutation writes only keyed records (ruled 2026-10-07),
  * so a lone flow is a one-entry record, or the host's `data`.
  */
-function recordArm(record: unknown): FlowchartArm {
+function recordArm(record: unknown, window?: unknown, slice?: RecordSliceChromeOptions): FlowchartArm {
     if (!(record instanceof Expr)) throw new Error(UNBOUND);
     const type = Expr.type(record) as EastType;
     const read = fieldOf(type, "read");
@@ -484,6 +497,13 @@ function recordArm(record: unknown): FlowchartArm {
         const commit = $.const(keyed);
         return commit(blob.decodeBeast(batchType, "v2"));
     });
+    if (window !== undefined) {
+        const view = flowchartWindow(window, slice);
+        const binding = record as unknown as { binding: { name: ExprType<StringType> } };
+        return { many: true, source: variant("paged", {
+            recordId: binding.binding.name, ...view, history: handle.history, apply,
+        }) };
+    }
     return {
         many: true,
         source: variant("record", { read: handle.read, history: handle.history, commit: { patch: handle.commit.patch }, apply }),
@@ -600,8 +620,8 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  * @param props - The flowchart's props, as `<Flowchart>` takes them
  * @returns An East expression of {@link FlowchartPayloadType}
  * @throws {Error} Naming the prop and the remedy: flows from both `record` and
- *   `data`, or from neither; `onApply`, `slice` or `affordances` over a
- *   record; `flow` over one flow; a record of one flow, or of another type
+ *   `data`, or from neither; `onApply` or top-level `affordances` over a
+ *   record; a record Slice without a window or a local Slice over a record; `flow` over one flow; a record of one flow, or of another type
  *   than `Flowchart.Types.Flows`, or not bound with its patch mutation; `data`
  *   of neither flow type; an `onApply` that does not take a request id and
  *   the patch of `data`'s type; `"brush"` among the affordances; a table or row mapper,
@@ -619,7 +639,7 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
-    const { record, data, onApply, flow, library, slice, affordances, inspector, readOnly, name, ...canvas } = props as FlowchartAnyProps;
+    const { record, window, data, onApply, flow, library, slice, affordances, inspector, readOnly, name, ...canvas } = props as FlowchartAnyProps;
     for (const table of TABLES) {
         if (table in canvas) {
             throw new Error(`Flowchart: \`${table}\` is one of the tables, or the row mappers, Flowchart.over builds a flow from — pass data={Flowchart.over(states, { … })}, or bind a record of flows as \`record\``);
@@ -652,13 +672,15 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
         if (onApply !== undefined) {
             throw new Error("Flowchart: `onApply` commits `data`'s edits — a flowchart over `record` commits through the record's patch mutation; leave `onApply` out");
         }
-        for (const [prop, given] of [["slice", slice], ["affordances", affordances]] as const) {
-            if (given !== undefined) {
-                throw new Error(`Flowchart: \`${prop}\` narrows the transitions a host builds its flow from, and a record's flows are the record's — pass the host's flow as data={Flowchart.over(states, { links: Slice.rows(…), … })}, or leave \`${prop}\` out`);
-            }
+        if (slice !== undefined && (window === undefined || slice instanceof Expr || !("slice" in slice))) {
+            throw new Error("Flowchart: record filters use window={Slice.rows(slice)} and slice={{ slice }}; a local Slice only narrows transitions over data");
         }
-        arm = recordArm(record);
+        if (affordances !== undefined) {
+            throw new Error("Flowchart: record affordances belong inside slice={{ slice, affordances }}");
+        }
+        arm = recordArm(record, window, slice as RecordSliceChromeOptions | undefined);
     } else {
+        if (window !== undefined) throw new Error("Flowchart: `window` pages a bound `record`; pass the record with its patch mutation");
         arm = dataArm(data, onApply);
     }
     if (flow !== undefined && !arm.many) {
@@ -668,7 +690,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     const pane = inspectorOf(inspector);
     return East.value({
         canvas: buildCanvas(canvas as FlowchartCanvasOptions, {
-            ...(slice === undefined ? {} : { slice }),
+            ...(slice === undefined || record !== undefined ? {} : { slice: slice as NonNullable<FlowchartSliceOptions["slice"]> }),
             ...(affordances === undefined ? {} : { affordances }),
         }),
         source: arm.source,

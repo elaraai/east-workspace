@@ -23,6 +23,7 @@
  * @packageDocumentation
  */
 
+import type { option } from "@elaraai/east";
 import { getReactiveTrackers, subscribeTrackers } from "./tracker.js";
 import { ReadScope } from "./read-scope.js";
 
@@ -99,4 +100,30 @@ export function createTrackedRead(onInvalidate: () => void): TrackedRead {
             registryUnsub = undefined;
         },
     };
+}
+
+/** Wait on exactly the dependencies a bounded read discovered, never poll. */
+export function awaitTracked<T>(read: () => option<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+        let done = false;
+        let queued = false;
+        const enqueue = () => {
+            if (done || queued) return;
+            queued = true;
+            queueMicrotask(run);
+        };
+        const tracked = createTrackedRead(enqueue);
+        const run = () => {
+            queued = false;
+            if (done) return;
+            const result = tracked.run(read);
+            if (!result.ok || result.value.type === "some") {
+                done = true;
+                tracked.release();
+                if (!result.ok) reject(result.error);
+                else if (result.value.type === "some") resolve(result.value.value);
+            }
+        };
+        enqueue();
+    });
 }

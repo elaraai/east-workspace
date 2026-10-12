@@ -144,10 +144,7 @@ test("covering-only binding reads and counts without primary segments; unsupport
     assert.throws(() => Data.bindPaged(people, { indexes: [] }), /at least one/);
     assert.throws(() => Data.bindPaged(people, { indexes: [byName, byName] }), /repeated index/);
     const computed = e3.recordIndex("computed_name", people, { key: East.function([StringType, Person], StringType, (_$, _k, person) => person.name) });
-    assert.throws(() => {
-        // @ts-expect-error a computed index has no field metadata
-        Data.bindPaged(people, { indexes: [computed] });
-    }, /needs on:/);
+    assert.doesNotThrow(() => bindRecord("computed", Data.bindPaged(people, { indexes: [computed] }), { search: "computed_name" }));
     runtime.clear();
 });
 

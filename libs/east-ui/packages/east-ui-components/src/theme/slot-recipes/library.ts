@@ -44,7 +44,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "toolbar", "searchBox", "searchIcon", "searchInput", "searchClear", "searchKbd",
         "groupTrigger", "dimTrigger", "menuCheck",
         "group", "groupHead", "groupLabel", "groupSummary", "grid",
-        "body", "canvas", "row", "rowGrid",
+        "body", "canvas", "row", "rowGrid", "pagedRoot", "pagedRow", "pagedSkeleton",
         "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel",
         "cardSublabel", "trailing", "statusPill", "glyph",
         "meter", "meterTrack", "meterFill", "meterText",
@@ -87,6 +87,9 @@ export const librarySlotRecipe = defineSlotRecipe({
                 padding: "0",
             },
         },
+        pagedSkeleton: { height: "48px" },
+        pagedRoot: { height: "100%", minWidth: 0 },
+        pagedRow: { paddingX: "14px", paddingY: "3px" },
         /* Virtualizer sizing canvas — height is bound per render. */
         canvas: {
             position: "relative",

@@ -22,8 +22,10 @@
 
 import { useCallback, useMemo } from "react";
 import { Box, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, equalFor, none } from "@elaraai/east";
+import { StringType, equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartModel, FlowchartValue } from "./model.js";
 
@@ -51,6 +53,8 @@ export interface FlowchartFooterProps {
     readonly message?: string | undefined;
     /** The flowchart's words: its numbers print in the app's locale. */
     readonly words: FlowchartWords;
+    /** Membership feedback after an indexed Save. */
+    readonly recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
 /**
@@ -59,7 +63,7 @@ export interface FlowchartFooterProps {
  * @param props - The open flow's name, its counts, the record's last save and a refused ⏎'s reason
  * @returns The footer
  */
-export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pending, saved, message, words }: FlowchartFooterProps) {
+export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pending, saved, message, words, recordSlice }: FlowchartFooterProps) {
     const share = narrowedFrom !== undefined && narrowedFrom > 0 ? 1 - links / narrowedFrom : undefined;
     return (
         <Box css={styles.footer} data-flowchart-footer="">
@@ -80,6 +84,7 @@ export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pen
             {message !== undefined && <Box as="span">·</Box>}
             {/* Always there, so a screen reader hears each line it takes. */}
             <Box as="span" css={styles.footerMessage} data-flowchart-message="" aria-live="polite">{message ?? ""}</Box>
+            {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} singular="flow" plural="flows" />}
             <Box css={styles.footerSplit}>
                 {words.number(counts.planned)} planned · {words.number(counts.observed)} observed
                 {counts.unresolved > 0 ? ` · ${words.number(counts.unresolved)} unresolved` : ""}
@@ -109,7 +114,7 @@ export interface FlowchartLastSave {
  * @returns The last save, or `undefined` over `data`, while the commits are unread, or when there are none
  */
 export function useLastSave(source: FlowchartValue["source"], words: Formatters): FlowchartLastSave | undefined {
-    const history = source.type === "record" ? source.value.history : undefined;
+    const history = source.type !== "data" ? source.value.history : undefined;
     const read = useCallback(() => (history === undefined ? none : history()), [history]);
     const { result } = useTrackedEvaluation(read);
     const newest = result.ok && result.value.type === "some" ? result.value.value[0] : undefined;

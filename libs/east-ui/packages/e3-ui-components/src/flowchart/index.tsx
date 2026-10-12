@@ -102,12 +102,13 @@ import {
     type EditIssue,
     type HistoryAction,
 } from "@elaraai/east-ui-components";
+import { awaitTracked } from "@elaraai/east-ui-components/internal";
 import { buildModel, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./model.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartReveal } from "./canvas.js";
 import * as flowEdits from "./edits.js";
 import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
-import { FlowsTab, NoFlows, type FlowCard, type NewFlowProps } from "./flows.js";
+import { FlowsTab, PagedFlowsTab, NoFlows, type FlowCard, type NewFlowProps } from "./flows.js";
 import { inspectorPane, type FlowchartInspectorEdit } from "./inspector.js";
 import { flowIssues, issueTarget, saveIssues } from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
@@ -119,6 +120,7 @@ import {
     ONE_FLOW, draftedEntry, newFlows, recordFlowDelete, recordFlowEdit, recordFlowRename, recordNewFlow, useFlowSession, useKeptSessions,
     type FlowApply, type FlowRow,
 } from "./session.js";
+import { readFlowWindow, type FlowchartPagedRecord } from "./window.js";
 import { useFlowchartToolbarItems } from "./toolbar.js";
 import { useFlowchartDrop } from "./use-drop.js";
 
@@ -147,7 +149,7 @@ type FlowsValue = ValueTypeOf<typeof Flowchart.Types.Flows>;
 
 /** The flows a payload's source holds: many by name, or one. */
 type FlowsHeld =
-    | { readonly many: true; readonly flows: FlowsValue }
+    | { readonly many: true; readonly flows: FlowsValue; readonly loading?: boolean; readonly pendingName?: string | undefined; readonly count?: number | undefined }
     | { readonly many: false; readonly flow: FlowchartFlowValue };
 
 /** A flow with nothing in it: the canvas while a flow is not yet there to draw. */
@@ -192,7 +194,8 @@ function emptyFlow(words: FlowchartWords): FlowchartFlowValue {
  */
 function saveOf(source: FlowchartValue["source"]): FlowApply | undefined {
     switch (source.type) {
-        case "record": return source.value.apply;
+        case "record":
+        case "paged": return source.value.apply;
         case "data": return getSomeorUndefined(source.value.value.apply);
     }
 }
@@ -205,9 +208,10 @@ function saveOf(source: FlowchartValue["source"]): FlowApply | undefined {
  * @param source - The payload's source
  * @returns The flows by name, or the one flow
  */
-function flowsHeld(source: FlowchartValue["source"]): FlowsHeld {
+function flowsHeld(source: FlowchartValue["source"], selected?: string): FlowsHeld {
     switch (source.type) {
         case "record": return { many: true, flows: source.value.read() };
+        case "paged": return readFlowWindow(source.value, selected);
         case "data": return source.value.type === "flows"
             ? { many: true, flows: source.value.value.value }
             : { many: false, flow: source.value.value.value };
@@ -224,8 +228,10 @@ function flowsHeld(source: FlowchartValue["source"]): FlowsHeld {
 export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, storageKey }: EastChakraFlowchartProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
     const source = value.source;
+    const [opened] = useOpenedFlow(flowchartKeys(getSomeorUndefined(value.name)).flow);
+    const selected = opened ?? getSomeorUndefined(value.open);
     // The flows, read where the flowchart renders, and again when they move.
-    const read = useCallback(() => flowsHeld(source), [source]);
+    const read = useCallback(() => flowsHeld(source, selected), [source, selected]);
     const { result } = useTrackedEvaluation(read);
     if (!result.ok) {
         const message = result.error instanceof Error ? result.error.message : String(result.error);
@@ -264,6 +270,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
 
     // ── The flows, and the one open (FB12) ──────────────────────────────
     const flows = held.many ? held.flows : undefined;
+    const paged: FlowchartPagedRecord | undefined = value.source.type === "paged" ? value.source.value : undefined;
     // The session's Save, while the flowchart edits: a record's, or the host's onApply over `data`.
     const apply = value.readOnly ? undefined : saveOf(value.source);
     const [opened, openStored] = useOpenedFlow(keys.flow);
@@ -284,7 +291,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
     // Whether the flowchart holds a flow of a name: in its flows, as a new flow — one its drafts rename among them — committed or
     // not, or as one whose drafts are on their way to Save.
     const holds = useCallback((n: string) => flows !== undefined
-        && (flows.has(n) || fresh.has(n) || (creating !== undefined && nameEqual(creating.name, n)) || drafting(n)), [flows, fresh, creating, drafting]);
+        && (flows.has(n) || (held.many && held.pendingName === n) || fresh.has(n) || (creating !== undefined && nameEqual(creating.name, n)) || drafting(n)), [flows, fresh, creating, drafting, held]);
     // A rename sent with Save (#1250): the flow it renames — the one open then, whether the viewer or `flow` opened it — and its new
     // name, followed once the session that sent it has seen the commit through, none of its drafts left. A Save refused or in
     // conflict drops it, and a Save sent again marks it again; a write with no answer keeps it, its drafts locked, for its Retry.
@@ -304,6 +311,12 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
     const asked = getSomeorUndefined(value.open);
     const openName = useMemo(() => (flows === undefined ? undefined
         : openFlowName([...flows.keys(), ...fresh.keys()], holds, openedNow, asked)), [flows, fresh, holds, openedNow, asked]);
+    // Keep the initial choice by primary ID: filtering the list must not
+    // detach the open flow's session while a Save awaits confirmation.
+    useEffect(() => {
+        if (paged !== undefined && openName !== undefined && opened !== openName
+            && !(held.many && held.loading) && (asked === undefined || holds(asked) || opened !== undefined)) openStored(openName);
+    }, [paged, openName, opened, held, asked, holds, openStored]);
     // `flow` names a flow the flowchart doesn't hold, and the viewer opened none in its place: the banner's (FB42).
     const missing = missingFlow(holds, openedNow, asked);
     const heldFlow = flows !== undefined && openName !== undefined ? flows.get(openName) : undefined;
@@ -314,14 +327,14 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
     const entryHeld = held.many ? heldFlow : held.flow;
     // A flow as the source holds it, by name: the open flow's, and a rename's new name's (#1250).
     const heldOf = useCallback((n: string): FlowchartFlowValue | undefined => (held.many ? held.flows.get(n) : nameEqual(n, ONE_FLOW) ? held.flow : undefined), [held]);
-    const flowSession = useFlowSession({ key: keys.flow, name: entry, heldOf, apply, storageKey, sessions: kept.sessions, words });
+    const flowSession = useFlowSession({ key: keys.flow, name: entry, heldOf, apply, storageKey, sessions: kept.sessions, words, paged });
     const { session, original, available } = flowSession;
     useEffect(() => {
-        if (creating === undefined || openName === undefined || !nameEqual(openName, creating.name) || !available) return;
+        if (creating === undefined || openName === undefined || !nameEqual(openName, creating.name) || !available || (held.many && held.loading)) return;
         // A name another write took meanwhile is the record's: it opens as the record holds it.
         if (heldFlow === undefined) recordNewFlow(session, creating.name, creating.flow, creating.label);
         setCreating(undefined);
-    }, [creating, openName, heldFlow, available, session]);
+    }, [creating, openName, heldFlow, available, session, held]);
     // The open flow as its drafts stand, under the name they give it; with none, as its source holds it.
     const pending = session.pending > 0;
     const drafted = flowSession.drafted;
@@ -481,7 +494,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
         event.preventDefault();
         onAction(action);
     }, [edits, onAction]);
-    const items = useFlowchartToolbarItems({ styles, find, orientation, onOrientation: setOrientation, freshness, slice, affordances, words, history });
+    const items = useFlowchartToolbarItems({ styles, find, orientation, onOrientation: setOrientation, freshness, slice, affordances, words, history, recordChrome: paged?.chrome.type === "some" ? paged.chrome.value : undefined });
     const saved = useLastSave(value.source, words);
 
     // ── The Flows tab (FB13, FB14) ──────────────────────────────────────
@@ -499,17 +512,27 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [flows, fresh, kept.sessions, kept.version]);
     // Every name the flowchart holds, or a draft gives a flow: what a new flow, a rename and a copy may not take.
-    const taken = useMemo(() => new Set([...cards.map((c) => c.name), ...cards.map((c) => c.label), ...(creating === undefined ? [] : [creating.name])]), [cards, creating]);
-    const onCreate = useCallback((n: string) => {
+    const taken = useMemo(() => new Set([
+        ...cards.map((c) => c.name), ...cards.map((c) => c.label),
+        ...kept.sessions.all().flatMap(([, own]) => [...own.entries].filter(([, row]) => row.draft !== undefined).map(([id]) => id)),
+        ...(creating === undefined ? [] : [creating.name]),
+    ]), [cards, creating, kept.sessions]);
+    const onCreate = useCallback(async (n: string): Promise<string | undefined> => {
+        if (paged !== undefined && (await awaitTracked(() => paged.entry(n))).type === "some") return words.m.flowNameTaken({ name: n });
         setCreating({ name: n, flow: emptyFlow(words), label: words.m.newFlow() });
         openStored(n);
-    }, [openStored, words]);
+        return undefined;
+    }, [openStored, words, paged]);
     const newFlow = useMemo((): NewFlowProps | undefined => (apply === undefined || flows === undefined ? undefined : { taken, onCreate }), [apply, flows, taken, onCreate]);
     const flowsTab = useMemo(() => (flows === undefined ? undefined : {
-        count: words.number(cards.length),
-        body: <FlowsTab cards={cards} open={openName} onOpen={openStored} newFlow={newFlow}
+        count: paged !== undefined && held.many ? (held.count ?? 0) + fresh.size : cards.length,
+        body: paged !== undefined
+            ? <PagedFlowsTab source={paged} sessions={kept.sessions} fresh={cards.filter(c => fresh.has(c.name))}
+                open={openName} onOpen={openStored} newFlow={newFlow} id={`${keys.library}:flows`}
+                storageKey={`${keys.library}.flows`} styles={styles} words={words} />
+            : <FlowsTab cards={cards} open={openName} onOpen={openStored} newFlow={newFlow}
             id={`${keys.library}:flows`} storageKey={`${keys.library}.flows`} styles={styles} words={words} />,
-    }), [flows, cards, openName, openStored, newFlow, keys.library, styles, words]);
+    }), [flows, cards, openName, openStored, newFlow, keys.library, styles, words, paged, held, fresh, kept.sessions]);
     // The library pane: the tabs `library` lists, each data tab a Library of its own rows' cards (#1248),
     // each card that drops taking its ⏎ (#1249).
     const start = useFlowchartLibrary({ library: value.library, flows: flowsTab, keys, words, enter: drop.enter });
@@ -529,16 +552,31 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
                 if (nameEqual(name, at.name)) return false;
                 // A name the flowchart holds, but the open flow's own under the source.
                 if (taken.has(name) && !nameEqual(name, entry)) { refuse({ why: "nameTaken", name }); return false; }
-                return recordFlowRename({ session, original }, at.name, name, at.flow, words.m.editLabel({ edit: "renameFlow" }));
+                const commit = () => {
+                    const current = currentEntry();
+                    if (openNameRef.current !== entry || current?.name !== at.name) return false;
+                    return recordFlowRename({ session, original }, at.name, name, current.flow, words.m.editLabel({ edit: "renameFlow" }));
+                };
+                if (paged === undefined || nameEqual(name, entry)) return commit();
+                return awaitTracked(() => paged.entry(name)).then(found => {
+                    if (found.type === "some") { refuse({ why: "nameTaken", name }); return false; }
+                    return commit();
+                }, error => { setNotice(error instanceof Error ? error.message : "Could not check the flow name"); return false; });
             },
             duplicate: () => {
                 const at = currentEntry();
                 if (at === undefined || !held.many) return;
-                let n = 1;
-                let name = words.m.flowCopy({ name: at.name, n });
-                while (taken.has(name)) name = words.m.flowCopy({ name: at.name, n: ++n });
-                setCreating({ name, flow: at.flow, label: words.m.editLabel({ edit: "duplicateFlow" }) });
-                openStored(name);
+                const create = async () => {
+                    let n = 1;
+                    let name = words.m.flowCopy({ name: at.name, n });
+                    while (taken.has(name) || (paged !== undefined && (await awaitTracked(() => paged.entry(name))).type === "some")) {
+                        name = words.m.flowCopy({ name: at.name, n: ++n });
+                    }
+                    if (openNameRef.current !== entry) return;
+                    setCreating({ name, flow: at.flow, label: words.m.editLabel({ edit: "duplicateFlow" }) });
+                    openStored(name);
+                };
+                void create().catch(error => setNotice(error instanceof Error ? error.message : "Could not duplicate the flow"));
             },
             remove: () => {
                 const at = currentEntry();
@@ -547,7 +585,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
             },
             refuse,
         };
-    }, [edits, entry, hasFlow, currentEntry, recordEdit, held.many, refuse, taken, session, original, words, openStored, setSelected]);
+    }, [edits, entry, hasFlow, currentEntry, recordEdit, held.many, refuse, taken, session, original, words, openStored, setSelected, paged]);
     // The open flow's issues, and its Save's conflict or refusal while it stands (FB37).
     const status = session.status;
     const sessionIssues = session.issues;
@@ -559,7 +597,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
     const end = paneValue === undefined ? undefined : inspectorPane({
         pane: paneValue, flow: shown?.flow, held: entryHeld, model, name: shownName, heldName: entryHeld === undefined ? undefined : openName,
         deleted, selection, reveal: revealSelection, issues, edit: inspectorEdit, available: edits && available,
-        record: value.source.type === "record", saved, keys, words,
+        record: value.source.type !== "data", saved, keys, words,
     });
 
     // The banners: the open flow's session's, then a `flow` the flowchart doesn't hold, as the Sheet names an entry its record doesn't (FB42).
@@ -591,8 +629,13 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
 
     return (
         <Box css={styles.root} data-flowchart-root="">
+            {paged !== undefined && kept.sessions.all().filter(([name, own]) => name !== entry && own.pending > 0).map(([name]) => (
+                <PendingFlowSession key={name} name={name} flowKey={keys.flow} paged={paged} apply={apply}
+                    storageKey={storageKey} sessions={kept.sessions} words={words} />
+            ))}
             <BuilderFrame
                 storageKey={keys.frame}
+                loading={held.many && held.loading === true}
                 toolbar={items}
                 banners={banners}
                 start={start}
@@ -600,6 +643,7 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
                 footer={
                     <FlowchartFooter styles={styles} name={shownName} links={flow.links.length}
                         narrowedFrom={total !== undefined && narrowed !== undefined && narrowed < total ? total : undefined}
+                        recordSlice={paged?.chrome.type === "some" ? paged.chrome.value.slice : undefined}
                         counts={model.counts} pending={waiting} saved={saved?.when} message={notice} words={words} />
                 }
                 onKeyDown={onKeyDown}
@@ -609,6 +653,13 @@ function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
         </Box>
     );
 }
+
+/** Keep offscreen drafts and in-flight Save confirmations attached to the shared session. */
+function PendingFlowSession({ name, flowKey, ...options }: Omit<Parameters<typeof useFlowSession>[0], "key" | "heldOf"> & { flowKey: string }) {
+    useFlowSession({ ...options, name, key: flowKey, heldOf: noHeldFlow });
+    return null;
+}
+const noHeldFlow = () => undefined;
 
 // =============================================================================
 // Side-effect — register the renderer for the Flowchart extension on module load.

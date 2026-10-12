@@ -13,6 +13,7 @@
  * share.
  */
 
+import { beforeAll, afterAll, vi } from "vitest";
 import { act, fireEvent, render, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, PatchType, applyFor, decodeBeast2For, encodeBeast2For, variant, type BlockBuilder, type EastType, type ExprType, type PatchTypeOf, type ValueTypeOf } from "@elaraai/east";
@@ -25,6 +26,22 @@ import {
 } from "../platform/index.js";
 // The flowchart is an extension: its renderer registers as it loads.
 import "./index.js";
+
+// jsdom has no layout. Give the real Library virtualizer a viewport instead
+// of disabling virtualization in the production adapter for these tests.
+const libraryHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+const libraryWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!;
+let restoreLibrarySize = () => {};
+beforeAll(() => {
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.closest("[data-flowchart-flows]") === null ? libraryHeight.get!.call(this) : 480;
+    });
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+        return this.closest("[data-flowchart-flows]") === null ? libraryWidth.get!.call(this) : 272;
+    });
+    restoreLibrarySize = () => { height.mockRestore(); width.mockRestore(); };
+});
+afterAll(() => restoreLibrarySize());
 
 type Flows = ValueTypeOf<typeof Flowchart.Types.Flows>;
 type UIValue = ValueTypeOf<typeof UIComponentType>;

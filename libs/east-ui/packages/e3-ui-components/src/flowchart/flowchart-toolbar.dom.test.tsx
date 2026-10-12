@@ -171,7 +171,7 @@ describe("the Flowchart's toolbar items (#1245)", () => {
         expect(c.querySelector("[data-flowchart-freshness]")).toBeNull();
         // The chip says its orientation and no more: its caret is Font Awesome's solid caret-down, never a glyph.
         expect(c.querySelector("[data-flowchart-segmenu='orientation']")!.textContent).toBe("LR");
-        expect(c.querySelector("[data-flowchart-segmenu='orientation'] [data-chip-caret] svg[data-prefix='fas'][data-icon='caret-down']")).not.toBeNull();
+        expect(c.querySelector("[data-flowchart-segmenu='orientation'] svg[data-chip-caret][data-prefix='fas'][data-icon='caret-down']")).not.toBeNull();
         expect(c.querySelector("[data-flowchart-seg]")).toBeNull();
         expect(c.querySelector("[data-toolbar-item='seek'] [data-key-search='icon']")!.getAttribute("aria-label")).toBe("Find state");
         expect(c.querySelector("[data-part='dataset-key-search']")).toBeNull();

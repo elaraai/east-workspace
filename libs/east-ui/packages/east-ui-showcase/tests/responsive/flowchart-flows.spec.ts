@@ -517,11 +517,11 @@ test.describe("The Flowchart's Flows tab on a phone (#1246)", () => {
     }
 
     for (const theme of ["light", "dark"] as const) {
-        test(`over the record the row holds every item — LR · TD's chip, find state's icon and the history item whole — in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
+        test(`over the record the row holds every item — LR · TD's chip, find state's icon and the folded history item — in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
             const root = await openFlows(page, theme);
             const bar = await toolbarOf(root);
             expect([bar.band, bar.rows, bar.past, bar.ladder]).toEqual([44, 1, [], LADDER]);
-            expect(bar.state).toBe("seek=1/2;orientation=1/2;history=0/2");
+            expect(bar.state).toBe("seek=1/2;orientation=1/2;history=1/2");
         });
 
         test(`each lane's × — Font Awesome's xmark beside its header — is a 44px tap target by its halo, and the drawing holds no glyph as text (${theme})`, async ({ page }) => {
