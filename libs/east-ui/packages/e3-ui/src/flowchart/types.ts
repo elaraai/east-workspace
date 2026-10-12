@@ -6,6 +6,7 @@
 import {
     ArrayType,
     DateTimeType,
+    DictType,
     FloatType,
     IntegerType,
     NullType,
@@ -63,45 +64,27 @@ export const FlowchartOrientationType = VariantType({
 export type FlowchartOrientationType = typeof FlowchartOrientationType;
 
 /**
- * Link-authoring mode for the drag-to-connect gesture.
- *
- * @property draw - Adds locally, form-input style (the renderer appends)
- * @property connect - Event-only; the host owns the data (plan operations)
- */
-export const FlowchartLinkModeType = VariantType({
-    /** Adds locally, form-input style (the renderer appends) */
-    draw: NullType,
-    /** Event-only; the host owns the data (plan operations) */
-    connect: NullType,
-});
-
-/**
- * Type representing flowchart link-authoring modes.
- */
-export type FlowchartLinkModeType = typeof FlowchartLinkModeType;
-
-/**
  * Imported evidence carried by a link — never hand-authored.
  *
  * @remarks
  * Evidence drives derived marks only: stroke weight scales with `volume`
  * (log scale 1.6 / 2 / 2.5 px, floor 1.4), `volume` + `unit` print as the
- * paper-filled badge on the longest straight run, and `count` /
- * `measuredAt` surface in hover cards and the inspector provenance block.
+ * paper-filled badge on the longest straight run, and the inspector shows
+ * all four, read only, under the transition's fields (#1250).
  *
  * @property volume - Total measured volume behind the arrow
- * @property count - Event count behind the arrow (e.g. transfers)
+ * @property count - Event count behind the arrow (e.g. cage moves)
  * @property measuredAt - When the evidence was measured
- * @property unit - Volume unit suffix for badges ("kt")
+ * @property unit - Volume unit suffix for badges ("parcels")
  */
 export const FlowchartEvidenceType = StructType({
     /** Total measured volume behind the arrow */
     volume: OptionType(FloatType),
-    /** Event count behind the arrow (e.g. transfers) */
+    /** Event count behind the arrow (e.g. cage moves) */
     count: OptionType(IntegerType),
     /** When the evidence was measured */
     measuredAt: OptionType(DateTimeType),
-    /** Volume unit suffix for badges ("kt") */
+    /** Volume unit suffix for badges ("parcels") */
     unit: OptionType(StringType),
 });
 
@@ -120,14 +103,14 @@ export type FlowchartEvidenceType = typeof FlowchartEvidenceType;
  * `×N` badge). In-place transitions (`from == to` links) collapse to the
  * `↻ n` badge on the node and never route through handles.
  *
- * @property key - Short mono code — the node identity ("RCT")
+ * @property key - Short mono code — the node identity ("IND")
  * @property label - Display label under the code
  * @property lane - The lane (ordered phase) this state belongs to
  * @property members - State-class member count → the ×N badge
- * @property notes - Free-text notes surfaced on hover / inspector
+ * @property notes - Free-text notes, shown and edited in the inspector
  */
 export const FlowchartStateType = StructType({
-    /** Short mono code — the node identity ("RCT") */
+    /** Short mono code — the node identity ("IND") */
     key: StringType,
     /** Display label under the code */
     label: OptionType(StringType),
@@ -135,7 +118,7 @@ export const FlowchartStateType = StructType({
     lane: StringType,
     /** State-class member count → the ×N badge */
     members: OptionType(IntegerType),
-    /** Free-text notes surfaced on hover / inspector */
+    /** Free-text notes, shown and edited in the inspector */
     notes: OptionType(StringType),
 });
 
@@ -211,24 +194,24 @@ export type FlowchartLaneType = typeof FlowchartLaneType;
  * governs (plus queue and outcome nodes).
  *
  * @property key - Trigger identity referenced by links
- * @property label - Decision name ("press")
+ * @property label - Decision name ("route")
  * @property letter - Diamond letter (default: first letter of the label)
- * @property owner - Owning role / system ("press-scheduler")
+ * @property owner - Owning role / system ("sort-planner")
  * @property queue - State keys queued at the decision
- * @property outcomes - Outcome summary line ("P* (×14 slots)")
+ * @property outcomes - Outcome summary line ("CH* (×14 chutes)")
  */
 export const FlowchartTriggerType = StructType({
     /** Trigger identity referenced by links */
     key: StringType,
-    /** Decision name ("press") */
+    /** Decision name ("route") */
     label: StringType,
     /** Diamond letter (default: first letter of the label) */
     letter: OptionType(StringType),
-    /** Owning role / system ("press-scheduler") */
+    /** Owning role / system ("sort-planner") */
     owner: OptionType(StringType),
     /** State keys queued at the decision */
     queue: OptionType(ArrayType(StringType)),
-    /** Outcome summary line ("P* (×14 slots)") */
+    /** Outcome summary line ("CH* (×14 chutes)") */
     outcomes: OptionType(StringType),
 });
 
@@ -236,6 +219,54 @@ export const FlowchartTriggerType = StructType({
  * Type representing flowchart triggers.
  */
 export type FlowchartTriggerType = typeof FlowchartTriggerType;
+
+/**
+ * One flow — a whole flowchart: its lanes, its states, the transitions
+ * between them and the decisions that govern them (#1244, `Flowchart Builder
+ * Spec.md` §5.1).
+ *
+ * @remarks
+ * A record of flows holds one per name ({@link FlowchartFlowsType}), and a
+ * lone flow is a record of one entry, or the host's `data`. `Flowchart.value`
+ * writes one from a literal, and `Flowchart.over` builds one from an app's
+ * own tables. A record's entries are flows, so it is a stored form.
+ *
+ * @property description - One sentence about the flow: the line its card in the Flows tab shows
+ * @property lanes - Its lanes, in band order
+ * @property states - Its states, each in one of its lanes
+ * @property links - Its transitions; one naming a state the flow does not have draws as the unresolved ghost
+ * @property triggers - Its decisions, each named by the transitions it governs
+ */
+export const FlowchartFlowType = StructType({
+    /** One sentence about the flow: the line its card in the Flows tab shows */
+    description: OptionType(StringType),
+    /** Its lanes, in band order */
+    lanes: ArrayType(FlowchartLaneType),
+    /** Its states, each in one of its lanes */
+    states: ArrayType(FlowchartStateType),
+    /** Its transitions; one naming a state the flow does not have draws as the unresolved ghost */
+    links: ArrayType(FlowchartLinkType),
+    /** Its decisions, each named by the transitions it governs */
+    triggers: ArrayType(FlowchartTriggerType),
+});
+
+/**
+ * Type representing one flow.
+ */
+export type FlowchartFlowType = typeof FlowchartFlowType;
+
+/**
+ * A record of flows, by name — the record a flowchart is bound to (#1244,
+ * `Flowchart Builder Spec.md` §5.1): a record always holds flows by name, e3's
+ * patch mutation writing only keyed records. A name is the flow's key in the
+ * record. `Flowchart.values` writes one from literals.
+ */
+export const FlowchartFlowsType = DictType(StringType, FlowchartFlowType);
+
+/**
+ * Type representing a record of flows.
+ */
+export type FlowchartFlowsType = typeof FlowchartFlowsType;
 
 /**
  * Eyebrow freshness chip content.
@@ -254,104 +285,3 @@ export const FlowchartFreshnessType = StructType({
  * Type representing the freshness chip.
  */
 export type FlowchartFreshnessType = typeof FlowchartFreshnessType;
-
-/**
- * Lane-rename event — a committed inline header edit.
- *
- * @property key - The renamed lane's key
- * @property label - The new label text
- */
-export const FlowchartLaneRenameEventType = StructType({
-    /** The renamed lane's key */
-    key: StringType,
-    /** The new label text */
-    label: StringType,
-});
-
-/**
- * Type representing lane-rename events.
- */
-export type FlowchartLaneRenameEventType = typeof FlowchartLaneRenameEventType;
-
-/**
- * State-add event — a committed "+ STATE" ghost editor.
- *
- * @property lane - The lane the ghost was committed in
- * @property key - The typed state code (the node identity)
- * @property label - The typed label (may be empty)
- */
-export const FlowchartStateAddEventType = StructType({
-    /** The lane the ghost was committed in */
-    lane: StringType,
-    /** The typed state code (the node identity) */
-    key: StringType,
-    /** The typed label (may be empty) */
-    label: StringType,
-});
-
-/**
- * Type representing state-add events.
- */
-export type FlowchartStateAddEventType = typeof FlowchartStateAddEventType;
-
-/**
- * State-edit event — a committed inline node editor.
- *
- * @property key - The ORIGINAL state key (the identity being edited)
- * @property code - The possibly-changed code (rekeying is the host's call)
- * @property label - The new label text
- */
-export const FlowchartStateEditEventType = StructType({
-    /** The ORIGINAL state key (the identity being edited) */
-    key: StringType,
-    /** The possibly-changed code (rekeying is the host's call) */
-    code: StringType,
-    /** The new label text */
-    label: StringType,
-});
-
-/**
- * Type representing state-edit events.
- */
-export type FlowchartStateEditEventType = typeof FlowchartStateEditEventType;
-
-/**
- * State-move event — a node dropped on another lane.
- *
- * @property key - The moved state's key
- * @property lane - The target lane's key
- */
-export const FlowchartStateMoveEventType = StructType({
-    /** The moved state's key */
-    key: StringType,
-    /** The target lane's key */
-    lane: StringType,
-});
-
-/**
- * Type representing state-move events.
- */
-export type FlowchartStateMoveEventType = typeof FlowchartStateMoveEventType;
-
-/**
- * Link-creation event — a completed drag-to-connect gesture.
- *
- * @remarks
- * Handles are fixed per side, so the payload is purely topological: the
- * source and target state keys. Vetoed pairs (`canConnect` returning
- * false) never produce this event.
- *
- * @property from - Source state key (the out-handle the drag left)
- * @property to - Target state key (the node the drag released on)
- */
-export const FlowchartLinkCreateEventType = StructType({
-    /** Source state key (the out-handle the drag left) */
-    from: StringType,
-    /** Target state key (the node the drag released on) */
-    to: StringType,
-});
-
-/**
- * Type representing link-creation events.
- */
-export type FlowchartLinkCreateEventType = typeof FlowchartLinkCreateEventType;

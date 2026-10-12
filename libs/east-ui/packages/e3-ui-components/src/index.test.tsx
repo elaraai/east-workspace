@@ -10,6 +10,8 @@
  */
 
 import { describe, test, expect } from "vitest";
+import { hasExtensionRenderer } from "@elaraai/east-ui-components";
+import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as root from "./index.js";
 import { RECOVERY_FIRST_MS, RECOVERY_MAX_MS, recoveryDelay, useQueryRecovery } from "./platform/recovery.js";
 import { usePreviewControls } from "./components/preview-controls.js";
@@ -23,5 +25,10 @@ describe("the package's root", () => {
 
     test("gives a host the handle its own header's controls act on a preview through (#1209)", () => {
         expect(root.usePreviewControls).toBe(usePreviewControls);
+    });
+
+    test("registers the Flowchart's renderer against its carrier as it loads, so a host's `<Flowchart>` draws (#1243)", () => {
+        expect(root.EastChakraFlowchart).toBeDefined();
+        expect(hasExtensionRenderer(Flowchart.Component.name)).toBe(true);
     });
 });

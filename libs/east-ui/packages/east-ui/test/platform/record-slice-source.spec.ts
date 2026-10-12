@@ -16,10 +16,10 @@ import type { SeekQueryType } from "../../src/contracts/source.js";
 
 const indexType = ArrayType(RecordSliceIndexType);
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-    { name: "by_status_due", fields: ["status", "due"], sets: new Set(), interval: none },
-    { name: "by_customer", fields: ["customer"], sets: new Set(), interval: none },
-    { name: "by_skill", fields: ["skills"], sets: new Set(["skills"]), interval: none },
-    { name: "by_status_skill", fields: ["status", "skills"], sets: new Set(["skills"]), interval: none },
+    { name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none },
+    { name: "by_customer", fields: ["customer"], sets: new Set(), structured: false, interval: none },
+    { name: "by_skill", fields: ["skills"], sets: new Set(["skills"]), structured: false, interval: none },
+    { name: "by_status_skill", fields: ["status", "skills"], sets: new Set(["skills"]), structured: true, interval: none },
 ]));
 const values = (...choices: string[]) => variant("values", choices);
 // Use decoded East dictionaries, including ordered Set metadata, at the runtime boundary.

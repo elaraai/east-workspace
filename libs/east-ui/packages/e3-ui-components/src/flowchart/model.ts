@@ -12,11 +12,17 @@
  */
 
 import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
-import type { Flowchart } from "@elaraai/east-ui/internal";
-import type { Formatters, TickFormatOpt } from "../../format/index.js";
+import type { Flowchart } from "@elaraai/e3-ui/internal";
+import { getSomeorUndefined, type Formatters, type TickFormatOpt } from "@elaraai/east-ui-components";
 
-/** The decoded Flowchart root value. */
-export type FlowchartValue = ValueTypeOf<typeof Flowchart.Types.Flowchart>;
+/** The decoded Flowchart payload — what `<Flowchart>` hands the renderer (#1244). */
+export type FlowchartValue = ValueTypeOf<typeof Flowchart.Types.Payload>;
+
+/** The decoded canvas: what the flowchart draws its flow with. */
+export type FlowchartCanvasValue = ValueTypeOf<typeof Flowchart.Types.Canvas>;
+
+/** One decoded flow: its lanes, states, transitions and decisions. */
+export type FlowchartFlowValue = ValueTypeOf<typeof Flowchart.Types.Flow>;
 
 export type FlowchartStateValue = ValueTypeOf<typeof Flowchart.Types.State>;
 export type FlowchartLinkValue = ValueTypeOf<typeof Flowchart.Types.Link>;
@@ -57,7 +63,7 @@ export interface ModelLink {
     evidence: FlowchartEvidenceValue | undefined;
     /** Stroke weight from evidence volume — log scale 1.6 / 2 / 2.5, floor 1.4. */
     weight: number;
-    /** Pre-formatted evidence badge ("199.5 kt · 13,866"); undefined ⇒ no badge. */
+    /** Pre-formatted evidence badge ("17,350 parcels · 386"); undefined ⇒ no badge. */
     badgeText: string | undefined;
 }
 
@@ -85,10 +91,13 @@ export interface FlowchartModel {
     links: ReadonlyArray<ModelLink>;
     triggers: ReadonlyMap<string, ModelTrigger>;
     counts: { total: number; planned: number; observed: number; unresolved: number };
+    /** The flow holds no lane, no state and no transition: there is nothing to draw (#1246). A flow of lanes alone — a new one — draws its lanes. */
+    blank: boolean;
+    /** How many states each lane holds, by its key — the states naming it (#1247): a lane holding states is not deleted (FB19). */
+    laneStates: ReadonlyMap<string, number>;
+    /** The flow has no lane: `lanes` is one stand-in band, no lane of the flow's, which no gesture renames, deletes or adds a state to (#1247). */
+    standIn: boolean;
 }
-
-const unwrap = <T,>(opt: { type: "some"; value: T } | { type: "none"; value: null }): T | undefined =>
-    opt.type === "some" ? opt.value : undefined;
 
 /**
  * Stroke weight from evidence volume — the spec's log ladder:
@@ -139,7 +148,7 @@ export function buildModel(value: {
 }, words: Formatters): FlowchartModel {
     const lanes: ModelLane[] = value.lanes.map(l => ({
         key: l.key,
-        label: unwrap(l.label) ?? l.key.toUpperCase(),
+        label: getSomeorUndefined(l.label) ?? l.key.toUpperCase(),
     }));
     const laneIndex = new Map<string, number>(lanes.map((l, i) => [l.key, i]));
 
@@ -157,11 +166,11 @@ export function buildModel(value: {
         const li = laneIndex.get(s.lane) ?? Math.max(lanes.length - 1, 0);
         const node: ModelNode = {
             key: s.key,
-            label: unwrap(s.label),
+            label: getSomeorUndefined(s.label),
             laneIndex: li,
             laneOrder: nextLaneOrder(li),
-            members: unwrap(s.members),
-            notes: unwrap(s.notes),
+            members: getSomeorUndefined(s.members),
+            notes: getSomeorUndefined(s.notes),
             inPlaceKeys: [],
             ghost: false,
         };
@@ -172,7 +181,7 @@ export function buildModel(value: {
     // Links: self-loops fold into `↻ n`; unknown endpoints derive ghosts.
     const links: ModelLink[] = [];
     const volumes = value.links
-        .map(l => { const ev = unwrap(l.evidence); return ev ? unwrap(ev.volume) : undefined; })
+        .map(l => { const ev = getSomeorUndefined(l.evidence); return ev ? getSomeorUndefined(ev.volume) : undefined; })
         .filter((v): v is number => v !== undefined && v > 0);
     const maxVolume = volumes.length > 0 ? Math.max(...volumes) : 0;
     const minVolume = volumes.length > 0 ? Math.min(...volumes) : 0;
@@ -197,7 +206,7 @@ export function buildModel(value: {
     value.links.forEach((l, i) => {
         if (l.from === l.to) {
             const node = nodesByKey.get(l.from);
-            if (node) node.inPlaceKeys.push(unwrap(l.key) ?? linkKey(l.from, l.to, i));
+            if (node) node.inPlaceKeys.push(getSomeorUndefined(l.key) ?? linkKey(l.from, l.to, i));
             return;
         }
         const missing = !nodesByKey.has(l.from) || !nodesByKey.has(l.to);
@@ -208,21 +217,21 @@ export function buildModel(value: {
             ensureGhost(l.from, near);
             ensureGhost(l.to, near);
         }
-        const kind = unwrap(l.kind)?.type ?? "planned";
+        const kind = getSomeorUndefined(l.kind)?.type ?? "planned";
         const cls: LinkClass = missing ? "unresolved" : kind;
         if (cls === "planned") planned += 1;
         else if (cls === "observed") observed += 1;
         else unresolved += 1;
-        const ev = unwrap(l.evidence);
-        const vol = ev ? unwrap(ev.volume) : undefined;
-        const cnt = ev ? unwrap(ev.count) : undefined;
-        const unit = ev ? unwrap(ev.unit) : undefined;
+        const ev = getSomeorUndefined(l.evidence);
+        const vol = ev ? getSomeorUndefined(ev.volume) : undefined;
+        const cnt = ev ? getSomeorUndefined(ev.count) : undefined;
+        const unit = ev ? getSomeorUndefined(ev.unit) : undefined;
         links.push({
-            key: unwrap(l.key) ?? linkKey(l.from, l.to, i),
+            key: getSomeorUndefined(l.key) ?? linkKey(l.from, l.to, i),
             from: l.from,
             to: l.to,
             cls,
-            trigger: unwrap(l.trigger),
+            trigger: getSomeorUndefined(l.trigger),
             evidence: ev,
             weight: cls === "unresolved" ? 1.4 : evidenceWeight(vol, minVolume, maxVolume),
             badgeText: vol !== undefined
@@ -231,15 +240,18 @@ export function buildModel(value: {
         });
     });
 
+    const laneStates = new Map<string, number>();
+    for (const s of value.states) laneStates.set(s.lane, (laneStates.get(s.lane) ?? 0) + 1);
+
     const triggers = new Map<string, ModelTrigger>();
     for (const t of value.triggers) {
         triggers.set(t.key, {
             key: t.key,
             label: t.label,
-            letter: unwrap(t.letter) ?? (t.label.length > 0 ? t.label.charAt(0).toUpperCase() : "?"),
-            owner: unwrap(t.owner),
-            queue: unwrap(t.queue) ?? [],
-            outcomes: unwrap(t.outcomes),
+            letter: getSomeorUndefined(t.letter) ?? (t.label.length > 0 ? t.label.charAt(0).toUpperCase() : "?"),
+            owner: getSomeorUndefined(t.owner),
+            queue: getSomeorUndefined(t.queue) ?? [],
+            outcomes: getSomeorUndefined(t.outcomes),
             governs: links.filter(l => l.trigger === t.key).map(l => l.key),
         });
     }
@@ -251,5 +263,8 @@ export function buildModel(value: {
         links,
         triggers,
         counts: { total: links.length, planned, observed, unresolved },
+        blank: value.lanes.length === 0 && value.states.length === 0 && value.links.length === 0,
+        laneStates,
+        standIn: lanes.length === 0,
     };
 }

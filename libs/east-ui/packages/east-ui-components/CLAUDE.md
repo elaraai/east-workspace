@@ -124,7 +124,7 @@ src/
   component.tsx              # Top-level variant dispatcher
   hooks/usePersistedState.ts # localStorage persistence hook
   platform/                  # East state management (UIStore, DatasetStore)
-  collections/               # Table, Matrix, TreeView, DataList (the Plan's and the Sheet's renderers are e3-ui-components')
+  collections/               # Table, Matrix, TreeView, DataList (the Plan's, the Sheet's and the Flowchart's renderers are e3-ui-components')
   disclosure/                # Tabs, Accordion, Carousel
   layout/                    # Box, Flex, Grid, Stack, Splitter, Separator
   forms/                     # Input, Select, Checkbox, Switch, Slider, etc.
@@ -192,6 +192,12 @@ component, nothing in east-ui.
   `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
   `empty` words say what an empty tab shows; a search or a filter that
   hides every card says `No matches` itself, in the shared empty state.
+- **Rail counts.** Pass a numeric `badge` for a count, keeping it numeric until
+  `DockPane` formats it with the shared locale formatter's `compact()`.
+  Its exact value remains available on hover and to assistive technology.
+  Numeric tab counts use the same formatter's full `number()` form. The dock
+  recipe bounds badges to the rail, including longer locale abbreviations;
+  builders must not implement their own abbreviation or badge styles.
 - **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
   row first, kept in each tab's name; then the trailing tabs fold into a
   `+n` menu after the last that fits, the open tab always on the row, so no
@@ -282,8 +288,9 @@ input filling it, an Option's Set or Clear at its end (`data-field-line`,
 `data-field-side`) — and its help line. Each input is the design system's
 Input size, so every kind stands on one 32px line (44px on a coarse
 pointer); fields sit 16px apart, a nested struct's head 8px over its first
-field. The showcase's `inspector-form.spec.ts` measures it in both
-inspectors.
+field. A text or a printed value longer than its box ends in an ellipsis, its
+control titled with the whole (#1250). The showcase's `inspector-form.spec.ts`
+measures it in the Sheet's, the Plan's and the Flowchart's inspectors.
 
 The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
 `fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
@@ -613,7 +620,7 @@ barrel export.
 Two more entries serve the sibling renderer packages, never apps:
 `src/internal.ts` (`@elaraai/east-ui-components/internal`) re-exports the
 renderers' shared building blocks a component made of the same parts needs
-(e3-ui-components' Plan and Sheet, #1177, #1179), and `src/testing.ts` (`/testing`) the
+(e3-ui-components' Plan, Sheet and Flowchart, #1177, #1179, #1243), and `src/testing.ts` (`/testing`) the
 renderer tests' DOM helpers — React's `act` and the DOM, no test framework —
 and the editing words (`editingMessages`), which a browser spec names the
 history item's controls by: unlike the package's own entry, it loads in Node.

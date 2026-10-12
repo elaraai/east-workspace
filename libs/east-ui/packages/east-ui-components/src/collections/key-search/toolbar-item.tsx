@@ -22,7 +22,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
@@ -42,6 +42,10 @@ export interface KeySearchSource {
      *  a query then (#1199): the box asks the query it holds again, its text
      *  kept. */
     requery?: number | undefined;
+    /** Query used to list suggestions when opening an empty box; absent for sources that require typed input. */
+    browseQuery?: DatasetKeyQuery | undefined;
+    /** A source-specific explanation when a completed query finds nothing. */
+    noMatchesText?: string | undefined;
     /** The key type typed input is parsed against. */
     keyType: EastTypeValue;
     /** Locates a query — `again`, one the box holds asked again as `requery` moved. */
@@ -60,8 +64,11 @@ export interface KeySearchToolbarOptions {
     side?: "start" | "end" | undefined;
     /** The rank of its fold step, from the box to its icon: {@link DEFAULT_RANK} when omitted. */
     rank?: number | undefined;
-    /** The icon's accessible name and the popover's head — `Search Records` when omitted. */
+    /** The input's placeholder, icon's accessible name and popover's head — `Search Records` when omitted. */
     label?: string | undefined;
+    /** Optional final form sharing the search popover with host controls.
+     * Bundle this step with the step hiding those controls in the toolbar. */
+    compact?: { label: string; controls: ReactNode } | undefined;
 }
 
 /**
@@ -83,27 +90,29 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
     const label = options.label ?? "Search Records";
     const active = typed.resetKey === search.resetKey && typed.text !== "";
     const box = (
-        <DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find}
+        <DatasetKeySearch key={search.resetKey} label={options.label} keyType={search.keyType} onFind={search.find}
+            browseQuery={search.browseQuery} noMatchesText={search.noMatchesText}
             onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery}
             onInputChange={(text) => setTyped({ resetKey: search.resetKey, text })} />
+    );
+    const popup = (heading: string, controls?: ReactNode) => (
+        <SliceEditPopover open={open} onOpenChange={setOpen} label={heading} size="lg" initialFocusEl={initialFocusEl}
+            trigger={
+                // A 44px touch target on a coarse pointer (#346).
+                <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
+                    aria-label={heading} data-key-search="icon" data-state={open ? "open" : "closed"}>
+                    <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
+                    <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
+                </chakra.button>
+            }>
+            {controls}
+            <Box ref={boxRef} data-key-search="popover">{box}</Box>
+        </SliceEditPopover>
     );
     return {
         key: "seek",
         side: options.side,
-        forms: [
-            box,
-            <SliceEditPopover open={open} onOpenChange={setOpen} label={label} size="lg" initialFocusEl={initialFocusEl}
-                trigger={
-                    // A 44px touch target on a coarse pointer (#346).
-                    <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
-                        aria-label={label} data-key-search="icon" data-state={open ? "open" : "closed"}>
-                        <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
-                        <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
-                    </chakra.button>
-                }>
-                <Box ref={boxRef} data-key-search="popover">{box}</Box>
-            </SliceEditPopover>,
-        ],
+        forms: [box, popup(label), ...(options.compact === undefined ? [] : [popup(options.compact.label, options.compact.controls)])],
         rank: options.rank ?? DEFAULT_RANK,
         held: active,
     };

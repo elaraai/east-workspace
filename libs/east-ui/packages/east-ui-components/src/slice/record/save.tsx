@@ -12,7 +12,7 @@ import type { EditSessionBinding } from "../../editing/session.js";
 import { getStore } from "../../platform/state-runtime.js";
 import type { UIStoreInterface } from "../../platform/state-store.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import { createTrackedRead } from "../../reactive/tracked.js";
+import { awaitTracked } from "../../reactive/tracked.js";
 
 type Slice = ValueTypeOf<RecordSliceBindType>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
@@ -21,32 +21,6 @@ const same = equalFor(RecordSliceWhereType);
 const sameRevision = equalFor(StringType);
 const encode = encodeBeast2For(RecordSliceWhereType);
 const decode = decodeBeast2For(RecordSliceWhereType);
-
-/** Wait on exactly the dependencies a bounded read discovered, never poll. */
-function settled<T>(read: () => option<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-        let done = false;
-        let queued = false;
-        const enqueue = () => {
-            if (done || queued) return;
-            queued = true;
-            queueMicrotask(run);
-        };
-        const tracked = createTrackedRead(enqueue);
-        const run = () => {
-            queued = false;
-            if (done) return;
-            const result = tracked.run(read);
-            if (!result.ok || result.value.type === "some") {
-                done = true;
-                tracked.release();
-                if (!result.ok) reject(result.error);
-                else if (result.value.type === "some") resolve(result.value.value);
-            }
-        };
-        enqueue();
-    });
-}
 
 /** Keep membership facts, never decoded pages. A revision change restarts the
  * check; only a small batch of missing identities is requested at a time. */
@@ -100,7 +74,7 @@ class SaveNotice {
             if (generation !== this.generation || !same(slice.read().where, where)) return;
             this.pending = true; this.error = undefined; this.changed();
             const read = membership(ids, revision, id => slice.contains(where, id));
-            void settled(() => {
+            void awaitTracked(() => {
                 if (generation !== this.generation || !same(slice.read().where, where)) return some(undefined);
                 const included = read();
                 if (included.type === "none") return none;
@@ -156,7 +130,7 @@ export function prepareRecordSliceSave(slice: Slice | undefined, revision: (() =
             (target.before.type === "none" ? created : existing).push(id);
         }
         const read = membership(existing, revision, id => slice.contains(where, id));
-        const candidates = await settled(() => {
+        const candidates = await awaitTracked(() => {
             if (!same(slice.read().where, where)) return some<string[]>([]);
             const included = read();
             return included.type === "none" ? none : some([...created, ...existing.filter(id => included.value.get(id))]);

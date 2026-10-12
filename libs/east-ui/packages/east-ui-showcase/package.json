@@ -11,8 +11,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "preview": "vite preview",
     "lint": "eslint .",
-    "test": "node --import tsx --test-reporter=spec --test 'tests/e3-package/*.spec.ts'",
-    "test:responsive": "playwright test"
+    "test": "node --import tsx --test-reporter=spec --test 'tests/e3-package/*.spec.ts' 'tests/tooling/*.spec.ts'",
+    "test:responsive": "tsx scripts/responsive-shards.ts"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.0.0",

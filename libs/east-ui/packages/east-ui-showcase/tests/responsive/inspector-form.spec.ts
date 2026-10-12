@@ -23,11 +23,15 @@
  * field of every kind: a machine with every field set, one with its Options
  * empty, a new row with no field given, a field changed, a row's issue), the
  * workshop's line, band, several rows and nothing selected, and a batch's
- * line and band — and over the Plan's print works: one event, several, a
+ * line and band — over the Plan's print works: one event, several, a
  * press's row and nothing selected, and the overlaps banner (#1198) over a
- * press's row with an overlap and one of its jobs. Pinned beside main on a desktop, overlaid
- * on a phone; in both themes. No screenshot is read: boxes and computed
- * styles, polled until the page is at rest.
+ * press's row with an overlap and one of its jobs — and over the Flowchart's
+ * depot (#1250): over its record of flows a state, a transition, a decision,
+ * a lane, several states, nothing selected and a flow its drafts delete, and
+ * over its tables, read only, a transition with its evidence, an end no state
+ * stands for and the Issues tab — a chip in its ink. Pinned beside main on a
+ * desktop, overlaid on a phone; in both themes. No screenshot is read: boxes
+ * and computed styles, polled until the page is at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test inspector-form`.
@@ -345,6 +349,13 @@ const sheetRow = (box: Locator, id: string) => box.locator(`[data-frame-slot=mai
 
 /** Select by a click, or a tap on a phone, then open the inspector there from its rail. */
 async function select(page: Page, box: Locator, target: Locator, phone: boolean): Promise<void> {
+    // A selection sweep reuses the mounted form. Close its overlay before
+    // selecting the next canvas item; data-changing workflows stay isolated.
+    const scrim = box.locator("[data-scrim]");
+    if (phone && await scrim.isVisible()) {
+        await scrim.tap({ position: { x: 8, y: 8 } });
+        await expect(scrim).toBeHidden();
+    }
     if (phone) await target.tap();
     else await target.click();
     await settled(page);
@@ -355,24 +366,29 @@ async function select(page: Page, box: Locator, target: Locator, phone: boolean)
 }
 
 for (const phone of [false, true]) {
-    test.describe(`The Sheet's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, () => {
-        test.skip(({ isMobile }) => isMobile !== phone, phone ? "measured on the phone" : "measured at the desktop width");
+    test.describe(`The Sheet's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
         const coarse = phone;
         const themes = phone ? (["light"] as const) : (["light", "dark"] as const);
 
         for (const theme of themes) {
-            test(`the upkeep: a machine with every field set — each kind on one column and one line, Set and Clear on its line, one rhythm, nothing past the pane (${theme})`, async ({ page }) => {
+            test(`upkeep fields: populated, empty and keyboard focus (${theme})`, async ({ page }) => {
                 const { box, pane } = await openSheet(page, "sheetUpkeep", theme, phone);
-                await select(page, box, sheetRow(box, "S101").locator("[data-slot=cell][data-key=name]"), phone);
-                await expect(pane.locator("[data-sheet-inspector=row] [data-field]")).toHaveCount(15);
-                await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
-            });
-
-            test(`the upkeep: a machine with its Options empty — Not set, Set beside a number, a checkbox and a date, empty tags and checklist (${theme})`, async ({ page }) => {
-                const { box, pane } = await openSheet(page, "sheetUpkeep", theme, phone);
-                await select(page, box, sheetRow(box, "E201").locator("[data-slot=cell][data-key=name]"), phone);
-                await expect(pane.locator("[data-field='wear'] [data-field-set]")).toBeVisible();
-                await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                await test.step(`the upkeep: a machine with every field set — each kind on one column and one line, Set and Clear on its line, one rhythm, nothing past the pane (${theme})`, async () => {
+                    await select(page, box, sheetRow(box, "S101").locator("[data-slot=cell][data-key=name]"), phone);
+                    await expect(pane.locator("[data-sheet-inspector=row] [data-field]")).toHaveCount(15);
+                    await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                });
+                await test.step(`the upkeep: a machine with its Options empty — Not set, Set beside a number, a checkbox and a date, empty tags and checklist (${theme})`, async () => {
+                    await select(page, box, sheetRow(box, "E201").locator("[data-slot=cell][data-key=name]"), phone);
+                    await expect(pane.locator("[data-field='wear'] [data-field-set]")).toBeVisible();
+                    await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                });
+                if (!phone && theme === "light") {
+                    await test.step("the upkeep: every control's focus ring stays inside the pane", async () => {
+                        await select(page, box, sheetRow(box, "S101").locator("[data-slot=cell][data-key=name]"), phone);
+                        expect(await ringFaults(page, pane)).toEqual([]);
+                    });
+                }
             });
         }
 
@@ -390,7 +406,6 @@ for (const phone of [false, true]) {
             await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
             expect(await paneFaults(pane)).toEqual([]);
         });
-
         if (!phone) {
             test("the upkeep: a field changed in the form is tinted, the tint clear of its neighbours and inside the pane; a row out of service lists its issue", async ({ page }) => {
                 const { box, pane } = await openSheet(page, "sheetUpkeep", "light", phone);
@@ -404,43 +419,37 @@ for (const phone of [false, true]) {
                 expect(await paneFaults(pane)).toEqual([]);
             });
 
-            test("the upkeep: every control's focus ring stays inside the pane", async ({ page }) => {
-                const { box, pane } = await openSheet(page, "sheetUpkeep", "light", phone);
-                await select(page, box, sheetRow(box, "S101").locator("[data-slot=cell][data-key=name]"), phone);
-                expect(await ringFaults(page, pane)).toEqual([]);
-            });
-
             for (const theme of ["light", "dark"] as const) {
-                test(`the workshop: an operation's line — its dates, its quantity with its unit, its work centres, its notes and created_by read only (${theme})`, async ({ page }) => {
+                test(`workshop selections: line, band, several and none (${theme})`, async ({ page }) => {
                     const { box, pane } = await openSheet(page, "sheetWorkshop", theme, phone);
-                    await select(page, box, box.locator("[data-frame-slot=main] [data-slot=row]:not(:has([data-slot=groupSummary])) [data-slot=cell][data-key=notes]").first(), phone);
-                    await expect(pane.locator("[data-sheet-inspector=line]")).toBeVisible();
-                    await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                    if (theme === "light") {
+                        await test.step("the workshop with nothing selected: its counts and hints inside the pane", async () => {
+                            await expect(pane.locator("[data-sheet-inspector=none]")).toBeVisible();
+                            expect(await paneFaults(pane)).toEqual([]);
+                        });
+                    }
+                    await test.step(`the workshop: an operation's line — its dates, its quantity with its unit, its work centres, its notes and created_by read only (${theme})`, async () => {
+                        await select(page, box, box.locator("[data-frame-slot=main] [data-slot=row]:not(:has([data-slot=groupSummary])) [data-slot=cell][data-key=notes]").first(), phone);
+                        await expect(pane.locator("[data-sheet-inspector=line]")).toBeVisible();
+                        await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                    });
+                    if (theme === "light") {
+                        await test.step("the workshop: an order's band — its name, customer, due date and status", async () => {
+                            await select(page, box, box.locator("[data-frame-slot=main] [data-slot=row][data-band-row] [data-slot=cell]").first(), phone);
+                            await expect(pane.locator("[data-sheet-inspector=band]")).toBeVisible();
+                            await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                        });
+                        await test.step("the workshop: several operations — the column a bulk edit sets, and its value", async () => {
+                            const gutters = box.locator("[data-frame-slot=main] [data-slot=row]:not([data-band-row]):not([data-blank]) [data-slot=gutter]");
+                            await gutters.nth(0).click();
+                            await gutters.nth(2).click({ modifiers: ["Shift"] });
+                            await settled(page);
+                            await expect(pane.locator("[data-sheet-inspector=several]")).toBeVisible();
+                            await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
+                        });
+                    }
                 });
             }
-
-            test("the workshop: an order's band — its name, customer, due date and status", async ({ page }) => {
-                const { box, pane } = await openSheet(page, "sheetWorkshop", "light", phone);
-                await select(page, box, box.locator("[data-frame-slot=main] [data-slot=row][data-band-row] [data-slot=cell]").first(), phone);
-                await expect(pane.locator("[data-sheet-inspector=band]")).toBeVisible();
-                await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
-            });
-
-            test("the workshop: several operations — the column a bulk edit sets, and its value", async ({ page }) => {
-                const { box, pane } = await openSheet(page, "sheetWorkshop", "light", phone);
-                const gutters = box.locator("[data-frame-slot=main] [data-slot=row]:not([data-band-row]):not([data-blank]) [data-slot=gutter]");
-                await gutters.nth(0).click();
-                await gutters.nth(2).click({ modifiers: ["Shift"] });
-                await settled(page);
-                await expect(pane.locator("[data-sheet-inspector=several]")).toBeVisible();
-                await expect.poll(() => formFaults(pane, coarse)).toEqual([]);
-            });
-
-            test("the workshop with nothing selected: its counts and hints inside the pane", async ({ page }) => {
-                const { pane } = await openSheet(page, "sheetWorkshop", "light", phone);
-                await expect(pane.locator("[data-sheet-inspector=none]")).toBeVisible();
-                expect(await paneFaults(pane)).toEqual([]);
-            });
 
             test("the batches: a step's line and a batch's band", async ({ page }) => {
                 const { box, pane } = await openSheet(page, "sheetBatches", "light", phone);
@@ -477,76 +486,272 @@ const pressA1 = rowSel("presses.span", "Hall A", "a1");
 const PRESS_B2 = rowId("presses.span", "Hall B", "b2");
 
 for (const phone of [false, true]) {
-    test.describe(`The Plan's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, () => {
-        test.skip(({ isMobile }) => isMobile !== phone, phone ? "measured on the phone" : "measured at the desktop width");
+    test.describe(`The Plan's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
         const themes = phone ? (["light"] as const) : (["light", "dark"] as const);
-
         for (const theme of themes) {
-            test(`one event: its kind's form — a customer, a stock, a due date and time — on one column and one line (${theme})`, async ({ page }) => {
+            test(`print works selections: event, row, overlaps and bulk form (${theme})`, async ({ page }) => {
                 const { entry, frame, pane } = await openPrintWorks(page, theme, phone);
-                // On a phone the Plan is its narrow list (#570): the press's card, in the Rows tab, draws its runs.
-                if (phone) {
-                    await entry.locator("[data-plan-tab='rows']").tap();
-                    await settled(page);
+                if (!phone && theme === "light") {
+                    await test.step("a press's row and nothing selected: facts, counts and hints inside the pane", async () => {
+                        await expect(pane.locator("[data-plan-inspector='none']")).toBeVisible();
+                        expect(await paneFaults(pane)).toEqual([]);
+                        await select(page, frame, entry.locator(`${pressA1} [role="rowheader"]`), phone);
+                        await expect(pane.locator("[data-plan-inspector='row']")).toBeVisible();
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
                 }
-                const bar = phone ? entry.locator("[data-run]", { hasText: "Spring catalogue" }).first() : entry.locator(`${pressA1} [data-run]`, { hasText: "Spring catalogue" });
-                await select(page, frame, bar, phone);
-                await expect(pane.locator("[data-plan-inspector='event'] [data-field]")).toHaveCount(3);
-                await expect.poll(() => formFaults(pane, phone)).toEqual([]);
-                expect(await paneFaults(pane)).toEqual([]);
-            });
-
-            test(`a press's row with an overlap, then one of its jobs: the overlaps banner says each overlap's time and its jobs' names in whole words, every line inside the pane (${theme})`, async ({ page }) => {
-                const { entry, frame, pane } = await openPrintWorks(page, theme, phone);
-                // On a phone the Plan is its narrow list (#570): Press B2's card, in the Rows tab — the list shows its
-                // first rows and a "more rows" button for the rest, tapped until the press's card is drawn.
-                const holder = entry.locator(phone ? `[data-plan-card=${JSON.stringify(PRESS_B2)}]` : `[data-plan-row=${JSON.stringify(PRESS_B2)}]`);
-                if (phone) {
-                    await entry.locator("[data-plan-tab='rows']").tap();
-                    await settled(page);
-                    const more = entry.getByRole("button", { name: /^\d+ more rows?$/ });
-                    for (let i = 0; i < 10 && await holder.count() === 0 && await more.count() > 0; i++) {
-                        await more.first().tap();
+                await test.step(`one event: its kind's form — a customer, a stock, a due date and time — on one column and one line (${theme})`, async () => {
+                    // On a phone the Plan is its narrow list (#570): the press's card, in the Rows tab, draws its runs.
+                    if (phone) {
+                        await entry.locator("[data-plan-tab='rows']").tap();
                         await settled(page);
                     }
-                    await holder.scrollIntoViewIfNeeded();
+                    const bar = phone ? entry.locator("[data-run]", { hasText: "Spring catalogue" }).first() : entry.locator(`${pressA1} [data-run]`, { hasText: "Spring catalogue" });
+                    await select(page, frame, bar, phone);
+                    await expect(pane.locator("[data-plan-inspector='event'] [data-field]")).toHaveCount(3);
+                    await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                    if (phone) {
+                        await frame.getByRole("button", { name: "Collapse Inspector" }).tap();
+                        await expect(frame.locator("[data-scrim]")).toBeHidden();
+                    }
+                });
+                await test.step(`a press's row with an overlap, then one of its jobs: the overlaps banner says each overlap's time and its jobs' names in whole words, every line inside the pane (${theme})`, async () => {
+                    // On a phone the Plan is its narrow list (#570): Press B2's card, in the Rows tab — the list shows its
+                    // first rows and a "more rows" button for the rest, tapped until the press's card is drawn.
+                    const holder = entry.locator(phone ? `[data-plan-card=${JSON.stringify(PRESS_B2)}]` : `[data-plan-row=${JSON.stringify(PRESS_B2)}]`);
+                    if (phone) {
+                        await entry.locator("[data-plan-tab='rows']").tap();
+                        await settled(page);
+                        const more = entry.getByRole("button", { name: /^\d+ more rows?$/ });
+                        for (let i = 0; i < 10 && await holder.count() === 0 && await more.count() > 0; i++) {
+                            await more.first().tap();
+                            await settled(page);
+                        }
+                        await holder.scrollIntoViewIfNeeded();
+                    }
+                    // The press's row: its pair on the 20th — the overlap's time, and both jobs' names.
+                    await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : holder.locator("[role='rowheader']"), phone);
+                    await expect(pane.locator("[data-plan-inspector='row'] [data-inspector-overlap]")).toHaveCount(1);
+                    expect(await paneFaults(pane)).toEqual([]);
+                    // One of its jobs: the job it overlaps — its time, and its name. The loyalty cards, drawn over the market
+                    // posters where they overlap, is the one a pointer reaches whole. A phone's pane lies over the list: a tap
+                    // on the scrim beside it closes it first.
+                    if (phone) {
+                        await frame.locator("[data-scrim]").tap({ position: { x: 8, y: 8 } });
+                        await expect(frame.locator("[data-scrim]")).toBeHidden();
+                        await settled(page);
+                    }
+                    const job = holder.locator("[data-run]", { hasText: "Loyalty cards" });
+                    await select(page, frame, job, phone);
+                    await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-overlap]")).toHaveCount(1);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+                if (!phone && theme === "light") {
+                    await test.step("several events: the bulk edit's state and resource", async () => {
+                        await select(page, frame, entry.locator(`${pressA1} [data-run]`, { hasText: "Spring catalogue" }), phone);
+                        await entry.locator(`${pressA1} [data-run]`, { hasText: "Museum guide" }).click({ modifiers: ["Shift"] });
+                        await settled(page);
+                        await expect(pane.locator("[data-plan-inspector='events']")).toBeVisible();
+                        await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
                 }
-                // The press's row: its pair on the 20th — the overlap's time, and both jobs' names.
-                await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : holder.locator("[role='rowheader']"), phone);
-                await expect(pane.locator("[data-plan-inspector='row'] [data-inspector-overlap]")).toHaveCount(1);
-                expect(await paneFaults(pane)).toEqual([]);
-                // One of its jobs: the job it overlaps — its time, and its name. The loyalty cards, drawn over the market
-                // posters where they overlap, is the one a pointer reaches whole. A phone's pane lies over the list: a tap
-                // on the scrim beside it closes it first.
-                if (phone) {
-                    await frame.locator("[data-scrim]").tap({ position: { x: 8, y: 8 } });
-                    await expect(frame.locator("[data-scrim]")).toBeHidden();
-                    await settled(page);
+            });
+        }
+    });
+}
+
+// ============================================================================
+// The Flowchart's inspector (#1250)
+// ============================================================================
+
+const FLOWCHARTS = "e3/flowchart/flowchart";
+
+/** Open a Flowchart example: on a desktop its box 1440px wide, both panes pinned beside main; on a phone as the page lays it out. */
+async function openFlowchart(page: Page, name: string, theme: "light" | "dark", phone: boolean): Promise<{ box: Locator; pane: Locator }> {
+    const hash = `${FLOWCHARTS}/${name}`;
+    await page.goto(`/?theme=${theme}#${hash}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-builder-frame] [data-flowchart-node]").first()).toBeVisible({ timeout: 20_000 });
+    const box = entry.locator("[data-flowchart-root]").first();
+    if (!phone) await box.evaluate((el) => { (el as HTMLElement).style.width = "1440px"; });
+    await settled(page);
+    return { box, pane: box.locator("[data-builder-frame] [data-frame-slot=end]") };
+}
+
+/** A state on the canvas, by its key. */
+const flowState = (box: Locator, key: string) => box.locator(`[data-flowchart-node="${key}"]`);
+
+/** A transition a state's Details list, by the key it goes by: a click selects it. */
+async function selectListed(page: Page, pane: Locator, key: string): Promise<void> {
+    await pane.locator(`[data-inspector-link="${key}"]`).click();
+    await settled(page);
+}
+
+for (const phone of [false, true]) {
+    test.describe(`The Flowchart's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1250)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
+        for (const theme of ["light", "dark"] as const) {
+            test(`flow selections: summary, state, transition, lane and several (${theme})`, async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
+                await test.step(`nothing selected: the flow's name and description, its counts, its last save and its hints, inside the pane (${theme})`, async () => {
+                    if (phone) {
+                        await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                        await settled(page);
+                    }
+                    await expect(pane.locator("[data-flowchart-inspector='flow'] [data-field]")).toHaveCount(2);
+                    await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                    // Its counts two to a line: lanes and states, then transitions and decisions.
+                    const tops = await pane.locator("[data-inspector-counts] [data-count]").evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().top)));
+                    expect([tops.length, tops[0] === tops[1], tops[1]! < tops[2]!, tops[2] === tops[3]]).toEqual([4, true, true, true]);
+                });
+                await test.step(`a state: its key, label, lane, members with its Clear and notes, on one column and one line; its transitions inside the pane (${theme})`, async () => {
+                    await select(page, box, flowState(box, "CH*"), phone);
+                    await expect(pane.locator("[data-flowchart-inspector='state'] [data-field]")).toHaveCount(5);
+                    await expect(pane.locator("[data-field='members'] [data-field-clear]")).toBeVisible();
+                    await expect(pane.locator("[data-inspector-link]")).toHaveCount(2);
+                    await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                    // On a coarse pointer each transition it lists is a 44px tap target.
+                    if (phone) {
+                        const heights = await pane.locator("[data-inspector-link]").evaluateAll((links) => links.map((link) => link.getBoundingClientRect().height));
+                        expect(heights.every((h) => h >= TOUCH - 0.5), `${heights.join(", ")}`).toBe(true);
+                    }
+                });
+                if (!phone) {
+                    await test.step(`a transition: its ends, its kind and its decision, each a select, and its key, on one column and one line (${theme})`, async () => {
+                        await select(page, box, flowState(box, "CH*"), phone);
+                        await selectListed(page, pane, "SCN→CH*#1");
+                        await expect(pane.locator("[data-flowchart-inspector='transition'] [data-field]")).toHaveCount(5);
+                        await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
+                    if (theme === "light") {
+                        await test.step("a lane, a click on its header: its key and label, how many states it holds, and why its Delete is off", async () => {
+                            await select(page, box, box.locator("[data-flowchart-lane='sort']"), phone);
+                            await expect(pane.locator("[data-flowchart-inspector='lane'] [data-field]")).toHaveCount(2);
+                            await expect(pane.locator("[data-inspector-why]")).toBeVisible();
+                            await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                            expect(await paneFaults(pane)).toEqual([]);
+                        });
+                        await test.step("several states: how many, and the lane every one moves to", async () => {
+                            await select(page, box, flowState(box, "ARV"), phone);
+                            await flowState(box, "SCN").click({ modifiers: ["Shift"] });
+                            await settled(page);
+                            await expect(pane.locator("[data-flowchart-inspector='several'] [data-field]")).toHaveCount(1);
+                            await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                            expect(await paneFaults(pane)).toEqual([]);
+                        });
+                        await test.step("a state: every control's focus ring stays inside the pane", async () => {
+                            await select(page, box, flowState(box, "CH*"), phone);
+                            expect(await ringFaults(page, pane)).toEqual([]);
+                        });
+                    }
                 }
-                const job = holder.locator("[data-run]", { hasText: "Loyalty cards" });
-                await select(page, frame, job, phone);
-                await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-overlap]")).toHaveCount(1);
-                expect(await paneFaults(pane)).toEqual([]);
             });
         }
 
         if (!phone) {
-            test("several events: the bulk edit's state and resource", async ({ page }) => {
-                const { entry, frame, pane } = await openPrintWorks(page, "light", phone);
-                await select(page, frame, entry.locator(`${pressA1} [data-run]`, { hasText: "Spring catalogue" }), phone);
-                await entry.locator(`${pressA1} [data-run]`, { hasText: "Museum guide" }).click({ modifiers: ["Shift"] });
-                await settled(page);
-                await expect(pane.locator("[data-plan-inspector='events']")).toBeVisible();
-                await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+            for (const theme of ["light", "dark"] as const) {
+                test(`a decision: its key, label, letter, owner, queue as tags and outcomes, and the transitions it governs (${theme})`, async ({ page }) => {
+                    const { box, pane } = await openFlowchart(page, "flowchartFlows", theme, phone);
+                    await select(page, box, box.locator("[data-flowchart-trigger='route']"), phone);
+                    await expect(pane.locator("[data-flowchart-inspector='decision'] [data-field]")).toHaveCount(6);
+                    // The route queues no state yet: Set gives it an empty queue, its tags' box — one transaction.
+                    await pane.locator("[data-field='queue'] [data-field-set]").click();
+                    await settled(page);
+                    await expect(pane.locator("[data-field='queue'] [data-scope=tags-input][data-part=control]")).toBeVisible();
+                    await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+
+                test(`read-only depot: transition evidence, unresolved state and issues (${theme})`, async ({ page }) => {
+                    const { box, pane } = await openFlowchart(page, "flowchartDepot", theme, phone);
+                    await test.step(`over the host's tables, read only: a transition's fields printed, and its evidence — volume, count, when measured (${theme})`, async () => {
+                        await select(page, box, flowState(box, "CH*"), phone);
+                        await selectListed(page, pane, "l4");
+                        await expect(pane.locator("[data-flowchart-inspector='transition'] [data-field][data-editor='readonly']")).toHaveCount(8);
+                        await expect(pane.locator("[data-inspector-evidence] [data-field]")).toHaveCount(3);
+                        await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
+                    if (theme === "light") {
+                        await test.step("an end no state stands for — the depot's unresolved transition's — says so, its chip in the warning's ink, with its transition, inside the pane", async () => {
+                            await select(page, box, flowState(box, "DLV"), phone);
+                            await expect(pane.locator("[data-flowchart-inspector='ghost'] [data-inspector-link]")).toHaveCount(1);
+                            expect(await pane.locator("[data-inspector-chip]").evaluate((chip) => {
+                                const probe = document.createElement("div");
+                                probe.style.color = "var(--chakra-colors-fg-warning)";
+                                document.body.appendChild(probe);
+                                const warning = getComputedStyle(probe).color;
+                                probe.remove();
+                                return [chip.getAttribute("data-state"), getComputedStyle(chip).color === warning];
+                            })).toEqual(["noRow", true]);
+                            expect(await paneFaults(pane)).toEqual([]);
+                        });
+                        await test.step(`Issues: the depot's unresolved transition, inside the pane${phone ? ", a 44px tap target" : ""}`, async () => {
+                            if (phone) {
+                                await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                                await settled(page);
+                            }
+                            const tab = pane.getByRole("tab", { name: /^Issues/u });
+                            if (phone) await tab.tap();
+                            else await tab.click();
+                            await settled(page);
+                            const issue = pane.locator("[data-inspector-issue]");
+                            await expect(issue).toHaveCount(1);
+                            // On a coarse pointer the issue is a 44px tap target.
+                            if (phone) expect(await issue.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(TOUCH - 0.5);
+                            expect(await paneFaults(pane)).toEqual([]);
+                        });
+                    }
+                });
+            }
+
+            test("a field changed in the form is one edit, tinted, the tint clear of its neighbours and inside the pane", async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await select(page, box, flowState(box, "CH*"), phone);
+                const label = pane.locator("[data-field='label'] input");
+                await label.fill("Sort chutes, both halls");
+                await label.press("Enter");
+                await expect(pane.locator("[data-field='label'][data-dirty]")).toHaveCount(1);
+                await expect(pane.locator("[data-inspector-chip]")).toHaveText("Pending");
+                await expect.poll(() => formFaults(pane, false)).toEqual([]);
                 expect(await paneFaults(pane)).toEqual([]);
             });
-
-            test("a press's row and nothing selected: facts, counts and hints inside the pane", async ({ page }) => {
-                const { entry, frame, pane } = await openPrintWorks(page, "light", phone);
-                await expect(pane.locator("[data-plan-inspector='none']")).toBeVisible();
+            test("a flow its drafts delete says so, its chip in the danger's ink, inside the pane", async ({ page }) => {
+                const { pane } = await openFlowchart(page, "flowchartFlows", "light", phone);
+                await pane.locator("[data-flowchart-inspector='flow'] [data-inspector-action='delete']").click();
+                await settled(page);
+                await expect(pane.locator("[data-flowchart-inspector='deleted']")).toBeVisible();
+                expect(await pane.locator("[data-inspector-chip]").evaluate((chip) => {
+                    const probe = document.createElement("div");
+                    probe.style.color = "var(--chakra-colors-fg-danger)";
+                    document.body.appendChild(probe);
+                    const danger = getComputedStyle(probe).color;
+                    probe.remove();
+                    return [chip.getAttribute("data-state"), getComputedStyle(chip).color === danger];
+                })).toEqual(["deleted", true]);
                 expect(await paneFaults(pane)).toEqual([]);
-                await select(page, frame, entry.locator(`${pressA1} [role="rowheader"]`), phone);
-                await expect(pane.locator("[data-plan-inspector='row']")).toBeVisible();
+            });
+        } else {
+            test(`Issues: the depot's unresolved transition, inside the pane${phone ? ", a 44px tap target" : ""}`, async ({ page }) => {
+                const { box, pane } = await openFlowchart(page, "flowchartDepot", "light", phone);
+                if (phone) {
+                    await box.getByRole("button", { name: "Expand Inspector" }).tap();
+                    await settled(page);
+                }
+                const tab = pane.getByRole("tab", { name: /^Issues/u });
+                if (phone) await tab.tap();
+                else await tab.click();
+                await settled(page);
+                const issue = pane.locator("[data-inspector-issue]");
+                await expect(issue).toHaveCount(1);
+                // On a coarse pointer the issue is a 44px tap target.
+                if (phone) expect(await issue.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(TOUCH - 0.5);
                 expect(await paneFaults(pane)).toEqual([]);
             });
         }

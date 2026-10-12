@@ -9,7 +9,7 @@
  * reference, the Plan's geometry, the Sheet's ring under the keyboard and
  * the load, at desktop and mobile viewports. It is one suite, run the same way everywhere:
  * `make test-responsive` (libs/east-ui) locally, and in CI sharded with
- * `SHARD=n/8`. Nothing here compares pixels.
+ * `SHARD=n/16`. Nothing here compares pixels.
  *
  * Browser resolution: `npx playwright install chromium` where supported;
  * on hosts Playwright can't provision (e.g. non-LTS Ubuntu) point
@@ -25,8 +25,9 @@ export default defineConfig({
     testDir: "./tests/responsive",
     timeout: 60_000,
     fullyParallel: true,
-    // Each e3 page deploys a fresh in-browser workspace. Keep one browser
-    // worker per CI shard so cold deploys and DOM tracing do not compete.
+    // Each e3 page deploys a fresh in-browser workspace. Two concurrent
+    // browsers made cold starts exceed readiness deadlines on hosted runners.
+    // Parallelize across the 16 jobs instead, preserving those deadlines.
     ...(process.env.CI ? { workers: 1 } : {}),
     // A spec that is not deterministic under load is fixed, never retried.
     retries: 0,
@@ -55,10 +56,12 @@ export default defineConfig({
     projects: [
         {
             name: "desktop",
+            grepInvert: /@mobile/,
             use: { viewport: { width: 1280, height: 800 } },
         },
         {
             name: "mobile",
+            grepInvert: /@desktop/,
             use: {
                 viewport: { width: 390, height: 844 },
                 isMobile: true,
@@ -69,6 +72,7 @@ export default defineConfig({
         {
             // The tightest mainstream width — interaction smoke only.
             name: "mobile-narrow",
+            grepInvert: /@desktop/,
             grep: /@narrow/,
             use: {
                 viewport: { width: 360, height: 740 },

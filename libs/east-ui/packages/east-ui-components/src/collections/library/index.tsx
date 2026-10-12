@@ -235,7 +235,8 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
     }), [drag, key, onCardEnter]);
 }
 
-function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter }: LibraryCardProps) {
+/** Render the shared compact card for a Library or a paged builder palette. @internal */
+export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter }: LibraryCardProps) {
     const status = getSomeorUndefined(item.status);
     const glyph = getSomeorUndefined(item.trailing);
     const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;

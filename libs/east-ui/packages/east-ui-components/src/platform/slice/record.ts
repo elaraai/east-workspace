@@ -94,7 +94,9 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
         return lastState;
     };
     const write = (state: State) => { getStore().write(key, encodeState(state)); scheduleSlicePersist(key); };
-    const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!);
+    const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
+    const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!,
+        metadata?.type === "Struct" ? metadata : undefined);
     if (!store.has(key)) controller.write(initial);
     entry = { controller, descriptor, handles: new Map(), factories: new Map() };
     entries.set(identity, entry);

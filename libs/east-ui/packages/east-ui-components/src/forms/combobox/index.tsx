@@ -59,6 +59,8 @@ export interface EastChakraComboboxProps {
     selectionBehavior?: 'clear' | 'replace' | 'preserve';
     /** Whether to filter labels against the input; false when the host already queried its source. */
     filterItems?: boolean;
+    /** Open suggestions when the input is clicked, before typing. */
+    openOnClick?: boolean;
     /** Host controls inside the field, in place of its default clear action. */
     indicators?: ReactNode;
     /** The empty popup's explanation; a host search can state pending or case-sensitive lookup. */
@@ -78,7 +80,7 @@ export interface EastChakraComboboxProps {
  * keyboard dismissed — moves the focus nowhere, and closes nothing, on any
  * device.
  */
-export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText }: EastChakraComboboxProps) {
+export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText, openOnClick }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -148,6 +150,7 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
             key={epoch}
             {...props}
             {...(selectionBehavior !== undefined && { selectionBehavior })}
+            openOnClick={openOnClick}
             collection={collection}
             inputValue={inputValue}
             onValueChange={handleValueChange}
@@ -177,4 +180,4 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
         </ChakraCombobox.Root>
     );
 }, (prev, next) => comboboxRootEqual(prev.value, next.value) && prev.selectionBehavior === next.selectionBehavior
-    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText);
+    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText && prev.openOnClick === next.openOnClick);

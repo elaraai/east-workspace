@@ -14,6 +14,5 @@ export { Deck } from "./deck.js";
 export { ValueTree } from "./value-tree.js";
 export { Library } from "./library.js";
 export { Schematic } from "./schematic.js";
-export { Flowchart } from "./flowchart.js";
 export { Map } from "./map.js";
 export { Blend } from "./blend.js";

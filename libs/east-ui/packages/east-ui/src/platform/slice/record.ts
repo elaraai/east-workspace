@@ -6,7 +6,7 @@
 /** Typed record Slice authoring. Query execution belongs to the renderer. */
 import {
     ArrayType, East, Expr, StringType, StructType, VariantType, SetType,
-    compareFor, isSubtype, isValueOf, none, printFor, some, variant,
+    compareFor, isSubtype, isTypeEqual, isValueOf, none, printFor, some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
@@ -20,7 +20,13 @@ import {
 type IndexedFields<M extends StructType> = {
     [I in keyof M["fields"]]: M["fields"][I] extends StructType<infer F> ? keyof F : never;
 }[keyof M["fields"]];
-type Field<R extends StructType, M extends StructType> = Extract<IndexedFields<M> & keyof R["fields"], string>;
+type Field<M extends StructType> = Extract<IndexedFields<M>, string>;
+type MarkerType<R extends StructType, F extends string, T> = T extends ArrayType<infer V> ? V
+    : T extends SetType ? T : F extends keyof R["fields"] ? R["fields"][F] : never;
+type FieldType<R extends StructType, M extends StructType, F extends string> = {
+    [I in keyof M["fields"]]: M["fields"][I] extends StructType<infer Fields>
+        ? F extends keyof Fields ? MarkerType<R, F, Fields[F]> : never : never;
+}[keyof M["fields"]];
 type Key<T extends EastType> = T extends SetType<infer K extends EastType> ? K : T;
 type Scalar<T extends EastType> = Key<T> extends VariantType<infer V>
     ? V extends { some: infer S extends EastType; none: EastType } ? S : Key<T> : Key<T>;
@@ -33,21 +39,21 @@ export type RecordSliceValue<T extends EastType> = Key<T> extends VariantType<in
     ? V extends { some: infer S extends EastType; none: EastType } ? PrimitiveValue<S> | null : PrimitiveValue<Key<T>>
     : PrimitiveValue<Key<T>>;
 type RangeField<R extends StructType, M extends StructType> = {
-    [F in Field<R, M>]: R["fields"][F] extends SetType ? never : Scalar<R["fields"][F]>["type"] extends "DateTime" | "Integer" | "Float" ? F : never;
-}[Field<R, M>];
+    [F in Field<M>]: FieldType<R, M, F> extends SetType ? never : Scalar<FieldType<R, M, F>>["type"] extends "DateTime" | "Integer" | "Float" ? F : never;
+}[Field<M>];
 type SearchField<R extends StructType, M extends StructType> = {
-    [F in Field<R, M>]: Scalar<R["fields"][F]> extends StringType ? F : never;
-}[Field<R, M>];
+    [F in Field<M>]: Scalar<FieldType<R, M, F>> extends StringType ? F : never;
+}[Field<M>];
 type Choice<T extends EastType> = readonly RecordSliceValue<T>[] | (T extends SetType ? never
     : Scalar<T>["type"] extends "DateTime" | "Integer" | "Float" ? { from: Exclude<RecordSliceValue<T>, null>; to: Exclude<RecordSliceValue<T>, null> }
         : Scalar<T> extends StringType ? { prefix: string } : never);
 /** Typed per-field narrowing; clauses must be answerable by one declared index. */
-export type RecordSliceWhere<R extends StructType, M extends StructType> = { [F in Field<R, M>]?: Choice<R["fields"][F]> };
+export type RecordSliceWhere<R extends StructType, M extends StructType> = { [F in Field<M>]?: Choice<FieldType<R, M, F>> };
 
 /** Options inferred from the record's row and its binding's declared indexes. */
 export interface RecordSliceOptions<R extends StructType, M extends StructType> {
     /** Offered fields; omitted means all indexed fields. */
-    fields?: { [F in Field<R, M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceValue<R["fields"][F]>[] } };
+    fields?: { [F in Field<M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceValue<FieldType<R, M, F>>[] } };
     /** Ranged field shared by the range control and a Plan's window. */
     range?: RangeField<R, M>;
     /** Prefix-search fields; omitted means all offered String fields. */
@@ -99,6 +105,31 @@ export function recordSliceFieldSchema(type: EastType, name: string): RecordSlic
     return { key, inner, optional, set, kind };
 }
 
+/**
+ * Resolve indexed controls' types without reading records. Empty collection
+ * markers carry computed types through serialization; row fields keep their
+ * existing metadata. Reusing a field name with a different type is refused.
+ * @param row - Stored row schema.
+ * @param metadata - Ordered index metadata, when computed fields are offered.
+ * @returns Stored and computed field types.
+ * @internal
+ */
+export function recordSliceFieldTypes(row: StructType, metadata?: StructType): Record<string, EastType> {
+    const fields: Record<string, EastType> = { ...row.fields };
+    for (const index of Object.values(metadata?.fields ?? {}) as EastType[]) {
+        if (index.type !== "Struct") continue;
+        for (const [name, marker] of Object.entries(index.fields as Record<string, EastType>)) {
+            if (marker.type !== "Array" && marker.type !== "Set") continue;
+            const type = marker.type === "Array" ? marker.value : marker;
+            if (fields[name] !== undefined && !isTypeEqual(fields[name]!, type)) {
+                throw new Error(`Slice.bindRecord: indexed field '${name}' has inconsistent types; give a distinct computed value its own field name`);
+            }
+            fields[name] = type;
+        }
+    }
+    return fields;
+}
+
 /** Default labels shared by inferred field names and enum cases. */
 function label(name: string): string {
     const text = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ");
@@ -140,6 +171,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     }
     const rowType = rowOption.cases.some;
     const metadata = sourceType.fields.indexes;
+    const fieldTypes = recordSliceFieldTypes(rowType, metadata);
     if (!isSubtype(sourceType, IndexedSourceType(entry.fields.key, rowType, projectionOption.cases.some!, metadata, entry.fields.ik))) throw new Error("Slice.bindRecord needs an indexed record binding");
     const indexes: ValueTypeOf<RecordSliceConfigType>["indexes"] = Object.entries(metadata.fields).map(([name, type]) => {
         if (type.type !== "Struct") throw new Error("Slice.bindRecord needs field metadata on every index");
@@ -152,18 +184,20 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         if (marker !== undefined && (marker[0] !== fields.at(-1) || ends.length !== 1)) throw new Error(`Slice.bindRecord: '${name}' needs one final interval field`);
         const interval = marker === undefined ? none : some({ from: marker[0], to: ends[0]!,
             optional: recordSliceFieldSchema(rowType.fields[marker[0]]!, marker[0]).optional });
-        return { name, fields, sets: new Set(fields.filter(field => rowType.fields[field]?.type === "Set")), interval };
+        const structured = entry.fields.ik.cases[name]?.type === "Struct";
+        return { name, fields, sets: new Set(fields.filter(field => fieldTypes[field]?.type === "Set")),
+            structured, interval };
     });
     const indexedFields = new Set(indexes.flatMap(index => index.fields));
     const offered = options.fields === undefined ? [...indexedFields] : Object.keys(options.fields);
     const schemas = new Map<string, RecordSliceFieldSchema>();
     const fields: ValueTypeOf<RecordSliceFieldType>[] = offered.map(field => {
-        if (!indexedFields.has(field) || rowType.fields[field] === undefined) {
+        if (!indexedFields.has(field) || fieldTypes[field] === undefined) {
             throw new Error(`Slice.bindRecord: narrowing by '${field}' needs an index on it — e3.recordIndex("by_${field}", record, { on: ["${field}"] }), listed in Data.bindPaged's indexes`);
         }
-        const schema = recordSliceFieldSchema(rowType.fields[field]!, field);
+        const schema = recordSliceFieldSchema(fieldTypes[field]!, field);
         schemas.set(field, schema);
-        const config = options.fields?.[field as Field<R, M>];
+        const config = options.fields?.[field as Field<M>];
         const known = config?.hints ?? (schema.kind === "boolean" ? [true, false]
             : schema.inner.type === "Variant" ? Object.keys(schema.inner.cases) : []);
         const values = [...known].map(value => ({ value: literal(schema, value), label: value === null ? "Unset" : schema.kind === "boolean" ? (value ? "Yes" : "No")

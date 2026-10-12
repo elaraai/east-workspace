@@ -4,50 +4,161 @@
  */
 
 /**
- * Flowchart renderer — the state-transition flowchart per the `Flowchart`
- * design spec. The dimensional contract (node 116×40 r6, 7px handle
- * rings, fixed 6.5px arrowheads butting the rings, dim ladder
- * 1.0 / 0.45 / 0.15, eyebrow 44px, footer 38px, hover 400ms) lives in
- * `layout.ts` + the `flowchart` slot recipe. Colours resolve through the
- * recipe's `--fc-*` variables (theme-aware, dark-mode overrides), whose
- * values mirror the spec's literal DS tokens.
+ * The Flowchart's canvas (#1245, #1247, #1250) — one flow, drawn with the
+ * canvas's options, in its frame's main: lane bands, state cards, H/V-routed
+ * transitions, decision diamonds, evidence badges, the legend and the
+ * minimap, with the dim ladder, the selection, ⌥-click tracing and, where the
+ * flowchart edits, its gestures. The dimensional contract (node 116×40 r6,
+ * 7px handle rings, fixed 6.5px arrowheads butting the rings, dim ladder
+ * 1.0 / 0.45 / 0.15) lives in `layout.ts` and the `flowchart` slot recipe,
+ * which stays in east-ui-components' theme. Colours resolve through the
+ * recipe's `--fc-*` variables (theme-aware, dark-mode overrides), which the
+ * flowchart's root sets. It draws no hover card (#1250): the inspector shows
+ * what is selected.
+ *
+ * The selection is the frame's (#1250, `selection.ts`): the canvas marks it
+ * and tells the frame each click — a state's card, a transition, a decision's
+ * diamond, or a lane's header, which selects the lane (the user's ruling,
+ * 2026-10-08); a shift-, ⌘- or Ctrl-click on a state puts it into a
+ * selection of several, or takes it out; a click on the canvas where nothing
+ * is, and Esc — never in a field being typed into — select nothing. The
+ * selected lane takes the recipe's ring, and a selected decision's diamond
+ * the brand.
+ *
+ * The gestures (#1247, FB17–FB20) are the frame's `edit`, each one
+ * transaction of the open flow's editing session; without it the canvas edits
+ * nothing, and the selection and the dim ladder stay: "+ LANE" at the band
+ * row's tail (Font Awesome's plus); a lane's header double-clicked into its
+ * rename in place (the user's ruling, 2026-10-08), and its × (Font Awesome's
+ * xmark) — off while the lane holds states, its tooltip saying why; the
+ * "+ STATE" ghost (Font Awesome's plus) a hovered lane parks under its last
+ * state, which opens the inline editor; a state double-clicked into that
+ * editor, or dragged across lanes; a handle dragged to a state, which
+ * `canConnect` may veto, a drop on the source its in-place transition, a
+ * drop that would repeat a transition pulsing it instead; and Del — in the
+ * canvas, never in a field being typed into — deleting the selected state
+ * with its transitions, the several states, the transition, the decision, or
+ * the lane while it holds no state.
+ *
+ * The canvas fills main and scrolls both ways inside it: its lanes run the
+ * whole of main's height, and a flow larger than main scrolls in its own box,
+ * the frame's toolbar and footer staying put — and the minimap with them, in
+ * main's corner over the canvas (#1251). Its toolbar's items and its
+ * footer are the frame's (`toolbar.tsx`, `footer.tsx`): the model and the
+ * orientation come from the frame, and a state find state picks comes as a
+ * `reveal`, which selects the state and scrolls it into view.
+ *
+ * Where a tab of the library drops (#1249, FB30–FB33), the canvas is one drop
+ * cell of the shared drag layer, on the frame's drop target (`use-drop.ts`):
+ * it works out where a drag rests from its own drawing (`drop.ts`'s
+ * `dropAtPoint`) — a lane and the row a state takes there, a state, a
+ * transition, a lane's header, a decision's diamond — and, while the drop
+ * there lands, marks it: the lane takes a wash and a line runs where the state
+ * lands, or the state, the transition — the brand wash — or the diamond takes
+ * the brand. The marks show only while the drag rests over the canvas and the
+ * drop lands (the recipe's); a drag over the canvas raises no dimming and no
+ * "+ STATE" ghost. A state a drop adds comes back as a `reveal`, selected.
+ *
+ * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Box, Portal, Tooltip, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRight, faArrowDown, faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined } from "../../utils";
-import { EastChakraComponent } from "../../component";
-import { useFormatters } from "../../format/index.js";
-import { SliceRailCluster } from "../../slice/rail";
-import { SliceDensityContext } from "../../slice/density";
-import { parseCssSize } from "../../style/parse-size.js";
-import { useSliceReactivity } from "../../slice/use-slice-reactivity";
-import { useDataStable } from "../../hooks/useDataStable";
+import { faBan, faPlus, faRotateRight, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { StringType, equalFor } from "@elaraai/east";
 import {
-    buildModel, type FlowchartModel, type FlowchartValue, type ModelLink,
-} from "./model.js";
+    getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload,
+} from "@elaraai/east-ui-components";
+import type { FlowchartWords } from "./messages.js";
+import type { FlowchartCanvasValue, FlowchartModel, ModelLink } from "./model.js";
 import {
-    computeLayout, previewCursorPath, previewLinkPath,
-    type FlowchartLayout, type LinkRoute,
-    BADGE_H, RING_R,
+    computeLayout, landingSeam, previewCursorPath, previewLinkPath,
+    type FlowchartLayout, type LinkRoute, type Pt,
+    BADGE_H, LANE_HEADER_H, RING_R,
 } from "./layout.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
-
-const flowchartEqual = equivalentFor(Flowchart.Types.Flowchart);
-const flowchartDataEqual = equalFor(Flowchart.Types.Flowchart);
-
-export type { FlowchartValue };
+import {
+    ON_CANVAS, dropAtPoint, markEqual, markOf, printDropAt, readDropAt,
+    type FlowchartCanvasDrop, type FlowchartDropMark,
+} from "./drop.js";
+import { selectedStates, toggleState, type FlowchartSelection } from "./selection.js";
+import type { FlowchartOrientation } from "./toolbar.js";
 
 type SelectFn = ((key: string) => unknown) | undefined;
-type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
 
-export interface EastChakraFlowchartProps {
-    value: FlowchartValue;
-    storageKey: string;
+/**
+ * What the frame asks the canvas to select and bring into view (#1249,
+ * #1250): a state find state picked or a drop added, or what a click in the
+ * inspector names — a transition in a state's Details, an issue's row — once
+ * per ask.
+ */
+export interface FlowchartReveal {
+    /** What to select. */
+    readonly selection: FlowchartSelection;
+    /** The ask's number: each a new one, so a second ask of one thing reveals it again. */
+    readonly seq: number;
+    /** `false`: selected where it stands, never scrolled — a state dropped where the pointer is, a key edited in the inspector. */
+    readonly scroll?: boolean | undefined;
+}
+
+/** Where a drag rests over the canvas before it says otherwise: the canvas itself. */
+const CANVAS_AT = printDropAt(ON_CANVAS);
+
+const keyEqual = equalFor(StringType);
+
+/**
+ * The canvas's gestures (#1247): each one transaction of the open flow's
+ * editing session, made by the frame. The canvas hands each what it gathered —
+ * keys, labels, lanes — and the frame records the flow it leaves.
+ */
+export interface FlowchartCanvasEdit {
+    /** "+ LANE": a lane at the band row's tail. */
+    readonly addLane: () => void;
+    /** A lane's header renamed. */
+    readonly renameLane: (key: string, label: string) => void;
+    /** A lane's ×: deleted, while it holds no state (FB19). */
+    readonly deleteLane: (key: string) => void;
+    /** The "+ STATE" ghost's editor committed: a state at the end of its lane. */
+    readonly addState: (lane: string, key: string, label: string) => void;
+    /** A state's editor committed: its key — a new one rekeying its transitions (FB18) — and its label. */
+    readonly editState: (key: string, next: string, label: string) => void;
+    /** A state dropped on another lane. */
+    readonly moveState: (key: string, lane: string) => void;
+    /** Del on a selected state: deleted with its transitions. */
+    readonly deleteState: (key: string) => void;
+    /** Del on several selected states (#1250): each deleted with its transitions. */
+    readonly deleteStates: (keys: readonly string[]) => void;
+    /** A handle dragged to a state (FB20); the state itself for an in-place transition. */
+    readonly connect: (from: string, to: string) => void;
+    /** Del on a selected transition. */
+    readonly deleteLink: (key: string) => void;
+    /** Del on a selected decision: cleared from the transitions it governs. */
+    readonly deleteDecision: (key: string) => void;
+}
+
+/** Props of {@link FlowchartCanvasView}. */
+export interface FlowchartCanvasViewProps {
+    /** What the canvas draws its flow with. */
+    readonly canvas: FlowchartCanvasValue;
+    /** The open flow's view model. */
+    readonly model: FlowchartModel;
+    /** Left to right, or top down. */
+    readonly orientation: FlowchartOrientation;
+    /** What the frame asked the canvas to select and bring into view last, or `null`. */
+    readonly reveal: FlowchartReveal | null;
+    /** The gestures, where the flowchart edits; `undefined`, it edits nothing, and the selection and the dim ladder stay. */
+    readonly edit: FlowchartCanvasEdit | undefined;
+    /** The canvas's drop cell, where a tab of the library drops (#1249); `undefined`, it takes no drop. */
+    readonly drop?: FlowchartCanvasDrop | undefined;
+    /** What is selected (#1250): the frame's, as the open flow holds it. */
+    readonly selection: FlowchartSelection | null;
+    /** Selects something, or nothing — a click, a shift-click, Esc, a click where nothing is: the frame's selection moves. */
+    readonly onSelect: (selection: FlowchartSelection | null) => void;
+    /** The flowchart's words: the gestures' names, and its counts in the app's locale. */
+    readonly words: FlowchartWords;
+    /** The structural storage key. */
+    readonly storageKey: string;
 }
 
 /** All East callbacks route through one funnel: microtask + try/catch. */
@@ -82,10 +193,7 @@ const CLASS_MARKER = { planned: "ink", observed: "info", unresolved: "neg" } as 
 const MONO = "var(--chakra-fonts-mono)";
 
 type Hover = { kind: "state" | "link" | "trigger"; key: string } | null;
-type Selection = { kind: "state" | "link" | "trigger"; key: string } | null;
-
-const HOVER_OPEN_MS = 400;   // spec: 400ms delay
-const HOVER_CLOSE_GRACE_MS = 250;
+type Selection = FlowchartSelection | null;
 
 /** Dim ladder per the spec — three steps only, opacity only. */
 const FOCUS = 1.0, CONTEXT = 0.45, FADED = 0.15;
@@ -140,6 +248,81 @@ function portColor(attached: ModelLink[], selectedLink: string | null): string {
     return INK;
 }
 
+/** A lane's ×: its box's side, centred on its glyph. */
+const CLOSE_BOX = 14;
+/** A lane header's middle above its baseline: mono 10px caps. */
+const HEAD_MIDDLE = 4;
+
+/**
+ * Where a lane's header stands: its anchor — the band's middle across the top
+ * in LR, its start down the side in TD — its baseline, and the middle of its
+ * ×, past the label's end (mono 10 / ls 2.2 ⇒ ~8.2px a glyph).
+ *
+ * @param layout - The laid-out flow
+ * @param lane - The lane's band
+ * @returns The header's anchor and baseline, whether it runs down the side, and its ×'s middle
+ */
+function laneHead(layout: FlowchartLayout, lane: FlowchartLayout["lanes"][number]): { x: number; y: number; td: boolean; close: number } {
+    const td = layout.orientation === "TD";
+    const x = td ? 12 : lane.cx;
+    const y = td ? lane.y + 24 : 26;
+    const labelW = lane.label.length * 8.2;
+    return { x, y, td, close: (td ? x + labelW + 12 : x + labelW / 2 + 14) + 3.5 };
+}
+
+/**
+ * Where a click on a lane's header lands (#1250): the band's strip before its
+ * first row — across the band's top in LR; in TD, down to the header's ×
+ * along the band's side — so nobody has to hit the label's letters.
+ *
+ * @param layout - The laid-out flow
+ * @param lane - The lane's band
+ * @returns The strip, in the canvas's px
+ */
+function laneHeadBox(layout: FlowchartLayout, lane: FlowchartLayout["lanes"][number]): { x: number; y: number; w: number; h: number } {
+    if (layout.orientation !== "TD") return { x: lane.x, y: lane.y, w: lane.w, h: LANE_HEADER_H };
+    return { x: lane.x, y: lane.y, w: Math.max(0, laneHead(layout, lane).close - CLOSE_BOX / 2 - lane.x), h: LANE_HEADER_H };
+}
+
+/**
+ * The point of the canvas a selection is brought to the middle of the view
+ * at (#1250): a state's card, a transition's longest run — an in-place one's
+ * state — a decision's first diamond, a lane's header, or several states'
+ * first.
+ *
+ * @param layout - The laid-out flow
+ * @param model - The flow's view model
+ * @param selection - What is selected
+ * @returns The point, or `undefined` for what the canvas draws nowhere
+ */
+function revealPoint(layout: FlowchartLayout, model: FlowchartModel, selection: FlowchartSelection): Pt | undefined {
+    const nodeAt = (key: string): Pt | undefined => {
+        const rect = layout.nodes.get(key);
+        return rect === undefined ? undefined : { x: rect.cx, y: rect.cy };
+    };
+    switch (selection.kind) {
+        case "state": return nodeAt(selection.key);
+        case "states": return selection.keys.length === 0 ? undefined : nodeAt(selection.keys[0]!);
+        case "link": {
+            const route = layout.routes.find((r) => keyEqual(r.key, selection.key));
+            if (route !== undefined) return route.mid;
+            const folded = model.nodes.find((n) => n.inPlaceKeys.some((k) => keyEqual(k, selection.key)));
+            return folded === undefined ? undefined : nodeAt(folded.key);
+        }
+        case "trigger": {
+            const governs = model.triggers.get(selection.key)?.governs ?? [];
+            const route = layout.routes.find((r) => governs.some((k) => keyEqual(k, r.key)));
+            return route?.mid;
+        }
+        case "lane": {
+            const lane = layout.lanes.find((l) => keyEqual(l.key, selection.key));
+            if (lane === undefined) return undefined;
+            const head = laneHead(layout, lane);
+            return { x: head.x, y: head.y };
+        }
+    }
+}
+
 /** Badge chrome inherits the link class (spec markup: observed = dashed
  * info; selected = solid brand-d border, brand-dd numerals). */
 function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string; dash: string | undefined; text: string } {
@@ -149,138 +332,45 @@ function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string;
     return { stroke: RULE_STRONG, dash: undefined, text: INK };
 }
 
-export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, storageKey }: EastChakraFlowchartProps) {
+/**
+ * The canvas: one flow, drawn with the canvas's options, filling its frame's
+ * main — see the module docs.
+ *
+ * @param props - The canvas's options, the flow's model, the orientation, what to reveal, the gestures, the drop cell, the selection and what selects, the words and the storage key
+ * @returns The canvas's box, which scrolls the flow inside it
+ */
+export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, selection, onSelect, words, storageKey }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
-    // Keyed on the value's DATA identity (#809): a closure-only change
-    // re-renders with the new callbacks but keeps the model — and the routed
-    // layout derived from it.
-    const data = useDataStable(value, flowchartDataEqual);
-    // Badges, counts and dates, in the app's locale (#850).
-    const words = useFormatters();
-    const model = useMemo(() => buildModel(data, words), [data, words]);
-    const orientationDefault = (getSomeorUndefined(value.orientation)?.type ?? "LR") as "LR" | "TD";
-    const freshness = getSomeorUndefined(value.freshness);
-    const legendOn = getSomeorUndefined(value.legend) ?? true;
-    const minimapOpt = getSomeorUndefined(value.minimap);
-    const density = getSomeorUndefined(value.density)?.type;
-    const fixedHeight = parseCssSize(getSomeorUndefined(value.height));
-    const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
-    const linkMode = getSomeorUndefined(value.linkMode)?.type;
-    // Runtime edit gate — true suppresses every authoring affordance without
-    // unwiring callbacks (permissions / published mode); inspect stays live.
-    const readOnly = getSomeorUndefined(value.readOnly) ?? false;
+    // The model is the frame's, keyed on the flow's DATA identity (#809): a
+    // closure-only change re-renders with the new callbacks but keeps the
+    // model — and the routed layout derived from it.
+    const legendOn = getSomeorUndefined(canvas.legend) ?? true;
+    const minimapOpt = getSomeorUndefined(canvas.minimap);
 
-    const onSelectStateFn = useMemo(() => getSomeorUndefined(value.onSelectState) as SelectFn, [value.onSelectState]);
-    const onSelectLinkFn = useMemo(() => getSomeorUndefined(value.onSelectLink) as SelectFn, [value.onSelectLink]);
-    const onSelectTriggerFn = useMemo(() => getSomeorUndefined(value.onSelectTrigger) as SelectFn, [value.onSelectTrigger]);
-    const onTracePathFn = useMemo(() => getSomeorUndefined(value.onTracePath) as SelectFn, [value.onTracePath]);
-    const onAddLaneFn = useMemo(() => getSomeorUndefined(value.onAddLane) as (() => unknown) | undefined, [value.onAddLane]);
-    const onRenameLaneFn = useMemo(
-        () => getSomeorUndefined(value.onRenameLane) as ((e: { key: string; label: string }) => unknown) | undefined,
-        [value.onRenameLane]);
-    const onDeleteLaneFn = useMemo(() => getSomeorUndefined(value.onDeleteLane) as SelectFn, [value.onDeleteLane]);
-    const onAddStateFn = useMemo(
-        () => getSomeorUndefined(value.onAddState) as ((e: { lane: string; key: string; label: string }) => unknown) | undefined,
-        [value.onAddState]);
-    const onEditStateFn = useMemo(
-        () => getSomeorUndefined(value.onEditState) as ((e: { key: string; code: string; label: string }) => unknown) | undefined,
-        [value.onEditState]);
-    const onMoveStateFn = useMemo(
-        () => getSomeorUndefined(value.onMoveState) as ((e: { key: string; lane: string }) => unknown) | undefined,
-        [value.onMoveState]);
-    const addStateActive = onAddStateFn !== undefined && !readOnly;
-    const editStateActive = onEditStateFn !== undefined && !readOnly;
-    const moveStateActive = onMoveStateFn !== undefined && !readOnly;
-    const onCreateLinkFn = useMemo(
-        () => getSomeorUndefined(value.onCreateLink) as ((e: { from: string; to: string }) => unknown) | undefined,
-        [value.onCreateLink]);
-    const onDeleteLinkFn = useMemo(() => getSomeorUndefined(value.onDeleteLink) as SelectFn, [value.onDeleteLink]);
+    const onSelectStateFn = useMemo(() => getSomeorUndefined(canvas.onSelectState) as SelectFn, [canvas.onSelectState]);
+    const onSelectLinkFn = useMemo(() => getSomeorUndefined(canvas.onSelectLink) as SelectFn, [canvas.onSelectLink]);
+    const onSelectTriggerFn = useMemo(() => getSomeorUndefined(canvas.onSelectTrigger) as SelectFn, [canvas.onSelectTrigger]);
+    const onTracePathFn = useMemo(() => getSomeorUndefined(canvas.onTracePath) as SelectFn, [canvas.onTracePath]);
     const canConnectFn = useMemo(
-        () => getSomeorUndefined(value.canConnect) as ((from: string, to: string) => boolean) | undefined,
-        [value.canConnect]);
-    const stateHoverFn = useMemo(() => getSomeorUndefined(value.stateHover) as HoverContentFn | undefined, [value.stateHover]);
-    const linkHoverFn = useMemo(() => getSomeorUndefined(value.linkHover) as HoverContentFn | undefined, [value.linkHover]);
-    const triggerHoverFn = useMemo(() => getSomeorUndefined(value.triggerHover) as HoverContentFn | undefined, [value.triggerHover]);
-
-    // ── slice chrome (compact density — the spec eyebrow, no wide input) ──
-    const sliceChrome = getSomeorUndefined(value.slice) as
-        | { slice: ValueTypeOf<typeof SliceInternal.Types.Bind>; affordances: ReadonlyArray<{ type: string }> }
-        | undefined;
-    const sliceHandle = sliceChrome?.slice;
-    const sliceVersion = useSliceReactivity(sliceHandle?.key);
-    const affordanceKinds = useMemo(() => sliceChrome?.affordances.map(a => a.type) ?? [], [sliceChrome]);
-    const sliceRail = useMemo(
-        () => (sliceHandle !== undefined
-            ? (
-                <SliceDensityContext.Provider value="compact">
-                    <SliceRailCluster slice={sliceHandle} affordanceKinds={affordanceKinds} />
-                </SliceDensityContext.Provider>
-            )
-            : null),
-        // sliceVersion is the reactive trigger for the O(rows) chrome render
-        [sliceHandle, affordanceKinds, sliceVersion],
-    );
-    const sliceTotal = sliceHandle !== undefined ? Number(sliceHandle.totalCount()) : undefined;
-    const sliceResult = sliceHandle !== undefined ? Number(sliceHandle.resultCount() ?? sliceHandle.totalCount()) : undefined;
+        () => getSomeorUndefined(canvas.canConnect) as ((from: string, to: string) => boolean) | undefined,
+        [canvas.canConnect]);
 
     // ── view state ────────────────────────────────────────────────────────
-    const [orientation, setOrientation] = useState<"LR" | "TD">(orientationDefault);
-    useEffect(() => { setOrientation(orientationDefault); }, [orientationDefault]);
-
-    const [selection, setSelection] = useState<Selection>(null);
-    const selectionRef = useRef<Selection>(null);
+    // The selection is the frame's (#1250): its latest, for the keys, and what moves it.
+    const selectionRef = useRef<Selection>(selection);
     selectionRef.current = selection;
-    const readOnlyRef = useRef(false);
-    readOnlyRef.current = readOnly;
+    const onSelectRef = useRef(onSelect);
+    onSelectRef.current = onSelect;
+    const pickedStates = selectedStates(selection);
     const [hover, setHover] = useState<Hover>(null);
-
-    // Hover card — dev-defined content (Schematic contract), 400ms open,
-    // 250ms grace close, anchored in body coords.
-    const [hoverCard, setHoverCard] = useState<{ kind: "state" | "link" | "trigger"; key: string; ax: number; ay: number } | null>(null);
-    const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const cancelTimers = useCallback(() => {
-        if (openTimer.current !== null) { clearTimeout(openTimer.current); openTimer.current = null; }
-        if (closeTimer.current !== null) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-    }, []);
-    useEffect(() => cancelTimers, [cancelTimers]);
-    const hoverFnFor = useCallback((kind: "state" | "link" | "trigger") =>
-        kind === "state" ? stateHoverFn : kind === "link" ? linkHoverFn : triggerHoverFn,
-        [stateHoverFn, linkHoverFn, triggerHoverFn]);
-    const scheduleHoverCard = useCallback((kind: "state" | "link" | "trigger", key: string, ax: number, ay: number) => {
-        if (hoverFnFor(kind) === undefined) return;
-        cancelTimers();
-        openTimer.current = setTimeout(() => {
-            openTimer.current = null;
-            setHoverCard({ kind, key, ax, ay });
-        }, HOVER_OPEN_MS);
-    }, [cancelTimers, hoverFnFor]);
-    const scheduleHoverClose = useCallback(() => {
-        if (openTimer.current !== null) { clearTimeout(openTimer.current); openTimer.current = null; }
-        if (closeTimer.current !== null) return;
-        closeTimer.current = setTimeout(() => {
-            closeTimer.current = null;
-            setHoverCard(null);
-        }, HOVER_CLOSE_GRACE_MS);
-    }, []);
-    const cancelHoverClose = useCallback(() => {
-        if (closeTimer.current !== null) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-    }, []);
-    // Evaluate the builder ONCE per open card; a throwing builder logs and
-    // renders nothing rather than unmounting the flowchart.
-    const hoverContent = useMemo(() => {
-        if (hoverCard === null) return null;
-        const fn = hoverFnFor(hoverCard.kind);
-        if (fn === undefined) return null;
-        try {
-            return fn(hoverCard.key);
-        } catch (err) {
-            console.error("[Flowchart] hover content builder failed:", err);
-            return null;
-        }
-    }, [hoverCard, hoverFnFor]);
+    // A drag in flight (#1249): it raises no dimming and no "+ STATE" ghost.
+    const dragging = useDragLayerOptional()?.active ?? false;
+    const draggingRef = useRef(dragging);
+    draggingRef.current = dragging;
+    /** What the pointer is over, for the dim ladder — never while a drag is in flight. */
+    const hoverOn = useCallback((next: Hover) => { if (!draggingRef.current) setHover(next); }, []);
 
     // Connect-drag draft (one object; pure helpers live in connect.ts).
     const [draft, setDraft] = useState<{
@@ -293,7 +383,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     // existing link pulses IT; a successful create pulses the new link once
     // its row arrives. Matched by endpoints, auto-cleared.
     const [pulse, setPulse] = useState<{ from: string; to: string; seq: number } | null>(null);
-    // Inline lane-header rename (one object; commit → onRenameLane).
+    // Inline lane-header rename (one object; commit → the session's rename).
     const [laneEdit, setLaneEdit] = useState<{ key: string; label: string } | null>(null);
     // "+ STATE" ghost reveal (spec Flowchart.Lane): one hovered lane at a time.
     const [laneHover, setLaneHover] = useState<string | null>(null);
@@ -313,6 +403,11 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         const t = setTimeout(() => setPulse(null), 1100);
         return () => clearTimeout(t);
     }, [pulse]);
+    // A drag picked up (#1249): the state or transition the pointer rested on lets go of its dimming.
+    useEffect(() => {
+        if (!dragging) return;
+        setHover(null);
+    }, [dragging]);
 
     // ── measure ───────────────────────────────────────────────────────────
     const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -332,10 +427,47 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
             width: size.w,
             orientation,
             legendPad: legendOn ? 122 : 0,
-            minHeight: fixedHeight !== undefined && size.h > 0 ? size.h : undefined,
+            // The lanes run the whole of main's height.
+            minHeight: size.h > 0 ? size.h : undefined,
         })),
-        [model, size, orientation, legendOn, fixedHeight],
+        [model, size, orientation, legendOn],
     );
+
+    // ── drops (#1249) ─────────────────────────────────────────────────────
+    // The canvas is one drop cell: where a drag rests is worked out from the
+    // drawing as it stands, and marked while the drop there lands.
+    const layoutRef = useRef(layout);
+    layoutRef.current = layout;
+    const modelRef = useRef(model);
+    modelRef.current = model;
+    const wrapRef = useRef<HTMLDivElement | null>(null);
+    const [dropMark, setDropMark] = useState<FlowchartDropMark | undefined>(undefined);
+    // The drag over: nothing stays marked.
+    useEffect(() => { if (!dragging) setDropMark(undefined); }, [dragging]);
+    /** Where a drag rests at a client point, for what it carries: the coordinate its drop's `CellRef` names. */
+    const resolveDrop = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
+        const surface = drop?.surface ?? "";
+        const card = drop?.cardOf(payload);
+        const drawn = layoutRef.current;
+        const wrap = wrapRef.current;
+        if (card === undefined || drawn === null || wrap === null) return { surface, row: CANVAS_AT, slot: "" };
+        const box = wrap.getBoundingClientRect();
+        return { surface, row: printDropAt(dropAtPoint(card.lands, drawn, modelRef.current, { x: clientX - box.left, y: clientY - box.top })), slot: "" };
+    }, [drop]);
+    /** The drag rests where its drop lands: the canvas marks it. */
+    const hoverDrop = useCallback((clientX: number, clientY: number, payload: DragPayload) => {
+        const card = drop?.cardOf(payload);
+        const at = readDropAt(resolveDrop(clientX, clientY, payload).row);
+        const mark = drop === undefined || card === undefined || at === undefined ? undefined : markOf(drop.plan(card, at));
+        setDropMark((was) => (markEqual(was, mark) ? was : mark));
+    }, [drop, resolveDrop]);
+    const dropOptions = useMemo(() => (drop === undefined ? undefined : { ...drop.options, onHover: hoverDrop }), [drop, hoverDrop]);
+    const dropCell = useDropCell(drop === undefined || layout === null ? null : { surface: drop.surface, row: CANVAS_AT, slot: "" },
+        false, drop?.canDrop, resolveDrop, dropOptions);
+    const setWrap = useCallback((el: HTMLDivElement | null) => {
+        wrapRef.current = el;
+        dropCell(el);
+    }, [dropCell]);
 
     // ── dim ladder ────────────────────────────────────────────────────────
     const dim = useMemo(() => computeDim(model, hover), [model, hover]);
@@ -345,30 +477,67 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const fade = (on: boolean): string | undefined => (on ? "opacity 150ms ease" : undefined);
 
     // ── interactions ──────────────────────────────────────────────────────
+    // The frame's selection moves, and the host hears a state, a transition or a decision selected alone.
     const select = useCallback((sel: Selection) => {
-        setSelection(sel);
+        onSelectRef.current(sel);
         if (sel === null) return;
         if (sel.kind === "state" && onSelectStateFn) dispatchEast("onSelectState", () => onSelectStateFn(sel.key));
         if (sel.kind === "link" && onSelectLinkFn) dispatchEast("onSelectLink", () => onSelectLinkFn(sel.key));
         if (sel.kind === "trigger" && onSelectTriggerFn) dispatchEast("onSelectTrigger", () => onSelectTriggerFn(sel.key));
     }, [onSelectStateFn, onSelectLinkFn, onSelectTriggerFn]);
 
+    // What the frame asks for — a state find state picked (#1245), a drop
+    // added (#1249), what a click in the inspector names (#1250): selected, as
+    // a click selects it, and — but for a state dropped where the pointer is,
+    // or a key edited where it stands — scrolled to the middle of the canvas's
+    // box: once per ask.
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const revealed = useRef(0);
+    useEffect(() => {
+        if (reveal === null || reveal.seq === revealed.current) return;
+        revealed.current = reveal.seq;
+        select(reveal.selection);
+        if (reveal.scroll === false || layout === null) return;
+        const at = revealPoint(layout, model, reveal.selection);
+        const box = scrollRef.current;
+        if (at === undefined || box === null) return;
+        box.scrollLeft = Math.max(0, at.x - box.clientWidth / 2);
+        box.scrollTop = Math.max(0, at.y - box.clientHeight / 2);
+    }, [reveal, layout, model, select]);
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent): void => {
-            if (e.key === "Escape") {
-                // Spec: esc restores everything instantly.
-                setSelection(null);
-                setHover(null);
-                setHoverCard(null);
-                setDraft(null);
-            } else if ((e.key === "Delete" || e.key === "Backspace") && selectionRef.current?.kind === "link" && onDeleteLinkFn && !readOnlyRef.current) {
-                const key = selectionRef.current.key;
-                dispatchEast("onDeleteLink", () => onDeleteLinkFn(key));
-            }
+            // A field being typed into keeps its own Esc: what it holds is put back, the selection kept.
+            if (e.key !== "Escape" || typedInto(e.target)) return;
+            // Spec: esc restores everything instantly.
+            onSelectRef.current(null);
+            setHover(null);
+            setDraft(null);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [onDeleteLinkFn]);
+    }, []);
+
+    // Del deletes the selection (FB17) — heard in the canvas, never in a field
+    // being typed into, which keeps its own Del: a state with its transitions,
+    // several states (#1250), a transition, a decision cleared from the
+    // transitions it governs, a lane holding no state (#1250).
+    const onCanvasKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
+        if ((e.key !== "Delete" && e.key !== "Backspace") || edit === undefined || typedInto(e.target)) return;
+        const sel = selectionRef.current;
+        // A lane holding states is never deleted (FB19): Del leaves it, selected.
+        if (sel === null || (sel.kind === "lane" && (modelRef.current.laneStates.get(sel.key) ?? 0) > 0)) return;
+        e.preventDefault();
+        onSelectRef.current(null);
+        setHover(null);
+        switch (sel.kind) {
+            case "state": edit.deleteState(sel.key); return;
+            case "states": edit.deleteStates(sel.keys); return;
+            case "link": edit.deleteLink(sel.key); return;
+            case "trigger": edit.deleteDecision(sel.key); return;
+            case "lane": edit.deleteLane(sel.key); return;
+        }
+    }, [edit]);
 
     const canConnect = useCallback((from: string, to: string): boolean => {
         // from === to is LEGAL: dropping on the source commits an in-place
@@ -389,7 +558,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     }, []);
 
     const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
-        if (linkMode === undefined || readOnly) return;
+        if (edit === undefined) return;
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
@@ -416,20 +585,19 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                 setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
                 return;
             }
-            if (d.allowed && onCreateLinkFn) {
-                const payload = { from: d.from, to: d.over };
-                dispatchEast("onCreateLink", () => onCreateLinkFn(payload));
+            if (d.allowed) {
+                edit.connect(d.from, d.over);
                 setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
             }
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
-    }, [linkMode, readOnly, svgPoint, layout, model, canConnect, onCreateLinkFn]);
+    }, [edit, svgPoint, layout, model, canConnect]);
 
     /** Node move gesture — begins after a 5px threshold so plain clicks
      * stay selection; candidate lane bands highlight while dragging. */
     const beginMove = useCallback((key: string, e: React.PointerEvent) => {
-        if (!moveStateActive) return;
+        if (edit === undefined) return;
         const startP = svgPoint(e);
         let started = false;
         movedRef.current = false;
@@ -439,8 +607,6 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                 if (Math.abs(q.x - startP.x) + Math.abs(q.y - startP.y) < 5) return;
                 started = true;
                 movedRef.current = true;
-                cancelTimers();
-                setHoverCard(null);
             }
             const overLane = layout ? laneAt(layout, q) : null;
             setMoveDrag({ key, x: q.x, y: q.y, overLane });
@@ -453,14 +619,11 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
             if (!started || d === null || d.overLane === null) return;
             const node = model.nodesByKey.get(key);
             const currentLane = node !== undefined ? model.lanes[node.laneIndex]?.key : undefined;
-            if (d.overLane !== currentLane && onMoveStateFn) {
-                const payload = { key, lane: d.overLane };
-                dispatchEast("onMoveState", () => onMoveStateFn(payload));
-            }
+            if (d.overLane !== currentLane) edit.moveState(key, d.overLane);
         };
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
-    }, [moveStateActive, svgPoint, layout, model, onMoveStateFn, cancelTimers]);
+    }, [edit, svgPoint, layout, model]);
 
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
@@ -480,80 +643,31 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         return [...solid, ...dashed, ...selected];
     }, [layout, linksByKey, selectedLink]);
 
-    if (model.nodes.length === 0 && model.links.length === 0) {
-        return <Box css={styles.root} data-flowchart-root style={{ height: fixedHeight, maxHeight: maxHeightCss }} />;
-    }
-
-    const eyebrow = (
-        <Box css={styles.eyebrow} data-flowchart-eyebrow>
-            <Box css={styles.eyebrowLeft}>{sliceRail}</Box>
-            <Box css={styles.eyebrowRight}>
-                <Box css={styles.orientationSegment} role="group" aria-label="Orientation">
-                    <button
-                        type="button"
-                        data-active={orientation === "LR" || undefined}
-                        onClick={() => setOrientation("LR")}
-                    ><FontAwesomeIcon icon={faArrowRight} style={{ fontSize: "9px" }} /> LR</button>
-                    <button
-                        type="button"
-                        data-active={orientation === "TD" || undefined}
-                        onClick={() => setOrientation("TD")}
-                    ><FontAwesomeIcon icon={faArrowDown} style={{ fontSize: "9px" }} /> TD</button>
-                </Box>
-                {freshness !== undefined && (
-                    <Box css={styles.freshnessChip}>
-                        <Box as="span" css={styles.freshnessDot} />
-                        <Box as="span">{freshness.label}</Box>
-                        {getSomeorUndefined(freshness.date) !== undefined && (
-                            <Box as="span" css={styles.freshnessDate}>
-                                {words.monthDay(getSomeorUndefined(freshness.date)!)}
-                            </Box>
-                        )}
-                    </Box>
-                )}
-            </Box>
-        </Box>
-    );
-
-    // Footer counts narrowed ROWS (the slice feed), not rendered arrows —
-    // self-loop folding and ghost derivation are rendering, not narrowing.
-    const rowCount = value.links.length;
-    const narrowed = sliceTotal !== undefined && sliceResult !== undefined && sliceResult < sliceTotal;
-    const pct = narrowed ? Math.round((1 - sliceResult / sliceTotal) * 100) : undefined;
-    const footer = (
-        <Box css={styles.footer} data-flowchart-footer>
-            <Box as="span" css={styles.footerStrong}>{words.number(rowCount)}</Box>
-            <Box as="span">{rowCount === 1 ? "link" : "links"}</Box>
-            {narrowed && (
-                <>
-                    <Box as="span">· narrowed from {words.number(sliceTotal)} ·</Box>
-                    <Box as="span" css={styles.footerNeg}>−{words.percent((pct ?? 0) / 100)}</Box>
-                </>
-            )}
-            <Box css={styles.footerSplit}>
-                {words.number(model.counts.planned)} planned · {words.number(model.counts.observed)} observed
-                {model.counts.unresolved > 0 ? ` · ${words.number(model.counts.unresolved)} unresolved` : ""}
-            </Box>
-        </Box>
-    );
-
-    const bodyAutoHeight = fixedHeight === undefined && layout !== null ? layout.height : undefined;
+    // A flow with nothing in it — no lane, no state, no transition — draws
+    // nothing; its box stays, measured, for the flow that comes. A flow of
+    // lanes alone, a new one among them (#1246), draws its lanes; and one the
+    // flowchart edits draws its band row, so "+ LANE" can give it its first
+    // lane again (#1247).
+    const empty = model.blank && edit === undefined;
+    // The lanes a gesture may rename, delete or add a state to: the flow's own — never the stand-in band of a flow with none.
+    const laneGestures = edit !== undefined && !model.standIn ? edit : undefined;
     const body = (
-        <Box
-            ref={bodyRef}
-            css={styles.body}
-            data-flowchart-body
-            style={bodyAutoHeight !== undefined ? { height: bodyAutoHeight, flex: "0 0 auto" } : undefined}
-        >
-            {layout !== null && (
-                <Box css={styles.scroll}>
-                    <Box css={styles.canvasWrap} style={{ width: layout.width, height: layout.height }}>
+        <Box ref={bodyRef} css={styles.body} data-flowchart-body="">
+            {layout !== null && !empty && (
+                // Focusable, so a press inside it — a state, a transition — lands its keys here: Del's.
+                <Box ref={scrollRef} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
+                    {/* The canvas's one drop cell, where a tab of the library drops (#1249). */}
+                    <Box ref={setWrap} css={styles.canvasWrap} style={{ width: layout.width, height: layout.height }}>
                         <svg
                             data-flowchart-canvas
                             width={layout.width}
                             height={layout.height}
                             viewBox={`0 0 ${layout.width} ${layout.height}`}
                             style={{ position: "absolute", inset: 0, display: "block" }}
+                            onClick={(e) => {
+                                // A click where nothing is — no transition, diamond or lane's header — selects nothing (#1250).
+                                if ((e.target as Element).closest("[data-flowchart-link], [data-flowchart-trigger], [data-flowchart-lane-head]") === null) select(null);
+                            }}
                         >
                             <defs>
                                 {/* Fixed 12px filled arrowheads — the spec sheet's visual
@@ -573,9 +687,10 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 <rect key={lane.key} x={lane.x} y={lane.y} width={lane.w} height={lane.h} fill={LANE_TINT} />
                             ))}
                             {/* band hover trackers — reveal the "+ STATE" ghost */}
-                            {addStateActive && layout.lanes.map(lane => (
+                            {laneGestures !== undefined && layout.lanes.map(lane => (
                                 <rect
                                     key={`bandhit-${lane.key}`}
+                                    data-flowchart-band={lane.key}
                                     x={lane.x} y={lane.y} width={lane.w} height={lane.h}
                                     fill="transparent"
                                     onPointerEnter={() => setLaneHover(lane.key)}
@@ -595,71 +710,39 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 );
                             })()}
                             {/* lane headers — mono 10/600 ls 2.2 ink-4 (inline styles:
-                                presentation attributes lose to the app CSS reset).
-                                Click-to-edit when onRenameLane is provided; × deletes
-                                when onDeleteLane is (both suppressed by readOnly). */}
+                                presentation attributes lose to the app CSS reset). A
+                                click on the header's strip selects its lane, and a
+                                double-click renames it in place where the flowchart
+                                edits (#1250, the user's ruling, 2026-10-08); the
+                                stand-in band of a flow with no lane is neither. Each
+                                lane's × and "+ LANE" are the HTML layer's, below. */}
                             {layout.lanes.map(lane => {
-                                const td = layout.orientation === "TD";
-                                const hx = td ? 12 : lane.cx;
-                                const hy = td ? lane.y + 24 : 26;
-                                const renamable = onRenameLaneFn !== undefined && !readOnly;
-                                const deletable = onDeleteLaneFn !== undefined && !readOnly;
-                                // mono 10 / ls 2.2 ⇒ ~8.2px per glyph — anchors the ×.
-                                const labelW = lane.label.length * 8.2;
-                                const closeX = td ? hx + labelW + 12 : hx + labelW / 2 + 14;
+                                const head = laneHead(layout, lane);
+                                const text = (
+                                    <text x={head.x} y={head.y} textAnchor={head.td ? "start" : "middle"}
+                                        style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4 }}
+                                        data-flowchart-lane={lane.key}>
+                                        {lane.label.toUpperCase()}
+                                    </text>
+                                );
+                                if (model.standIn) return <g key={lane.key}>{text}</g>;
+                                const box = laneHeadBox(layout, lane);
                                 return (
-                                    <g key={lane.key}>
-                                        <text x={hx} y={hy} textAnchor={td ? "start" : "middle"}
-                                            style={{
-                                                fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: "2.2px", fill: INK_4,
-                                                cursor: renamable ? "text" : undefined,
-                                            }}
-                                            data-flowchart-lane={lane.key}
-                                            onClick={renamable ? () => setLaneEdit({ key: lane.key, label: lane.label }) : undefined}>
-                                            {lane.label.toUpperCase()}
-                                        </text>
-                                        {deletable && (
-                                            <text x={closeX} y={hy} textAnchor="start"
-                                                data-flowchart-lane-delete={lane.key}
-                                                style={{ fontSize: 11, fill: INK_4, cursor: "pointer" }}
-                                                onClick={() => dispatchEast("onDeleteLane", () => onDeleteLaneFn!(lane.key))}>
-                                                ×
-                                            </text>
-                                        )}
+                                    <g key={lane.key} data-flowchart-lane-head={lane.key} style={{ cursor: "pointer" }}
+                                        onClick={() => select({ kind: "lane", key: lane.key })}
+                                        onDoubleClick={laneGestures !== undefined ? () => setLaneEdit({ key: lane.key, label: lane.label }) : undefined}>
+                                        <rect x={box.x} y={box.y} width={box.w} height={box.h} fill="transparent" />
+                                        {text}
                                     </g>
                                 );
                             })}
-                            {/* + LANE tail affordance — only when the host can add lanes */}
-                            {onAddLaneFn !== undefined && !readOnly && (
-                                <g
-                                    data-flowchart-addlane
-                                    style={{ cursor: "pointer" }}
-                                    onClick={() => dispatchEast("onAddLane", () => onAddLaneFn())}
-                                >
-                                    {/* transparent (not none) fill — the whole affordance is clickable */}
-                                    <rect x={layout.laneTail.x} y={layout.laneTail.y} width={layout.laneTail.w} height={layout.laneTail.h}
-                                        rx={6} fill="transparent" stroke={RULE_STRONG} strokeDasharray="4 4" />
-                                    {layout.orientation === "TD"
-                                        ? (
-                                            // Wide short band — "+ LANE" inline on the midline.
-                                            <>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2 - 8} y={layout.laneTail.y + layout.laneTail.h / 2 + 5}
-                                                    textAnchor="end" style={{ fontSize: 14, fill: INK_4 }}>+</text>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + layout.laneTail.h / 2 + 4}
-                                                    textAnchor="start" style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
-                                            </>
-                                        )
-                                        : (
-                                            // Tall narrow column — "+" stacked over "LANE".
-                                            <>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 30} textAnchor="middle"
-                                                    style={{ fontSize: 14, fill: INK_4 }}>+</text>
-                                                <text x={layout.laneTail.x + layout.laneTail.w / 2} y={layout.laneTail.y + 52} textAnchor="middle"
-                                                    style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "2px", fill: INK_4 }}>LANE</text>
-                                            </>
-                                        )}
-                                </g>
-                            )}
+
+                            {/* the brand wash on the transition a card retypes where it
+                                rests (#1249, FB32) — under every line, the recipe's */}
+                            {dropMark?.kind === "transition" && (() => {
+                                const route = layout.routes.find((r) => keyEqual(r.key, dropMark.key));
+                                return route === undefined ? null : <path data-flowchart-dropwash={route.key} d={route.d} />;
+                            })()}
 
                             {/* links — solid, then dashed (dashed renders over solid), selected last */}
                             <g data-flowchart-links>
@@ -687,12 +770,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                                 stroke="transparent"
                                                 strokeWidth={12}
                                                 style={{ cursor: "pointer" }}
-                                                onPointerEnter={e => {
-                                                    setHover({ kind: "link", key: r.key });
-                                                    const p = svgPoint(e);
-                                                    scheduleHoverCard("link", r.key, p.x, p.y);
-                                                }}
-                                                onPointerLeave={() => { setHover(null); scheduleHoverClose(); }}
+                                                onPointerEnter={() => hoverOn({ kind: "link", key: r.key })}
+                                                onPointerLeave={() => setHover(null)}
                                                 onClick={e => {
                                                     if (e.altKey && onTracePathFn) {
                                                         dispatchEast("onTracePath", () => onTracePathFn(r.key));
@@ -715,14 +794,12 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     <g key={`dia-${r.key}`} style={{ opacity: linkOpacity(r.key), transition: fade(dim.active) }}>
                                         <g
                                             data-flowchart-trigger={trigger.key}
+                                            data-drop-target={dropMark?.kind === "decision" && keyEqual(dropMark.key, trigger.key) ? "" : undefined}
+                                            data-selected={selection?.kind === "trigger" && keyEqual(selection.key, trigger.key) ? "" : undefined}
                                             transform={`translate(${r.mid.x},${r.mid.y}) rotate(45)`}
                                             style={{ cursor: "pointer" }}
-                                            onPointerEnter={e => {
-                                                setHover({ kind: "trigger", key: trigger.key });
-                                                const p = svgPoint(e);
-                                                scheduleHoverCard("trigger", trigger.key, p.x, p.y);
-                                            }}
-                                            onPointerLeave={() => { setHover(null); scheduleHoverClose(); }}
+                                            onPointerEnter={() => hoverOn({ kind: "trigger", key: trigger.key })}
+                                            onPointerLeave={() => setHover(null)}
                                             onClick={() => select({ kind: "trigger", key: trigger.key })}
                                         >
                                             <rect x={-8} y={-8} width={16} height={16} rx={3} fill={PAPER} stroke={BRAND_D} strokeWidth={1.4} />
@@ -760,34 +837,52 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
 
                         </svg>
 
+                        {/* the lane a dropped state lands in, or whose header a card
+                            sets (#1249): its wash, under the states, the recipe's */}
+                        {(dropMark?.kind === "lane" || dropMark?.kind === "header") && (() => {
+                            const band = layout.lanes.find((l) => keyEqual(l.key, dropMark.lane));
+                            return band === undefined ? null : (
+                                <Box css={styles.dropLane} data-flowchart-droplane={band.key}
+                                    style={{ left: band.x, top: band.y, width: band.w, height: band.h }} />
+                            );
+                        })()}
+
+                        {/* the selected lane (#1250): its band ringed, under the states, the recipe's */}
+                        {selection?.kind === "lane" && (() => {
+                            const band = layout.lanes.find((l) => keyEqual(l.key, selection.key));
+                            return band === undefined ? null : (
+                                <Box css={styles.laneSelected} data-flowchart-lane-selected={band.key}
+                                    style={{ left: band.x, top: band.y, width: band.w, height: band.h }} />
+                            );
+                        })()}
+
                         {/* node cards — HTML above the SVG */}
                         {[...layout.nodes.values()].map(rect => {
                             const nm = model.nodesByKey.get(rect.key);
                             if (!nm) return null;
-                            const isSel = selection?.kind === "state" && selection.key === rect.key;
+                            const isSel = pickedStates.some((key) => keyEqual(key, rect.key));
                             return (
                                 <Box
                                     key={rect.key}
                                     data-flowchart-node={rect.key}
                                     css={nm.ghost ? styles.ghostNode : styles.node}
                                     data-selected={isSel || undefined}
+                                    data-drop-target={dropMark?.kind === "state" && keyEqual(dropMark.key, rect.key) ? "" : undefined}
                                     style={{
                                         left: rect.x, top: rect.y, width: rect.w, height: rect.h,
                                         opacity: moveDrag?.key === rect.key ? 0.3 : nodeOpacity(rect.key),
                                         transition: fade(dim.active),
                                     }}
-                                    onPointerEnter={e => {
-                                        setHover({ kind: "state", key: rect.key });
-                                        const p = svgPoint(e);
-                                        scheduleHoverCard("state", rect.key, p.x, p.y);
-                                    }}
-                                    onPointerLeave={() => { setHover(null); scheduleHoverClose(); }}
-                                    onPointerDown={moveStateActive ? (e) => beginMove(rect.key, e) : undefined}
-                                    onClick={() => {
+                                    onPointerEnter={() => hoverOn({ kind: "state", key: rect.key })}
+                                    onPointerLeave={() => setHover(null)}
+                                    onPointerDown={edit !== undefined ? (e) => beginMove(rect.key, e) : undefined}
+                                    onClick={(e) => {
                                         if (movedRef.current) { movedRef.current = false; return; }
-                                        select({ kind: "state", key: rect.key });
+                                        // Shift, ⌘ or Ctrl: into a selection of several, or out of it (#1250).
+                                        if (e.shiftKey || e.metaKey || e.ctrlKey) select(toggleState(selectionRef.current, rect.key));
+                                        else select({ kind: "state", key: rect.key });
                                     }}
-                                    onDoubleClick={editStateActive && !nm.ghost ? () => {
+                                    onDoubleClick={edit !== undefined && !nm.ghost ? () => {
                                         setStateEditor({ mode: "edit", key: rect.key, code: rect.key, label: nm.label ?? "" });
                                     } : undefined}
                                 >
@@ -798,10 +893,9 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                             // Folded self-loops have no route to click — the ↻
                                             // badge is their selection surface. Click selects
                                             // (cycling when several fold here) so Del deletes
-                                            // through the normal onDeleteLink channel; hover
-                                            // shows the linkHover card like any routed link.
-                                            const selIdx = selection?.kind === "link" ? nm.inPlaceKeys.indexOf(selection.key) : -1;
-                                            const hoverKey = selIdx >= 0 ? nm.inPlaceKeys[selIdx]! : nm.inPlaceKeys[0]!;
+                                            // it as it deletes any transition, and the
+                                            // inspector shows its Details.
+                                            const selIdx = selection?.kind === "link" ? nm.inPlaceKeys.findIndex((k) => keyEqual(k, selection.key)) : -1;
                                             return (
                                                 <Box as="span" css={styles.nodeBadge}
                                                     data-flowchart-inplace={rect.key}
@@ -811,14 +905,6 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                                     onClick={e => {
                                                         e.stopPropagation();
                                                         select({ kind: "link", key: nm.inPlaceKeys[(selIdx + 1) % nm.inPlaceKeys.length]! });
-                                                    }}
-                                                    onPointerEnter={e => {
-                                                        const p = svgPoint(e);
-                                                        scheduleHoverCard("link", hoverKey, p.x, p.y);
-                                                    }}
-                                                    onPointerLeave={e => {
-                                                        const p = svgPoint(e);
-                                                        scheduleHoverCard("state", rect.key, p.x, p.y);
                                                     }}
                                                 >
                                                     <FontAwesomeIcon icon={faRotateRight} style={{ fontSize: "8px" }} /> {nm.inPlaceKeys.length}
@@ -832,9 +918,9 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                         })}
 
                         {/* connector overlay — ABOVE the node borders per the spec's
-                            z-order (below hover cards); rings on occupied handles, all
-                            four revealed on hover/selection, 16×16 hit targets on the
-                            out-handles when authoring is enabled */}
+                            z-order; rings on occupied handles, all four revealed on
+                            hover/selection, 16×16 hit targets on the out-handles when
+                            authoring is enabled */}
                         <svg
                             width={layout.width}
                             height={layout.height}
@@ -843,29 +929,30 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                         >
                             {[...layout.nodes.values()].map(rect => {
                                 const nodeActive = (hover?.kind === "state" && hover.key === rect.key)
-                                    || (selection?.kind === "state" && selection.key === rect.key)
+                                    || pickedStates.some((key) => keyEqual(key, rect.key))
                                     || draft !== null;
                                 const occupied = layout.handles.get(rect.key) ?? [];
                                 const occupiedSides = new Set(occupied.map(h => h.side));
                                 // Unoccupied handles are the EDIT affordance — they only
-                                // reveal on hover/selection when authoring is possible;
+                                // reveal on hover/selection where the flowchart edits;
                                 // occupied rings are anatomy and always render.
-                                const authoring = linkMode !== undefined && !readOnly;
+                                const authoring = edit !== undefined;
                                 const extra = nodeActive && authoring
                                     ? (["left", "right", "top", "bottom"] as const).filter(s => !occupiedSides.has(s))
                                     : [];
 
                                 return (
-                                    <g key={`ports-${rect.key}`} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
+                                    <g key={`ports-${rect.key}`} data-flowchart-ports={rect.key} style={{ opacity: nodeOpacity(rect.key), transition: fade(dim.active) }}>
                                         {/* invisible 16×16 hit targets — ANY handle is the
                                             drag-to-connect affordance */}
-                                        {linkMode !== undefined && !readOnly && (["left", "right", "top", "bottom"] as const).map(side => (
+                                        {authoring && (["left", "right", "top", "bottom"] as const).map(side => (
                                             <circle
                                                 key={`hit-${side}`}
+                                                data-flowchart-handle={side}
                                                 cx={rect[side].x} cy={rect[side].y} r={8}
                                                 fill="transparent"
                                                 style={{ pointerEvents: "all", cursor: "crosshair" }}
-                                                onPointerEnter={() => setHover({ kind: "state", key: rect.key })}
+                                                onPointerEnter={() => hoverOn({ kind: "state", key: rect.key })}
                                                 onPointerDown={(e) => beginDraft(rect.key, side, e)}
                                             />
                                         ))}
@@ -950,9 +1037,72 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             })}
                         </svg>
 
+                        {/* the landing line where a dropped state lands (#1249, FB31): across
+                            the node's footprint, between the state above it and the one it
+                            lands before — its thickness the recipe's */}
+                        {dropMark?.kind === "lane" && (() => {
+                            const band = layout.lanes.find((l) => keyEqual(l.key, dropMark.lane));
+                            if (band === undefined) return null;
+                            const seam = landingSeam(layout, band, dropMark.row);
+                            const td = layout.orientation === "TD";
+                            return (
+                                <Box css={styles.dropSeam} data-flowchart-landing={dropMark.row} data-orientation={layout.orientation}
+                                    style={td ? { left: seam.x, top: seam.y, height: seam.h } : { left: seam.x, top: seam.y, width: seam.w }} />
+                            );
+                        })()}
+
+                        {/* each lane's × — Font Awesome's xmark beside its header; off
+                            while the lane holds states, its tooltip saying why (FB19) */}
+                        {laneGestures !== undefined && layout.lanes.map(lane => {
+                            const head = laneHead(layout, lane);
+                            const holds = model.laneStates.get(lane.key) ?? 0;
+                            const name = words.m.deleteLane({ label: lane.label });
+                            return (
+                                <Tooltip.Root key={`lanedelete-${lane.key}`} openDelay={250} positioning={{ placement: "bottom" }}>
+                                    <Tooltip.Trigger asChild>
+                                        <chakra.button
+                                            type="button"
+                                            css={styles.laneDelete}
+                                            data-flowchart-lane-delete={lane.key}
+                                            data-disabled={holds > 0 ? "" : undefined}
+                                            aria-disabled={holds > 0 ? true : undefined}
+                                            aria-label={name}
+                                            style={{ left: head.close - CLOSE_BOX / 2, top: head.y - HEAD_MIDDLE - CLOSE_BOX / 2 }}
+                                            onClick={holds > 0 ? undefined : () => laneGestures.deleteLane(lane.key)}
+                                        >
+                                            <FontAwesomeIcon icon={faXmark} />
+                                        </chakra.button>
+                                    </Tooltip.Trigger>
+                                    <Portal>
+                                        <Tooltip.Positioner>
+                                            <Tooltip.Content>{holds > 0 ? words.m.laneHoldsStates({ n: holds, count: words.number(holds) }) : name}</Tooltip.Content>
+                                        </Tooltip.Positioner>
+                                    </Portal>
+                                </Tooltip.Root>
+                            );
+                        })}
+
+                        {/* "+ LANE" — the band row's tail, full lane height: Font
+                            Awesome's plus over the word, a lane added on a click */}
+                        {edit !== undefined && (
+                            <chakra.button
+                                type="button"
+                                css={styles.addLane}
+                                data-flowchart-addlane=""
+                                data-orientation={layout.orientation}
+                                aria-label={words.m.addLane()}
+                                style={{ left: layout.laneTail.x, top: layout.laneTail.y, width: layout.laneTail.w, height: layout.laneTail.h }}
+                                onClick={() => edit.addLane()}
+                            >
+                                <FontAwesomeIcon icon={faPlus} />
+                                <span>{words.m.laneWord()}</span>
+                            </chakra.button>
+                        )}
+
                         {/* "+ STATE" ghost — dashed, exact node footprint, one per
-                            hovered lane; click turns it into the inline editor */}
-                        {addStateActive && stateEditor === null && laneHover !== null && moveDrag === null && (() => {
+                            hovered lane, Font Awesome's plus beside its word; click
+                            turns it into the inline editor */}
+                        {laneGestures !== undefined && stateEditor === null && laneHover !== null && moveDrag === null && !dragging && (() => {
                             const cell = layout.laneGhosts.get(laneHover);
                             if (!cell) return null;
                             return (
@@ -963,7 +1113,8 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                     onPointerEnter={() => setLaneHover(laneHover)}
                                     onClick={() => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" })}
                                 >
-                                    + state
+                                    <FontAwesomeIcon icon={faPlus} />
+                                    <span>{words.m.stateWord()}</span>
                                 </Box>
                             );
                         })()}
@@ -979,14 +1130,9 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             const commit = (): void => {
                                 const ed = stateEditor;
                                 setStateEditor(null);
-                                if (ed === null || ed.code.trim() === "") return;
-                                if (ed.mode === "add" && onAddStateFn) {
-                                    const payload = { lane: ed.lane, key: ed.code.trim(), label: ed.label.trim() };
-                                    dispatchEast("onAddState", () => onAddStateFn(payload));
-                                } else if (ed.mode === "edit" && onEditStateFn) {
-                                    const payload = { key: ed.key, code: ed.code.trim(), label: ed.label.trim() };
-                                    dispatchEast("onEditState", () => onEditStateFn(payload));
-                                }
+                                if (ed === null || ed.code.trim() === "" || edit === undefined) return;
+                                if (ed.mode === "add") edit.addState(ed.lane, ed.code.trim(), ed.label.trim());
+                                else edit.editState(ed.key, ed.code.trim(), ed.label.trim());
                             };
                             const keys = (e: React.KeyboardEvent): void => {
                                 if (e.key === "Enter") commit();
@@ -1081,9 +1227,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                             const commit = (): void => {
                                 const next = laneEdit;
                                 setLaneEdit(null);
-                                if (next !== null && next.label.trim() !== "" && onRenameLaneFn) {
-                                    dispatchEast("onRenameLane", () => onRenameLaneFn({ key: next.key, label: next.label.trim() }));
-                                }
+                                if (next !== null && next.label.trim() !== "" && edit !== undefined) edit.renameLane(next.key, next.label.trim());
                             };
                             return (
                                 <input
@@ -1131,47 +1275,25 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 </Box>
                             </Box>
                         )}
-
-                        {/* minimap */}
-                        {showMinimap && (
-                            <Box css={styles.minimap} data-flowchart-minimap>
-                                <svg width={96} height={64} viewBox={`0 0 ${layout.width} ${layout.height}`} preserveAspectRatio="xMidYMid meet">
-                                    {[...layout.nodes.values()].map(r => (
-                                        <rect key={r.key} x={r.x} y={r.y} width={r.w} height={r.h} rx={8}
-                                            fill="none" stroke={INK_3} strokeWidth={6} />
-                                    ))}
-                                </svg>
-                            </Box>
-                        )}
                     </Box>
                 </Box>
             )}
-
-            {/* hover card — dev-defined content in the standard shell */}
-            {hoverCard !== null && hoverContent !== null && layout !== null && (
-                <Box
-                    css={styles.hoverCard}
-                    data-flowchart-hovercard
-                    style={{ left: Math.min(hoverCard.ax + 14, Math.max(0, (size?.w ?? 320) - 300)), top: hoverCard.ay + 14 }}
-                    onPointerEnter={cancelHoverClose}
-                    onPointerLeave={scheduleHoverClose}
-                >
-                    <EastChakraComponent value={hoverContent} storageKey={`${storageKey}.hover.${hoverCard.kind}`} />
+            {/* The minimap (#1251): over the canvas in main's corner, where it
+                stays while the canvas scrolls under it — never in the drawing,
+                whose far corner a wide or a tall flow scrolls out of view. */}
+            {layout !== null && !empty && showMinimap && (
+                <Box css={styles.minimap} data-flowchart-minimap>
+                    <svg width={96} height={64} viewBox={`0 0 ${layout.width} ${layout.height}`} preserveAspectRatio="xMidYMid meet">
+                        {[...layout.nodes.values()].map(r => (
+                            <rect key={r.key} x={r.x} y={r.y} width={r.w} height={r.h} rx={8}
+                                fill="none" stroke={INK_3} strokeWidth={6} />
+                        ))}
+                    </svg>
                 </Box>
             )}
         </Box>
     );
 
-    return (
-        <Box
-            css={styles.root}
-            data-flowchart-root
-            data-density={density}
-            style={{ height: fixedHeight, maxHeight: maxHeightCss ?? fixedHeight }}
-        >
-            {eyebrow}
-            {body}
-            {footer}
-        </Box>
-    );
-}, (prev, next) => flowchartEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+    return body;
+}
+

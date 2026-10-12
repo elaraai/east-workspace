@@ -4,9 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Diff` / `Ontology` **factories**
- * (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Diff.Root(…)`, `Diff.Component`) plus
- * `Data`, the manifest type and derivation, and types.
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Diff` / `Ontology`
+ * **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Flowchart.Payload(…)`,
+ * `Diff.Root(…)`, `Diff.Component`) plus `Data`, the manifest type and
+ * derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -363,6 +364,93 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
+// The Flowchart (#1243–#1250): `<Flowchart>` with its namespace, the payload
+// the renderer takes through the `Flowchart` carrier — its canvas, its source
+// of flows with the editing session's Save over a record or the host's flows,
+// its library's wire, each data tab's cards read from its own rows, and its
+// inspector's, each kind's own Details — its shared keys, its library's tabs,
+// and the types a flowchart is written with. `Flowchart` here is the internal
+// namespace — the public one, `Flowchart.Payload`, `Flowchart.Component` and
+// the payload's types.
+export {
+    FlowchartInternal as Flowchart,
+    FlowchartTag,
+    FlowchartComponent,
+    FlowchartPayloadType,
+    FlowchartCanvasType,
+    FlowchartSourceType,
+    FlowchartDataType,
+    FlowchartFlowsHandleType,
+    FlowchartSessionApplyType,
+    FlowchartInspectorType,
+    type FlowchartInspectorOptions,
+    type FlowchartRowInspector,
+    FlowchartLibraryFactories,
+    libraryFlows,
+    libraryStates,
+    libraryTransitions,
+    libraryTab,
+    type FlowchartLibrary,
+    type FlowchartLibraryTab,
+    type FlowchartOneFlowLibraryTab,
+    type FlowchartLibraryRows,
+    type FlowchartFlowsTab,
+    type FlowchartStatesTab,
+    type FlowchartTransitionsTab,
+    type FlowchartAuthorTab,
+    type FlowchartCardAccessors,
+    type FlowchartStatesConfig,
+    type FlowchartTransitionsConfig,
+    type FlowchartTabConfig,
+    FlowchartFlowsApplyType,
+    FlowchartFlowApplyType,
+    FlowchartHistoryType,
+    FlowchartLibraryTabType,
+    FlowchartLandsType,
+    FlowchartCardType,
+    FlowchartStateCardType,
+    FlowchartTransitionCardType,
+    FlowchartLaneCardType,
+    FlowchartDecisionCardType,
+    FlowchartPatchTypeFor,
+    buildCanvas,
+    createFlowchartPayload,
+    flowchartKeys,
+    flowchartOver,
+    flowchartPatch,
+    flowchartValue,
+    flowchartValues,
+    type FlowchartTagType,
+    type FlowchartNamespace,
+    type FlowchartInternalNamespace,
+    type FlowchartTypes,
+    type FlowchartCommon,
+    type FlowchartRecordHandle,
+    type FlowchartBindHandle,
+    type FlowchartCanvasOptions,
+    type FlowchartSliceOptions,
+    type FlowchartFreshnessInput,
+    type FlowchartOrientationLiteral,
+    type RowElement,
+    type FlowchartTables,
+    type FlowchartStateFields,
+    type FlowchartLinkFields,
+    type FlowchartLaneFields,
+    type FlowchartTriggerFields,
+    type FlowchartEvidenceFields,
+    type FlowchartLaneLiteral,
+    type FlowchartFlowInput,
+    type FlowchartLaneInput,
+    type FlowchartStateInput,
+    type FlowchartLinkInput,
+    type FlowchartEvidenceInput,
+    type FlowchartTriggerInput,
+    type FlowchartLinkKindLiteral,
+    type FlowchartRowType,
+    type FlowchartPatchOf,
+    type FlowchartPatchInput,
+} from './flowchart/index.js';
+export * from './flowchart/types.js';
 // Schedule (#1218, #1190): the kinds the Calendar and Plan's builder share,
 // the checks a builder makes across its slots, and the kinds' wire, the
 // Calendar's and Plan's. `Schedule` here is the internal namespace — the

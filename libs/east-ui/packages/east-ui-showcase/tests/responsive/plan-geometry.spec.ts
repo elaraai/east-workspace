@@ -290,8 +290,7 @@ async function kindsMeasured(entry: Locator): Promise<string[]> {
     )].sort());
 }
 
-test.describe("Plan geometry (#817)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
 
     for (const name of EXAMPLES) {
         test(`${name}: every body item renders at its model height`, async ({ page }) => {
@@ -389,8 +388,7 @@ test.describe("Plan geometry (#817)", () => {
  * start, at its weight, cased in the paper, its caption on its knockout, an end
  * past the window in its slot, all under the row controls and the now line.
  */
-test.describe("Plan links focus (#818, #1258)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
+test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
 
     /** The links focuses measured: each example, the row whose links control
      *  opens its family, its links' weights in order — each link's quantity's
@@ -439,18 +437,16 @@ test.describe("Plan links focus (#818, #1258)", () => {
     }
 
     for (const focus of FOCUSES) {
-        for (const width of WIDTHS) {
-            test(`${focus.label} at ${width}px: each link leaves its source's end and enters its destination's start as they draw, and nothing of it leaves the plot`, async ({ page }) => {
-                const entry = await focusLinks(page, focus, width);
+        test(`${focus.label}: links meet their elements, stay in the plot and keep their figures at desktop widths`, async ({ page }) => {
+            const entry = await focusLinks(page, focus, WIDTHS[0]);
+            for (const width of WIDTHS) await test.step(`${width}px`, async () => {
+                await page.setViewportSize({ width, height: 800 });
+                await settled(page);
                 await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
                 await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
-            });
-
-            test(`${focus.label} at ${width}px: each link at its quantity's weight, its head 8 × max(8, 2 × weight), cased in the paper under every link's ink; each caption on its knockout, none within 60 × 12 of another; an end past the window in its 40px slot; the links under the row controls and the now line`, async ({ page }) => {
-                const entry = await focusLinks(page, focus, width);
                 await expect.poll(() => entry.evaluate(linkFigures, { weights: [...focus.weights], slots: focus.slots, bar: 20 })).toEqual([]);
             });
-        }
+        });
     }
 
     /** planEventLinks' links by key, and the figure each draws at rest: every case of the grammar once. The two
@@ -703,44 +699,45 @@ async function stopRulerPaint(ruler: Locator): Promise<RulerPainted[]> {
  * inspector pinned. A label or a number too narrow to show is one hover away,
  * in the canvas's tooltip.
  */
-test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
+test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop" }, () => {
 
     for (const { name, file, box, tab } of TEXT_EXAMPLES) {
-        for (const width of [1440, 1280, 1024]) {
-            for (const theme of ["light", "dark"] as const) {
-                test(`${name}${box === undefined ? "" : ` in a ${box}px box`} at ${width}px (${theme}): no bar, chip, tile or rollup band draws a partial glyph — its label whole, ellipsized after a whole letter, or hidden; a bar's quantity whole beside a whole label or not drawn; an icon whole or not drawn; no number in a cell cut, every mark's icon inside it; the ruler's labels whole and apart, every period's start labelled (#1269)`, async ({ page }) => {
+        for (const theme of ["light", "dark"] as const) {
+            test(`${name}${box === undefined ? "" : ` in a ${box}px box`} (${theme}): text, numbers and ruler at desktop widths`, async ({ page }) => {
+                await page.setViewportSize({ width: 1440, height: 800 });
+                const entry = await openExample(page, name, file, theme);
+                if (box !== undefined) await sizeBox(page, planBox(entry), box);
+                if (tab !== undefined) await entry.locator(`[data-plan-narrow] [data-plan-tab=${JSON.stringify(tab)}]`).click();
+                for (const width of [1440, 1280, 1024]) await test.step(`${width}px`, async () => {
                     await page.setViewportSize({ width, height: 800 });
-                    const entry = await openExample(page, name, file, theme);
-                    if (box !== undefined) await sizeBox(page, planBox(entry), box);
-                    if (tab !== undefined) await entry.locator(`[data-plan-narrow] [data-plan-tab=${JSON.stringify(tab)}]`).click();
-                    // Something it measures is drawn: an element, an event's mark, a chart's, a heat value, a table's
-                    // numerals or a segment.
+                    await settled(page);
                     await expect.poll(() => entry.locator("[data-run], [data-chip], [data-event], [data-plan-band], [data-mark], [data-plan-mark], [data-plan-heat-label], [data-table-parts], [data-fill]").count()).toBeGreaterThan(0);
                     await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
                     await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
                     await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
                 });
-            }
+            });
         }
     }
 
-    for (const width of [1440, 1280]) {
-        for (const theme of ["light", "dark"] as const) {
-            test(`planPrintWorks at ${width}px (${theme}), a job selected and the inspector pinned beside main, as the user saw it (#1269): the ruler's labels whole and apart, every period's start labelled; no number in a cell cut, every mark's icon inside it`, async ({ page }) => {
+    for (const theme of ["light", "dark"] as const) {
+        test(`planPrintWorks (${theme}): text, numbers and ruler with a selected job and pinned inspector`, async ({ page }) => {
+            await page.setViewportSize({ width: 1440, height: 900 });
+            const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
+            const host = entry.locator("[data-plan-frame]").first().locator("xpath=..");
+            await host.evaluate(el => { (el as HTMLElement).style.width = "1440px"; });
+            await settled(page);
+            await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+            for (const width of [1440, 1280]) await test.step(`${width}px`, async () => {
                 await page.setViewportSize({ width, height: 900 });
-                const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
-                // A box as wide as the window: both panes pinned beside main where it keeps its 480px, main the narrower for them.
-                await entry.locator("[data-plan-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-                await settled(page);
-                await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+                await host.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
                 await settled(page);
                 await expect(entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='end'] [data-plan-inspector='event']")).toBeVisible();
                 await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
                 await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
                 await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
             });
-        }
+        });
     }
 
     test("planPrintWorks: its ruler never paints labels it does not rest on — its frame narrowed 3px at a time from 1440px to 1000px, every frame at one width draws the labels that width rests on, across the widths its labels thin at (#1269)", async ({ page }) => {
@@ -819,10 +816,10 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
         { key: "m5", room: 24, label: null, icon: true },
     ];
 
-    for (const turn of TILE_TURNS) {
-        const parts = `${turn.label === null ? "" : turn.label ? "its label" : "no label"}${turn.label !== null && turn.icon !== null ? " and " : ""}${turn.icon === null ? "" : turn.icon ? "its icon" : "no icon"}`;
-        test(`planTargetState: tile ${turn.key} in ${turn.room}px of room draws ${parts}, centred on its line, and no partial glyph`, async ({ page }) => {
+    for (const key of [...new Set(TILE_TURNS.map(turn => turn.key))]) {
+        test(`planTargetState: tile ${key} keeps its parts centred and whole across width thresholds`, async ({ page }) => {
             const entry = await openExample(page, "planTargetState");
+            for (const turn of TILE_TURNS.filter(turn => turn.key === key)) await test.step(`${turn.room}px`, async () => {
             const tile = entry.locator(`[data-plan-row] [data-event=${JSON.stringify(turn.key)}]:not([data-ctx])`);
             await expect(tile).toHaveCount(1);
             // The cell as wide as its padding and caption, and the room asked for.
@@ -867,6 +864,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
             }, turn.room);
             await expect.poll(drawn).toEqual({ room: turn.room, within: true, label: turn.label, icon: turn.icon, centred: true });
             await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
+            });
         });
     }
 
@@ -980,8 +978,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", () => {
  * mark's icon inside it, and its ruler draws its labels whole and apart, every
  * period's start among them, in both themes.
  */
-test.describe("Plan element text on a phone (#1269)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch projects");
+test.describe("Plan element text on a phone (#1269)", { tag: "@mobile" }, () => {
 
     // A phone is a narrow box already: each example once, at its own width.
     for (const { name, file } of TEXT_EXAMPLES.filter((e) => e.box === undefined)) {
@@ -1134,41 +1131,39 @@ const tapFaults = (chip: Element): { bad: string[]; onTile: number } => {
 };
 
 /**
- * A bucket cell with more tiles than it has room for (#1267): the tiles that
- * fit show, in their order and each drawn whole, then a `+n` chip counting the
- * rest, whose menu lists them by name; a pick does what the tile's click does.
- * planTargetState's Van 1 holds two tiles in its Aug 24 cell: a ✓ (a7), 20px
- * whole — its floor, its icon inside its padding — and a resting proposal
- * (a8), 45px — its grip and its `plan` — 5px apart; the chip is 20px, its two
- * letters inside its 4px padding either side, 5px after the tile before it.
- * So both tiles show from 70px of room, the ✓ beside `+1` from 45px, `+2`
- * alone from 20px, and narrower the chip cramps to the room, its count off its
- * line. The cell measures before it paints, so no frame shows a fold it does
- * not rest on, nor the stand-ins it measures with.
+ * A cell folds whole tiles into +n before paint. Thresholds come from the
+ * loaded theme's intrinsic tile and chip widths: fixed pixel guesses make a
+ * font change fail this behavior check even when every glyph still fits.
  */
-test.describe("Plan bucket cells' +n (#1267)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's width");
+test.describe("Plan bucket cells' +n (#1267)", { tag: "@desktop" }, () => {
+    async function intrinsic(cell: Locator) {
+        await setCellRoom(cell, 128);
+        await expect(cell.locator("[data-event='a8']")).not.toHaveAttribute("data-folded", "");
+        const sizes = await cell.evaluate(el => {
+            const box = el.querySelector("[data-plan-cell-tiles]")!;
+            const tile = (key: string) => box.querySelector(`[data-event="${key}"]`)!.getBoundingClientRect().width;
+            return { a7: tile("a7"), a8: tile("a8"), gap: Number.parseFloat(getComputedStyle(box).columnGap) };
+        });
+        await setCellRoom(cell, 30);
+        await expect(cell.locator("[data-tile-more]")).toHaveText("+2");
+        const chip = await cell.locator("[data-tile-more]").evaluate(el => el.getBoundingClientRect().width);
+        return { ...sizes, chip, both: sizes.a7 + sizes.gap + sizes.a8, one: sizes.a7 + sizes.gap + chip };
+    }
 
-    /** What a room rests on — the turns above. */
-    const rests = (room: number) => (room >= 70 ? "a7 a8|" : room >= 45 ? "a7|+1" : room >= 20 ? "|+2" : "|+2!");
-
-    /** The room either side of each turn, and what the cell draws there: its tiles that show, each by key and its
-     *  width, and its chip. */
-    const FOLDS: readonly { room: number; shown: readonly (readonly [string, number])[]; chip: { words: string; cramped: boolean } | null }[] = [
-        { room: 70.5, shown: [["a7", 20], ["a8", 45]], chip: null },
-        { room: 69.5, shown: [["a7", 20]], chip: { words: "+1", cramped: false } },
-        { room: 45.5, shown: [["a7", 20]], chip: { words: "+1", cramped: false } },
-        { room: 44.5, shown: [], chip: { words: "+2", cramped: false } },
-        { room: 20.5, shown: [], chip: { words: "+2", cramped: false } },
-        { room: 19.5, shown: [], chip: { words: "+2", cramped: true } },
-    ];
-
-    for (const fold of FOLDS) {
-        const what = fold.chip === null ? "both its tiles, whole, and no chip"
-            : `${fold.shown.length === 0 ? "no tile" : "its ✓, whole,"} and ${fold.chip.cramped ? `its ${fold.chip.words} cramped to the room, its count off its line` : `its ${fold.chip.words}`}`;
-        test(`planTargetState: Van 1's Aug 24 cell in ${fold.room}px of room draws ${what}, all inside the room, and no partial glyph`, async ({ page }) => {
-            const entry = await openExample(page, "planTargetState");
-            const cell = entry.locator(VAN1_CELL);
+    test("planTargetState: Van 1's tiles and +n stay whole across every width threshold", async ({ page }) => {
+        const entry = await openExample(page, "planTargetState");
+        const cell = entry.locator(VAN1_CELL);
+        const sizes = await intrinsic(cell);
+        const round = (n: number) => Math.round(n * 10) / 10;
+        const folds = [
+            { room: round(sizes.both + 0.5), shown: [["a7", round(sizes.a7)], ["a8", round(sizes.a8)]], chip: null },
+            { room: round(sizes.both - 0.5), shown: [["a7", round(sizes.a7)]], chip: { words: "+1", cramped: false } },
+            { room: round(sizes.one + 0.5), shown: [["a7", round(sizes.a7)]], chip: { words: "+1", cramped: false } },
+            { room: round(sizes.one - 0.5), shown: [], chip: { words: "+2", cramped: false } },
+            { room: round(sizes.chip + 0.5), shown: [], chip: { words: "+2", cramped: false } },
+            { room: round(sizes.chip - 0.5), shown: [], chip: { words: "+2", cramped: true } },
+        ];
+        for (const fold of folds) await test.step(`${fold.room}px`, async () => {
             await setCellRoom(cell, fold.room);
             const drawn = () => cell.evaluate((el) => {
                 const box = el.querySelector("[data-plan-cell-tiles]")!;
@@ -1197,11 +1192,13 @@ test.describe("Plan bucket cells' +n (#1267)", () => {
             });
             await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
         });
-    }
+    });
 
     test("planTargetState: Van 1's Aug 24 cell never paints a fold it does not rest on — its room narrowed a pixel at a time across every turn, then widened back, each frame draws what that room rests on, and never the stand-ins it measures with", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         const cell = entry.locator(VAN1_CELL);
+        const sizes = await intrinsic(cell);
+        const rests = (room: number) => room >= sizes.both ? "a7 a8|" : room >= sizes.one ? "a7|+1" : room >= sizes.chip ? "|+2" : "|+2!";
         await startCellPaint(cell);
         await cell.evaluate(async (el: HTMLElement) => {
             const extra = el.getBoundingClientRect().width - el.querySelector("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
@@ -1273,8 +1270,7 @@ const floorDrawn = (cell: Element) => {
  * click does. A popover the pick opens hangs from the chip, the tile having no
  * box.
  */
-test.describe("Plan bucket cells with no room for a tile (#1276)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's width");
+test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desktop" }, () => {
 
     test("planTargetState: a cell at its 12px floor draws no tile — its +1 alone, across the cell and inside it — and its menu lists the tile; a pick does what its click does, Van 1 selected", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
@@ -1326,8 +1322,7 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", () => {
  * the whole cell; on a touch screen 1280px wide, 60px of room draws the ✓
  * beside `+1`, the halo reaching over the ✓, which keeps its taps.
  */
-test.describe("Plan bucket cells' +n on touch (#1267)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch projects");
+test.describe("Plan bucket cells' +n on touch (#1267)", { tag: "@mobile" }, () => {
 
     test("planTargetState at the phone's width: Van 1's Aug 24 cell is a +2 cramped to its room, a tile tall; a tap anywhere in the cell lands on it, every tile of the card keeps its own; a tap opens its menu, and a pick does what the tile's tap does", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
@@ -1390,8 +1385,7 @@ test.describe("Plan bucket cells' +n on touch (#1267)", () => {
  * `Plan links.html`'s hover reveal), a pressed one in the brand tint; never
  * under 480; the canvas's tooltip names each.
  */
-test.describe("Plan row controls (#1258)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
+test.describe("Plan row controls (#1258)", { tag: "@desktop" }, () => {
 
     test("planTargetState: a row's controls show at rest, at the end of its gutter line after its value; the canvas's tooltip names each; pressed, one wears the press and every row's controls stay shown", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
@@ -1445,8 +1439,7 @@ test.describe("Plan row controls (#1258)", () => {
 
 /** A row's controls where nothing hovers (#1258): shown at rest, as everywhere —
  *  and, below 480, where the narrow layout is in charge, none at all. */
-test.describe("Plan row controls on touch (#1258)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch projects");
+test.describe("Plan row controls on touch (#1258)", { tag: "@mobile" }, () => {
 
     test("planTargetState on a touch screen wide enough for rows: every row's controls show at rest", async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
@@ -1467,8 +1460,7 @@ test.describe("Plan row controls on touch (#1258)", () => {
  * weeks it shows declares the `resolution` affordance, so the toolbar's
  * segment switches MONTH and WEEK — nothing outside the Plan chooses it.
  */
-test.describe("planMeasures' resolution (#1258)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+test.describe("planMeasures' resolution (#1258)", { tag: "@desktop" }, () => {
 
     test("the toolbar's segment switches MONTH and WEEK, and nothing outside the frame chooses the resolution", async ({ page }) => {
         const entry = await openExample(page, "planMeasures");
@@ -1495,8 +1487,7 @@ test.describe("planMeasures' resolution (#1258)", () => {
  * and scrolling to it — and the host's readout follows what the user does on
  * the canvas.
  */
-test.describe("Plan bound ui state (#824)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+test.describe("Plan bound ui state (#824)", { tag: "@desktop" }, () => {
 
     /** A hall's group band. */
     const band = (entry: Locator, hall: string) =>
@@ -1555,8 +1546,7 @@ test.describe("Plan bound ui state (#824)", () => {
  * the run into a band, and through a window landing above the rows in view:
  * nothing on screen moves.
  */
-test.describe("Plan paged blocks (#823)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+test.describe("Plan paged blocks (#823)", { tag: "@desktop" }, () => {
 
     const ROW = 32;
     /** One block: 3,000 rows. */

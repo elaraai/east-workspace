@@ -103,7 +103,7 @@ export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<st
         if (tail?.type === "prefix") return values.length === 0
             ? variant("prefix", tail.value)
             : variant("fields", { values, prefix: some(tail.value) });
-        return index.fields.length === 1
+        return !index.structured
             ? variant("key", values[0]!)
             : variant("fields", { values, prefix: none });
     }) };

@@ -114,13 +114,16 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
 
 test.describe("the Plan's frame (#1193)", () => {
     for (const theme of ["light", "dark"] as const) {
-        for (const { name, file, panes, box } of FRAMED) {
-            test(`${name}${box === undefined ? "" : ` in a ${box}px box`} (${theme}): a BuilderFrame with no border, the panes it is given and no other; one toolbar row, its history last`, async ({ page }) => {
-                const entry = await openExample(page, name, file, theme);
-                if (box !== undefined) await sizeBox(page, planBox(entry), box);
-                expect((await frameFaults(entry, panes)).bad).toEqual([]);
-            });
-        }
+        test(`every source and pane combination: borderless frame, one toolbar and idle history (${theme})`, async ({ page }) => {
+            for (const { name, file, panes, box } of FRAMED) {
+                await test.step(`${name}${box === undefined ? "" : ` in a ${box}px box`}`, async () => {
+                    const entry = await openExample(page, name, file, theme);
+                    if (box !== undefined) await sizeBox(page, planBox(entry), box);
+                    expect((await frameFaults(entry, panes)).bad).toEqual([]);
+                    if (name === "planPrintWorks") expect(await historyFaults(entry)).toEqual([]);
+                });
+            }
+        });
     }
 
     // A Plan with nothing to control draws no toolbar: the frame's DOM test holds
@@ -187,8 +190,7 @@ test.describe("the Plan's frame (#1193)", () => {
     });
 });
 
-test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "swept once, at the desktop project");
+test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", { tag: "@desktop" }, () => {
 
     // A slice and its segments; editing over a keyed paged source, its key
     // search in the row; the print works' event kinds, their overlaps chip and
@@ -284,17 +286,7 @@ async function historyFaults(entry: Locator): Promise<string[]> {
     }, HISTORY_BUTTONS);
 }
 
-test.describe("the Plan's history over its event kinds (#1194)", () => {
-    for (const theme of ["light", "dark"] as const) {
-        test(`planPrintWorks (${theme}): the history item ends the toolbar's one 44px row — Undo, Redo, Discard and Save in the shared item's words, every one inside the row, off with nothing drafted — the ladder's last step; the banners under the row take no room`, async ({ page }) => {
-            const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
-            expect(await historyFaults(entry)).toEqual([]);
-        });
-    }
-});
-
-test.describe("the Plan's Save on e3-web (#1194)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "saved once, at the desktop width");
+test.describe("the Plan's Save on e3-web (#1194)", { tag: "@desktop" }, () => {
 
     test("planPrintWorks: a job's customer changed in the inspector is a draft, the field tinted brand; Save commits it to the jobs record on the e3 the page runs — the draft retires, no banner — and the Plan mounted again shows it", async ({ page }) => {
         // The inspector pinned open beside main (#1220), in a box wide enough for both panes.
@@ -354,36 +346,70 @@ async function inspectorFaults(pane: Locator): Promise<string[]> {
     });
 }
 
-test.describe("the Plan's inspector (#1197)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read open at the desktop width; the phone's below");
+test.describe("the Plan's inspector (#1197)", { tag: "@desktop" }, () => {
 
     for (const theme of ["light", "dark"] as const) {
-        test(`planPrintWorks (${theme}): a selected job's bar wears a 1.5px ring in the brand just outside it, and the inspector shows the job, every line inside the pane`, async ({ page }) => {
+        test(`planPrintWorks: selection and overlap rings, inspector containment (${theme})`, async ({ page }) => {
             const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
-            // A box wide enough for both panes beside main's 480px: the inspector pinned open, its lines laid out (#1220 —
-            // at the desktop project's own width the inspector rests on its rail, and a collapsed pane has nothing to measure).
-            await sizeBox(page, planBox(entry), 1440);
-            const bar = entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" });
-            await bar.click();
-            await settled(page);
-            const ring = await bar.evaluate((el) => {
-                const s = getComputedStyle(el);
-                // The brand's ink, and 1.5px as this screen draws it (a width snaps to its device pixels), resolved as the page resolves them.
-                const probe = document.createElement("span");
-                probe.style.color = "var(--chakra-colors-brand-solid)";
-                probe.style.outline = "1.5px solid";
-                el.appendChild(probe);
-                const brand = getComputedStyle(probe).color;
-                const width = getComputedStyle(probe).outlineWidth;
-                probe.remove();
-                return { width: s.outlineWidth, style: s.outlineStyle, offset: s.outlineOffset, color: s.outlineColor, brand, want: width, pressed: el.getAttribute("aria-pressed") };
+            await test.step(`planPrintWorks (${theme}): each job in an overlap pair wears a 1.5px warn ring just outside its bar — a confirmed job its inset brand ring inside it — a job in no pair none; the chip is the warn chip`, async () => {
+                const rings = await entry.evaluate((root, row) => {
+                    // A shadow, and a colour, as this page resolves the tokens they are written in.
+                    const probe = (style: Partial<CSSStyleDeclaration>, read: "boxShadow" | "color" | "backgroundColor" | "borderTopColor") => {
+                        const span = document.createElement("span");
+                        Object.assign(span.style, style);
+                        root.appendChild(span);
+                        const value = getComputedStyle(span)[read];
+                        span.remove();
+                        return value;
+                    };
+                    const bar = (title: string) => [...root.querySelectorAll<HTMLElement>(`${row} [data-run]`)].find((el) => el.textContent?.startsWith(title))!;
+                    const chip = getComputedStyle(root.querySelector("[data-plan-overlaps]")!);
+                    return {
+                        // Confirmed, and in the pair.
+                        posters: getComputedStyle(bar("Market posters")).boxShadow,
+                        // Proposed, and in the pair.
+                        cards: getComputedStyle(bar("Loyalty cards")).boxShadow,
+                        // Actual, on the same press on the 9th: in no pair.
+                        timetables: getComputedStyle(bar("Timetables")).boxShadow,
+                        ring: probe({ boxShadow: "0 0 0 1.5px var(--chakra-colors-status-warn)" }, "boxShadow"),
+                        both: probe({ boxShadow: "inset 0 0 0 1.5px var(--chakra-colors-brand-solid), 0 0 0 1.5px var(--chakra-colors-status-warn)" }, "boxShadow"),
+                        chip: { border: chip.borderTopColor, wash: chip.backgroundColor, ink: chip.color },
+                        warn: {
+                            border: probe({ borderTopColor: "var(--chakra-colors-status-warn)" }, "borderTopColor"),
+                            wash: probe({ backgroundColor: "var(--chakra-colors-status-warn-subtle)" }, "backgroundColor"),
+                            ink: probe({ color: "var(--chakra-colors-fg-warning)" }, "color"),
+                        },
+                    };
+                }, rowSel("presses.span", "Hall B", "b2"));
+                expect(rings).toEqual({ ...rings, posters: rings.both, cards: rings.ring, timetables: "none", chip: rings.warn });
+                await expect(entry.locator(OVERLAPS_CHIP)).toHaveText("1 overlap");
             });
-            expect(ring).toEqual({ width: ring.want, style: "solid", offset: "1px", color: ring.brand, brand: ring.brand, want: ring.want, pressed: "true" });
-            const pane = entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='end']");
-            await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
-            await expect(pane).not.toHaveAttribute("data-collapsed", /.*/);
-            await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-title]")).toHaveText("Spring catalogue");
-            expect(await inspectorFaults(pane)).toEqual([]);
+            await test.step(`planPrintWorks (${theme}): a selected job's bar wears a 1.5px ring in the brand just outside it, and the inspector shows the job, every line inside the pane`, async () => {
+                // A box wide enough for both panes beside main's 480px: the inspector pinned open, its lines laid out (#1220 —
+                // at the desktop project's own width the inspector rests on its rail, and a collapsed pane has nothing to measure).
+                await sizeBox(page, planBox(entry), 1440);
+                const bar = entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" });
+                await bar.click();
+                await settled(page);
+                const ring = await bar.evaluate((el) => {
+                    const s = getComputedStyle(el);
+                    // The brand's ink, and 1.5px as this screen draws it (a width snaps to its device pixels), resolved as the page resolves them.
+                    const probe = document.createElement("span");
+                    probe.style.color = "var(--chakra-colors-brand-solid)";
+                    probe.style.outline = "1.5px solid";
+                    el.appendChild(probe);
+                    const brand = getComputedStyle(probe).color;
+                    const width = getComputedStyle(probe).outlineWidth;
+                    probe.remove();
+                    return { width: s.outlineWidth, style: s.outlineStyle, offset: s.outlineOffset, color: s.outlineColor, brand, want: width, pressed: el.getAttribute("aria-pressed") };
+                });
+                expect(ring).toEqual({ width: ring.want, style: "solid", offset: "1px", color: ring.brand, brand: ring.brand, want: ring.want, pressed: "true" });
+                const pane = entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='end']");
+                await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+                await expect(pane).not.toHaveAttribute("data-collapsed", /.*/);
+                await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-title]")).toHaveText("Spring catalogue");
+                expect(await inspectorFaults(pane)).toEqual([]);
+            });
         });
     }
 });
@@ -391,45 +417,7 @@ test.describe("the Plan's inspector (#1197)", () => {
 /** The overlaps chip in a Plan's toolbar. */
 const OVERLAPS_CHIP = "[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]";
 
-test.describe("the Plan's overlaps (#1198)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read on the desktop canvas's rows; a phone's canvas is its narrow list, its chip read below");
-
-    for (const theme of ["light", "dark"] as const) {
-        test(`planPrintWorks (${theme}): each job in an overlap pair wears a 1.5px warn ring just outside its bar — a confirmed job its inset brand ring inside it — a job in no pair none; the chip is the warn chip`, async ({ page }) => {
-            const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
-            const rings = await entry.evaluate((root, row) => {
-                // A shadow, and a colour, as this page resolves the tokens they are written in.
-                const probe = (style: Partial<CSSStyleDeclaration>, read: "boxShadow" | "color" | "backgroundColor" | "borderTopColor") => {
-                    const span = document.createElement("span");
-                    Object.assign(span.style, style);
-                    root.appendChild(span);
-                    const value = getComputedStyle(span)[read];
-                    span.remove();
-                    return value;
-                };
-                const bar = (title: string) => [...root.querySelectorAll<HTMLElement>(`${row} [data-run]`)].find((el) => el.textContent?.startsWith(title))!;
-                const chip = getComputedStyle(root.querySelector("[data-plan-overlaps]")!);
-                return {
-                    // Confirmed, and in the pair.
-                    posters: getComputedStyle(bar("Market posters")).boxShadow,
-                    // Proposed, and in the pair.
-                    cards: getComputedStyle(bar("Loyalty cards")).boxShadow,
-                    // Actual, on the same press on the 9th: in no pair.
-                    timetables: getComputedStyle(bar("Timetables")).boxShadow,
-                    ring: probe({ boxShadow: "0 0 0 1.5px var(--chakra-colors-status-warn)" }, "boxShadow"),
-                    both: probe({ boxShadow: "inset 0 0 0 1.5px var(--chakra-colors-brand-solid), 0 0 0 1.5px var(--chakra-colors-status-warn)" }, "boxShadow"),
-                    chip: { border: chip.borderTopColor, wash: chip.backgroundColor, ink: chip.color },
-                    warn: {
-                        border: probe({ borderTopColor: "var(--chakra-colors-status-warn)" }, "borderTopColor"),
-                        wash: probe({ backgroundColor: "var(--chakra-colors-status-warn-subtle)" }, "backgroundColor"),
-                        ink: probe({ color: "var(--chakra-colors-fg-warning)" }, "color"),
-                    },
-                };
-            }, rowSel("presses.span", "Hall B", "b2"));
-            expect(rings).toEqual({ ...rings, posters: rings.both, cards: rings.ring, timetables: "none", chip: rings.warn });
-            await expect(entry.locator(OVERLAPS_CHIP)).toHaveText("1 overlap");
-        });
-    }
+test.describe("the Plan's overlaps (#1198)", { tag: "@desktop" }, () => {
 
     test("planPrintWorks, in a host 420px tall: the chip's click selects the pair and brings Press B2's row into the canvas's view", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);
@@ -456,8 +444,7 @@ test.describe("the Plan's overlaps (#1198)", () => {
     });
 });
 
-test.describe("the Plan's overlaps chip on a phone (#1198)", () => {
-    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+test.describe("the Plan's overlaps chip on a phone (#1198)", { tag: "@mobile" }, () => {
 
     test("planPrintWorks: the chip keeps its own size in the row and is a 44px tap target by its halo", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);
@@ -477,8 +464,7 @@ test.describe("the Plan's overlaps chip on a phone (#1198)", () => {
     });
 });
 
-test.describe("the Plan's library on a phone (#1195)", () => {
-    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+test.describe("the Plan's library on a phone (#1195)", { tag: "@mobile" }, () => {
 
     test("planPrintWorks: the library opens from its rail over main, its last tabs folded into +n, and its Series tab's search is a 44px field the box fills — a tap 20px above or below its middle lands in the box", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);
@@ -514,8 +500,7 @@ test.describe("the Plan's library on a phone (#1195)", () => {
     });
 });
 
-test.describe("the Plan's inspector on a phone (#1197)", () => {
-    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+test.describe("the Plan's inspector on a phone (#1197)", { tag: "@mobile" }, () => {
 
     test("planPrintWorks: the inspector opens from its rail over main, the window's counts and hints in it, every line inside the pane", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", EVENTS);

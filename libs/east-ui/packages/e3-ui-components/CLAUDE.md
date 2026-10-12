@@ -12,8 +12,28 @@ handing the frame main and its chrome's facts), the Sheet's
 (`src/sheet/frame/`, #1216) around its grid: there is no frameless Plan or
 Sheet. Calendar also owns its frame. These builders use east-ui-components'
 shared parts through its `./internal` entry, and their tests on `./testing`; their slot recipes
-stay in east-ui-components' theme. The time parts the Plan shares with
-the Calendar are in `src/shared/time/` (#1148): the scale (its engine and
+stay in east-ui-components' theme. The Flowchart's renderer
+(`src/flowchart/`, #1243) registers against its `Flowchart` extension the
+same way, renders in its `BuilderFrame` too (#1245) — its canvas
+(`canvas.tsx`), its toolbar's items (`toolbar.tsx`), its footer
+(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx`, and over
+flows by name (#1246) its Flows tab (`flows.tsx`), the open flow, kept in
+the UI store (`open-flow.ts`), as LR · TD is (`orientation.ts`), each flow's
+editing session (`session.ts`) — every canvas gesture one transaction of it,
+each gesture's flow `edits.ts`'s (#1247) — its library pane (`library.tsx`,
+#1248: the tabs `library` lists, each data tab a `Library` of its own rows'
+cards), its drops (#1249: `drop.ts` plans what a card does where it lands,
+pure; `use-drop.ts` is the drop target, each drop and each card's ⏎ one
+transaction), its inspector (#1250: `inspector.tsx`, the end pane on by
+default — Details through `FieldForm`, or a state's or a transition's own,
+and Issues; what is selected, per open flow, `selection.ts`; the open flow's
+issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
+parts, and
+keeps its slot recipes there too, the canvas's and the inspector's. The segment strip
+and the one chip it folds into, which the Plan's and the Flowchart's
+toolbars share, are `src/shared/schedule/segments.tsx`.
+The time parts the Plan shares with the Calendar are in `src/shared/time/`
+(#1148): the scale (its engine and
 time arm), the move, draw and slot arithmetic, the now line, lane packing
 and weekend and off-hours shading. The now line's look is one part of the
 theme, merged into the recipe of each component that draws one
@@ -143,6 +163,44 @@ it; an already-hidden edit is not an exit. Query changes clear feedback. A faile
 preparation sends no mutation and preserves drafts; a failed feedback read offers
 a read retry, never another Save. An indexed source's `recordId` names the primary
 record across all index lists and must back the shared editing identity.
+
+### Flowchart records and indexed Flows lists
+
+One flow is one complete record entry. Bind the mutation door with
+`Record.bind`, and bind its browse source with `Data.bindPaged(record,
+{ indexes })` and `Slice.bindRecord`. Pass `window={Slice.rows(slice)}` and
+`slice={{ slice }}` to Flowchart. The Flows tab pages that ordered query through
+shared `PagedLibrary`/`VirtualRows`; never fetch every flow to render or search
+its cards. Record Slice owns indexed field choices, prefix search and counts.
+`Find state` searches the complete open graph by state key and label; it does
+not search all flow records. Keep those purposes clear in labels and examples.
+
+Computed filters use the index's own key type, including values derived from
+nested graph data. Scalar keys use the index name; Struct keys expose their
+named components. Never require a second field-type declaration or evaluate
+index functions over every record in the browser. Keep one-field fan-out
+filters to exact single-value membership so a flow with repeated nested values
+appears and counts once. Composite single-key indexes support combined choices;
+unsupported combinations must be explained by shared Slice, never approximated
+with loaded-page filtering. The example must cover a computed key changing on
+Save through real e3, in addition to primary-key draft retention.
+
+The open graph is read separately by its original primary key. Filtering the
+list must not close it, split its states across pages, or discard its drafts.
+Sessions use the primary record identity and original flow name, independent
+of the browse query. A save that moves the flow outside the narrowing still
+confirms through primary reads and reports the shared Save notice. Keep a
+pending session's confirmation subscribed when the user opens another flow.
+New-flow, rename and duplicate checks must look up the destination primary key,
+including names outside every loaded page and active filter.
+
+Use shared cards and card-sized recipe skeletons for pending rows. Do not wrap
+loaded cards in a text-line Skeleton: its fixed height breaks virtualization
+and makes cards overlap. Assert adjacent card bounds and bounded mounted counts.
+At phone widths, bundle orientation and Find state into the shared search
+popover's final View form before history folds; Filters and Save must remain
+inside the toolbar and clickable. Exercise indexed search, far scrolling,
+Save leaving a filter and draft retention in one real e3 workflow per device.
 
 ### Frame, editing and narrow content
 

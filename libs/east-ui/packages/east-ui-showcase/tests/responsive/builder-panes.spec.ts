@@ -8,8 +8,10 @@
  * draws each of its tabs inside the row and clear of its collapse control —
  * the counts leave the row first, then the trailing tabs fold into a `+n`
  * menu, the open tab always on the row — on each builder the showcase holds:
- * Studio's, the query builder's, the Sheet's frame (#1216) and the Plan's
- * library (#1195) and inspector (#1197). At the desktop width
+ * Studio's, the query builder's, the Sheet's frame (#1216), the Plan's
+ * library (#1195) and inspector (#1197), and the Flowchart's library — its
+ * Flows tab alone (#1246), and beside its templates and the author's owners
+ * (#1248) — and its inspector, on by default (#1250). At the desktop width
  * the panes are measured open, as they rest; on a phone each is opened from
  * its rail and measured over main, and where its row folds, a tap on its
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
@@ -44,6 +46,9 @@ const BUILDERS: readonly BuilderPage[] = [
     { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
     // The Plan's frame fills its wrapper, which its host bounds: the host is the box sized.
     { name: "the Plan", hash: "e3/plan/plan-events/planPrintWorks", ready: "[data-plan-body]", box: ":has(> [data-plan-frame])", width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
+    { name: "the Flowchart", hash: "e3/flowchart/flowchart/flowchartFlows", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: [] },
+    // Four tabs — the Flows tab, the step and transition templates, the author's owners — fold on the phone (#1248).
+    { name: "the Flowchart's library", hash: "e3/flowchart/flowchart/flowchartLibrary", ready: "[data-flowchart-node]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
 ];
 
 /**
@@ -96,22 +101,22 @@ function tabRowsOf(frame: Locator) {
     }));
 }
 
-test.describe("every builder pane's tab row fits its pane (#1210)", () => {
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured open at the desktop width; the phone's are measured below");
-
-    for (const builder of BUILDERS) {
-        for (const theme of ["light", "dark"] as const) {
-            test(`${builder.name}: each open pane's tabs inside its tab row, clear of the collapse control (${theme})`, async ({ page }) => {
-                const frame = await openFrame(page, builder, theme);
-                await expect.poll(async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past })))
-                    .toEqual(builder.panes.map((name) => ({ pane: `Collapse ${name}`, past: [] })));
+test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@desktop" }, () => {
+    const batches = [BUILDERS.slice(0, 3), BUILDERS.slice(3)];
+    for (const theme of ["light", "dark"] as const) {
+        for (const batch of batches) {
+            test(`${batch.map(builder => builder.name).join(", ")}: tabs stay clear of collapse controls (${theme})`, async ({ page }) => {
+                for (const builder of batch) await test.step(builder.name, async () => {
+                    const frame = await openFrame(page, builder, theme);
+                    await expect.poll(async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past })))
+                        .toEqual(builder.panes.map((name) => ({ pane: `Collapse ${name}`, past: [] })));
+                });
             });
         }
     }
 });
 
-test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", () => {
-    test.skip(({ isMobile }) => !isMobile, "measured on the phone");
+test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", { tag: "@mobile" }, () => {
 
     for (const builder of BUILDERS) {
         test(`${builder.name}: each pane, opened from its rail, its tabs inside its tab row, clear of the collapse control; a folded tab opens from the +n menu`, async ({ page }) => {

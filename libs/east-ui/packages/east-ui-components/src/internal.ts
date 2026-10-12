@@ -6,8 +6,9 @@
 /**
  * `@elaraai/east-ui-components/internal` — the building blocks this package's
  * renderers share, for the sibling renderer packages whose components are made
- * of the same parts: e3-ui-components' Plan (#1177) and Sheet (#1179), which
- * moved out of this package. Not an API for apps, and not held stable: an app
+ * of the same parts: e3-ui-components' Plan (#1177), Sheet (#1179) and
+ * Flowchart (#1243), which moved out of this package. Not an API for apps, and
+ * not held stable: an app
  * renders through the public entry, and a sibling renderer package moves with
  * this one.
  *
@@ -63,7 +64,7 @@ export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/sa
 export { recordSliceWindow, recordSliceDomain, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
-export { createTrackedRead } from "./reactive/tracked.js";
+export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
 export { PagedScan } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
 // Keyboard and sizing primitives, and a control's touch target on a coarse
@@ -73,3 +74,7 @@ export { parseCssSize } from "./style/parse-size.js";
 export { coarseHitArea } from "./style/hit-area.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
+
+// Paged builder palettes reuse the Library face and the shared bounded window plan.
+export { LibraryCard } from "./collections/library/index.js";
+export { PagedLibrary, type LibraryPageSource } from "./collections/library/paged.js";
