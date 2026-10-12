@@ -246,21 +246,20 @@ function kindOption(
  *         const states = $.let(Data.bind(depotStates));
  *         const scans = $.let(Data.bind(scanTransitions));
  *         const decisions = $.let(Data.bind(depotDecisions));
- *         const cfg = Slice.config(ScanTransition, {
+ *         const slice = $.let(Slice.bind("flowchart-depot", scans.read(), {
  *             fields: {
  *                 service: { label: "Service" },
  *                 src: { label: "From" },
  *                 dst: { label: "To" },
  *             },
- *             searchFieldIds: ["src", "dst"],
- *         });
- *         const slice = $.let(Slice.bind([ScanTransition], "flowchart-depot", cfg, Slice.state({}), scans.read(), none));
+ *             search: ["src", "dst"],
+ *         }));
  *         return (
  *             <Box height="600px">
  *                 <Flowchart
  *                     data={Flowchart.over(states.read(), {
  *                         state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
- *                         links: Slice.rows([ScanTransition], slice),
+ *                         links: Slice.rows(slice),
  *                         link: l => ({
  *                             key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
  *                             evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
