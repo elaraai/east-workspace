@@ -251,39 +251,46 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await expect(page.getByText(".some 1.05", { exact: true }).first()).toBeVisible();
     });
 
-    // Every e3 example, one category's page at a time: each page's work is
-    // its own category's, and grows with no other — the whole e3 section on
-    // one page came to outlast a test as the section grew (#1177).
-    test("the e3 section's categories are found, each a page to sweep", () => {
+    // One actual unmount/remount per category exercises the shared gate.
+    // Sweeping every example made work grow with the catalog, and scrolling
+    // toward a changing scrollHeight could keep extending the sweep itself.
+    test("the e3 section's categories are found", () => {
         expect(E3_CATEGORIES.length).toBeGreaterThan(5);
     });
 
     for (const [category, file] of E3_CATEGORIES) {
         test(`${category}: a doc row the list mounts again renders its example in its first paint — never the starting line`, async ({ page }) => {
-            // The category's examples, one after another: the doc list mounts
-            // a row as it nears the view, and unmounts it once it is far.
             await page.goto(`/?theme=light#${file}`);
-            await page.waitForSelector("header", { timeout: 20_000 });
+            const anchor = page.locator(`a[href^="#${file}/"]`).first();
+            await expect(anchor).toBeVisible();
+            const hash = (await anchor.getAttribute("href"))!;
+            const entry = page.locator("[data-index]", { has: page.locator(`a[href="${hash}"]`) });
+            await entry.scrollIntoViewIfNeeded();
             await settled(page);
-            /** Scrolls the doc list to its end — and back, when asked — a view at
-             *  a time, and counts the starting lines in every frame. A step of the
-             *  list's own height brings every row into view on the fewest frames. */
-            const sweep = (back: boolean) => page.evaluate(async (back) => {
-                // The doc list scrolls the first doc row's grandparent.
-                const list = document.querySelector("[data-index]")!.parentElement!.parentElement!;
-                const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-                let starting = 0;
-                const count = () => { starting += document.querySelectorAll('[data-e3-start="starting"]').length; };
-                const step = list.clientHeight;
-                for (let y = 0; y <= list.scrollHeight; y += step) { list.scrollTop = y; await frame(); count(); }
-                if (back) for (let y = list.scrollHeight; y >= 0; y -= step) { list.scrollTop = y; await frame(); count(); }
-                return starting;
-            }, back);
-            // The first sweep, down the list, mounts every example, and loads what each reads.
-            await sweep(false);
+            await expect(entry.locator("[data-e3-start], [data-example-deferred]")).toHaveCount(0);
+
+            await page.evaluate(() => { location.hash = "#buttons/button/buttonBasic"; });
+            await expect(entry).toHaveCount(0);
+            // Observe the committed DOM before returning, so a starting line
+            // that disappears before an assertion still fails the test.
+            const observed = await page.evaluateHandle(hash => {
+                let mounted = false;
+                let placeholder = false;
+                const observer = new MutationObserver(() => {
+                    const row = document.querySelector(`a[href="${hash}"]`)?.closest("[data-index]");
+                    if (row === null || row === undefined) return;
+                    mounted = true;
+                    placeholder ||= row.querySelector("[data-e3-start], [data-example-deferred]") !== null;
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+                location.hash = hash;
+                return { finish: () => { observer.disconnect(); return { mounted, placeholder }; } };
+            }, hash);
+            await expect(entry).toBeAttached();
+            await entry.scrollIntoViewIfNeeded();
             await settled(page);
-            // Every row the second sweep mounts again, down and back, shows its example at once.
-            expect(await sweep(true)).toBe(0);
+            expect(await observed.evaluate(result => result.finish())).toEqual({ mounted: true, placeholder: false });
+            await observed.dispose();
         });
     }
 

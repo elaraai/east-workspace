@@ -49,11 +49,14 @@ for (const theme of ['light', 'dark'] as const) {
                 await expect(popup.getByRole('button', { name: 'Today', exact: true })).toBeVisible();
                 expect(await popup.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
                 await popup.getByRole('button', { name: 'Next day', exact: true }).click();
-                await expect(popup).toHaveCount(0);
+                await expect(nav.locator('[data-time-trigger]')).toHaveAttribute('aria-expanded', 'false');
+                await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
                 await expect(nav).toHaveAttribute('data-time-anchor', String(before + DAY));
                 await nav.locator('[data-time-trigger]').click();
                 await page.getByRole('dialog').getByRole('button', { name: 'Today', exact: true }).click();
-                await expect(page.getByRole('dialog')).toHaveCount(0);
+                // Chakra can retain closed content for its exit animation.
+                await expect(nav.locator('[data-time-trigger]')).toHaveAttribute('aria-expanded', 'false');
+                await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
                 const today = scope === 'calendar' ? Date.UTC(2026, 9, 1) : Date.UTC(2028, 2, 16);
                 await expect(nav).toHaveAttribute('data-time-anchor', String(today));
                 if (width === 1440) {
@@ -65,7 +68,7 @@ for (const theme of ['light', 'dark'] as const) {
                     await expect(todayCell).toHaveCSS('border-bottom-width', '0px');
                     await expect(todayCell).toHaveCSS('border-left-width', '0px');
                     await page.keyboard.press('Escape');
-                    await expect(page.getByRole('dialog')).toHaveCount(0);
+                    await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
                 }
                 if (scope === 'roster' && width === 1440) {
                     await nav.locator('[data-time-trigger]').click();
@@ -74,23 +77,25 @@ for (const theme of ['light', 'dark'] as const) {
                     await expect(current).toHaveCSS('box-shadow', 'none');
                     await expect(current).toHaveCSS('border-left-width', '0px');
                     await page.keyboard.press('Escape');
-                    await expect(page.getByRole('dialog')).toHaveCount(0);
+                    await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
                 }
             }
         });
     }
     test(`Plan picker, Slice range and brush share one window (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'The navigation fold contract covers touch above.');
+        // Presets are relative to now; choose a day whose last-seven-day
+        // window differs from the example's initial October 5 anchor.
+        await page.clock.setFixedTime(new Date('2026-10-20T12:00:00Z'));
         const frame = await open(page, 'plan', theme);
         const nav = frame.locator('[data-time-navigation=plan]');
         await nav.locator('[data-time-trigger]').click();
         await page.getByRole('dialog').getByRole('radio', { name: 'Range', exact: true }).click();
         await expect(page.getByRole('dialog').getByRole('group', { name: 'Time range from' })).toBeVisible();
-        const before = await nav.getAttribute('data-time-anchor');
         await page.getByRole('dialog').getByRole('button', { name: '7d', exact: true }).click();
-        await expect(nav).not.toHaveAttribute('data-time-anchor', before!);
+        await expect(nav).toHaveAttribute('data-time-anchor', String(Date.UTC(2026, 9, 13)));
         await page.keyboard.press('Escape');
-        await expect(page.getByRole('dialog')).toHaveCount(0);
+        await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
         const anchor = Number(await nav.getAttribute('data-time-anchor'));
         const lens = frame.locator('[data-plan-lens] line');
         const start = await lens.evaluateAll(lines => lines.map(line => line.getAttribute('x1')));
@@ -111,7 +116,7 @@ for (const theme of ['light', 'dark'] as const) {
         const week = page.locator('[data-calendar-picker-week]:not([data-selected])').first();
         const rest = await week.evaluate(el => getComputedStyle(el).backgroundColor);
         await week.hover(); expect(await week.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(rest);
-        await week.click(); await expect(page.getByRole('dialog')).toHaveCount(0);
+        await week.click(); await expect(page.locator('[role=dialog][data-state=open]')).toHaveCount(0);
         await chooseView(page, frame, 'Week');
         const anchor = Number(await nav.getAttribute('data-time-anchor'));
         await nav.locator('[data-time-trigger]').click();

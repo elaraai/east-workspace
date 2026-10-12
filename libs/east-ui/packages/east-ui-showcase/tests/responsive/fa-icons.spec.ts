@@ -197,11 +197,15 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 0.34;
 test.describe("a converted icon takes the room its glyph took (#1263)", () => {
     test("a chip's caret — a segment's menu, the View chip, the key search — is 8px tall and 5px wide, its own width", async ({ page, isMobile }) => {
         test.skip(!isMobile, "the chips a caret marks are a folded toolbar's, on a phone");
-        for (const file of ["e3/plan/plan", "layout/snap-grid", "e3/sheet/sheet"]) {
-            await openFile(page, file);
-            const carets = await measure(page, file, { caret: { icons: "svg[data-chip-caret]" } });
-            expect(carets.length, `no caret drawn on ${file}`).toBeGreaterThan(0);
-            expect(carets.filter((c) => !(near(c.h, 8) && near(c.w, 5) && c.fa === "auto")), `a caret on ${file} not 8 × 5`).toEqual([]);
+        for (const hash of ["e3/plan/plan/planTargetState", "layout/snap-grid/snapGridEditor", "e3/sheet/sheet/sheetPaged"]) {
+            const row = page.locator(await openExample(page, hash, "light"));
+            const carets = row.locator("svg[data-chip-caret]");
+            await expect(carets.first(), `no caret drawn on ${hash}`).toBeVisible();
+            const drawn = await carets.evaluateAll(nodes => nodes.map(svg => {
+                const box = svg.getBoundingClientRect();
+                return { h: box.height, w: box.width, fa: getComputedStyle(svg).getPropertyValue("--fa-width").trim() };
+            }));
+            expect(drawn.filter(c => !(near(c.h, 8) && near(c.w, 5) && c.fa === "auto")), `a caret on ${hash} not 8 × 5`).toEqual([]);
         }
     });
 
@@ -281,18 +285,16 @@ test.describe("an empty state's mark (#1263)", () => {
     for (const theme of ["light", "dark"] as const) {
         test(`each example's icon is its indicator's 36px, centred over its title, in the strong rule's ink (${theme})`, async ({ page }) => {
             const file = "feedback/empty-state";
-            await page.goto(`/?theme=${theme}#${file}`);
-            await page.waitForSelector("header", { timeout: 20_000 });
-            await expect(page.locator(`a[href^="#${file}/"]`).first()).toBeVisible();
-            await settled(page);
-            await expect.poll(() => page.evaluate((file) => {
-                const rows = [...document.querySelectorAll<HTMLElement>("[data-index]")].filter((row) => row.querySelector(`:scope a[href^="#${file}/"]`) !== null);
-                return rows.map((row) => {
+            // An overscan row has its documentation before its preview is
+            // activated. Bring each example into view before measuring it.
+            for (const name of declared(file)) {
+                const row = page.locator(await openExample(page, `${file}/${name}`, theme));
+                await expect(row.locator("h3")).toBeVisible();
+                await expect.poll(() => row.evaluate((row) => {
                     const title = row.querySelector("h3")!;
                     const mark = title.parentElement!.previousElementSibling!;
                     const icon = mark.querySelector('svg[data-prefix="fas"]')!.getBoundingClientRect();
                     const words = title.getBoundingClientRect();
-                    // The strong rule, as the theme paints a 1px border in it — a token the theme defines.
                     const token = getComputedStyle(row).getPropertyValue("--chakra-colors-border-strong").trim();
                     const rule = document.createElement("div");
                     rule.style.cssText = "border-top: 1px solid var(--chakra-colors-border-strong)";
@@ -305,8 +307,8 @@ test.describe("an empty state's mark (#1263)", () => {
                         above: icon.bottom <= words.top,
                         ink: token !== "" && getComputedStyle(mark).color === strong,
                     };
-                });
-            }, file)).toEqual([0, 1, 2].map(() => ({ size: 36, centred: true, above: true, ink: true })));
+                }), name).toEqual({ size: 36, centred: true, above: true, ink: true });
+            }
         });
     }
 });

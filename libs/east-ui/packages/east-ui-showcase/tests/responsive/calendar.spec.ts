@@ -129,6 +129,8 @@ for (const theme of ["light", "dark"] as const) {
         await page.evaluate(() => { location.hash = "#e3/plan/plan/planTargetState"; });
         await expect(page.locator("[data-plan-frame]").first()).toBeVisible();
         await page.evaluate(file => { location.hash = `#${file}/calendarMobile`; }, FILE);
+        await entry.scrollIntoViewIfNeeded();
+        await settled(page);
         await expect(entry.locator('[data-calendar-card]').filter({ hasText: "Torque-test fixtures" }).first()).toBeVisible();
     });
     test(`desktop views preserve geometry, selection and view through resize (${theme})`, async ({ page }, info) => {
@@ -212,6 +214,8 @@ for (const theme of ["light", "dark"] as const) {
         await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
         await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
         await page.evaluate(file => { location.hash = `#${file}/calendarOperations`; }, FILE);
+        await entry.scrollIntoViewIfNeeded();
+        await settled(page);
         await expect(entry.locator('[data-calendar-event]').filter({ hasText: 'Bracket batch' }).first()).toBeVisible();
         await expect(entry.locator('[data-calendar-event]').filter({ hasText: 'Mounting brackets' }).first()).toHaveAttribute('aria-label', /6:15|06:15/);
     });
@@ -271,6 +275,8 @@ for (const theme of ["light", "dark"] as const) {
         await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
         await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
         await page.evaluate(file => { location.hash = `#${file}/calendarWindowed`; }, FILE);
+        await entry.scrollIntoViewIfNeeded();
+        await settled(page);
         const again = entry.locator('[data-calendar-frame]').first();
         await again.locator('[data-calendar-event]').filter({ hasText: 'Mounting brackets' }).click();
         await expect(again.locator('[data-field="customer"] input')).toHaveValue('Windowed customer');

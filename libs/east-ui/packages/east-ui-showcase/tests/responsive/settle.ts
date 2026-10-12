@@ -15,7 +15,8 @@ import { expect, type Page } from "playwright/test";
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
- * still loading, visible deferred previews have started, and every
+ * still loading or retaining its previous Calendar query, visible deferred
+ * previews have started, and every
  * virtualized row (the doc list's entries and any example's own) and the
  * document's width hold still across two frames, and then two more.
  *
@@ -33,7 +34,7 @@ export async function settled(page: Page): Promise<void> {
             const doc = document.scrollingElement ?? document.documentElement;
             // An example draws once its East has compiled, or failed to; an e3
             // example once e3 has started, or failed to.
-            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading]').length
+            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading], [data-calendar-main][aria-busy="true"]').length
                 + [...document.querySelectorAll("[data-example-deferred]")].filter(el => {
                     const box = el.getBoundingClientRect();
                     const view = el.closest("[data-doc-scroll]")?.getBoundingClientRect()

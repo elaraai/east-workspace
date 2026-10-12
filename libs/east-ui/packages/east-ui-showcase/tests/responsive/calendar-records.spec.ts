@@ -28,8 +28,10 @@ for (const theme of ["light", "dark"] as const) {
         const editor = await recordField(page, frame, "status");
         // Multi-value chips count and query disjoint runs, preserving overlaps.
         await editor.getByRole("button", { name: /^Done/ }).click();
+        await settled(page);
         await expect(events).toHaveCount(4);
         await editor.getByRole("button", { name: /^Ready/ }).click();
+        await settled(page);
         await expect(events).toHaveCount(1);
         await expect(events).toContainText("Completed proof");
         await expect(page.getByRole("dialog")).toHaveCount(1);
@@ -41,11 +43,15 @@ for (const theme of ["light", "dark"] as const) {
         await editor.getByRole("button", { name: /^Done/ }).click();
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
+        await settled(page);
         await expect(events).toHaveCount(3);
 
         const nav = frame.locator("[data-time-navigation=calendar]");
         await nav.locator("[data-time-trigger]").click();
         await page.getByRole("dialog").getByRole("button", { name: "Next day", exact: true }).click();
+        // The old window remains painted and inert while e3 reads the new
+        // index range. Read its rows only after aria-busy has cleared.
+        await settled(page);
         await expect(events).toHaveCount(2);
         await expect(events.filter({ hasText: "Annual maintenance reservation" })).toHaveCount(1);
         await expect(events.filter({ hasText: "Weekend catalogue" })).toHaveCount(1);

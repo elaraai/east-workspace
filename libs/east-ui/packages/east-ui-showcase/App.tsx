@@ -195,7 +195,7 @@ export function App() {
                 <Box flex="1" minH={0} display="flex" flexDirection="column">
                     {filtered.length === 0
                         ? <Text color="fg.muted" px="24px" py="32px">No examples match your search.</Text>
-                        : <DocList entries={filtered} showCategories={isAllPage} scrollTarget={scrollTarget} />}
+                        : <DocList key={selectedCategory} entries={filtered} showCategories={isAllPage} scrollTarget={scrollTarget} />}
                 </Box>
             </Flex>
         </Flex>
