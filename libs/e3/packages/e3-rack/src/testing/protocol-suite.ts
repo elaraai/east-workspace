@@ -110,7 +110,7 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       const f = await fixture(t); const a = await f.enroll(); const lease = await f.create(); await f.success(await f.claim(a.rackToken), RackLeaseGrantType);
       const bytes = encodeBeast2For(StringType)('result'); const hash = createHash('sha256').update(bytes).digest('hex');
       const response = await f.raw('complete', RackCompleteRequestType, { repo: f.repo, leaseId: lease.leaseId,
-        resultJson: JSON.stringify({ taskName: 'contract', status: 'success' }), outputUploadId: none, inlineOutput: some(bytes) }, a.rackToken);
+        resultJson: JSON.stringify({ taskName: 'contract', status: 'success', outputHash: 'untrusted-inline-hash' }), outputUploadId: none, inlineOutput: some(bytes) }, a.rackToken);
       assert.equal((await f.success(response, RackCompleteResponseType)).disposition.type, 'recorded');
       assert.deepEqual(new Uint8Array((await f.readObject(f.repo, hash))!), bytes);
       assert.equal((await f.success(await f.complete(a.rackToken, lease.leaseId), RackCompleteResponseType)).disposition.type, 'idempotent');

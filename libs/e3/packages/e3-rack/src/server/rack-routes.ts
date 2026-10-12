@@ -624,7 +624,10 @@ export function createRackRoutes(
       if (result.exitCode !== undefined && !Number.isSafeInteger(result.exitCode)) throw new Error('invalid exit code');
       if (result.peakBytes !== undefined && (!Number.isSafeInteger(result.peakBytes) || result.peakBytes < 0)) throw new Error('invalid peak');
       if (result.duration !== undefined && (!Number.isFinite(result.duration) || result.duration < 0)) throw new Error('invalid duration');
-      if (result.outputHash !== undefined && (typeof result.outputHash !== 'string' || !isObjectHash(result.outputHash))) throw new Error('invalid output hash');
+      // Inline bytes determine their own hash below; an agent's claimed hash
+      // has no authority, even when it is malformed.
+      const inlineSuccess = result.status === 'success' && request.inlineOutput.type === 'some';
+      if (!inlineSuccess && result.outputHash !== undefined && (typeof result.outputHash !== 'string' || !isObjectHash(result.outputHash))) throw new Error('invalid output hash');
       if (result.cancelled !== undefined && typeof result.cancelled !== 'boolean') throw new Error('invalid cancellation');
       if (result.error !== undefined && typeof result.error !== 'string') throw new Error('invalid error');
     } catch {
