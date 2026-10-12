@@ -1,10 +1,16 @@
+#!/usr/bin/env node
 /**
  * generate-index.ts
  *
  * Builds the example search index (index.json) the plugin's MCP search tool
- * serves (#654).
+ * serves (#654) — East's, or a plugin's that builds on East's: the sources,
+ * the libraries and the hand-written entries are the caller's.
  *
- * Usage: node dist/scripts/generate-index.js --base-dir /path/to/libs
+ * Usage: east-plugin-generate-index --base-dir <dir> [--config <index.config.json>]
+ *            [--static <index.static.json>] [--out <index.json>]
+ *
+ * Each path defaults to this package's own (East's index). From code, call
+ * `generateIndex` with the config and entries themselves.
  *
  * Two kinds of source, declared in index.config.json:
  *
@@ -33,7 +39,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Expr, IRType, toJSONFor, toEastTypeValue, toSource, typeSource } from "@elaraai/east";
 import { parseExamplesFile, type ParsedExample } from "./examples-file.js";
 
@@ -41,7 +47,8 @@ import { parseExamplesFile, type ParsedExample } from "./examples-file.js";
 // Types
 // ---------------------------------------------------------------------------
 
-interface SourceConfig {
+/** One package whose examples are indexed. */
+export interface SourceConfig {
     package: string;
     skill: string;
     testDir: string;
@@ -52,7 +59,8 @@ interface SourceConfig {
     dist?: string;
 }
 
-interface IndexConfig {
+/** What an index holds: `index.config.json`'s shape. */
+export interface IndexConfig {
     sources: SourceConfig[];
     /** Library modules whose exported declarations spell platform calls in the printed TypeScript: specifier → built entry, relative to the base dir. */
     libraries?: Record<string, string>;
@@ -92,29 +100,18 @@ export interface IndexEntry {
     builtins?: string[];
 }
 
-interface IndexStats {
+/** How many entries and files an index holds, by package. */
+export interface IndexStats {
     totalEntries: number;
     totalFiles: number;
     packages: Record<string, number>;
 }
 
-interface IndexOutput {
+/** An index: `index.json`'s shape. */
+export interface IndexOutput {
     version: number;
     stats: IndexStats;
     entries: IndexEntry[];
-}
-
-// ---------------------------------------------------------------------------
-// CLI argument parsing
-// ---------------------------------------------------------------------------
-
-function parseArgs(args: string[]): { baseDir: string } {
-    const idx = args.indexOf("--base-dir");
-    if (idx === -1 || idx + 1 >= args.length) {
-        console.error("Usage: generate-index --base-dir <path>");
-        process.exit(1);
-    }
-    return { baseDir: args[idx + 1]! };
 }
 
 // ---------------------------------------------------------------------------
@@ -229,27 +226,37 @@ async function loadExamplesModule(packageDir: string, dist: string, filePath: st
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// The index
 // ---------------------------------------------------------------------------
 
-async function main(): Promise<void> {
-    const { baseDir } = parseArgs(process.argv.slice(2));
-    const resolvedBaseDir = path.resolve(baseDir);
+/** What `generateIndex` indexes. */
+export interface GenerateIndexOptions {
+    /** The directory the config's `testDir`, `dist` and library paths are relative to. */
+    baseDir: string;
+    /** The packages whose examples are indexed, and the libraries their printed TypeScript imports. */
+    config: IndexConfig;
+    /** Hand-written entries merged in (`index.static.json`'s `entries`), e.g. a CLI's. */
+    staticEntries?: readonly IndexEntry[];
+    /** Progress lines (default `console.log`). */
+    log?: (line: string) => void;
+}
 
-    // Resolve project root (dist/scripts -> project root is ../../)
-    const projectRoot = path.resolve(import.meta.dirname, "..", "..");
-
-    // Read config
-    const configPath = path.join(projectRoot, "index.config.json");
-    if (!fs.existsSync(configPath)) {
-        console.error(`Config not found: ${configPath}`);
-        process.exit(1);
-    }
-
-    const config: IndexConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as IndexConfig;
+/**
+ * Builds an index: every `example()` of each source's examples files, a
+ * program's as its IR and the TypeScript printed from it, any other's as its
+ * authored source, then the hand-written entries. The python printings are
+ * `scripts/render-python.py`'s, run over the written index.
+ *
+ * @param options - The base directory, the config and the hand-written entries
+ * @returns The index, ready to write as `index.json`
+ * @throws {Error} When a program package or a library is not built, or an export is not an `example()`
+ */
+export async function generateIndex(options: GenerateIndexOptions): Promise<IndexOutput> {
+    const log = options.log ?? ((line: string) => console.log(line));
+    const resolvedBaseDir = path.resolve(options.baseDir);
+    const config = options.config;
     if (!Array.isArray(config.sources) || config.sources.length === 0) {
-        console.error("Invalid config: sources array is empty or missing");
-        process.exit(1);
+        throw new Error("Invalid config: sources array is empty or missing");
     }
 
     const entries: IndexEntry[] = [];
@@ -266,7 +273,7 @@ async function main(): Promise<void> {
         }
         libraries[specifier] = (await import(pathToFileURL(built).href)) as object;
     }
-    if (Object.keys(libraries).length > 0) console.log(`[libraries] ${Object.keys(libraries).join(", ")}`);
+    if (Object.keys(libraries).length > 0) log(`[libraries] ${Object.keys(libraries).join(", ")}`);
 
     for (const source of config.sources) {
         const testDir = path.resolve(resolvedBaseDir, source.testDir);
@@ -281,7 +288,7 @@ async function main(): Promise<void> {
         const files = patterns.flatMap(p => findFiles(testDir, p));
         const uniqueFiles = [...new Set(files)].sort();
 
-        console.log(`[${source.package}] Found ${uniqueFiles.length} files in ${testDir}${source.ir ? " (programs: IR)" : ""}`);
+        log(`[${source.package}] Found ${uniqueFiles.length} files in ${testDir}${source.ir ? " (programs: IR)" : ""}`);
 
         for (const filePath of uniqueFiles) {
             let examples: ParsedExample[];
@@ -333,18 +340,14 @@ async function main(): Promise<void> {
     }
 
     // Merge static entries (e.g. hand-written e3 examples)
-    const staticPath = path.join(projectRoot, "index.static.json");
-    if (fs.existsSync(staticPath)) {
-        const staticData = JSON.parse(fs.readFileSync(staticPath, "utf-8")) as { entries: IndexEntry[] };
-        for (const entry of staticData.entries) {
-            entries.push({ ...entry, languages: entry.languages ?? ["typescript"] });
-            packageCounts[entry.package] = (packageCounts[entry.package] ?? 0) + 1;
-        }
-        console.log(`\n[static] Merged ${staticData.entries.length} entries from index.static.json`);
+    const staticEntries = options.staticEntries ?? [];
+    for (const entry of staticEntries) {
+        entries.push({ ...entry, languages: entry.languages ?? ["typescript"] });
+        packageCounts[entry.package] = (packageCounts[entry.package] ?? 0) + 1;
     }
+    if (staticEntries.length > 0) log(`\n[static] Merged ${staticEntries.length} hand-written entries`);
 
-    // Build output
-    const output: IndexOutput = {
+    return {
         version: 2,
         stats: {
             totalEntries: entries.length,
@@ -353,21 +356,62 @@ async function main(): Promise<void> {
         },
         entries,
     };
+}
 
-    // Write output
-    const outPath = path.join(projectRoot, "index.json");
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+/** The value after `flag`, if given. */
+function argument(args: string[], flag: string): string | undefined {
+    const idx = args.indexOf(flag);
+    if (idx === -1) return undefined;
+    const value = args[idx + 1];
+    if (value === undefined) throw new Error(`${flag} needs a value`);
+    return value;
+}
+
+async function main(): Promise<void> {
+    const args = process.argv.slice(2);
+    const baseDir = argument(args, "--base-dir");
+    if (baseDir === undefined) {
+        console.error("Usage: east-plugin-generate-index --base-dir <dir> [--config <index.config.json>] [--static <index.static.json>] [--out <index.json>]");
+        process.exit(1);
+    }
+
+    // This package's own files (dist/scripts -> package root is ../../): East's index.
+    const projectRoot = path.resolve(import.meta.dirname, "..", "..");
+    const configPath = path.resolve(argument(args, "--config") ?? path.join(projectRoot, "index.config.json"));
+    if (!fs.existsSync(configPath)) {
+        console.error(`Config not found: ${configPath}`);
+        process.exit(1);
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as IndexConfig;
+
+    const staticFlag = argument(args, "--static");
+    const staticPath = path.resolve(staticFlag ?? path.join(projectRoot, "index.static.json"));
+    const staticEntries = staticFlag !== undefined || fs.existsSync(staticPath)
+        ? (JSON.parse(fs.readFileSync(staticPath, "utf-8")) as { entries: IndexEntry[] }).entries
+        : [];
+
+    const output = await generateIndex({ baseDir, config, staticEntries });
+
+    const outPath = path.resolve(argument(args, "--out") ?? path.join(projectRoot, "index.json"));
     fs.writeFileSync(outPath, JSON.stringify(output, null, 2) + "\n");
 
-    const programs = entries.filter((e) => e.ir !== undefined).length;
+    const programs = output.entries.filter((e) => e.ir !== undefined).length;
     console.log(`\nGenerated ${outPath}`);
-    console.log(`  Entries: ${entries.length} (${programs} programs with IR, python pending: scripts/render-python.py)`);
-    console.log(`  Files:   ${fileCount.size}`);
-    for (const [pkg, count] of Object.entries(packageCounts)) {
+    console.log(`  Entries: ${output.entries.length} (${programs} programs with IR, python pending: scripts/render-python.py)`);
+    console.log(`  Files:   ${output.stats.totalFiles}`);
+    for (const [pkg, count] of Object.entries(output.stats.packages)) {
         console.log(`  ${pkg}: ${count}`);
     }
 }
 
-main().catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-});
+// Run only as a command (the bin's link resolves to this file), never on import.
+if (process.argv[1] !== undefined && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    main().catch((err) => {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+    });
+}

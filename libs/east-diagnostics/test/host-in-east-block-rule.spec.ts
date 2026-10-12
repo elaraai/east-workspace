@@ -145,7 +145,7 @@ test("silent on a platform call nested as an argument to an East constructor (th
 });
 
 // ── A9: library-declared East-producing members on project-local objects ─
-test("silent on East API reached through a project-local object (A9 — the Navigation.config routes shape)", () => {
+test("silent on East API reached through a project-local object (A9 — the member declared in a package's .d.ts)", () => {
   // `lib` is a project const, so A5 (import-rooted) cannot apply; the member
   // `value` is declared in @elaraai/east's .d.ts and the call yields an Expr.
   const src = `${PRELUDE}const lib = { e: East };\nexport const f = East.function([], IntegerType, ($) => {\n  return $.const(lib.e.value(1n), IntegerType);\n});\n`;
@@ -159,29 +159,29 @@ test("still flags reading a JS Map of Exprs with .get(...) (default-lib members 
 
 test("silent on members of an object BUILT BY an @elaraai factory when the library is in-program SOURCE (A9 factory arm)", () => {
   // The monorepo self-dogfooding shape: the library (here synthetic, .ts source
-  // so the .d.ts arm cannot apply) exports a `Navigation.config`-style factory;
-  // the object it builds has Expr-producing members called inside a block.
+  // so the .d.ts arm cannot apply) exports a `Registry.config` factory; the
+  // object it builds has Expr-producing members called inside a block.
   const files = {
-    "/proj/fake-ui.ts": `export interface RouteExpr { readonly __route: true }
-export interface BlockBuilder<T> { let(v: unknown): RouteExpr }
-export const Navigation = {
-  config(_routes: Record<string, unknown>) {
-    return { Page: { overview: (): RouteExpr => ({ __route: true }) } };
+    "/proj/fake-ui.ts": `export interface KindExpr { readonly __kind: true }
+export interface BlockBuilder<T> { let(v: unknown): KindExpr }
+export const Registry = {
+  config(_kinds: Record<string, unknown>) {
+    return { Case: { open: (): KindExpr => ({ __kind: true }) } };
   },
 };
-export function fn(cb: ($: BlockBuilder<null>) => RouteExpr): RouteExpr { return cb(null as never); }
+export function fn(cb: ($: BlockBuilder<null>) => KindExpr): KindExpr { return cb(null as never); }
 `,
-    "/proj/routes.ts": `import { Navigation } from "@elaraai/fake-ui";
-export const routes = Navigation.config({ overview: {} });
+    "/proj/kinds.ts": `import { Registry } from "@elaraai/fake-ui";
+export const kinds = Registry.config({ open: {} });
 `,
     "/proj/main.ts": `import { fn } from "@elaraai/fake-ui";
-import { routes } from "@proj/routes";
-export const f = fn(($) => routes.Page.overview());
+import { kinds } from "@proj/kinds";
+export const f = fn(($) => kinds.Case.open());
 `,
   };
   const hits = analyzeProgram(files, "/proj/main.ts", {
     baseUrl: "/proj",
-    paths: { "@elaraai/fake-ui": ["./fake-ui.ts"], "@proj/routes": ["./routes.ts"] },
+    paths: { "@elaraai/fake-ui": ["./fake-ui.ts"], "@proj/kinds": ["./kinds.ts"] },
   }).filter((d) => d.ruleName === RULE);
   assert.equal(hits.length, 0);
 });

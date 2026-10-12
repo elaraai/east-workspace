@@ -27,11 +27,11 @@ import {
   E3_RELEASE, ExecutionStatusType, PackageObjectType, WorkspaceRecordType, decodePackageObject, decodeRecordObject, isCollectionRoot,
 } from '@elaraai/e3-types';
 import type {
-  DatasetRef, DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
-  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
+  DatasetRef, DeployProgress, InputPlan, InputPolicy, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState,
+  RecordDeployStep, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
 } from '@elaraai/e3-types';
 import type { DatasetAdoptProgress, DatasetTaken, ObjectAdoptResult } from './dataset-adopt.js';
-import { eachAtMost } from './concurrency.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { ZIP_RELEASE_ENTRY, addPackageObjects, packageResolve, packageRead, writePackageZip } from './packages.js';
 import { zipSinkOf } from './zip.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
@@ -43,6 +43,7 @@ import {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  InvalidNameError,
   checkName,
   lockStateToHolderInfo,
 } from './errors.js';
@@ -50,6 +51,7 @@ import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLeafType } from './records.js';
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
+import { planInputDeployments, refsKeepingInputs } from './input-deploy.js';
 import { withRunningWork } from './running-work.js';
 
 /**
@@ -212,6 +214,96 @@ export async function workspaceRemove(
 }
 
 /**
+ * Copy a workspace within its repository: the target becomes the source as it
+ * is now — its deployed package and every dataset ref, so each record's head
+ * and indexes and each task's output with them, and nothing needs to run
+ * again.
+ *
+ * @remarks
+ * Within one repository every object is shared by its hash, so the copy reads
+ * and writes refs only: its cost follows the number of datasets, never their
+ * size. Nothing in the source changes, and a write to either workspace
+ * afterwards leaves the other as it was.
+ *
+ * It holds the source shared, as a dataflow run or a dataset write does, so
+ * the source's work goes on while it copies — a ref written meanwhile is
+ * copied as it stood before the write or after it — and a deploy, a removal or
+ * an export holding the source refuses the copy. It holds the target
+ * exclusively, as a deploy does, so a copy onto a workspace a dataflow runs
+ * in, or that a write, a deploy, a removal or an export holds, is refused. Both
+ * locks name the copy (`workspace_copy`), so what either refuses, and what
+ * reads them, sees a copy. And it holds the repository's running work
+ * ({@link withRunningWork}): the refs it writes name objects the source may
+ * stop naming as it goes on, which gc holding the repository still would
+ * otherwise sweep before the target names them.
+ *
+ * A target that exists is replaced whole, as a removal would take it: its
+ * refs, its dataflow's state and its runs go. So do the refs a copy cut short
+ * left at a name no workspace has: a copy writes its record last, so a removal
+ * finds no workspace there to remove. Its history starts at the copy, so it
+ * names no run of its own, and its deployment's time is the source's.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param from - The workspace copied
+ * @param to - The workspace it is copied to, made or replaced
+ * @throws {InvalidNameError} When either name is no workspace's, or `to` is
+ *   `from`, before a lock is taken
+ * @throws {WorkspaceNotFoundError} When the source does not exist
+ * @throws {WorkspaceLockError} When something holds the target — a dataflow
+ *   runs in it, or a write, a deploy, a removal or an export holds it — or
+ *   holds the source exclusively
+ * @throws {Error} When a garbage collection or an upgrade holds the repository
+ */
+export async function workspaceCopy(
+  storage: StorageBackend,
+  repo: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  // Checked before a lock is taken, as every lock's resource is: a lock's
+  // name may hold the `#` and `~` no workspace's may.
+  checkName('workspace', from);
+  checkName('workspace', to);
+  if (from === to) throw new InvalidNameError('workspace', to, 'is the workspace copied: a workspace cannot be copied onto itself');
+
+  const target = await storage.locks.acquire(repo, to, variant('workspace_copy', null));
+  if (target === null) {
+    const state = await storage.locks.getState(repo, to);
+    throw new WorkspaceLockError(to, state ? lockStateToHolderInfo(state) : undefined);
+  }
+  try {
+    const source = await storage.locks.acquire(repo, from, variant('workspace_copy', null), { mode: 'shared' });
+    if (source === null) {
+      const state = await storage.locks.getState(repo, from);
+      throw new WorkspaceLockError(from, state ? lockStateToHolderInfo(state) : undefined);
+    }
+    try {
+      await withRunningWork(storage, repo, async () => {
+        const record = await storage.refs.workspaceRead(repo, from);
+        if (record === null) throw new WorkspaceNotFoundError(from);
+        const deployed = decodeBeast2For(WorkspaceRecordType)(record);
+        const refs = await storage.datasets.readAll(repo, from);
+
+        // Every ref the target's name holds goes, a workspace's or those a
+        // copy cut short left, and then a workspace's record, its runs with it.
+        await storage.datasets.removeAll(repo, to);
+        if (await storage.refs.workspaceRead(repo, to) !== null) await storage.refs.workspaceRemove(repo, to);
+        await eachAtMost([...refs], OBJECT_CONCURRENCY, ([path, ref]) => storage.datasets.write(repo, to, path, ref));
+        // The record last, as a deploy writes it: a copy cut short leaves no
+        // workspace that reads as whole.
+        await storage.refs.workspaceWrite(repo, to, encodeBeast2For(WorkspaceRecordType)(
+          deployed.type === 'some' ? some({ ...deployed.value, currentRunId: none }) : none));
+      });
+    } finally {
+      await source.release();
+    }
+  } finally {
+    await target.release();
+  }
+}
+
+/**
  * Get the full state for a workspace.
  *
  * @param storage - Storage backend
@@ -331,6 +423,18 @@ export interface WorkspaceDeployOptions {
    */
   schema?: SchemaPolicy;
   /**
+   * What the deploy does with an input someone set — one whose value in the
+   * workspace is not the value the deployed package gave it: give it the new
+   * package's value (`reset`), or keep it while its type is the new package's
+   * (`keep-edited`). An input the new package takes from a file takes its
+   * file under either, and one the deployed package took from a file takes
+   * the new package's value under either, since a value set since cannot be
+   * told from the file's.
+   *
+   * @defaultValue 'reset'
+   */
+  inputs?: InputPolicy;
+  /**
    * Whether a record the package no longer declares may be dropped, with its
    * state and history. Without it the deploy is refused.
    *
@@ -338,9 +442,9 @@ export interface WorkspaceDeployOptions {
    */
   allowDropRecords?: boolean;
   /**
-   * Say what the deploy would do, through {@link onRecordPlan} and
-   * {@link onRecordIndex}, and write nothing. A plan with refusals reports
-   * them rather than throwing.
+   * Say what the deploy would do, through {@link onRecordPlan},
+   * {@link onRecordIndex} and {@link onInputPlan}, and write nothing. A plan
+   * with refusals reports them rather than throwing.
    *
    * @defaultValue false
    */
@@ -365,6 +469,16 @@ export interface WorkspaceDeployOptions {
    * before a deploy over a large record takes minutes.
    */
   onRecordIndex?: (plan: RecordIndexPlan) => void;
+  /**
+   * Called once per input the deploy touches, with what it decided:
+   * `package`, `keep`, `reset`, `file` or `drop`.
+   *
+   * @remarks
+   * Called before the deploy writes anything, as {@link onRecordPlan} is: an
+   * input someone set that the deploy resets is the part of a release that
+   * loses what a person typed.
+   */
+  onInputPlan?: (plan: InputPlan) => void;
   /**
    * External workspace lock to use. If provided, the caller is responsible
    * for releasing the lock after the operation. If not provided, workspaceDeploy
@@ -519,7 +633,9 @@ const NO_FILES: DeployFiles = {
  *
  * Creates the workspace if it doesn't exist. Writes state file atomically
  * containing deployment info. Initializes per-dataset ref files from the
- * package's data/ directory.
+ * package's data/ directory: each input takes the package's value, or under
+ * `inputs: 'keep-edited'` keeps the one someone set while its type is the
+ * package's.
  *
  * Acquires a workspace lock to prevent conflicts with running dataflows
  * or concurrent deploys. Throws WorkspaceLockError if the workspace is
@@ -603,6 +719,12 @@ export async function workspaceDeployWith(
       storage, repo, pkg, packageHash, prior, options.schema ?? 'migrate', options.allowDropRecords ?? false,
     );
     for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
+    // Each input someone set is read now, under the lock, before the wipe
+    // below takes the workspace's refs with it.
+    const inputs = await planInputDeployments(
+      storage, repo, name, pkg, prior?.package ?? null, options.inputs ?? 'reset', options.resolveFileSources ?? true,
+    );
+    for (const input of inputs) options.onInputPlan?.(input.plan);
     const refusals = deployments.flatMap(({ plan }) =>
       plan.action.type === 'refused' ? [{ record: plan.record, reason: plan.action.value.reason }] : []);
     if (refusals.length > 0 && options.plan !== true) throw new RecordDeployRefusedError(refusals);
@@ -715,8 +837,9 @@ export async function workspaceDeployWith(
         // Remove any existing dataset refs
         await storage.datasets.removeAll(repo, name);
 
-        // Initialize per-dataset ref files from the package
-        await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+        // Initialize per-dataset ref files from the package, each input the
+        // deploy keeps holding the ref the workspace held
+        await writeRefsFromPackage(storage, repo, name, pkg.data.structure, refsKeepingInputs(pkg.data.refs, inputs));
 
         // Commit what was decided for each record: a minted one's `$init`, a
         // kept one's history with a `$deploy` commit when the package changed,
@@ -936,8 +1059,9 @@ function validateDatasetSources(
 
 /**
  * The workspace's deployment as a deploy over it finds it: the package it has
- * deployed, and each of that package's records with the ref the workspace
- * holds and the type the package declares.
+ * deployed, whose inputs the deploy compares the workspace's with, and each of
+ * that package's records with the ref the workspace holds and the type the
+ * package declares.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -977,7 +1101,7 @@ async function readPriorDeployment(
     const type = recordLeafType(priorPkg.data.structure, recObj.path);
     if (ref && ref.type === 'value' && type) records.set(recObj.path, { ref: ref.value, type });
   }
-  return { packageHash: record.value.packageHash, records };
+  return { packageHash: record.value.packageHash, package: priorPkg, records };
 }
 
 /**

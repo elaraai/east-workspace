@@ -33,7 +33,7 @@ import {
 import { openRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
-import { recordPlanLine, schemaPolicy } from './workspace.js';
+import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './workspace.js';
 import { formatSize } from '../format.js';
 
 interface WatchOptions extends BudgetFlags {
@@ -41,6 +41,8 @@ interface WatchOptions extends BudgetFlags {
   abortOnChange?: boolean;
   /** What each deploy does with a record it cannot keep as it is. */
   schema?: string;
+  /** What each deploy does with an input someone set. */
+  inputs?: string;
   /** Function manifests resolving `East.importFunction` references (#628). */
   functions?: string[];
 }
@@ -67,6 +69,7 @@ export async function watchCommand(
   const repoPath = await openRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
   const schema = schemaPolicy(options.schema);
+  const inputs = inputPolicy(options.inputs);
   // One budget for the watch: the runner processes of its runs and of each
   // deploy's index builds take from it.
   const budget = commandBudget(options);
@@ -154,10 +157,12 @@ export async function watchCommand(
     }
 
     // Deploy to workspace
+    let resetByPolicy = 0;
     try {
       await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, {
         runner,
         ...(schema !== undefined && { schema }),
+        ...(inputs !== undefined && { inputs }),
         // A migration, and a changed index declaration's rebuild, run on this
         // save — the parts of a redeploy that can take minutes, so each is
         // said up front.
@@ -167,8 +172,15 @@ export async function watchCommand(
         onRecordIndex: (plan) => {
           if (plan.action.type !== 'keep') console.log(`[${timestamp()}] ${plan.action.type} index ${plan.record}.${plan.index}`);
         },
+        // An input someone set that this save resets or drops loses what
+        // they set, so it is said too.
+        onInputPlan: (plan) => {
+          if (plan.action.type === 'reset' && plan.action.value.policy) resetByPolicy++;
+          if (plan.action.type === 'reset' || plan.action.type === 'drop') console.log(`[${timestamp()}] ${inputPlanLine(plan)}`);
+        },
       });
       console.log(`[${timestamp()}] Deployed to workspace: ${workspace}`);
+      if (resetByPolicy > 0) console.log(`  Restart the watch with --inputs keep-edited to keep the inputs people set.`);
     } catch (err) {
       console.log(`[${timestamp()}] Error deploying:`);
       console.log(`  ${formatError(err)}`);

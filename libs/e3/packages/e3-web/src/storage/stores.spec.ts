@@ -10,8 +10,9 @@
  * and the machine's files, which the suites name.
  *
  * Over `WebStorage`: the object, ref, dataset-ref, lock and log stores, the
- * repository store, the repository record, gc, the execution cache and the
- * workspace status. Over `WebStateStore`: the execution state store. Over
+ * repository store, the repository record, gc, the execution cache, the
+ * workspace status, a deploy's inputs and a workspace's copy. Over
+ * `WebStateStore`: the execution state store. Over
  * both: the dataflow loop. Then what is `WebStorage`'s own, which no contract
  * suite reaches: what its sweep takes of writes and deletes that never
  * finished, its catalogue's scan, a lock's state that a closed tab left, a
@@ -39,6 +40,8 @@ import {
   refStoreTests,
   repoStoreTests,
   repositoryRecordTests,
+  workspaceCopyTests,
+  workspaceDeployTests,
   workspaceStatusTests,
   type BackendSetup,
   type RepositoriesSetup,
@@ -116,6 +119,8 @@ describe('WebStorage over the adapters in memory', () => {
   gcTests(backend);
   executionCacheTests(backend);
   workspaceStatusTests(backend);
+  workspaceDeployTests(backend);
+  workspaceCopyTests(backend);
   dataflowTests(backend);
 });
 

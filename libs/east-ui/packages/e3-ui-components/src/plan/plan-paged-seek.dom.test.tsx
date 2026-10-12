@@ -305,16 +305,21 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             expect(asked).not.toContain(8);
             expect(asked).not.toContain(10);
 
-            // The virtualizer publishes scroll updates independently of the
-            // native event. Keep the return-to-head read pending so observing
-            // its placeholder cannot race an immediate synchronous page load.
+            // Scrolling back starts another residency rebase. Once it asks
+            // for window 0, the far rows are evicted and the pending opening
+            // window is represented by one tail band covering the source.
+            // A head band exists only before that rebase: asserting it raced
+            // the virtualizer's scroll-settle notification on busy runners.
             holdHead = true;
+            const beforeReturn = asked.length;
             act(() => { window.scrollTo({ top: 0 }); });
             await waitFor(() => {
-                const head = container.querySelector('[data-plan-window-band="head"]');
-                expect(head).toBeTruthy();
-                expect(Number(head!.getAttribute("data-plan-elements"))).toBeGreaterThan(2_000);
-                expect(container.querySelector(unitRow("u0000"))).toBeNull();
+                expect(asked.slice(beforeReturn)).toContain(0);
+                const unloaded = container.querySelector('[data-plan-window-band="tail"]');
+                expect(Number(unloaded?.getAttribute("data-plan-elements"))).toBe(ELEMENTS);
+                expect(unloaded?.getAttribute("aria-busy")).toBe("true");
+                expect(container.querySelector("[data-plan-row]")).toBeNull();
+                expect(window.scrollY).toBe(0);
             });
         } finally {
             cleanup();

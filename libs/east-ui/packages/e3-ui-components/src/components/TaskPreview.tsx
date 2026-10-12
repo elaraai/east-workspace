@@ -40,7 +40,8 @@ export interface TaskPreviewProps {
     /**
      * Chromeless mode: drop the task-name header bar and, for a `ui` task,
      * render the output edge-to-edge (forwarded to {@link UITaskPreview} as
-     * `bare`) — for host kiosk embedding of a deployed `<App>`. Default `false`.
+     * `bare`) — for a host that shows a deployed UI task as a page of its
+     * own. Default `false`.
      */
     bare?: boolean;
     /** A data task's tab, controlled: see {@link DataTaskPreviewProps.view}. */
@@ -94,8 +95,8 @@ export const TaskPreview = memo(function TaskPreview({
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
-            {/* The task-name header is preview chrome; a bare kiosk drops it so
-                the client <App> owns the whole surface. */}
+            {/* The task-name header is preview chrome; a bare preview drops it
+                so the task's UI owns the whole surface. */}
             {!bare && (
                 <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" flexShrink={0}>
                     <Text fontSize="body.lg" fontWeight="medium" color="fg">{task}</Text>

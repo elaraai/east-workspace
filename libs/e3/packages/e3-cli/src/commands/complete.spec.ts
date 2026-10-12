@@ -41,6 +41,11 @@ describe('completionCandidates — static', () => {
     assert.deepStrictEqual(c, ['get']);
   });
 
+  it('offers workspace copy among the workspace subcommands', async () => {
+    const c = await completionCandidates('1', ['workspace', 'c']);
+    assert.deepStrictEqual(c.sort(), ['copy', 'create']);
+  });
+
   it('returns empty for unknown noun at cword=1', async () => {
     assert.deepStrictEqual(await completionCandidates('1', ['nosuch', '']), []);
   });

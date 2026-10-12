@@ -23041,14 +23041,70 @@ var objectToNumericMapAsync = async (object3) => {
 var wait = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
 var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
+// ../east-plugin/dist/lib/search-guidance.js
+var EAST_GUIDANCE = {
+  searchTool: "mcp__plugin_east_east__search_east_examples",
+  getTool: "mcp__plugin_east_east__get_east_example",
+  corpus: "East",
+  scope: "@elaraai"
+};
+function bare(tool) {
+  const at = tool.lastIndexOf("__");
+  return at < 0 ? tool : tool.slice(at + 2);
+}
+function gateText(g) {
+  return [
+    `STOP: no ${g.corpus} example search on record in this session, and this is ${g.corpus} code.`,
+    `Before writing or changing ${g.corpus} code, search the tested example index \u2014 it is the API reference:`,
+    `1. \`${g.searchTool}\` with what you are about to do (language: "python" for east-py, "typescript" otherwise); summaries come back \u2014 id, signature, inputs and result.`,
+    `2. \`${g.getTool}\` for the one or two that match, and pattern your code on them.`,
+    `Do not read node_modules/${g.scope}/** or *.examples.ts files instead: the index is the same corpus, exact and far cheaper. Every ${g.corpus} skill requires this step.`
+  ].join("\n");
+}
+function readText(g) {
+  return [
+    `Note: the ${g.corpus} example index is the API reference \u2014 \`${g.searchTool}\` (then \`${bare(g.getTool)}\`) returns the same tested programs as the ${g.corpus} packages' examples and type declarations, exact, printed in TypeScript or python, at a fraction of the tokens.`,
+    `Reading \`.d.ts\` signatures or sweeping \`*.examples.ts\` files reliably produces broken ${g.corpus} code that still type-checks: the signatures omit the runtime rules. Search instead, and read a specific file only when the search pointed you at it.`
+  ].join("\n");
+}
+function corpusReadFor(scope) {
+  const escaped = scope.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const packagePath = new RegExp(`[/\\\\]node_modules[/\\\\]${escaped}[/\\\\]`);
+  const packagePattern = new RegExp(`(^|[/\\\\])node_modules[/\\\\]${escaped}([/\\\\]|$)`);
+  const examplesFile = /\.examples\.tsx?$/;
+  return (tool, input) => {
+    const file = typeof input["file_path"] === "string" ? input["file_path"] : "";
+    const dir = typeof input["path"] === "string" ? input["path"] : "";
+    const pattern = typeof input["pattern"] === "string" ? input["pattern"] : "";
+    return tool === "Read" ? packagePath.test(file) || examplesFile.test(file) : packagePath.test(dir) || packagePattern.test(pattern) || /\.examples\.tsx?/.test(pattern);
+  };
+}
+var GATE_TEXT = gateText(EAST_GUIDANCE);
+var READ_TEXT = readText(EAST_GUIDANCE);
+var isExampleCorpusRead = corpusReadFor(EAST_GUIDANCE.scope);
+
 // ../east-plugin/dist/lib/search.js
 var MIN_SCORE = 5;
 async function buildSearchIndex(indexPath) {
   return (await loadIndex(indexPath)).search;
 }
 async function loadIndex(indexPath) {
-  const raw = await readFile2(indexPath, "utf-8");
-  const data = JSON.parse(raw);
+  return loadIndexes([indexPath]);
+}
+async function loadIndexes(indexPaths) {
+  const entries = [];
+  const fileOf = /* @__PURE__ */ new Map();
+  for (const indexPath of indexPaths) {
+    const data2 = JSON.parse(await readFile2(indexPath, "utf-8"));
+    for (const entry of data2.entries) {
+      const first = fileOf.get(entry.id);
+      if (first !== void 0)
+        throw new Error(`example id "${entry.id}" is in both ${first} and ${indexPath}`);
+      fileOf.set(entry.id, indexPath);
+      entries.push(entry);
+    }
+  }
+  const data = { entries };
   const miniSearch = new MiniSearch({
     idField: "id",
     fields: ["keywordsText", "test", "builtinsText", "suite", "typesText", "code"],
@@ -23069,13 +23125,16 @@ async function loadIndex(indexPath) {
   miniSearch.addAll(documents);
   return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
 }
-function normalizePackage(filter) {
-  return filter.trim().toLowerCase().replace(/^@elaraai\//, "");
+var EAST_SCOPES = [EAST_GUIDANCE.scope];
+function normalizePackage(filter, scopes = EAST_SCOPES) {
+  const name = filter.trim().toLowerCase();
+  const scope = scopes.find((s) => name.startsWith(`${s.toLowerCase()}/`));
+  return scope === void 0 ? name : name.slice(scope.length + 1);
 }
 function searchExamples(index, request) {
   const known = index.packages;
   const filter = request.package;
-  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter) : void 0;
+  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter, request.scopes) : void 0;
   if (pkg !== void 0 && typeof filter === "string" && !known.includes(pkg)) {
     return { entries: [], unknownPackage: filter, known };
   }
@@ -23108,7 +23167,8 @@ function codeOf(entry, language) {
   }
   return null;
 }
-function formatSummary(entries, language) {
+var EAST_CORPUS = { corpus: "East", getTool: "get_east_example" };
+function formatSummary(entries, language, names = EAST_CORPUS) {
   const lines = entries.map((e) => {
     const parts = [`- \`${e.id}\` \u2014 ${e.test}`, `  ${signatureOf(e)}`];
     if (e.keywords.length > 0)
@@ -23123,7 +23183,7 @@ function formatSummary(entries, language) {
   });
   return [
     "<east-examples>",
-    `## ${entries.length} East example(s) \u2014 fetch one in full with get_east_example(id, language: "${language}")`,
+    `## ${entries.length} ${names.corpus} example(s) \u2014 fetch one in full with ${names.getTool}(id, language: "${language}")`,
     "",
     ...lines,
     "</east-examples>"
@@ -23146,12 +23206,81 @@ function formatFull(entries, language) {
   });
   return ["<east-examples>", ...sections, "</east-examples>"].join("\n\n");
 }
-function formatResults(entries, language, format) {
-  return format === "full" ? formatFull(entries, language) : formatSummary(entries, language);
+function formatResults(entries, language, format, names = EAST_CORPUS) {
+  return format === "full" ? formatFull(entries, language) : formatSummary(entries, language, names);
 }
 function getEntry(index, id) {
   const stored = index.getStoredFields(id);
   return stored === void 0 ? null : stored;
+}
+
+// ../east-plugin/dist/mcp/example-tools.js
+var EAST_PACKAGES = ["east", "east-node-std", "east-node-io", "east-py-datascience", "east-ui", "e3-ui", "e3", "e3-ui-cli", "e3-create"];
+function isLoaded(index) {
+  return typeof index.then === "function";
+}
+function registerExampleTools(server2, options) {
+  const searchTool = options.searchTool ?? "search_east_examples";
+  const getTool = options.getTool ?? EAST_CORPUS.getTool;
+  const corpus = options.corpus ?? EAST_CORPUS.corpus;
+  const packages = options.packages ?? EAST_PACKAGES;
+  const scopes = options.scopes ?? EAST_SCOPES;
+  const names = { corpus, getTool };
+  const scoped = scopes.map((scope) => `\`${scope}/\``);
+  const scopesNamed = `the ${scoped.join(" and ")} scope${scoped.length === 1 ? " is" : "s are"} accepted and ignored`;
+  const indexPromise = isLoaded(options.index) ? options.index : loadIndexes(options.index);
+  const languageArg = external_exports.enum(["typescript", "python"]).default("typescript").describe('The language to render examples in: "typescript" (the East DSL) or "python" (east-py). Every core example is stored as IR and printed in either; UI examples are TypeScript only.');
+  server2.tool(searchTool, `The mandatory first step before writing or changing ${corpus} code: search the tested example index for the capability you are about to use. Every ${corpus} API has an example here, stored as IR and rendered in TypeScript or python. Returns summaries by default (id, description, signature, keywords, the example inputs and result \u2014 a few hundred bytes each); pass format: "full" for the code, or fetch one with ${getTool}. Do not read ${scopes.map((scope) => `node_modules/${scope}`).join(" or ")} or *.examples.ts files instead \u2014 this is the same corpus, exact and far cheaper.`, {
+    query: external_exports.string().describe('What you need, in words: the operation, the types involved, the method name if you know it (e.g. "group by key and sum", "dict merge", "parse csv blob")'),
+    language: languageArg,
+    format: external_exports.enum(["summary", "full"]).default("summary").describe(`"summary" (default) lists the hits in one line each; "full" includes each hit's code in the requested language`),
+    limit: external_exports.number().int().min(1).max(20).default(5).describe("Maximum number of results to return (default 5, max 20)"),
+    package: external_exports.string().optional().describe(`Filter results to one package by its bare name \u2014 ${packages.join(", ")} \u2014 ${scopesNamed}; an unknown name is reported with the indexed names`)
+  }, async ({ query, language, format, limit, package: packageFilter }) => {
+    const index = await indexPromise;
+    const { entries, unknownPackage, known } = searchExamples(index, { query, limit, package: packageFilter, scopes });
+    if (unknownPackage !== void 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Package "${unknownPackage}" is not an indexed package name. Indexed packages: ${known.join(", ")} (bare names: ${scopesNamed}). Retry with one of them, or without a package filter.`
+          }
+        ]
+      };
+    }
+    if (entries.length === 0) {
+      const scope = packageFilter ? ` in package "${packageFilter}"` : "";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No ${corpus} examples found for query: "${query}"${scope} \u2014 try the operation's plain-English name, the East method name, or the types involved${packageFilter ? ", or drop the package filter" : ""}.`
+          }
+        ]
+      };
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: formatResults(entries, language, format, names)
+        }
+      ]
+    };
+  });
+  server2.tool(getTool, `One ${corpus} example in full, by the id a search returned: its code printed in the requested language from the example's IR (TypeScript or python), its signature, and the example inputs and expected result. The second step after ${searchTool}.`, {
+    id: external_exports.string().describe('The example id from a search result, e.g. "east:array.examples.ts:arrayMap"'),
+    language: languageArg
+  }, async ({ id, language }) => {
+    const index = await indexPromise;
+    const entry = getEntry(index.search, id);
+    if (entry === null) {
+      return { content: [{ type: "text", text: `No ${corpus} example with id "${id}" \u2014 ids come from ${searchTool} results.` }] };
+    }
+    return { content: [{ type: "text", text: formatFull([entry], language) }] };
+  });
+  return indexPromise;
 }
 
 // ../east-plugin/dist/lib/plugin-status.js
@@ -23413,62 +23542,11 @@ function formatStatus(checks) {
 // ../east-plugin/dist/mcp/server.js
 var __dirname = dirname5(fileURLToPath2(import.meta.url));
 var INDEX_PATH = join5(__dirname, "..", "..", "index.json");
-var indexPromise = loadIndex(INDEX_PATH);
 var server = new McpServer({
   name: "east",
   version: "1.0.0"
 });
-var languageArg = external_exports.enum(["typescript", "python"]).default("typescript").describe('The language to render examples in: "typescript" (the East DSL) or "python" (east-py). Every core example is stored as IR and printed in either; UI examples are TypeScript only.');
-server.tool("search_east_examples", 'The mandatory first step before writing or changing East code: search the tested example index for the capability you are about to use. Every East API has an example here, stored as IR and rendered in TypeScript or python. Returns summaries by default (id, description, signature, keywords, the example inputs and result \u2014 a few hundred bytes each); pass format: "full" for the code, or fetch one with get_east_example. Do not read node_modules/@elaraai or *.examples.ts files instead \u2014 this is the same corpus, exact and far cheaper.', {
-  query: external_exports.string().describe('What you need, in words: the operation, the types involved, the method name if you know it (e.g. "group by key and sum", "dict merge", "parse csv blob")'),
-  language: languageArg,
-  format: external_exports.enum(["summary", "full"]).default("summary").describe(`"summary" (default) lists the hits in one line each; "full" includes each hit's code in the requested language`),
-  limit: external_exports.number().int().min(1).max(20).default(5).describe("Maximum number of results to return (default 5, max 20)"),
-  package: external_exports.string().optional().describe("Filter results to one package by its bare name \u2014 east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3, e3-ui-cli, e3-create \u2014 the `@elaraai/` scope is accepted and ignored; an unknown name is reported with the indexed names")
-}, async ({ query, language, format, limit, package: packageFilter }) => {
-  const index = await indexPromise;
-  const { entries, unknownPackage, known } = searchExamples(index, { query, limit, package: packageFilter });
-  if (unknownPackage !== void 0) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Package "${unknownPackage}" is not an indexed package name. Indexed packages: ${known.join(", ")} (bare names; \`@elaraai/east-node-io\` and \`east-node-io\` are the same). Retry with one of them, or without a package filter.`
-        }
-      ]
-    };
-  }
-  if (entries.length === 0) {
-    const scope = packageFilter ? ` in package "${packageFilter}"` : "";
-    return {
-      content: [
-        {
-          type: "text",
-          text: `No East examples found for query: "${query}"${scope} \u2014 try the operation's plain-English name, the East method name, or the types involved${packageFilter ? ", or drop the package filter" : ""}.`
-        }
-      ]
-    };
-  }
-  return {
-    content: [
-      {
-        type: "text",
-        text: formatResults(entries, language, format)
-      }
-    ]
-  };
-});
-server.tool("get_east_example", "One East example in full, by the id a search returned: its code printed in the requested language from the example's IR (TypeScript or python), its signature, and the example inputs and expected result. The second step after search_east_examples.", {
-  id: external_exports.string().describe('The example id from a search result, e.g. "east:array.examples.ts:arrayMap"'),
-  language: languageArg
-}, async ({ id, language }) => {
-  const index = await indexPromise;
-  const entry = getEntry(index.search, id);
-  if (entry === null) {
-    return { content: [{ type: "text", text: `No East example with id "${id}" \u2014 ids come from search_east_examples results.` }] };
-  }
-  return { content: [{ type: "text", text: formatFull([entry], language) }] };
-});
+await registerExampleTools(server, { index: [INDEX_PATH] });
 server.tool("east_status", "Report whether the East plugin's features are installed and working: bundled hooks, the example-search index, the PostToolUse diagnostics daemon, skills, and East project detection. Use when asked to check or confirm the East plugin's status or health.", {
   directory: external_exports.string().optional().describe("Project directory to check for diagnostics readiness (defaults to the current working directory)")
 }, async ({ directory }) => {

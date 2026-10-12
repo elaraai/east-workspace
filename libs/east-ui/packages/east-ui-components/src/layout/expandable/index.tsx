@@ -96,8 +96,8 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
     // While expanded: join the module expand stack and listen for Esc. Only
     // the topmost instance collapses, and only when no inner overlay consumed
     // the keypress (Ark dismissable layers preventDefault the Esc they
-    // handle). Cleanup runs on collapse and unmount (e.g. a <Pages> route
-    // change remounting the active page).
+    // handle). Cleanup runs on collapse and unmount (e.g. a <Match> case
+    // change remounting the active case).
     useEffect(() => {
         if (!expanded) return;
         // Host-contract check: a transform/filter/contain ancestor silently

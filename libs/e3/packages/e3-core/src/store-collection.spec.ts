@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import {
   ArrayType, Beast2ManifestWriter, DictType, IntegerType, SEGMENT_RULE_KEYED, SortedMap, StringType, StructType,
   carveBeast2, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor,
-  readBeast2Extents, type ValueTypeOf,
+  readBeast2Extents, variant, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import { DatasetSegments } from './dataset-open.js';
 import { storeCollection, storeDatasetBytes } from './store-collection.js';
@@ -265,6 +265,25 @@ describe("the store's door", () => {
       storeCollection(storage, repo, TableType, [{ chunks: [encodeBeast2PagedFor(ArrayType(StringType))(['a'])] }]),
       /the bytes hold .*Array.*, not .*Dict/);
     await assert.rejects(storeCollection(storage, repo, IntegerType, []), /a collection is an Array, Set or Dict, not Integer/);
+  });
+
+  it("reads a source's recursive type by its structure, whatever ids the two give it (#1233)", async () => {
+    /** An Array of trees whose heads are `head`, the tree's wrapper numbered `id`. */
+    const trees = (id: bigint, head: EastTypeValue): EastTypeValue => variant('Array', variant('Recursive', variant('wrapper', {
+      id,
+      inner: variant('Struct', [
+        { name: 'head', type: head },
+        { name: 'kids', type: variant('Array', variant('Recursive', variant('ref', id))) },
+      ]),
+    })));
+    const stored = await storeCollection(storage, repo, trees(0n, variant('String', null)), [{ elements: [{ head: 'a', kids: [] }] }]);
+    // A manifest numbers its recursive types from 0, as this declaration does:
+    // one id on both sides, and a tree of strings is still not one of integers.
+    await assert.rejects(
+      storeCollection(storage, repo, trees(0n, variant('Integer', null)), [{ stored }]),
+      new RegExp(`store: manifest ${stored.slice(0, 8)} holds .*String.*, not .*Integer`));
+    assert.equal(await storeCollection(storage, repo, trees(5n, variant('String', null)), [{ stored }]), stored,
+      'one structure under another id is one type');
   });
 
   it('stores any other value as the object it is', async () => {

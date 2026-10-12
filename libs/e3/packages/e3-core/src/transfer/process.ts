@@ -16,7 +16,7 @@
  */
 
 import { none, some, variant } from '@elaraai/east';
-import type { RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
+import type { InputPlan, RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
 
 import { ExportStoppedError } from '../errors.js';
 import { repoGc } from '../gc.js';
@@ -366,7 +366,8 @@ export interface ProcessDeployInput {
  * Processes a workspace deploy job.
  *
  * Gets the job, deploys its package to its workspace, and updates the status
- * to what the deploy decided for each record and index, or to why it failed.
+ * to what the deploy decided for each record, index and input, or to why it
+ * failed.
  *
  * @remarks
  * The deploy runs for a client, on a machine that is not the client's, so it
@@ -395,10 +396,12 @@ export async function handleProcessDeploy(
   await deployStore.updateStatus(id, variant('processing', variant('deploying', none)));
   const records: RecordPlan[] = [];
   const indexes: RecordIndexPlan[] = [];
+  const inputs: InputPlan[] = [];
   const warnings: string[] = [];
   try {
     await workspaceDeploy(storage, repo, record.workspace, record.packageName, record.packageVersion, {
       schema: record.schema.type,
+      inputs: record.inputs.type,
       allowDropRecords: record.allowDropRecords,
       plan: record.plan,
       resolveFileSources: false,
@@ -407,10 +410,11 @@ export async function handleProcessDeploy(
       ...(lock !== undefined && { lock }),
       onRecordPlan: (plan) => { records.push(plan); },
       onRecordIndex: (plan) => { indexes.push(plan); },
+      onInputPlan: (plan) => { inputs.push(plan); },
       // A client polling the job reads how far it has got.
       onDeployProgress: (progress) => deployStore.updateStatus(id, variant('processing', variant('deploying', some(progress)))),
     });
-    await deployStore.updateStatus(id, variant('completed', { records, indexes, warnings }));
+    await deployStore.updateStatus(id, variant('completed', { records, indexes, inputs, warnings }));
   } catch (err) {
     // A call its caller stopped is handed over, not failed.
     if (signal?.aborted === true) throw err;

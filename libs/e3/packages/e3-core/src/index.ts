@@ -174,6 +174,7 @@ export { workspaceDeploy, workspaceExport } from './workspace-files.js';
 export {
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,
@@ -185,9 +186,10 @@ export {
   type DeploySourceProgress,
 } from './workspaces.js';
 
-// What a deploy decides for each record and index, and its schema policy: the
-// wire types' values, which its callbacks and its job report alike
-export type { SchemaPolicy, RecordPlan, RecordIndexPlan } from '@elaraai/e3-types';
+// What a deploy decides for each record, index and input, and its policies for
+// records and inputs: the wire types' values, which its callbacks and its job
+// report alike
+export type { SchemaPolicy, InputPolicy, RecordPlan, RecordIndexPlan, InputPlan } from '@elaraai/e3-types';
 
 // Record mutations and history (the write half of the CQRS pair)
 export {

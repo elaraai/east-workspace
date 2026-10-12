@@ -87,11 +87,6 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
-export { App, Navigation, Pages, Route, NavBindHandleType, navBindPlatformFn, NavBindPrimitives, routeVariantType } from "./navigation/index.js";
-export type { AppInput } from "./navigation/index.js";
-export type {
-    NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesInput, RouteInput,
-} from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 // East UI draws Font Awesome's solid set only (#1263): the one prefix an icon
 // takes, and the build-time refusal of another, which e3-ui's builders share.
@@ -113,7 +108,7 @@ export { Reactive } from "./reactive/index.js";
 export { Match, type MatchCases, type MatchInput } from "./reactive/match.js";
 
 // Component / extension / platform
-export { UIComponentType, AppValueType } from "./component.js";
+export { UIComponentType } from "./component.js";
 export {
     EastUI,
     component,

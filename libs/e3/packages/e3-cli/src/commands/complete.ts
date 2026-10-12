@@ -35,7 +35,7 @@ const TOP_LEVEL = [
 const SUBCOMMANDS: Record<string, readonly string[]> = {
   repo: ['create', 'remove', 'status', 'gc', 'list'],
   package: ['import', 'export', 'list', 'remove'],
-  workspace: ['create', 'remove', 'list', 'status', 'deploy', 'export'],
+  workspace: ['create', 'copy', 'remove', 'list', 'status', 'deploy', 'export'],
   dataset: ['get', 'set', 'list', 'status', 'find'],
   task: ['logs', 'list'],
   dataflow: ['run'],
@@ -132,10 +132,15 @@ async function dispatchPositional(
     return completeDatasetPath(words[repoIndex], current);
   }
 
-  // workspace.{remove,status,export,deploy}: third positional is the ws name.
+  // workspace.{remove,status,export,deploy}: third positional is the ws name;
+  // workspace.copy's third and fourth are the workspace copied and the one
+  // copied onto, which may already exist.
   if (cmd === 'workspace' &&
       (sub === 'remove' || sub === 'status' || sub === 'export' || sub === 'deploy') &&
       cword === repoIndex + 1) {
+    return completeWorkspaceName(words[repoIndex], current);
+  }
+  if (cmd === 'workspace' && sub === 'copy' && (cword === repoIndex + 1 || cword === repoIndex + 2)) {
     return completeWorkspaceName(words[repoIndex], current);
   }
 

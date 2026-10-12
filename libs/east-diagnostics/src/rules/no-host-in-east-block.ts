@@ -85,9 +85,9 @@ function isEastCall(call: ts.CallExpression, ctx: RuleContext): boolean {
   // returning JSX (`days.map((d) => <Chip …/>)` over TS-side config).
   if (isJsxCompositionCall(call, ctx)) return true;
   // A9 — a LIBRARY-declared East-producing member call: the method/property is
-  // declared in a `.d.ts` (a compiled package — e.g. east-ui's Navigation
-  // `routes.Page.overview()` constructors on a project-local `Navigation.config`
-  // object) AND the call's result is an East `Expr`. A TS macro authored in
+  // declared in a `.d.ts` (a compiled package — e.g. the typed constructors on
+  // an object a library factory built, held in a project-local `const`) AND
+  // the call's result is an East `Expr`. A TS macro authored in
   // project SOURCE (.ts/.tsx) never matches — its declaration is not a
   // declaration file — so the rule still flags it.
   if (t.isPropertyAccessExpression(f) && isLibDeclaredEastCall(call, f, ctx)) return true;
@@ -129,7 +129,7 @@ function isConstantFoldCall(call: ts.CallExpression, ctx: RuleContext): boolean 
  * (See clause A9.) Library API is established two ways: the member (or the
  * receiver's named type — the property symbol of a mapped type is synthesized)
  * is declared in a PACKAGE declaration file, or the receiver object's VALUE was
- * built by an `@elaraai/*` factory call (`const routes = Navigation.config({…})`
+ * built by an `@elaraai/*` factory call (`const kinds = Registry.config({…})`
  * — the boundary test the .d.ts check can't make when the library's own source
  * is in-program, e.g. the monorepo's self-dogfooding examples). TypeScript's
  * own default libs never count — a JS `Map<string, Expr>` read with `.get(k)`

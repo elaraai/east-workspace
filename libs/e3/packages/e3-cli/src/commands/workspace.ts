@@ -8,6 +8,7 @@
  */
 
 import {
+  workspaceCopy,
   workspaceCreate,
   workspaceDeploy,
   workspaceExport,
@@ -23,12 +24,15 @@ import {
   type WorkspaceStatusResult,
   LocalTaskRunner,
   type Budget,
+  type InputPlan,
+  type InputPolicy,
   type RecordIndexPlan,
   type RecordPlan,
   type SchemaPolicy,
   type StorageBackend,
 } from '@elaraai/e3-core';
 import {
+  workspaceCopy as workspaceCopyRemote,
   workspaceCreate as workspaceCreateRemote,
   workspaceDeploy as workspaceDeployRemote,
   workspaceExport as workspaceExportRemote,
@@ -77,6 +81,27 @@ export const workspaceCommand = {
   },
 
   /**
+   * Copy a workspace within its repository: the target becomes the source as
+   * it is now — its package, its inputs, its records' heads and indexes and its
+   * tasks' outputs — made, or replaced whole, its refs only written.
+   */
+  async copy(repoArg: string, from: string, to: string): Promise<void> {
+    try {
+      const location = await parseRepoLocation(repoArg);
+
+      if (location.type === 'local') {
+        await workspaceCopy(new LocalStorage(), location.path, from, to);
+      } else {
+        await workspaceCopyRemote(location.baseUrl, location.repo, from, to, { token: location.token });
+      }
+
+      console.log(`Copied workspace ${from} to ${to}`);
+    } catch (err) {
+      exitError(formatError(err));
+    }
+  },
+
+  /**
    * Deploy a package to a workspace.
    *
    * Three modes:
@@ -91,10 +116,11 @@ export const workspaceCommand = {
    * workspace and uploads it after the deploy. `--skip-file-sources` leaves them
    * unset instead.
    *
-   * A deploy says what it decides for each record and index: `--schema` says
-   * what it does with a record it cannot keep as it is, `--allow-drop-records`
-   * lets it drop one the package no longer declares, and `--plan` says it all
-   * and writes nothing. A server runs the deploy as a job, which this polls.
+   * A deploy says what it decides for each record, index and input: `--schema`
+   * says what it does with a record it cannot keep as it is, `--inputs` what it
+   * does with an input someone set, `--allow-drop-records` lets it drop a
+   * record the package no longer declares, and `--plan` says it all and writes
+   * nothing. A server runs the deploy as a job, which this polls.
    *
    * A plan from a zip or a source imports nothing: locally it reads the package
    * from the zip where it is, and a server, which plans only a package it
@@ -106,7 +132,7 @@ export const workspaceCommand = {
     pkgSpec: string | undefined,
     options: BudgetFlags & {
       fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean; skipFileSources?: boolean;
-      schema?: string; allowDropRecords?: boolean; plan?: boolean;
+      schema?: string; inputs?: string; allowDropRecords?: boolean; plan?: boolean;
     } = {},
   ): Promise<void> {
     try {
@@ -120,12 +146,14 @@ export const workspaceCommand = {
 
       const location = await parseRepoLocation(repoArg);
       const schema = schemaPolicy(options.schema);
+      const inputs = inputPolicy(options.inputs);
       if (location.type === 'remote') refuseRemoteBudget(options);
 
       const progress = createProgress({ quiet: options.quiet === true });
       const target: DeployTarget = {
         location, repoArg, ws, progress, skipFileSources: options.skipFileSources === true,
         ...(schema !== undefined && { schema }),
+        ...(inputs !== undefined && { inputs }),
         allowDropRecords: options.allowDropRecords === true,
         plan: options.plan === true,
         ...(location.type === 'local' && { budget: commandBudget(options) }),
@@ -438,6 +466,9 @@ interface DeployTarget {
   /** What the deploy does with a record it cannot keep as it is; its
    *  default, `migrate`, when absent. */
   schema?: SchemaPolicy;
+  /** What the deploy does with an input someone set; its default, `reset`,
+   *  when absent. */
+  inputs?: InputPolicy;
   /** Let the deploy drop a record the package no longer declares. */
   allowDropRecords: boolean;
   /** Say what the deploy would do, and write nothing. */
@@ -460,6 +491,19 @@ export function schemaPolicy(value: string | undefined): SchemaPolicy | undefine
   exitError(`--schema takes migrate, fail or reset, not '${value}'`);
 }
 
+/**
+ * The `--inputs` policy a command was given, or undefined when it was given
+ * none.
+ *
+ * @param value - The option's value
+ * @returns The policy
+ */
+export function inputPolicy(value: string | undefined): InputPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'reset' || value === 'keep-edited') return value;
+  exitError(`--inputs takes reset or keep-edited, not '${value}'`);
+}
+
 /** What a deploy decided for a record, as a line the CLI prints. */
 export function recordPlanLine(plan: RecordPlan): string {
   const { action } = plan;
@@ -473,25 +517,48 @@ export function recordPlanLine(plan: RecordPlan): string {
   }
 }
 
+/** What a deploy decided for an input, as a line the CLI prints. */
+export function inputPlanLine(plan: InputPlan): string {
+  const { action } = plan;
+  switch (action.type) {
+    case 'package': return `give input ${plan.input} the package's value`;
+    case 'keep': return `keep input ${plan.input}, as it was set in the workspace`;
+    case 'reset': return `reset input ${plan.input}: it ${action.value.reason}`;
+    case 'file': return action.value.taken
+      ? `take input ${plan.input} from its file, ${action.value.path}`
+      : `leave input ${plan.input} unset for its file, ${action.value.path}, which this deploy does not read`;
+    case 'drop': return `drop input ${plan.input}, with its value`;
+  }
+}
+
 /**
- * What a deploy says about each record and index it decides for: every
- * decision under `--plan`, and otherwise the ones that change something.
+ * What a deploy says about each record, index and input it decides for: every
+ * decision under `--plan`, and otherwise the ones that change something or
+ * keep what someone set.
  *
  * @remarks
  * A local deploy says each as it decides it, before the migration or index
  * build it names runs, since those are the parts of a deploy that take
- * minutes. A server's job reports them all once it has finished.
+ * minutes. A server's job reports them all once it has finished. Once it has
+ * said them, an input someone set that only `--inputs reset` resets names the
+ * flag that keeps it.
  *
  * @param target - The deploy
- * @returns Where the deploy's decisions go, and the end of a plan, which fails
- *   when the deploy would be refused
+ * @returns Where the deploy's decisions go, the end of a deploy, and the end of
+ *   a plan, which fails when the deploy would be refused
  */
 function deployReporter(target: DeployTarget): {
   onRecordPlan: (plan: RecordPlan) => void;
   onRecordIndex: (plan: RecordIndexPlan) => void;
+  onInputPlan: (plan: InputPlan) => void;
+  endDeploy: () => void;
   endPlan: () => void;
 } {
   let refused = 0;
+  let resetByPolicy = 0;
+  const endDeploy = (): void => {
+    if (resetByPolicy > 0) console.log('Deploy with --inputs keep-edited to keep the inputs people set.');
+  };
   return {
     onRecordPlan: (plan) => {
       const action = plan.action.type;
@@ -503,7 +570,14 @@ function deployReporter(target: DeployTarget): {
     onRecordIndex: (plan) => {
       if (target.plan || plan.action.type !== 'keep') console.log(`  ${plan.action.type} index ${plan.record}.${plan.index}`);
     },
+    onInputPlan: (plan) => {
+      const action = plan.action.type;
+      if (plan.action.type === 'reset' && plan.action.value.policy) resetByPolicy++;
+      if (target.plan || action === 'keep' || action === 'reset' || action === 'drop') console.log(`  ${inputPlanLine(plan)}`);
+    },
+    endDeploy,
     endPlan: () => {
+      endDeploy();
       if (refused > 0) exitError(`the deploy would be refused: ${refused === 1 ? 'a record' : `${refused} records`}, above`);
       console.log('A plan: nothing was written.');
     },
@@ -512,7 +586,7 @@ function deployReporter(target: DeployTarget): {
 
 /**
  * Deploy an imported package to a LOCAL workspace, saying what the deploy
- * decides for each record and index; with `--plan`, only saying it. A plan's
+ * decides for each record, index and input; with `--plan`, only saying it. A plan's
  * package may be read through a view of a zip, which the repository does not
  * hold.
  *
@@ -529,10 +603,12 @@ async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPa
       resolveFileSources: !target.skipFileSources,
       runner: new LocalTaskRunner(repoPath, target.budget),
       ...(target.schema !== undefined && { schema: target.schema }),
+      ...(target.inputs !== undefined && { inputs: target.inputs }),
       allowDropRecords: target.allowDropRecords,
       plan: target.plan,
       onRecordPlan: report.onRecordPlan,
       onRecordIndex: report.onRecordIndex,
+      onInputPlan: report.onInputPlan,
       sourceConcurrency: target.budget?.cores ?? 1,
       onSourceProgress: (progress) => intake.report(progress),
     });
@@ -544,6 +620,7 @@ async function deployLocal(target: DeployTarget, storage: StorageBackend, repoPa
     report.endPlan();
     return;
   }
+  report.endDeploy();
   if (target.skipFileSources) {
     reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, repoPath, name, version)));
   }
@@ -637,7 +714,7 @@ const UPLOAD_CONCURRENCY = 4;
  * @remarks
  * The server runs the deploy as a job, which this polls, saying what the job
  * says it is doing — migrating a record, building an index — and what it
- * decided for each record and index once it has finished.
+ * decided for each record, index and input once it has finished.
  *
  * A `file` source names a path on the machine that exported the package, and
  * the server never opens it: it leaves those inputs unassigned. So each source
@@ -667,6 +744,7 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
   try {
     result = await workspaceDeployRemote(location.baseUrl, location.repo, ws, `${name}@${version}`, auth, {
       ...(target.schema !== undefined && { schema: target.schema }),
+      ...(target.inputs !== undefined && { inputs: target.inputs }),
       allowDropRecords: target.allowDropRecords,
       plan: target.plan,
       onProgress: (p) => {
@@ -684,10 +762,12 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
   const report = deployReporter(target);
   for (const plan of result.records) report.onRecordPlan(plan);
   for (const plan of result.indexes) report.onRecordIndex(plan);
+  for (const plan of result.inputs) report.onInputPlan(plan);
   if (target.plan) {
     report.endPlan();
     return;
   }
+  report.endDeploy();
 
   if (target.skipFileSources) {
     reportSkippedFileSources(target, sources);

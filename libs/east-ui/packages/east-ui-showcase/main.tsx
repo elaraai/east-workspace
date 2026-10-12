@@ -11,7 +11,7 @@ import { createRoot } from "react-dom/client";
 import { ChakraProvider, CodeBlock } from "@chakra-ui/react";
 import "@elaraai/east-ui-components/fonts";
 import {
-    AppProvider, DragLayerProvider, OverlayManagerProvider, system, UIStore, UIStoreProvider,
+    DragLayerProvider, OverlayManagerProvider, system, UIStore, UIStoreProvider,
 } from "@elaraai/east-ui-components";
 // Side-effect import: registers the `Data.bind`, `Data.bindPaged`,
 // `Func.bind` and `Record.bind` platform impls + the Diff / Ontology /
@@ -26,7 +26,6 @@ import { catalog } from "./catalog";
 import { codeBlockAdapter } from "./components/PatternEntry";
 import { IsolatedFileView } from "./components/IsolatedFileView";
 import { AppErrorBoundary } from "./components/ErrorOverlay";
-import { HostBarEnd, HostRailFooter } from "./components/HostChrome";
 import { HostParts } from "./components/HostParts";
 import { ShowcaseE3Runtime } from "./components/ShowcaseE3";
 import { SHOWCASE_PIECE_MIN } from "./showcase-pieces";
@@ -60,23 +59,19 @@ createRoot(document.getElementById("root")!).render(
                 <OverlayManagerProvider>
                     <DragLayerProvider>
                         <CodeBlock.AdapterProvider value={codeBlockAdapter}>
-                            {/* Dogfood AppProvider (#367): the east-ui <App> examples render
-                             *  this host-injected React chrome in their bar / rail. */}
-                            <AppProvider barEnd={<HostBarEnd />} railFooter={<HostRailFooter />}>
-                                <AppErrorBoundary>
-                                    {/* The query builder's runs go to the e3 the page runs
-                                      * (#1132), through each e3 example's E3Provider: a run
-                                      * over a dataset of more than that e3's smallest piece
-                                      * is a split call over its pieces (#941, #942). */}
-                                    <QueryPlanOptionsProvider pieceBytes={SHOWCASE_PIECE_MIN}>
-                                        <Root />
-                                    </QueryPlanOptionsProvider>
-                                    {/* The e3 the page runs (#849), once an e3 example has
-                                      * started it: e3-ui-components' providers over it, which
-                                      * every e3 example's bindings resolve through. */}
-                                    <ShowcaseE3Runtime />
-                                </AppErrorBoundary>
-                            </AppProvider>
+                            <AppErrorBoundary>
+                                {/* The query builder's runs go to the e3 the page runs
+                                  * (#1132), through each e3 example's E3Provider: a run
+                                  * over a dataset of more than that e3's smallest piece
+                                  * is a split call over its pieces (#941, #942). */}
+                                <QueryPlanOptionsProvider pieceBytes={SHOWCASE_PIECE_MIN}>
+                                    <Root />
+                                </QueryPlanOptionsProvider>
+                                {/* The e3 the page runs (#849), once an e3 example has
+                                  * started it: e3-ui-components' providers over it, which
+                                  * every e3 example's bindings resolve through. */}
+                                <ShowcaseE3Runtime />
+                            </AppErrorBoundary>
                         </CodeBlock.AdapterProvider>
                     </DragLayerProvider>
                 </OverlayManagerProvider>
