@@ -6,3 +6,9 @@ libs/east-codex-plugin/.build/**     linguist-generated=true -diff
 libs/east-codex-plugin/index.json    linguist-generated=true -diff
 libs/east-codex-plugin/skills/**     linguist-generated=true
 libs/east-plugin/index.json          linguist-generated=true -diff
+
+# Third-party source archives: CMake checks each against its SHA-256, so git
+# must never rewrite one (a Windows checkout's line endings included).
+libs/east-c/**/third_party/*.tar.gz  binary
+libs/east-c/**/third_party/*.tar.xz  binary
+libs/east-c/**/third_party/*.zip     binary

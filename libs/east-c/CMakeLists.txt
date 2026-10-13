@@ -21,11 +21,13 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-ffp-contract=off)
 endif()
 
-# Fetch PCRE2 for JavaScript-compatible regex
+# PCRE2 for JavaScript-compatible regex. Every third-party source builds from
+# its upstream release archive, checked in under packages/east-c/third_party/
+# or third_party/ and pinned by its SHA-256, so no build downloads anything.
 include(FetchContent)
 FetchContent_Declare(
     pcre2
-    URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz
+    URL "${CMAKE_CURRENT_LIST_DIR}/packages/east-c/third_party/pcre2-10.44.tar.gz"
     URL_HASH SHA256=86b9cb0aa3bcb7994faa88018292bc704cdbb708e785f7c74352ff6ea7d3175b
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
@@ -48,16 +50,17 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-# Fetch tidwall/btree.c — the ordered B-tree that backs the Set/Dict in-memory
+# tidwall/btree.c — the ordered B-tree that backs the Set/Dict in-memory
 # representation. It ships btree.c + btree.h with a Makefile but no CMake
-# project, so we fetch the source and build it ourselves.
+# project, so we build its source ourselves.
 # BTREE_NOATOMICS drops its copy-on-write <stdatomic.h> dependency: east-c never
 # shares tree nodes across threads (GC tracking lists are thread-local), so the
 # atomic refcount the library uses only for btree_clone is pure overhead here.
 FetchContent_Declare(
     btreec
-    GIT_REPOSITORY https://github.com/tidwall/btree.c.git
-    GIT_TAG v0.6.4
+    URL "${CMAKE_CURRENT_LIST_DIR}/packages/east-c/third_party/btree.c-0.6.4.tar.gz"
+    URL_HASH SHA256=6a7635c52d8ce632712f9eb6ae485c3cc05a4514f780e990b4f25116fb65f9d4
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_GetProperties(btreec)
 if(NOT btreec_POPULATED)
@@ -88,8 +91,9 @@ if(WIN32)
     set(BUILD_TESTING     OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
         curl
-        GIT_REPOSITORY https://github.com/curl/curl.git
-        GIT_TAG curl-8_11_1
+        URL "${CMAKE_CURRENT_LIST_DIR}/third_party/curl-8.11.1.tar.xz"
+        URL_HASH SHA256=c7ca7db48b0909743eaef34250da02c19bc61d4f1dcedd6603f109409536ab56
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(curl)
 endif()
@@ -99,8 +103,9 @@ option(EAST_USE_MIMALLOC "Use mimalloc allocator" OFF)
 if(EAST_USE_MIMALLOC)
     FetchContent_Declare(
         mimalloc
-        GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
-        GIT_TAG v2.1.7
+        URL "${CMAKE_CURRENT_LIST_DIR}/third_party/mimalloc-2.1.7.tar.gz"
+        URL_HASH SHA256=0eed39319f139afde8515010ff59baf24de9e47ea316a315398e8027d198202d
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
