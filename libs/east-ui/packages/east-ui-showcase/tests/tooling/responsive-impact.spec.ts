@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { changedPaths, classifyChanges, selectTests, shardCount } from "../../scripts/responsive-impact.js";
-import { listTests, selectShard } from "../../scripts/responsive-shards.js";
+import { listTests, selectShard, testIdentity } from "../../scripts/responsive-shards.js";
 
 const showcase = "libs/east-ui/packages/east-ui-showcase/";
 let discovered: string[];
@@ -84,7 +84,7 @@ test("Playwright resolves focused lists and all their smaller shards exactly onc
     try {
         const file = join(directory, "selected.txt");
         writeFileSync(file, selected.join("\n") + "\n");
-        assert.deepEqual(listTests([`--test-list=${file}`]), selected);
+        assert.deepEqual(listTests([`--test-list=${file}`]).map(testIdentity), selected.map(testIdentity));
         const count = shardCount(selected.length);
         assert.ok(count < 16 && count > 0);
         const executed: string[] = [];
@@ -92,11 +92,11 @@ test("Playwright resolves focused lists and all their smaller shards exactly onc
             const shard = selectShard(selected, `${n}/${count}`);
             assert.ok(shard.length > 0);
             writeFileSync(file, shard.join("\n") + "\n");
-            const actual = listTests([`--test-list=${file}`]);
-            assert.deepEqual(actual, shard);
+            const actual = listTests([`--test-list=${file}`]).map(testIdentity);
+            assert.deepEqual(actual, shard.map(testIdentity));
             executed.push(...actual);
         }
-        assert.deepEqual(executed.sort(), [...selected].sort());
+        assert.deepEqual(executed.sort(), selected.map(testIdentity).sort());
         assert.equal(new Set(executed).size, selected.length);
         assert.equal(shardCount(0), 1); // valid placeholder matrix; the job is skipped
         assert.equal(shardCount(100_000), 16);
