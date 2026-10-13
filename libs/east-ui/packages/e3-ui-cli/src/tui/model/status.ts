@@ -143,7 +143,7 @@ export function recordDeployCell(record: RecordDeployState, g: Glyphs): StatusCe
 }
 
 /**
- * An execution's status cell (`✗ FAILED`, `◔ RUNNING`, `● COMPLETED`, `■ ABORTED`).
+ * An execution's status cell (`✗ FAILED`, `◔ RUNNING`, `◑ STOPPING`, `● COMPLETED`, `■ ABORTED`).
  *
  * @param status - The execution status
  * @param g - The glyph set
@@ -152,6 +152,7 @@ export function recordDeployCell(record: RecordDeployState, g: Glyphs): StatusCe
 export function executionStatusCell(status: ExecutionStatus['type'], g: Glyphs): StatusCell {
     switch (status) {
         case 'running': return { glyph: g.quarter, tone: 'info', word: 'RUNNING', detail: '' };
+        case 'stopping': return { glyph: g.half, tone: 'warn', word: 'STOPPING', detail: '' };
         case 'completed': return { glyph: g.dot, tone: 'pos', word: 'COMPLETED', detail: '' };
         case 'failed': return { glyph: g.cross, tone: 'neg', word: 'FAILED', detail: '' };
         case 'aborted': return { glyph: g.square, tone: 'warn', word: 'ABORTED', detail: '' };

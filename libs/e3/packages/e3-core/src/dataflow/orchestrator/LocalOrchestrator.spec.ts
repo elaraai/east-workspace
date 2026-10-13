@@ -338,6 +338,29 @@ describe('LocalOrchestrator', () => {
     assert.ok(await released(storage), 'its locks are released');
   });
 
+  it('lets its workspace go before its dataflow lock, so the dataflow lock is held for as long as the run holds the workspace at all (#1286)', async (t) => {
+    const { storage, tasks } = await deploy(t, 'chain', chain());
+    const released: string[] = [];
+    const acquire = storage.locks.acquire.bind(storage.locks);
+    t.mock.method(storage.locks, 'acquire', async (...args: Parameters<typeof acquire>) => {
+      const handle = await acquire(...args);
+      if (handle === null) return null;
+      return {
+        resource: handle.resource,
+        report: (progress: Parameters<typeof handle.report>[0]) => handle.report(progress),
+        release: async () => {
+          released.push(args[1]);
+          await handle.release();
+        },
+      };
+    });
+    const runner = new MockTaskRunner();
+    for (const [name, hash] of tasks) runner.setResult(hash, () => ({ state: 'success', cached: false, outputHash: outputOf(name) }));
+    const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+    assert.equal((await orchestrator.wait(await orchestrator.start(storage, 'repo', 'ws', { runner }))).success, true);
+    assert.deepEqual(released.filter((resource) => resource === 'ws' || resource === 'ws#dataflow'), ['ws', 'ws#dataflow']);
+  });
+
   it('refuses a name no workspace can have before a start or a resume takes a lock', async () => {
     // A lock's name may hold `#`, and a backend's stores may take any name, so
     // a run checks the name as a workspace's itself. A storage with no stores

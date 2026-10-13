@@ -150,8 +150,12 @@ export const repoCommand = {
           console.log(`Removed workspace: ${info.name}`);
         }
 
-        // Remove repository via API
-        await repoRemoveRemote(location.baseUrl, location.repo, { token: location.token });
+        // Remove repository via API: a server whose removal outlasts the
+        // request answers that it is under way, and the client waits until
+        // the repository is gone
+        await repoRemoveRemote(location.baseUrl, location.repo, { token: location.token }, {
+          onWaiting: () => console.log(`Removing repository ${location.repo}: waiting for the server to finish...`),
+        });
         console.log(`Removed repository: ${location.repo}`);
       }
     } catch (err) {

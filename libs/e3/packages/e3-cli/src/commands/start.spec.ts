@@ -72,4 +72,19 @@ describe('followRemoteRun', () => {
     assert.equal(ended?.status.type, 'completed');
     assert.deepEqual(polls, [0n, 5n]);
   });
+
+  it('follows a run asked to stop until it has stopped, not as it is stopping (#1286)', async () => {
+    const statuses = [variant('running', null), variant('stopping', null), variant('stopping', null), variant('aborted', null)] as const;
+    let polls = 0;
+    const poll = async (): Promise<DataflowExecutionState> => {
+      const status = statuses[Math.min(polls++, statuses.length - 1)]!;
+      return {
+        runId: 'run-1', status, startedAt: AT, completedAt: status.type === 'aborted' ? some(AT) : none, summary: none,
+        events: [], nextSeq: 0n, lastSeq: 0n, budget: none, waiting: [], splits: [],
+      };
+    };
+    const ended = await followRemoteRun(poll, () => false, async () => {});
+    assert.equal(ended?.status.type, 'aborted');
+    assert.equal(polls, 4);
+  });
 });

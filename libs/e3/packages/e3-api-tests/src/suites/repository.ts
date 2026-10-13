@@ -231,7 +231,7 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       }
     });
 
-    it('repoRemove removes an existing repository', async (t) => {
+    it('repoRemove answers once the repository is gone, however long its removal runs: it is created again under its name at once (#1285)', async (t) => {
       const ctx = await setup(t);
       const opts = await ctx.opts();
       const tempRepoName = `remove-test-${Date.now()}`;
@@ -243,10 +243,11 @@ export function repositoryTests(setup: TestSetup<TestContext>): void {
       const status = await repoStatus(ctx.config.baseUrl, tempRepoName, opts);
       assert.ok(typeof status.path === 'string' && status.path.length > 0);
 
-      // Remove it - should complete without error
+      // Remove it: a server whose removal outlasts the request answers 202,
+      // and the client follows the removal until it is done
       await repoRemove(ctx.config.baseUrl, tempRepoName, opts);
 
-      // Verify removal worked by trying to create it again (should succeed if it was removed)
+      // So it can be created again under its name at once
       await repoCreate(ctx.config.baseUrl, tempRepoName, opts);
       await repoRemove(ctx.config.baseUrl, tempRepoName, opts); // Clean up
     });

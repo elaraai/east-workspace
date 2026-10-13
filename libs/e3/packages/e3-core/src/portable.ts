@@ -605,6 +605,7 @@ export { LocalOrchestrator, type LocalOrchestratorHost } from './dataflow/orches
 export {
   coreEventToApiEvent,
   coreStatusToApiStatus,
+  summaryToApiStatus,
   coreStateToApiState,
   type ApiDataflowEventType,
   type ApiDataflowEvent,

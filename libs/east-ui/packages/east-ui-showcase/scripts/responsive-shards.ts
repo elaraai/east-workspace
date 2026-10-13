@@ -17,15 +17,46 @@ import { stripVTControlCharacters } from "node:util";
 
 const cli = join(dirname(createRequire(import.meta.url).resolve("playwright/package.json")), "cli.js");
 
+/**
+ * A listed test's identity: its project, file and title path, all Playwright
+ * matches a --test-list line on. The line and column are no part of it: a
+ * list's are ignored, and a listing's can be the transformed file's. Playwright's
+ * ESM loader sends each file's source map to the main thread over a port, and a
+ * file that runs before it arrives lists every test at an unmapped position.
+ */
+export function testIdentity(test: string): string {
+    return test.replace(/^(\[[^\]]+\] › .+?):\d+:\d+ › /, "$1 › ");
+}
+
 /** Read the documented Playwright list format, refusing incomplete discovery. */
 export function readTestList(output: string): string[] {
     const plain = stripVTControlCharacters(output);
     const tests = plain.split("\n").map(line => line.trim()).filter(line => /^\[[^\]]+\] › /.test(line));
     const total = /^Total: (\d+) tests? in \d+ files?$/m.exec(plain);
-    if (!total || Number(total[1]) !== tests.length || new Set(tests).size !== tests.length) {
+    if (!total || Number(total[1]) !== tests.length || new Set(tests.map(testIdentity)).size !== tests.length) {
         throw new Error("Responsive test discovery was incomplete or contained duplicate tests");
     }
     return tests;
+}
+
+let transformCache: string | undefined;
+
+/**
+ * The directory this process's listings keep Playwright's transformed files in,
+ * removed as the process exits. Every Playwright process otherwise shares one
+ * under the system's temporary directory, and Playwright writes each file there
+ * in place rather than by a rename: a listing beside another, as the tooling
+ * specs' are, can read a file the other has only begun to write, and fail on a
+ * module with none of its exports. `PWTEST_CACHE_DIR` is the directory
+ * Playwright's compilation cache reads.
+ */
+export function listingTransformCache(): string {
+    if (transformCache === undefined) {
+        const directory = mkdtempSync(join(tmpdir(), "east-ui-playwright-cache-"));
+        process.once("exit", () => rmSync(directory, { recursive: true, force: true }));
+        transformCache = directory;
+    }
+    return transformCache;
 }
 
 /** Discover the actual project-filtered suite without launching a browser. */
@@ -33,7 +64,7 @@ export function listTests(args: string[] = []): string[] {
     return readTestList(execFileSync(process.execPath, [cli, "test", ...args, "--list", "--reporter=list"], {
         encoding: "utf8",
         maxBuffer: 16 * 1024 * 1024,
-        env: { ...process.env, FORCE_COLOR: "0", PLAYWRIGHT_FORCE_TTY: "0" },
+        env: { ...process.env, FORCE_COLOR: "0", PLAYWRIGHT_FORCE_TTY: "0", PWTEST_CACHE_DIR: listingTransformCache() },
     }));
 }
 

@@ -302,10 +302,13 @@ set-version:
 	node scripts/set-plugin-version.mjs $(VERSION)
 	node scripts/check-version-drift.mjs
 
-## Check that all manifests are aligned (no version drift)
+## Check that all manifests are aligned (no version drift), that the
+## TypeScript and C runtimes write the same beast2 container, and that no
+## native build downloads its sources. version-drift.yml runs it on every PR.
 check-version:
 	node scripts/check-version-drift.mjs
 	node scripts/check-wire-compat.mjs
+	node scripts/check-native-sources.mjs
 
 # ── Clean ────────────────────────────────────────────────────────────
 
@@ -358,5 +361,5 @@ help:
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  set-version      - The release workflow's version bump (CI only, never run by hand)"
-	@echo "  check-version    - Verify all manifests are aligned"
+	@echo "  check-version    - Verify manifests align, runtimes agree on beast2, no build downloads"
 	@echo "  clean            - Remove all build artifacts"

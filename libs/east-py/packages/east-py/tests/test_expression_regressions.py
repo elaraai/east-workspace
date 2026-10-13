@@ -499,6 +499,139 @@ class TestSplicedBodyStaysInItsArm:
             EastArray(IntegerType, [5])) == 2
 
 
+# ── an embedded function's variables are its own (#1279) ────────────────────
+
+
+def _shadowing(ir) -> list[str]:
+    """The binders in ``ir`` that bind a name already in scope where they
+    bind — what a build never makes (``east.expression.naming``), and what
+    its CSE leans on."""
+    from east.expression.finalize import _node_children
+
+    found: list[str] = []
+
+    def bind(var, scope):
+        name = var.value["name"]
+        if name in scope:
+            found.append(name)
+        return scope | {name}
+
+    def walk(node, scope):
+        kind, p = node.type, node.value
+        if kind in ("Function", "AsyncFunction"):
+            inner = scope
+            for v in p["parameters"]:
+                inner = bind(v, inner)
+            walk(p["body"], inner)
+        elif kind == "Block":
+            inner = scope
+            for stmt in p["statements"]:
+                if stmt.type == "Let":
+                    walk(stmt.value["value"], inner)
+                    inner = bind(stmt.value["variable"], inner)
+                else:
+                    walk(stmt, inner)
+        elif kind == "Let":
+            walk(p["value"], scope)
+            bind(p["variable"], scope)
+        elif kind == "Match":
+            walk(p["variant"], scope)
+            for case in p["cases"]:
+                walk(case["body"], bind(case["variable"], scope))
+        elif kind == "TryCatch":
+            walk(p["try_body"], scope)
+            walk(p["catch_body"], bind(p["stack"], bind(p["message"], scope)))
+            walk(p["finally_body"], scope)
+        elif kind in ("ForArray", "ForSet", "ForDict"):
+            walk(p[{"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[kind]], scope)
+            inner = bind(p["key"], scope)
+            if kind != "ForSet":
+                inner = bind(p["value"], inner)
+            walk(p["body"], inner)
+        else:
+            for child in _node_children(node):
+                walk(child, scope)
+
+    walk(ir, frozenset())
+    return found
+
+
+class TestEmbeddedFunctionVariablesAreItsOwn:
+    """Since #1271 a function called inside another body embeds the Function
+    node its own build made, names and all. A build keeps a name unique only
+    within its scope chain, and its CSE hoists a nested function's node whose
+    free names are all the build's parameters: so a callee's ``kind * 10``,
+    reading its own ``kind``, hoisted above the call, where ``kind`` is the
+    caller's parameter — 1 * 10 where 102 * 10 was meant, and no error. Where
+    the two names' types differed, the hoisted read failed the analysis at
+    the callee's line instead. An embedded function's variables are renamed
+    apart from the names in scope at the call."""
+
+    @staticmethod
+    def _tenfold():
+        @East.function([IntegerType], IntegerType)
+        def tenfold(b, e):
+            kind = b.const(e + 1)
+            return kind * 10
+
+        return tenfold
+
+    @staticmethod
+    def _caller(tenfold, *, cse=True):
+        def caller(b, kind):
+            kind = b.const(kind, IntegerType)
+            return tenfold(kind + 100)
+
+        return East.function([IntegerType], IntegerType, caller, cse=cse)
+
+    def test_a_callee_reads_its_own_local_not_the_callers_parameter(self):
+        tenfold = self._tenfold()
+        assert self._caller(tenfold)(1) == 1020
+        assert self._caller(tenfold, cse=False)(1) == 1020
+
+    def test_the_callee_keeps_its_names_and_suffixes_those_in_scope(self):
+        # The caller binds `kind` and `kind_2`; the callee's `kind` takes the
+        # next suffix, as a body built in place would, and `e` keeps its name.
+        # (The caller's CSE may bind a fresh `__n` name inside the callee, in
+        # the callee's own scope: the author's names are the ones pinned.)
+        from east.expression.finalize import _node_children
+
+        caller = self._caller(self._tenfold())
+        assert _shadowing(caller._east_ir) == []
+        stack = list(_node_children(caller._east_ir))
+        while stack and stack[-1].type != "Function":
+            stack.extend(_node_children(stack.pop()))
+        callee = stack[-1].value
+        names = [v.value["name"] for v in callee["parameters"]]
+        names += [s.value["variable"].value["name"]
+                  for s in callee["body"].value["statements"] if s.type == "Let"]
+        assert [n for n in names if not n.startswith("__")] == ["e", "kind_3"]
+
+    def test_one_name_of_two_types_builds_and_reads_its_own(self):
+        # The analysis-time form: the caller's `kind` is an Array, the
+        # callee's an Integer, and the hoisted read failed the analysis.
+        @East.function([IntegerType], IntegerType)
+        def step(b, x):
+            kind = b.const(x * 2)
+            return kind + 1
+
+        mapped = East.function([ArrayType(IntegerType)], ArrayType(IntegerType),
+                               lambda b, kind: kind.map(step))
+        assert list(mapped(EastArray(IntegerType, [1, 2]))) == [3, 5]
+        assert _shadowing(mapped._east_ir) == []
+
+    def test_a_callee_with_a_callback_of_its_own(self):
+        @East.function([ArrayType(IntegerType)], IntegerType)
+        def total(b, xs):
+            kind = b.const(xs.map(lambda b, x: x * 3))
+            return kind.sum()
+
+        composed = East.function([ArrayType(IntegerType)], IntegerType,
+                                 lambda b, kind: total(kind) + kind.size())
+        assert composed(EastArray(IntegerType, [1, 2, 3])) == 21
+        assert _shadowing(composed._east_ir) == []
+
+
 # ── a coerced value lifts under the type it was coerced TO (#671) ───────────
 
 

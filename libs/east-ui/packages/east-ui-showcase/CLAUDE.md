@@ -106,7 +106,14 @@ The public `--test-list` interface selects them. Do not replace this with
 contiguous `playwright --shard`: that concentrates adjacent expensive builder
 cases in one job. A Node check asks Playwright to rediscover all 16 lists
 and verifies that every test runs exactly once; another check resolves the
-focused lists and their smaller shard sets through Playwright. Keep workflows independent
+focused lists and their smaller shard sets through Playwright. Both compare
+tests by `testIdentity` (project, file and title path, all a list line is
+matched on), never by the position Playwright prints, which can be the
+transformed file's. A process's listings keep Playwright's transformed files
+in a directory of their own (`listingTransformCache`): Playwright writes the
+cache every process shares in place, so two listings at once, as the tooling
+specs run, could read a half-written file and fail on a module missing its
+exports. Keep workflows independent
 under `fullyParallel`; dependent steps belong inside one test.
 
 Batch related read-only catalog routes in one browser context and use hash

@@ -20,12 +20,14 @@ import {
   packageResolve,
   checkName,
   PackageNotFoundError,
+  WorkspaceLockError,
   WorkspaceNotDeployedError,
   WorkspaceNotFoundError,
 } from '@elaraai/e3-core/portable';
 import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
+import { heldByStoppingRun, sendLockRefusal, sendRetryableError, stoppingRunBefore } from '../stopping-run.js';
 import { LockStatusType, WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
 
 /**
@@ -289,16 +291,30 @@ function convertTaskStatus(status: any) {
 
 /**
  * Delete a workspace.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param name - Workspace name
+ * @returns The response: null once it is removed; `workspace_locked` while
+ *   something holds it, with a `Retry-After` when the holder is a run that is
+ *   stopping; or the error
  */
 export async function deleteWorkspace(
   storage: StorageBackend,
   repoPath: string,
   name: string
 ): Promise<Response> {
+  let stopping = false;
   try {
+    // The name is checked before anything is read under it. Whether a stopping
+    // run holds the workspace is asked before the removal as well as after a
+    // refusal (sendLockRefusal).
+    checkName('workspace', name);
+    stopping = await stoppingRunBefore(storage, storage.runStates(repoPath), repoPath, name);
     await workspaceRemove(storage, repoPath, name);
     return sendSuccess(NullType, null);
   } catch (err) {
+    if (err instanceof WorkspaceLockError) return sendLockRefusal(NullType, err, stopping, storage, storage.runStates(repoPath), repoPath, name);
     return sendError(NullType, errorToVariant(err));
   }
 }
@@ -314,7 +330,9 @@ export async function deleteWorkspace(
  * resolved before the job is filed, so a deploy to a name no workspace can have
  * (`invalid_name`), or of a package the repository does not hold
  * (`package_not_found`), is refused at once and files nothing, and the job
- * deploys exactly the version resolved.
+ * deploys exactly the version resolved. A workspace a run that is stopping
+ * still holds would fail the job on its lock, so the deploy is refused
+ * `workspace_locked`, with a `Retry-After`, and files nothing.
  *
  * The job never opens a path-initialised input's file: its path is on the
  * machine that exported the package. Each such input is left unassigned, and
@@ -344,6 +362,9 @@ export async function startWorkspaceDeploy(
     const version = maybeVersion ?? await packageGetLatestVersion(storage, repoPath, name);
     if (version === undefined) throw new PackageNotFoundError(name);
     await packageResolve(storage, repoPath, name, version);
+    if (await heldByStoppingRun(storage, storage.runStates(repoPath), repoPath, workspace)) {
+      return sendRetryableError(PackageJobResponseType, new WorkspaceLockError(workspace));
+    }
 
     const id = globalThis.crypto.randomUUID();
     await deployStore.create(id, {

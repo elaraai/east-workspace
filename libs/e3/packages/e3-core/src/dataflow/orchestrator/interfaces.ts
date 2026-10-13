@@ -278,8 +278,12 @@ export interface DataflowOrchestrator {
   /**
    * Cancel a running dataflow execution.
    *
-   * Running tasks will be terminated. The execution will transition to
-   * 'cancelled' state.
+   * Running tasks will be terminated, and the execution ends `cancelled`. An
+   * orchestrator whose run stops where it runs answers once the run has
+   * ended, as a local one does. One whose run's tasks run in other processes
+   * or machines may answer once the cancel is recorded: the run's summary then
+   * says a cancel is requested (`cancelRequested`), so its poll answers it
+   * `stopping`, until it has stopped.
    *
    * @param handle - Execution handle from start()
    */

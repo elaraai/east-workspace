@@ -236,7 +236,9 @@ def _lift_artifact(value: Any) -> Expression | None:
     bound, stored, passed as a callback, or called (``Call`` IR). Only a
     plain Function/AsyncFunction artifact embeds (one with hoisted captured
     constants is a Block, and its constants belong to its own build); its
-    locations are re-interned under the open build's map."""
+    locations are re-interned under the open build's map, and its variables
+    renamed apart from the names in scope here (#1279), as a body built in
+    place names its own."""
     ir = getattr(value, "_east_ir", None)
     if ir is None or not isinstance(ir, EastVariant):
         return None
@@ -245,10 +247,11 @@ def _lift_artifact(value: Any) -> Expression | None:
     if not _tracing():
         return None
     from east.expression.expr import Expression
-    from east.expression.finalize import _rehome_ir
+    from east.expression.finalize import _rehome_ir, _rename_apart
     from east.expression.location import current_source_map
 
     node = _rehome_ir(ir, getattr(value, "_east_source_map", None), current_source_map())
+    node = _rename_apart(node)
     return Expression(node, node.value["type"])
 
 

@@ -23,8 +23,8 @@ import {
 } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import {
-  BEAST2_CONTENT_TYPE, PackageJobResponseType, PackageObjectType, RecordObjectType, RecordIndexObjectType,
-  WorkspaceDeployRequestType, WorkspaceDeployStatusType, type WorkspaceDeployStatus,
+  BEAST2_CONTENT_TYPE, E3_RELEASE, PackageJobResponseType, PackageObjectType, RecordObjectType, RecordIndexObjectType,
+  WorkspaceDeployRequestType, WorkspaceDeployStatusType, dataflowForce, type WorkspaceDeployStatus,
 } from '@elaraai/e3-types';
 import { createWorkspaceRoutes } from '../routes/workspaces.js';
 import { LockStatusType, ResponseType, type LockStatus } from '../types.js';
@@ -230,6 +230,35 @@ describe('deploy route', () => {
     assert.match(status.value.message, /given no task runner/);
     assert.equal(await workspaceGetState(storage, REPO, WS), null, 'the workspace is still undeployed');
     assert.deepEqual(await storage.datasets.list(REPO, WS), [], 'no ref was written');
+  });
+
+  it('refuses a deploy while a run that is stopping still holds the workspace, with a Retry-After, filing no job (#1286)', async () => {
+    const transfer = new InMemoryTransferBackend({ storage, getRepoPath: () => REPO });
+    const filed = mock.method(transfer.workspaceDeploy, 'create');
+    const app = routes(storage, undefined, transfer);
+    // A run that has ended, and still holds the dataflow lock it took as it started.
+    const lock = await storage.locks.acquire(REPO, `${WS}#dataflow`, variant('dataflow', null));
+    await storage.runStates(REPO).create({
+      release: E3_RELEASE, id: 'run-1', repo: REPO, workspace: WS, startedAt: new Date(Date.now() - 60_000), force: dataflowForce(false),
+      filter: none, graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status: 'cancelled',
+      completedAt: some(new Date(Date.now() + 1_000)), error: none, versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [],
+      reexecuted: 0n, events: [], eventSeq: 0n,
+    });
+
+    const response = await app.request(`/api/repos/r/workspaces/${WS}/deploy`, {
+      method: 'POST',
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+      body: encodeBeast2For(WorkspaceDeployRequestType)({
+        packageRef: 'planrecords@1.0.0', schema: variant('migrate', null), inputs: variant('reset', null), allowDropRecords: false, plan: false,
+      }),
+    });
+    const refused = decodeStarted(new Uint8Array(await response.arrayBuffer()));
+    assert.equal(refused.type === 'error' && refused.value.type, 'workspace_locked');
+    assert.equal(response.headers.get('retry-after'), '1');
+    assert.equal(filed.mock.callCount(), 0, 'no job was filed');
+
+    await lock!.release();
+    assert.equal((await start(app)).type, 'success', 'the deploy starts once the run has let go');
   });
 
   it('refuses a package the repository does not hold at once, starting no job', async () => {

@@ -31,6 +31,7 @@ are registered for the frame about to open. As in TypeScript.
 from __future__ import annotations
 
 import ast
+import contextlib
 import inspect
 import keyword
 import linecache
@@ -66,6 +67,18 @@ def open_scope() -> None:
 def close_scope() -> None:
     """A body closes: its names go out of scope."""
     if _scopes:
+        _scopes.pop()
+
+
+@contextlib.contextmanager
+def embedded_scope():
+    """A scope for the names of a function another build made, embedded in
+    the open body (#1279): it nests inside the current scope and closes after,
+    and the names registered for a body about to open stay where they are."""
+    _scopes.append(set())
+    try:
+        yield
+    finally:
         _scopes.pop()
 
 

@@ -21,6 +21,7 @@ export type {
   GcStartResult,
   GcStatusResult,
   AsyncOperationStatus,
+  RepositoryRemoval,
   PackageListItem,
   PackageImportResult,
   WorkspaceInfo,
@@ -94,8 +95,9 @@ export type {
 // HTTP utilities and auth
 export {
   ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, post, put, del, putEmpty, parseErrorBody,
+  requestAnswered, retryingRefusal, RETRY_REFUSAL_MAX_MS,
 } from './http.js';
-export type { RequestOptions, RetryOptions, Response } from './http.js';
+export type { RequestOptions, RetryOptions, Response, Answered } from './http.js';
 
 // Repository
 export type { RepositoryRecord } from '@elaraai/e3-types';
@@ -107,6 +109,7 @@ export {
   repoGcStatus,
   repoCreate,
   repoRemove,
+  type RepoRemoveOptions,
 } from './repository.js';
 
 // Repos (multi-repo operations)
@@ -197,6 +200,7 @@ export {
   taskLogs,
   type DataflowOptions,
   type DataflowPollOptions,
+  type DataflowCancelOptions,
   type LogOptions,
   type ExecutionStateOptions,
 } from './executions.js';

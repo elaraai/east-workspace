@@ -3,6 +3,10 @@
 monorepo present — i.e. from a PyPI sdist or inside a cibuildwheel container,
 where only the package directory is available.
 
+east-c's copy carries the third-party sources it builds from (the upstream
+release archives in its ``third_party/``), so a packaged build downloads
+nothing either.
+
 Dev builds inside the monorepo don't need this: the CMakeLists locate the
 sibling ``libs/east-c`` (and east-py ``.pxd``) sources directly. Run this only
 when producing a publishable artifact, before ``uv build`` / cibuildwheel.

@@ -7,6 +7,7 @@ import { StringType, NullType } from '@elaraai/east';
 import { RepositoryRecordType, type RepositoryRecord } from '@elaraai/e3-types';
 import type {
   RepositoryStatus,
+  RepositoryRemoval,
   GcRequest,
   GcResult,
   GcStartResult,
@@ -14,11 +15,12 @@ import type {
 } from './types.js';
 import {
   RepositoryStatusType,
+  RepositoryRemovalType,
   GcRequestType,
   GcStartResultType,
   GcStatusResultType,
 } from './types.js';
-import { get, post, del, putEmpty, type RequestOptions } from './http.js';
+import { ApiError, get, post, putEmpty, requestAnswered, type RequestOptions } from './http.js';
 
 /**
  * Get repository status.
@@ -153,19 +155,71 @@ export async function repoCreate(url: string, name: string, options: RequestOpti
   return putEmpty(url, `/repos/${encodeURIComponent(name)}`, StringType, options);
 }
 
+/** How long {@link repoRemove} waits between asks of a removal under way
+ *  when its server names no `Retry-After`, in milliseconds. */
+const REMOVAL_POLL_MS = 1_000;
+
+/** The longest {@link repoRemove} waits between asks of a removal under way,
+ *  whatever its server's `Retry-After`, in milliseconds. */
+const REMOVAL_POLL_MAX_MS = 30_000;
+
 /**
- * Remove a repository.
+ * How {@link repoRemove} follows a removal its server finishes after
+ * answering.
+ */
+export interface RepoRemoveOptions {
+  /** Called once when the server answers that the removal is under way, as
+   *  the client waits for it to finish */
+  onWaiting?: () => void;
+}
+
+/**
+ * Remove a repository, and answer once it is gone.
  *
- * Deletion is synchronous - refs are deleted immediately and orphaned objects
- * are cleaned up by GC later.
+ * @remarks
+ * A server that removes the repository within the request answers 200, as
+ * the local one does. One whose removal outlasts a request answers
+ * `202 Accepted`, naming in `Location` the route that says how the removal
+ * goes ({@link RepositoryRemovalType}) and in `Retry-After` when to ask: the
+ * client asks it, as each answer's `Retry-After` says, until it answers
+ * `removed` or `repository_not_found`, and raises the reason it gives when it
+ * answers `failed`. So a repository removed and then created again under its
+ * name is created once the removal is done. A 202 that names no route is taken
+ * as done, as every answer was before servers named one.
  *
  * @param url - Base URL of the e3 API server
  * @param name - Repository name to remove
  * @param options - Request options including auth token
- * @throws {ApiError} On application-level errors
+ * @param removeOptions - What hears that the removal is under way
+ * @throws {ApiError} On application-level errors; `repository_removal_failed`,
+ *   with its reason, when the removal stopped
  * @throws {AuthError} On 401 Unauthorized
  */
-export async function repoRemove(url: string, name: string, options: RequestOptions): Promise<void> {
-  await del(url, `/repos/${encodeURIComponent(name)}`, NullType, options);
+export async function repoRemove(
+  url: string,
+  name: string,
+  options: RequestOptions,
+  removeOptions: RepoRemoveOptions = {},
+): Promise<void> {
+  const removing = await requestAnswered(`${url}/api/repos/${encodeURIComponent(name)}`, 'DELETE', NullType, options);
+  if (!removing.accepted || removing.location === null) return;
+  removeOptions.onWaiting?.();
+
+  let wait = removing.retryAfterMs;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, Math.min(wait ?? REMOVAL_POLL_MS, REMOVAL_POLL_MAX_MS)));
+    let removal: RepositoryRemoval;
+    try {
+      const asked = await requestAnswered(removing.location, 'GET', RepositoryRemovalType, options);
+      removal = asked.value;
+      wait = asked.retryAfterMs;
+    } catch (err) {
+      // A route of a repository that is gone may say so.
+      if (err instanceof ApiError && err.code === 'repository_not_found') return;
+      throw err;
+    }
+    if (removal.type === 'removed') return;
+    if (removal.type === 'failed') throw new ApiError('repository_removal_failed', removal.value.message);
+  }
 }
 
