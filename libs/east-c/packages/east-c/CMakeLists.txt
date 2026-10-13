@@ -98,8 +98,9 @@ if(NOT TARGET btreec)
     include(FetchContent)
     FetchContent_Declare(
         btreec
-        GIT_REPOSITORY https://github.com/tidwall/btree.c.git
-        GIT_TAG v0.6.4
+        URL "${CMAKE_CURRENT_SOURCE_DIR}/third_party/btree.c-0.6.4.tar.gz"
+        URL_HASH SHA256=6a7635c52d8ce632712f9eb6ae485c3cc05a4514f780e990b4f25116fb65f9d4
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_GetProperties(btreec)
     if(NOT btreec_POPULATED)
@@ -122,8 +123,9 @@ if(NOT TARGET miniz)
     include(FetchContent)
     FetchContent_Declare(
         miniz
-        URL https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
+        URL "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz-3.0.2.zip"
         URL_HASH SHA256=ada38db0b703a56d3dd6d57bf84a9c5d664921d870d8fea4db153979fb5332c5
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_GetProperties(miniz)
     if(NOT miniz_POPULATED)
@@ -146,7 +148,7 @@ if(NOT TARGET libdeflate)
     include(FetchContent)
     FetchContent_Declare(
         libdeflate
-        URL https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.26.tar.gz
+        URL "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libdeflate-1.26.tar.gz"
         URL_HASH SHA256=bba03fffc5538576213675ce6968fcff6ce2e67d82e4d5febea2d05f9f13cf85
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )

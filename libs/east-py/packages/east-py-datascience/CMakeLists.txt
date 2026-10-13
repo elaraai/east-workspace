@@ -54,13 +54,16 @@ message(STATUS "east-c source: ${EAST_C_DIR}")
 message(STATUS "east-py .pxd:  ${EAST_PY_PXD_DIR}")
 
 # ────────────────────────────────────────────────────────────────────────
-# Native deps: PCRE2 (required by east-c) + east-c.
+# Native deps: PCRE2 (required by east-c) + east-c, each third-party source
+# from east-c's copy of its upstream release archive (third_party/ beside its
+# CMakeLists), so no build downloads anything.
 # ────────────────────────────────────────────────────────────────────────
 include(FetchContent)
 FetchContent_Declare(
     pcre2
-    URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz
+    URL "${EAST_C_DIR}/third_party/pcre2-10.44.tar.gz"
     URL_HASH SHA256=86b9cb0aa3bcb7994faa88018292bc704cdbb708e785f7c74352ff6ea7d3175b
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     EXCLUDE_FROM_ALL
 )
 set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "" FORCE)

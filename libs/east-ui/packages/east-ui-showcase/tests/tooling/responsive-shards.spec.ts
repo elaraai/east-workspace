@@ -3,11 +3,21 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { listTests, readTestList, selectShard } from "../../scripts/responsive-shards.js";
+import { listingTransformCache, listTests, readTestList, selectShard, testIdentity } from "../../scripts/responsive-shards.js";
+
+test("a listed test is its project, file and title path: the position Playwright prints is not part of it", () => {
+    const listed = "[desktop] › flowchart-flows.spec.ts:285:9 › Flowchart flows › pinned open beside the canvas";
+    // The same test, listed before Playwright's main thread had the file's source map.
+    const unmapped = "[desktop] › flowchart-flows.spec.ts:314:5 › Flowchart flows › pinned open beside the canvas";
+    assert.equal(testIdentity(listed), "[desktop] › flowchart-flows.spec.ts › Flowchart flows › pinned open beside the canvas");
+    assert.equal(testIdentity(unmapped), testIdentity(listed));
+    assert.notEqual(testIdentity(listed.replace("[desktop]", "[mobile]")), testIdentity(listed));
+    assert.throws(() => readTestList(`${listed}\n${unmapped}\nTotal: 2 tests in 1 file\n`), /duplicate/);
+});
 
 test("responsive CI lists execute the entire real suite exactly once across 16 balanced shards", () => {
     const tests = listTests();
@@ -23,8 +33,8 @@ test("responsive CI lists execute the entire real suite exactly once across 16 b
             // Ask Playwright what it would RUN, so a format/parser mismatch
             // cannot silently omit a test or select an entire describe block.
             const actual = listTests([`--test-list=${file}`]);
-            assert.deepEqual(actual, selected);
-            executed.push(...actual);
+            assert.deepEqual(actual.map(testIdentity), selected.map(testIdentity));
+            executed.push(...actual.map(testIdentity));
             sizes.push(actual.length);
             // Expensive adjacent Plan cases must not accumulate in one job.
             const plan = tests.filter(t => t.includes("plan-geometry.spec.ts:"));
@@ -32,10 +42,18 @@ test("responsive CI lists execute the entire real suite exactly once across 16 b
             assert.ok(shardPlan.length >= Math.floor(plan.length / 16) - 1);
             assert.ok(shardPlan.length <= Math.ceil(plan.length / 16) + 1);
         }
-        assert.deepEqual(executed.sort(), [...tests].sort());
+        assert.deepEqual(executed.sort(), tests.map(testIdentity).sort());
         assert.equal(new Set(executed).size, tests.length);
         assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1);
     } finally { rmSync(temporary, { recursive: true, force: true }); }
+});
+
+test("a listing keeps Playwright's transformed files in its own process's directory, never the one every Playwright process shares", () => {
+    // Shared, a listing beside another can read a file the other is still
+    // writing, and fail on a module with none of its exports.
+    assert.ok(listTests().length > 0);
+    assert.ok(listingTransformCache().startsWith(join(tmpdir(), "east-ui-playwright-cache-")));
+    assert.ok(readdirSync(listingTransformCache()).length > 0, "Playwright wrote its transformed files to the listing's own directory");
 });
 
 test("invalid shards and incomplete discovery fail closed", () => {

@@ -212,10 +212,15 @@ describe('e3 in Chromium, as an app\'s pages run it', () => {
     }
   });
 
-  /** Opens a page whose e3 keeps its repositories under a name. */
+  /** Opens a page whose e3 keeps its repositories under a name, and starts
+   *  its e3 once no page closed before holds a Web Lock. */
   async function openE3(name: string, hold: boolean): Promise<{ page: HarnessPage; opts: RequestOptions }> {
     if (!names.includes(name)) names.push(name);
     const page = await harness!.newPage('e3');
+    // A page closes as a tab does: the browser frees the locks its e3 worker
+    // and unit workers held after the close returns. The cases count the
+    // origin's locks, so a case's e3 starts once the last case's are gone.
+    await until(async () => ((await heldLocks(page)).length === 0 ? true : null), 'the Web Locks of the pages closed before to be freed');
     const options: E3PageOptions = { name, hold, pieceBytes: PIECE_BYTES };
     await page.call('start', options);
     return { page, opts: { token: ADMIN_TOKEN, fetch: forwardInto(page) } };

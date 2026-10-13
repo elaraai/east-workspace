@@ -412,6 +412,106 @@ def _rehome_ir(node, from_map, to_map):
     return rewrite(node)
 
 
+def _rename_apart(node):
+    """A LAZY copy of ``node`` — a function another build made, embedded in
+    the open one (see :func:`_rehome_ir`) — whose every binder takes a name
+    unique in the open build's scope chain, each reference renamed with the
+    binder it resolves to (#1279).
+
+    A build keeps a name unique within its scope chain (``naming``), and the
+    CSE leans on it: a node inside a nested function whose free names are the
+    build's parameters is invariant there, and hoists above the function. An
+    embedded function's names were chosen by its own build, so its local
+    ``kind`` could share the name of the caller's parameter ``kind``, and the
+    caller's CSE hoisted the callee's ``kind * 10`` above the call, where
+    ``kind`` is the caller's. Each binder is renamed through the chain, as a
+    body built in place names its own: ``kind`` becomes ``kind_2``, and a name
+    no enclosing scope binds keeps its spelling."""
+    from east.expression import naming
+    from east.expression.nodes import _fresh_name
+    from east.types.values import EastStruct as _Struct
+
+    sources = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}
+    # (id, id(env)) -> (rewritten, original, env): the original and its scope
+    # are kept alive, so a memo hit is never a dead object's reused id (see
+    # _rehome_ir), and a node shared between two scopes is renamed in each.
+    memo: dict[tuple[int, int], tuple] = {}
+
+    def named(var, name):
+        payload = var.value
+        fields = {k: payload[k] for k in payload}
+        fields["name"] = name
+        return EastVariant("Variable", _Struct(fields))
+
+    def bind(var, env):
+        """The binder renamed through the chain, and ``env`` extended with it."""
+        old = var.value["name"]
+        new = naming.authored_name(old, _fresh_name)
+        return named(var, new), {**env, old: new}
+
+    def rename(n, env):
+        key = (id(n), id(env))
+        hit = memo.get(key)
+        if hit is not None:
+            return hit[0]
+        kind = n.type
+        p = n.value
+        if kind == "Variable":
+            new = env.get(p["name"])
+            result = n if new is None else named(n, new)
+        elif kind in ("Function", "AsyncFunction"):
+            captures = [rename(c, env) for c in p["captures"]]
+            inner, params = env, []
+            for v in p["parameters"]:
+                param, inner = bind(v, inner)
+                params.append(param)
+            result = _listify(n, [*captures, *params, rename(p["body"], inner)])
+        elif kind == "Block":
+            # A Let scopes over the statements that follow it.
+            scope, statements = env, []
+            for stmt in p["statements"]:
+                if stmt.type == "Let":
+                    value = rename(stmt.value["value"], scope)
+                    var, scope = bind(stmt.value["variable"], scope)
+                    statements.append(_listify(stmt, [var, value]))
+                else:
+                    statements.append(rename(stmt, scope))
+            result = _listify(n, statements)
+        elif kind == "Let":
+            # A Let outside a Block binds over nothing after it.
+            value = rename(p["value"], env)
+            var, _scope = bind(p["variable"], env)
+            result = _listify(n, [var, value])
+        elif kind == "Match":
+            children = [rename(p["variant"], env)]
+            for case in p["cases"]:
+                var, inner = bind(case["variable"], env)
+                children += [var, rename(case["body"], inner)]
+            result = _listify(n, children)
+        elif kind == "TryCatch":
+            # message and stack bind over the catch arm alone
+            message, caught = bind(p["message"], env)
+            stack, caught = bind(p["stack"], caught)
+            result = _listify(n, [rename(p["try_body"], env), rename(p["catch_body"], caught),
+                                  message, stack, rename(p["finally_body"], env)])
+        elif kind in sources:
+            # the source evaluates outside the loop; the loop variables bind in its body
+            children = [rename(p[sources[kind]], env)]
+            key_var, inner = bind(p["key"], env)
+            children.append(key_var)
+            if kind != "ForSet":
+                value_var, inner = bind(p["value"], inner)
+                children.append(value_var)
+            result = _listify(n, [*children, rename(p["body"], inner)])
+        else:
+            result = _listify(n, [rename(c, env) for c in _node_children(n)])
+        memo[key] = (result, n, env)
+        return result
+
+    with naming.embedded_scope():
+        return rename(node, {})
+
+
 def _finalize_ir(top, param_names: set, top_fn=None, cse: bool = True):
     """CSE + arrayify the whole lazy tree; returns the final homoiconic node.
 

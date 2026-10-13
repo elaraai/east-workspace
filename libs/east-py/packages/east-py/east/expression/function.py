@@ -404,7 +404,8 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     the TypeScript shape (#1271). The body runs in a frame of its own, so a
     ``b.return_`` returns from it, a profile lists it as an entry of its own,
     placed by its definition and by the call, and an error inside it names
-    both.
+    both. Its variables are renamed apart from the caller's, so a local it
+    shares a name with is still its own (#1279).
 
     An artifact that cannot embed — one whose build hoisted constants above
     its Function node (their ``Let``s belong to its own build), one that

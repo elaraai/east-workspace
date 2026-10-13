@@ -321,8 +321,11 @@ async function executeRemote(
     // Tell the server to stop the run and release the workspace lock. Ctrl-C
     // only aborts the client's poll loop — without this the server keeps
     // executing and the workspace stays locked, blocking the next deploy/run.
+    // The cancel answers once the run has stopped.
     try {
-      await dataflowCancelRemote(baseUrl, repo, ws, { token: await getValidToken(baseUrl) });
+      await dataflowCancelRemote(baseUrl, repo, ws, { token: await getValidToken(baseUrl) }, {
+        onStopping: () => console.log('Waiting for the run to stop on the server...'),
+      });
     } catch {
       console.log('Warning: could not reach the server to cancel — the run may still be executing.');
     }
@@ -344,7 +347,8 @@ async function executeRemote(
  * 1,000 events, so one that left some is followed at once, and the run's end
  * is taken only once its events are all printed. A poll that served nothing
  * past its cursor counts as caught up, whatever the summary names, so a store
- * whose summary runs ahead of its events is not polled in a tight loop.
+ * whose summary runs ahead of its events is not polled in a tight loop. A run
+ * asked to stop, `stopping`, has not ended until it has stopped.
  *
  * @param poll - Polls the run from a cursor
  * @param isAborted - Whether the caller has stopped following
@@ -365,7 +369,7 @@ export async function followRemoteRun(
     const moved = seqBefore(since, state.nextSeq);
     since = state.nextSeq;
     if (moved && dataflowEventsRemain(state)) continue;
-    if (state.status.type !== 'running') return state;
+    if (state.status.type !== 'running' && state.status.type !== 'stopping') return state;
     await wait();
   }
   return null;

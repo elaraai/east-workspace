@@ -47,13 +47,17 @@ endif()
 message(STATUS "east-c source: ${EAST_C_DIR}")
 
 # ────────────────────────────────────────────────────────────────────────
-# Native deps: PCRE2 (required by east-c) + east-c itself.
+# Native deps: PCRE2 (required by east-c) + east-c itself. Each third-party
+# source is east-c's copy of its upstream release archive (third_party/ beside
+# its CMakeLists), which the _vendor/ staging carries too, so no build
+# downloads anything.
 # ────────────────────────────────────────────────────────────────────────
 include(FetchContent)
 FetchContent_Declare(
     pcre2
-    URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz
+    URL "${EAST_C_DIR}/third_party/pcre2-10.44.tar.gz"
     URL_HASH SHA256=86b9cb0aa3bcb7994faa88018292bc704cdbb708e785f7c74352ff6ea7d3175b
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     EXCLUDE_FROM_ALL  # don't install pcre2 docs/man pages with the wheel
 )
 set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "" FORCE)
@@ -70,8 +74,9 @@ FetchContent_MakeAvailable(pcre2)
 # copy-on-write stdatomic dependency (nodes are never shared across threads).
 FetchContent_Declare(
     btreec
-    GIT_REPOSITORY https://github.com/tidwall/btree.c.git
-    GIT_TAG v0.6.4
+    URL "${EAST_C_DIR}/third_party/btree.c-0.6.4.tar.gz"
+    URL_HASH SHA256=6a7635c52d8ce632712f9eb6ae485c3cc05a4514f780e990b4f25116fb65f9d4
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_GetProperties(btreec)
 if(NOT btreec_POPULATED)
@@ -91,8 +96,9 @@ endif()
 # linker has no system miniz to fall back on.
 FetchContent_Declare(
     miniz
-    URL https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
+    URL "${EAST_C_DIR}/third_party/miniz-3.0.2.zip"
     URL_HASH SHA256=ada38db0b703a56d3dd6d57bf84a9c5d664921d870d8fea4db153979fb5332c5
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_GetProperties(miniz)
 if(NOT miniz_POPULATED)

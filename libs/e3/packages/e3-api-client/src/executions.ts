@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { IntegerType, NullType, OptionType, lessFor, none, printFor, some, variant } from '@elaraai/east';
+import { IntegerType, NullType, OptionType, StringType, equalFor, lessFor, none, printFor, some, variant } from '@elaraai/east';
 import { dataflowForce } from '@elaraai/e3-types';
 import type { TaskLogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
 import {
@@ -13,7 +13,7 @@ import {
   DataflowBudgetType,
   DataflowExecutionStateType,
 } from './types.js';
-import { get, post, verboseQuery, ApiError, type RequestOptions } from './http.js';
+import { get, post, retryingRefusal, verboseQuery, ApiError, type RequestOptions } from './http.js';
 
 /**
  * Options for starting dataflow execution. The run takes the server's budget
@@ -46,6 +46,12 @@ export interface DataflowPollOptions {
  * Returns immediately after spawning execution in background.
  * Use dataflowExecutePoll() to poll for progress.
  *
+ * @remarks
+ * A workspace a run that is stopping still holds is refused with a
+ * `Retry-After`, which the client waits out ({@link retryingRefusal}). One held
+ * otherwise is asked of again a few times, backing off, before the refusal is
+ * raised.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
@@ -66,7 +72,7 @@ export async function dataflowExecuteLaunch(
 
   for (let attempt = 0; ; attempt++) {
     try {
-      await post(
+      await retryingRefusal('workspace_locked', () => post(
         url,
         verboseQuery(`/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow`, options),
         {
@@ -76,10 +82,11 @@ export async function dataflowExecuteLaunch(
         DataflowRequestType,
         NullType,
         options
-      );
+      ), options);
       return;
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'workspace_locked' && attempt < maxRetries) {
+      // A refusal that names a wait has been waited out already.
+      if (err instanceof ApiError && err.code === 'workspace_locked' && err.retryAfterMs === undefined && attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5);
         await new Promise(r => setTimeout(r, delay));
         continue;
@@ -394,13 +401,60 @@ export async function dataflowBudget(
   return budget.type === 'some' ? budget.value : null;
 }
 
+/** How long {@link dataflowCancel} waits between polls of a run that is
+ *  stopping, at first and at most, in milliseconds. */
+const STOPPING_POLL_MIN_MS = 100;
+const STOPPING_POLL_MAX_MS = 2_000;
+
+/** Whether two runs are one, by their ids. */
+const sameRun = equalFor(StringType);
+
 /**
- * Cancel a running dataflow execution.
+ * How {@link dataflowCancel} follows the run it cancelled until it has
+ * stopped.
+ */
+export interface DataflowCancelOptions {
+  /** Called once when the run is still stopping after the cancel answered */
+  onStopping?: () => void;
+}
+
+/**
+ * The id of a workspace's latest run, or `null` when it has none.
  *
  * @param url - Base URL of the API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param options - Request options (token, etc.)
+ * @returns The run's id, or `null`
+ */
+async function latestRunId(url: string, repo: string, workspace: string, options: RequestOptions): Promise<string | null> {
+  try {
+    return (await dataflowExecutePoll(url, repo, workspace, { limit: 0 }, options)).runId;
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'execution_not_found') return null;
+    throw err;
+  }
+}
+
+/**
+ * Cancel a running dataflow execution, and answer once it has stopped.
+ *
+ * @remarks
+ * A server whose run stops where it runs answers the cancel once the run has
+ * ended, as the local one does. One whose run's tasks run in other processes
+ * or machines may answer once the cancel is recorded, its poll answering the
+ * run `stopping` until it has stopped. Either way the client follows the run
+ * it cancelled — the workspace's latest, as the cancel was asked — until its
+ * status is neither `running` nor `stopping`, or another run has followed it.
+ * A start, a deploy or a removal of the workspace straight after finds the
+ * run gone, but for the moment it takes to let the workspace go, which the
+ * server answers with a `Retry-After` that those calls wait out.
+ *
+ * @param url - Base URL of the API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param options - Request options (token, etc.)
+ * @param cancelOptions - What hears that the run is still stopping
  * @throws {ApiError} `dataflow_error`, "No active execution for this
  *   workspace", when no execution is running; or why else the cancel failed
  * @throws {AuthError} On 401 Unauthorized
@@ -409,8 +463,10 @@ export async function dataflowCancel(
   url: string,
   repo: string,
   workspace: string,
-  options: RequestOptions
+  options: RequestOptions,
+  cancelOptions: DataflowCancelOptions = {}
 ): Promise<void> {
+  const run = await latestRunId(url, repo, workspace, options);
   await post(
     url,
     `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow/cancel`,
@@ -419,4 +475,16 @@ export async function dataflowCancel(
     NullType,
     options
   );
+  if (run === null) return;
+
+  let told = false;
+  for (let wait = STOPPING_POLL_MIN_MS; ; wait = Math.min(wait * 2, STOPPING_POLL_MAX_MS)) {
+    const state = await dataflowExecutePoll(url, repo, workspace, { limit: 0 }, options);
+    if (!sameRun(state.runId, run) || (state.status.type !== 'running' && state.status.type !== 'stopping')) return;
+    if (!told) {
+      told = true;
+      cancelOptions.onStopping?.();
+    }
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
 }

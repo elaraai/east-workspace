@@ -39,6 +39,7 @@ export {
   AsyncOperationStatusType,
   GcStartResultType,
   GcStatusResultType,
+  RepositoryRemovalType,
   // Packages
   PackageListItemType,
   PackageImportResultType,
@@ -147,6 +148,7 @@ export type {
   AsyncOperationStatus,
   GcStartResult,
   GcStatusResult,
+  RepositoryRemoval,
   PackageListItem,
   PackageImportResult,
   PackageInfo,
@@ -258,6 +260,7 @@ import {
   AsyncOperationStatusType,
   GcStartResultType,
   GcStatusResultType,
+  RepositoryRemovalType,
   PackageListItemType,
   PackageImportResultType,
   PackageInfoType,
@@ -362,6 +365,7 @@ export const ApiTypes = {
   AsyncOperationStatusType,
   GcStartResultType,
   GcStatusResultType,
+  RepositoryRemovalType,
 
   // Packages
   PackageListItemType,

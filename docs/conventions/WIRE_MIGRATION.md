@@ -144,3 +144,13 @@ Each wire changed under this rule, with the kind it is.
   outputs against the type the package declares, as `UITaskPreview` does,
   still reads them, and one holding `App`, `Pages` or `Route` fails as it
   renders: the `nav_*` platform functions they call are gone.
+- **e3-types' `ApiExecutionStatusType` gains `stopping` (#1286)** — neither
+  package-borne nor stored: the dataflow poll's answer, for a run asked to stop
+  that has not yet stopped. The case is named to sort after every case before
+  it, so its tag is the last: a client reads a poll a server of an earlier
+  release answers, since a header whose variant holds the first cases of the
+  asked type's reads as it, and a client of an earlier release refuses a poll
+  this release answers, naming both types, as it refuses any type it does not
+  read. The run summary a state store answers (`ExecutionStateSummaryType`)
+  gains `cancelRequested`, which no store keeps in that type's form, so no
+  upgrade step is shipped.

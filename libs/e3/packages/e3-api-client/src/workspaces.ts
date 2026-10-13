@@ -27,7 +27,7 @@ import {
   ResponseType,
 } from './types.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { get, post, del, fetchWithAuth, fetchWithProgress, ApiError, type RequestOptions } from './http.js';
+import { get, post, del, fetchWithAuth, fetchWithProgress, retryingRefusal, ApiError, type RequestOptions } from './http.js';
 import { JOB_POLL_MAX_MS, JOB_POLL_MIN_MS, pollExport } from './packages.js';
 
 /**
@@ -199,20 +199,25 @@ export async function workspaceLockStatus(url: string, repo: string, name: strin
 /**
  * Remove a workspace.
  *
+ * @remarks
+ * A workspace a run that is stopping still holds is refused with a
+ * `Retry-After`, which the client waits out ({@link retryingRefusal}).
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param name - Workspace name
  * @param options - Request options including auth token
- * @throws {ApiError} On application-level errors
+ * @throws {ApiError} On application-level errors: `workspace_locked` while
+ *   something else holds the workspace
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function workspaceRemove(url: string, repo: string, name: string, options: RequestOptions): Promise<void> {
-  await del(
+  await retryingRefusal('workspace_locked', () => del(
     url,
     `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}`,
     NullType,
     options
-  );
+  ), options);
 }
 
 /**
@@ -243,6 +248,9 @@ export interface WorkspaceDeployOptions {
  * The server runs the deploy as a job, since one that migrates a record, or
  * builds an index over one, can outlast a request. This starts the job and
  * polls it until it answers: 100 ms apart at first, backing off to a second.
+ * A workspace a run that is stopping still holds is refused with a
+ * `Retry-After`, which the client waits out before it starts the job
+ * ({@link retryingRefusal}).
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -268,7 +276,7 @@ export async function workspaceDeploy(
   deployOptions: WorkspaceDeployOptions = {},
 ): Promise<WorkspaceDeployResult> {
   const path = `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/deploy`;
-  const { id } = await post(
+  const { id } = await retryingRefusal('workspace_locked', () => post(
     url,
     path,
     {
@@ -281,7 +289,7 @@ export async function workspaceDeploy(
     WorkspaceDeployRequestType,
     PackageJobResponseType,
     options,
-  );
+  ), options);
 
   for (let wait = JOB_POLL_MIN_MS; ; wait = Math.min(wait * 2, JOB_POLL_MAX_MS)) {
     deployOptions.signal?.throwIfAborted();

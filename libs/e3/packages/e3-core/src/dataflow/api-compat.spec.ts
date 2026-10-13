@@ -8,7 +8,7 @@ import assert from 'node:assert';
 import { variant, some, none } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, executionStateSummary } from '@elaraai/e3-types';
 import type { ExecutionEvent, DataflowExecutionState } from './types.js';
-import { coreEventToApiEvent, coreStateToApiState } from './api-compat.js';
+import { coreEventToApiEvent, coreStateToApiState, summaryToApiStatus } from './api-compat.js';
 
 const now = new Date('2025-01-15T12:00:00Z');
 
@@ -240,5 +240,15 @@ describe('coreStateToApiState', () => {
     const result = coreStateToApiState(executionStateSummary(state), [], 0n, 0);
 
     assert.strictEqual(result.status, 'aborted');
+  });
+
+  it('maps a running run whose store records a cancel to stopping, until it has ended (#1286)', () => {
+    const running = executionStateSummary(makeState({ status: 'running', completedAt: none }));
+    assert.strictEqual(running.cancelRequested, false, 'a state records no cancel: a run a cancel stops in place ends cancelled');
+    assert.strictEqual(summaryToApiStatus(running), 'running');
+    assert.strictEqual(summaryToApiStatus({ ...running, cancelRequested: true }), 'stopping');
+    assert.strictEqual(coreStateToApiState({ ...running, cancelRequested: true }, [], 0n, 0).status, 'stopping');
+    const ended = executionStateSummary(makeState({ status: 'cancelled' }));
+    assert.strictEqual(summaryToApiStatus({ ...ended, cancelRequested: true }), 'aborted');
   });
 });

@@ -12,6 +12,7 @@
  *
  * Vocabulary mappings:
  * - e3-core 'cancelled' -> API 'aborted'
+ * - e3-core 'running', with a cancel requested -> API 'stopping'
  * - e3-core 'task_started' -> API 'start'
  * - e3-core 'task_completed' (cached: false) -> API 'complete'
  * - e3-core 'task_completed' (cached: true) -> API 'cached'
@@ -71,7 +72,7 @@ export interface ApiDataflowEvent {
 /**
  * API-compatible execution status.
  */
-export type ApiExecutionStatus = 'running' | 'completed' | 'failed' | 'aborted';
+export type ApiExecutionStatus = 'running' | 'stopping' | 'completed' | 'failed' | 'aborted';
 
 /**
  * API-compatible execution summary.
@@ -224,6 +225,19 @@ export function coreStatusToApiStatus(status: DataflowExecutionStatus): ApiExecu
 }
 
 /**
+ * The API's status of a run, from its summary: a running run with a cancel
+ * requested is `stopping` until it has stopped, and any other is its status's
+ * ({@link coreStatusToApiStatus}).
+ *
+ * @param summary - The run's summary, as a store answers it
+ * @returns API-compatible status string
+ */
+export function summaryToApiStatus(summary: Pick<ExecutionStateSummary, 'status' | 'cancelRequested'>): ApiExecutionStatus {
+  if (summary.status === 'running' && summary.cancelRequested) return 'stopping';
+  return coreStatusToApiStatus(summary.status as DataflowExecutionStatus);
+}
+
+/**
  * Convert e3-core execution state to API-compatible state.
  *
  * @param state - The run's summary (`ExecutionStateSummary`), as a store
@@ -235,7 +249,7 @@ export function coreStatusToApiStatus(status: DataflowExecutionStatus): ApiExecu
  * @returns API-compatible execution state, naming the run and its last event
  */
 export function coreStateToApiState(
-  state: Pick<ExecutionStateSummary, 'id' | 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped' | 'lastSeq'>,
+  state: Pick<ExecutionStateSummary, 'id' | 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped' | 'lastSeq' | 'cancelRequested'>,
   events: ExecutionEvent[],
   nextSeq: bigint,
   duration: number
@@ -268,7 +282,7 @@ export function coreStateToApiState(
 
   return {
     runId: state.id,
-    status: coreStatusToApiStatus(state.status as DataflowExecutionStatus),
+    status: summaryToApiStatus(state),
     startedAt: state.startedAt.toISOString(),
     completedAt: completedAtValue,
     summary,

@@ -449,6 +449,7 @@ export {
   type ApiExecutionState,
   coreEventToApiEvent,
   coreStatusToApiStatus,
+  summaryToApiStatus,
   coreStateToApiState,
 } from './dataflow/index.js';
 

@@ -325,6 +325,7 @@ export {
   AsyncOperationStatusType,
   GcStartResultType,
   GcStatusResultType,
+  RepositoryRemovalType,
   // Packages
   PackageListItemType,
   PackageInfoType,
@@ -421,6 +422,7 @@ export {
   type AsyncOperationStatus,
   type GcStartResult,
   type GcStatusResult,
+  type RepositoryRemoval,
   type PackageListItem,
   type PackageInfo,
   type PackageDetails,
