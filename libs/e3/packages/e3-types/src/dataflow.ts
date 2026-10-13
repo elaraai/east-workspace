@@ -598,6 +598,9 @@ export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutio
  * run. A store may keep it beside the state, written with each change of the
  * state; one that reads the whole state anyway derives it
  * ({@link executionStateSummary}).
+ *
+ * Nothing stores the summary as this type: a store that keeps one beside the
+ * state keeps it in its own form.
  */
 export const ExecutionStateSummaryType = StructType({
   /** The run's id, a UUIDv7 */
@@ -620,6 +623,11 @@ export const ExecutionStateSummaryType = StructType({
   error: OptionType(StringType),
   /** The sequence number of the run's last event: 0 while it has none */
   lastSeq: IntegerType,
+  /** Whether a cancel of the run is recorded that the run has not yet applied:
+   *  a run asked to stop, whose tasks run in other processes or machines, that
+   *  has not yet stopped. A poll answers such a run `stopping`. A store whose
+   *  runs a cancel stops in place records none. */
+  cancelRequested: BooleanType,
 });
 export type ExecutionStateSummary = ValueTypeOf<typeof ExecutionStateSummaryType>;
 
@@ -644,7 +652,9 @@ export function lastEventSeq(state: Pick<DataflowExecutionState, 'events' | 'eve
  *
  * @param state - The run's state
  * @returns Its summary: its last event's sequence number is the last event's
- *   own ({@link lastEventSeq}), however the event was recorded
+ *   own ({@link lastEventSeq}), however the event was recorded; and no cancel
+ *   requested, since the state records none — a run a cancel stops in place
+ *   ends `cancelled`
  */
 export function executionStateSummary(state: DataflowExecutionState): ExecutionStateSummary {
   return {
@@ -658,6 +668,7 @@ export function executionStateSummary(state: DataflowExecutionState): ExecutionS
     completedAt: state.completedAt,
     error: state.error,
     lastSeq: lastEventSeq(state),
+    cancelRequested: false,
   };
 }
 

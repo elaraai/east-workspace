@@ -293,7 +293,8 @@ export function reduce(state: TuiState, action: Action): TuiState {
             return { ...state, data: { ...state.data, lock: { ...state.data.lock, [action.ws]: action.lock } } };
         case 'data/execution': {
             const previous = state.data.execution[action.ws];
-            const running = action.state !== null && action.state.status.type === 'running';
+            const status = action.state?.status.type;
+            const running = status === 'running';
             return {
                 ...state,
                 data: {
@@ -304,8 +305,10 @@ export function reduce(state: TuiState, action: Action): TuiState {
                             state: action.state,
                             events: action.events,
                             startedAt: action.startedAt,
-                            settling: previous?.settling === true && !running && previous.startedAt === action.startedAt,
-                            stopping: previous?.stopping === true && running,
+                            settling: previous?.settling === true && !running && status !== 'stopping' && previous.startedAt === action.startedAt,
+                            // Stopping while this client's cancel waits for the run, or while
+                            // the server says a run asked to stop has not yet stopped.
+                            stopping: status === 'stopping' || (previous?.stopping === true && running),
                         },
                     },
                 },

@@ -157,7 +157,12 @@ repository exists and is not being removed, and opens it without holding the
 request. The dataflow routes take the runner, the orchestrator that runs a
 repository's dataflows, and the state store it writes: a start leaves nothing
 of the run in the request's host, and a poll and a cancel read the latest run
-from that store, whichever instance answers them. The dataset transfer routes
+from that store, whichever instance answers them. A host whose cancel answers
+once the cancel is recorded, before the run's tasks in other processes or
+machines have stopped, has its store's summary say so (`cancelRequested`): the
+poll answers the run `stopping` until it has stopped, and a start, a deploy or
+a workspace's removal the workspace's lock refuses meanwhile is answered
+`workspace_locked` with a `Retry-After`. The dataset transfer routes
 (`createTransferRoutes`) take the transfer backend, whose upload store takes a
 delivery in on the runner it was given: an init adopts only what takes nothing
 in, and answers at once. A poll reads the latest run's summary from the store
@@ -272,7 +277,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 |--------|----------|-------------|
 | GET | `/api/repos` | List available repositories (multi-repo mode) |
 | PUT | `/api/repos/:repo` | Create repository (multi-repo mode) |
-| DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on |
+| DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on. This server removes it within the request, and answers 200; a host whose removal outlasts a request answers `202 Accepted`, with a `Location` naming the route that says how the removal goes (`RepositoryRemovalType`: `removing`, `removed` or `failed`) and a `Retry-After`, which e3-api-client's `repoRemove` follows until the repository is gone |
 | GET | `/api/repos/:repo/status` | Repository status (counts) |
 | GET | `/api/repos/:repo/record` | The repository's record: the release that last wrote it, and the upgrades it has had. A read, which applies none it owes: without the gate ahead of it, a repository that owes one is refused as the gate refuses it, 503 `repository_upgrade_pending` with `Retry-After` |
 | POST | `/api/repos/:repo/gc` | Start garbage collection (async) |
@@ -440,9 +445,9 @@ grant polls only a platform-free call, or one such a caller launched.
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them. A run asked to stop that has not yet stopped is `stopping` |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
-| POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
+| POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress: this server answers once the run has ended; a host whose run's tasks run elsewhere may answer once the cancel is recorded, the poll answering the run `stopping` until it has stopped. e3-api-client's `dataflowCancel` follows the run until it has |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/logs/:task` | Read task logs |
 
@@ -458,7 +463,7 @@ Error variants include:
 - `invalid_name` - A name, hash or id is not of its form: its kind (a workspace's name, an object's hash, a run's id, …), the value, and why, whichever backend the server runs over
 - `workspace_not_found` - Workspace doesn't exist
 - `workspace_not_deployed` - No package deployed to workspace
-- `workspace_locked` - Workspace is locked by another process
+- `workspace_locked` - Workspace is locked by another process; with a `Retry-After` when the holder is a run that is stopping — asked to stop and not yet stopped, or ended and still letting the workspace go — which e3-api-client's start, deploy and workspace removal wait out and ask again
 - `package_not_found` - Package doesn't exist
 - `package_exists` - Package already exists
 - `dataset_not_found` - Dataset path doesn't exist

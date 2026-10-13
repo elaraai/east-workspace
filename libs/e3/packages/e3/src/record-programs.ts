@@ -31,6 +31,7 @@ import {
   none,
   some,
   variant,
+  withLocationCapture,
   type EastIR,
   type EastType,
 } from '@elaraai/east';
@@ -38,6 +39,24 @@ import {
   DELTA_CONFLICT, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
 } from '@elaraai/e3-types';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
+
+/**
+ * Builds a program's IR with no source location captured.
+ *
+ * @remarks
+ * A program is built as its package exports, so a location captured then
+ * would name the code that called `e3.export`, and two exports of one
+ * declaration would give two programs (#1284). e3 keeps a program, and every
+ * object that names it, by its hash, so its bytes are the declaration's
+ * alone. The author's functions it calls keep the locations they were built
+ * with.
+ *
+ * @param build - Builds the program
+ * @returns The program's IR bundle
+ */
+function locationFree(build: () => { toIR(): unknown }): EastIR<any, any> {
+  return withLocationCapture(false, () => build().toIR() as EastIR<any, any>);
+}
 
 /**
  * The entry key an index collection sorts under: `{ik, k}`.
@@ -79,7 +98,7 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
   const entryKey = indexEntryKeyType(dict.key, def.keyType);
   const emitType = FunctionType([entryKey as never, def.valueType], NullType);
 
-  return East.function([recordType as never, emitType], NullType, ($: any, piece: any, emit: any) => {
+  return locationFree(() => East.function([recordType as never, emitType], NullType, ($: any, piece: any, emit: any) => {
     const indexKey = $.const(def.keyFn);
     const project = def.valueFn === undefined ? undefined : $.const(def.valueFn);
     $.for(piece, ($: any, row: any, key: any) => {
@@ -93,7 +112,7 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
       }
     });
     return null;
-  }).toIR() as EastIR<any, any>;
+  }));
 }
 
 /**
@@ -126,7 +145,7 @@ export function migrationProgram(def: MigrationDef): EastIR<any, any> {
     ? FunctionType([to.key as never, to.value as never], NullType)
     : FunctionType([(to.type === 'Array' ? to.value : to.key) as never], NullType);
 
-  return East.function([def.from as never, emitType], NullType, ($: any, piece: any, emit: any) => {
+  return locationFree(() => East.function([def.from as never, emitType], NullType, ($: any, piece: any, emit: any) => {
     const step = $.const(def.fn);
     if (to.type !== 'Dict') {
       $.for(piece, ($: any, element: any) => {
@@ -143,7 +162,7 @@ export function migrationProgram(def: MigrationDef): EastIR<any, any> {
       });
     }
     return null;
-  }).toIR() as EastIR<any, any>;
+  }));
 }
 
 /**
@@ -305,7 +324,7 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
     throw new Error(`e3 mutation '${mut.name}' has no body to build its program from`);
   }
 
-  return East.function(
+  return locationFree(() => East.function(
     [rec.type as never, ...(argTypes as never[]), emitType], NullType,
     ($: any, ...params: any[]) => {
       const state = params[0];
@@ -357,7 +376,7 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
         });
       });
       return null;
-    }).toIR() as EastIR<any, any>;
+    }));
 }
 
 /**

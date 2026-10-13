@@ -106,9 +106,18 @@ export function verboseQuery(path: string, options: RequestOptions): string {
  * API error with typed error details.
  */
 export class ApiError extends Error {
+  /**
+   * @param code - The error's code
+   * @param details - What the server said of it
+   * @param retryAfterMs - How long the server asks the client to wait before
+   *   it asks again, in milliseconds, as the refusal's `Retry-After` says:
+   *   a workspace a run that is stopping still holds is refused with one
+   *   ({@link retryingRefusal}); `undefined` when it names none
+   */
   constructor(
     public readonly code: string,
-    public readonly details?: unknown
+    public readonly details?: unknown,
+    public readonly retryAfterMs?: number,
   ) {
     super(`API error: ${code}`);
     this.name = 'ApiError';
@@ -610,12 +619,109 @@ async function decodeResponse<T extends EastType>(
   const bytes = new Uint8Array(await response.arrayBuffer());
   const result = decodeBeast2For(ResponseType(successType))(bytes) as Response<ValueTypeOf<T>>;
 
-  // Handle application-level errors in BEAST2 response
+  // Handle application-level errors in BEAST2 response, with the wait a
+  // refusal the server asks to be asked again of names
   if (result.type === 'error') {
-    throw new ApiError(result.value.type, result.value.value);
+    throw new ApiError(result.value.type, result.value.value, parseRetryAfter(response.headers.get('retry-after'), Date.now()));
   }
 
   return result.value;
+}
+
+/**
+ * An answer, with what its response says beside its value: whether the server
+ * took the request on to finish after answering (`202 Accepted`), where it
+ * says to follow it, and when to ask.
+ */
+export interface Answered<T> {
+  /** The answer's value */
+  readonly value: T;
+  /** Whether the server answered `202 Accepted` */
+  readonly accepted: boolean;
+  /** The URL the answer's `Location` names, resolved against the request's;
+   *  `null` when it names none */
+  readonly location: string | null;
+  /** The answer's `Retry-After`, in milliseconds; `undefined` when it names
+   *  none */
+  readonly retryAfterMs: number | undefined;
+}
+
+/**
+ * Make a request of a URL and decode its BEAST2 answer, keeping what the
+ * response says beside its value: whether the server accepted the request to
+ * finish after answering, the `Location` it names and its `Retry-After`.
+ *
+ * @param target - The request's URL, whole: a route's, or one a `Location`
+ *   named
+ * @param method - `GET` or `DELETE`, either of which a retry sends again
+ * @param successType - The type of the answer's value
+ * @param options - Request options including auth token
+ * @returns The answer
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function requestAnswered<T extends EastType>(
+  target: string,
+  method: 'GET' | 'DELETE',
+  successType: T,
+  options: RequestOptions,
+): Promise<Answered<ValueTypeOf<T>>> {
+  const response = await fetchWithRetry(target, {
+    method,
+    headers: {
+      'Accept': BEAST2_CONTENT_TYPE,
+      ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
+    },
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
+  const location = response.headers.get('location');
+  const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
+  const value = await decodeResponse(response, successType);
+  return {
+    value,
+    accepted: response.status === 202,
+    location: location === null ? null : new URL(location, target).toString(),
+    retryAfterMs,
+  };
+}
+
+/**
+ * How long, in all, {@link retryingRefusal} waits out a refusal its server
+ * says to ask again of, in milliseconds, before it raises it.
+ */
+export const RETRY_REFUSAL_MAX_MS = 5 * 60_000;
+
+/**
+ * Makes a call, and while its server refuses it with `code` and a
+ * `Retry-After`, waits as the server says and makes it again.
+ *
+ * @remarks
+ * A server refuses a start, a deploy or a workspace's removal so
+ * (`workspace_locked`) while a run that is stopping still holds the workspace:
+ * the run lets it go. A refusal with no `Retry-After`, or of another code, is
+ * raised at once, and so is one still refused after
+ * {@link RETRY_REFUSAL_MAX_MS}. Each wait is bounded as a `Retry-After` is
+ * ({@link RetryOptions.maxRetryAfterMs}).
+ *
+ * @param code - The refusal's code
+ * @param call - The call, made again for each retry
+ * @param options - Request options: the wait's bound
+ * @returns What the call answers
+ * @throws {ApiError} The refusal, once it is raised; or what else the call
+ *   throws
+ */
+export async function retryingRefusal<T>(code: string, call: () => Promise<T>, options: RequestOptions): Promise<T> {
+  const cfg = resolveRetry(options.retry);
+  const deadline = Date.now() + RETRY_REFUSAL_MAX_MS;
+  for (;;) {
+    try {
+      return await call();
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.code !== code || err.retryAfterMs === undefined) throw err;
+      const wait = Math.min(err.retryAfterMs, cfg.maxRetryAfterMs);
+      if (Date.now() + wait > deadline) throw err;
+      await sleep(wait);
+    }
+  }
 }
 
 /**

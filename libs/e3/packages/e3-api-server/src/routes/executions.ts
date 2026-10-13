@@ -74,7 +74,7 @@ export function createExecutionRoutes(
     const body = await decodeBody(c, DataflowRequestType);
     const filter = body.filter.type === 'some' ? body.filter.value : undefined;
 
-    return startDataflow(storage, seams.getOrchestrator(repoPath), repoPath, ws, {
+    return startDataflow(storage, seams.getOrchestrator(repoPath), seams.getStateStore(repoPath), repoPath, ws, {
       runner: seams.getRunner(repoPath),
       ...(seams.width !== undefined && { width: seams.width }),
       force: dataflowForceOption(body.force),

@@ -23,6 +23,7 @@ import {
   packageImport,
   workspaceCreate,
   workspaceDeploy,
+  workspaceRemove,
   workspaceStatus,
   dataflowExecuteLaunch,
   dataflowExecute,
@@ -711,22 +712,31 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Wait until the execution is actually running
         await waitForRunning(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
-        // Cancel it
+        // Cancel it: the client answers once the run has stopped, however
+        // long after the server's cancel answers that takes (#1286)
         await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
-        // The cancel response does not synchronise with the orchestrator's
-        // state write — poll for the terminal state instead of reading once
-        // (a single immediate read raced it and saw 'running' on slow CI).
-        // If this ever times out, that's a real bug: a cancel delivered
-        // right after start (possibly before the first task spawn) was not
-        // honoured.
-        let finalStatus = '';
-        await waitFor(async () => {
-          const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'slow-ws', {}, opts);
-          finalStatus = state.status.type;
-          return finalStatus !== 'running';
-        }, 60000);
-        assert.strictEqual(finalStatus, 'aborted');
+        const state = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { limit: 0 }, opts);
+        assert.strictEqual(state.status.type, 'aborted');
+      });
+
+      it('lets the workspace go by the time dataflowCancel answers: a start, a deploy and the workspace\'s removal straight after go through (#1286)', async (t) => {
+        const ctx = await withSlow(t);
+        const opts = await ctx.opts();
+        const url = ctx.config.baseUrl;
+        const cancelled = async () => {
+          await waitForRunning(url, ctx.repoName, 'slow-ws', opts);
+          await dataflowCancel(url, ctx.repoName, 'slow-ws', opts);
+        };
+
+        await dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await cancelled();
+        await dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await cancelled();
+        await workspaceDeploy(url, ctx.repoName, 'slow-ws', 'slow-pkg@1.0.0', opts);
+        await dataflowExecuteLaunch(url, ctx.repoName, 'slow-ws', { force: true }, opts);
+        await cancelled();
+        await workspaceRemove(url, ctx.repoName, 'slow-ws', opts);
       });
 
       it('serves why a cancelled run\'s task stopped, in the task\'s history and its status', async (t) => {

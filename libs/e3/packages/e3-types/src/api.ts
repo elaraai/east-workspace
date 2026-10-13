@@ -217,6 +217,29 @@ export const GcStatusResultType = StructType({
   error: OptionType(StringType),
 });
 
+/**
+ * A repository's removal, as the route a server names while it runs answers
+ * it.
+ *
+ * A server whose removal outlasts a request answers `DELETE /repos/:repo`
+ * `202 Accepted`, with a `Location` naming that route and a `Retry-After`;
+ * one that removes the repository within the request answers 200. The route
+ * answers:
+ *
+ * - `removing`: the removal runs, and is asked of again after the answer's
+ *   `Retry-After`
+ * - `removed`: the repository is gone
+ * - `failed`: the removal stopped, and why
+ *
+ * A route of a repository that is gone may answer `repository_not_found`
+ * instead of `removed`.
+ */
+export const RepositoryRemovalType = VariantType({
+  removing: NullType,
+  removed: NullType,
+  failed: StructType({ message: StringType }),
+});
+
 // =============================================================================
 // Package Types
 // =============================================================================
@@ -891,15 +914,21 @@ export const DataflowEventType = VariantType({
  * Execution status for API polling responses.
  *
  * - `running`: Execution is in progress
+ * - `stopping`: Execution was asked to stop, and its tasks have not all
+ *   stopped yet: it holds its workspace until they have
  * - `completed`: Execution finished successfully
  * - `failed`: Execution finished with failures
  * - `aborted`: Execution was cancelled
+ *
+ * `stopping` is named to sort after every case before it, so its tag is the
+ * last and a poll a server answered before it read as itself.
  *
  * Note: Named "Api*" to distinguish from the on-disk ExecutionStatusType
  * in execution.ts which tracks individual task execution states.
  */
 export const ApiExecutionStatusType = VariantType({
   running: NullType,
+  stopping: NullType,
   completed: NullType,
   failed: NullType,
   aborted: NullType,
@@ -1542,6 +1571,7 @@ export type GcResult = ValueTypeOf<typeof GcResultType>;
 export type AsyncOperationStatus = ValueTypeOf<typeof AsyncOperationStatusType>;
 export type GcStartResult = ValueTypeOf<typeof GcStartResultType>;
 export type GcStatusResult = ValueTypeOf<typeof GcStatusResultType>;
+export type RepositoryRemoval = ValueTypeOf<typeof RepositoryRemovalType>;
 export type PackageListItem = ValueTypeOf<typeof PackageListItemType>;
 export type PackageInfo = ValueTypeOf<typeof PackageInfoType>;
 export type PackageDetails = ValueTypeOf<typeof PackageDetailsType>;

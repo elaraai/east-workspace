@@ -220,6 +220,18 @@ describe('reducer: data', () => {
         assert.equal(s.data.execution['main']?.stopping, false);
     });
 
+    test('a run the server says is stopping is stopping until it has stopped, whoever cancelled it', () => {
+        const running = { status: { type: 'running', value: null }, startedAt: 't1', completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], nextSeq: 0n } as never;
+        let s = reduce(start(), { type: 'data/execution', ws: 'main', state: running, events: [], startedAt: 't1' });
+        assert.equal(s.data.execution['main']?.stopping, false);
+        const stopping = { ...(running as object), status: { type: 'stopping', value: null } } as never;
+        s = reduce(s, { type: 'data/execution', ws: 'main', state: stopping, events: [], startedAt: 't1' });
+        assert.equal(s.data.execution['main']?.stopping, true);
+        const aborted = { ...(running as object), status: { type: 'aborted', value: null } } as never;
+        s = reduce(s, { type: 'data/execution', ws: 'main', state: aborted, events: [], startedAt: 't1' });
+        assert.equal(s.data.execution['main']?.stopping, false);
+    });
+
     test('a record\'s facts are kept per workspace and cleared with the rest', () => {
         const facts = { hash: 'h', signature: null, rows: 3, head: null, history: null, complete: false };
         let s = reduce(start(), { type: 'data/record', ws: 'main', name: 'ledger', data: facts });

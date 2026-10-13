@@ -13,21 +13,22 @@ import {
   executionReadLog,
   checkName,
   ExecutionNotFoundError,
+  WorkspaceLockError,
   coreEventToApiEvent,
-  coreStatusToApiStatus,
+  summaryToApiStatus,
   type ApiDataflowEvent,
   type WorkspaceStatusResult as CoreWorkspaceStatusResult,
   type DatasetStatusInfo as CoreDatasetStatusInfo,
   type TaskStatusInfo as CoreTaskStatusInfo,
   type ExecutionEvent as CoreExecutionEvent,
   type ExecutionStateSummary,
-  type DataflowExecutionStatus,
   type ExecutionProgress,
   type CurrentExecutionRef,
 } from '@elaraai/e3-core/portable';
 import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
+import { sendLockRefusal, stoppingRunBefore } from '../stopping-run.js';
 import {
   WorkspaceStatusResultType,
   DataflowGraphType,
@@ -205,6 +206,8 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  *
  * @param storage - Storage backend
  * @param orchestrator - The orchestrator that runs the repository's dataflows
+ * @param stateStore - The store the repository's runs keep their state in,
+ *   which says whether a run holding the workspace is stopping
  * @param repoPath - The repository's path
  * @param workspace - The workspace whose dataflow runs
  * @param options - The runner the run's tasks and units run on, which holds
@@ -213,20 +216,25 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  *   every task, or the tasks' names — its filter and its verbosity
  * @returns 202 once the run has started, or the error that stopped it: a name
  *   no workspace can have is `invalid_name`, a forced task the graph does not
- *   have `task_not_found`, and one the filter's run set leaves out
- *   `dataflow_error`
+ *   have `task_not_found`, one the filter's run set leaves out
+ *   `dataflow_error`, and a workspace something holds `workspace_locked`, with
+ *   a `Retry-After` when the holder is a run that is stopping
  */
 export async function startDataflow(
   storage: StorageBackend,
   orchestrator: DataflowOrchestrator,
+  stateStore: ExecutionStateStore,
   repoPath: string,
   workspace: string,
   options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean }
 ): Promise<Response> {
+  let stopping = false;
   try {
     // A host's own orchestrator may take a lock named for whatever it is
     // given, and a lock's name may hold the `#` and `~` no workspace's may.
     checkName('workspace', workspace);
+    // Asked before the start as well as after a refusal (sendLockRefusal).
+    stopping = await stoppingRunBefore(storage, stateStore, repoPath, workspace);
 
     // Start execution via orchestrator (acquires lock internally). The loop
     // keeps `width` tasks and units in flight, and the runner decides which
@@ -242,6 +250,7 @@ export async function startDataflow(
     // How the run ends is in its state, which a poll reads.
     return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
+    if (err instanceof WorkspaceLockError) return sendLockRefusal(NullType, err, stopping, storage, stateStore, repoPath, workspace);
     return sendError(NullType, errorToVariant(err));
   }
 }
@@ -510,12 +519,15 @@ export async function getDataflowExecution(
     }));
   }
 
-  // Convert status to API format
-  const apiStatus = coreStatusToApiStatus(run.status as DataflowExecutionStatus);
+  // Convert status to API format: a running run asked to stop is stopping
+  const apiStatus = summaryToApiStatus(run);
   let status: DataflowExecutionState['status'];
   switch (apiStatus) {
     case 'running':
       status = variant('running', null);
+      break;
+    case 'stopping':
+      status = variant('stopping', null);
       break;
     case 'completed':
       status = variant('completed', null);

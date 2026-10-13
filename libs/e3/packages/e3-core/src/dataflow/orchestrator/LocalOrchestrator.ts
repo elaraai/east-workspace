@@ -1195,11 +1195,17 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Remove abort listener to avoid leaking execution object
       execution.abortCleanup?.();
 
-      // Always release the dataflow lock (we always acquire it)
-      await execution.lock.release();
-      // Release shared workspace lock only if we acquired it (not external)
-      if (!execution.externalLock && execution.sharedLock) {
-        await execution.sharedLock.release();
+      // The shared workspace lock goes first, if we acquired it (not
+      // external), and the dataflow lock, which we always acquire, last: the
+      // dataflow lock is then held for as long as the run holds the workspace
+      // at all, which is how a server tells a request the run still refuses
+      // to ask again (#1286).
+      try {
+        if (!execution.externalLock && execution.sharedLock) {
+          await execution.sharedLock.release();
+        }
+      } finally {
+        await execution.lock.release();
       }
 
       // Clean up execution state
