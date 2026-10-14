@@ -733,6 +733,43 @@ describe('trees', () => {
       const count = await workspaceGetDatasetStatus(storage, testRepo, 'myws', [variant('field', 'inputs'), variant('field', 'count')]);
       assert.strictEqual(listed.get('count'), count.size, 'any other value weighs its object');
     });
+
+    it('reads the refs of the leaves it lists in one call when it lists with status, none of the rest of the workspace, and none when without', async () => {
+      const pkg = e3.package('tree-reads', '1.0.0',
+        ...Array.from({ length: 12 }, (_, i) => e3.input(`in${i}`, IntegerType, variant('value', BigInt(i)))));
+      const zipPath = join(tempDir, 'tree-reads.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'myws', 'tree-reads', '1.0.0');
+      const reads = { all: 0, many: 0, each: 0 };
+      const asked: string[][] = [];
+      const readAll = storage.datasets.readAll.bind(storage.datasets);
+      storage.datasets.readAll = (repo, ws) => { reads.all++; return readAll(repo, ws); };
+      const readMany = storage.datasets.readMany.bind(storage.datasets);
+      storage.datasets.readMany = (repo, ws, paths) => { reads.many++; asked.push([...paths].sort()); return readMany(repo, ws, paths); };
+      const read = storage.datasets.read.bind(storage.datasets);
+      storage.datasets.read = (repo, ws, path) => { reads.each++; return read(repo, ws, path); };
+      const inputs = Array.from({ length: 12 }, (_, i) => `inputs/in${i}`).sort();
+
+      const bare = await workspaceGetTree(storage, testRepo, 'myws', [variant('field', 'inputs')]);
+      assert.strictEqual(bare.length, 12);
+      assert.deepStrictEqual(reads, { all: 0, many: 0, each: 0 }, 'a listing without status reads no ref');
+
+      const withStatus = await workspaceGetTree(storage, testRepo, 'myws', [variant('field', 'inputs')], { includeStatus: true });
+      assert.strictEqual(withStatus.length, 12);
+      assert.ok(withStatus.every((node) => node.kind === 'dataset' && node.refType === 'value' && node.size !== null), 'every dataset has its status');
+      assert.deepStrictEqual(reads, { all: 0, many: 1, each: 0 }, 'the leaves\' refs in one call, none of the rest of the workspace, and none on its own');
+      assert.deepStrictEqual(asked, [inputs], 'the leaves listed, and no other');
+
+      const deep = await workspaceGetTree(storage, testRepo, 'myws', [], { includeStatus: true, maxDepth: 3 });
+      assert.ok(deep.some((node) => node.name === 'inputs' && node.kind === 'tree'));
+      assert.deepStrictEqual(reads, { all: 0, many: 2, each: 0 }, 'a deep listing too');
+      assert.deepStrictEqual(asked[1], inputs, 'the leaves it reaches');
+
+      const shallow = await workspaceGetTree(storage, testRepo, 'myws', [], { includeStatus: true, maxDepth: 0 });
+      assert.ok(shallow.every((node) => node.kind === 'tree'), 'a listing that stops above the leaves');
+      assert.deepStrictEqual(reads, { all: 0, many: 2, each: 0 }, 'reaches none, and reads none');
+    });
   });
 
   describe('workspaceGetDatasetStatus', () => {

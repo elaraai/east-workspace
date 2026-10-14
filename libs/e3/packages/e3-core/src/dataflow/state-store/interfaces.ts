@@ -267,6 +267,12 @@ export interface ExecutionStateStore {
    * @param sinceSeq - Only return events with seq > sinceSeq
    * @param limit - The most events to return, the first past the cursor:
    *   every one unless given
+   * @param lastSeq - The sequence number of the run's last event, as the
+   *   caller's read of the run's summary gave it: only events numbered up to
+   *   it are returned, and a store that must find where a run's events end
+   *   finds it here, reading nothing of the run — a poll reads the summary
+   *   once and passes it to each page's read. Every event past the cursor
+   *   the store holds, unless given.
    * @returns Array of events in sequence order; none for a run the store does
    *   not hold
    */
@@ -275,7 +281,8 @@ export interface ExecutionStateStore {
     workspace: string,
     executionId: string,
     sinceSeq: number,
-    limit?: number
+    limit?: number,
+    lastSeq?: number,
   ): Promise<ExecutionEvent[]>;
 
   /**

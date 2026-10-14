@@ -221,10 +221,18 @@ export class WebStateStore implements ExecutionStateStore {
     return this.change(repo, workspace, executionId, (state) => ({ ...state, events: [event] }));
   }
 
-  async getEventsSince(repo: string, workspace: string, executionId: string, sinceSeq: number, limit?: number): Promise<ExecutionEvent[]> {
+  async getEventsSince(
+    repo: string,
+    workspace: string,
+    executionId: string,
+    sinceSeq: number,
+    limit?: number,
+    lastSeq?: number,
+  ): Promise<ExecutionEvent[]> {
     checkName('workspace', workspace);
     const held = await segmentKeys(this.records, repo, workspace, executionId);
-    return eventsSince(held, (first) => this.records.get(segmentKey(repo, workspace, executionId, first)), BigInt(sinceSeq), limit);
+    return eventsSince(held, (first) => this.records.get(segmentKey(repo, workspace, executionId, first)), BigInt(sinceSeq), limit,
+      lastSeq === undefined ? undefined : BigInt(lastSeq));
   }
 
   async delete(repo: string, workspace: string, executionId: string): Promise<void> {

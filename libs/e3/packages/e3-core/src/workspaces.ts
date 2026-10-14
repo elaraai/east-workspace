@@ -47,7 +47,7 @@ import {
   checkName,
   lockStateToHolderInfo,
 } from './errors.js';
-import type { StorageBackend, LockHandle } from './storage/interfaces.js';
+import type { BatchResult, StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLeafType } from './records.js';
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
@@ -63,6 +63,34 @@ import { withRunningWork } from './running-work.js';
  */
 export async function workspaceList(storage: StorageBackend, repo: string): Promise<string[]> {
   return storage.refs.workspaceList(repo);
+}
+
+/**
+ * A workspace as a listing gives it: its name, and its state when a package
+ * is deployed to it.
+ */
+export interface WorkspaceListed {
+  /** The workspace's name */
+  readonly name: string;
+  /** Its deployed state, or `null` while nothing is deployed to it */
+  readonly state: WorkspaceState | null;
+}
+
+/**
+ * List the workspaces with their states, in one read of the store
+ * (`RefStore.workspaceReadAll`): what a listing serves, where listing the
+ * names and reading each one's record again cost a read per workspace.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @returns Each workspace, with its state when deployed
+ */
+export async function workspaceListStates(storage: StorageBackend, repo: string): Promise<WorkspaceListed[]> {
+  const decode = decodeBeast2For(WorkspaceRecordType);
+  return [...await storage.refs.workspaceReadAll(repo)].map(([name, data]) => {
+    const record = decode(data);
+    return { name, state: record.type === 'none' ? null : record.value };
+  });
 }
 
 /**
@@ -101,10 +129,16 @@ async function readState(
 }
 
 /**
- * Read workspace state, throwing if workspace doesn't exist or is not deployed.
+ * Read a deployed workspace's state from its record alone: the one read says
+ * whether the workspace is there and whether anything is deployed to it, so a
+ * caller telling the two apart lists nothing.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param name - Workspace name
+ * @returns The workspace's state
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
- * @internal
  */
 export async function readStateOrThrow(storage: StorageBackend, repo: string, name: string): Promise<WorkspaceState> {
   const result = await readState(storage, repo, name);
@@ -153,6 +187,15 @@ export interface WorkspaceRemoveOptions {
    * will acquire and release a lock internally.
    */
   lock?: LockHandle;
+  /**
+   * Whether to sweep what the store's removal left for later
+   * ({@link workspaceSweep}) before returning, a batch at a time until it is
+   * done. A host that serves the removal from a request with a time limit
+   * passes `false` and runs the sweep from a job of its own.
+   *
+   * @defaultValue true
+   */
+  sweep?: boolean;
 }
 
 /**
@@ -163,10 +206,24 @@ export interface WorkspaceRemoveOptions {
  * Acquires a workspace lock to prevent removing a workspace while a dataflow
  * is running. Throws WorkspaceLockError if the workspace is currently locked.
  *
+ * @remarks
+ * The removal goes in two phases, as `RefStore.workspaceRemove` and
+ * `RefStore.workspaceSweep` divide it. The store's removal takes the
+ * workspace's record, so the workspace is gone at once and its name free for
+ * another, with everything under its name a store takes in one bounded call.
+ * A store whose removal of a long-lived workspace's runs and run states would
+ * outlast a request leaves them for its sweep, keyed by a generation the
+ * removal retired, which a workspace of the same name never shares; the sweep
+ * runs here in bounded batches until it is done, unless `options.sweep` is
+ * false, when the host runs it ({@link workspaceSweep}). A removal cut short
+ * in its sweep is not retried as a removal: the workspace is already gone,
+ * and the sweep takes up what is left.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
- * @param options - Optional settings including external lock
+ * @param options - Optional settings including external lock, and whether to
+ *   sweep what the removal left
  * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
  *   is taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
@@ -201,16 +258,39 @@ export async function workspaceRemove(
       throw new WorkspaceNotFoundError(name);
     }
 
-    // Remove all dataset refs for this workspace
-    await storage.datasets.removeAll(repo, name);
-
+    // The store's removal takes the record, and everything under the name it
+    // takes at once: its dataset refs, its runs and their states, or what of
+    // them it leaves for the sweep.
     await storage.refs.workspaceRemove(repo, name);
+    if (options.sweep !== false) {
+      for (let cursor: string | undefined; ;) {
+        const batch = await workspaceSweep(storage, repo, cursor);
+        if (batch.status === 'done') break;
+        cursor = batch.cursor;
+      }
+    }
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {
       await lock.release();
     }
   }
+}
+
+/**
+ * Sweep what the removal of workspaces left for later, a bounded batch at a
+ * time (`RefStore.workspaceSweep`): what a host whose requests have a time
+ * limit runs from a job of its own, a batch per run, having removed the
+ * workspace with `sweep: false` ({@link workspaceRemove}). Loop until the
+ * batch answers `done`.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param cursor - Where the batch before stopped; none for the first
+ * @returns Whether more batches remain, and where the next starts
+ */
+export async function workspaceSweep(storage: StorageBackend, repo: string, cursor?: string): Promise<BatchResult> {
+  return storage.refs.workspaceSweep(repo, cursor);
 }
 
 /**
@@ -238,7 +318,9 @@ export async function workspaceRemove(
  * otherwise sweep before the target names them.
  *
  * A target that exists is replaced whole, as a removal would take it: its
- * refs, its dataflow's state and its runs go. So do the refs a copy cut short
+ * refs, its dataflow's state and its runs go, and what the store's removal
+ * leaves for its sweep is swept before the copy writes under the name
+ * ({@link workspaceSweep}). So do the refs a copy cut short
  * left at a name no workspace has: a copy writes its record last, so a removal
  * finds no workspace there to remove. Its history starts at the copy, so it
  * names no run of its own, and its deployment's time is the source's.
@@ -288,7 +370,17 @@ export async function workspaceCopy(
         // Every ref the target's name holds goes, a workspace's or those a
         // copy cut short left, and then a workspace's record, its runs with it.
         await storage.datasets.removeAll(repo, to);
-        if (await storage.refs.workspaceRead(repo, to) !== null) await storage.refs.workspaceRemove(repo, to);
+        if (await storage.refs.workspaceRead(repo, to) !== null) {
+          await storage.refs.workspaceRemove(repo, to);
+          // What the store's removal left for its sweep — the runs of the
+          // workspace replaced, say — goes now, as a removal's does: a copy
+          // has no job to leave it to.
+          for (let cursor: string | undefined; ;) {
+            const batch = await storage.refs.workspaceSweep(repo, cursor);
+            if (batch.status === 'done') break;
+            cursor = batch.cursor;
+          }
+        }
         await eachAtMost([...refs], OBJECT_CONCURRENCY, ([path, ref]) => storage.datasets.write(repo, to, path, ref));
         // The record last, as a deploy writes it: a copy cut short leaves no
         // workspace that reads as whole.

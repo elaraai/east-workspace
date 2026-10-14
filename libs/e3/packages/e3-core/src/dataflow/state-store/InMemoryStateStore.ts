@@ -243,12 +243,14 @@ export class InMemoryStateStore implements ExecutionStateStore {
     workspace: string,
     executionId: string,
     sinceSeq: number,
-    limit?: number
+    limit?: number,
+    lastSeq?: number,
   ): Promise<ExecutionEvent[]> {
     const segments = this.states.get(this.makeKey(repo, workspace))?.events.get(executionId);
     if (segments === undefined) return [];
     const held = [...segments.keys()].sort(compareEventSeqs);
-    return eventsSince(held, (first) => Promise.resolve(segments.get(first) ?? null), BigInt(sinceSeq), limit);
+    return eventsSince(held, (first) => Promise.resolve(segments.get(first) ?? null), BigInt(sinceSeq), limit,
+      lastSeq === undefined ? undefined : BigInt(lastSeq));
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await

@@ -24,9 +24,10 @@ import { packageImport } from '../package-files.js';
 import { workspaceGetTask } from '../tasks.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
+import { WorkspaceNotFoundError } from '../errors.js';
 import { workspaceCreate } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
-import { workspaceStatus, type WorkspaceStatusOptions, type WorkspaceStatusResult } from '../workspaceStatus.js';
+import { workspaceStatus, workspaceStatusRevision, type WorkspaceStatusOptions, type WorkspaceStatusResult } from '../workspaceStatus.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { BackendSetup } from './setup.js';
 
@@ -306,7 +307,12 @@ export function workspaceStatusTests(setup: BackendSetup): void {
       assert.deepEqual(asked.tasks.map((task) => [task.name, task.status.type]), [['second', 'waiting']],
         'second waits for first, whose staleness was read');
 
-      const read = new Set(calls.filter((call) => call.store === 'refs' && call.name.startsWith('execution')).map((call) => call.args[1]));
+      // The tasks whose executions were read: those a batch names, or one.
+      const read = new Set(calls.filter((call) => call.store === 'refs' && call.name.startsWith('execution')).flatMap((call) => {
+        const of = call.args[1];
+        if (!Array.isArray(of)) return [of as string];
+        return (of as Array<string | { taskHash: string }>).map((each) => (typeof each === 'string' ? each : each.taskHash));
+      }));
       assert.deepEqual(read, new Set([tasks.get('first'), tasks.get('second')]),
         'the producer\'s executions and its upstream\'s, and neither third\'s nor other\'s');
     });
@@ -357,23 +363,62 @@ export function workspaceStatusTests(setup: BackendSetup): void {
         return { whole: tally(whole.calls), named: tally(named.calls) };
       };
 
+      // A first status reads the package and task objects, which every
+      // status after reads from memory: the costs compared are of those.
+      await measured();
       await history(10);
       const atTen = await cost();
       await history(990);
       assert.deepEqual(await cost(), atTen, 'the same calls, reading the same records');
 
-      // A whole workspace's refs in one call, each task's executions recorded
-      // running, and no listing of any task's history.
+      // A whole workspace's refs in one call, every task's executions
+      // recorded running in one call, the latest over each one's inputs in
+      // one call, and no listing of any task's history, nor any read of a
+      // package or task object.
       const { calls } = await measured();
       const count = (name: string): number => calls.filter((call) => `${call.store}.${call.name}` === name).length;
       assert.deepEqual(
-        ['datasets.readAll', 'datasets.read', 'refs.executionListRunning', 'refs.executionListLatest', 'refs.executionListForTask'].map(count),
-        [1, 0, tasks.size, 0, 0]);
-      // Named datasets' refs each once.
+        [
+          'datasets.readAll', 'datasets.read', 'datasets.readMany', 'refs.executionListRunningMany', 'refs.executionListRunning',
+          'refs.executionGetLatestMany', 'refs.executionGetLatest', 'refs.executionListLatest', 'refs.executionListForTask', 'objects.read',
+        ].map(count),
+        [1, 0, 0, 1, 0, 1, 0, 0, 0, 0]);
+      // Named datasets' refs in one call, each named once.
       const named = await measured({ paths: [at('tasks', 'second', 'output'), at('inputs', 'y')] });
-      const refsRead = named.calls.filter((call) => call.store === 'datasets').map((call) => `${call.name} ${call.args[2] as string}`);
-      assert.deepEqual(refsRead.length, new Set(refsRead).size, `each ref read once: ${refsRead.join(', ')}`);
-      assert.ok(refsRead.every((call) => call.startsWith('read ')), 'and none read whole');
+      const refsRead = named.calls.filter((call) => call.store === 'datasets');
+      assert.deepEqual(refsRead.map((call) => call.name), ['readMany'], 'the named datasets\' refs, and their tasks\' inputs and outputs, in one call');
+      const paths = refsRead[0]!.args[2] as string[];
+      assert.equal(paths.length, new Set(paths).size, `each ref named once: ${paths.join(', ')}`);
+    });
+
+    it('answers a status revision that moves with a dataset write, an execution write and the workspace\'s lock, and none for no workspace', async (t) => {
+      const { storage, repo, taskHash, inHash } = await deployed(t);
+      await assert.rejects(workspaceStatusRevision(storage, repo, 'no-such-ws'), WorkspaceNotFoundError);
+      let revision = await workspaceStatusRevision(storage, repo, WS);
+      assert.match(revision, /^[0-9a-f]{64}$/, 'a SHA-256 in lowercase hex');
+      assert.equal(await workspaceStatusRevision(storage, repo, WS), revision, 'the same while nothing changed');
+      /** The revision, moved on from the last by what was done. */
+      const moved = async (what: string, change: () => Promise<unknown>): Promise<void> => {
+        await change();
+        const after = await workspaceStatusRevision(storage, repo, WS);
+        assert.notEqual(after, revision, `${what}: moves the revision`);
+        revision = after;
+      };
+
+      const output = await storage.objects.write(repo, encodeBeast2For(IntegerType)(20n));
+      await moved('a dataset written', () => storage.datasets.write(repo, WS, 'tasks/double/output', variant('value', { hash: output, versions: new Map() })));
+      const executionId = uuidv7();
+      await moved('an execution written', () => storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('success', {
+        executionId, inputHashes: [], outputHash: output, startedAt: new Date(), completedAt: new Date(), peakBytes: none, plan: none, unit: false,
+      })));
+      const lock = await storage.locks.acquire(repo, WS, variant('deployment', null));
+      assert.ok(lock !== null, 'the lock is free');
+      try {
+        await moved('the workspace held', () => Promise.resolve());
+      } finally {
+        await lock.release();
+      }
+      await moved('the workspace let go', () => Promise.resolve());
     });
   });
 }

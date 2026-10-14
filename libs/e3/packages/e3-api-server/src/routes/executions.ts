@@ -83,12 +83,13 @@ export function createExecutionRoutes(
     });
   });
 
-  // GET /api/repos/:repo/workspaces/:ws/dataflow - Get workspace status (for polling)
+  // GET /api/repos/:repo/workspaces/:ws/dataflow - Get workspace status (for
+  // polling); 304 to an `If-None-Match` naming the answer's ETag
   app.get('/', async (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-    return getDataflowStatus(storage, seams.getRunner(repoPath), repoPath, ws);
+    return getDataflowStatus(storage, seams.getRunner(repoPath), repoPath, ws, c.req.header('if-none-match'));
   });
 
   // GET /api/repos/:repo/workspaces/:ws/dataflow/graph - Get dependency graph

@@ -94,10 +94,10 @@ export type {
 
 // HTTP utilities and auth
 export {
-  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, post, put, del, putEmpty, parseErrorBody,
-  requestAnswered, retryingRefusal, RETRY_REFUSAL_MAX_MS,
+  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, getConditional, post, put, del, putEmpty,
+  parseErrorBody, requestAnswered, retryingRefusal, pollRequestOptions, NO_RETRY, RETRY_REFUSAL_MAX_MS,
 } from './http.js';
-export type { RequestOptions, RetryOptions, Response, Answered } from './http.js';
+export type { RequestOptions, RetryOptions, Response, Answered, Conditional } from './http.js';
 
 // Repository
 export type { RepositoryRecord } from '@elaraai/e3-types';
@@ -132,12 +132,14 @@ export {
   workspaceCopy,
   workspaceGet,
   workspaceStatus,
+  workspaceStatusSince,
   workspaceLockStatus,
   workspaceRemove,
   workspaceDeploy,
   workspaceExport,
   type WorkspaceDeployOptions,
   type WorkspaceStatusQuery,
+  type WorkspaceStatusAnswer,
 } from './workspaces.js';
 
 // Datasets

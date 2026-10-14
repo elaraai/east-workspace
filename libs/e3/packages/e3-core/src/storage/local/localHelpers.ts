@@ -15,10 +15,98 @@
 // like `fs.rename` resolves the property at call time — this is the seam tests
 // stub to simulate Windows sharing-violation errnos against the shared
 // renameWithRetry. (Behaviourally identical to `fs/promises`.)
+import { randomUUID } from 'node:crypto';
 import { promises as fs, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
-import { checkHash, checkId, isNotFoundError } from '../../errors.js';
+import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { checkHash, checkId, checkName, isNotFoundError } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
+
+/** A revision token, as a local repository keeps one: a String in beast2. */
+const encodeRevision = encodeBeast2For(StringType);
+const decodeRevision = decodeBeast2For(StringType);
+
+/**
+ * The file a workspace's revision token is kept in,
+ * `workspaces/<ws>/revision.beast2`: a String, written anew by every write
+ * of the workspace's record or of one of its dataset refs
+ * (`RefStore.workspaceRevision`).
+ *
+ * @remarks
+ * In the workspace's directory, beside its data and its execution state, so
+ * the workspace's removal takes it, and the listing of the workspaces — the
+ * `.beast2` files of `workspaces/` — never takes it for a workspace.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param workspace - Workspace name
+ * @returns The file's path
+ * @throws {InvalidNameError} When the name cannot be one path segment
+ */
+export function workspaceRevisionPath(repoPath: string, workspace: string): string {
+  checkName('workspace', workspace);
+  return path.join(repoPath, 'workspaces', workspace, 'revision.beast2');
+}
+
+/**
+ * The file the repository's execution revision token is kept in,
+ * `executions/revision.beast2`: a String, written anew by every write or
+ * delete of an execution record, which every workspace's revision takes in
+ * (`RefStore.workspaceRevision`).
+ *
+ * @remarks
+ * In `executions/`, whose other entries are the task directories, named by
+ * hash, which a listing of the executions filters by.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @returns The file's path
+ */
+export function executionRevisionPath(repoPath: string): string {
+  return path.join(repoPath, 'executions', 'revision.beast2');
+}
+
+/**
+ * Moves a revision token on: writes a fresh one over the file, atomically, so
+ * a read after the write answers another token than one before it, whichever
+ * process wrote last.
+ *
+ * @remarks
+ * The token follows a write of a record that has landed, so it never fails
+ * that write: a token that cannot be written is taken away instead, which a
+ * reader finds moved, to none; and one that cannot be taken away either is
+ * left as it was, which a poll that asks in full, as every poll does now and
+ * then, sees past.
+ *
+ * @param file - The token's file
+ */
+export async function moveRevision(file: string): Promise<void> {
+  try {
+    await atomicWriteFile(file, encodeRevision(randomUUID()));
+  } catch {
+    await fs.unlink(file).catch(() => undefined);
+  }
+}
+
+/**
+ * Reads a revision token.
+ *
+ * @param file - The token's file
+ * @returns The token, or `null` when nothing has moved it yet, or what is
+ *   there does not read as one
+ */
+export async function readRevision(file: string): Promise<string | null> {
+  let data: Buffer;
+  try {
+    data = await fs.readFile(file);
+  } catch (err) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
+  try {
+    return decodeRevision(data);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The directory of an execution's attempts, `executions/<taskHash>/<inputsHash>`,

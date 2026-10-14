@@ -194,6 +194,28 @@ const DEFAULT_RETRY: Required<RetryOptions> = {
   maxRetryAfterMs: 30_000,
 };
 
+/**
+ * A retry policy of one attempt: a poll's, whose next poll is its retry.
+ *
+ * @remarks
+ * A call that is made again a second later gains nothing from retrying a
+ * transient failure in between, and a server under load is asked once per
+ * poll rather than four times. {@link pollRequestOptions} gives a poll this
+ * policy unless its caller set one.
+ */
+export const NO_RETRY: RetryOptions = { attempts: 1 };
+
+/**
+ * The request options of a poll: the caller's, with {@link NO_RETRY} unless
+ * the caller set a policy of its own.
+ *
+ * @param options - The caller's request options
+ * @returns The options a poll's request is made with
+ */
+export function pollRequestOptions(options: RequestOptions): RequestOptions {
+  return options.retry === undefined ? { ...options, retry: NO_RETRY } : options;
+}
+
 /** Merge caller overrides onto {@link DEFAULT_RETRY}, clamping to sane bounds. */
 function resolveRetry(retry?: RetryOptions): Required<RetryOptions> {
   return {
@@ -496,6 +518,62 @@ export async function get<T extends EastType>(
 }
 
 /**
+ * An answer a conditional GET was given, with the tag it carries: what a
+ * client sends back to ask whether the answer has changed.
+ */
+export interface Conditional<T> {
+  /** The answer's value */
+  readonly value: T;
+  /** The answer's `ETag`; `null` when the server named none, in which case
+   *  the next ask is unconditional */
+  readonly etag: string | null;
+}
+
+/**
+ * Make a conditional GET request: the answer, decoded, with the `ETag` it
+ * carries; or `null` when the server answers `304 Not Modified` to the tag
+ * sent as `If-None-Match`, which says the answer the client holds is current.
+ *
+ * @remarks
+ * A poll holds the tag of the last answer it was given and asks with it: an
+ * unchanged status costs the server a read of the workspace's revision, and
+ * the client no decoding. A server that names no tag answers in full every
+ * time, and the next ask is unconditional.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param path - The request's path under `/api`
+ * @param successType - The type of the answer's value
+ * @param etag - The tag of the answer the client holds; `null` for none
+ * @param options - Request options including auth token
+ * @returns The answer and its tag, or `null` when the one the client holds is
+ *   current
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function getConditional<T extends EastType>(
+  url: string,
+  path: string,
+  successType: T,
+  etag: string | null,
+  options: RequestOptions,
+): Promise<Conditional<ValueTypeOf<T>> | null> {
+  const response = await fetchWithRetry(`${url}/api${path}`, {
+    method: 'GET',
+    headers: {
+      'Accept': BEAST2_CONTENT_TYPE,
+      ...(etag === null ? {} : { 'If-None-Match': etag }),
+      ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
+    },
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
+  if (response.status === 304) {
+    await response.body?.cancel().catch(() => { /* an empty body */ });
+    return null;
+  }
+  const value = await decodeResponse(response, successType);
+  return { value, etag: response.headers.get('etag') };
+}
+
+/**
  * Make a POST request with BEAST2 body and decode BEAST2 response.
  * @param extraHeaders - Optional additional request headers (e.g. `Idempotency-Key`), merged after the defaults.
  * @throws {ApiError} On application-level errors
@@ -730,15 +808,17 @@ export async function retryingRefusal<T>(code: string, call: () => Promise<T>, o
  * Falls back to a single `arrayBuffer()` call if no `onProgress` callback
  * is provided or if the response has no readable body stream.
  *
- * The initial request is retried per {@link fetchWithRetry} (GET is idempotent);
- * once streaming begins a mid-stream failure surfaces, since a partial download
- * cannot be safely resumed.
+ * The initial request is retried per {@link fetchWithRetry} (GET is idempotent),
+ * under the caller's policy when given; once streaming begins a mid-stream
+ * failure surfaces, since a partial download cannot be safely resumed.
  *
  * @param url - The URL to download
  * @param onProgress - Told the bytes downloaded so far and the total
  * @param signal - Aborts the download
  * @param fetch - The `fetch` the download goes through
  *   ({@link RequestOptions.fetch}); the global one when absent
+ * @param retry - The retry policy of the request ({@link RequestOptions.retry});
+ *   the default when absent
  * @returns The downloaded bytes
  */
 export async function fetchWithProgress(
@@ -746,8 +826,9 @@ export async function fetchWithProgress(
   onProgress?: (downloaded: number, total: number) => void,
   signal?: AbortSignal,
   fetch?: typeof globalThis.fetch,
+  retry?: RetryOptions,
 ): Promise<Uint8Array> {
-  const res = await fetchWithRetry(url, { method: 'GET', signal }, { idempotent: true, fetch });
+  const res = await fetchWithRetry(url, { method: 'GET', signal }, { idempotent: true, retry, fetch });
   if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
 
   if (!onProgress || !res.body) {

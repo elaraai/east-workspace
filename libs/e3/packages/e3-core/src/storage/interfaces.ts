@@ -402,6 +402,18 @@ export interface RefStore {
   packageList(repo: string): Promise<{ name: string; version: string }[]>;
 
   /**
+   * List one package's versions, and no other package's: what a resolve of a
+   * package's latest version reads, so it costs the package's versions, not
+   * every version of every package the repository holds.
+   *
+   * @param repo - Repository identifier
+   * @param name - Package name
+   * @returns The package's versions, in no particular order; none for a
+   *   package the repository does not hold
+   */
+  packageVersions(repo: string, name: string): Promise<string[]>;
+
+  /**
    * Resolve a package reference to its hash.
    * @param repo - Repository identifier
    * @param name - Package name
@@ -439,6 +451,23 @@ export interface RefStore {
   workspaceList(repo: string): Promise<string[]>;
 
   /**
+   * Read every workspace's record, in one call: what a listing of the
+   * workspaces reads, so a store whose reads are requests answers it in a
+   * query, not a request per workspace.
+   *
+   * @remarks
+   * Each record is as {@link workspaceRead} would answer it, at some moment of
+   * the call; a workspace made or removed meanwhile may be in the answer or
+   * not.
+   *
+   * @param repo - Repository identifier
+   * @returns Each workspace's encoded `WorkspaceRecordType`, by its name, in
+   *   the order {@link workspaceList} names them; none for a repository with
+   *   no workspace
+   */
+  workspaceReadAll(repo: string): Promise<Map<string, Uint8Array>>;
+
+  /**
    * Read a workspace's record.
    * @param repo - Repository identifier
    * @param name - Workspace name
@@ -448,7 +477,8 @@ export interface RefStore {
   workspaceRead(repo: string, name: string): Promise<Uint8Array | null>;
 
   /**
-   * Write a workspace's record.
+   * Write a workspace's record. It moves the workspace's revision
+   * ({@link workspaceRevision}).
    * @param repo - Repository identifier
    * @param name - Workspace name
    * @param state - The encoded `WorkspaceRecordType`: `none` until a package
@@ -457,12 +487,72 @@ export interface RefStore {
   workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void>;
 
   /**
-   * Remove a workspace: its state, its dataflow execution state and its run
-   * records, so none of them passes to a workspace of the same name.
+   * Remove a workspace: its record goes at once, so no read or listing finds
+   * the workspace and its name is free for another, and so does what the
+   * store takes in the same bounded call. Everything kept under its name —
+   * its dataset refs, its run records, its runs' states and events — goes with
+   * it, at once or through {@link workspaceSweep}, and none of it ever passes
+   * to a workspace of the same name.
+   *
+   * @remarks
+   * A store whose removal of everything under the name is one bounded call —
+   * a directory's, a transaction's — takes it all here, and its sweep has
+   * nothing to do. A store whose removal grows with the workspace's age —
+   * one that keeps a run record and a run state per run, each an item of its
+   * own — takes the record here, and keys what it leaves by a generation the
+   * removal retires, which a workspace made under the name afterwards never
+   * shares, so a host serving the removal from a request with a time limit
+   * sweeps the rest in bounded steps. The removal moves the workspace's
+   * revision ({@link workspaceRevision}).
+   *
    * @param repo - Repository identifier
    * @param name - Workspace name
    */
   workspaceRemove(repo: string, name: string): Promise<void>;
+
+  /**
+   * Sweep what the removal of workspaces left for later
+   * ({@link workspaceRemove}), a bounded batch at a time: loop until `done`.
+   *
+   * @remarks
+   * As gc's `repoGcStep` runs in steps a host spreads over invocations, a host
+   * whose requests have a time limit runs the sweep a batch per run of a job
+   * of its own, from the cursor the batch before answered; e3-core's
+   * `workspaceRemove` runs it to `done` before it returns unless told to leave
+   * it. A store that leaves nothing for later answers `done` at once, having
+   * deleted nothing.
+   *
+   * @param repo - Repository identifier
+   * @param cursor - Cursor from previous call (undefined for first call)
+   * @returns Batch result with status and optional cursor
+   */
+  workspaceSweep(repo: string, cursor?: string): Promise<BatchResult>;
+
+  /**
+   * A token that is another after every write that can change what the
+   * workspace's status answers, so a poll asks "changed since this?" for one
+   * cheap read where computing the status again reads the workspace.
+   *
+   * @remarks
+   * The writes that move it: the workspace's record ({@link workspaceWrite},
+   * {@link workspaceRemove}); any of its dataset refs (`DatasetRefStore`'s
+   * `write`, `writeIf`, `remove` and `removeAll`); and any run's record of the
+   * repository — a write of a status that is no unit's ({@link executionWrite})
+   * and any attempt's deletion ({@link executionDelete}) — since an attempt is
+   * recorded by its task and inputs, which a task deployed in any workspace
+   * shares, so one moves every workspace's; a unit's write leaves it, since a
+   * status answers nothing of a unit. Two reads between which
+   * none of these landed answer the same token; a read after one answers
+   * another. A reader that computes the status reads the token first, so a
+   * write that lands meanwhile moves it past what the reader answers. A
+   * workspace's lock is the lock service's, not a write of this store: a
+   * status reads it beside the token (`workspaceStatusRevision`).
+   *
+   * @param repo - Repository identifier
+   * @param name - Workspace name
+   * @returns The token, or null when there is no workspace of this name
+   */
+  workspaceRevision(repo: string, name: string): Promise<string | null>;
 
   // -------------------------------------------------------------------------
   // Execution Cache (with execution history)
@@ -521,6 +611,11 @@ export interface RefStore {
    * a crash between the two leaves at most a place no record backs, which a
    * read passes over.
    *
+   * A run's write moves every workspace's revision
+   * ({@link workspaceRevision}), since the attempt's task may be deployed in
+   * any of them; a unit's leaves it, since a workspace's status answers
+   * nothing of a unit.
+   *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -533,7 +628,8 @@ export interface RefStore {
    * Delete an execution attempt's record: its status, its owner, its place in
    * the index of attempts recorded running, and its place in its task's index
    * of runs. gc, which bounds the history a repository keeps, removes the
-   * attempt's logs first, through the log store.
+   * attempt's logs first, through the log store. It moves every workspace's
+   * revision ({@link workspaceRevision}), as a write does.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -578,6 +674,29 @@ export interface RefStore {
    * @returns ExecutionStatus or null if no executions exist
    */
   executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null>;
+
+  /**
+   * The latest attempt over each of several executions, in one call: what a
+   * workspace's status reads of the tasks it answers for, so a store whose
+   * reads are requests answers them in one, not a request per task.
+   *
+   * @remarks
+   * Each answer is as {@link executionGetLatest} would give it, in the order
+   * the executions were given. A hash not of its form refuses the whole call
+   * before anything is read, as every method refuses one.
+   *
+   * @param repo - Repository identifier
+   * @param executions - Each execution's task object hash and combined input
+   *   hashes
+   * @returns For each execution, in the order given, its latest attempt's
+   *   status, or null when it has none
+   * @throws {ExecutionCorruptError} When a latest attempt's record is there
+   *   and does not decode
+   */
+  executionGetLatestMany(
+    repo: string,
+    executions: readonly { taskHash: string; inputsHash: string }[],
+  ): Promise<Array<ExecutionStatus | null>>;
 
   /**
    * List all executions in the repository.
@@ -635,6 +754,24 @@ export interface RefStore {
    *   index names is there and does not decode
    */
   executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
+
+  /**
+   * The attempts recorded running of each of several tasks, in one call:
+   * {@link executionListRunning}'s answer for each, in the order the tasks
+   * were given, so a workspace's status reads what runs of every task it
+   * answers for in one request of a store whose reads are requests.
+   *
+   * @param repo - Repository identifier
+   * @param taskHashes - Each task's object hash
+   * @returns For each task, in the order given, what {@link executionListRunning}
+   *   answers for it
+   * @throws {ExecutionCorruptError} When the latest attempt of inputs an index
+   *   names is there and does not decode
+   */
+  executionListRunningMany(
+    repo: string,
+    taskHashes: readonly string[],
+  ): Promise<Array<Array<{ inputsHash: string; status: ExecutionStatus }>>>;
 
   /**
    * List a page of a task's runs — its own attempts, a split task's units left
@@ -1273,6 +1410,11 @@ export interface RepoStore {
  *
  * A local repository keeps a ref at `workspaces/<ws>/data/<path>.beast2`,
  * where `<path>` uses directory separators (e.g. `inputs/sales.beast2`).
+ *
+ * Every write — {@link write}, {@link writeIf}, {@link remove} and
+ * {@link removeAll} — moves the workspace's revision
+ * (`RefStore.workspaceRevision`), which a status's poll asks whether anything
+ * changed by.
  */
 export interface DatasetRefStore {
   /**
@@ -1363,6 +1505,22 @@ export interface DatasetRefStore {
    *   workspace with no refs
    */
   readAll(repo: string, ws: string): Promise<Map<string, DatasetRef>>;
+
+  /**
+   * Read the refs at several paths, in one call: what a status of named
+   * datasets reads, and a task's logs of the task's inputs, so a store whose
+   * reads are requests answers them in one, not a request per ref.
+   *
+   * @remarks
+   * Each ref is as {@link read} would answer it, at some moment of the call; a
+   * path with no ref is left out, and a path named twice is read once.
+   *
+   * @param repo - Repository identifier
+   * @param ws - Workspace name
+   * @param paths - The dataset paths (e.g. "inputs/sales")
+   * @returns Each ref there is, by its dataset path
+   */
+  readMany(repo: string, ws: string, paths: readonly string[]): Promise<Map<string, DatasetRef>>;
 
   /**
    * Remove a single dataset ref.

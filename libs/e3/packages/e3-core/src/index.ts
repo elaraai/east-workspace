@@ -145,8 +145,10 @@ export {
   packageRemove,
   packageList,
   packageGetLatestVersion,
+  comparePackageVersions,
   packageResolve,
   packageRead,
+  packageObjectRead,
   type PackageImportResult,
   type PackageImportOptions,
   type PackageZip,
@@ -173,15 +175,19 @@ export {
 export { workspaceDeploy, workspaceExport } from './workspace-files.js';
 export {
   workspaceList,
+  workspaceListStates,
   workspaceCreate,
   workspaceCopy,
   workspaceRemove,
+  workspaceSweep,
   workspaceGetState,
+  readStateOrThrow,
   workspaceGetPackage,
   workspaceLockStatus,
   type WorkspaceExportResult,
   type WorkspaceExportOptions,
   type WorkspaceRemoveOptions,
+  type WorkspaceListed,
   type WorkspaceDeployOptions,
   type DeploySourceProgress,
 } from './workspaces.js';
@@ -314,8 +320,12 @@ export {
   packageListTasks,
   packageGetTask,
   workspaceListTasks,
+  workspaceListTaskObjects,
+  workspaceFindTask,
   workspaceGetTask,
   workspaceGetTaskHash,
+  taskObjectRead,
+  type WorkspaceTask,
 } from './tasks.js';
 
 // Execution operations
@@ -481,6 +491,7 @@ export {
 // Workspace status
 export {
   workspaceStatus,
+  workspaceStatusRevision,
   type DatasetStatus,
   type TaskStatus,
   type DatasetStatusInfo,

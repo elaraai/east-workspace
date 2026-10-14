@@ -6,7 +6,9 @@
 import { useQuery, useMutation, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import { IntegerType, printFor } from '@elaraai/east';
 import type { QueryOverrides } from './types.js';
-import { dataflowExecute, dataflowExecuteLaunch, dataflowGraph, dataflowExecutePoll, dataflowCancel, taskLogs } from '@elaraai/e3-api-client';
+import {
+    dataflowExecute, dataflowExecuteLaunch, dataflowGraph, dataflowExecutePoll, dataflowCancel, taskLogs, pollRequestOptions,
+} from '@elaraai/e3-api-client';
 import type { RequestOptions, DataflowOptions, DataflowPollOptions, ExecutionStateOptions, LogOptions, DataflowResult, DataflowExecutionState } from '@elaraai/e3-api-client';
 
 /** Prints a poll's cursor for its query key, which react-query hashes as
@@ -39,7 +41,8 @@ export function useDataflowGraph(url: string, repo: string, workspace: string | 
 /**
  * Polls a workspace's latest run: its state, with the events past
  * `stateOptions.since`, at most `stateOptions.limit` of them, and the cursor
- * past them (`nextSeq`).
+ * past them (`nextSeq`). Each poll makes one request attempt: its next poll
+ * is its retry.
  *
  * @param url - The API's base URL
  * @param repo - Repository name
@@ -54,7 +57,7 @@ export function useDataflowExecution(url: string, repo: string, workspace: strin
     const since = stateOptions?.since === undefined ? null : printSeq(stateOptions.since);
     return useQuery({
         queryKey: ['dataflowExecution', url, repo, workspace, since, stateOptions?.limit ?? null],
-        queryFn: () => dataflowExecutePoll(url, repo, workspace!, stateOptions, requestOptions ?? { token: null }),
+        queryFn: () => dataflowExecutePoll(url, repo, workspace!, stateOptions, pollRequestOptions(requestOptions ?? { token: null })),
         enabled: !!repo && !!workspace,
         ...queryOptions,
     });
@@ -66,10 +69,12 @@ export function useDataflowCancel(url: string, repo: string, workspace: string |
     });
 }
 
+/** A chunk of a task's log, read once per poll: one request attempt each,
+ *  its next poll being its retry. */
 export function useTaskLogs(url: string, repo: string, workspace: string | null, task: string | null, logOptions?: LogOptions, requestOptions?: RequestOptions, queryOptions?: QueryOverrides) {
     return useQuery({
         queryKey: ['taskLogs', url, repo, workspace, task, logOptions],
-        queryFn: () => taskLogs(url, repo, workspace!, task!, logOptions, requestOptions ?? { token: null }),
+        queryFn: () => taskLogs(url, repo, workspace!, task!, logOptions, pollRequestOptions(requestOptions ?? { token: null })),
         enabled: !!repo && !!workspace && !!task,
         ...queryOptions,
     });

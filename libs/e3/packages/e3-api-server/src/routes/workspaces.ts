@@ -70,14 +70,14 @@ export function createWorkspaceRoutes(
 
   // GET /api/repos/:repo/workspaces/:ws/status - Get comprehensive workspace
   // status; with `path` (repeated), only the datasets named and the tasks
-  // that produce them
+  // that produce them; 304 to an `If-None-Match` naming the answer's ETag
   app.get('/:ws/status', (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     const paths = pathsQuery(c);
     if (paths instanceof Response) return paths;
-    return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws, paths);
+    return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws, paths, c.req.header('if-none-match'));
   });
 
   // GET /api/repos/:repo/workspaces/:ws/lock - What holds the workspace, and how far it has got

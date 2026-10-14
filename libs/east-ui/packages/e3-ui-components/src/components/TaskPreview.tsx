@@ -25,7 +25,7 @@
 
 import { memo } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
-import type { RequestOptions } from '@elaraai/e3-api-client';
+import type { RequestOptions, TaskDetails } from '@elaraai/e3-api-client';
 import { UITaskPreview } from './UITaskPreview.js';
 import { DataTaskPreview, type DataTaskPreviewProps } from './DataTaskPreview.js';
 import { useTaskDetails } from '../hooks/useTaskDetails.js';
@@ -67,6 +67,20 @@ export interface TaskPreviewProps {
     onLogMatchesChange?: DataTaskPreviewProps['onLogMatchesChange'];
     /** The handle a host's own controls act through: see {@link DataTaskPreviewProps.controls}. */
     controls?: DataTaskPreviewProps['controls'];
+    /** The task's details, when the host holds them — from the task list it
+     *  read, say: the preview reads them from the host rather than the
+     *  server. Without them, the preview's read is keyed as `useTaskGet`'s,
+     *  so a host that read the task through it shares the read all the same. */
+    details?: TaskDetails;
+    /** How often the task's output status is polled, in milliseconds: a data
+     *  task's output preview's, and a ui task's output's. Default 30 000. */
+    statusPollInterval?: number;
+    /** How often a data task's log is polled while it changes, in
+     *  milliseconds: see {@link DataTaskPreviewProps.logPollInterval}. */
+    logPollInterval?: number;
+    /** The longest a data task's log waits between polls while nothing
+     *  changes: see {@link DataTaskPreviewProps.logPollBackoff}. */
+    logPollBackoff?: number;
 }
 
 export const TaskPreview = memo(function TaskPreview({
@@ -87,11 +101,17 @@ export const TaskPreview = memo(function TaskPreview({
     onLogSearchChange,
     onLogMatchesChange,
     controls,
+    details: givenDetails,
+    statusPollInterval,
+    logPollInterval,
+    logPollBackoff,
 }: TaskPreviewProps) {
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
+        ...(givenDetails !== undefined && { details: givenDetails }),
     });
-    const isUI = detailsQuery.data?.role.type === 'ui';
+    const details = detailsQuery.data;
+    const isUI = details?.role.type === 'ui';
 
     return (
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
@@ -115,6 +135,8 @@ export const TaskPreview = memo(function TaskPreview({
                                     apiUrl, repo, workspace, token: requestOptions?.token ?? null,
                                     ...(requestOptions?.fetch !== undefined && { fetch: requestOptions.fetch }),
                                 }}
+                                {...(details !== undefined && { details })}
+                                {...(statusPollInterval !== undefined && { outputPollInterval: statusPollInterval })}
                             />
                             : <DataTaskPreview
                                 apiUrl={apiUrl}
@@ -133,6 +155,10 @@ export const TaskPreview = memo(function TaskPreview({
                                 {...(onLogSearchChange !== undefined && { onLogSearchChange })}
                                 {...(onLogMatchesChange !== undefined && { onLogMatchesChange })}
                                 {...(controls !== undefined && { controls })}
+                                {...(details !== undefined && { details })}
+                                {...(statusPollInterval !== undefined && { statusPollInterval })}
+                                {...(logPollInterval !== undefined && { logPollInterval })}
+                                {...(logPollBackoff !== undefined && { logPollBackoff })}
                             />
                 }
             </Box>
@@ -149,4 +175,7 @@ export const TaskPreview = memo(function TaskPreview({
     && Object.is(prev.onViewChange, next.onViewChange) && Object.is(prev.onSearchChange, next.onSearchChange)
     && prev.logStream === next.logStream && prev.logSearch === next.logSearch
     && Object.is(prev.onLogStreamChange, next.onLogStreamChange) && Object.is(prev.onLogSearchChange, next.onLogSearchChange)
-    && Object.is(prev.onLogMatchesChange, next.onLogMatchesChange) && Object.is(prev.controls, next.controls));
+    && Object.is(prev.onLogMatchesChange, next.onLogMatchesChange) && Object.is(prev.controls, next.controls)
+    // The details the host holds, and how often the previews poll.
+    && Object.is(prev.details, next.details) && prev.statusPollInterval === next.statusPollInterval
+    && prev.logPollInterval === next.logPollInterval && prev.logPollBackoff === next.logPollBackoff);

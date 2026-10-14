@@ -6,8 +6,8 @@
 import { ArrayType, none, some, variant } from '@elaraai/east';
 import type { ExecutionStatus } from '@elaraai/e3-types';
 import {
-  workspaceListTasks,
-  workspaceGetTask,
+  workspaceListTaskObjects,
+  workspaceFindTask,
   workspaceGetTaskHash,
 } from '@elaraai/e3-core/portable';
 import type { StorageBackend } from '@elaraai/e3-core/portable';
@@ -16,7 +16,14 @@ import { errorToVariant } from '../errors.js';
 import { TaskListItemType, TaskDetailsType, ExecutionListItemType, type ExecutionListItem } from '../types.js';
 
 /**
- * List all tasks in a workspace.
+ * List all tasks in a workspace, each with its hash and its role: the
+ * workspace's record read once, and each task object once, then from memory
+ * ({@link workspaceListTaskObjects}).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param workspace - Workspace name
+ * @returns The response: the tasks, or the error
  */
 export async function listTasks(
   storage: StorageBackend,
@@ -24,25 +31,22 @@ export async function listTasks(
   workspace: string
 ): Promise<Response> {
   try {
-    const taskNames = await workspaceListTasks(storage, repoPath, workspace);
-
-    // Get hash + role for each task (the object read is content-addressed and cheap)
-    const result = await Promise.all(
-      taskNames.map(async (name) => {
-        const hash = await workspaceGetTaskHash(storage, repoPath, workspace, name);
-        const task = await workspaceGetTask(storage, repoPath, workspace, name);
-        return { name, hash, role: task.role };
-      })
-    );
-
-    return sendSuccess(ArrayType(TaskListItemType), result);
+    const tasks = await workspaceListTaskObjects(storage, repoPath, workspace);
+    return sendSuccess(ArrayType(TaskListItemType), tasks.map(({ name, hash, task }) => ({ name, hash, role: task.role })));
   } catch (err) {
     return sendError(ArrayType(TaskListItemType), errorToVariant(err));
   }
 }
 
 /**
- * Get task details.
+ * Get task details: the workspace's record read once, and the task's object
+ * once, then from memory ({@link workspaceFindTask}).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param workspace - Workspace name
+ * @param taskName - The task
+ * @returns The response: the task's details, or the error
  */
 export async function getTask(
   storage: StorageBackend,
@@ -51,8 +55,7 @@ export async function getTask(
   taskName: string
 ): Promise<Response> {
   try {
-    const hash = await workspaceGetTaskHash(storage, repoPath, workspace, taskName);
-    const task = await workspaceGetTask(storage, repoPath, workspace, taskName);
+    const { hash, task } = await workspaceFindTask(storage, repoPath, workspace, taskName);
 
     return sendSuccess(TaskDetailsType, {
       name: taskName,

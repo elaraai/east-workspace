@@ -39,6 +39,12 @@ export const recordKeys = {
   package: (repo: string, name: string, version: string): RecordKey => ['repo', repo, 'package', name, version],
   /** A workspace's record */
   workspace: (repo: string, name: string): RecordKey => ['repo', repo, 'workspace', name],
+  /** A workspace's revision token: a String written anew by every write of
+   *  its record or of one of its dataset refs */
+  workspaceRevision: (repo: string, name: string): RecordKey => ['repo', repo, 'revision', 'workspace', name],
+  /** The repository's execution revision token: a String written anew by
+   *  every write or delete of an execution record */
+  executionRevision: (repo: string): RecordKey => ['repo', repo, 'revision', 'executions'],
   /** An execution attempt's status */
   execution: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'execution', task, inputs, id],
   /** An execution attempt's owner */

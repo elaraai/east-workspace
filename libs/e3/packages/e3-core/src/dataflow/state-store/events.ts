@@ -185,6 +185,8 @@ export function planEventAppend(
  * @param read - Reads a held segment's bytes; null when it is gone
  * @param since - The cursor: only events numbered after it
  * @param limit - The most events: every one unless given
+ * @param last - The last event to return, by its sequence number: a segment
+ *   starting past it is never read; every event past the cursor unless given
  * @returns The events
  * @throws {Error} When a segment it reads is of a form this e3 does not read
  */
@@ -193,9 +195,10 @@ export async function eventsSince(
   read: (first: bigint) => Promise<Uint8Array | null>,
   since: bigint,
   limit?: number,
+  last?: bigint,
 ): Promise<ExecutionEvent[]> {
   // The segment that holds the first event past the cursor — the last that
-  // starts at or before it — and those after it.
+  // starts at or before it — and those after it, up to the last event asked.
   const next = since + 1n;
   let start = 0;
   held.forEach((first, i) => {
@@ -204,10 +207,12 @@ export async function eventsSince(
   const found: ExecutionEvent[] = [];
   for (const first of held.slice(start)) {
     if (limit !== undefined && found.length >= limit) break;
+    if (last !== undefined && seqBefore(last, first)) break;
     const bytes = await read(first);
     if (bytes === null) continue;
     for (const event of decodeEventSegment(bytes)) {
       if (!seqBefore(since, event.value.seq)) continue;
+      if (last !== undefined && seqBefore(last, event.value.seq)) return found;
       if (limit !== undefined && found.length >= limit) break;
       found.push(event);
     }

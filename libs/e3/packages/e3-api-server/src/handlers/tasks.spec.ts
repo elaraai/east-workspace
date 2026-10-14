@@ -8,7 +8,8 @@
  * latest run first, read from the task's index of runs and never its whole
  * history; it leaves out the units a split task runs under its hash, which are
  * not runs of it; and it says why each run that was cancelled or interrupted
- * stopped.
+ * stopped. A list of the tasks reads the workspace's record once and each
+ * task object once, from memory after, and a task's details the same.
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -16,10 +17,13 @@ import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { PackageObjectType, StopReasonType, WorkspaceRecordType, type ExecutionStatus, type StopReason } from '@elaraai/e3-types';
+import {
+  PackageObjectType, StopReasonType, TASK_OBJECT_KIND, TaskObjectType, WorkspaceRecordType, type ExecutionStatus, type StopReason,
+} from '@elaraai/e3-types';
 import { createTaskRoutes } from '../routes/tasks.js';
 import {
-  ExecutionListItemType, ResponseType, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX, type ExecutionListItem,
+  ExecutionListItemType, ResponseType, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX, TaskDetailsType, TaskListItemType,
+  type ExecutionListItem,
 } from '../types.js';
 
 const REPO = 'test-repo';
@@ -121,5 +125,82 @@ describe('task routes', () => {
     await items(`?limit=3&before=${before}`);
     assert.deepEqual(pages, [{ limit: TASK_EXECUTIONS_PAGE_DEFAULT }, { limit: TASK_EXECUTIONS_PAGE_MAX }, { limit: 3, before }]);
     assert.deepEqual(reads, [], 'no listing of the task\'s history');
+  });
+});
+
+describe('task listing', () => {
+  const decodeList = decodeBeast2For(ResponseType(ArrayType(TaskListItemType)));
+  const decodeDetails = decodeBeast2For(ResponseType(TaskDetailsType));
+
+  /** A workspace a package of three tasks is deployed to, each task object in
+   *  the store, and the routes over it. */
+  async function deployed(): Promise<{ storage: InMemoryStorage; app: Hono; hashes: Map<string, string> }> {
+    const storage = new InMemoryStorage();
+    await storage.repos.create(REPO);
+    const hashes = new Map<string, string>();
+    for (const name of ['a', 'b', 'c']) {
+      hashes.set(name, await storage.objects.write(REPO, encodeBeast2For(TaskObjectType)({
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'e'.repeat(64) }),
+        runner: variant('custom', { command: [name] }),
+        inputs: [],
+        output: { path: [variant('field', 'tasks'), variant('field', name), variant('field', 'output')], kind: variant('value', null) },
+        role: name === 'c' ? variant('ui', { paths: [], functions: [], records: [], pages: [] }) : variant('data', null),
+        environment: none,
+      })));
+    }
+    const pkg = await storage.objects.write(REPO, encodeBeast2For(PackageObjectType)({
+      tasks: hashes,
+      data: { structure: variant('struct', new Map()), refs: new Map() },
+      functions: new Map(),
+      records: new Map(),
+      sources: new Map(),
+    }));
+    await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
+      packageName: 'three', packageVersion: '1.0.0', packageHash: pkg, deployedAt: new Date(0), currentRunId: none,
+    })));
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, () => REPO));
+    return { storage, app, hashes };
+  }
+
+  /** Counts the calls of a method of `target`. */
+  function countOf(target: object, method: string): { calls: number } {
+    const original = (target as Record<string, (...args: unknown[]) => unknown>)[method]!.bind(target);
+    const seen = { calls: 0 };
+    (target as Record<string, unknown>)[method] = (...args: unknown[]) => {
+      seen.calls++;
+      return original(...args);
+    };
+    return seen;
+  }
+
+  it('lists every task with its hash and role, reading the record once and each object at most once, and from memory after', async () => {
+    const { storage, app, hashes } = await deployed();
+    const records = countOf(storage.refs, 'workspaceRead');
+    const objects = countOf(storage.objects, 'read');
+    const list = async () => {
+      const answer = decodeList(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/${WS}/tasks`)).arrayBuffer()));
+      if (answer.type !== 'success') assert.fail(`the list was refused: ${answer.value.type}`);
+      return answer.value;
+    };
+
+    const listed = await list();
+    assert.deepEqual(listed.map(({ name, hash, role }) => [name, hash, role.type]).sort(),
+      [['a', hashes.get('a'), 'data'], ['b', hashes.get('b'), 'data'], ['c', hashes.get('c'), 'ui']]);
+    assert.equal(records.calls, 1, 'the workspace record once');
+    assert.ok(objects.calls <= 4, `the package and each task object at most once: ${objects.calls} reads`);
+
+    records.calls = 0;
+    objects.calls = 0;
+    await list();
+    assert.deepEqual([records.calls, objects.calls], [1, 0], 'the record once, and every object from memory');
+
+    const answer = decodeDetails(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/${WS}/tasks/b`)).arrayBuffer()));
+    if (answer.type !== 'success') assert.fail(`the task was refused: ${answer.value.type}`);
+    assert.deepEqual([answer.value.name, answer.value.hash, answer.value.role.type], ['b', hashes.get('b'), 'data']);
+    assert.deepEqual([records.calls, objects.calls], [2, 0], 'a task\'s details: the record once, nothing else read');
+    const missing = decodeDetails(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/${WS}/tasks/d`)).arrayBuffer()));
+    assert.equal(missing.type === 'error' && missing.value.type, 'task_not_found');
   });
 });

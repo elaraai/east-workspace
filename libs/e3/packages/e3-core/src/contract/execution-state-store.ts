@@ -333,6 +333,11 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       assertEvents(await store.getEventsSince(repo, 'ws', id, 1), events.slice(1), 'past the first');
       assertEvents(await store.getEventsSince(repo, 'ws', id, 0, 2), events.slice(0, 2), 'the first two');
       assertEvents(await store.getEventsSince(repo, 'ws', id, 3), [], 'past the last');
+      // A poll that read the run's summary passes the last event it names:
+      // nothing past it is read, however many the run has recorded since.
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 0, undefined, 2), events.slice(0, 2), 'up to the last given');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 1, 5, 2), events.slice(1, 2), 'past the cursor, up to the last given');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 2, undefined, 2), [], 'none past a last that is the cursor');
       const read = await store.read(repo, 'ws', id);
       assert.deepEqual([read?.events.length, read?.eventSeq], [0, 3n], 'the state holds none, and numbers the last');
       assertEvents(await store.getEventsSince(repo, 'ws', uuidv7(), 0), [], 'a run it does not hold has none');

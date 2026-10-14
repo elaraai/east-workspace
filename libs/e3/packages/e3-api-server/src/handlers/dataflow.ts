@@ -27,6 +27,7 @@ import {
 } from '@elaraai/e3-core/portable';
 import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
+import { conditionalHeaders, sendNotModified, workspaceStatusTag } from '../conditional.js';
 import { errorToVariant } from '../errors.js';
 import { sendLockRefusal, stoppingRunBefore } from '../stopping-run.js';
 import {
@@ -256,24 +257,39 @@ export async function startDataflow(
 }
 
 /**
- * Get workspace status (for polling).
+ * Get workspace status (for polling), conditionally: the answer carries an
+ * `ETag` naming the workspace's status revision, and a poll whose
+ * `If-None-Match` names the revision now is answered `304 Not Modified`,
+ * with nothing of the workspace read but its revision.
+ *
+ * @remarks
+ * The revision is read before the status is computed, so the tag an answer
+ * carries is never newer than its content. The tag does not name the runner's
+ * view of an execution recorded running: a client that must notice a runner
+ * gone polls unconditionally now and then.
  *
  * @param storage - Storage backend
  * @param runner - The runner the repository's tasks run on, which says
  *   whether an execution recorded running can still finish
  * @param repoPath - The repository's path
  * @param workspace - The workspace
- * @returns The response: the status, or the error
+ * @param ifNoneMatch - The poll's `If-None-Match`, when it sent one: the tag
+ *   of the answer it holds
+ * @returns The response: the status, with its `ETag`; `304 Not Modified`
+ *   when the poll holds it — each `Cache-Control: no-store`; or the error
  */
 export async function getDataflowStatus(
   storage: StorageBackend,
   runner: TaskRunner,
   repoPath: string,
-  workspace: string
+  workspace: string,
+  ifNoneMatch?: string,
 ): Promise<Response> {
   try {
+    const tag = await workspaceStatusTag(storage, repoPath, workspace, ifNoneMatch);
+    if (tag.held) return sendNotModified(tag.etag);
     const result = await workspaceStatus(storage, runner, repoPath, workspace);
-    return sendSuccess(WorkspaceStatusResultType, convertWorkspaceStatus(result));
+    return sendSuccess(WorkspaceStatusResultType, convertWorkspaceStatus(result), conditionalHeaders(tag.etag));
   } catch (err) {
     return sendError(WorkspaceStatusResultType, errorToVariant(err));
   }
@@ -490,6 +506,8 @@ export async function getDataflowExecution(
   // the next served. The run's events are read a page of `limit` at a time,
   // at most POLL_PAGES of them, so a poll reads what it serves and the events
   // between, and a run of events the API does not show is served over polls.
+  // Each page is read up to the summary's last event, so a run that goes on
+  // recording never has a page read past what the poll serves.
   let run: ExecutionStateSummary | null;
   const apiEvents: DataflowExecutionState['events'] = [];
   let nextSeq = since;
@@ -497,7 +515,7 @@ export async function getDataflowExecution(
     run = await stateStore.readLatestSummary(repoPath, workspace);
     if (run !== null && limit !== 0) {
       paging: for (let page = 0; page < POLL_PAGES && apiEvents.length < limit && seqBefore(nextSeq, run.lastSeq); page++) {
-        const stored: CoreExecutionEvent[] = await stateStore.getEventsSince(repoPath, workspace, run.id, Number(nextSeq), limit);
+        const stored: CoreExecutionEvent[] = await stateStore.getEventsSince(repoPath, workspace, run.id, Number(nextSeq), limit, Number(run.lastSeq));
         if (stored.length === 0) break;
         for (const event of stored) {
           if (seqBefore(run.lastSeq, event.value.seq)) break paging;

@@ -14,8 +14,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, equalFor, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
+import { DataflowRunType, E3_RELEASE, ExecutionStatusType, PackageObjectType, type PackageObject, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
+  comparePackageVersions,
+  packageGetLatestVersion,
+  packageObjectRead,
   packageRemove,
   packageList,
   packageResolve,
@@ -28,7 +31,7 @@ import { repoGc } from './gc.js';
 import { computeHash } from './objects.js';
 import { computeHash as nodeComputeHash } from './objects-node.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
-import { PackageInvalidError, PackageNotFoundError } from './errors.js';
+import { ObjectNotFoundError, PackageInvalidError, PackageNotFoundError } from './errors.js';
 import { ExecutionStatusBeforeReasonsType } from './upgrades/execution-stop-reasons.js';
 import {
   HeldLogStore, createTestRepo, removeTestRepo, createTempDir, removeTempDir, logsAtEachEnd, readZipEntries, withLogStore, withRelease,
@@ -555,6 +558,62 @@ describe('packages', () => {
       assert.strictEqual(packages[1].version, '1.1.0');
       assert.strictEqual(packages[2].name, 'pkg-b');
       assert.strictEqual(packages[2].version, '2.0.0');
+    });
+  });
+
+  describe('packageGetLatestVersion', () => {
+    it('picks the greatest version as a release, 1.10.0 after 1.9.0 and a prerelease before its release, reading the package\'s versions alone', async () => {
+      const memory = new InMemoryStorage();
+      await memory.repos.create('repo');
+      for (const version of ['1.9.0', '1.10.0-beta.1', '1.10.0', '1.2.3']) await memory.refs.packageWrite('repo', 'pkg', version, 'a'.repeat(64));
+      await memory.refs.packageWrite('repo', 'other', '9.0.0', 'b'.repeat(64));
+      const lists = { all: 0, versions: 0 };
+      const packageList = memory.refs.packageList.bind(memory.refs);
+      memory.refs.packageList = (repo) => { lists.all++; return packageList(repo); };
+      const packageVersions = memory.refs.packageVersions.bind(memory.refs);
+      memory.refs.packageVersions = (repo, name) => { lists.versions++; return packageVersions(repo, name); };
+
+      assert.strictEqual(await packageGetLatestVersion(memory, 'repo', 'pkg'), '1.10.0');
+      assert.strictEqual(await packageGetLatestVersion(memory, 'repo', 'none'), undefined);
+      assert.deepStrictEqual(lists, { all: 0, versions: 2 }, 'the package\'s versions, and never every package\'s');
+
+      // A workspace's export names a version that is no release: a release
+      // sorts after it, and two of them sort as strings.
+      await memory.refs.packageWrite('repo', 'pkg', 'nightly', 'c'.repeat(64));
+      assert.strictEqual(await packageGetLatestVersion(memory, 'repo', 'pkg'), '1.10.0');
+      await memory.refs.packageWrite('repo', 'names', 'beta', 'c'.repeat(64));
+      await memory.refs.packageWrite('repo', 'names', 'alpha', 'c'.repeat(64));
+      assert.strictEqual(await packageGetLatestVersion(memory, 'repo', 'names'), 'beta');
+    });
+
+    it('orders versions as releases where both are, a release after what is none, and the rest as strings', () => {
+      const ordered = ['alpha', 'beta', '1.0.0-rc.1', '1.0.0', '1.2.0', '1.10.0', '2.0.0'];
+      for (let i = 0; i < ordered.length; i++) {
+        for (let j = 0; j < ordered.length; j++) {
+          assert.strictEqual(Math.sign(comparePackageVersions(ordered[i]!, ordered[j]!)), Math.sign(i - j), `${ordered[i]} against ${ordered[j]}`);
+        }
+      }
+    });
+  });
+
+  describe('packageObjectRead', () => {
+    it('reads an object once per repository and from memory after, and never answers one repository an object another holds', async () => {
+      const memory = new InMemoryStorage();
+      await memory.repos.create('one');
+      await memory.repos.create('two');
+      const pkg: PackageObject = {
+        tasks: new Map(), data: { structure: variant('struct', new Map()), refs: new Map() }, functions: new Map(), records: new Map(), sources: new Map(),
+      };
+      const hash = await memory.objects.write('one', encodeBeast2For(PackageObjectType)(pkg));
+      let reads = 0;
+      const read = memory.objects.read.bind(memory.objects);
+      memory.objects.read = (repo, object) => { reads++; return read(repo, object); };
+
+      assert.strictEqual((await packageObjectRead(memory, 'one', hash)).tasks.size, 0);
+      await packageObjectRead(memory, 'one', hash);
+      assert.strictEqual(reads, 1, 'once, then from memory');
+      await assert.rejects(packageObjectRead(memory, 'two', hash), ObjectNotFoundError, 'a repository that does not hold it is refused, not answered from memory');
+      assert.strictEqual(reads, 2, 'the other repository reads the store');
     });
   });
 

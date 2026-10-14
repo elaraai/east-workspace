@@ -182,6 +182,22 @@ function writeRecords(records: RecordsAdapter, writes: (tx: RecordsTransaction) 
 const encodeHash = encodeBeast2For(StringType);
 const decodeHash = decodeBeast2For(StringType);
 
+/** A revision token written anew: a fresh UUID, as a String. */
+function newRevision(): Uint8Array {
+  return encodeHash(crypto.randomUUID());
+}
+
+/** A revision token's text, or `null` when there is none, or it does not
+ *  decode as one. */
+function revisionOf(data: Uint8Array | null): string | null {
+  if (data === null) return null;
+  try {
+    return decodeHash(data);
+  } catch {
+    return null;
+  }
+}
+
 /** A hash record's hash, or `null` when it does not decode as one. */
 function hashOf(data: Uint8Array | null): string | null {
   if (data === null) return null;
@@ -552,6 +568,12 @@ class WebRefStore implements RefStore {
     return (await this.records.keys(recordKeys.kind(repo, 'package'))).map((key) => ({ name: key[3]!, version: key[4]! }));
   }
 
+  /** The keys under the package's name: one per version. */
+  async packageVersions(repo: string, name: string): Promise<string[]> {
+    checkName('package', name);
+    return (await this.records.keys([...recordKeys.kind(repo, 'package'), name])).map((key) => key[4]!);
+  }
+
   async packageResolve(repo: string, name: string, version: string): Promise<string | null> {
     checkName('package', name);
     checkName('package version', version);
@@ -574,19 +596,29 @@ class WebRefStore implements RefStore {
     return (await this.records.keys(recordKeys.kind(repo, 'workspace'))).map((key) => key[3]!);
   }
 
+  /** Every workspace's record, in one scan. */
+  async workspaceReadAll(repo: string): Promise<Map<string, Uint8Array>> {
+    return new Map((await this.records.scan(recordKeys.kind(repo, 'workspace'))).map(({ key, value }) => [key[3]!, value]));
+  }
+
   async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
     checkName('workspace', name);
     return this.records.get(recordKeys.workspace(repo, name));
   }
 
+  /** Writes the record, and moves the workspace's revision, in one transaction. */
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
     checkName('workspace', name);
-    await writeRecords(this.records, (tx) => tx.put(recordKeys.workspace(repo, name), state));
+    await writeRecords(this.records, (tx) => {
+      tx.put(recordKeys.workspace(repo, name), state);
+      tx.put(recordKeys.workspaceRevision(repo, name), newRevision());
+    });
   }
 
   /**
    * Removes a workspace's record, and with it everything kept under its name:
-   * its dataset refs, its runs' records, and its runs' states and events. Its
+   * its dataset refs, its runs' records, its runs' states and events, and its
+   * revision token, in one transaction, so nothing is left for the sweep. Its
    * locks are the lock service's, which takes the state a closed tab left for
    * no one's, and writes over it when the lock is next held.
    */
@@ -594,11 +626,28 @@ class WebRefStore implements RefStore {
     checkName('workspace', name);
     await writeRecords(this.records, (tx) => {
       tx.delete(recordKeys.workspace(repo, name));
+      tx.delete(recordKeys.workspaceRevision(repo, name));
       tx.deletePrefix([...recordKeys.kind(repo, 'dataset'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'run'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'state'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'event'), name]);
     });
+  }
+
+  /** A removal takes everything under the name in its transaction: there is
+   *  nothing to sweep. */
+  workspaceSweep(_repo: string, _cursor?: string): Promise<BatchResult> {
+    return Promise.resolve({ status: 'done', deleted: 0 });
+  }
+
+  /** The workspace's token beside the repository's execution token, each
+   *  empty until something moves it. */
+  async workspaceRevision(repo: string, name: string): Promise<string | null> {
+    checkName('workspace', name);
+    const own = revisionOf(await this.records.get(recordKeys.workspaceRevision(repo, name)));
+    if (own === null && (await this.records.get(recordKeys.workspace(repo, name))) === null) return null;
+    const executions = revisionOf(await this.records.get(recordKeys.executionRevision(repo)));
+    return `${own ?? ''}:${executions ?? ''}`;
   }
 
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
@@ -613,14 +662,20 @@ class WebRefStore implements RefStore {
   }
 
   /** Writes an attempt's status, its place in the index of running attempts,
-   *  and a run's place in its task's index of runs, in one transaction. */
+   *  and, for a run, its place in its task's index of runs and the
+   *  repository's execution revision, in one transaction: a unit's write
+   *  leaves the revision, since a workspace's status answers nothing of a
+   *  unit. */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     checkExecution(taskHash, inputsHash, executionId);
     await writeRecords(this.records, (tx) => {
       tx.put(recordKeys.execution(repo, taskHash, inputsHash, executionId), encodeStatus(status));
       if (status.type === 'running') tx.put(recordKeys.running(repo, taskHash, inputsHash, executionId), RUNNING_PLACE);
       else tx.delete(recordKeys.running(repo, taskHash, inputsHash, executionId));
-      if (!status.value.unit) tx.put(recordKeys.taskRun(repo, taskHash, executionId, inputsHash), RUN_PLACE);
+      if (!status.value.unit) {
+        tx.put(recordKeys.taskRun(repo, taskHash, executionId, inputsHash), RUN_PLACE);
+        tx.put(recordKeys.executionRevision(repo), newRevision());
+      }
     });
   }
 
@@ -631,6 +686,7 @@ class WebRefStore implements RefStore {
       tx.delete(recordKeys.owner(repo, taskHash, inputsHash, executionId));
       tx.delete(recordKeys.running(repo, taskHash, inputsHash, executionId));
       tx.delete(recordKeys.taskRun(repo, taskHash, executionId, inputsHash));
+      tx.put(recordKeys.executionRevision(repo), newRevision());
     });
   }
 
@@ -662,6 +718,15 @@ class WebRefStore implements RefStore {
     checkExecution(taskHash, inputsHash);
     const [latest] = await this.records.scan([...recordKeys.kind(repo, 'execution'), taskHash, inputsHash], { reverse: true, limit: 1 });
     return latest === undefined ? null : statusOf(taskHash, inputsHash, latest.value);
+  }
+
+  /** Each execution's latest attempt, every name checked before any is read. */
+  async executionGetLatestMany(
+    repo: string,
+    executions: readonly { taskHash: string; inputsHash: string }[],
+  ): Promise<Array<ExecutionStatus | null>> {
+    for (const { taskHash, inputsHash } of executions) checkExecution(taskHash, inputsHash);
+    return Promise.all(executions.map(({ taskHash, inputsHash }) => this.executionGetLatest(repo, taskHash, inputsHash)));
   }
 
   /** Lists every execution: each task and inputs an attempt or a plan is recorded under. */
@@ -705,6 +770,12 @@ class WebRefStore implements RefStore {
       if (status?.type === 'running') listed.push({ inputsHash, status });
     }
     return listed;
+  }
+
+  /** Each task's attempts recorded running, every hash checked before any is read. */
+  async executionListRunningMany(repo: string, taskHashes: readonly string[]): Promise<Array<Array<{ inputsHash: string; status: ExecutionStatus }>>> {
+    for (const taskHash of taskHashes) checkHash('task hash', taskHash);
+    return Promise.all(taskHashes.map((taskHash) => this.executionListRunning(repo, taskHash)));
   }
 
   /** Scans a page of the task's index of runs from its latest, and reads each
@@ -1073,7 +1144,7 @@ class WebLogStore implements LogStore {
 /**
  * Per-dataset refs, each a record beside the revision its write minted — a
  * fresh UUID per write, so two byte-identical refs still differ — compared and
- * swapped in one transaction.
+ * swapped in one transaction, which moves the workspace's revision token too.
  */
 class WebDatasetRefStore implements DatasetRefStore {
   constructor(private readonly records: RecordsAdapter) {}
@@ -1091,7 +1162,10 @@ class WebDatasetRefStore implements DatasetRefStore {
 
   async write(repo: string, ws: string, path: string, ref: DatasetRef): Promise<void> {
     const key = this.key(repo, ws, path);
-    await writeRecords(this.records, (tx) => tx.put(key, encodeRevisioned({ revision: crypto.randomUUID(), ref })));
+    await writeRecords(this.records, (tx) => {
+      tx.put(key, encodeRevisioned({ revision: crypto.randomUUID(), ref }));
+      tx.put(recordKeys.workspaceRevision(repo, ws), newRevision());
+    });
   }
 
   async readVersioned(repo: string, ws: string, path: string): Promise<{ ref: DatasetRef; revision: string } | null> {
@@ -1107,6 +1181,7 @@ class WebDatasetRefStore implements DatasetRefStore {
       if (currentRevision !== expectedRevision) throw new DatasetRefConflictError(ws, path, expectedRevision, currentRevision);
       const revision = crypto.randomUUID();
       tx.put(key, encodeRevisioned({ revision, ref }));
+      tx.put(recordKeys.workspaceRevision(repo, ws), newRevision());
       return { revision };
     });
   }
@@ -1124,14 +1199,34 @@ class WebDatasetRefStore implements DatasetRefStore {
     return all;
   }
 
+  /** Reads the refs at the paths, each once, side by side: a read needs no
+   *  transaction, which would hold the records across every await. */
+  async readMany(repo: string, ws: string, paths: readonly string[]): Promise<Map<string, DatasetRef>> {
+    checkName('workspace', ws);
+    const distinct = [...new Set(paths)];
+    const read = await Promise.all(distinct.map((path) => this.records.get(recordKeys.dataset(repo, ws, path))));
+    const refs = new Map<string, DatasetRef>();
+    distinct.forEach((path, i) => {
+      const data = read[i]!;
+      if (data !== null) refs.set(path, decodeRevisioned(data).ref);
+    });
+    return refs;
+  }
+
   async remove(repo: string, ws: string, path: string): Promise<void> {
     const key = this.key(repo, ws, path);
-    await writeRecords(this.records, (tx) => tx.delete(key));
+    await writeRecords(this.records, (tx) => {
+      tx.delete(key);
+      tx.put(recordKeys.workspaceRevision(repo, ws), newRevision());
+    });
   }
 
   async removeAll(repo: string, ws: string): Promise<void> {
     checkName('workspace', ws);
-    await writeRecords(this.records, (tx) => tx.deletePrefix([...recordKeys.kind(repo, 'dataset'), ws]));
+    await writeRecords(this.records, (tx) => {
+      tx.deletePrefix([...recordKeys.kind(repo, 'dataset'), ws]);
+      tx.put(recordKeys.workspaceRevision(repo, ws), newRevision());
+    });
   }
 }
 

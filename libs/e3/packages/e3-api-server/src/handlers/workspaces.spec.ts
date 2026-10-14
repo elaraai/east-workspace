@@ -9,13 +9,19 @@
  * a runner of its own — and without one, a deploy that owes an index build
  * fails before it writes anything. While it runs, the job and the workspace's
  * lock say how far it has got. A deploy refused at its start files no job.
+ *
+ * Workspace route tests: a list reads the records in one call, a get reads
+ * the one record and never the list, and a status is answered conditionally:
+ * with an `ETag`, and `304 Not Modified` to a poll that holds it, reading
+ * nothing of the workspace but its revision, each `no-store`.
  */
 
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import {
-  DictType, NullType, OptionType, StringType, StructType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, none, some,
+  ArrayType, DictType, IntegerType, NullType, OptionType, StringType, StructType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant,
+  none, some,
 } from '@elaraai/east';
 import {
   InMemoryTransferBackend, MockTaskRunner, readRecordState, storeDatasetBytes, workspaceCreate, workspaceGetState,
@@ -24,10 +30,11 @@ import {
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import {
   BEAST2_CONTENT_TYPE, E3_RELEASE, PackageJobResponseType, PackageObjectType, RecordObjectType, RecordIndexObjectType,
-  WorkspaceDeployRequestType, WorkspaceDeployStatusType, dataflowForce, type WorkspaceDeployStatus,
+  WorkspaceDeployRequestType, WorkspaceDeployStatusType, WorkspaceInfoType, WorkspaceRecordType, WorkspaceStateType, dataflowForce,
+  type WorkspaceDeployStatus,
 } from '@elaraai/e3-types';
 import { createWorkspaceRoutes } from '../routes/workspaces.js';
-import { LockStatusType, ResponseType, type LockStatus } from '../types.js';
+import { LockStatusType, ResponseType, WorkspaceStatusResultType, type LockStatus } from '../types.js';
 
 const REPO = 'test-repo';
 const WS = 'main';
@@ -281,5 +288,127 @@ describe('deploy route', () => {
       })), name);
     }
     assert.equal(filed.mock.callCount(), 0, 'no job was filed');
+  });
+});
+
+/**
+ * A repository holding `main`, with a package of one input, `inputs/x`,
+ * deployed to it, and `empty`, nothing deployed to it.
+ */
+async function seedStatusWorkspaces(storage: InMemoryStorage): Promise<void> {
+  await storage.repos.create(REPO);
+  const x = await storeDatasetBytes(storage, REPO, encodeBeast2For(IntegerType)(1n));
+  const structure = variant('struct', new Map([
+    ['inputs', variant('struct', new Map([['x', variant('value', { type: toEastTypeValue(IntegerType), writable: true })]]))],
+  ]));
+  const pkg = await storage.objects.write(REPO, encodeBeast2For(PackageObjectType)({
+    tasks: new Map(),
+    data: { structure, refs: new Map([['inputs/x', variant('value', { hash: x, versions: new Map() })]]) },
+    functions: new Map(),
+    records: new Map(),
+    sources: new Map(),
+  }));
+  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
+    packageName: 'one', packageVersion: '1.0.0', packageHash: pkg, deployedAt: new Date(0), currentRunId: none,
+  })));
+  await storage.datasets.write(REPO, WS, 'inputs/x', variant('value', { hash: x, versions: new Map() }));
+  await workspaceCreate(storage, REPO, 'empty');
+}
+
+/** Counts the calls of a method of `target`. */
+function countOf(target: object, method: string): { calls: number } {
+  const original = (target as Record<string, (...args: unknown[]) => unknown>)[method]!.bind(target);
+  const seen = { calls: 0 };
+  (target as Record<string, unknown>)[method] = (...args: unknown[]) => {
+    seen.calls++;
+    return original(...args);
+  };
+  return seen;
+}
+
+describe('workspace routes', () => {
+  let storage: InMemoryStorage;
+  let app: Hono;
+
+  beforeEach(async () => {
+    storage = new InMemoryStorage();
+    await seedStatusWorkspaces(storage);
+    app = routes(storage);
+  });
+
+  it('list every workspace with what is deployed to it, reading the records in one call and none on its own', async () => {
+    const all = countOf(storage.refs, 'workspaceReadAll');
+    const each = countOf(storage.refs, 'workspaceRead');
+    const response = await app.request('/api/repos/r/workspaces');
+    const answer = decodeBeast2For(ResponseType(ArrayType(WorkspaceInfoType)))(new Uint8Array(await response.arrayBuffer()));
+    if (answer.type !== 'success') assert.fail(`the list was refused: ${answer.value.type}`);
+    assert.deepEqual(answer.value.map(({ name, deployed, packageName }) => [name, deployed, packageName.type === 'some' ? packageName.value : null]).sort(),
+      [['empty', false, null], [WS, true, 'one']]);
+    assert.deepEqual([all.calls, each.calls], [1, 0]);
+  });
+
+  it('get a workspace from its record alone: its state, that nothing is deployed to it, or that there is none, never listing the repository', async () => {
+    const lists = countOf(storage.refs, 'workspaceList');
+    const decode = decodeBeast2For(ResponseType(WorkspaceStateType));
+    const get = async (ws: string) => decode(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/${ws}`)).arrayBuffer()));
+    const deployed = await get(WS);
+    assert.equal(deployed.type === 'success' && deployed.value.packageName, 'one');
+    const empty = await get('empty');
+    assert.equal(empty.type === 'error' && empty.value.type, 'workspace_not_deployed');
+    const missing = await get('nope');
+    assert.equal(missing.type === 'error' && missing.value.type, 'workspace_not_found');
+    assert.equal(lists.calls, 0, 'the record says which, so the repository is never listed');
+  });
+
+  it('answer a status with its ETag, 304 to a poll holding it without reading the workspace, each no-store, and the status again once anything moved', async () => {
+    const decode = decodeBeast2For(ResponseType(WorkspaceStatusResultType));
+    const status = async (headers: Record<string, string> = {}, ws = WS) => {
+      const response = await app.request(`/api/repos/r/workspaces/${ws}/status`, { headers });
+      const body = new Uint8Array(await response.arrayBuffer());
+      return { code: response.status, etag: response.headers.get('etag'), cache: response.headers.get('cache-control'), body: body.length === 0 ? null : decode(body) };
+    };
+    const first = await status();
+    assert.equal(first.code, 200);
+    assert.match(first.etag ?? '', /^"[0-9a-f]{64}"$/, 'the ETag names the status revision');
+    assert.equal(first.cache, 'no-store', 'no cache keeps a status');
+    assert.equal(first.body?.type, 'success');
+    const etag = first.etag!;
+
+    // The poll holds the answer: nothing of the workspace is read but its revision.
+    const refs = countOf(storage.datasets, 'readAll');
+    const manys = countOf(storage.datasets, 'readMany');
+    const objects = countOf(storage.objects, 'read');
+    for (const held of [etag, `W/${etag}`, `"other", ${etag}`, '*']) {
+      assert.deepEqual(await status({ 'If-None-Match': held }), { code: 304, etag, cache: 'no-store', body: null }, held);
+    }
+    assert.deepEqual([refs.calls, manys.calls, objects.calls], [0, 0, 0], 'no ref and no object read for a 304');
+    const other = await status({ 'If-None-Match': '"not-it"' });
+    assert.deepEqual([other.code, other.etag, other.body?.type], [200, etag, 'success'], 'a tag the answer does not have is answered the status');
+
+    // A dataset written: the status again, with a new tag
+    const x = await storage.datasets.read(REPO, WS, 'inputs/x');
+    assert.ok(x !== null);
+    await storage.datasets.write(REPO, WS, 'inputs/x', x);
+    const moved = await status({ 'If-None-Match': etag });
+    assert.equal(moved.code, 200);
+    assert.notEqual(moved.etag, etag, 'the revision moved');
+    assert.equal(moved.body?.type, 'success');
+    // The workspace held: a status that says so has a tag of its own
+    const lock = await storage.locks.acquire(REPO, WS, variant('deployment', null));
+    assert.ok(lock !== null);
+    try {
+      const held = await status({ 'If-None-Match': moved.etag! });
+      assert.equal(held.code, 200);
+      assert.notEqual(held.etag, moved.etag, 'the lock moves the tag');
+    } finally {
+      await lock.release();
+    }
+
+    // No such workspace: the error, however the poll asks, and no tag
+    const polls: Record<string, string>[] = [{}, { 'If-None-Match': etag }];
+    for (const headers of polls) {
+      const missing = await status(headers, 'nope');
+      assert.deepEqual([missing.code, missing.etag, missing.body?.type === 'error' && missing.body.value.type], [200, null, 'workspace_not_found']);
+    }
   });
 });

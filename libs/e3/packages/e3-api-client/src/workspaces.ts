@@ -27,7 +27,9 @@ import {
   ResponseType,
 } from './types.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { get, post, del, fetchWithAuth, fetchWithProgress, retryingRefusal, ApiError, type RequestOptions } from './http.js';
+import {
+  get, getConditional, post, del, fetchWithAuth, fetchWithProgress, retryingRefusal, ApiError, type RequestOptions,
+} from './http.js';
 import { JOB_POLL_MAX_MS, JOB_POLL_MIN_MS, pollExport } from './packages.js';
 
 /**
@@ -133,12 +135,22 @@ export interface WorkspaceStatusQuery {
   paths?: readonly TreePath[];
 }
 
+/** The path of a workspace's status, with the datasets a query names. */
+function statusPath(repo: string, name: string, query: WorkspaceStatusQuery): string {
+  const params = new URLSearchParams();
+  for (const path of query.paths ?? []) params.append('path', pathToString(path));
+  const search = params.toString();
+  return `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/status${search === '' ? '' : `?${search}`}`;
+}
+
 /**
  * Get comprehensive workspace status including datasets, tasks, and lock info.
  *
  * Use this to poll for execution progress after calling dataflowExecuteLaunch().
  * A poll that follows a few datasets asks for those (`query.paths`), and costs
- * the server what it follows rather than the workspace.
+ * the server what it follows rather than the workspace. One that asks again
+ * and again asks conditionally ({@link workspaceStatusSince}), and is told
+ * when nothing changed.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -156,15 +168,54 @@ export async function workspaceStatus(
   options: RequestOptions,
   query: WorkspaceStatusQuery = {},
 ): Promise<WorkspaceStatusResult> {
-  const params = new URLSearchParams();
-  for (const path of query.paths ?? []) params.append('path', pathToString(path));
-  const search = params.toString();
-  return get(
-    url,
-    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/status${search === '' ? '' : `?${search}`}`,
-    WorkspaceStatusResultType,
-    options
-  );
+  return get(url, statusPath(repo, name, query), WorkspaceStatusResultType, options);
+}
+
+/** A workspace's status, with the tag it was answered under. */
+export interface WorkspaceStatusAnswer {
+  /** The status */
+  readonly status: WorkspaceStatusResult;
+  /** The answer's `ETag`, which the next ask sends back; `null` when the
+   *  server named none */
+  readonly etag: string | null;
+}
+
+/**
+ * Get workspace status conditionally: the status with its `ETag`, or `null`
+ * when the server says the status answered under `etag` is current.
+ *
+ * @remarks
+ * The server's tag names the workspace's status revision, which moves with
+ * every write of a dataset ref, of the workspace's record, of any execution
+ * record of the repository, and with the workspace's lock. A poll that
+ * holds the last answer's tag asks with it: while nothing has moved, the
+ * server answers `304 Not Modified`, reading the revision and nothing else
+ * of the workspace. The tag does not name the runner's view of an execution
+ * recorded running, so a poll that must notice a runner gone asks
+ * unconditionally (`etag` `null`) now and then.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param name - Workspace name
+ * @param etag - The tag of the last status the poll was given; `null` for
+ *   none, which asks unconditionally
+ * @param options - Request options including auth token
+ * @param query - The datasets to answer for; the whole workspace when omitted
+ * @returns The status and its tag, or `null` when the status answered under
+ *   `etag` is current
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceStatusSince(
+  url: string,
+  repo: string,
+  name: string,
+  etag: string | null,
+  options: RequestOptions,
+  query: WorkspaceStatusQuery = {},
+): Promise<WorkspaceStatusAnswer | null> {
+  const answer = await getConditional(url, statusPath(repo, name, query), WorkspaceStatusResultType, etag, options);
+  return answer === null ? null : { status: answer.value, etag: answer.etag };
 }
 
 /**
@@ -373,6 +424,6 @@ export async function workspaceExport(
   const { downloadUrl } = status.value;
 
   // 3. Download zip (no auth — URL may be a presigned S3 URL)
-  return fetchWithProgress(downloadUrl, exportOptions?.onDownloadProgress, signal, options.fetch);
+  return fetchWithProgress(downloadUrl, exportOptions?.onDownloadProgress, signal, options.fetch, options.retry);
 }
 

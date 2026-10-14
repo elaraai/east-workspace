@@ -33,6 +33,7 @@ import { DATAFLOW_EVENTS_APART, dataflowEventsApart } from '../upgrades/dataflow
 import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
 import { RUNNING_EXECUTIONS_INDEXED } from '../upgrades/running-executions-indexed.js';
+import { STATUS_REVISION_TOKENS, statusRevisionTokens } from '../upgrades/status-revision-tokens.js';
 import { TASK_RUNS_INDEXED } from '../upgrades/task-runs-indexed.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate } from '../workspaces.js';
@@ -928,6 +929,45 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         assert.equal((await storage.refs.executionListRuns(repo, task, { limit: 10 })).length, 2);
       } finally {
         storage.refs.executionWrite = write;
+      }
+    });
+
+    it('gives every workspace the revision token its status is computed over, writing its record again as it is, and no other record', async (t) => {
+      const { storage, repo } = await setup(t);
+      const record = await repositoryOpen(storage, repo);
+      // A repository an earlier release wrote, which has not had the upgrade.
+      const before = { release: '1.0.88', upgrades: record.upgrades.filter(({ name }) => name !== STATUS_REVISION_TOKENS) };
+      await storage.refs.repositoryWrite(repo, before);
+      await storage.refs.workspaceWrite(repo, 'main', encodeBeast2For(WorkspaceRecordType)(none));
+      await storage.refs.workspaceWrite(repo, 'other', encodeBeast2For(WorkspaceRecordType)(none));
+      const records = async () => new Map([...await storage.refs.workspaceReadAll(repo)].map(([name, bytes]) => [name, [...bytes]]));
+      const tokens = async () => [await storage.refs.workspaceRevision(repo, 'main'), await storage.refs.workspaceRevision(repo, 'other')];
+      const held = await records();
+      const moved = await tokens();
+
+      // What the opens write, by workspace.
+      const writes: string[] = [];
+      const write = storage.refs.workspaceWrite.bind(storage.refs);
+      storage.refs.workspaceWrite = (r, name, state) => {
+        writes.push(name);
+        return write(r, name, state);
+      };
+      try {
+        const opened = await repositoryOpen(storage, repo);
+        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: STATUS_REVISION_TOKENS, release: E3_RELEASE }]);
+        assert.deepEqual([...writes].sort(), ['main', 'other'], 'every workspace\'s record is written again, and no other');
+        assert.deepEqual(await records(), held, 'each as it was');
+        const after = await tokens();
+        assert.ok(after.every((token, i) => token !== null && token !== moved[i]), `each token moved: ${after.join(', ')}`);
+
+        // Cut short by a crash, the upgrade runs again whole, and writes the
+        // records again as they are.
+        writes.length = 0;
+        assert.equal(await statusRevisionTokens.apply(storage, repo, null, 0), null, 'a part holds both workspaces');
+        assert.deepEqual([...writes].sort(), ['main', 'other']);
+        assert.deepEqual(await records(), held);
+      } finally {
+        storage.refs.workspaceWrite = write;
       }
     });
   });

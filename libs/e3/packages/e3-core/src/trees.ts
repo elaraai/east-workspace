@@ -31,10 +31,10 @@ import {
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, WorkspaceRecordType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceRecordType, checkDatasetType, datasetAddress, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
-import { packageRead } from './packages.js';
+import { packageObjectRead, packageRead } from './packages.js';
 import { withRunningWork } from './running-work.js';
 import {
   WorkspaceNotFoundError,
@@ -564,7 +564,8 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
 
 /**
  * Get root structure for a workspace.
- * Reads the deployed package object to get the structure.
+ * Reads the deployed package object to get the structure: once per package,
+ * and then from memory ({@link packageObjectRead}).
  */
 async function getWorkspaceStructure(
   storage: StorageBackend,
@@ -572,11 +573,7 @@ async function getWorkspaceStructure(
   ws: string
 ): Promise<{ rootStructure: Structure }> {
   const wsState = await readWorkspaceState(storage, repo, ws);
-
-  // Read the deployed package object using the stored hash
-  const pkgData = await storage.objects.read(repo, wsState.packageHash);
-  const pkgObject = decodePackageObject(pkgData);
-
+  const pkgObject = await packageObjectRead(storage, repo, wsState.packageHash);
   return {
     rootStructure: pkgObject.data.structure,
   };
@@ -1006,6 +1003,10 @@ function getTaskOutputTypeFromStructure(structure: Structure): EastTypeValue | u
  *
  * Recursively walks the structure and ref files to build a hierarchical
  * structure suitable for display. Tasks are shown as leaves with their output type.
+ * With `includeStatus`, the refs of the leaves the listing reaches are read
+ * in one call (`DatasetRefStore.readMany`), not one per leaf nor the whole
+ * workspace's; each stored collection's size is read from its manifest, once
+ * per object.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -1044,22 +1045,47 @@ export async function workspaceGetTree(
     throw new Error(`Path '${pathStr}' points to a dataset, not a tree`);
   }
 
-  return walkStructure(storage, repo, ws, targetStructure, pathPrefix, 0, maxDepth, includeTypes, includeStatus);
+  // The refs of the leaves the listing reaches, in one call, when their
+  // statuses are asked for: not the whole workspace's, which a listing of one
+  // subtree would read for nothing
+  let refs: ReadonlyMap<string, DatasetRef> | undefined;
+  if (includeStatus) {
+    const paths = leafRefPaths(targetStructure, pathPrefix, 0, maxDepth);
+    refs = paths.length === 0 ? new Map() : await storage.datasets.readMany(repo, ws, paths);
+  }
+  return walkStructure(storage, repo, targetStructure, pathPrefix, 0, maxDepth, includeTypes, refs);
 }
 
 /**
- * Recursively walk structure and build TreeNode array using ref files.
+ * The ref paths of the leaves a listing reaches, as {@link walkStructure}
+ * reaches them: each dataset's, each task's output's, and those of each
+ * subtree within `maxDepth`.
+ */
+function leafRefPaths(structure: Structure, pathPrefix: string, currentDepth: number, maxDepth: number | undefined): string[] {
+  if (structure.type !== 'struct') return [];
+  const paths: string[] = [];
+  for (const [fieldName, childStructure] of structure.value) {
+    const childPath = pathPrefix ? `${pathPrefix}/${fieldName}` : fieldName;
+    if (childStructure.type === 'value') paths.push(childPath);
+    else if (isTaskStructure(childStructure)) paths.push(`${childPath}/output`);
+    else if (maxDepth === undefined || currentDepth < maxDepth) paths.push(...leafRefPaths(childStructure, childPath, currentDepth + 1, maxDepth));
+  }
+  return paths;
+}
+
+/**
+ * Recursively walk structure and build TreeNode array, each leaf's status
+ * from the refs read, when they were.
  */
 async function walkStructure(
   storage: StorageBackend,
   repo: string,
-  ws: string,
   structure: Structure,
   pathPrefix: string,
   currentDepth: number,
   maxDepth: number | undefined,
   includeTypes: boolean | undefined,
-  includeStatus: boolean | undefined
+  refs: ReadonlyMap<string, DatasetRef> | undefined
 ): Promise<TreeNode[]> {
   if (structure.type !== 'struct') {
     throw new Error('Expected struct structure for tree walk');
@@ -1078,8 +1104,8 @@ async function walkStructure(
         datasetType: includeTypes ? childStructure.value.type as EastTypeValue : undefined,
       };
 
-      if (includeStatus) {
-        const ref = await storage.datasets.read(repo, ws, childPath);
+      if (refs !== undefined) {
+        const ref = refs.get(childPath);
         if (!ref || ref.type === 'unassigned') {
           node.refType = 'unassigned';
         } else if (ref.type === 'null') {
@@ -1105,10 +1131,9 @@ async function walkStructure(
         datasetType: includeTypes ? getTaskOutputTypeFromStructure(childStructure) : undefined,
       };
 
-      if (includeStatus) {
-        // Read the output ref for the task
-        const outputRefPath = `${childPath}/output`;
-        const outputRef = await storage.datasets.read(repo, ws, outputRefPath);
+      if (refs !== undefined) {
+        // The task's output ref
+        const outputRef = refs.get(`${childPath}/output`);
         if (!outputRef || outputRef.type === 'unassigned') {
           node.refType = 'unassigned';
         } else if (outputRef.type === 'null') {
@@ -1130,13 +1155,12 @@ async function walkStructure(
       children = await walkStructure(
         storage,
         repo,
-        ws,
         childStructure,
         childPath,
         currentDepth + 1,
         maxDepth,
         includeTypes,
-        includeStatus
+        refs
       );
     }
 

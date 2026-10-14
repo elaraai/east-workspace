@@ -30,11 +30,14 @@ import {
   computeBackoffMs,
   isRetryableNetworkError,
   get,
+  getConditional,
   del,
   post,
   put,
   putEmpty,
+  pollRequestOptions,
   ApiError,
+  NO_RETRY,
   type RetryOptions,
 } from './http.js';
 // Through the root entry, as a host reaches it.
@@ -312,6 +315,80 @@ describe('helper idempotency wiring', () => {
       ApiError,
     );
     assert.equal(m.calls, 3); // key makes the retry safe
+  });
+});
+
+// ===========================================================================
+// Conditional GET, and a poll's one attempt
+// ===========================================================================
+
+describe('getConditional', () => {
+  const answer = (etag: string): globalThis.Response => new Response(
+    encodeBeast2For(ResponseType(IntegerType))(variant('success', 42n)),
+    { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE, ETag: etag } },
+  );
+
+  it('asks with the tag it holds, and decodes an answer with the tag it carries', async () => {
+    const sent: (string | null)[] = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('if-none-match'));
+      return answer('"two"');
+    }) as typeof fetch;
+    assert.deepEqual(await getConditional(URL, '/x', IntegerType, null, { token: null }), { value: 42n, etag: '"two"' });
+    assert.deepEqual(await getConditional(URL, '/x', IntegerType, '"one"', { token: 'tok' }), { value: 42n, etag: '"two"' });
+    assert.deepEqual(sent, [null, '"one"'], 'no tag for a first ask, then the one held');
+  });
+
+  it('answers null to a 304, reading no body', async () => {
+    const m = mockFetch([() => new Response(null, { status: 304, headers: { ETag: '"one"' } })]);
+    assert.equal(await getConditional(URL, '/x', IntegerType, '"one"', { token: null }), null);
+    assert.equal(m.calls, 1);
+  });
+
+  it('answers an answer with no tag as one, whose next ask is unconditional', async () => {
+    mockFetch([() => new Response(
+      encodeBeast2For(ResponseType(IntegerType))(variant('success', 42n)),
+      { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } },
+    )]);
+    assert.deepEqual(await getConditional(URL, '/x', IntegerType, '"one"', { token: null }), { value: 42n, etag: null });
+  });
+
+  it('throws the error an answer carries, and retries a network error as get does', async () => {
+    mockFetch([() => new Response(
+      encodeBeast2For(ResponseType(IntegerType))(variant('error', variant('workspace_not_found', { workspace: 'ws' }))),
+      { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } },
+    )]);
+    await assert.rejects(getConditional(URL, '/x', IntegerType, null, { token: null }),
+      (err: unknown) => err instanceof ApiError && err.code === 'workspace_not_found');
+    const m = mockFetch([networkError, () => answer('"one"')]);
+    assert.deepEqual(await getConditional(URL, '/x', IntegerType, null, { token: null, retry: NO_WAIT }), { value: 42n, etag: '"one"' });
+    assert.equal(m.calls, 2);
+  });
+});
+
+describe('pollRequestOptions', () => {
+  it('gives a poll one attempt unless its caller set a policy, which it keeps', () => {
+    assert.deepEqual(pollRequestOptions({ token: 'tok' }), { token: 'tok', retry: NO_RETRY });
+    const own = { token: null, retry: { attempts: 2 } };
+    assert.equal(pollRequestOptions(own), own);
+  });
+
+  it('makes a poll\'s request once: a network error is the poll\'s, and its next poll its retry', async () => {
+    const m = mockFetch([networkError, ok]);
+    await assert.rejects(get(URL, '/x', IntegerType, pollRequestOptions({ token: null })), /fetch failed/);
+    assert.equal(m.calls, 1);
+    const transient = mockFetch([() => status(503), ok]);
+    await assert.rejects(getConditional(URL, '/x', IntegerType, null, pollRequestOptions({ token: null })), ApiError);
+    assert.equal(transient.calls, 1);
+  });
+
+  it('a download takes the caller\'s policy too', async () => {
+    const m = mockFetch([networkError, ok]);
+    await assert.rejects(fetchWithProgress(URL, undefined, undefined, undefined, NO_RETRY), /fetch failed/);
+    assert.equal(m.calls, 1);
+    const retried = mockFetch([networkError, () => new Response('ok', { status: 200 })]);
+    assert.deepEqual(await fetchWithProgress(URL, undefined, undefined, undefined, NO_WAIT), new TextEncoder().encode('ok'));
+    assert.equal(retried.calls, 2);
   });
 });
 

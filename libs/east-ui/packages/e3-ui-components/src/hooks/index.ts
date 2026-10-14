@@ -10,7 +10,7 @@ export * from './workspaces.js';
 export * from './datasets.js';
 export * from './tasks.js';
 export * from './executions.js';
-export { useDatasetStatus, type DatasetStatus, type UseDatasetStatusOptions } from './useDatasetStatus.js';
+export { useDatasetStatus, DATASET_STATUS_POLL_MS, type DatasetStatus, type UseDatasetStatusOptions } from './useDatasetStatus.js';
 export { useDatasetValue, useDatasetDownload, downloadDataset, type DatasetValueResult, type UseDatasetValueOptions } from './useDatasetValue.js';
 export { useDatasetPage, type DatasetPageResult, type UseDatasetPageOptions, type DatasetPageWindow } from './useDatasetPage.js';
 export { useTaskDetails, type UseTaskDetailsOptions } from './useTaskDetails.js';

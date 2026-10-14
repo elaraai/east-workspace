@@ -36,6 +36,10 @@ export { createRepositoryGate, createSingleRepositoryGate, type RepositoryGateOp
 // Export BEAST2 helpers for custom integrations
 export { sendSuccess, sendError, sendSuccessWithStatus, decodeBeast2, decodeBody } from './beast2.js';
 
+// Conditional answers: the tag a status is answered by, the headers an answer
+// carries it in, and the 304 that answers a poll which holds it
+export { conditionalHeaders, etagOf, etagMatches, sendNotModified, workspaceStatusTag } from './conditional.js';
+
 // Errors, answered as every route answers them: what a host's own routes
 // answer with, so they answer as upstream's do
 export { errorToVariant, errorToHttpStatus, sendJsonError, sendUpgradePending } from './errors.js';

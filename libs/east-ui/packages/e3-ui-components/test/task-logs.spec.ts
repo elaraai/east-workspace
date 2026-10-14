@@ -12,7 +12,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { LogOptions, TaskLogChunk } from '@elaraai/e3-api-client';
-import { LOG_POLL_BACKOFF_MS, LOG_POLL_MS, nextLogPollMs, readTaskLogOn, type TaskLogRead } from '../src/hooks/useTaskLogsHook.js';
+import { LOG_POLL_BACKOFF_MS, LOG_POLL_ENDED_MS, LOG_POLL_MS, nextLogPollMs, readTaskLogOn, type TaskLogRead } from '../src/hooks/useTaskLogsHook.js';
 
 /** An execution's log as a server holds it. */
 interface HeldExecution {
@@ -105,7 +105,7 @@ describe('a task\'s log, polled', () => {
         assert.deepEqual([after.log.data.length, after.log.ended, after.changed], [10 * 1024 * 1024, true, true]);
     });
 
-    it('polls every second while it changes, backs off to 5 s while it does not, and waits the longest once its execution has ended and its log is read', () => {
+    it('polls every second while it changes, backs off to 5 s while it does not, and every half minute once its execution has ended and its log is read', () => {
         const running: TaskLogRead = { data: '', inputsHash: INPUTS, executionId: FIRST, offset: 0, totalSize: 0, complete: true, ended: false };
         const waits: number[] = [];
         let wait = LOG_POLL_MS;
@@ -114,7 +114,15 @@ describe('a task\'s log, polled', () => {
             waits.push(wait);
         }
         assert.deepEqual(waits, [2000, 4000, 5000, 5000, LOG_POLL_MS]);
-        assert.equal(nextLogPollMs(LOG_POLL_MS, { ...running, ended: true }, true), LOG_POLL_BACKOFF_MS);
+        assert.equal(nextLogPollMs(LOG_POLL_MS, { ...running, ended: true }, true), LOG_POLL_ENDED_MS, 'the log grows no more: a poll for another execution');
+        assert.equal(nextLogPollMs(LOG_POLL_ENDED_MS, { ...running, ended: true }, false), LOG_POLL_ENDED_MS, 'and again while there is none');
         assert.equal(nextLogPollMs(LOG_POLL_MS, { ...running, ended: true, complete: false }, true), LOG_POLL_MS, 'an ended log read on until it is read');
+        // A poll, or a read made for another reason, found a new execution: the polls start again.
+        assert.equal(nextLogPollMs(LOG_POLL_ENDED_MS, running, true), LOG_POLL_MS);
+        // The intervals given.
+        assert.deepEqual([nextLogPollMs(500, running, false, 500, 2000), nextLogPollMs(1500, running, false, 500, 2000), nextLogPollMs(2000, running, true, 500, 2000)],
+            [1000, 2000, 500]);
+        assert.equal(nextLogPollMs(500, { ...running, ended: true }, true, 500, 2000, 9000), 9000);
+        assert.deepEqual([LOG_POLL_BACKOFF_MS, LOG_POLL_ENDED_MS], [5000, 30_000]);
     });
 });
