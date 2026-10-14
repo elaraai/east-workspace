@@ -36,6 +36,7 @@ import { Hono } from 'hono';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Context, Next } from 'hono';
 import { rackBodyLimit } from './body-limit.js';
+import { mapBounded } from './bounded.js';
 import { BooleanType, none, some, variant } from '@elaraai/east';
 import { isObjectHash, uuidv7, type LogStore } from '@elaraai/e3-core';
 import {
@@ -121,6 +122,10 @@ export interface RackRouteOptions {
   leaseWindowMs?: number;
   /** Claim re-check interval while long-polling. */
   pollIntervalMs?: number;
+  /** Maximum idle claim interval; defaults to pollIntervalMs (no backoff). */
+  pollMaxMs?: number;
+  /** Idle policy refresh interval; defaults to every check. Claims always read it afresh. */
+  policyRecheckMs?: number;
   /** Read-only cancellation watch window (default 20 s, capped at 20 s). */
   watchWindowMs?: number;
   /** Re-check cancellation while a watch is held (default 250 ms). */
@@ -173,6 +178,8 @@ export const MAX_RACK_OBJECT_BYTES = 5 * 1024 ** 3;
 
 /** The leases whose closures a route keeps read, the least recently used forgotten first. */
 const CLOSURE_CACHE_LIMIT = 64;
+/** Bound backend reads and signing work without serializing each object. */
+const STORAGE_READS_AT_ONCE = 8;
 
 const DEFAULT_LEASE_WINDOW_MS = 20_000;
 /** Claim re-check cadence inside a held window. 250 ms keeps interactive
@@ -181,8 +188,6 @@ const DEFAULT_LEASE_WINDOW_MS = 20_000;
  *  on DynamoDB on-demand; the held API-Lambda invocation dominates cost
  *  either way). */
 const DEFAULT_POLL_INTERVAL_MS = 250;
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function unauthorized(message: string): Response {
   return new Response(
@@ -274,6 +279,8 @@ export function createRackRoutes(
   const coordinator = options?.coordinator ?? backendLeaseCoordinator;
   const leaseWindowMs = options?.leaseWindowMs ?? DEFAULT_LEASE_WINDOW_MS;
   const pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const pollMaxMs = Math.max(pollIntervalMs, options?.pollMaxMs ?? pollIntervalMs);
+  const policyRecheckMs = Math.max(0, options?.policyRecheckMs ?? 0);
   const visibilityMs = options?.visibilityMs ?? DEFAULT_VISIBILITY_MS;
   const watchWindowMs = Math.max(1, Math.min(20_000, options?.watchWindowMs ?? 20_000));
   const watchPollIntervalMs = Math.max(1, options?.watchPollIntervalMs ?? 250);
@@ -406,8 +413,12 @@ export function createRackRoutes(
     }
 
     const deadline = Date.now() + leaseWindowMs;
+    let waitMs = pollIntervalMs;
+    let policyCheckedAt = Number.NEGATIVE_INFINITY;
+    let requireStartApproval = false;
+    const signal = options?.signal ? AbortSignal.any([c.req.raw.signal, options.signal]) : c.req.raw.signal;
     for (;;) {
-      if (c.req.raw.signal.aborted || options?.signal?.aborted) return c.body(null, 204);
+      if (signal.aborted) return c.body(null, 204);
       const currentRack = await settingsStore.getRack(rackId);
       if (currentRack === null) return unauthorized('Rack is deregistered');
       // Start-approval quarantine (D12): only the APPROVED boot receives
@@ -415,13 +426,14 @@ export function createRackRoutes(
       // ordering can leak a grant to an unapproved restart. The check
       // lives INSIDE the poll loop: a quarantined agent holds its window
       // open like any idle agent (same pacing, no hot 204 loop) and an
-      // approval landing mid-window grants within one poll interval.
-      let quarantined = false;
-      const security = await settingsStore.getRackSecurityPolicy();
-      if (security?.requireStartApproval === true) {
-        const approved = (await settingsStore.getRack(rackId))?.approvedBootId;
-        quarantined = !(approved !== undefined && approved.type === 'some' && approved.value === bootId);
+      // approval landing mid-window grants within the current poll interval.
+      // Only idle checks may reuse a policy; every actual claim revalidates it.
+      if (Date.now() - policyCheckedAt >= policyRecheckMs) {
+        requireStartApproval = (await settingsStore.getRackSecurityPolicy())?.requireStartApproval === true;
+        policyCheckedAt = Date.now();
       }
+      const quarantined = requireStartApproval
+        && !(currentRack.approvedBootId.type === 'some' && currentRack.approvedBootId.value === bootId);
 
       if (!quarantined && currentRack.healthy && currentRack.capacity > 0n
         && currentRack.lastSeenAt.getTime() >= now() - DEFAULT_HEALTHY_WINDOW_MS) {
@@ -432,7 +444,18 @@ export function createRackRoutes(
           if (current === null) return null;
           // A lease written before #214 is no work this build runs
           if (!isLeaseEventV2(current.event)) return null;
-          if (options?.canClaim !== undefined && !(await options.canClaim(currentRack, current))) return null;
+          // A drain, revocation or policy change can land during the queue read
+          // or while waiting for this lease's fence. Never grant from cached permission.
+          const [claimRack, security] = await Promise.all([
+            settingsStore.getRack(rackId), settingsStore.getRackSecurityPolicy(),
+          ]);
+          if (claimRack === null) return unauthorized('Rack is deregistered');
+          if (signal.aborted || !claimRack.healthy || claimRack.capacity <= 0n
+            || claimRack.lastSeenAt.getTime() < now() - DEFAULT_HEALTHY_WINDOW_MS
+            || leaseRefusal(claimRack.agentVersion) !== null
+            || (security?.requireStartApproval === true
+              && !(claimRack.approvedBootId.type === 'some' && claimRack.approvedBootId.value === bootId))) return null;
+          if (options?.canClaim !== undefined && !(await options.canClaim(claimRack, current))) return null;
           // A task or unit lease's claim runs an attempt, which the cloud
           // records: the rack cannot (#214)
           const attempt = isFunctionLease(candidate.event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
@@ -478,10 +501,11 @@ export function createRackRoutes(
           if (grant !== null) return grant;
         }
       }
-      if (Date.now() + pollIntervalMs >= deadline) {
+      if (Date.now() + waitMs >= deadline) {
         return c.body(null, 204);
       }
-      await sleep(pollIntervalMs);
+      await delay(waitMs, undefined, { signal }).catch(() => {});
+      waitMs = Math.min(pollMaxMs, Math.round(waitMs * 1.5));
     }
   });
 
@@ -514,18 +538,12 @@ export function createRackRoutes(
 
     // A lease is dead to this agent when it is terminal-for-someone-else:
     // cancelled, superseded, gone, or reclaimed by another rack after expiry.
-    const stop: RackLeaseRef[] = [];
-    for (const ref of heartbeat.runningLeases) {
-      const lease = await leaseStore.get(ref.repo, ref.leaseId);
-      if (
-        lease === null ||
-        lease.status === 'cancelled' ||
-        lease.status === 'superseded' ||
-        (lease.status === 'claimed' && lease.claimedBy !== rackId)
-      ) {
-        stop.push({ repo: ref.repo, leaseId: ref.leaseId });
-      }
-    }
+    const running = await mapBounded(heartbeat.runningLeases, STORAGE_READS_AT_ONCE, ref => leaseStore.get(ref.repo, ref.leaseId));
+    const stop = heartbeat.runningLeases.filter((_ref, i) => {
+      const lease = running[i]!;
+      return lease === null || lease.status === 'cancelled' || lease.status === 'superseded'
+        || (lease.status === 'claimed' && lease.claimedBy !== rackId);
+    });
 
     const security = await settingsStore.getRackSecurityPolicy();
     const pendingApproval =
@@ -574,7 +592,7 @@ export function createRackRoutes(
     for (;;) {
       if (signal.aborted) return c.body(null, 204);
       if (await settingsStore.getRack(rackId) === null) return unauthorized('Rack is deregistered');
-      const states = await Promise.all(refs.map(ref => leaseStore.get(ref.repo, ref.leaseId)));
+      const states = await mapBounded(refs, STORAGE_READS_AT_ONCE, ref => leaseStore.get(ref.repo, ref.leaseId));
       const stop = refs.filter((_ref, i) => {
         const lease = states[i];
         return lease == null || lease.claimedBy !== rackId || lease.status !== 'claimed';
@@ -749,15 +767,12 @@ export function createRackRoutes(
       }
     }
 
-    const objects: RackObjectDescriptor[] = [];
-    for (const hash of request.need) {
+    const objects = await mapBounded(request.need, STORAGE_READS_AT_ONCE, async (hash): Promise<RackObjectDescriptor> => {
       const descriptor = await bridge.readDescriptor(request.repo, hash);
-      objects.push(
-        descriptor.kind === 'inline'
-          ? (variant('inline', { hash, data: descriptor.data }) as RackObjectDescriptor)
-          : (variant('url', { hash, url: descriptor.url }) as RackObjectDescriptor),
-      );
-    }
+      return descriptor.kind === 'inline'
+        ? variant('inline', { hash, data: descriptor.data })
+        : variant('url', { hash, url: descriptor.url });
+    });
 
     // A whole output, staged (#210)
     let output: RackStorageResponse['output'] = none;
@@ -787,14 +802,11 @@ export function createRackRoutes(
         }));
       }
       const manifest = JSON.parse(manifestJson) as EnvLayerManifest;
-      const layers = [];
-      for (const layer of manifest.layers) {
-        layers.push({
+      const layers = await mapBounded(manifest.layers, STORAGE_READS_AT_ONCE, async layer => ({
           digest: layer.digest,
           url: await bridge.presignEnvLayer(envLayerBlobKey(layer.digest)),
           sizeBytes: BigInt(layer.sizeBytes),
-        });
-      }
+      }));
       env = some({ manifestJson, layers });
     }
 
@@ -802,7 +814,6 @@ export function createRackRoutes(
     // address; the keys issued are recorded on the lease before the answer,
     // so its end finds every version it may have made
     const issued = new Set(lease.targets ?? []);
-    const targets: RackStorageResponse['targets'] = [];
     if (request.outputs.length > 0 || request.commits.length > 0) {
       if (isFunctionLease(lease.event)) {
         return forbidden(`Lease ${lease.leaseId} is a function call's, which writes nothing to the store`);
@@ -828,15 +839,15 @@ export function createRackRoutes(
       return forbidden('No such lease held by this rack');
     }
     for (const hash of fresh) issued.add(hash);
-    for (const { hash, size } of request.outputs) {
+    const targets = await mapBounded(request.outputs, STORAGE_READS_AT_ONCE, async ({ hash, size }) => {
       const target = await bridge.writeTarget(request.repo, lease.leaseId, hash, Number(size));
-      targets.push({
+      return {
         hash,
         target: target === null
           ? variant('held', null) as RackWriteTarget
           : variant('put', { url: target.url, headers: new Map(Object.entries(target.headers)) }) as RackWriteTarget,
-      });
-    }
+      };
+    });
 
     // #214: an object PUT through a target is taken in once the version it
     // made is checked: never a body read

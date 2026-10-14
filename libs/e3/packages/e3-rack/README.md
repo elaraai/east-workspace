@@ -320,15 +320,28 @@ Run `rackRegistryContract` from the testing entry against each backend. The file
 registry retains its single-writer hub lock and heartbeat coalescing. This changes
 no persisted or wire schema.
 
+The shared routes retain a fixed 250 ms claim cadence by default. Cloud hosts
+can set `pollMaxMs` to back off an idle poll (×1.5 per empty check), and
+`policyRecheckMs` to reduce idle policy reads. For example, the cloud adapter
+uses a one-second maximum and five-second idle policy refresh. Every actual
+claim rereads registration and policy, including drain, revocation and boot
+approval; cached idle permission cannot authorize work. Cancellation watches
+keep their separate 250 ms cadence. Object reads, target signing and environment
+layer signing run at most eight operations concurrently. Output declarations
+are reserved first, and every started operation settles before the lease fence
+is released, including after a failure. Commits stay sequential for distributed
+backends whose transactions condition on the same lease row.
+
 This implementation targets e3-cloud main at
 `43d9ac9d9a423b69450320f6a802a8191ffefd53`, with v2 task/unit leases and
 per-object uploads. Existing protocol golden fixtures come from that pinned source;
 the additive cancellation-watch fixtures match companion PR #254.
 the test rack agent executes real e3 runners and exercises the transfer path.
 Those tests do not establish KVM/hardware acceptance for the deployed agent.
-The pinned cloud source bundles e3 1.0.85, while current workspace main is
-1.0.86. Rebuild/release the companion agent against e3 1.0.86 or newer before
-delegating from this workspace release; an older bundle falls back locally.
+The pinned cloud source bundles e3 1.0.85. Rebuild/release the companion agent
+at the workspace's lockstep version before delegating from this release;
+an older bundle falls back locally. The compatibility preview checks the
+upcoming package set against the prepared cloud migration before publication.
 The companion [PR #254](https://github.com/elaraai/e3-cloud/pull/254) implements
 request deadlines, prompt cancellation, durable completion retry, lockstep releases and encrypted
 worker configuration, alongside the ongoing managed lifecycle work. Those

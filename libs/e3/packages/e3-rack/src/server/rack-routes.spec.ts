@@ -159,7 +159,7 @@ async function fixture(options: RackRouteOptions = {}) {
     healthy: true, freeCapacity: 1n, runningLeases: leaseId ? [{ repo: 'repo', leaseId }] : [],
     agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n,
   }, bearer);
-  return { identities, registry, leases, coordinator, dispatch, calls, raw, envelope, success, enroll, create, claim, complete, heartbeat,
+  return { identities, registry, leases, coordinator, dispatch, attempts, bridge, calls, raw, envelope, success, enroll, create, claim, complete, heartbeat,
     advance: (ms: number) => { time += ms; }, setWhole: (value: boolean) => { whole = value; },
     beforeOutcome: (operation: () => Promise<void>) => { beforeOutcome = operation; },
   };
@@ -388,4 +388,98 @@ it('rejects invalid capacity reports without changing the registration', async (
     assert.equal((await f.envelope(response, RackHeartbeatResponseType)).type, 'error');
     assert.deepEqual(await f.registry.getRack(rackId), before);
   }
+});
+
+it('allows cloud hosts to back off idle reads while retaining a bounded pickup interval', async () => {
+  const f = await fixture({ leaseWindowMs: 1000, pollIntervalMs: 25, pollMaxMs: 200, policyRecheckMs: 400 });
+  await f.enroll();
+  let checks = 0;
+  let policies = 0;
+  const list = f.leases.listClaimable.bind(f.leases);
+  const policy = f.registry.getRackSecurityPolicy.bind(f.registry);
+  f.leases.listClaimable = (...args) => { checks++; return list(...args); };
+  f.registry.getRackSecurityPolicy = () => { policies++; return policy(); };
+  assert.equal((await f.claim()).status, 204);
+  assert(checks >= 5 && checks <= 12, `${checks} queue reads in a one-second idle window`);
+  assert(policies >= 2 && policies <= 4, `${policies} policy reads in a one-second idle window`);
+});
+
+for (const change of ['policy', 'drain', 'revoke'] as const) {
+  it(`rechecks ${change} before granting work even when idle permission was cached`, async () => {
+    const f = await fixture({ policyRecheckMs: 60_000 });
+    const { rackId } = await f.enroll();
+    const registration = (await f.registry.getRack(rackId))!;
+    await f.registry.putRack({ ...registration, approvedBootId: some('another-boot') });
+    const lease = await f.create();
+    const list = f.leases.listClaimable.bind(f.leases);
+    f.leases.listClaimable = async (...args) => {
+      const candidates = await list(...args);
+      if (change === 'policy') await f.registry.putRackSecurityPolicy({ requireStartApproval: true });
+      if (change === 'drain') await f.registry.putRack({ ...registration, healthy: false, capacity: 0n });
+      if (change === 'revoke') await f.registry.deleteRack(rackId);
+      return candidates;
+    };
+    assert.equal((await f.claim()).status, change === 'revoke' ? 401 : 204);
+    assert.equal((await f.leases.get('repo', lease.leaseId))!.status, 'pending');
+    assert(!f.calls.some(call => call.startsWith('running:')));
+  });
+}
+
+it('reads a closure with bounded concurrency and preserves descriptor order', async () => {
+  const f = await fixture();
+  await f.enroll();
+  const lease = await f.create();
+  await f.success(await f.claim(), RackLeaseGrantType);
+  const hashes = Array.from({ length: 12 }, (_, i) => i.toString(16).padStart(64, '0'));
+  f.attempts.closure = async () => hashes;
+  const entered = deferred();
+  const release = deferred();
+  let reads = 0;
+  f.bridge.readDescriptor = async (_repo, hash) => {
+    if (++reads === 8) entered.resolve();
+    await release.promise;
+    return { kind: 'url', url: `https://objects.invalid/${hash}` };
+  };
+  const response = f.raw('storage', RackStorageRequestType, {
+    repo: 'repo', leaseId: lease.leaseId, need: hashes, output: none, envManifest: none, outputs: [], commits: [],
+  });
+  await entered.promise;
+  assert.equal(reads, 8, 'additional reads wait for a slot');
+  release.resolve();
+  const result = await f.success(await response, RackStorageResponseType);
+  assert.deepEqual(result.objects.map(object => object.value.hash), hashes);
+  assert.equal(reads, hashes.length);
+});
+
+it('holds the lease fence until every started target operation settles after a failure', async () => {
+  const f = await fixture();
+  await f.enroll();
+  const lease = await f.create();
+  await f.success(await f.claim(), RackLeaseGrantType);
+  const hashes = Array.from({ length: 12 }, (_, i) => i.toString(16).padStart(64, '0'));
+  const entered = deferred();
+  const release = deferred();
+  let writes = 0;
+  f.bridge.writeTarget = async (_repo, _lease, hash) => {
+    const reserved = (await f.leases.get('repo', lease.leaseId))!.targets;
+    assert.deepEqual(reserved, hashes, 'reserve the whole batch before issuing any target');
+    if (++writes === 8) entered.resolve();
+    await entered.promise;
+    if (hash === hashes[0]) throw new Error('target signing failed');
+    await release.promise;
+    return { url: `https://objects.invalid/${hash}`, headers: {} };
+  };
+  const response = f.raw('storage', RackStorageRequestType, {
+    repo: 'repo', leaseId: lease.leaseId, need: [], output: none, envManifest: none,
+    outputs: hashes.map(hash => ({ hash, size: 1n })), commits: [],
+  });
+  await entered.promise;
+  let cancelled = false;
+  const cancellation = f.dispatch.cancel('repo', lease.leaseId).then(result => { cancelled = true; return result; });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(cancelled, false, 'cleanup cannot pass an outstanding target operation');
+  release.resolve();
+  assert.equal((await response).status, 500);
+  assert.equal((await cancellation)!.status, 'cancelled');
+  assert.equal(writes, 8, 'stop scheduling when the first operation fails');
 });
