@@ -26,7 +26,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing, fieldHeights, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, fieldInRingedControl, fieldHeights, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { inputRecipe } from "../recipes/input.js";
 
 /** One stepper chevron — both triggers share this shape. */
@@ -100,6 +100,7 @@ export const numberInputSlotRecipe = defineSlotRecipe({
         },
         input: {
             ...numericChrome,
+            ...fieldInRingedControl,
             flex: "1",
             minWidth: "0",
             minW: "0",
@@ -142,6 +143,8 @@ export const numberInputSlotRecipe = defineSlotRecipe({
     variants: {
         variant: {
             default: {},
+            // Chakra's flushed variant adds a focus shadow after base.
+            flushed: { input: fieldInRingedControl },
             /** Uncommitted edit — brand-tint field, paper steppers. */
             dirty: {
                 root: { background: "bg.brand.subtle" },

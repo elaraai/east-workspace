@@ -4,12 +4,11 @@
  */
 
 import { memo, useCallback, useState, useMemo, useRef } from "react";
-import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
+import { HStack, VStack, Wrap, Button, Text, Box, useSlotRecipe } from "@chakra-ui/react";
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { DateRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import {
     CompoundDateField,
     CompoundDateInput,
@@ -60,6 +59,7 @@ function bitsToDate(b: DateTimeBits): Date {
  * a chip row of preset buttons is rendered beneath the inputs.
  */
 export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({ value }: EastChakraDateRangeInputProps) {
+    const { rangeShell } = useSlotRecipe({ key: "dateField" })();
     const style = getSomeorUndefined(value.style);
     const colour = style ? getSomeorUndefined(style.color) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
@@ -137,18 +137,12 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
     const fontSize = sizeTag === "sm" || sizeTag === "xs" ? "body.sm" : sizeTag === "lg" ? "body.lg" : "body";
 
     const fieldShell = {
-        ...fieldChrome,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "{spacing.2}",
-        /* Touch (#348): 44px field rows on coarse pointers (react-aria
-         * segments already carry inputMode="numeric" for mobile keyboards). */
-        _coarse: { minHeight: "44px" },
+        ...rangeShell,
         ...(background !== undefined ? { background } : {}),
         ...(colour !== undefined ? { color: colour } : {}),
         ...(borderColor !== undefined ? { borderColor } : {}),
         opacity: disabled ? 0.6 : 1,
-        _focusWithin: focusBorderColor ? { borderColor: focusBorderColor } : fieldFocusRing,
+        ...(focusBorderColor !== undefined ? { _focusWithin: { borderColor: focusBorderColor } } : {}),
     };
 
     const renderField = (

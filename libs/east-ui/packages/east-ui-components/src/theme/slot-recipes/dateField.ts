@@ -14,11 +14,25 @@
  * @packageDocumentation
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, fieldInRingedControl, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+
+/** A ringed date/time wrapper, also used by the two range fields. */
+const segmentedFieldChrome = {
+    ...fieldChrome,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "{spacing.2}",
+    _focusWithin: fieldFocusRing,
+    // Date AND time segments can also render standalone (grid editors).
+    // Only suppress their ring inside this wrapper; retain the active
+    // segment's fill and border to identify the part being edited.
+    "& [role=spinbutton]": fieldInRingedControl,
+    _coarse: { minHeight: "44px" },
+};
 
 export const dateFieldSlotRecipe = defineSlotRecipe({
     className: "elara-date-field",
-    slots: ["root", "label", "input", "segment", "shell"],
+    slots: ["root", "label", "input", "segment", "shell", "rangeShell"],
     base: {
         root: { display: "inline-block" },
         label: { fontSize: "body.lg", fontWeight: "500", color: "fg", marginBottom: "2" },
@@ -37,17 +51,13 @@ export const dateFieldSlotRecipe = defineSlotRecipe({
             "&:focus:not([data-readonly])": { background: "gray.100", color: "gray.800", borderColor: "gray.400", outline: "none" },
         },
         shell: {
-            ...fieldChrome,
+            ...segmentedFieldChrome,
             display: "flex",
-            alignItems: "center",
-            gap: "{spacing.2}",
             width: "100%",
             minWidth: "0",
             paddingBlock: "0",
-            _focusWithin: fieldFocusRing,
-            /* Touch (#346): the 44px floor, as the plain input's. */
-            _coarse: { minHeight: "44px" },
         },
+        rangeShell: segmentedFieldChrome,
     },
     variants: {
         size: {

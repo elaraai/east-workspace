@@ -18,7 +18,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, fieldInRingedControl, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 
 export const comboboxSlotRecipe = defineSlotRecipe({
@@ -167,10 +167,11 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             outline: {
                 input: {
                     borderWidth: "0",
-                    focusVisibleRing: "none",
-                    _focusVisible: { outline: "none", boxShadow: "none" },
+                    ...fieldInRingedControl,
                 },
             },
+            subtle: { input: fieldInRingedControl },
+            flushed: { input: fieldInRingedControl },
         },
         // Chakra's own sizes give the trigger a text style, which outranks a
         // font size: each size clears it, so the chevron takes the size's
