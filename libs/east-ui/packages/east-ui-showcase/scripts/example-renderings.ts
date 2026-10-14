@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  *
  * The Code Reference examples' renderings in other languages come from the
- * Claude plugin's example index (`libs/east-claude-plugin/index.json`, #654):
+ * plugins' example index (`libs/east-plugin/index.json`, #654):
  * every program example there is stored as its IR with the TypeScript and the
  * python printed from it, keyed by `<package>:<file>.examples.ts:<export>`.
  * The showcase keeps the authored TypeScript (comments included) for its
@@ -32,7 +32,7 @@ interface IndexEntry {
 
 /** The plugin index's path, from the showcase package root. */
 export function defaultIndexPath(rootDir: string): string {
-    return path.resolve(rootDir, "../../../east-claude-plugin/index.json");
+    return path.resolve(rootDir, "../../../east-plugin/index.json");
 }
 
 /** The index id of a Code Reference example — the plugin's `generate-index` id:
@@ -60,6 +60,6 @@ export function missingRenderingsError(missing: string[], indexPath: string): Er
     return new Error(
         `${missing.length} Code Reference example(s) have no entry in the plugin's example index (${indexPath}):\n` +
         `${shown}${more}\n` +
-        `The index is stale — regenerate it: cd libs/east-claude-plugin && make index`,
+        `The index is stale — regenerate it: make -C libs/east-plugin index`,
     );
 }

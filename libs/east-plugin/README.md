@@ -2,26 +2,30 @@
 
 The common implementation used by [`east-claude-plugin`](../east-claude-plugin) and [`east-codex-plugin`](../east-codex-plugin), published as `@elaraai/east-plugin` for a Claude Code or Codex plugin that builds on East's (see [Building on East's plugin](#building-on-easts-plugin)). It is not an agent plugin itself.
 
-- `lib/`: project detection, search, review and deduplication, daemon client, Python diagnostics, status, transcript helpers, the stdio LSP client, the search-first guidance and hooks (Claude Code's in `search-hooks.ts`, Codex's in `codex-hook.ts`), and the Codex skill adapter (`codex-skills.ts`).
+- `lib/`: project detection, search, review and deduplication, daemon client, Python diagnostics, status, transcript helpers, the stdio LSP client, the search-first guidance and hooks (Claude Code's in `search-hooks.ts`, Codex's in `codex-hook.ts`), the Codex skill adapter (`codex-skills.ts`), and the plugin assembler (`package.ts`).
 - `hooks/`: common lifecycle and Claude tool adapters. Codex's one tool hook is `east-codex-plugin/hooks/codex-tools.ts`, over `lib/codex-hook.ts` and `lib/codex-tools.ts` (patch and shell normalization).
 - `daemon/`: TypeScript/TSX LSP, Python LSP launcher and resident diagnostics server.
 - `mcp/`: example search, retrieval, status and the real LSP bridge; the search and retrieval tools are `example-tools.ts`'s, for any server.
-- `skills/`: the four plugin-native skills plus symlinks to package-owned skills.
-- `scripts/`: the sole index generator, Python renderer, asset sync and CLI installation/update implementations.
-- `index.json`: canonical generated corpus. Both plugins ship generated copies for independent installation, and the published package ships it for a plugin that serves East's corpus beside its own.
+- `skills/`: the one skill catalog — the four plugin-native skills plus symlinks to the package-owned skills.
+- `scripts/`: the sole index generator, Python renderer, the assembler driver (`package.ts`) and CLI installation/update implementations.
+- `index.json`: the canonical generated corpus, the one committed artifact. Each assembled plugin ships a copy, and the published package ships it for a plugin that serves East's corpus beside its own.
+- `marketplace/` (ignored): both plugins assembled as the hosts install them, `east-claude-plugin/` and `east-codex-plugin/`, with marketplace files naming them — a local marketplace for Claude Code and Codex under the catalog's names (`elaraai`, `elaraai-codex`), so a maintainer points either name at the checkout or at the catalog.
 
-Host runtime files are thin package re-exports, inlined by esbuild. They must not grow independent copies of shared behavior. `hostText` translates host-facing tool and skill names at the output boundary. Generated host bundles and indexes intentionally contain duplicated bytes so installed plugins do not depend on this workspace package.
+Host runtime files are thin package re-exports, inlined by esbuild. They must not grow independent copies of shared behavior. `hostText` translates host-facing tool and skill names at the output boundary. The assembled plugins intentionally contain duplicated bytes so an installed plugin does not depend on this workspace package.
 
 ```bash
 pnpm --filter @elaraai/east-plugin run build
-pnpm --filter @elaraai/east-plugin run generate-index
-pnpm --filter @elaraai/east-claude-plugin run bundle
-pnpm --filter @elaraai/east-codex-plugin run bundle
+pnpm --filter @elaraai/east-plugin run generate-index   # → index.json (commit it)
+make -C libs/east-plugin package                        # both hosts' bundles + the assembled plugins under marketplace/
 ```
 
-Index generation requires built examples and the Python environment, as documented in either host README. After runtime changes, build this package before bundling hosts. Codex `build` and Claude `build` do that automatically; a root recursive build follows the workspace dependency graph.
+Index generation requires built examples and the Python environment, as documented in either host README. After runtime changes, build this package before bundling hosts. Codex `build` and Claude `build` do that automatically, and assemble their own plugin; a root recursive build follows the workspace dependency graph.
 
-Edit the skill's owning library, or its native source here. Claude skill links resolve here or directly to their owning packages. Codex materializes and adapts the same sources at bundle time. Run both host test suites after changes to shared behavior.
+Edit the skill's owning library, or its native source here. Claude Code's plugin copies the catalog through its links at package time; Codex's materializes and adapts the same sources then. Nothing generated is committed under either host. Run both host test suites after changes to shared behavior: they run over the assembled plugins.
+
+### Publishing
+
+The release publishes the assembled directories as they are — `@elaraai/east-claude-plugin` and `@elaraai/east-codex-plugin` on the lockstep version, with `scripts/publish-plugins.mjs` — and the public catalog [elaraai/plugins](https://github.com/elaraai/plugins) lists each as an `npm` source pinned at its released version, for both hosts. A new package name is bootstrapped once by hand (`scripts/bootstrap-plugins-npm.mjs`) before trusted publishing can be configured for it.
 
 ## Building on East's plugin
 
@@ -72,6 +76,19 @@ The search and fetch tools register on any MCP server with `registerExampleTools
 - **One each.** The East plugin, installed beside yours, answers East's corpus with its own tools; your server serves your index alone.
 
 `EAST_INDEX_PATH` names the installed package's `index.json`. A bundled server, as East's plugins bundle theirs, copies that file into the plugin at build time and reads it from there.
+
+### The package
+
+A plugin a host installs is one directory with every file real and nothing depended on. `assemblePlugin` (`@elaraai/east-plugin/lib/package`) writes it from your plugin's source — its manifest directory, its esbuild `.build/`, and each of `hooks/hooks.json`, `.mcp.json`, `.lsp.json`, README, LICENSE and (Claude Code) `commands/` and `agents/` it has — your skills catalog (symlinks followed, a linked skill directory's included; adapted in your names for Codex), and your index, with a generated `package.json` that has no dependency. It is staged beside `out` and moved into place once complete, so a failure leaves an earlier assembly as it was; an `out` holding anything but an earlier assembly, or overlapping the source, is refused:
+
+```ts
+import { assemblePlugin } from "@elaraai/east-plugin/lib/package";
+
+await assemblePlugin({ host: "claude", source: "packages/acme-claude-plugin", skills: "packages/acme-plugin/skills", index: "packages/acme-plugin/index.json", out: "marketplace/acme-claude-plugin" });
+await assemblePlugin({ host: "codex", source: "packages/acme-codex-plugin", skills: "packages/acme-plugin/skills", index: "packages/acme-plugin/index.json", out: "marketplace/acme-codex-plugin", names: ACME });
+```
+
+Publish each directory with `npm publish <dir> --access public` on your release, and list the packages in the [elaraai/plugins](https://github.com/elaraai/plugins) catalog, which pins each at its released version for both hosts. The same directories, beside a `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json` with relative sources, are a local marketplace for development, as East's `scripts/package.ts` writes one.
 
 ### The hooks
 

@@ -3,27 +3,28 @@
 
 .PHONY: build index test clean help
 
-## Build the shipped artifacts: tsc (dist/) + esbuild bundle (.build/)
+## Build the shipped plugin: tsc (dist/) + esbuild bundle (.build/) + the
+## assembled plugin under ../east-plugin/marketplace/east-claude-plugin (a local marketplace)
 build:
-	pnpm run build && pnpm run bundle
+	pnpm run build && pnpm run bundle && pnpm run package
 
-## Regenerate the example search index (index.json)
+## Regenerate the example search index (../east-plugin/index.json)
 index:
-	pnpm run generate-index
+	$(MAKE) -C ../east-plugin index
 
-## Build + bundle, then run the integration tests (incl. the diagnose pipeline)
+## Build + bundle + assemble, then run the integration tests over the assembled plugin
 test:
 	pnpm run test
 
-## Clean tsc output (leaves the committed .build bundle)
+## Clean tsc output and the bundle
 clean:
-	rm -rf ./dist
+	rm -rf ./dist ./.build
 
 ## Show available targets
 help:
 	@echo "east-claude-plugin"
 	@echo ""
-	@echo "  build  - tsc (dist/) + esbuild bundle (.build/)"
-	@echo "  index  - regenerate the example search index (index.json)"
-	@echo "  test   - build + bundle + run integration tests"
-	@echo "  clean  - remove tsc output"
+	@echo "  build  - tsc (dist/) + esbuild bundle (.build/) + assemble the plugin under ../east-plugin/marketplace/"
+	@echo "  index  - regenerate the example search index (../east-plugin/index.json)"
+	@echo "  test   - build + bundle + assemble + run integration tests"
+	@echo "  clean  - remove tsc output and the bundle"

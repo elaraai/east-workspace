@@ -2,22 +2,22 @@
 
 The East programming language ecosystem for Codex: all 16 skills, tested example search, project detection, search-before-coding hooks, preemptive diagnostics, and both TypeScript/TSX and Python language servers.
 
-The implementation is shared with the Claude Code plugin in [`../east-plugin`](../east-plugin). Each host ships self-contained bundles and an example index: installing the plugin does **not** require a local clone, pnpm, a build, or a sibling `east-plugin` directory.
+The implementation is shared with the Claude Code plugin in [`../east-plugin`](../east-plugin). The plugin ships as the npm package `@elaraai/east-codex-plugin`, assembled at build time from this directory's manifests and bundles, the shared skills (adapted for Codex) and the example index — self-contained: installing it does **not** require a local clone, pnpm, a build, or a sibling `east-plugin` directory.
 
 ## Installation
 
 Requires **Node.js 22+ on PATH** and a Codex client with `codex plugin` and lifecycle hooks. Python diagnostics additionally use your project's east-py installation; TypeScript diagnostics use your project's TypeScript and East dependencies.
 
-### From the published marketplace (GitHub; no local clone)
+### From the published catalog (no local clone)
 
-Once these changes and their generated artifacts are pushed to `elaraai/east-workspace` on GitHub, run from any directory (no npm publishing is needed):
+The public catalog [elaraai/plugins](https://github.com/elaraai/plugins) is a Codex marketplace (`.agents/plugins/marketplace.json`, named `elaraai-codex`) whose entry is the npm package, pinned at the released version:
 
 ```bash
-codex plugin marketplace add elaraai/east-workspace
+codex plugin marketplace add elaraai/plugins
 codex plugin add east-codex-plugin@elaraai-codex
 ```
 
-Codex fetches the marketplace and installs its bundled artifacts automatically. You do not need to clone or build the East repositories yourself. The repository marketplace is `.agents/plugins/marketplace.json`, named `elaraai-codex`.
+Codex fetches the package from npm and installs it as it is. You do not need to clone or build the East repositories yourself. The monorepo root keeps a marketplace of the same name whose entry points at the same package, so an install added as `elaraai/east-workspace` keeps updating. Pre-releases are the catalog's `beta` branch (`codex plugin marketplace add elaraai/plugins --ref beta`, named `elaraai-codex-beta`).
 
 Start a **new Codex thread**. Open `/hooks` in the Codex CLI and review/trust the East hooks. Codex discovers `hooks/hooks.json`, but installation alone does not trust its commands. If your configuration disables hooks, enable them with `codex --enable hooks` (or `[features] hooks = true` in your Codex config).
 
@@ -35,39 +35,29 @@ Start a new thread and review any changed hooks in `/hooks`.
 
 ### From a local checkout (development)
 
-Point the marketplace at your local monorepo instead of GitHub. The checkout includes the shipped bundles, skills and example index, so installation needs no build:
-
-```bash
-codex plugin marketplace add ~/src/east-workspace
-codex plugin add east-codex-plugin@elaraai-codex
-```
-
-**Replacing an existing install:** the local marketplace is also named `elaraai-codex`, so if you already added it from GitHub, remove that source first:
-
-```bash
-codex plugin remove east-codex-plugin@elaraai-codex
-codex plugin marketplace remove elaraai-codex
-codex plugin marketplace add ~/src/east-workspace
-codex plugin add east-codex-plugin@elaraai-codex
-```
-
-Start a new thread and review/trust the East hooks in `/hooks`. `codex plugin marketplace list` shows the configured source; make sure `elaraai-codex` points at your checkout.
-
-**Iterating on the plugin:** installed plugins run from a cached copy. After editing source, refresh the shipped artifacts in your development checkout, then reinstall to refresh the cache:
+A checkout is a local marketplace once the plugin is assembled: `make -C libs/east-codex-plugin build` (or `make build` at the root) bundles the host and writes the plugin, with the marketplace files that name it, under `libs/east-plugin/marketplace/`, under the catalog's name `elaraai-codex` (one name registers once: adding the checkout points it there, adding `elaraai/plugins` points it back):
 
 ```bash
 cd ~/src/east-workspace
-make -C libs/east-codex-plugin build  # shared runtime + host build + bundles + skills
+make -C libs/east-codex-plugin build  # shared runtime + host build + bundles → ../east-plugin/marketplace/east-codex-plugin/
+codex plugin marketplace add ~/src/east-workspace/libs/east-plugin/marketplace
+codex plugin add east-codex-plugin@elaraai-codex
+```
 
+Start a new thread and review/trust the East hooks in `/hooks`. `codex plugin marketplace list` shows the configured sources.
+
+**Iterating on the plugin:** installed plugins run from a cached copy. After editing source, rebuild as above, then reinstall to refresh the cache:
+
+```bash
 codex plugin remove east-codex-plugin@elaraai-codex
 codex plugin add east-codex-plugin@elaraai-codex
 ```
 
-This rebuild assumes your monorepo development dependencies are already installed and built, as for the Claude plugin. It is needed after source changes, not when installing the committed artifacts. If examples changed, regenerate the index as described below before reinstalling.
+This rebuild assumes your monorepo development dependencies are already installed and built, as for the Claude plugin. If examples changed, regenerate the index as described below before rebuilding.
 
 Removing and reinstalling clears the old cache even when the manifest version has not changed. **Start a new thread**, then review changed hooks in `/hooks`. `marketplace upgrade` refreshes Git snapshots; use the remove/add cycle above for local source changes.
 
-Both host packages already declare `"@elaraai/east-plugin": "workspace:*"` in `package.json`. pnpm links the shared library during development, just like other monorepo dependencies. Bundling includes that library in each plugin's shipped JavaScript so the installed copy can run independently of the workspace. None of these packages needs to be published to npm.
+Both host packages declare `"@elaraai/east-plugin": "workspace:*"` in `package.json`. pnpm links the shared library during development, just like other monorepo dependencies. Bundling includes that library in each plugin's shipped JavaScript, so the assembled plugin runs independently of the workspace: that directory is what the release publishes as `@elaraai/east-codex-plugin` (see [`../east-plugin`](../east-plugin#publishing)).
 
 If shared behavior changed, test both host plugins:
 
@@ -87,11 +77,10 @@ make -C libs/east-node build
 pnpm --filter '@elaraai/east-py-datascience' run build
 (cd libs/east-py && uv sync --all-packages)
 pnpm --filter '@elaraai/east-plugin' run generate-index
-pnpm --filter '@elaraai/east-codex-plugin' run build
-pnpm --filter '@elaraai/east-codex-plugin' run bundle
+make -C libs/east-codex-plugin build
 ```
 
-The generator imports built example modules and uses east-py's printer through `uv`. It updates `libs/east-plugin/index.json` and both host copies. Commit the generated index, `.build/` bundles, and Codex `skills/` alongside source changes so GitHub installs remain build-free.
+The generator imports built example modules and uses east-py's printer through `uv`. It updates `libs/east-plugin/index.json`, the one committed artifact — commit it alongside the examples (CI's `plugin-artifacts` fails when it is stale). Nothing else generated is committed: the bundles, the adapted skills and the assembled plugin are build outputs.
 
 ## Skills
 
@@ -117,7 +106,7 @@ The generator imports built example modules and uses east-py's printer through `
 
 Invoke a skill with `$east-codex-plugin:<skill-name>` or select it from Codex's skill picker. For example, use `east-design` to design a solution and `east-project` to scaffold and run it.
 
-The single editable skill catalog is `../east-plugin/skills/`; package-owned skills there are symlinks to their owning libraries. **Edit the source, not generated `skills/`.** `bundle` dereferences every skill and adapts Claude-specific tool names and invocation syntax for Codex. Nothing in the installed skill set depends on a symlink outside the plugin.
+The single editable skill catalog is `../east-plugin/skills/`; package-owned skills there are symlinks to their owning libraries. **Edit the source.** `package` (run by `build`) dereferences every skill and adapts Claude-specific tool names and invocation syntax for Codex into the assembled plugin. Nothing in the installed skill set depends on a symlink outside the plugin.
 
 ## Example Search (MCP)
 
@@ -197,7 +186,7 @@ pnpm --filter '@elaraai/east-codex-plugin' test
 pnpm --filter '@elaraai/east-claude-plugin' test
 ```
 
-Tests cover patch parsing, search gating, shell reads, automatic diagnostics, all skill links, and MCP + real LSP startup from an isolated installed copy with no plugin `node_modules` or sibling repositories. CI also checks that generated artifacts remain current.
+Tests cover patch parsing, search gating, shell reads, automatic diagnostics, every skill, and MCP + real LSP startup from an isolated installed copy with no plugin `node_modules` or sibling repositories — all over the assembled plugin, the thing that ships. CI also checks that the committed index remains current and that both plugins assemble.
 
 ## Contributing and License
 

@@ -42,6 +42,7 @@ import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Expr, IRType, toJSONFor, toEastTypeValue, toSource, typeSource } from "@elaraai/east";
 import { parseExamplesFile, type ParsedExample } from "./examples-file.js";
+import { argument } from "../lib/args.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -361,15 +362,6 @@ export async function generateIndex(options: GenerateIndexOptions): Promise<Inde
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
-
-/** The value after `flag`, if given. */
-function argument(args: string[], flag: string): string | undefined {
-    const idx = args.indexOf(flag);
-    if (idx === -1) return undefined;
-    const value = args[idx + 1];
-    if (value === undefined) throw new Error(`${flag} needs a value`);
-    return value;
-}
 
 async function main(): Promise<void> {
     const args = process.argv.slice(2);

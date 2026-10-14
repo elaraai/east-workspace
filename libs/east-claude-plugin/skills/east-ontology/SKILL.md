@@ -1,1 +1,0 @@
-../../../east-plugin/skills/east-ontology/SKILL.md

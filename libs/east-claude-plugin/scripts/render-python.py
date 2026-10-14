@@ -1,1 +1,0 @@
-../../east-plugin/scripts/render-python.py

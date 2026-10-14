@@ -35,8 +35,9 @@
   "author": "Elara AI Pty Ltd",
   "scripts": {
     "build": "tsc",
-    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json && node scripts/sync-assets.mjs",
-    "test": "npm run build && node --enable-source-maps --test dist/test/*.spec.js"
+    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json",
+    "test": "npm run build && node --enable-source-maps --test dist/test/*.spec.js",
+    "package": "node dist/scripts/package.js"
   },
   "engines": {
     "node": ">=22.0.0"

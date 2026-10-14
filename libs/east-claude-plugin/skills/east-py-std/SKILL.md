@@ -1,1 +1,0 @@
-../../../east-py/packages/east-py-std/SKILL.md

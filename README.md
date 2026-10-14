@@ -32,7 +32,7 @@ You write it once, as typed TypeScript — no new language, no new syntax. East 
 
 Every layer — integrations, models, pipelines, interfaces — is declarative, type-safe East code, which keeps a lot of the usual glue out of the picture.
 
-The same explicitness helps agents author it: the [Claude Code plugin](#claude-code-plugin) ships East skills, indexed examples, and DSL-level linting that catches mistakes at the language level before they run. People and agents build the same way, against the same checks.
+The same explicitness helps agents author it: the [agent plugins](#agent-plugins) ship East skills, indexed examples, and DSL-level linting that catches mistakes at the language level before they run. People and agents build the same way, against the same checks.
 
 ## Decisions, not dashboards
 
@@ -58,7 +58,7 @@ The pieces above, with links to the code — one row per lib, packages inside:
 | [`e3`](libs/e3) | Durable execution engine — [`cli`](libs/e3/packages/e3-cli), [`api-server`](libs/e3/packages/e3-api-server), [`api-client`](libs/e3/packages/e3-api-client) |
 | [`east-ui`](libs/east-ui) | Typed UI — [`east-ui`](libs/east-ui/packages/east-ui), [`e3-ui`](libs/east-ui/packages/e3-ui), [`extension`](libs/east-ui/packages/east-ui-extension) |
 | [`create`](libs/create) | Project scaffolding — `npm create @elaraai/east`, `npm create @elaraai/e3` |
-| [`east-claude-plugin`](libs/east-claude-plugin) | Claude Code plugin — skills, examples, diagnostics |
+| [`east-plugin`](libs/east-plugin) | Agent plugins — [Claude Code](libs/east-claude-plugin), [Codex](libs/east-codex-plugin): skills, example search, diagnostics |
 | [`east-diagnostics`](libs/east-diagnostics) | East-aware linting — editor, agent, CI (+ [`eslint-plugin-east`](libs/eslint-plugin-east)) |
 
 Each library has its own `README.md` with installation, a quick start, and reference.
@@ -85,13 +85,18 @@ make lint      # lint everything
 
 See [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The monorepo ships under one unified version via the manual `Release` workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) — npm, PyPI, the VS Code extension, and native C binaries in a single run.
 
-## Claude Code plugin
+## Agent plugins
 
-East ships a [Claude Code](https://claude.com/claude-code) plugin — language skills, search across thousands of indexed examples, and preemptive East diagnostics:
+East ships a [Claude Code](https://claude.com/claude-code) plugin and a Codex plugin — language skills, search across thousands of indexed examples, and preemptive East diagnostics — from the [`elaraai/plugins`](https://github.com/elaraai/plugins) catalog, which lists e3 cloud's plugins beside them:
 
 ```text
-/plugin marketplace add elaraai/east-workspace
+/plugin marketplace add elaraai/plugins
 /plugin install east@elaraai
+```
+
+```bash
+codex plugin marketplace add elaraai/plugins
+codex plugin add east-codex-plugin@elaraai-codex
 ```
 
 ## License

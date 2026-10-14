@@ -1,1 +1,0 @@
-../../east-plugin/scripts/examples-file.ts

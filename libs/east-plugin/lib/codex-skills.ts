@@ -1,4 +1,4 @@
-import { readdir, readFile, mkdir, writeFile, cp } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile, cp, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 // A Codex plugin's skills: Codex caches only the plugin itself, so it ships
@@ -70,8 +70,8 @@ export function adaptSkill(text: string, names: SkillNames = EAST_SKILL_NAMES): 
 
 /**
  * Writes a Codex plugin's skills as real files: every skill directory under
- * `sources`, its Markdown adapted and every other file copied through any
- * symlink.
+ * `sources` (a linked one included), its Markdown adapted and every other
+ * file copied through any symlink.
  *
  * @param sources - The directory of skill directories, as written for Claude Code
  * @param target - The Codex plugin's `skills` directory
@@ -79,16 +79,35 @@ export function adaptSkill(text: string, names: SkillNames = EAST_SKILL_NAMES): 
  * @returns The skills written, by directory name
  */
 export async function materializeSkills(sources: string, target: string, names: SkillNames = EAST_SKILL_NAMES): Promise<string[]> {
+  return writeSkills(sources, target, (text) => adaptSkill(text, names));
+}
+
+/**
+ * Writes a Claude Code plugin's skills as real files: every skill directory
+ * under `sources` (a linked one included), every file copied as it is through
+ * any symlink — a plugin is installed by copying, and a link that leaves it
+ * is dropped.
+ *
+ * @param sources - The directory of skill directories, as written for Claude Code
+ * @param target - The plugin's `skills` directory
+ * @returns The skills written, by directory name
+ */
+export async function copySkills(sources: string, target: string): Promise<string[]> {
+  return writeSkills(sources, target, null);
+}
+
+async function writeSkills(sources: string, target: string, adapt: ((text: string) => string) | null): Promise<string[]> {
   const written: string[] = [];
   for (const entry of await readdir(sources, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
     const source = join(sources, entry.name);
+    // Through a link: a catalog may link a whole skill directory, not only its files.
+    if (!(await stat(source)).isDirectory()) continue;
     const skill = join(target, entry.name);
     await mkdir(skill, { recursive: true });
     for (const file of await readdir(source, { withFileTypes: true })) {
       const input = join(source, file.name);
       const output = join(skill, file.name);
-      if (file.name.endsWith('.md')) await writeFile(output, adaptSkill(await readFile(input, 'utf8'), names));
+      if (adapt !== null && file.name.endsWith('.md')) await writeFile(output, adapt(await readFile(input, 'utf8')));
       else await cp(input, output, { recursive: true, dereference: true });
     }
     written.push(entry.name);

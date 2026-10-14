@@ -4,10 +4,11 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 
 // The search-before-coding gate and the read reminder (#654), through the
 // bundled hooks Claude Code runs.
-const plugin = process.cwd();
+const plugin = PLUGIN_ROOT;
 const preWrite = join(plugin, ".build", "hooks", "pre-write.js");
 const preRead = join(plugin, ".build", "hooks", "pre-read.js");
 

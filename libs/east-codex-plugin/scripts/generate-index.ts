@@ -1,1 +1,0 @@
-../../east-plugin/scripts/generate-index.ts

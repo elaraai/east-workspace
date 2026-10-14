@@ -1,1 +1,0 @@
-../../../east-node/packages/east-node-std/SKILL.md
