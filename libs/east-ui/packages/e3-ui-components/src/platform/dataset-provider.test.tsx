@@ -74,6 +74,15 @@ describe("ReactiveDatasetProvider", () => {
         expect(last.runtime).toBe(defaultBindRuntime.getCache());
     });
 
+    test("the poll intervals it is given configure its cache", () => {
+        render(
+            <E3Provider config={{ apiUrl: "http://127.0.0.1:9", workspace: "a" }}>
+                <ReactiveDatasetProvider pollIntervalMs={2500} pollBackoffMs={20_000}><div /></ReactiveDatasetProvider>
+            </E3Provider>,
+        );
+        expect(defaultBindRuntime.getCache()?.getConfig()).toEqual({ workspace: "a", pollIntervalMs: 2500, pollBackoffMs: 20_000 });
+    });
+
     test("unmounting clears what the provider installed", () => {
         const { unmount } = render(tree("a"));
         unmount();

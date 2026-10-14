@@ -61,6 +61,8 @@ export interface DatasetPreviewProps {
     requestOptions?: RequestOptions;
     /** Max bytes to fetch + render inline. Above this → download button. */
     sizeLimit?: number;
+    /** How often the dataset's status is polled, in milliseconds, which says
+     *  when its value changed. Default 30 000 (`DATASET_STATUS_POLL_MS`). */
     pollInterval?: number;
     /** When set, leaf edits / inserts / removes / tag switches write back to
      *  this dataset path (for mutable inputs). Task outputs stay read-only. */

@@ -26,6 +26,7 @@ import {
   workspaceGet,
   workspaceLockStatus,
   workspaceStatus,
+  workspaceStatusSince,
   workspaceRemove,
   workspaceDeploy,
   taskList,
@@ -210,6 +211,35 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         const inputs = whole.datasets.filter((dataset) => dataset.path === '.inputs.value');
         assert.ok(equalFor(DatasetsType)(input.datasets, inputs), `the input alone: ${printFor(DatasetsType)(input.datasets)}`);
         assert.strictEqual(input.tasks.length, 0, 'no task produces an input');
+      });
+
+      it('workspaceStatusSince answers the status with its tag, null while the tag holds, and the status again once a dataset is set', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+        const value: TreePath = [variant('field', 'inputs'), variant('field', 'value')];
+
+        const first = await workspaceStatusSince(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', null, opts);
+        assert.ok(first !== null, 'a first ask is answered');
+        assert.strictEqual(first.status.workspace, 'deployed-ws');
+        assert.ok(first.etag !== null && first.etag !== '', 'with a tag');
+        assert.strictEqual(await workspaceStatusSince(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', first.etag, opts), null,
+          'nothing changed: the status held is current');
+
+        await datasetSet(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', value, encodeBeast2For(IntegerType)(5n), opts);
+        const moved = await workspaceStatusSince(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', first.etag, opts);
+        assert.ok(moved !== null, 'the dataset set: the status again');
+        assert.notStrictEqual(moved.etag, first.etag, 'under a new tag');
+        assert.strictEqual(moved.status.datasets.find((dataset) => dataset.path === '.inputs.value')?.status.type, 'up-to-date');
+
+        const named = await workspaceStatusSince(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', null, opts, { paths: [value] });
+        assert.ok(named !== null);
+        assert.strictEqual(named.status.datasets.length, 1, 'the datasets named, as workspaceStatus answers them');
+        assert.strictEqual(await workspaceStatusSince(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', named.etag, opts, { paths: [value] }), null);
+
+        await assert.rejects(
+          workspaceStatusSince(ctx.config.baseUrl, ctx.repoName, 'no-such-ws', null, opts),
+          (err: unknown) => err instanceof ApiError && err.code === 'workspace_not_found',
+        );
       });
 
       it('workspaceStatus refuses a path that is not a keypath as bad_request', async (t) => {

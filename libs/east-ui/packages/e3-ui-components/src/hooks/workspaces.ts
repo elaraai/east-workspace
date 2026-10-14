@@ -7,6 +7,7 @@ import { useQuery, useMutation, type UseMutationResult, type UseQueryResult } fr
 import type { QueryOverrides } from './types.js';
 import {
     workspaceList, workspaceCreate, workspaceCopy, workspaceGet, workspaceStatus, workspaceRemove, workspaceDeploy, workspaceExport,
+    pollRequestOptions,
 } from '@elaraai/e3-api-client';
 import type { RequestOptions, WorkspaceDeployOptions, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
 import type { WorkspaceState } from '@elaraai/e3-types';
@@ -55,10 +56,12 @@ export function useWorkspaceGet(url: string, repo: string, name: string | null, 
     });
 }
 
+/** A workspace's status, read once per poll: one request attempt each, its
+ *  next poll being its retry. */
 export function useWorkspaceStatus(url: string, repo: string, name: string | null, requestOptions?: RequestOptions, queryOptions?: QueryOverrides): UseQueryResult<WorkspaceStatusResult, Error> {
     return useQuery({
         queryKey: ['workspaceStatus', url, repo, name],
-        queryFn: () => workspaceStatus(url, repo, name!, requestOptions ?? { token: null }),
+        queryFn: () => workspaceStatus(url, repo, name!, pollRequestOptions(requestOptions ?? { token: null })),
         enabled: !!repo && !!name,
         ...queryOptions,
     });

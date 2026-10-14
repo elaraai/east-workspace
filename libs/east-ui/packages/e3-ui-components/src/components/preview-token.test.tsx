@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ArrayType, IntegerType, encodeBeast2For, toEastTypeValue } from "@elaraai/east";
 import { datasetGetPage, taskGet, type DatasetPage } from "@elaraai/e3-api-client";
 import { system, type ValueTreePaging } from "@elaraai/east-ui-components";
+import { taskDetailsQueryKey } from "../hooks/tasks.js";
 import { TaskPreview } from "./TaskPreview.js";
 import { PagedDatasetPreview } from "./PagedDatasetPreview.js";
 
@@ -61,7 +62,7 @@ describe("a rotated token", () => {
         expect(await screen.findByText("unreachable")).not.toBe(null);
 
         rerender(preview("new"));
-        await client.invalidateQueries({ queryKey: ["taskDetails"] });
+        await client.invalidateQueries({ queryKey: taskDetailsQueryKey(API, "default", "w", "t") });
         expect(vi.mocked(taskGet)).toHaveBeenCalledTimes(2);
         expect(vi.mocked(taskGet).mock.lastCall?.[4]).toEqual({ token: "new" });
     });
@@ -104,7 +105,7 @@ describe("another fetch", () => {
         expect(await screen.findByText("unreachable")).not.toBe(null);
 
         rerender(preview(after));
-        await client.invalidateQueries({ queryKey: ["taskDetails"] });
+        await client.invalidateQueries({ queryKey: taskDetailsQueryKey(API, "default", "w", "t") });
         expect(vi.mocked(taskGet)).toHaveBeenCalledTimes(2);
         expect(vi.mocked(taskGet).mock.lastCall?.[4]).toEqual({ token: "tok", fetch: after });
     });

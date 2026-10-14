@@ -44,6 +44,7 @@ import type { ValueTypeOf } from '@elaraai/east';
 import type { UIComponentType } from '@elaraai/east-ui';
 import { RecordSliceImpl } from '@elaraai/east-ui-components/platform';
 import type { PlatformFunction } from '@elaraai/east/internal';
+import type { TaskDetails } from '@elaraai/e3-api-client';
 import type { TreePath } from '@elaraai/e3-types';
 import {
     useReactiveDatasetCacheOptional,
@@ -77,11 +78,27 @@ export interface UITaskPreviewProps {
     config?: E3Config;
     /**
      * Poll interval (ms) for the manifest's declared reads while what they
-     * show changes: the workspace's poll backs off to 5 s once nothing has,
-     * and comes back to this on a change or when the viewer acts. Default
-     * 1000ms.
+     * show changes: the workspace's poll backs off once nothing has, and
+     * comes back to this on a change or when the viewer acts. The cache's
+     * own interval (`ReactiveDatasetProvider`'s `pollIntervalMs`, 1000 ms
+     * unless given) when omitted.
      */
     pollInterval?: number;
+    /**
+     * The longest (ms) the workspace's poll backs off to while nothing the
+     * manifest's reads show changes. The cache's own backoff
+     * (`ReactiveDatasetProvider`'s `pollBackoffMs`, 5000 ms unless given)
+     * when omitted.
+     */
+    pollBackoff?: number;
+    /**
+     * How often (ms) the output's status is polled, which says when the
+     * task has produced a new value. Default 30 000.
+     */
+    outputPollInterval?: number;
+    /** The task's details, when the host holds them: the preview reads them
+     *  from the host rather than the server. */
+    details?: TaskDetails;
     /**
      * Chromeless mode: drop the padding + scroll wrapper so the ui output
      * (a page that owns its own layout) fills its container edge-to-edge —
@@ -98,7 +115,10 @@ function treePathToString(path: TreePath): string {
 export const UITaskPreview = memo(function UITaskPreview({
     task,
     config,
-    pollInterval = 1000,
+    pollInterval,
+    pollBackoff,
+    outputPollInterval,
+    details: givenDetails,
     bare = false,
 }: UITaskPreviewProps) {
     // Read the provider non-throwingly: the `config` prop is designed to let a
@@ -119,7 +139,10 @@ export const UITaskPreview = memo(function UITaskPreview({
     const bound = cache?.getConfig().workspace;
     const foreign = config?.workspace !== undefined && bound !== undefined && config.workspace !== bound;
 
-    const detailsQuery = useTaskDetails(apiUrl ?? '', repo, workspace, task, { requestOptions });
+    const detailsQuery = useTaskDetails(apiUrl ?? '', repo, workspace, task, {
+        requestOptions,
+        ...(givenDetails !== undefined && { details: givenDetails }),
+    });
     const detailsFailure = useQueryRecovery(detailsQuery);
     const details = detailsQuery.data;
 
@@ -167,17 +190,20 @@ export const UITaskPreview = memo(function UITaskPreview({
     useEffect(() => {
         if (!cache || !manifest || !workspace || foreign) return;
         for (const path of manifest.paths) {
-            cache.setRefetchInterval(workspace, path, pollInterval);
+            cache.setRefetchInterval(workspace, path, pollInterval, pollBackoff);
         }
         return () => {
             for (const path of manifest.paths) {
                 cache.clearRefetchInterval(workspace, path);
             }
         };
-    }, [cache, manifest, workspace, pollInterval, foreign]);
+    }, [cache, manifest, workspace, pollInterval, pollBackoff, foreign]);
 
     // Fetch the output value (no size gate — UI is wanted in full).
-    const statusQuery = useDatasetStatus(apiUrl ?? '', repo, workspace, outputPath, { requestOptions });
+    const statusQuery = useDatasetStatus(apiUrl ?? '', repo, workspace, outputPath, {
+        requestOptions,
+        ...(outputPollInterval !== undefined && { pollInterval: outputPollInterval }),
+    });
     const statusFailure = useQueryRecovery(statusQuery);
     const valueQuery = useDatasetValue(apiUrl ?? '', repo, workspace, outputPath, {
         requestOptions,

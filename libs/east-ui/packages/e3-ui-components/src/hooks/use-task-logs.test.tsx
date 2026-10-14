@@ -7,14 +7,18 @@
  * A task's log as `useTaskLogs` polls it: each poll reads on from where the
  * last stopped, every second while the log grows and less often while it does
  * not, down to every 5 s; a poll that fails keeps what was read and waits
- * longer; and another task's log is read from its first byte, every second.
+ * longer; another task's log is read from its first byte, every second, and a
+ * log the view comes back to on from where it stopped; once the execution has
+ * ended and its log is read, it is polled every half minute, for another
+ * execution, which starts the polls again; and the intervals are the caller's
+ * when given.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { renderHook, cleanup, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, defaultScheduler, notifyManager } from "@tanstack/react-query";
-import { taskLogs, type LogOptions } from "@elaraai/e3-api-client";
-import { LOG_POLL_BACKOFF_MS, LOG_POLL_MS, useTaskLogs } from "./useTaskLogsHook.js";
+import { taskLogs, type LogOptions, type RequestOptions } from "@elaraai/e3-api-client";
+import { LOG_POLL_BACKOFF_MS, LOG_POLL_ENDED_MS, LOG_POLL_MS, useTaskLogs, type LogPollOptions } from "./useTaskLogsHook.js";
 
 vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
     ...await importOriginal<typeof import("@elaraai/e3-api-client")>(),
@@ -27,11 +31,13 @@ const realSetTimeout = globalThis.setTimeout;
 const API = "http://e3.test";
 const [FIRST, SECOND] = ["01993c00-0000-7000-8000-000000000001", "01993c00-0000-7000-8000-000000000002"];
 
-/** Each task's current execution's log as the server holds it, and how many
- *  reads of it are still to fail. */
-let logs: Map<string, { executionId: string; text: string; failures: number }>;
+/** Each task's current execution's log as the server holds it, whether the
+ *  execution has ended, and how many reads of it are still to fail. */
+let logs: Map<string, { executionId: string; text: string; failures: number; ended?: boolean }>;
 /** The offset of each read of each task's log the hook asked for. */
 let reads: Map<string, number[]>;
+/** The request options of each read. */
+let requested: (RequestOptions | undefined)[];
 
 beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
@@ -41,10 +47,12 @@ beforeEach(() => {
     notifyManager.setScheduler(queueMicrotask);
     logs = new Map();
     reads = new Map();
-    vi.mocked(taskLogs).mockImplementation((_url, _repo, _workspace, task, options: LogOptions = {}) => {
+    requested = [];
+    vi.mocked(taskLogs).mockImplementation((_url, _repo, _workspace, task, options: LogOptions = {}, requestOptions) => {
         const log = logs.get(task)!;
         const offset = options.offset ?? 0;
         reads.set(task, [...reads.get(task) ?? [], offset]);
+        requested.push(requestOptions);
         if (log.failures > 0) {
             log.failures--;
             return Promise.reject(new Error("the server is away"));
@@ -53,7 +61,7 @@ beforeEach(() => {
         return Promise.resolve({
             data, offset: BigInt(offset), size: BigInt(data.length), totalSize: BigInt(log.text.length),
             complete: offset + data.length >= log.text.length,
-            inputsHash: "a".repeat(64), executionId: log.executionId, ended: false,
+            inputsHash: "a".repeat(64), executionId: log.executionId, ended: log.ended ?? false,
         });
     });
 });
@@ -96,9 +104,9 @@ async function readAfter(task: string, wait: number): Promise<void> {
 
 /** The hook, polling the stdout of `task`, under a client that tries no
  *  failed query again itself. */
-function renderLogs(task: string) {
+function renderLogs(task: string, poll?: LogPollOptions) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return renderHook(({ task }: { task: string }) => useTaskLogs(API, "default", "w", task, "stdout"), {
+    return renderHook(({ task }: { task: string }) => useTaskLogs(API, "default", "w", task, "stdout", undefined, undefined, poll), {
         initialProps: { task },
         wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
     });
@@ -138,6 +146,54 @@ describe("useTaskLogs", () => {
         await readAfter("t", 2 * LOG_POLL_MS);
         expect(result.current.data?.data).toBe("one\ntwo\n");
         expect(reads.get("t")).toEqual([0, 4, 4]);
+    });
+
+    test("polls every half minute once the execution has ended and its log is read, and every second again once a poll finds a new execution", async () => {
+        logs.set("t", { executionId: FIRST, text: "one\n", failures: 0, ended: true });
+        const { result } = renderLogs("t");
+        await settle();
+        expect(result.current.data?.data).toBe("one\n");
+        // The log is whole: a poll every half minute, for another execution
+        await readAfter("t", LOG_POLL_ENDED_MS);
+        await readAfter("t", LOG_POLL_ENDED_MS);
+        expect(result.current.data?.data).toBe("one\n");
+
+        // The task runs again: the next poll finds the new execution, reads
+        // it from its first byte, and polls every second again
+        logs.set("t", { executionId: SECOND, text: "again\n", failures: 0 });
+        await advance(LOG_POLL_ENDED_MS);
+        expect(result.current.data?.data).toBe("again\n");
+        expect(reads.get("t")).toEqual([0, 4, 4, 4, 0]);
+        logs.get("t")!.text += "more\n";
+        await readAfter("t", LOG_POLL_MS);
+        expect(result.current.data?.data).toBe("again\nmore\n");
+    });
+
+    test("reads on from where it stopped in a log the view comes back to", async () => {
+        logs.set("t", { executionId: FIRST, text: "one\n", failures: 0 });
+        logs.set("u", { executionId: SECOND, text: "another\n", failures: 0 });
+        const { result, rerender } = renderLogs("t");
+        await settle();
+        rerender({ task: "u" });
+        await settle();
+        expect(result.current.data?.data).toBe("another\n");
+
+        logs.get("t")!.text += "two\n";
+        rerender({ task: "t" });
+        await settle();
+        expect(result.current.data?.data).toBe("one\ntwo\n");
+        expect(reads.get("t"), "the second read of the first log is from where the first stopped").toEqual([0, 4]);
+    });
+
+    test("polls at the intervals it is given, each read one request attempt", async () => {
+        logs.set("t", { executionId: FIRST, text: "one\n", failures: 0 });
+        renderLogs("t", { pollMs: 500, backoffMs: 2000 });
+        await settle();
+        for (const wait of [500, 1000, 2000, 2000]) await readAfter("t", wait);
+        logs.get("t")!.text += "two\n";
+        await readAfter("t", 2000);
+        await readAfter("t", 500);
+        expect(requested.every((given) => given?.retry?.attempts === 1), "a poll's next poll is its retry").toBe(true);
     });
 
     test("reads another task's log from its first byte, every second", async () => {

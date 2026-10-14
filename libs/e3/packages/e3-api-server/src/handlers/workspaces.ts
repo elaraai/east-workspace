@@ -9,56 +9,44 @@ import {
   PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type TreePath, type WorkspaceDeployRequest,
 } from '@elaraai/e3-types';
 import {
-  workspaceList,
+  workspaceListStates,
   workspaceCreate,
   workspaceCopy,
   workspaceRemove,
   workspaceGetState,
   workspaceLockStatus,
   workspaceStatus,
+  readStateOrThrow,
   packageGetLatestVersion,
   packageResolve,
   checkName,
   PackageNotFoundError,
   WorkspaceLockError,
-  WorkspaceNotDeployedError,
-  WorkspaceNotFoundError,
 } from '@elaraai/e3-core/portable';
 import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
+import { conditionalHeaders, sendNotModified, workspaceStatusTag } from '../conditional.js';
 import { errorToVariant } from '../errors.js';
 import { heldByStoppingRun, sendLockRefusal, sendRetryableError, stoppingRunBefore } from '../stopping-run.js';
 import { LockStatusType, WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
 
 /**
- * List all workspaces in the repository.
+ * List all workspaces in the repository, each with what is deployed to it,
+ * read from the records in one call of the store
+ * ({@link workspaceListStates}).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @returns The response: every workspace, or the error
  */
 export async function listWorkspaces(
   storage: StorageBackend,
   repoPath: string
 ): Promise<Response> {
   try {
-    const workspaces = await workspaceList(storage, repoPath);
-    const result = await Promise.all(
-      workspaces.map(async (name) => {
-        const state = await workspaceGetState(storage, repoPath, name);
-        if (state) {
-          return {
-            name,
-            deployed: true,
-            packageName: some(state.packageName),
-            packageVersion: some(state.packageVersion),
-          };
-        } else {
-          return {
-            name,
-            deployed: false,
-            packageName: none,
-            packageVersion: none,
-          };
-        }
-      })
-    );
+    const result = (await workspaceListStates(storage, repoPath)).map(({ name, state }) => (state === null
+      ? { name, deployed: false, packageName: none, packageVersion: none }
+      : { name, deployed: true, packageName: some(state.packageName), packageVersion: some(state.packageVersion) }));
     return sendSuccess(ArrayType(WorkspaceInfoType), result);
   } catch (err) {
     return sendError(ArrayType(WorkspaceInfoType), errorToVariant(err));
@@ -122,7 +110,9 @@ export async function copyWorkspace(
 }
 
 /**
- * Get workspace state.
+ * Get workspace state, from the workspace's record alone: one that is not
+ * there is `workspace_not_found`, and one that holds no state
+ * `workspace_not_deployed`, with no listing of the repository's workspaces.
  *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
@@ -137,12 +127,7 @@ export async function getWorkspace(
   name: string
 ): Promise<Response> {
   try {
-    const state = await workspaceGetState(storage, repoPath, name);
-    if (!state) {
-      const exists = (await workspaceList(storage, repoPath)).includes(name);
-      throw exists ? new WorkspaceNotDeployedError(name) : new WorkspaceNotFoundError(name);
-    }
-    return sendSuccess(WorkspaceStateType, state);
+    return sendSuccess(WorkspaceStateType, await readStateOrThrow(storage, repoPath, name));
   } catch (err) {
     return sendError(WorkspaceStateType, errorToVariant(err));
   }
@@ -173,7 +158,16 @@ export async function getWorkspaceLockStatus(
 }
 
 /**
- * Get comprehensive workspace status.
+ * Get comprehensive workspace status, conditionally: the answer carries an
+ * `ETag` naming the workspace's status revision, and a request whose
+ * `If-None-Match` names the revision now is answered `304 Not Modified`,
+ * with nothing of the workspace read but its revision.
+ *
+ * @remarks
+ * The revision is read before the status is computed, so the tag an answer
+ * carries is never newer than its content. The tag does not name the runner's
+ * view of an execution recorded running: a client that must notice a runner
+ * gone asks unconditionally now and then.
  *
  * @param storage - Storage backend
  * @param runner - The runner the repository's tasks run on, which says
@@ -183,7 +177,10 @@ export async function getWorkspaceLockStatus(
  * @param paths - The datasets to answer for, such as those a UI binds: the
  *   answer then holds those the workspace has, and the tasks that produce
  *   them. The whole workspace when omitted.
- * @returns The response: the status, or the error
+ * @param ifNoneMatch - The request's `If-None-Match`, when it sent one: the
+ *   tag of the answer it holds
+ * @returns The response: the status, with its `ETag`; `304 Not Modified`
+ *   when the request holds it — each `Cache-Control: no-store`; or the error
  */
 export async function getWorkspaceStatus(
   storage: StorageBackend,
@@ -191,8 +188,11 @@ export async function getWorkspaceStatus(
   repoPath: string,
   name: string,
   paths?: readonly TreePath[],
+  ifNoneMatch?: string,
 ): Promise<Response> {
   try {
+    const tag = await workspaceStatusTag(storage, repoPath, name, ifNoneMatch);
+    if (tag.held) return sendNotModified(tag.etag);
     const status = await workspaceStatus(storage, runner, repoPath, name, paths === undefined ? {} : { paths });
     // Convert numbers to bigints for BEAST2 serialization
     const result = {
@@ -239,7 +239,7 @@ export async function getWorkspaceStatus(
         },
       },
     };
-    return sendSuccess(WorkspaceStatusResultType, result);
+    return sendSuccess(WorkspaceStatusResultType, result, conditionalHeaders(tag.etag));
   } catch (err) {
     return sendError(WorkspaceStatusResultType, errorToVariant(err));
   }

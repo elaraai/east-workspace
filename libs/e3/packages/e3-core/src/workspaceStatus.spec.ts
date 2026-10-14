@@ -96,21 +96,27 @@ describe('workspaceStatus\'s reads', () => {
     return seen;
   };
 
-  it('read the task objects and the tasks\' statuses a few at a time, never more than 16 at once', async (t) => {
+  it('read the task objects a few at a time, never more than 16 at once, and once only; and the tasks\' statuses in two calls', async (t) => {
     const seed = e3.input('seed', IntegerType, variant('value', 1n));
     const storage = await deployedWith(t, Array.from({ length: 40 }, (_, i) =>
       e3.task(`t${i}`, [seed], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)))));
     const objects = peakOf(storage.objects, 'read');
-    const statuses = peakOf(storage.refs, 'executionListRunning');
+    const running = peakOf(storage.refs, 'executionListRunningMany');
+    const latest = peakOf(storage.refs, 'executionGetLatestMany');
+    const each = peakOf(storage.refs, 'executionListRunning');
 
     const status = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
     assert.equal(status.tasks.length, 40);
-    for (const [name, { peak }] of [['task objects', objects], ['tasks\' statuses', statuses]] as const) {
-      assert.ok(peak > 1 && peak <= OBJECT_CONCURRENCY, `${name}: ${peak} at once`);
-    }
+    assert.ok(objects.peak > 1 && objects.peak <= OBJECT_CONCURRENCY, `task objects: ${objects.peak} at once`);
+    assert.deepEqual([running.calls, latest.calls, each.calls], [1, 1, 0], 'every task\'s running attempts in one call, and the latest over its inputs in one');
+
+    // Read again, the task objects are read from memory.
+    objects.calls = 0;
+    await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
+    assert.equal(objects.calls, 0, 'no object read twice');
   });
 
-  it('read a whole workspace\'s dataset refs in one call, and named datasets\' a few at a time, never more than 16 at once', async (t) => {
+  it('read a whole workspace\'s dataset refs in one call, and named datasets\' in one call', async (t) => {
     // One task beside forty inputs: what reads refs side by side is the
     // datasets' own pass.
     const inputs = Array.from({ length: 40 }, (_, i) => e3.input(`in${i}`, IntegerType, variant('value', 0n)));
@@ -118,16 +124,16 @@ describe('workspaceStatus\'s reads', () => {
       e3.task('one', [inputs[0]!], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)))]);
     const wholes = peakOf(storage.datasets, 'readAll');
     const refs = peakOf(storage.datasets, 'read');
+    const manys = peakOf(storage.datasets, 'readMany');
 
     const status = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
     assert.equal(status.datasets.length, 41);
-    assert.deepEqual([wholes.calls, refs.calls], [1, 0], 'the whole workspace\'s refs, in one call');
+    assert.deepEqual([wholes.calls, refs.calls, manys.calls], [1, 0, 0], 'the whole workspace\'s refs, in one call');
 
     const paths: TreePath[] = Array.from({ length: 40 }, (_, i) => [variant('field', 'inputs'), variant('field', `in${i}`)]);
     const named = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws', { paths });
     assert.equal(named.datasets.length, 40);
-    assert.deepEqual([wholes.calls, refs.calls], [1, 40], 'the named datasets\' refs, each once');
-    assert.ok(refs.peak > 1 && refs.peak <= OBJECT_CONCURRENCY, `dataset refs: ${refs.peak} at once`);
+    assert.deepEqual([wholes.calls, refs.calls, manys.calls], [1, 0, 1], 'the named datasets\' refs, in one call');
   });
 });
 

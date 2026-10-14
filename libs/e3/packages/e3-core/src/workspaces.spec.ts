@@ -19,10 +19,12 @@ import {
 import type { LockOperation, TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
   workspaceList,
+  workspaceListStates,
   workspaceCreate,
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,
+  workspaceCopy,
 } from './workspaces.js';
 import { workspaceDeploy, workspaceExport } from './workspace-files.js';
 import { packageResolve, packageRead } from './packages.js';
@@ -175,6 +177,38 @@ describe('workspaces', () => {
       assert.ok(existsSync(join(testRepo, 'workspaces', 'held.beast2')), 'the workspace is still there');
     });
 
+    it('takes the record and its refs in the store\'s one removal, then sweeps until the store says done, unless told not to', async () => {
+      const pkg = e3.package('remove-sweep', '1.0.0', e3.input('value', StringType, variant('value', 'kept')));
+      const zipPath = join(tempDir, 'remove-sweep.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'swept', 'remove-sweep', '1.0.0');
+      await workspaceDeploy(storage, testRepo, 'unswept', 'remove-sweep', '1.0.0');
+      const calls: string[] = [];
+      const refs = storage.refs;
+      const remove = refs.workspaceRemove.bind(refs);
+      refs.workspaceRemove = (repo, name) => { calls.push(`remove ${name}`); return remove(repo, name); };
+      const sweep = refs.workspaceSweep.bind(refs);
+      refs.workspaceSweep = async (repo, cursor) => {
+        // A store that leaves something for two batches of its sweep.
+        calls.push(`sweep ${cursor ?? ''}`);
+        if (cursor === undefined) return { status: 'continue', cursor: 'more', deleted: 1 };
+        return sweep(repo, cursor);
+      };
+      const removeAll = storage.datasets.removeAll.bind(storage.datasets);
+      storage.datasets.removeAll = (repo, ws) => { calls.push(`removeAll ${ws}`); return removeAll(repo, ws); };
+
+      await workspaceRemove(storage, testRepo, 'swept');
+      assert.deepStrictEqual(calls, ['remove swept', 'sweep ', 'sweep more'], 'the store\'s removal once, then its sweep until done');
+      assert.deepStrictEqual(await storage.datasets.list(testRepo, 'swept'), [], 'the refs went with the record');
+      assert.strictEqual(await storage.refs.workspaceRead(testRepo, 'swept'), null);
+
+      calls.length = 0;
+      await workspaceRemove(storage, testRepo, 'unswept', { sweep: false });
+      assert.deepStrictEqual(calls, ['remove unswept'], 'the store\'s removal alone');
+      assert.strictEqual(await storage.refs.workspaceRead(testRepo, 'unswept'), null);
+    });
+
     it('refuses a name no workspace can have before it takes the lock', async () => {
       // A lock's name may hold `#`, and a backend's stores may take any name,
       // so the removal checks the name as a workspace's itself. A storage with
@@ -218,6 +252,33 @@ describe('workspaces', () => {
       assert.ok(workspaces.includes('ws-a'));
       assert.ok(workspaces.includes('ws-b'));
       assert.ok(workspaces.includes('ws-c'));
+    });
+
+    it('lists every workspace with its state in one read of the records, and none on its own', async () => {
+      const pkg = e3.package('list-states', '1.0.0', e3.input('value', StringType, variant('value', 'x')));
+      const zipPath = join(tempDir, 'list-states.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceCreate(storage, testRepo, 'bare');
+      await workspaceDeploy(storage, testRepo, 'deployed', 'list-states', '1.0.0');
+      const reads = { all: 0, each: 0 };
+      const refs = storage.refs;
+      const readAll = refs.workspaceReadAll.bind(refs);
+      refs.workspaceReadAll = (repo) => { reads.all++; return readAll(repo); };
+      const read = refs.workspaceRead.bind(refs);
+      refs.workspaceRead = (repo, name) => { reads.each++; return read(repo, name); };
+
+      const listed = await workspaceListStates(storage, testRepo);
+      assert.deepStrictEqual(listed.map(({ name, state }) => [name, state === null ? null : [state.packageName, state.packageVersion]]).sort(),
+        [['bare', null], ['deployed', ['list-states', '1.0.0']]]);
+      assert.deepStrictEqual(reads, { all: 1, each: 0 });
+      assert.deepStrictEqual(listed.map(({ name }) => name), await workspaceList(storage, testRepo), 'in the order the workspaces are listed');
+      const empty = createTestRepo();
+      try {
+        assert.deepStrictEqual(await workspaceListStates(storage, empty), [], 'a repository with no workspace lists none');
+      } finally {
+        removeTestRepo(empty);
+      }
     });
   });
 
@@ -623,6 +684,38 @@ describe('workspaces', () => {
       const exportZip = join(tempDir, 'main.zip');
       await assertRefusedWhileMainRuns((name) => workspaceExport(storage, testRepo, name, exportZip));
       assert.ok(!existsSync(exportZip) && !existsSync(`${exportZip}.partial`), 'no file was written');
+    });
+  });
+
+  describe('workspaceCopy', () => {
+    it('sweeps what the store\'s removal of the workspace replaced left, before it writes under the name', async () => {
+      const pkg = e3.package('copy-sweep', '1.0.0', e3.input('value', StringType, variant('value', 'kept')));
+      const zipPath = join(tempDir, 'copy-sweep.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'from', 'copy-sweep', '1.0.0');
+      await workspaceDeploy(storage, testRepo, 'onto', 'copy-sweep', '1.0.0');
+      const calls: string[] = [];
+      const refs = storage.refs;
+      const remove = refs.workspaceRemove.bind(refs);
+      refs.workspaceRemove = (repo, name) => { calls.push(`remove ${name}`); return remove(repo, name); };
+      const sweep = refs.workspaceSweep.bind(refs);
+      refs.workspaceSweep = async (repo, cursor) => {
+        // A store that leaves something for two batches of its sweep.
+        calls.push(`sweep ${cursor ?? ''}`);
+        if (cursor === undefined) return { status: 'continue', cursor: 'more', deleted: 1 };
+        return sweep(repo, cursor);
+      };
+      const write = refs.workspaceWrite.bind(refs);
+      refs.workspaceWrite = (repo, name, state) => { calls.push(`write ${name}`); return write(repo, name, state); };
+
+      await workspaceCopy(storage, testRepo, 'from', 'onto');
+      assert.deepStrictEqual(calls, ['remove onto', 'sweep ', 'sweep more', 'write onto'], 'the removal, its sweep until done, then the record');
+      assert.strictEqual((await workspaceGetState(storage, testRepo, 'onto'))?.packageName, 'copy-sweep');
+
+      calls.length = 0;
+      await workspaceCopy(storage, testRepo, 'from', 'fresh');
+      assert.deepStrictEqual(calls, ['write fresh'], 'a copy to a name no workspace has removes and sweeps nothing');
     });
   });
 });

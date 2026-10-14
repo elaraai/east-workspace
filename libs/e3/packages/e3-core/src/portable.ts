@@ -170,8 +170,10 @@ export {
   packageRemove,
   packageList,
   packageGetLatestVersion,
+  comparePackageVersions,
   packageResolve,
   packageRead,
+  packageObjectRead,
   packageImport,
   packageZipOpen,
   packageExport,
@@ -201,15 +203,19 @@ export {
 // export writes to a stream.
 export {
   workspaceList,
+  workspaceListStates,
   workspaceCreate,
   workspaceCopy,
   workspaceRemove,
+  workspaceSweep,
   workspaceGetState,
+  readStateOrThrow,
   workspaceGetPackage,
   workspaceLockStatus,
   workspaceDeploy,
   workspaceExport,
   type WorkspaceRemoveOptions,
+  type WorkspaceListed,
   type WorkspaceDeployOptions,
   type DeploySourceProgress,
   type WorkspaceExportResult,
@@ -224,6 +230,7 @@ export type { SchemaPolicy, InputPolicy, RecordPlan, RecordIndexPlan, InputPlan 
 // Workspace status
 export {
   workspaceStatus,
+  workspaceStatusRevision,
   type DatasetStatus,
   type TaskStatus,
   type DatasetStatusInfo,
@@ -365,8 +372,12 @@ export {
   packageListTasks,
   packageGetTask,
   workspaceListTasks,
+  workspaceListTaskObjects,
+  workspaceFindTask,
   workspaceGetTask,
   workspaceGetTaskHash,
+  taskObjectRead,
+  type WorkspaceTask,
 } from './tasks.js';
 
 // Execution operations

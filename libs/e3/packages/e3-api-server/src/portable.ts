@@ -110,3 +110,7 @@ export { errorToVariant, errorToHttpStatus, sendJsonError, sendUpgradePending } 
 
 export { ApiTypes } from './types.js';
 export { sendSuccess, sendError, sendSuccessWithStatus, decodeBeast2, decodeBody } from './beast2.js';
+
+// Conditional answers: the tag a status is answered by, the headers an answer
+// carries it in, and the 304 that answers a poll which holds it
+export { conditionalHeaders, etagOf, etagMatches, sendNotModified, workspaceStatusTag } from './conditional.js';

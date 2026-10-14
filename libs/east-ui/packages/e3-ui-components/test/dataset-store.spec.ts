@@ -17,13 +17,14 @@ import type { TreePath } from "@elaraai/e3-types";
 import type { DatasetStatusInfo, RequestOptions } from "@elaraai/e3-api-client";
 import {
     ReactiveDatasetCache,
+    STATUS_UNCHANGED_MAX_MS,
     createDefaultDatasetApi,
     datasetCacheKey,
     datasetPathToString,
     type DatasetApi,
 } from "../src/platform/dataset-store.js";
 import { createMockDatasetApi } from "./fixtures/mock-dataset-api.js";
-import { createFakeClock, flushMicrotasks, settle, type FakeClock } from "./fixtures/fake-clock.js";
+import { createFakeClock, createFakeVisibility, flushMicrotasks, settle, type FakeClock } from "./fixtures/fake-clock.js";
 
 const path = (...segs: string[]): TreePath => segs.map(s => variant("field", s));
 const ws = "test-workspace";
@@ -85,6 +86,13 @@ describe("ReactiveDatasetCache — construction + getConfig", () => {
         assert.equal("repo" in cfg, false);
         assert.equal("token" in cfg, false);
         assert.equal("staleTime" in cfg, false);
+    });
+
+    test("the poll intervals given round-trip, and only those given", () => {
+        const api = createMockDatasetApi();
+        assert.deepEqual(new ReactiveDatasetCache({ workspace: "ws", pollIntervalMs: 2000, pollBackoffMs: 9000 }, api).getConfig(),
+            { workspace: "ws", pollIntervalMs: 2000, pollBackoffMs: 9000 });
+        assert.deepEqual(new ReactiveDatasetCache({ pollBackoffMs: 9000 }, api).getConfig(), { pollBackoffMs: 9000 });
     });
 });
 
@@ -818,6 +826,217 @@ describe("ReactiveDatasetCache — polling backs off", () => {
         await settle();
         assert.deepEqual(await ticks(clock, 2), [10_000, 10_000]);
     });
+
+    test("polls at the cache's configured interval and backs off to its configured backoff, unless a watch asks for shorter", async () => {
+        const api = createMockDatasetApi();
+        const clock = createFakeClock();
+        const cache = new ReactiveDatasetCache({ workspace: ws, pollIntervalMs: 2000, pollBackoffMs: 12_000 }, api, clock);
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        api.seed(ws, schedulePath, bytes(2), "hash-S");
+        cache.setRefetchInterval(ws, policyPath);
+        await settle();
+        assert.equal(period(clock), 2000, "the configured interval");
+        assert.deepEqual(await ticks(clock, 4), [4000, 8000, 12_000, 12_000], "doubling to the configured backoff");
+
+        // A watch asking for a shorter interval and backoff shortens both.
+        cache.watchHash(ws, schedulePath, () => {}, 500, 3000);
+        assert.equal(period(clock), 500, "the watch's interval");
+        assert.deepEqual(await ticks(clock, 4), [500, 1000, 2000, 3000], "the watch's first hash, then doubling to the watch's backoff");
+        // Another asking for longer leaves them.
+        cache.setRefetchInterval(ws, schedulePath, 4000, 20_000);
+        assert.deepEqual(await ticks(clock, 2), [500, 1000]);
+    });
+});
+
+// =============================================================================
+// A.15c — a hidden page polls nothing
+// =============================================================================
+
+describe("ReactiveDatasetCache — a hidden page", () => {
+    test("stops every workspace's timer while the page is hidden, keeping what it watches, and polls each at once and at its interval once shown", async () => {
+        const api = createMockDatasetApi();
+        const clock = createFakeClock();
+        const visibility = createFakeVisibility();
+        const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock, visibility);
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        api.seed("other", schedulePath, bytes(2), "hash-S");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        cache.watchHash("other", schedulePath, () => {}, 1000);
+        await settle();
+        for (let i = 0; i < 3; i++) { clock.tickAll(); await settle(); }
+        assert.deepEqual(clock.intervals.map((timer) => timer.intervalMs), [5000, 5000], "both backed off");
+        const polled = api.calls.workspaceStatus.length;
+
+        visibility.set(true);
+        assert.equal(clock.intervals.length, 0, "no timer while hidden");
+        await settle();
+        assert.equal(api.calls.workspaceStatus.length, polled, "and no poll");
+        // A watch registered while hidden starts no timer and no poll either.
+        cache.setRefetchInterval(ws, schedulePath, 1000);
+        cache.watchHash("third", policyPath, () => {}, 1000);
+        await settle();
+        assert.equal(clock.intervals.length, 0);
+        assert.equal(api.calls.workspaceStatus.length, polled);
+        // Nor does a write restart one: the viewer is away.
+        void cache.write(ws, policyPath, bytes(3));
+        await settle();
+        assert.equal(clock.intervals.length, 0, "no timer for a write while hidden");
+
+        api.seed(ws, policyPath, bytes(4), "hash-B");
+        visibility.set(false);
+        assert.deepEqual(clock.intervals.map((timer) => timer.intervalMs), [1000, 1000, 1000], "every workspace at its interval again");
+        await settle();
+        assert.ok(api.calls.workspaceStatus.length >= polled + 3, "each polled at once");
+        assert.deepEqual(cache.read(ws, policyPath), bytes(4), "and what changed meanwhile is seen");
+
+        cache.destroy();
+        visibility.set(true);
+        visibility.set(false);
+        assert.equal(clock.intervals.length, 0, "a destroyed cache starts no timer");
+    });
+
+    test("a cache made while the page is hidden polls once it is shown", async () => {
+        const api = createMockDatasetApi();
+        const clock = createFakeClock();
+        const visibility = createFakeVisibility(true);
+        const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock, visibility);
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        assert.deepEqual([clock.intervals.length, api.calls.workspaceStatus.length], [0, 0]);
+        visibility.set(false);
+        await settle();
+        assert.deepEqual([clock.intervals.length, api.calls.workspaceStatus.length], [1, 1]);
+        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+    });
+});
+
+// =============================================================================
+// A.15d — a poll asks conditionally
+// =============================================================================
+
+describe("ReactiveDatasetCache — conditional polls", () => {
+    /** The tag each status call asked with. */
+    const asked = (api: ReturnType<typeof createMockDatasetApi>): (string | undefined)[] => api.calls.workspaceStatus.map((call) => call.etag);
+
+    test("sends the last full answer's tag, keeps what it shows while the server answers nothing, and asks in full once something moves", async () => {
+        const { cache, api, clock } = newCache();
+        api.setStatusEtag("e1");
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        assert.deepEqual(asked(api), [undefined], "a first poll asks in full");
+        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+
+        clock.tickAll();
+        await settle();
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api), [undefined, "e1", "e1"], "then with the tag");
+        assert.equal(api.calls.get.length, 1, "nothing fetched: the server answered nothing");
+        assert.equal(clock.intervals[0]!.intervalMs, 4000, "an unchanged answer backs the poll off");
+
+        api.seed(ws, policyPath, bytes(2), "hash-B");
+        api.setStatusEtag("e2");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), "e1", "the tag held");
+        assert.deepEqual(cache.read(ws, policyPath), bytes(2), "the server answered in full: the change is seen");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), "e2", "and the new tag is held");
+    });
+
+    test("asks in full when the paths it watches changed since the tag's answer, and after half a minute", async () => {
+        const { cache, api, clock } = newCache();
+        api.setStatusEtag("e1");
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        api.seed(ws, schedulePath, bytes(2), "hash-S");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api), [undefined, "e1"]);
+
+        cache.setRefetchInterval(ws, schedulePath, 1000);
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), undefined, "another path watched: in full");
+        assert.deepEqual(cache.read(ws, schedulePath), bytes(2));
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), "e1", "then with the tag again");
+
+        clock.advance(STATUS_UNCHANGED_MAX_MS);
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), undefined, "half a minute on: in full, so a runner gone shows");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), "e1", "and the fresh answer's tag after");
+    });
+
+    test("asks in full every time while the server names no tag", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api), [undefined, undefined]);
+    });
+
+    test("asks in full again after a content fetch failed, so the fetch is tried again", async () => {
+        const { cache, api, clock } = newCache();
+        api.setStatusEtag("e1");
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        api.seed(ws, policyPath, bytes(2), "hash-B");
+        api.setStatusEtag("e2");
+        api.failNext("get", new Error("transient"));
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(cache.read(ws, policyPath), bytes(1), "the fetch failed: what was read is kept");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api), [undefined, "e1", undefined], "the next poll asks in full, not with the answer's tag");
+        assert.deepEqual(cache.read(ws, policyPath), bytes(2), "and fetches the content again");
+    });
+
+    test("asks in full when a path it covers is watched again, so the new watcher is answered, and on a refresh", async () => {
+        const { cache, api, clock } = newCache();
+        api.setStatusEtag("e1");
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api), [undefined, "e1"]);
+
+        // A hash watch on the path polled: the server would answer nothing to
+        // the tag, and the watch hear nothing until something moved.
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws, policyPath, (hash) => { heard.push(hash); });
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), undefined, "a new watch: in full");
+        assert.deepEqual(heard, ["hash-A"], "and the watch is told");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), "e1", "then with the tag again");
+
+        // A second view of the path polled, and a refresh, each in full too.
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), undefined, "a path watched again: in full");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(asked(api).at(-1), "e1");
+        await cache.refresh(ws);
+        assert.deepEqual(asked(api).at(-1), undefined, "a refresh: in full");
+    });
 });
 
 // =============================================================================
@@ -882,6 +1101,27 @@ describe("ReactiveDatasetCache — destroy", () => {
 // =============================================================================
 
 describe("createDefaultDatasetApi", () => {
+    test("asks the status conditionally, with one attempt, and reads the tag an answer carries", async () => {
+        const seen: { etag: string | null }[] = [];
+        let answers = 0;
+        const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+            seen.push({ etag: new Headers(init?.headers).get("if-none-match") });
+            answers++;
+            if (answers === 1) throw new TypeError("fetch failed");
+            if (answers === 3) return new Response(null, { status: 304, headers: { ETag: '"one"' } });
+            return new Response(JSON.stringify({ error: { type: "not_found", message: "not served here" } }), {
+                status: 404,
+                headers: { "Content-Type": "application/json", ETag: '"one"' },
+            });
+        }) as typeof globalThis.fetch;
+        const api = createDefaultDatasetApi("http://e3.test", "default", () => ({ token: null, fetch }));
+
+        await assert.rejects(api.workspaceStatus(ws), /fetch failed/, "a poll makes one attempt: its next poll is its retry");
+        await assert.rejects(api.workspaceStatus(ws, undefined, '"zero"'));
+        assert.equal(await api.workspaceStatus(ws, [policyPath], '"one"'), null, "a 304 is nothing");
+        assert.deepEqual(seen.map(({ etag }) => etag), [null, '"zero"', '"one"']);
+    });
+
     test("each request goes out with the options read when it is made: the token, and the fetch it goes through", async () => {
         const networkFetch = globalThis.fetch;
         const escaped: string[] = [];

@@ -32,6 +32,7 @@ import type { PackageObject } from '@elaraai/e3-types';
 import { ExportStoppedError, PackageInvalidError, PackageNotFoundError } from './errors.js';
 import { OBJECT_CONCURRENCY, TOUCH_BATCH, eachAtMost } from './concurrency.js';
 import { readManifest } from './dataset-open.js';
+import { hashMemo, memoKey } from './memo.js';
 import { computeHash } from './objects.js';
 import { readRecordState } from './records.js';
 import { withRunningWork } from './running-work.js';
@@ -158,8 +159,39 @@ export async function packageList(
   return storage.refs.packageList(repo);
 }
 
+/** Whether a version is a release, as `compareReleases` reads one. */
+function isRelease(version: string): boolean {
+  try {
+    compareReleases(version, version);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Get the latest version of a package.
+ * Orders package versions: as releases, where both are
+ * (`compareReleases`), so `1.10.0` sorts after `1.9.0` and a prerelease
+ * before its release; a release after a version that is none — a workspace's
+ * export names one `1.0.0-m2k9x`, which is a prerelease, and a package may
+ * name any one path segment — and two that are none as strings.
+ *
+ * @param a - A version
+ * @param b - Another
+ * @returns Negative when `a` comes first, positive when `b` does, 0 when they
+ *   are one version
+ */
+export function comparePackageVersions(a: string, b: string): number {
+  const [aRelease, bRelease] = [isRelease(a), isRelease(b)];
+  if (aRelease && bRelease) return compareReleases(a, b);
+  if (aRelease !== bRelease) return aRelease ? 1 : -1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Get the latest version of a package: the greatest of its versions
+ * ({@link comparePackageVersions}), read from the package's versions alone
+ * (`RefStore.packageVersions`), not from every version of every package.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -171,12 +203,56 @@ export async function packageGetLatestVersion(
   repo: string,
   name: string
 ): Promise<string | undefined> {
-  const packages = await packageList(storage, repo);
-  const versions = packages
-    .filter(p => p.name === name)
-    .map(p => p.version)
-    .sort();
-  return versions[versions.length - 1];
+  const versions = await storage.refs.packageVersions(repo, name);
+  let latest: string | undefined;
+  for (const version of versions) {
+    if (latest === undefined || comparePackageVersions(version, latest) > 0) latest = version;
+  }
+  return latest;
+}
+
+/** How many decoded package objects {@link packageObjectRead} keeps. */
+const PACKAGE_OBJECTS_KEPT = 64;
+
+/** What package objects decoded to, by repository and hash: a package
+ *  deployed to a workspace is read on every list, status and task read of
+ *  it. */
+const packageObjects = hashMemo<PackageObject>(PACKAGE_OBJECTS_KEPT);
+
+/**
+ * Read and decode a package object by its hash, which a workspace's record
+ * names: once per object of a repository, since its hash fixes what it
+ * decodes to, and then from memory ({@link hashMemo}) however many
+ * workspaces, lists, statuses and task reads name it.
+ *
+ * @remarks
+ * What it answers is shared by every reader, which reads it and never
+ * changes it. A repository's objects are kept apart from another's
+ * ({@link memoKey}), so an object one repository holds is read from the
+ * store when another first names it, and refused there when that one does
+ * not hold it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The package object's hash
+ * @returns The package object
+ * @throws {ObjectNotFoundError} When the store does not hold the object, and
+ *   nothing has read it from the repository before
+ * @throws {Error} When the object does not decode as a package
+ */
+export async function packageObjectRead(storage: StorageBackend, repo: string, hash: string): Promise<PackageObject> {
+  const key = memoKey(repo, hash);
+  const known = packageObjects.get(key);
+  if (known !== undefined) return known;
+  const data = await storage.objects.read(repo, hash);
+  let pkg: PackageObject;
+  try {
+    pkg = decodePackageObject(data);
+  } catch (err) {
+    throw new Error(`Failed to decode package object ${hash} (size: ${data.byteLength} bytes): ${err instanceof Error ? err.message : String(err)}`);
+  }
+  packageObjects.set(key, pkg);
+  return pkg;
 }
 
 /**
@@ -211,6 +287,7 @@ export async function packageResolve(
  * @param version - Package version
  * @returns Parsed PackageObject
  * @throws {PackageNotFoundError} If package doesn't exist
+ * @throws {Error} When the package's object does not decode
  */
 export async function packageRead(
   storage: StorageBackend,
@@ -219,12 +296,7 @@ export async function packageRead(
   version: string
 ): Promise<PackageObject> {
   const hash = await packageResolve(storage, repo, name, version);
-  const data = await storage.objects.read(repo, hash);
-  try {
-    return decodePackageObject(data);
-  } catch (err: any) {
-    throw new Error(`Failed to decode package ${name}@${version} (hash: ${hash}, size: ${data.byteLength} bytes): ${err.message}`);
-  }
+  return packageObjectRead(storage, repo, hash);
 }
 
 // =============================================================================
@@ -635,14 +707,21 @@ export async function packageZipOpenFrom(
           ...(await refs.packageList(repo)).filter((p) => p.name !== name || p.version !== version),
           { name, version },
         ],
+        packageVersions: async (repo, pkgName) => {
+          const held = await refs.packageVersions(repo, pkgName);
+          return pkgName === name && !held.includes(version) ? [...held, version] : held;
+        },
         packageResolve: async (repo, pkgName, pkgVersion) =>
           pkgName === name && pkgVersion === version ? packageHash : refs.packageResolve(repo, pkgName, pkgVersion),
         packageWrite: refuse('write a package ref'),
         packageRemove: refuse('remove a package ref'),
         workspaceList: refs.workspaceList.bind(refs),
+        workspaceReadAll: refs.workspaceReadAll.bind(refs),
         workspaceRead: refs.workspaceRead.bind(refs),
         workspaceWrite: refuse('write a workspace'),
         workspaceRemove: refuse('remove a workspace'),
+        workspaceSweep: refuse('sweep a removed workspace'),
+        workspaceRevision: refs.workspaceRevision.bind(refs),
         executionGet: refs.executionGet.bind(refs),
         executionReadBytes: refs.executionReadBytes.bind(refs),
         executionWrite: refuse('write an execution'),
@@ -650,10 +729,12 @@ export async function packageZipOpenFrom(
         executionListIds: refs.executionListIds.bind(refs),
         executionListAttempts: refs.executionListAttempts.bind(refs),
         executionGetLatest: refs.executionGetLatest.bind(refs),
+        executionGetLatestMany: refs.executionGetLatestMany.bind(refs),
         executionList: refs.executionList.bind(refs),
         executionListForTask: refs.executionListForTask.bind(refs),
         executionListLatest: refs.executionListLatest.bind(refs),
         executionListRunning: refs.executionListRunning.bind(refs),
+        executionListRunningMany: refs.executionListRunningMany.bind(refs),
         executionListRuns: refs.executionListRuns.bind(refs),
         executionOwnerWrite: refuse('write an execution\'s owner'),
         executionOwnerRead: refs.executionOwnerRead.bind(refs),
@@ -705,6 +786,7 @@ export async function packageZipOpenFrom(
         writeIf: refuse('write a dataset ref'),
         list: datasets.list.bind(datasets),
         readAll: datasets.readAll.bind(datasets),
+        readMany: datasets.readMany.bind(datasets),
         remove: refuse('remove a dataset ref'),
         removeAll: refuse('remove a workspace\'s dataset refs'),
       },

@@ -25,6 +25,8 @@ export interface ApiCall {
     path?: TreePath;
     /** The datasets a status call named. */
     paths?: readonly TreePath[];
+    /** The tag a status call asked conditionally with. */
+    etag?: string;
     value?: Uint8Array;
 }
 
@@ -58,6 +60,13 @@ export interface MockDatasetApi extends DatasetApi {
     setWorkspaceStatusOverride(workspace: string, datasets: DatasetStatusInfo[]): void;
     /** Clear a previously-set override. */
     clearWorkspaceStatusOverride(workspace: string): void;
+    /**
+     * The tag the server's status carries, from now: a status call asked
+     * conditionally with it is answered `null`, as a server that still holds
+     * that status answers. `null` names no tag, so every call is answered in
+     * full. Starts `null`.
+     */
+    setStatusEtag(etag: string | null): void;
 }
 
 interface PauseGate {
@@ -75,6 +84,7 @@ export function createMockDatasetApi(): MockDatasetApi {
     const failures: { [K in keyof DatasetApi]?: { error: Error; remaining: number } } = {};
     const pauseGates: { [K in keyof DatasetApi]?: PauseGate[] } = {};
     const statusOverrides = new Map<string, DatasetStatusInfo[]>();
+    let statusEtag: string | null = null;
 
     let nextHashCounter = 0;
     const nextHash = () => `mock-hash-${++nextHashCounter}`;
@@ -138,11 +148,12 @@ export function createMockDatasetApi(): MockDatasetApi {
             return [];
         },
 
-        async workspaceStatus(workspace, paths) {
-            calls.workspaceStatus.push(paths === undefined ? { workspace } : { workspace, paths });
+        async workspaceStatus(workspace, paths, etag) {
+            calls.workspaceStatus.push({ workspace, ...(paths !== undefined && { paths }), ...(etag !== undefined && { etag }) });
             await gateAndCheck("workspaceStatus");
+            if (etag !== undefined && statusEtag !== null && etag === statusEtag) return null;
             const override = statusOverrides.get(workspace);
-            if (override) return { datasets: override };
+            if (override) return { datasets: override, etag: statusEtag };
             // As the server answers: the datasets named, when any are.
             const named = paths === undefined ? null : new Set(paths.map((path) => pathKey(workspace, path)));
             const datasets: DatasetStatusInfo[] = [];
@@ -157,7 +168,7 @@ export function createMockDatasetApi(): MockDatasetApi {
                     producedBy: none,
                 });
             }
-            return { datasets };
+            return { datasets, etag: statusEtag };
         },
 
         // Test helpers ---------------------------------------------------
@@ -190,6 +201,9 @@ export function createMockDatasetApi(): MockDatasetApi {
         },
         clearWorkspaceStatusOverride(workspace) {
             statusOverrides.delete(workspace);
+        },
+        setStatusEtag(etag) {
+            statusEtag = etag;
         },
     };
 }

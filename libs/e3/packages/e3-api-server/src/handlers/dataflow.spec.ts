@@ -14,16 +14,18 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { NullType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import {
-  Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, stateToStatus,
+  IntegerType, NullType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant,
+} from '@elaraai/east';
+import {
+  Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, stateToStatus, storeDatasetBytes,
   type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
 } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { BEAST2_CONTENT_TYPE, E3_RELEASE, dataflowForce } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, E3_RELEASE, PackageObjectType, WorkspaceRecordType, dataflowForce } from '@elaraai/e3-types';
 import { createExecutionRoutes } from '../routes/executions.js';
 import { createServer } from '../server.js';
-import { DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, ResponseType } from '../types.js';
+import { DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, ResponseType, WorkspaceStatusResultType } from '../types.js';
 
 /** A run's state, of no tasks, in workspace `main` of `test-repo`. */
 function runState(id: string, status: 'running' | 'completed' | 'failed' | 'cancelled'): DataflowExecutionState {
@@ -38,11 +40,14 @@ function runState(id: string, status: 'running' | 'completed' | 'failed' | 'canc
 /**
  * A state store that records the reads made of it, as a poll makes them: of
  * the whole state, of a run's summary, and of its events, with the most
- * events each read of them asks for.
+ * events each read of them asks for and the last event it reads up to.
  */
-function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore; reads: string[]; limits: (number | undefined)[] } {
+function countingStore(inner: ExecutionStateStore): {
+  store: ExecutionStateStore; reads: string[]; limits: (number | undefined)[]; lasts: (number | undefined)[];
+} {
   const reads: string[] = [];
   const limits: (number | undefined)[] = [];
+  const lasts: (number | undefined)[] = [];
   const store: ExecutionStateStore = {
     create: (state) => inner.create(state),
     read: (repo, workspace, id) => {
@@ -61,15 +66,39 @@ function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore
     updateTaskStatus: (repo, workspace, id, task, status, details) => inner.updateTaskStatus(repo, workspace, id, task, status, details),
     updateStatus: (repo, workspace, id, status, details) => inner.updateStatus(repo, workspace, id, status, details),
     recordEvent: (repo, workspace, id, event) => inner.recordEvent(repo, workspace, id, event),
-    getEventsSince: (repo, workspace, id, since, limit) => {
+    getEventsSince: (repo, workspace, id, since, limit, lastSeq) => {
       reads.push('getEventsSince');
       limits.push(limit);
-      return inner.getEventsSince(repo, workspace, id, since, limit);
+      lasts.push(lastSeq);
+      return inner.getEventsSince(repo, workspace, id, since, limit, lastSeq);
     },
     delete: (repo, workspace, id) => inner.delete(repo, workspace, id),
     readStored: (repo) => inner.readStored(repo),
   };
-  return { store, reads, limits };
+  return { store, reads, limits, lasts };
+}
+
+/** A storage holding `main` in `test-repo`, with a package of one input,
+ *  `inputs/x`, deployed to it. */
+async function storageWithWorkspace(): Promise<InMemoryStorage> {
+  const storage = new InMemoryStorage();
+  await storage.repos.create('test-repo');
+  const x = await storeDatasetBytes(storage, 'test-repo', encodeBeast2For(IntegerType)(1n));
+  const structure = variant('struct', new Map([
+    ['inputs', variant('struct', new Map([['x', variant('value', { type: toEastTypeValue(IntegerType), writable: true })]]))],
+  ]));
+  const pkg = await storage.objects.write('test-repo', encodeBeast2For(PackageObjectType)({
+    tasks: new Map(),
+    data: { structure, refs: new Map([['inputs/x', variant('value', { hash: x, versions: new Map() })]]) },
+    functions: new Map(),
+    records: new Map(),
+    sources: new Map(),
+  }));
+  await storage.refs.workspaceWrite('test-repo', 'main', encodeBeast2For(WorkspaceRecordType)(some({
+    packageName: 'one', packageVersion: '1.0.0', packageHash: pkg, deployedAt: new Date(0), currentRunId: none,
+  })));
+  await storage.datasets.write('test-repo', 'main', 'inputs/x', variant('value', { hash: x, versions: new Map() }));
+  return storage;
 }
 
 describe('dataflow routes', () => {
@@ -260,7 +289,7 @@ describe('dataflow routes', () => {
   });
 
   it('poll a run of more events than a poll is served: at most 1,000, however many it asks for, with the run\'s id and its last event, which say what a poll left', async () => {
-    const { store, limits } = countingStore(new InMemoryStateStore());
+    const { store, limits, lasts } = countingStore(new InMemoryStateStore());
     const at = new Date(0);
     await store.create({
       ...runState('run-1', 'completed'),
@@ -287,6 +316,40 @@ describe('dataflow routes', () => {
     assert.deepEqual(await poll('?since=1000'), { runId: 'run-1', served: 500, first: 't1001', nextSeq: 1_500n, lastSeq: 1_500n }, 'the rest, from the cursor it left');
     assert.deepEqual(await poll('?limit=0'), { runId: 'run-1', served: 0, first: null, nextSeq: 0n, lastSeq: 1_500n }, 'a poll of no events sees where the run\'s events end');
     assert.deepEqual(limits, [1_000, 1_000, 1_000], 'each poll asks the store for no more events than it serves');
+    assert.deepEqual(lasts, [1_500, 1_500, 1_500], 'and for none past the last event its summary named');
+  });
+
+  it('answer the workspace\'s status with its ETag, and 304 to a poll holding it until something moves, each no-store', async () => {
+    const storage = await storageWithWorkspace();
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(),
+      getStateStore: () => new InMemoryStateStore(),
+    }));
+    const decode = decodeBeast2For(ResponseType(WorkspaceStatusResultType));
+    const status = async (headers: Record<string, string> = {}) => {
+      const response = await app.request('/api/repos/r/workspaces/main/dataflow', { headers });
+      const body = new Uint8Array(await response.arrayBuffer());
+      return { code: response.status, etag: response.headers.get('etag'), cache: response.headers.get('cache-control'), body: body.length === 0 ? null : decode(body) };
+    };
+
+    const first = await status();
+    assert.equal(first.code, 200);
+    assert.match(first.etag ?? '', /^"[0-9a-f]{64}"$/);
+    assert.equal(first.cache, 'no-store');
+    assert.equal(first.body?.type, 'success');
+    const reads: string[] = [];
+    const readAll = storage.datasets.readAll.bind(storage.datasets);
+    storage.datasets.readAll = (repo, ws) => { reads.push('readAll'); return readAll(repo, ws); };
+    assert.deepEqual(await status({ 'If-None-Match': first.etag! }), { code: 304, etag: first.etag, cache: 'no-store', body: null });
+    assert.deepEqual(reads, [], 'a 304 reads no ref');
+
+    const x = await storage.datasets.read('test-repo', 'main', 'inputs/x');
+    await storage.datasets.write('test-repo', 'main', 'inputs/x', x!);
+    const moved = await status({ 'If-None-Match': first.etag! });
+    assert.deepEqual([moved.code, moved.body?.type], [200, 'success']);
+    assert.notEqual(moved.etag, first.etag);
   });
 
   it('poll a run whose events the API mostly does not show: a page of the limit at a time, at most eight, and the rest over the polls after', async () => {

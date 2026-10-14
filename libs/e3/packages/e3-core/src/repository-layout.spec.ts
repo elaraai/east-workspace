@@ -16,7 +16,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import {
   ArrayType, East, IntegerType, NullType, StringType, StructType, decodeBeast2For, encodeBeast2For, isTypeValueEqual, none,
@@ -41,6 +41,7 @@ import { LocalStorage } from './storage/local/index.js';
 import { LockProgressRecordType } from './storage/local/LocalLockService.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './storage/local/LocalRefStore.js';
 import { LOCAL_REPOSITORY_UPGRADES } from './storage/local/upgrades.js';
+import { STATUS_REVISION_TOKENS } from './upgrades/status-revision-tokens.js';
 import { workspaceCreate, workspaceRemove } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
 import { createTempDir, createTestRepo, deadPid, removeTempDir, removeTestRepo } from './test-helpers.js';
@@ -54,6 +55,8 @@ const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastTyp
   ['the repository\'s metadata', /^metadata\.beast2$/, RepoMetadataType],
   ['a package ref', /^packages\/[^/]+\/[^/]+\.beast2$/, StringType],
   ['a workspace record', /^workspaces\/[^/]+\.beast2$/, WorkspaceRecordType],
+  ['a workspace\'s revision token', /^workspaces\/[^/]+\/revision\.beast2$/, StringType],
+  ['the executions\' revision token', /^executions\/revision\.beast2$/, StringType],
   ['a workspace\'s execution state', /^workspaces\/[^/]+\/execution\.beast2$/, DataflowExecutionStateType],
   ['a segment of a run\'s events', /^workspaces\/[^/]+\/execution-events\/[0-9a-f-]{36}\/\d{20}\.beast2$/, ArrayType(ExecutionEventType)],
   ['a dataset ref', /^workspaces\/[^/]+\/data\/.+\.beast2$/, StructType({ revision: StringType, ref: DatasetRefType })],
@@ -272,5 +275,26 @@ describe('the repository\'s records', () => {
     } finally {
       LOCAL_REPOSITORY_UPGRADES.splice(LOCAL_REPOSITORY_UPGRADES.indexOf(upgrade), 1);
     }
+  });
+
+  it('opens a repository from before workspaces had revision tokens, giving each its token by writing its record again as it is', async () => {
+    // What the release before the step left: a record without it, and a
+    // workspace with no token of its own.
+    const record = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_RECORD_FILE)));
+    const before = { release: '1.0.88', upgrades: record.upgrades.filter(({ name }) => name !== STATUS_REVISION_TOKENS) };
+    writeFileSync(join(repo, REPOSITORY_RECORD_FILE), encodeRepositoryRecord(before));
+    const token = join(repo, 'workspaces', 'main', 'revision.beast2');
+    rmSync(token);
+    const main = readFileSync(join(repo, 'workspaces', 'main.beast2'));
+    const empty = await storage.refs.workspaceRevision(repo, 'main');
+    assert.ok(empty !== null && empty.startsWith(':'), `no token of its own: ${empty}`);
+
+    await repositoryOpen(storage, repo);
+    const upgraded = decodeBeast2For(RepositoryRecordType)(readFileSync(join(repo, REPOSITORY_RECORD_FILE)));
+    assert.deepEqual(upgraded.upgrades, [...before.upgrades, { name: STATUS_REVISION_TOKENS, release: E3_RELEASE }]);
+    assert.ok(existsSync(token), 'the workspace has its token');
+    const given = await storage.refs.workspaceRevision(repo, 'main');
+    assert.ok(given !== null && !given.startsWith(':') && given !== empty, `a token of its own: ${given}`);
+    assert.deepEqual(readFileSync(join(repo, 'workspaces', 'main.beast2')), main, 'the record is as it was');
   });
 });

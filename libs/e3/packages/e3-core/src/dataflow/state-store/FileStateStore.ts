@@ -261,19 +261,22 @@ export class FileStateStore implements ExecutionStateStore {
     });
   }
 
-  /** The events of the run past the cursor, from its segments alone: a run
-   *  whose id is no UUIDv7, which names no run, has none. */
+  /** The events of the run past the cursor, from its segments alone, up to
+   *  the last asked: a run whose id is no UUIDv7, which names no run, has
+   *  none. */
   async getEventsSince(
     _repo: string,
     workspace: string,
     executionId: string,
     sinceSeq: number,
-    limit?: number
+    limit?: number,
+    lastSeq?: number,
   ): Promise<ExecutionEvent[]> {
     checkName('workspace', workspace);
     if (!isUuidv7(executionId)) return [];
     const dir = this.eventsPath(workspace, executionId);
-    return eventsSince(await this.segmentKeys(dir), (first) => this.readSegment(dir, first), BigInt(sinceSeq), limit);
+    return eventsSince(await this.segmentKeys(dir), (first) => this.readSegment(dir, first), BigInt(sinceSeq), limit,
+      lastSeq === undefined ? undefined : BigInt(lastSeq));
   }
 
   async delete(_repo: string, workspace: string, executionId: string): Promise<void> {

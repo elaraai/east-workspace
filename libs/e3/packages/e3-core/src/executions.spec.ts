@@ -582,4 +582,26 @@ describe('the execution a task\'s logs read (executionFindCurrent)', () => {
     const { storage } = await deployed(t);
     assert.strictEqual(await executionFindCurrent(storage, 'repo', 'ws', 'double'), null);
   });
+
+  it('reads the workspace\'s record once, the task\'s input refs in one call, and no object once the task object is in memory', async (t) => {
+    const { storage, task, current } = await deployed(t);
+    const id = uuidv7();
+    await storage.refs.executionWrite('repo', task, current, id, failed(id));
+    // The lookup once, so the task object is in memory
+    await executionFindCurrent(storage, 'repo', 'ws', 'double');
+    const counts = { workspaceRead: 0, objectRead: 0, read: 0, readMany: 0 };
+    const refs = storage.refs;
+    const workspaceRead = refs.workspaceRead.bind(refs);
+    refs.workspaceRead = (repo, name) => { counts.workspaceRead++; return workspaceRead(repo, name); };
+    const objectRead = storage.objects.read.bind(storage.objects);
+    storage.objects.read = (repo, hash) => { counts.objectRead++; return objectRead(repo, hash); };
+    const read = storage.datasets.read.bind(storage.datasets);
+    storage.datasets.read = (repo, ws, path) => { counts.read++; return read(repo, ws, path); };
+    const readMany = storage.datasets.readMany.bind(storage.datasets);
+    storage.datasets.readMany = (repo, ws, paths) => { counts.readMany++; return readMany(repo, ws, paths); };
+
+    const found = await executionFindCurrent(storage, 'repo', 'ws', 'double');
+    assert.strictEqual(found?.executionId, id);
+    assert.deepStrictEqual(counts, { workspaceRead: 1, objectRead: 0, read: 0, readMany: 1 });
+  });
 });

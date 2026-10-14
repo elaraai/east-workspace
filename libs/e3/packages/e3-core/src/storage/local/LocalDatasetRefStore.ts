@@ -14,7 +14,9 @@
  * still get distinct revisions and the compare-and-swap can never miss a
  * concurrent change (ABA).
  *
- * Writes are atomic (write to .partial, then rename).
+ * Writes are atomic (write to .partial, then rename), and each moves the
+ * workspace's revision token (`workspaces/<ws>/revision.beast2`), which a
+ * status's poll asks whether anything changed by.
  */
 
 import * as fs from 'fs/promises';
@@ -25,7 +27,7 @@ import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { DatasetRefConflictError, checkName } from '../../errors.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
-import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
+import { atomicWriteFile, isTransientFsError, moveRevision, workspaceRevisionPath } from './localHelpers.js';
 import { withKeyedLock } from '../../keyed-mutex.js';
 import type { DatasetRefStore } from '../interfaces.js';
 
@@ -119,12 +121,18 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     return `w\0${repo}\0${this.casResource(ws, datasetPath)}`;
   }
 
-  async read(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {
+  /** The ref at a path, or `null` when there is none: what `read`, `readAll`
+   *  and `readMany` each read by. */
+  private async readRef(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {
     return withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
       const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
       if (data === null || data.length === 0) return null;
       return decodeRevisioned(data).ref;
     });
+  }
+
+  async read(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {
+    return this.readRef(repo, ws, datasetPath);
   }
 
   async write(repo: string, ws: string, datasetPath: string, ref: DatasetRef): Promise<void> {
@@ -133,6 +141,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     await withKeyedLock(this.critKey(repo, ws, datasetPath), () =>
       this.writeBytes(this.refPath(repo, ws, datasetPath), encodeStored(ref).data),
     );
+    await moveRevision(workspaceRevisionPath(repo, ws));
   }
 
   async readVersioned(
@@ -210,6 +219,9 @@ export class LocalDatasetRefStore implements DatasetRefStore {
       } finally {
         await lock.release();
       }
+    }).then(async (written) => {
+      await moveRevision(workspaceRevisionPath(repo, ws));
+      return written;
     });
   }
 
@@ -235,7 +247,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     const paths = await this.list(repo, ws);
     const refs: (DatasetRef | null)[] = new Array<DatasetRef | null>(paths.length);
     await eachAtMost(paths.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
-      refs[i] = await this.read(repo, ws, paths[i]!);
+      refs[i] = await this.readRef(repo, ws, paths[i]!);
     });
     const all = new Map<string, DatasetRef>();
     paths.forEach((datasetPath, i) => {
@@ -243,6 +255,22 @@ export class LocalDatasetRefStore implements DatasetRefStore {
       if (ref !== null && ref !== undefined) all.set(datasetPath, ref);
     });
     return all;
+  }
+
+  /**
+   * Reads the refs at the paths, each once however often it is named,
+   * {@link OBJECT_CONCURRENCY} at once: a local file read is cheap, and the
+   * one-call contract is for a store elsewhere.
+   */
+  async readMany(repo: string, ws: string, paths: readonly string[]): Promise<Map<string, DatasetRef>> {
+    checkName('workspace', ws);
+    const distinct = [...new Set(paths)];
+    const refs = new Map<string, DatasetRef>();
+    await eachAtMost(distinct, OBJECT_CONCURRENCY, async (datasetPath) => {
+      const ref = await this.readRef(repo, ws, datasetPath);
+      if (ref !== null) refs.set(datasetPath, ref);
+    });
+    return refs;
   }
 
   /**
@@ -273,6 +301,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
       if (err.code === 'ENOENT') return; // Already removed
       throw err;
     }
+    await moveRevision(workspaceRevisionPath(repo, ws));
   }
 
   async removeAll(repo: string, ws: string): Promise<void> {
@@ -283,5 +312,6 @@ export class LocalDatasetRefStore implements DatasetRefStore {
       if (err.code === 'ENOENT') return; // Already removed
       throw err;
     }
+    await moveRevision(workspaceRevisionPath(repo, ws));
   }
 }

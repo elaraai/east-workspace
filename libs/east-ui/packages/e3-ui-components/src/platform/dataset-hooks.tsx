@@ -65,6 +65,18 @@ const ReactiveDatasetCacheContext = createContext<ReactiveDatasetCacheInterface 
  */
 export interface ReactiveDatasetProviderProps {
     children: ReactNode;
+    /**
+     * The interval the cache polls a workspace at while what it shows
+     * changes, in milliseconds, unless a watch asks for a shorter one
+     * ({@link ReactiveDatasetCacheConfig.pollIntervalMs}). Default 1000.
+     */
+    pollIntervalMs?: number;
+    /**
+     * The longest the cache's poll of a workspace backs off to while nothing
+     * it shows changes, in milliseconds, unless a watch asks for a shorter one
+     * ({@link ReactiveDatasetCacheConfig.pollBackoffMs}). Default 5000.
+     */
+    pollBackoffMs?: number;
 }
 
 /** The cache a provider installed, and the server identity it was built for. */
@@ -107,6 +119,8 @@ interface InstalledCache {
  */
 export function ReactiveDatasetProvider({
     children,
+    pollIntervalMs,
+    pollBackoffMs,
 }: ReactiveDatasetProviderProps) {
     const e3 = useE3Config();
     const { apiUrl, workspace } = e3;
@@ -130,7 +144,11 @@ export function ReactiveDatasetProvider({
     useEffect(() => {
         const getOptions = (): RequestOptions => optionsRef.current;
         const cache = new ReactiveDatasetCache(
-            workspace !== undefined ? { workspace } : {},
+            {
+                ...(workspace !== undefined && { workspace }),
+                ...(pollIntervalMs !== undefined && { pollIntervalMs }),
+                ...(pollBackoffMs !== undefined && { pollBackoffMs }),
+            },
             createDefaultDatasetApi(apiUrl, repo, getOptions),
         );
         cache.setScheduler((notify) => queueMicrotask(notify));
@@ -167,7 +185,7 @@ export function ReactiveDatasetProvider({
             if (workspace) clearBindingRegistry(workspace);
             else clearBindingRegistry();
         };
-    }, [apiUrl, repo, workspace]);
+    }, [apiUrl, repo, workspace, pollIntervalMs, pollBackoffMs]);
 
     // The installed cache, while it is the one for the current identity: a
     // render between an identity change and the new install shows nothing

@@ -23,6 +23,7 @@ import { dataflowEventsApart } from './upgrades/dataflow-events-apart.js';
 import { dataflowForceTasks } from './upgrades/dataflow-force-tasks.js';
 import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
 import { runningExecutionsIndexed } from './upgrades/running-executions-indexed.js';
+import { statusRevisionTokens } from './upgrades/status-revision-tokens.js';
 import { taskRunsIndexed } from './upgrades/task-runs-indexed.js';
 
 /**
@@ -40,6 +41,8 @@ import { taskRunsIndexed } from './upgrades/task-runs-indexed.js';
  *   recorded running ({@link runningExecutionsIndexed}).
  * - `task-runs-indexed`: every store indexes each task's runs
  *   ({@link taskRunsIndexed}).
+ * - `status-revision-tokens`: every workspace has the revision token its
+ *   status is computed over ({@link statusRevisionTokens}).
  *
  * A release that changes a stored form appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -48,7 +51,7 @@ import { taskRunsIndexed } from './upgrades/task-runs-indexed.js';
  * @internal
  */
 export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [
-  executionStopReasons, dataflowForceTasks, dataflowEventsApart, runningExecutionsIndexed, taskRunsIndexed,
+  executionStopReasons, dataflowForceTasks, dataflowEventsApart, runningExecutionsIndexed, taskRunsIndexed, statusRevisionTokens,
 ];
 
 /** How long an open that owes upgrades waits for work running in the

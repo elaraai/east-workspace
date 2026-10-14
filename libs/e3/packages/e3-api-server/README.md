@@ -304,7 +304,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | POST | `/api/repos/:repo/workspaces` | Create workspace |
 | POST | `/api/repos/:repo/workspaces/:ws/copy` | Copy the workspace to the one the body names (`to`), made or replaced whole: it becomes this workspace as it is now. Answers the target as the list gives it |
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
-| GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary). With `?path=` (repeated, each a dataset's keypath, `.inputs.x`), only those datasets and the tasks producing them, each as the whole status gives it: a path that names no dataset is left out, and one that is no keypath is refused 400 `bad_request` |
+| GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary). With `?path=` (repeated, each a dataset's keypath, `.inputs.x`), only those datasets and the tasks producing them, each as the whole status gives it: a path that names no dataset is left out, and one that is no keypath is refused 400 `bad_request`. The answer carries an `ETag`; a request whose `If-None-Match` names it is answered `304 Not Modified` with no body, nothing of the workspace read but its revision |
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
 | GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record, index and input, or why it failed |
 | GET | `/api/repos/:repo/workspaces/:ws/lock` | What holds the workspace exclusively, and how far it says it has got; none when nothing does |
@@ -328,6 +328,23 @@ index n of m, done). The deploy reports the same through the workspace's lock,
 which `/lock` answers. A workspace deployed for the first time has no status
 until its deploy ends, so `/lock` is where another client, such as e3-ui's TUI,
 follows that deploy.
+
+A status is answered conditionally. Its `ETag` names the workspace's status
+revision, which moves with every write of one of its dataset refs, of its
+record, of any run's record of the repository (a split task's unit changes
+nothing a status answers, so its write leaves it), and with its lock: a poll
+that sends the tag back as `If-None-Match` is answered `304 Not Modified`
+while nothing has moved, which reads the revision and nothing else of the
+workspace. The revision is read before the status is computed, so a tag is
+never newer than the answer it names. Both answers are `Cache-Control:
+no-store`: no cache between keeps a status, or answers a poll in the server's
+place; with `--cors` the `ETag` is exposed, so a browser client reads it. The
+tag does not name the runner's view of an execution recorded running, so a
+client that must notice a runner gone asks unconditionally now and then:
+e3-api-client's `workspaceStatusSince` asks conditionally, and
+e3-ui-components' dataset cache asks unconditionally once its last full answer
+is thirty seconds old, and after a fetch it made failed, a new watch or a
+refresh.
 
 A copy writes refs only — within a repository every value is shared by its
 hash — so it costs what the workspace has of datasets, never what they weigh,
@@ -444,7 +461,7 @@ grant polls only a platform-free call, or one such a caller launched.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling), with the `ETag` and `304 Not Modified` of `/workspaces/:ws/status` |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them. A run asked to stop that has not yet stopped is `stopping` |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress: this server answers once the run has ended; a host whose run's tasks run elsewhere may answer once the cancel is recorded, the poll answering the run `stopping` until it has stopped. e3-api-client's `dataflowCancel` follows the run until it has |

@@ -14,10 +14,11 @@ import assert from 'node:assert/strict';
 import { ArrayType, OptionType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import {
   DataflowRunType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType, RepositoryUpgradeProgressType, dataflowForce,
-  type DataflowRun, type ExecutionOwner, type ExecutionStatus, type RepositoryUpgradeProgress,
+  type DataflowRun, type DatasetRef, type ExecutionOwner, type ExecutionStatus, type RepositoryUpgradeProgress,
 } from '@elaraai/e3-types';
 import { ExecutionCorruptError } from '../errors.js';
 import { uuidv7 } from '../uuid.js';
+import type { StorageBackend } from '../storage/interfaces.js';
 import { MALFORMED_HASHES, MALFORMED_IDS, MALFORMED_NAMES, hashRefusal, idRefusal, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
@@ -34,6 +35,16 @@ const AT = new Date('2026-09-28T00:00:00.000Z');
 function twoIds(): [string, string] {
   const first = uuidv7();
   return [first, uuidv7()];
+}
+
+/** Sweeps what the removal of workspaces left, a batch at a time, until the
+ *  store says it is done. */
+async function sweepWorkspaces(storage: StorageBackend, repo: string): Promise<void> {
+  for (let cursor: string | undefined; ;) {
+    const batch = await storage.refs.workspaceSweep(repo, cursor);
+    if (batch.status === 'done') return;
+    cursor = batch.cursor;
+  }
 }
 
 /** An attempt recorded running: a split task's unit, when `unit`. */
@@ -133,26 +144,39 @@ export function refStoreTests(setup: BackendSetup): void {
       assert.equal(await storage.refs.repositoryUpgradeRead(repo), null, 'cleared, and clearing it again does nothing');
     });
 
-    it('keeps a package\'s ref by its name and version, until it is removed', async (t) => {
+    it('keeps a package\'s ref by its name and version, until it is removed, and lists one package\'s versions alone', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.packageResolve(repo, 'pkg', '1.0.0'), null);
+      assert.deepEqual(await storage.refs.packageVersions(repo, 'pkg'), [], 'a package the repository does not hold has no versions');
       await storage.refs.packageWrite(repo, 'pkg', '1.0.0', HASH);
       await storage.refs.packageWrite(repo, 'pkg', '2.0.0', OTHER_HASH);
+      await storage.refs.packageWrite(repo, 'other', '3.0.0', OTHER_HASH);
       assert.equal(await storage.refs.packageResolve(repo, 'pkg', '1.0.0'), HASH);
       const listed = await storage.refs.packageList(repo);
-      assert.deepEqual(listed.map(({ name, version }) => `${name}@${version}`).sort(), ['pkg@1.0.0', 'pkg@2.0.0']);
+      assert.deepEqual(listed.map(({ name, version }) => `${name}@${version}`).sort(), ['other@3.0.0', 'pkg@1.0.0', 'pkg@2.0.0']);
+      assert.deepEqual((await storage.refs.packageVersions(repo, 'pkg')).sort(), ['1.0.0', '2.0.0'], 'the package\'s versions, and no other\'s');
 
       await storage.refs.packageRemove(repo, 'pkg', '1.0.0');
       assert.equal(await storage.refs.packageResolve(repo, 'pkg', '1.0.0'), null);
-      assert.deepEqual(await storage.refs.packageList(repo), [{ name: 'pkg', version: '2.0.0' }]);
+      assert.deepEqual((await storage.refs.packageList(repo)).sort((a, b) => a.name.localeCompare(b.name)),
+        [{ name: 'other', version: '3.0.0' }, { name: 'pkg', version: '2.0.0' }]);
+      assert.deepEqual(await storage.refs.packageVersions(repo, 'pkg'), ['2.0.0']);
     });
 
-    it('keeps a workspace\'s record, and removes it with its runs, their states and their events', async (t) => {
+    it('keeps a workspace\'s record, which a read of every workspace\'s answers, and removes it with its dataset refs, its runs, their states and their events, its name free at once', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.workspaceRead(repo, 'ws'), null);
+      assert.deepEqual([...await storage.refs.workspaceReadAll(repo)], [], 'a repository with no workspace has no records');
       await storage.refs.workspaceWrite(repo, 'ws', new Uint8Array([1, 2, 3]));
+      await storage.refs.workspaceWrite(repo, 'other', new Uint8Array([4]));
       assert.deepEqual(new Uint8Array((await storage.refs.workspaceRead(repo, 'ws'))!), new Uint8Array([1, 2, 3]));
-      assert.deepEqual(await storage.refs.workspaceList(repo), ['ws']);
+      assert.deepEqual((await storage.refs.workspaceList(repo)).sort(), ['other', 'ws']);
+      const all = await storage.refs.workspaceReadAll(repo);
+      assert.deepEqual([...all.keys()].sort(), ['other', 'ws'], 'every workspace\'s record, in one read');
+      assert.deepEqual([...all.keys()], await storage.refs.workspaceList(repo), 'in the order the workspaces are listed');
+      assert.deepEqual(new Uint8Array(all.get('ws')!), new Uint8Array([1, 2, 3]));
+      assert.deepEqual(new Uint8Array(all.get('other')!), new Uint8Array([4]));
+      await storage.datasets.write(repo, 'ws', 'inputs/x', variant('value', { hash: HASH, versions: new Map() }));
       const runId = uuidv7();
       await storage.refs.dataflowRunWrite(repo, 'ws', {
         runId,
@@ -176,12 +200,69 @@ export function refStoreTests(setup: BackendSetup): void {
       });
       assert.equal((await states.getEventsSince(repo, 'ws', runId, 0)).length, 1);
 
+      // The removal takes the record at once, and the name is free: a
+      // workspace made under it holds nothing of the one removed, once the
+      // sweep is done — at once, for a store that leaves nothing for it.
       await storage.refs.workspaceRemove(repo, 'ws');
       assert.equal(await storage.refs.workspaceRead(repo, 'ws'), null);
-      assert.deepEqual(await storage.refs.workspaceList(repo), []);
+      assert.deepEqual(await storage.refs.workspaceList(repo), ['other']);
+      assert.deepEqual([...(await storage.refs.workspaceReadAll(repo)).keys()], ['other']);
+      await sweepWorkspaces(storage, repo);
+      assert.equal(await storage.datasets.read(repo, 'ws', 'inputs/x'), null, 'its dataset refs go with it');
       assert.deepEqual(await storage.refs.dataflowRunList(repo, 'ws'), [], 'its runs go with it');
       assert.equal(await states.readLatest(repo, 'ws'), null, 'and their states');
       assert.deepEqual(await states.getEventsSince(repo, 'ws', runId, 0), [], 'and their events');
+      assert.equal((await storage.refs.workspaceSweep(repo)).status, 'done', 'a sweep with nothing left to do is done at once');
+
+      await storage.refs.workspaceWrite(repo, 'ws', new Uint8Array([5]));
+      assert.deepEqual(await storage.datasets.list(repo, 'ws'), [], 'a workspace made under the name has no ref of the one removed');
+      assert.deepEqual(await storage.refs.dataflowRunList(repo, 'ws'), [], 'nor its runs');
+      assert.equal(await states.readLatest(repo, 'ws'), null, 'nor their states');
+    });
+
+    it('moves a workspace\'s revision with every write of its record, its dataset refs and the repository\'s runs, a unit\'s write leaving it, and answers none for no workspace', async (t) => {
+      const { storage, repo } = await setup(t);
+      assert.equal(await storage.refs.workspaceRevision(repo, 'ws'), null, 'no workspace, no revision');
+      /** The workspace's revision, moved on from `before` by the write made. */
+      const moved = async (what: string, before: string | null, write: () => Promise<unknown>): Promise<string> => {
+        await write();
+        const after = await storage.refs.workspaceRevision(repo, 'ws');
+        assert.ok(after !== null, `${what}: the workspace has a revision`);
+        assert.notEqual(after, before, `${what}: moves the revision`);
+        assert.equal(await storage.refs.workspaceRevision(repo, 'ws'), after, `${what}: a read with nothing between answers the same`);
+        return after;
+      };
+
+      let revision = await moved('its record written', null, () => storage.refs.workspaceWrite(repo, 'ws', new Uint8Array([1])));
+      revision = await moved('its record written again', revision, () => storage.refs.workspaceWrite(repo, 'ws', new Uint8Array([2])));
+      const ref: DatasetRef = variant('value', { hash: HASH, versions: new Map() });
+      revision = await moved('a dataset ref written', revision, () => storage.datasets.write(repo, 'ws', 'inputs/x', ref));
+      revision = await moved('a dataset ref written conditionally', revision, async () => {
+        const held = await storage.datasets.readVersioned(repo, 'ws', 'inputs/x');
+        await storage.datasets.writeIf(repo, 'ws', 'inputs/x', ref, held!.revision);
+      });
+      revision = await moved('a dataset ref removed', revision, () => storage.datasets.remove(repo, 'ws', 'inputs/x'));
+      revision = await moved('every dataset ref removed', revision, () => storage.datasets.removeAll(repo, 'ws'));
+      const id = uuidv7();
+      revision = await moved('an execution written', revision, () => storage.refs.executionWrite(repo, TASK, INPUTS, id, running(id)));
+      revision = await moved('an execution deleted', revision, () => storage.refs.executionDelete(repo, TASK, INPUTS, id));
+      // A split task's unit changes nothing a status answers: its write
+      // leaves the token, where its deletion, as any attempt's, moves it.
+      const unit = uuidv7();
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, unit, running(unit, true));
+      assert.equal(await storage.refs.workspaceRevision(repo, 'ws'), revision, 'a unit written leaves it');
+      revision = await moved('a unit deleted', revision, () => storage.refs.executionDelete(repo, TASK, OTHER_INPUTS, unit));
+
+      // Another workspace's record moves its own revision, and not this one's.
+      await storage.refs.workspaceWrite(repo, 'other', new Uint8Array([3]));
+      assert.equal(await storage.refs.workspaceRevision(repo, 'ws'), revision, 'another workspace\'s record leaves it');
+      const other = await storage.refs.workspaceRevision(repo, 'other');
+      assert.ok(other !== null && other !== revision, 'each workspace has a revision of its own');
+
+      await storage.refs.workspaceRemove(repo, 'ws');
+      assert.equal(await storage.refs.workspaceRevision(repo, 'ws'), null, 'removed, no revision');
+      await storage.refs.workspaceWrite(repo, 'ws', new Uint8Array([4]));
+      assert.notEqual(await storage.refs.workspaceRevision(repo, 'ws'), revision, 'made again under the name, another');
     });
 
     it('keeps every attempt at an execution, the latest sorting last', async (t) => {
@@ -204,6 +285,14 @@ export function refStoreTests(setup: BackendSetup): void {
       assert.ok(got !== null && equal(got, failed));
       const latest = await storage.refs.executionGetLatest(repo, TASK, INPUTS);
       assert.ok(latest !== null && equal(latest, succeeded));
+      // The latest of several executions in one call, each as its own read
+      // answers it, in the order asked: one never run among them.
+      const many = await storage.refs.executionGetLatestMany(repo, [
+        { taskHash: OTHER_TASK, inputsHash: INPUTS }, { taskHash: TASK, inputsHash: INPUTS }, { taskHash: TASK, inputsHash: OTHER_INPUTS },
+      ]);
+      assert.equal(many.length, 3);
+      assert.ok(many[0] === null && many[1] !== null && equal(many[1], succeeded) && many[2] === null, 'each in the order asked');
+      assert.deepEqual(await storage.refs.executionGetLatestMany(repo, []), [], 'none asked, none answered');
       assert.deepEqual(await storage.refs.executionList(repo), [{ taskHash: TASK, inputsHash: INPUTS }]);
       assert.deepEqual(await storage.refs.executionListForTask(repo, TASK), [INPUTS]);
       const listed = await storage.refs.executionListLatest(repo, TASK);
@@ -225,6 +314,14 @@ export function refStoreTests(setup: BackendSetup): void {
         'its attempt and its unit, and not another task\'s');
       await assertRunning(storage.refs.executionListRunning(repo, OTHER_TASK), [{ inputsHash: INPUTS, status: running(elsewhere) }],
         'another task has its own');
+      // Several tasks' in one call, each as its own listing answers it, in
+      // the order asked: a task that never ran among them.
+      const many = await storage.refs.executionListRunningMany(repo, [OTHER_TASK, HASH, TASK]);
+      assert.equal(many.length, 3);
+      await assertRunning(Promise.resolve(many[0]!), [{ inputsHash: INPUTS, status: running(elsewhere) }], 'the first task asked');
+      await assertRunning(Promise.resolve(many[1]!), [], 'a task that never ran');
+      await assertRunning(Promise.resolve(many[2]!), [{ inputsHash: INPUTS, status: running(first) }, { inputsHash: OTHER_INPUTS, status: running(unit, true) }],
+        'the last task asked');
 
       // A later attempt over the same inputs that ended answers for them,
       // though the first is still recorded running, as a crash leaves one.
@@ -527,6 +624,11 @@ export function refStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.refs.executionListForTask(repo, malformed), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.executionListLatest(repo, malformed), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.executionListRunning(repo, malformed), hashRefusal('task hash', malformed));
+        // A batch naming one does nothing of the rest.
+        await assert.rejects(storage.refs.executionListRunningMany(repo, [TASK, malformed]), hashRefusal('task hash', malformed));
+        await assert.rejects(storage.refs.executionGetLatestMany(repo, [{ taskHash: TASK, inputsHash: INPUTS }, { taskHash: malformed, inputsHash: INPUTS }]),
+          hashRefusal('task hash', malformed));
+        await assert.rejects(storage.refs.executionGetLatestMany(repo, [{ taskHash: TASK, inputsHash: malformed }]), hashRefusal('inputs hash', malformed));
         await assert.rejects(storage.refs.executionListRuns(repo, malformed, { limit: 1 }), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.adoptionWrite(repo, malformed, HASH), hashRefusal('object hash', malformed));
         // A key that is no SHA-256 names no entry of the memo
@@ -565,6 +667,7 @@ export function refStoreTests(setup: BackendSetup): void {
       for (const name of MALFORMED_NAMES['package']) {
         const refused = nameRefusal('package', name);
         await assert.rejects(storage.refs.packageResolve(repo, name, '1.0.0'), refused);
+        await assert.rejects(storage.refs.packageVersions(repo, name), refused);
         await assert.rejects(storage.refs.packageWrite(repo, name, '1.0.0', HASH), refused);
         await assert.rejects(storage.refs.packageRemove(repo, name, '1.0.0'), refused);
       }
@@ -579,6 +682,7 @@ export function refStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.refs.workspaceRead(repo, workspace), refused);
         await assert.rejects(storage.refs.workspaceWrite(repo, workspace, new Uint8Array([1])), refused);
         await assert.rejects(storage.refs.workspaceRemove(repo, workspace), refused);
+        await assert.rejects(storage.refs.workspaceRevision(repo, workspace), refused);
         await assert.rejects(storage.refs.dataflowRunGet(repo, workspace, runId), refused);
         await assert.rejects(storage.refs.dataflowRunWrite(repo, workspace, run), refused);
         await assert.rejects(storage.refs.dataflowRunList(repo, workspace), refused);

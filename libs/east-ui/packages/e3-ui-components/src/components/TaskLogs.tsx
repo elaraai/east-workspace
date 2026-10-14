@@ -32,10 +32,18 @@ export interface TaskLogsProps {
     onMatchesChange?: ((matches: LogMatches) => void) | undefined;
     /** Given the view's next and previous match and its Copy. */
     controlsRef?: Ref<LogViewerControls> | undefined;
+    /** How often the log shown is polled while it changes, in milliseconds.
+     *  Default 1000. */
+    pollInterval?: number | undefined;
+    /** The longest the log shown waits between polls while nothing changes,
+     *  in milliseconds; once its execution has ended and it is read, it is
+     *  polled every half minute, for another execution. Default 5000. */
+    pollBackoff?: number | undefined;
 }
 
 /**
- * Renders a virtualized log viewer for a task's stdout/stderr.
+ * Renders a virtualized log viewer for a task's stdout/stderr: the stream
+ * shown is polled, and the other is read when the tabs show it.
  */
 export const TaskLogs = memo(function TaskLogs({
     apiUrl,
@@ -50,24 +58,25 @@ export const TaskLogs = memo(function TaskLogs({
     onSearchChange,
     onMatchesChange,
     controlsRef,
+    pollInterval,
+    pollBackoff,
 }: TaskLogsProps) {
-    const { data: stdout } = useTaskLogsHook(apiUrl, repo, workspace, task, 'stdout', requestOptions);
-    const { data: stderr } = useTaskLogsHook(apiUrl, repo, workspace, task, 'stderr', requestOptions);
-
-    const stdoutContent = useMemo(() => stdout?.data ?? '', [stdout?.data]);
-    const stderrContent = useMemo(() => stderr?.data ?? '', [stderr?.data]);
-
     // The stream: the host's when it controls it, else the tabs' own.
     const tabs = useTabs({
         defaultValue: 'stdout',
         ...(stream !== undefined && { value: stream }),
         onValueChange: (details) => onStreamChange?.(details.value === 'stderr' ? 'stderr' : 'stdout'),
     });
+    const shown: 'stdout' | 'stderr' = tabs.value === 'stderr' ? 'stderr' : 'stdout';
 
-    const activeLogContent = useMemo(
-        () => (tabs.value === 'stderr' ? stderrContent : stdoutContent),
-        [tabs.value, stderrContent, stdoutContent],
-    );
+    // The stream shown alone is polled: the other's query, kept by react-query
+    // under its own key, is read on from where it stopped when the tabs show
+    // it again.
+    const { data: log } = useTaskLogsHook(apiUrl, repo, workspace, task, shown, requestOptions, undefined, {
+        ...(pollInterval !== undefined && { pollMs: pollInterval }),
+        ...(pollBackoff !== undefined && { backoffMs: pollBackoff }),
+    });
+    const activeLogContent = useMemo(() => log?.data ?? '', [log?.data]);
 
     return (
         <VirtualizedLogViewer

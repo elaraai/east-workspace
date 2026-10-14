@@ -67,6 +67,24 @@ export function datasetRefStoreTests(setup: BackendSetup): void {
         'a removed ref goes');
     });
 
+    it('reads the refs at the paths named at once, each by its path, a path with no ref left out and one named twice read once', async (t) => {
+      const { storage, repo } = await setup(t);
+      assert.equal((await storage.datasets.readMany(repo, 'ws', [SALES])).size, 0, 'a workspace with no refs has none');
+      const sales: DatasetRef = variant('value', { hash: HASH, versions: new Map([[SALES, HASH]]) });
+      const deep: DatasetRef = variant('unassigned', null);
+      await storage.datasets.write(repo, 'ws', SALES, sales);
+      await storage.datasets.write(repo, 'ws', 'inputs/nested/deep', deep);
+      await storage.datasets.write(repo, 'ws', 'tasks/etl/output', variant('null', { versions: new Map() }));
+      await storage.datasets.write(repo, 'other', SALES, variant('value', { hash: OTHER_HASH, versions: new Map() }));
+
+      const read = await storage.datasets.readMany(repo, 'ws', [SALES, 'inputs/none', 'inputs/nested/deep', SALES]);
+      assert.deepEqual([...read.keys()].sort(), ['inputs/nested/deep', SALES]);
+      const equal = equalFor(DatasetRefType);
+      assert.ok(equal(read.get(SALES)!, sales), 'the workspace\'s own, not another\'s');
+      assert.ok(equal(read.get('inputs/nested/deep')!, deep));
+      assert.equal((await storage.datasets.readMany(repo, 'ws', [])).size, 0, 'none asked, none read');
+    });
+
     it('writes a ref over only the revision it was read at, each write minting a revision of its own', async (t) => {
       const { storage, repo } = await setup(t);
       const first: DatasetRef = variant('value', { hash: HASH, versions: new Map([[SALES, HASH]]) });
@@ -110,6 +128,7 @@ export function datasetRefStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.datasets.writeIf(repo, ws, SALES, ref, null), refused);
         await assert.rejects(storage.datasets.list(repo, ws), refused);
         await assert.rejects(storage.datasets.readAll(repo, ws), refused);
+        await assert.rejects(storage.datasets.readMany(repo, ws, [SALES]), refused);
         await assert.rejects(storage.datasets.remove(repo, ws, SALES), refused);
         await assert.rejects(storage.datasets.removeAll(repo, ws), refused);
       }

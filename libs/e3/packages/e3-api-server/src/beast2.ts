@@ -42,10 +42,17 @@ export function decodeBeast2<T extends EastType>(
  * Send BEAST2 success response.
  *
  * Returns a web Response object that can be used by both Hono routes and Lambda handlers.
+ *
+ * @param type - The type of the answer's value
+ * @param value - The answer's value
+ * @param headers - Headers beside the body's, such as the `ETag` a
+ *   conditional route names its answer by
+ * @returns The response
  */
 export function sendSuccess<T extends EastType>(
   type: T,
-  value: ValueTypeOf<T>
+  value: ValueTypeOf<T>,
+  headers: Record<string, string> = {},
 ): Response {
   const responseType = ResponseType(type);
   const encode = encodeBeast2For(responseType); // TODO should we use streaming encoder here?
@@ -56,6 +63,7 @@ export function sendSuccess<T extends EastType>(
     headers: {
       'Content-Type': BEAST2_CONTENT_TYPE,
       'Content-Length': String(body.byteLength),
+      ...headers,
     },
   });
 }

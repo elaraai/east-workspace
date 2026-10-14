@@ -27,7 +27,7 @@ import { memo, useState } from 'react';
 import { Box, Flex, SegmentGroup } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCode, faTerminal } from '@fortawesome/free-solid-svg-icons';
-import type { RequestOptions } from '@elaraai/e3-api-client';
+import type { RequestOptions, TaskDetails } from '@elaraai/e3-api-client';
 import type { TreePath } from '@elaraai/e3-types';
 import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { DatasetPreview, type DatasetPreviewProps } from './DatasetPreview.js';
@@ -80,6 +80,18 @@ export interface DataTaskPreviewProps {
     /** The handle a host's own controls act through, made with
      *  `usePreviewControls` (#1209). */
     controls?: PreviewControls;
+    /** The task's details, when the host holds them: the preview reads them
+     *  from the host rather than the server. */
+    details?: TaskDetails;
+    /** How often the output's status is polled, in milliseconds: see
+     *  {@link DatasetPreviewProps.pollInterval}. Default 30 000. */
+    statusPollInterval?: number;
+    /** How often the log is polled while it changes, in milliseconds:
+     *  see `TaskLogsProps.pollInterval`. Default 1000. */
+    logPollInterval?: number;
+    /** The longest the log waits between polls while nothing changes, in
+     *  milliseconds: see `TaskLogsProps.pollBackoff`. Default 5000. */
+    logPollBackoff?: number;
 }
 
 function treePathToString(path: TreePath): string {
@@ -105,6 +117,10 @@ export const DataTaskPreview = memo(function DataTaskPreview({
     onLogSearchChange,
     onLogMatchesChange,
     controls,
+    details,
+    statusPollInterval,
+    logPollInterval,
+    logPollBackoff,
 }: DataTaskPreviewProps) {
     // The tab: the host's when it controls it, else the preview's own.
     const [ownView, setOwnView] = useState<ViewMode>(initialView);
@@ -115,6 +131,7 @@ export const DataTaskPreview = memo(function DataTaskPreview({
     };
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
+        ...(details !== undefined && { details }),
     });
     const outputPath = detailsQuery.data ? treePathToString(detailsQuery.data.output.path) : null;
     const outputControls: Pick<DatasetPreviewProps, 'toolbar' | 'search' | 'onSearchChange' | 'controls'> = {
@@ -166,6 +183,7 @@ export const DataTaskPreview = memo(function DataTaskPreview({
                                 path={outputPath}
                                 {...(requestOptions != null && { requestOptions })}
                                 {...(sizeLimit !== undefined && { sizeLimit })}
+                                {...(statusPollInterval !== undefined && { pollInterval: statusPollInterval })}
                                 {...outputControls}
                             />
                 ) : (
@@ -182,6 +200,8 @@ export const DataTaskPreview = memo(function DataTaskPreview({
                         onSearchChange={onLogSearchChange}
                         onMatchesChange={onLogMatchesChange}
                         controlsRef={logControlsOf(controls)}
+                        pollInterval={logPollInterval}
+                        pollBackoff={logPollBackoff}
                     />
                 )}
             </Box>

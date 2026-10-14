@@ -64,6 +64,43 @@ const { data } = useTaskList(apiUrl, repo, workspace, requestOptions, {
 });
 ```
 
+### Polling
+
+A screen left open costs the server as little as it can:
+
+- **A poll makes one request attempt.** `useWorkspaceStatus`,
+  `useDataflowExecution`, `useTaskLogs`, `useDatasetStatus` and the dataset
+  cache's status poll send their requests with e3-api-client's
+  `pollRequestOptions`, so a transient failure is left to the next poll
+  rather than retried three times in between.
+- **The dataset cache asks conditionally.** `<ReactiveDatasetProvider>`'s
+  cache polls a workspace's status at `pollIntervalMs` (1000 ms) while what
+  it shows changes, backing off to `pollBackoffMs` (5000 ms) once nothing
+  has; each poll sends the last answer's `ETag` back (`workspaceStatusSince`),
+  and a server that still holds that status answers nothing. Every half
+  minute it asks in full, so a runner that died shows as stale, and after a
+  fetch that failed, a new watch or a refresh, so nothing a conditional answer
+  would leave as it is stays so. While the
+  page is hidden — its tab in the background — it polls nothing, and polls
+  every workspace at once when the page is shown again. A `UITaskPreview`
+  shortens the interval with `pollInterval` and the backoff with
+  `pollBackoff`.
+- **A dataset's status is polled every 30 s** (`DATASET_STATUS_POLL_MS`):
+  `useDatasetStatus`'s `pollInterval`, and the previews' `pollInterval`
+  (`DatasetPreview`, `InputPreview`) and `statusPollInterval` (`TaskPreview`,
+  `DataTaskPreview`; `UITaskPreview`'s `outputPollInterval`) shorten it.
+- **A task's log is polled while it grows**: every second while it changes,
+  backing off to 5 s while it does not, and every half minute once the task's
+  execution has ended and the log is read, for another execution of the task,
+  which starts the polls again. A log the view left — the other stream,
+  another task — is kept as far as it was read, so a view that comes back to
+  it reads on from there. `TaskPreview`'s `logPollInterval` and
+  `logPollBackoff` set the intervals.
+- **A task's details are read once.** `useTaskDetails` and `useTaskGet` share
+  one query key, so a preview and the host that opened it read the task
+  once; a host that holds the details hands them over as `TaskPreview`'s
+  `details`, and the preview makes no request.
+
 ### Recovering a failed read
 
 A view on a screen no one touches, such as a kiosk's, has no one to reload it.
@@ -139,6 +176,9 @@ import { TaskPreview } from '@elaraai/e3-ui-components';
 | `logSearch`, `onLogSearchChange` | the log's search, controlled: a given `logSearch` marks its matches, in any case, and scrolls to the first (`''` clears), and the log draws no search box, count or chevrons of its own; otherwise `onLogSearchChange` hears the log's own box |
 | `onLogMatchesChange` | told `{ current, count }` — the log's match shown, from 0, and how many there are — whenever either changes |
 | `controls` | the handle the host's own buttons act through, made with `usePreviewControls()` |
+| `details` | the task's details, when the host holds them: the preview reads them from the host, not the server |
+| `statusPollInterval` | how often the output's status is polled, in milliseconds. Default 30 000 |
+| `logPollInterval`, `logPollBackoff` | how often a data task's log is polled while it changes, and the longest it waits while nothing does, in milliseconds. Defaults 1000 and 5000 |
 
 A host whose frame holds its controls in its header draws them itself and hides
 the bands:
@@ -208,8 +248,8 @@ import { InputPreview } from '@elaraai/e3-ui-components';
 ```
 
 `bare` draws no band naming the input, for a host whose frame names it, and
-`toolbar`, `search`, `onSearchChange` and `controls` reach the value's
-`DatasetPreview`.
+`toolbar`, `search`, `onSearchChange`, `controls` and `pollInterval` reach the
+value's `DatasetPreview`.
 
 ### VirtualizedLogViewer
 

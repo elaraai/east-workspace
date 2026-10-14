@@ -11,7 +11,7 @@
  * once. Real-time elapses zero between ticks.
  */
 
-import type { Clock } from "../../src/platform/dataset-store.js";
+import type { Clock, Visibility } from "../../src/platform/dataset-store.js";
 
 export interface FakeIntervalHandle {
     /** Cancel — equivalent to `clearInterval`. */
@@ -34,6 +34,35 @@ export interface FakeClock extends Clock {
     tickOnce(handle: FakeIntervalHandle): void;
     /** Fire every active interval's callback `n` times in sequence. */
     tickN(n: number): void;
+    /** The time now, which only `advance` moves. */
+    now(): number;
+    /** Moves the time now on by `ms`; fires no interval. */
+    advance(ms: number): void;
+}
+
+/**
+ * `FakeVisibility` — hides and shows the page deterministically.
+ */
+export interface FakeVisibility extends Visibility {
+    /** Hides or shows the page, telling what watches. */
+    set(hidden: boolean): void;
+}
+
+export function createFakeVisibility(hidden = false): FakeVisibility {
+    const watchers = new Set<() => void>();
+    const page = { hidden };
+    return {
+        get hidden() { return page.hidden; },
+        onChange(fn) {
+            watchers.add(fn);
+            return () => { watchers.delete(fn); };
+        },
+        set(next) {
+            if (page.hidden === next) return;
+            page.hidden = next;
+            for (const fn of [...watchers]) fn();
+        },
+    };
 }
 
 interface FakeIntervalEntry {
@@ -46,6 +75,7 @@ interface FakeIntervalEntry {
 export function createFakeClock(): FakeClock {
     const entries = new Set<FakeIntervalEntry>();
     const handleByEntry = new WeakMap<FakeIntervalEntry, FakeIntervalHandle>();
+    let nowMs = 1_000_000;
 
     function makeHandle(entry: FakeIntervalEntry): FakeIntervalHandle {
         const handle: FakeIntervalHandle = {
@@ -90,6 +120,12 @@ export function createFakeClock(): FakeClock {
         },
         tickN(n) {
             for (let i = 0; i < n; i++) this.tickAll();
+        },
+        now() {
+            return nowMs;
+        },
+        advance(ms) {
+            nowMs += ms;
         },
     };
 }

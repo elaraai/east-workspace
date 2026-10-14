@@ -78,6 +78,16 @@ A view that follows a few datasets asks for those alone:
 named that the workspace has, and the tasks producing them, each as the whole
 status gives it. It costs the server what the view binds, not the workspace.
 
+A poll asks conditionally: `workspaceStatusSince(url, repo, ws, etag, options,
+query)` answers the status with its `ETag`, and `null` while the status
+answered under the tag it was given is current, which costs the server a read
+of the workspace's revision and nothing else. The tag does not name the
+runner's view of an execution recorded running, so a poll that must notice a
+runner gone asks unconditionally (`etag` `null`) now and then. A poll gains
+nothing from retrying a transient failure, since its next poll is its retry:
+`pollRequestOptions(options)` gives it one attempt (`NO_RETRY`) unless the
+caller set a policy of its own.
+
 ### Datasets
 
 ```typescript

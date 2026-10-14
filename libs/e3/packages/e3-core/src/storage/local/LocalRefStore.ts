@@ -10,12 +10,16 @@ import {
   ExecutionOwnerType, ExecutionStatusType, DataflowRunType, RepositoryRecordType, RepositoryUpgradeProgressType, decodeExecutionStatus,
 } from '@elaraai/e3-types';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, RepositoryRecord, RepositoryUpgradeProgress } from '@elaraai/e3-types';
-import type { RefStore } from '../interfaces.js';
+import type { BatchResult, RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError, checkHash, checkId, checkName, checkPageLimit } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
 import { isObjectHash } from '../../objects.js';
 import { compareUnitKeys } from '../../upgrades/parts.js';
-import { atomicWriteFile, executionPath, runOf, runningAttemptOf, runningPath, runsPath } from './localHelpers.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
+import {
+  atomicWriteFile, executionPath, executionRevisionPath, moveRevision, readRevision, runOf, runningAttemptOf, runningPath, runsPath,
+  workspaceRevisionPath,
+} from './localHelpers.js';
 import { removeStaleLocks } from './LocalLockService.js';
 
 /** A record that names an object by its hash. */
@@ -85,6 +89,9 @@ async function unlinkIfPresent(file: string): Promise<void> {
  *   last part stopped, while one is;
  * - `packages/<name>/<version>.beast2`: a package object's hash;
  * - `workspaces/<ws>.beast2`: a workspace's record, which the caller encodes;
+ * - `workspaces/<ws>/revision.beast2`: the workspace's revision token, and
+ *   `executions/revision.beast2` the repository's execution revision token,
+ *   each a String written anew by the writes that move it;
  * - `executions/<task>/<inputs>/<id>/status.beast2` and `owner.beast2`: an
  *   execution attempt and the orchestrator that launched it;
  * - `executions/<task>/<inputs>/plan.beast2`: the `$plan` a split task's
@@ -184,6 +191,21 @@ export class LocalRefStore implements RefStore {
     return packages;
   }
 
+  /** Lists the package's directory, `packages/<name>`: a `.beast2` file per
+   *  version. */
+  async packageVersions(repo: string, name: string): Promise<string[]> {
+    checkName('package', name);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(path.join(repo, 'packages', name));
+    } catch (err) {
+      if (isNotFoundError(err)) return [];
+      throw err;
+    }
+    // In-flight or crash-orphaned staging files end in `.partial`.
+    return entries.filter((entry) => entry.endsWith('.beast2')).map((entry) => entry.slice(0, -'.beast2'.length));
+  }
+
   async packageResolve(repo: string, name: string, version: string): Promise<string | null> {
     return readHash(this.packagePath(repo, name, version));
   }
@@ -235,23 +257,43 @@ export class LocalRefStore implements RefStore {
     return names;
   }
 
-  async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
-    const stateFile = this.workspacePath(repo, name);
+  /** Lists the workspaces and reads each one's record, a few at a time, in
+   *  the order the listing names them: one removed between the two is left
+   *  out. */
+  async workspaceReadAll(repo: string): Promise<Map<string, Uint8Array>> {
+    const names = await this.workspaceList(repo);
+    const read: Array<Uint8Array | null> = new Array<Uint8Array | null>(names.length);
+    await eachAtMost(names.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+      read[i] = await this.readWorkspaceRecord(repo, names[i]!);
+    });
+    const records = new Map<string, Uint8Array>();
+    names.forEach((name, i) => {
+      const record = read[i];
+      if (record !== null && record !== undefined) records.set(name, record);
+    });
+    return records;
+  }
 
+  /** A workspace's record as stored, or `null` when there is none: what
+   *  `workspaceRead`, `workspaceReadAll` and `workspaceRevision` read by. */
+  private async readWorkspaceRecord(repo: string, name: string): Promise<Uint8Array | null> {
     try {
-      return await fs.readFile(stateFile);
+      return await fs.readFile(this.workspacePath(repo, name));
     } catch (err) {
-      if (isNotFoundError(err)) {
-        return null;
-      }
+      if (isNotFoundError(err)) return null;
       throw err;
     }
+  }
+
+  async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
+    return this.readWorkspaceRecord(repo, name);
   }
 
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
     // Atomic stage-and-rename: a concurrent reader sees the old or new complete
     // state, never a 0-byte truncation window.
     await atomicWriteFile(this.workspacePath(repo, name), state);
+    await moveRevision(workspaceRevisionPath(repo, name));
   }
 
   /**
@@ -269,6 +311,24 @@ export class LocalRefStore implements RefStore {
     // A workspace's name holds neither `#` nor `~`, which join the parts of
     // the locks named after it, so only its own begin this way.
     await removeStaleLocks(repo, (resource) => resource.startsWith(`${name}#`) || resource.startsWith(`${name}~`));
+  }
+
+  /** A removal takes everything under the workspace's name at once — its
+   *  directory, and its runs' — so there is nothing to sweep. */
+  workspaceSweep(_repo: string, _cursor?: string): Promise<BatchResult> {
+    return Promise.resolve({ status: 'done', deleted: 0 });
+  }
+
+  /**
+   * The workspace's token beside the repository's execution token: a
+   * workspace from before tokens were kept, which nothing has written since,
+   * has an empty one, as does a repository no execution has been written in.
+   */
+  async workspaceRevision(repo: string, name: string): Promise<string | null> {
+    const own = await readRevision(workspaceRevisionPath(repo, name));
+    if (own === null && (await this.readWorkspaceRecord(repo, name)) === null) return null;
+    const executions = await readRevision(executionRevisionPath(repo));
+    return `${own ?? ''}:${executions ?? ''}`;
   }
 
   // -------------------------------------------------------------------------
@@ -311,7 +371,9 @@ export class LocalRefStore implements RefStore {
    * attempt recorded running, whatever a crash between the two writes leaves.
    * A run — an attempt that is no unit's — is put in its task's index of runs
    * before its status is written, so a crash between the two leaves at most a
-   * place no record backs.
+   * place no record backs; and its write moves the repository's execution
+   * token, where a unit's leaves it, since a workspace's status answers
+   * nothing of a unit.
    */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     const execDir = executionPath(repo, taskHash, inputsHash, executionId);
@@ -329,6 +391,7 @@ export class LocalRefStore implements RefStore {
     await atomicWriteFile(path.join(execDir, 'status.beast2'), encoder(status));
 
     if (status.type !== 'running') await unlinkIfPresent(place);
+    if (!status.value.unit) await moveRevision(executionRevisionPath(repo));
   }
 
   /**
@@ -342,6 +405,7 @@ export class LocalRefStore implements RefStore {
     await unlinkIfPresent(path.join(execDir, 'owner.beast2'));
     await unlinkIfPresent(runningPath(repo, taskHash, inputsHash, executionId));
     await unlinkIfPresent(runsPath(repo, taskHash, executionId, inputsHash));
+    await moveRevision(executionRevisionPath(repo));
     for (const dir of [execDir, executionPath(repo, taskHash, inputsHash), path.join(repo, 'executions', taskHash)]) {
       try {
         await fs.rmdir(dir);
@@ -383,7 +447,9 @@ export class LocalRefStore implements RefStore {
     return attempts.filter((attempt): attempt is { executionId: string; status: ExecutionStatus | null } => attempt !== null);
   }
 
-  async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
+  /** The latest attempt over the inputs, or `null` when there is none: what
+   *  `executionGetLatest` and every listing that reads the latest read by. */
+  private async latestAttempt(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
     const ids = await this.executionListIds(repo, taskHash, inputsHash);
     if (ids.length === 0) {
       return null;
@@ -391,6 +457,27 @@ export class LocalRefStore implements RefStore {
     // Get the lexicographically greatest (latest) execution
     const latestId = ids[ids.length - 1]!;
     return this.executionGet(repo, taskHash, inputsHash, latestId);
+  }
+
+  async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
+    return this.latestAttempt(repo, taskHash, inputsHash);
+  }
+
+  /** Each execution's latest attempt, read side by side: a local directory
+   *  read is cheap, and the one-call contract is for a store elsewhere. */
+  async executionGetLatestMany(
+    repo: string,
+    executions: readonly { taskHash: string; inputsHash: string }[],
+  ): Promise<Array<ExecutionStatus | null>> {
+    // Every name checked before anything is read, so a batch naming one not
+    // of its form reads nothing.
+    for (const { taskHash, inputsHash } of executions) executionPath(repo, taskHash, inputsHash);
+    const latest: Array<ExecutionStatus | null> = new Array<ExecutionStatus | null>(executions.length);
+    await eachAtMost(executions.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+      const { taskHash, inputsHash } = executions[i]!;
+      latest[i] = await this.latestAttempt(repo, taskHash, inputsHash);
+    });
+    return latest;
   }
 
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
@@ -445,7 +532,7 @@ export class LocalRefStore implements RefStore {
     const inputsHashes = await this.executionListForTask(repo, taskHash);
     const entries = await Promise.all(
       inputsHashes.map(async (inputsHash) => {
-        const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+        const status = await this.latestAttempt(repo, taskHash, inputsHash);
         return status ? { inputsHash, status } : null;
       })
     );
@@ -458,6 +545,12 @@ export class LocalRefStore implements RefStore {
    * running.
    */
   async executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
+    return this.runningOf(repo, taskHash);
+  }
+
+  /** The task's attempts recorded running: what `executionListRunning` and
+   *  `executionListRunningMany` read by. */
+  private async runningOf(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
     let names: string[];
     try {
       names = await fs.readdir(runningPath(repo, taskHash));
@@ -471,10 +564,20 @@ export class LocalRefStore implements RefStore {
       if (attempt !== null) inputs.add(attempt.inputsHash);
     }
     const listed = await Promise.all([...inputs].map(async (inputsHash): Promise<{ inputsHash: string; status: ExecutionStatus } | null> => {
-      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      const status = await this.latestAttempt(repo, taskHash, inputsHash);
       return status?.type === 'running' ? { inputsHash, status } : null;
     }));
     return listed.filter((entry): entry is { inputsHash: string; status: ExecutionStatus } => entry !== null);
+  }
+
+  /** Each task's attempts recorded running, read side by side. */
+  async executionListRunningMany(repo: string, taskHashes: readonly string[]): Promise<Array<Array<{ inputsHash: string; status: ExecutionStatus }>>> {
+    for (const taskHash of taskHashes) checkHash('task hash', taskHash);
+    const running: Array<Array<{ inputsHash: string; status: ExecutionStatus }>> = new Array(taskHashes.length);
+    await eachAtMost(taskHashes.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+      running[i] = await this.runningOf(repo, taskHashes[i]!);
+    });
+    return running;
   }
 
   /**

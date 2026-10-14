@@ -18,17 +18,18 @@
 
 import { decodeBeast2For, variant } from '@elaraai/east';
 import {
-  decodePackageObject,
   WorkspaceRecordType,
   pathToString,
   type TaskObject,
   type TreePath,
-  decodeTaskObject,
 } from '@elaraai/e3-types';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import {
   executionGetOutput,
   inputsHash,
 } from './executions.js';
+import { packageObjectRead } from './packages.js';
+import { taskObjectRead } from './tasks.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import {
   workspaceGetDatasetHash,
@@ -235,16 +236,20 @@ async function buildDependencyGraph(
 }> {
   const state = await readWorkspaceState(storage, repo, ws);
 
-  const pkgData = await storage.objects.read(repo, state.packageHash);
-  const pkgObject = decodePackageObject(pkgData);
+  // The package decoded once, and each task object read once, from memory
+  // after; the task objects a few at a time.
+  const pkgObject = await packageObjectRead(storage, repo, state.packageHash);
+  const packaged = [...pkgObject.tasks];
+  const tasks: TaskObject[] = new Array<TaskObject>(packaged.length);
+  await eachAtMost(packaged.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    tasks[i] = await taskObjectRead(storage, repo, packaged[i]![1]);
+  });
 
   const taskNodes = new Map<string, TaskNode>();
   const outputToTask = new Map<string, string>();
 
-  const taskDecoder = decodeTaskObject;
-  for (const [taskName, taskHash] of pkgObject.tasks) {
-    const taskData = await storage.objects.read(repo, taskHash);
-    const task = taskDecoder(taskData);
+  packaged.forEach(([taskName, taskHash], i) => {
+    const task = tasks[i]!;
 
     const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);
@@ -257,7 +262,7 @@ async function buildDependencyGraph(
       outputPath: task.output.path,
       unresolvedCount: 0,
     });
-  }
+  });
 
   const taskDependents = new Map<string, Set<string>>();
   for (const taskName of taskNodes.keys()) {

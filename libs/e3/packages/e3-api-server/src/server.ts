@@ -151,13 +151,14 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   const app = new Hono();
 
   // Enable CORS if configured. Response metadata rides on X-* headers
-  // (content hash, paged-read totals) — expose them so browser clients can
-  // read them cross-origin.
+  // (content hash, paged-read totals), and a status's tag on `ETag` — expose
+  // them so browser clients can read them cross-origin, and send a status's
+  // tag back as `If-None-Match`.
   if (enableCors) {
     app.use('*', cors({
       origin: '*',
       exposeHeaders: [
-        'X-Content-SHA256', 'X-Content-Length',
+        'ETag', 'X-Content-SHA256', 'X-Content-Length',
         'X-Total-Bytes', 'X-Total-Elements', 'X-Total-Exactness', 'X-Segment-Count', 'X-Page-Offset', 'X-Page-Count',
       ],
     }));

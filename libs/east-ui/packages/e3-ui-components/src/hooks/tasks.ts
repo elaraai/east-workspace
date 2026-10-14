@@ -22,9 +22,23 @@ export function useTaskList(url: string, repo: string, workspace: string | null,
     });
 }
 
+/**
+ * The query key of a task's details, which `useTaskGet` and `useTaskDetails`
+ * share: a preview and the host that opened it read the task once.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param name - The task
+ * @returns The key
+ */
+export function taskDetailsQueryKey(url: string, repo: string, workspace: string | null, name: string | null): readonly unknown[] {
+    return ['taskGet', url, repo, workspace, name];
+}
+
 export function useTaskGet(url: string, repo: string, workspace: string | null, name: string | null, requestOptions?: RequestOptions, queryOptions?: QueryOverrides): UseQueryResult<TaskDetails, Error> {
     return useQuery({
-        queryKey: ['taskGet', url, repo, workspace, name],
+        queryKey: taskDetailsQueryKey(url, repo, workspace, name),
         queryFn: () => taskGet(url, repo, workspace!, name!, requestOptions ?? { token: null }),
         enabled: !!repo && !!workspace && !!name,
         ...queryOptions,

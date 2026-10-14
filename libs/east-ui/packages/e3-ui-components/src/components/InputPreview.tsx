@@ -38,6 +38,9 @@ export interface InputPreviewProps {
     onSearchChange?: (search: string) => void;
     /** The handle a host's own Collapse all and Expand all act through: see {@link DatasetPreviewProps.controls}. */
     controls?: DatasetPreviewProps['controls'];
+    /** How often the input's status is polled, in milliseconds: see
+     *  {@link DatasetPreviewProps.pollInterval}. Default 30 000. */
+    pollInterval?: number;
 }
 
 export const InputPreview = memo(function InputPreview({
@@ -51,6 +54,7 @@ export const InputPreview = memo(function InputPreview({
     search,
     onSearchChange,
     controls,
+    pollInterval,
 }: InputPreviewProps) {
     const displayName = path.replace(/^\.inputs\./, '');
 
@@ -76,6 +80,7 @@ export const InputPreview = memo(function InputPreview({
                     {...(search !== undefined && { search })}
                     {...(onSearchChange !== undefined && { onSearchChange })}
                     {...(controls !== undefined && { controls })}
+                    {...(pollInterval !== undefined && { pollInterval })}
                 />
             </Box>
         </Box>
@@ -88,4 +93,5 @@ export const InputPreview = memo(function InputPreview({
     && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch)
     // The host's controls (#1209).
     && prev.toolbar === next.toolbar && prev.search === next.search
-    && Object.is(prev.onSearchChange, next.onSearchChange) && Object.is(prev.controls, next.controls));
+    && Object.is(prev.onSearchChange, next.onSearchChange) && Object.is(prev.controls, next.controls)
+    && prev.pollInterval === next.pollInterval);

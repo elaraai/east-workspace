@@ -177,7 +177,10 @@ export interface CurrentExecutionRef {
  * reads the latest attempt over them. When an input is unassigned, or no
  * attempt is recorded over them, it falls back to the task's latest run, never
  * a unit of it (`RefStore.executionListRuns`). Neither reads the task's
- * history, so it costs the same however long the task has run.
+ * history, so it costs the same however long the task has run. It reads the
+ * workspace's record once, the task object from memory once it has been read
+ * (`taskObjectRead`), and the task's input refs in one call
+ * (`DatasetRefStore.readMany`): a UI polls a task's log every second or so.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -192,23 +195,24 @@ export async function executionFindCurrent(
   taskName: string
 ): Promise<CurrentExecutionRef | null> {
   // Import here to avoid circular dependency
-  const { workspaceGetTaskHash, workspaceGetTask } = await import('./tasks.js');
-  const { workspaceGetDatasetHash } = await import('./trees.js');
+  const { workspaceFindTask } = await import('./tasks.js');
 
-  const taskHash = await workspaceGetTaskHash(storage, repo, ws, taskName);
-  const task = await workspaceGetTask(storage, repo, ws, taskName);
+  const { hash: taskHash, task } = await workspaceFindTask(storage, repo, ws, taskName);
 
-  // Get the current input hashes from the workspace
+  // The current input hashes from the workspace: the inputs' refs, in one
+  // read, as the store keys them (`inputs/sales` for `.inputs.sales`)
+  const refPaths = task.inputs.map(({ path }) => path.map((segment) => segment.value).join('/'));
+  const refs = await storage.datasets.readMany(repo, ws, refPaths);
   const currentInputHashes: string[] = [];
   let allInputsAssigned = true;
 
-  for (const { path: inputPath } of task.inputs) {
-    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
-    if (refType !== 'value' || hash === null) {
+  for (const refPath of refPaths) {
+    const ref = refs.get(refPath);
+    if (ref === undefined || ref.type !== 'value') {
       allInputsAssigned = false;
       break;
     }
-    currentInputHashes.push(hash);
+    currentInputHashes.push(ref.value.hash);
   }
 
   if (allInputsAssigned) {

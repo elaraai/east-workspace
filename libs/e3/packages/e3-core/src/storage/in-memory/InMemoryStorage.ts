@@ -11,6 +11,7 @@ import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetR
 import { compareUnitKeys } from '../../upgrades/parts.js';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord, RepositoryUpgradeProgress } from '@elaraai/e3-types';
 import type {
+  BatchResult,
   StorageBackend,
   ObjectStore,
   RefStore,
@@ -215,6 +216,56 @@ const encodeStatus = encodeBeast2For(ExecutionStatusType);
 const NOT_A_RECORD = new TextEncoder().encode('not a record');
 
 /**
+ * The revision tokens an in-memory backend keeps: a workspace's, moved by its
+ * record's and its dataset refs' writes, and a repository's executions',
+ * moved by every run's write and every attempt's deletion. A counter each,
+ * so no two moves answer alike.
+ */
+class InMemoryRevisions {
+  private next = 0;
+  private workspaces = new Map<string, string>();
+  private executions = new Map<string, string>();
+
+  /** Moves a workspace's token on. */
+  moveWorkspace(repo: string, name: string): void {
+    this.workspaces.set(`${repo}:${name}`, String(++this.next));
+  }
+
+  /** Moves a repository's execution token on. */
+  moveExecutions(repo: string): void {
+    this.executions.set(repo, String(++this.next));
+  }
+
+  /** A workspace's token beside its repository's execution token. */
+  of(repo: string, name: string): string {
+    return `${this.workspaces.get(`${repo}:${name}`) ?? ''}:${this.executions.get(repo) ?? ''}`;
+  }
+
+  /** Whether a workspace's token has been moved. */
+  hasWorkspace(repo: string, name: string): boolean {
+    return this.workspaces.has(`${repo}:${name}`);
+  }
+
+  /** Forgets a workspace's token. */
+  dropWorkspace(repo: string, name: string): void {
+    this.workspaces.delete(`${repo}:${name}`);
+  }
+
+  /** Forgets a repository's tokens. */
+  drop(repo: string): void {
+    for (const key of [...this.workspaces.keys()]) {
+      if (key.startsWith(`${repo}:`)) this.workspaces.delete(key);
+    }
+    this.executions.delete(repo);
+  }
+
+  clear(): void {
+    this.workspaces.clear();
+    this.executions.clear();
+  }
+}
+
+/**
  * In-memory implementation of RefStore for testing.
  */
 /* eslint-disable @typescript-eslint/require-await */
@@ -245,8 +296,16 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   /**
    * @param runStates - The backend's runs' states, which a workspace's removal
    *   removes with its records
+   * @param datasets - The backend's dataset refs, which a workspace's removal
+   *   removes with its records
+   * @param revisions - The backend's revision tokens, which the writes of
+   *   records move
    */
-  constructor(private readonly runStates: InMemoryStateStore) {}
+  constructor(
+    private readonly runStates: InMemoryStateStore,
+    private readonly datasets: InMemoryDatasetRefStore,
+    private readonly revisions: InMemoryRevisions,
+  ) {}
 
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
@@ -365,6 +424,16 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return result;
   }
 
+  async packageVersions(repo: string, name: string): Promise<string[]> {
+    checkName('package', name);
+    const versions: string[] = [];
+    for (const key of this.getPackages(repo).keys()) {
+      const at = key.indexOf('@');
+      if (key.slice(0, at) === name) versions.push(key.slice(at + 1));
+    }
+    return versions;
+  }
+
   async packageResolve(repo: string, name: string, version: string): Promise<string | null> {
     return this.getPackages(repo).get(this.makePackageKey(name, version)) ?? null;
   }
@@ -382,6 +451,10 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return [...this.getWorkspaces(repo).keys()];
   }
 
+  async workspaceReadAll(repo: string): Promise<Map<string, Uint8Array>> {
+    return new Map(this.getWorkspaces(repo));
+  }
+
   async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
     checkName('workspace', name);
     return this.getWorkspaces(repo).get(name) ?? null;
@@ -390,15 +463,31 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
     checkName('workspace', name);
     this.getWorkspaces(repo).set(name, state);
+    this.revisions.moveWorkspace(repo, name);
   }
 
+  /** Takes everything under the workspace's name at once: its record, its
+   *  dataset refs, its runs and their states. */
   async workspaceRemove(repo: string, name: string): Promise<void> {
     checkName('workspace', name);
     this.getWorkspaces(repo).delete(name);
+    await this.datasets.removeAll(repo, name);
     for (const runId of await this.dataflowRunList(repo, name)) {
       await this.dataflowRunDelete(repo, name, runId);
     }
     this.runStates.removeWorkspace(repo, name);
+    this.revisions.dropWorkspace(repo, name);
+  }
+
+  /** A removal leaves nothing for later. */
+  async workspaceSweep(_repo: string, _cursor?: string): Promise<BatchResult> {
+    return { status: 'done', deleted: 0 };
+  }
+
+  async workspaceRevision(repo: string, name: string): Promise<string | null> {
+    checkName('workspace', name);
+    if (!this.getWorkspaces(repo).has(name) && !this.revisions.hasWorkspace(repo, name)) return null;
+    return this.revisions.of(repo, name);
   }
 
   // Execution operations (with executionId)
@@ -424,14 +513,18 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   /** Writes an attempt's status, and keeps its places in the index of running
-   *  attempts and, for a run, its task's index of runs, in the same step. */
+   *  attempts and, for a run, its task's index of runs, in the same step,
+   *  moving the execution token for a run and never a unit. */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     this.checkExecution(taskHash, inputsHash, executionId);
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).set(key, { status });
     if (status.type === 'running') this.getRunning(repo).add(key);
     else this.getRunning(repo).delete(key);
-    if (!status.value.unit) this.getRuns(repo, taskHash).set(executionId, inputsHash);
+    if (!status.value.unit) {
+      this.getRuns(repo, taskHash).set(executionId, inputsHash);
+      this.revisions.moveExecutions(repo);
+    }
   }
 
   /**
@@ -459,6 +552,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     this.getRunning(repo).delete(key);
     this.runs.get(repo)?.get(taskHash)?.delete(executionId);
     this.owners.delete(`${repo}/${key}`);
+    this.revisions.moveExecutions(repo);
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
@@ -489,11 +583,27 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return attempts;
   }
 
-  async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
+  /** The latest attempt over the inputs, or `null` when there is none: what
+   *  `executionGetLatest` and every listing that reads the latest read by. */
+  private async latestAttempt(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
     const ids = await this.executionListIds(repo, taskHash, inputsHash);
     if (ids.length === 0) return null;
     const latestId = ids[ids.length - 1]!;
     return this.executionGet(repo, taskHash, inputsHash, latestId);
+  }
+
+  async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
+    return this.latestAttempt(repo, taskHash, inputsHash);
+  }
+
+  async executionGetLatestMany(
+    repo: string,
+    executions: readonly { taskHash: string; inputsHash: string }[],
+  ): Promise<Array<ExecutionStatus | null>> {
+    for (const { taskHash, inputsHash } of executions) this.checkExecution(taskHash, inputsHash);
+    const latest: Array<ExecutionStatus | null> = [];
+    for (const { taskHash, inputsHash } of executions) latest.push(await this.latestAttempt(repo, taskHash, inputsHash));
+    return latest;
   }
 
   async executionList(repo: string): Promise<{ taskHash: string; inputsHash: string }[]> {
@@ -525,7 +635,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   async executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
     const result: Array<{ inputsHash: string; status: ExecutionStatus }> = [];
     for (const inputsHash of await this.executionListForTask(repo, taskHash)) {
-      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      const status = await this.latestAttempt(repo, taskHash, inputsHash);
       if (status) result.push({ inputsHash, status });
     }
     return result;
@@ -535,6 +645,12 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
    *  names under the task, keeping those recorded running. */
   async executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
     checkHash('task hash', taskHash);
+    return this.runningOf(repo, taskHash);
+  }
+
+  /** The task's attempts recorded running: what `executionListRunning` and
+   *  `executionListRunningMany` read by. */
+  private async runningOf(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
     const inputs = new Set<string>();
     for (const key of this.getRunning(repo)) {
       const [task, inputsHash] = key.split('/');
@@ -542,10 +658,17 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     }
     const result: Array<{ inputsHash: string; status: ExecutionStatus }> = [];
     for (const inputsHash of inputs) {
-      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      const status = await this.latestAttempt(repo, taskHash, inputsHash);
       if (status?.type === 'running') result.push({ inputsHash, status });
     }
     return result;
+  }
+
+  async executionListRunningMany(repo: string, taskHashes: readonly string[]): Promise<Array<Array<{ inputsHash: string; status: ExecutionStatus }>>> {
+    for (const taskHash of taskHashes) checkHash('task hash', taskHash);
+    const running: Array<Array<{ inputsHash: string; status: ExecutionStatus }>> = [];
+    for (const taskHash of taskHashes) running.push(await this.runningOf(repo, taskHash));
+    return running;
   }
 
   /** Reads the task's index of runs, the latest first, and the record of each
@@ -654,6 +777,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   drop(repo: string): number {
     let dropped = this.repositories.delete(repo) ? 1 : 0;
     if (this.upgradeProgress.delete(repo)) dropped++;
+    this.revisions.drop(repo);
     for (const records of [this.packages, this.workspaces, this.executions, this.running, this.dataflowRuns]) {
       dropped += records.get(repo)?.size ?? 0;
       records.delete(repo);
@@ -674,6 +798,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   clear(): void {
     this.repositories.clear();
     this.upgradeProgress.clear();
+    this.revisions.clear();
     this.packages.clear();
     this.workspaces.clear();
     this.executions.clear();
@@ -927,6 +1052,12 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
   // CAS never misses a concurrent change even when two writes produce equal refs.
   private revCounter = 0;
 
+  /**
+   * @param revisions - The backend's revision tokens, which every write of a
+   *   ref moves the workspace's in
+   */
+  constructor(private readonly revisions: InMemoryRevisions) {}
+
   /** A ref's key, its workspace's name checked. */
   private makeKey(repo: string, ws: string, path: string): string {
     return `${this.makePrefix(repo, ws)}${path}`;
@@ -949,6 +1080,7 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
 
   async write(repo: string, ws: string, path: string, ref: DatasetRef): Promise<void> {
     this.refs.set(this.makeKey(repo, ws, path), { ref, revision: this.nextRevision() });
+    this.revisions.moveWorkspace(repo, ws);
   }
 
   async readVersioned(repo: string, ws: string, path: string): Promise<{ ref: DatasetRef; revision: string } | null> {
@@ -972,6 +1104,7 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
     }
     const revision = this.nextRevision();
     this.refs.set(key, { ref, revision });
+    this.revisions.moveWorkspace(repo, ws);
     return { revision };
   }
 
@@ -995,8 +1128,19 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
     return all;
   }
 
+  async readMany(repo: string, ws: string, paths: readonly string[]): Promise<Map<string, DatasetRef>> {
+    const prefix = this.makePrefix(repo, ws);
+    const refs = new Map<string, DatasetRef>();
+    for (const path of paths) {
+      const held = this.refs.get(`${prefix}${path}`);
+      if (held !== undefined) refs.set(path, held.ref);
+    }
+    return refs;
+  }
+
   async remove(repo: string, ws: string, path: string): Promise<void> {
     this.refs.delete(this.makeKey(repo, ws, path));
+    this.revisions.moveWorkspace(repo, ws);
   }
 
   async removeAll(repo: string, ws: string): Promise<void> {
@@ -1006,6 +1150,7 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
         this.refs.delete(key);
       }
     }
+    this.revisions.moveWorkspace(repo, ws);
   }
 
   drop(repo: string): number {
@@ -1041,6 +1186,8 @@ export class InMemoryStorage implements StorageBackend {
   public readonly datasets: InMemoryDatasetRefStore;
   /** Every repository's runs' states, in one store */
   private readonly states: InMemoryStateStore;
+  /** The revision tokens the writes of records move */
+  private readonly revisions: InMemoryRevisions;
 
   /**
    * @param options - `upgrades`: the backend's own upgrades, for a test of
@@ -1050,10 +1197,11 @@ export class InMemoryStorage implements StorageBackend {
     this.upgrades = options.upgrades ?? [];
     this.objects = new InMemoryObjectStore();
     this.states = new InMemoryStateStore();
-    this.refs = new InMemoryRefStore(this.states);
+    this.revisions = new InMemoryRevisions();
+    this.datasets = new InMemoryDatasetRefStore(this.revisions);
+    this.refs = new InMemoryRefStore(this.states, this.datasets, this.revisions);
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
-    this.datasets = new InMemoryDatasetRefStore();
     this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades, [this.refs, this.datasets, this.logs, this.locks, this.states]);
   }
 
