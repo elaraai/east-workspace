@@ -4,12 +4,11 @@
  */
 
 import { memo, useCallback, useState, useEffect, useMemo } from "react";
-import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
+import { HStack, VStack, Wrap, Button, Text, Box, useSlotRecipe } from "@chakra-ui/react";
 import { Time } from "@internationalized/date";
 import { equivalentFor, type IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import { TimeField, TimeInput, TimeSegment } from "../input/date";
 
 const timeRangeInputEqual = equivalentFor(TimeRangeInput.Types.Root);
@@ -40,6 +39,7 @@ function timeToMinutes(t: Time): bigint {
  * beneath the inputs.
  */
 export const EastChakraTimeRangeInput = memo(function EastChakraTimeRangeInput({ value }: EastChakraTimeRangeInputProps) {
+    const { rangeShell } = useSlotRecipe({ key: "dateField" })();
     const style = getSomeorUndefined(value.style);
     const colour = style ? getSomeorUndefined(style.color) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
@@ -87,16 +87,12 @@ export const EastChakraTimeRangeInput = memo(function EastChakraTimeRangeInput({
     const fontSize = sizeTag === "sm" || sizeTag === "xs" ? "body.sm" : sizeTag === "lg" ? "body.lg" : "body";
 
     const fieldShell = {
-        ...fieldChrome,
-        display: "inline-flex",
-        alignItems: "center",
-        /* Touch (#348): 44px field rows on coarse pointers. */
-        _coarse: { minHeight: "44px" },
+        ...rangeShell,
         ...(background !== undefined ? { background } : {}),
         ...(colour !== undefined ? { color: colour } : {}),
         ...(borderColor !== undefined ? { borderColor } : {}),
         opacity: disabled ? 0.6 : 1,
-        _focusWithin: focusBorderColor ? { borderColor: focusBorderColor } : fieldFocusRing,
+        ...(focusBorderColor !== undefined ? { _focusWithin: { borderColor: focusBorderColor } } : {}),
     };
 
     const inputs = (

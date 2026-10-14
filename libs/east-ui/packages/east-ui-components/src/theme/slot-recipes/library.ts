@@ -25,6 +25,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fieldInRingedControl } from "../field-chrome.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 
 /** The mono caps label voice — group heads, the grouping control. */
@@ -159,6 +160,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
         },
         searchInput: {
+            ...fieldInRingedControl,
             flex: "1",
             minWidth: "0",
             height: "100%",

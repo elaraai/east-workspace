@@ -44,6 +44,19 @@ export const fieldFocusRing = {
     outline: "none",
 } satisfies SystemStyleObject;
 
+/**
+ * Leave the focus ring to an enclosing control's {@link fieldFocusRing}.
+ * Apply to its inner editing field, never to a standalone control or an
+ * independently focusable action. Clear both Chakra's generated ring and
+ * the global `:focus-visible` shadow: `outline: none` alone leaves a halo.
+ * Where Chakra supplies variant-level focus styles, spread this into that
+ * variant too (see the combobox); merged variants outrank custom base.
+ */
+export const fieldInRingedControl = {
+    focusVisibleRing: "none",
+    _focusVisible: { outline: "none", boxShadow: "none" },
+} satisfies SystemStyleObject;
+
 /** Border + ring while an invalid control holds focus — the invalid edge is
  *  a mark, the valence base; the ring is the one focus ring (the design
  *  system has no other). */

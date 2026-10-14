@@ -68,6 +68,21 @@ The entry imports the self-hosted `@fontsource-variable/*` stylesheets — the t
 
 Brand is the default colour palette. A part with no `colorPalette` takes the brand, so a `<Button>` is the design system's primary in both themes: its fill, a label at 4.5:1 or more, and a deeper fill on hover. A checked `<Switch>` has the brand track. Parts the design system draws neutral stay neutral, held so in their own recipes: tags, badges, avatars, key caps, code chips, tabs, table rows, progress tracks, and every button that isn't the primary (`outline`, `ghost`, `subtle`, `surface`, `plain`). A `colorPalette` prop on a part, or on an ancestor of a part that doesn't pin its own, still selects another palette.
 
+A composite field draws its focus ring on the bordered wrapper with `_focusWithin: { borderColor: "brand.solid", boxShadow: "focus", outline: "none" }`. Its inner editing field must opt out of both Chakra's ring and the theme's universal `:focus-visible` shadow:
+
+```ts
+import type { SystemStyleObject } from "@chakra-ui/react";
+
+const fieldInRingedControl = {
+    focusVisibleRing: "none",
+    _focusVisible: { outline: "none", boxShadow: "none" },
+} satisfies SystemStyleObject;
+```
+
+Spread this into the inner field's slot recipe. `outline: "none"` alone leaves a second shadow, even on a mouse click into a text input. If Chakra's default variant supplies focus styles, put the opt-out in that variant: merged variant styles override custom base styles. The theme uses the shared [fieldInRingedControl](src/theme/field-chrome.ts) and the [combobox outline variant](src/theme/slot-recipes/combobox.ts) demonstrates that placement.
+
+Keep the opt-out scoped to fields whose wrapper supplies the ring. Standalone inputs and independently focusable actions, such as a search's clear button, still need their own focus indicator. Segmented dates and times retain the active segment's fill and border inside the wrapper. Verify custom composites in a real browser, in both themes and with both mouse and keyboard focus: the wrapper's computed `box-shadow` must equal the `focus` token and the inner field's must be `none`.
+
 ## State Management
 
 East UI Components provides hooks for managing state in East applications:

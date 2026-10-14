@@ -23,3 +23,6 @@ export { declaredStyle } from "./testing/styles.js";
 export { integerField, sliceConfig, stringField, type SliceFieldSpec } from "./testing/slice.js";
 export { setVirtualRowsMeasureProbe } from "./collections/virtual-rows.js";
 export { editingMessages } from "./editing/messages.js";
+// Browser cascade checks can render Chakra parts in Node before focusing
+// them in Chromium, without importing renderers that need a document.
+export { system } from "./theme/index.js";

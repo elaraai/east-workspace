@@ -22,7 +22,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, fieldInRingedControl, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 
 /** A chip's height, and the typed box's beside it: the design system's tag chip. */
@@ -81,6 +81,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             ...coarseHitArea({ position: true }),
         },
         input: {
+            ...fieldInRingedControl,
             flex: 1,
             minWidth: "80px",
             height: CHIP,
@@ -96,6 +97,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             /* Touch (#346): 16px text, as every input's — a phone zooms into a smaller focused field. */
             _coarse: { fontSize: TOUCH_FONT_FLOOR },
         },
+        itemInput: fieldInRingedControl,
     },
     variants: {
         // The control's line, the chips' row centred in it: (height − border − chip) ÷ 2 above and
