@@ -71,7 +71,9 @@
     "@elaraai/east": "workspace:*"
   },
   "peerDependenciesMeta": {
-    "@elaraai/e3-rack": { "optional": true }
+    "@elaraai/e3-rack": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
