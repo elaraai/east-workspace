@@ -4,7 +4,7 @@
  */
 
 /** e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -43,7 +43,13 @@ function EditableCalendar(props: Omit<HostProps, "editing">) {
     return <CalendarFrame {...props} editing={editing} />;
 }
 function CalendarFrame(props: HostProps) {
-    const { value, storageKey, view, range, editing, now } = props;
+    const data = useCalendarData(props.value, props.range, props.editing);
+    return <CalendarContent {...props} data={data} />;
+}
+// A window may need many index pages. Keep tracking every arrival in the host,
+// without rebuilding the whole frame while its displayed data stays unchanged.
+const CalendarContent = memo(function CalendarContent(props: HostProps & { data: ReturnType<typeof useCalendarData> }) {
+    const { value, storageKey, view, range, editing, now, data } = props;
     const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
     const [shownRange, setShownRange] = useState<ReturnType<typeof calendarRange> | undefined>();
     const [navigationRevision, setNavigationRevision] = useState(0);
@@ -69,7 +75,6 @@ function CalendarFrame(props: HostProps) {
         setRefs(next); if (value.onSelect.type === "some") for (const ref of next) value.onSelect.value(ref);
     }, [value.onSelect]);
     const selected = useMemo(() => new Set(refs.map(ref => eventKey(ref))), [refs]);
-    const data = useCalendarData(value, range, editing);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));
@@ -133,7 +138,7 @@ function CalendarFrame(props: HostProps) {
             </Box>
         </BuilderFrame>
     </Box>;
-}
+});
 /** Calendar in its own shared frame, with the same renderer for read-only views. */
 export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProps) {
     const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "calendar"}`;

@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -72,12 +72,130 @@ What do you need?
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
 ├─ Operate it from the shell     → the e3 CLI (below): deploy, run, read and write datasets, mutate records, gc
+├─ Delegate local task bodies to a rack → e3 rack enroll + policy; dataflow run --rack, watch --start --rack
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client
     ├─ A local repository        → @elaraai/e3-core
     ├─ Serve repositories        → e3-api-server --repos <dir>, or createServer()
     └─ e3 in a browser, no server → @elaraai/e3-web: serveUnits, serveE3, createWebE3 ("Running e3 in a browser")
 ```
+
+## Rack delegation from a local repository
+
+**Setup and routing**
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `e3 rack enroll --listen <host:port> [--label <label>] [--no-wait]` | Starts the user-wide hub and prints the source origin, matching release and single-use token for the companion's hidden prompts. Waits for a new registration, not activation; use a reachable VPN address or HTTPS terminator. | `e3 rack enroll --listen 100.64.0.10:7331 --label workshop` |
+| `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards. Size: serverless, small, medium, large, xlarge. | `e3 rack policy . set 'train_*' rack --size large` |
+| `e3 rack policy [repo] enable\|disable\|mode <opt-in\|auto>` | Enable/disable saved opt-in; `mode auto` selects eligible unmatched tasks. Defaults: disabled, opt-in. | `e3 rack policy . enable` |
+| `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
+| `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
+| `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
+| `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity. ❗ Rack flags require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
+| `e3 rack status\|list\|remove <id-or-label>\|stop` | Inspect fleet, revoke a rack or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
+| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>]` | Configure the shared listener (off by default); zero idle-exit disables automatic shutdown. | `e3 rack config --listen 100.64.0.10:7331` |
+
+The local process owns graph planning, repository and cache. After a cache
+miss, eligible plain task, map and merge bodies can execute on the rack; input
+closures and every output object transfer by hash. The session verifies the
+whole output graph before success. Placement never changes task/cache hashes.
+Local bodies and fallback share the original cores/memory budget; rack bodies
+use remote capacity. Calls, mutations and intake stay local. Stock runner
+configurations qualify; commands, custom environments/platforms and unscannable
+IR stay local. Host file/environment/network access stays local unless a rule
+deliberately grants `--allow-host-access` and its resources exist on the rack.
+
+The handoff targets a prepared independent worker VM with the matching verified
+`e3-rack` release. Its `configure --allocation <host-provisioned-path>` prompts
+for the source origin, worker label and settings; `enroll --allocation <path>`
+prompts for the one-time token. Origins and credentials are encrypted together.
+HTTP needs `--allow-vpn-http` on both commands, an authenticated VPN and host
+authorization for that exact endpoint; HTTPS does not need that opt-in. Never
+put a source address or token in worker command arguments or plaintext files.
+The local mint intentionally displays its token; do not log that output.
+
+Enrollment does not start services or authorize task claims. The local CLI
+observes a new registration (optionally filtered by label); compare it with the
+worker's result. Before a first heartbeat, status is `enrolled-not-started`.
+After managed resume, a ready heartbeat advertises free plus occupied slots;
+busy workers stay eligible. Fenced, draining or stopping workers withdraw their
+capacity and show `unavailable`. After 45 seconds without a heartbeat, readiness
+expires; lease polling cannot prolong it. Source boot approval, when required,
+remains an additional gate. This advertisement does not authorize host resource
+admission or removal of service/network quarantine.
+Resources and mutable whole-GPU assignments belong to the host lifecycle, not
+local enrollment flags. The companion accepts up to 32 mutually trusted sources
+in one worker. After draining and stopping its services and sockets, use
+`configure --allocation <path> --add-source`, confirm the shared trust boundary,
+and enter the additional origin privately. It prints the new source UUID for
+`enroll --allocation <path> --source <UUID>`; add `--allow-vpn-http` to both when
+needed. All sources must be enrolled before startup. Each has its own identity,
+client, cache and completion journal; actual execution shares one worker-wide
+task/GPU limit. Per-source capacity reports are not additive reservations.
+Separate clients require separate worker VMs: a shared agent process can access
+all its sources' credentials. Worker-local `source list --allocation <path>`
+prints UUIDs/enrollment status; `--show-origins` adds origins only on a terminal.
+After drain/stop and source-side revocation, `source remove` or `source reset`
+with `--allocation <path> --source <UUID> --acknowledge-revocation` asks for UUID
+confirmation. Reset prints a new UUID for fresh enrollment; old pending results
+and caches stay in the retired namespace. Other sources and retained data are
+preserved, and host endpoint policy must be reconciled before activation. The
+flag acknowledges revocation; it does not revoke remotely.
+
+Worker-local `registry status --allocation <path>` reports only whether encrypted
+registry credentials are present; it can run while active and does not test access.
+After drain/stop, `registry configure --allocation <path>` privately prompts for
+username/token without re-entering settings. `registry clear --allocation <path>`
+asks for the installation UUID and removes only the stored access. Both require
+the same release, the writer lock and no unresolved enrollment/service transition;
+they preserve current identities, rotations, settings, journals and cached data.
+Credentials stay in the existing encrypted bundle, with no Docker login file.
+A later activation receives them; services remain stopped and the next boot fenced.
+Repeating configure with the same values or clear when absent does not write.
+Clearing/replacing does not revoke a token remotely or purge cached images.
+
+The companion's
+`reconcile-services` applies a host-provided next allocation and service budgets
+after a completed drain, with stopped units, the previous plan hash and exact
+operation/boot binding. It retains ciphertext/journals and network quarantine;
+it does not move a GPU, start a worker or change its executable release. For a
+compatible release change, invoke the target verified executable's `switch-release`
+with the same drain/plan bindings and unchanged resource budgets at the next
+allocation generation. It checks both managed-state contracts, updates only the
+runtime version in the current encrypted configuration, and preserves identities
+and journals through interruption or downgrade. Both four-file releases must stay
+available; a downgrade is a new operation, never a saved-state restore. Services
+stay stopped and quarantined. If the selected release never resumed, the exact
+recorded previous executable's `recover-release` binds the completed release
+receipt, current plan and new operation at another generation increase. It
+requires the original drain or a valid fenced journal with no operation at the
+failed generation, verifies both releases' recorded hashes, and preserves current
+credentials and journals. A prior resume attempt, even across reboot, refuses
+recovery. General journal repair remains unfinished. Named host management, source aliases, network
+activation, incompatible-state migrations and hardware acceptance remain
+companion cloud #253 work. This and durable completion retry are implemented in
+companion PR #254, separately from the original main protocol pin.
+
+Policy is `<repo>/rack/policy.beast2`; hub state is `~/.e3/rack` (or
+`E3_RACK_HOME`). The control schema currently requires protocol 1 exactly.
+Agents must report bundled e3 at least the project's release. Infrastructure
+failure falls back locally with a separate execution attempt; cancellation
+and timeout never do. One cancelled subscriber does not stop work shared by
+other sessions of the same canonical repository and e3 release.
+
+**Programmatic attachment** (`@elaraai/e3-rack`)
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
+| `createDataflowRunnerFactory(options?)` | Pass to `createServer({ dataflowRunner })`; one session per API dataflow, using the server's shared budget. Explicit server opt-in overrides policy.enabled; rules still apply. | `const server = await createServer({ reposDir: './repos', dataflowRunner: createDataflowRunnerFactory() });` |
+
+The API server's optional rack package is needed only for
+`e3-api-server --repos ./repos --rack`. Portable handlers receive a runner
+factory and do not import hub code. Custom environments, remote function
+delegation, automatic reconnect after hub restart and embedded UI integration
+are deferred.
 
 ## Authoring a package
 

@@ -142,6 +142,16 @@ export const STOCK_PLATFORM_FAMILIES: ReadonlyArray<ReadonlyArray<string>> = [
 ];
 
 /**
+ * Lists the stock platform packages each runtime's published image carries.
+ * Rack routing uses these names to refuse project-specific platform packages.
+ */
+export const STOCK_PLATFORMS_BY_RUNNER = {
+  east_node: ['@elaraai/east-node-std', '@elaraai/east-node-io'],
+  east_py: ['east-py-std', 'east-py-io', 'east-py-datascience'],
+  east_c: ['east-c-std'],
+} as const;
+
+/**
  * Whether a runner's platform packages include `provider`, or a stock
  * package of `provider`'s family. A `custom` runner is an arbitrary command
  * that cannot be inspected and is trusted.

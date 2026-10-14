@@ -41,6 +41,8 @@ import { parseRepoLocation, formatError, exitError, type RepoLocation } from '..
 import { getValidToken } from '../credentials.js';
 import { formatRequeue, formatSize } from '../format.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
+import { openRackRunner } from '@elaraai/e3-rack';
+import { rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
@@ -71,7 +73,7 @@ export function forcedTasks(flags: { force?: boolean; forceTask?: readonly strin
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: BudgetFlags & { filter?: string; force?: boolean; forceTask?: string[]; verbose?: boolean }
+  options: BudgetFlags & RackFlags & { filter?: string; force?: boolean; forceTask?: string[]; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -91,6 +93,7 @@ export async function startCommand(
 
   try {
     const force = forcedTasks(options);
+    refuseRemoteRack(repoArg, options);
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'remote') refuseRemoteBudget(options);
     // A local run's budget: the cores and memory its runner processes take,
@@ -122,6 +125,8 @@ export async function startCommand(
         verbose: options.verbose,
         filter: options.filter,
         signal: controller.signal,
+        rack: options.rack,
+        rackOnly: options.rackOnly,
       });
     } else {
       await executeRemote(
@@ -154,7 +159,7 @@ export async function startCommand(
 // Local Execution
 // =============================================================================
 
-interface LocalExecuteOptions {
+interface LocalExecuteOptions extends RackFlags {
   /** The run's budget: the cores and memory its runner processes take, tasks
    *  and the units of split tasks alike. */
   budget: Budget;
@@ -184,83 +189,89 @@ async function executeLocal(
 
   // The loop keeps as many tasks and units in flight as the budget has cores;
   // the runner, which holds the budget, decides which of them spawn.
-  const handle = await orchestrator.start(storage, repoPath, ws, {
-    runner: new LocalTaskRunner(repoPath, options.budget),
-    width: options.budget.cores,
-    force: options.force,
-    verbose: options.verbose,
-    filter: options.filter,
-    signal: options.signal,
-    onTaskStart: (name) => {
-      console.log(`  [START] ${name}`);
-    },
-    onTaskComplete: (taskResult: TaskCompletedCallback) => {
-      printTaskResult(taskResult);
-    },
-    onPartitionProgress: (task, progress) => {
-      if (progress.state !== 'completed') return;
-      const cached = progress.cached ? ' (cached)' : '';
-      const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
-      if (progress.phase === 'partition') {
-        console.log(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`);
-      } else {
-        const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
-        console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
-      }
-    },
-    onUnitRequeued: (task, unit, requeue) => {
-      console.log(`  [REQUEUE] ${task} ${formatRequeue(unit, requeue.reason, requeue.peak, requeue.reserves)}`);
-    },
-  });
-
-  const result = await orchestrator.wait(handle);
-
-  printSummary({
-    executed: result.executed,
-    cached: result.cached,
-    failed: result.failed,
-    skipped: result.skipped,
-    duration: result.duration,
-  });
-
-  if (result.success) {
-    await printOutputs({ type: 'local', path: repoPath }, ws);
-  }
-
-  if (!result.success) {
-    // Get failed task details from state store
-    const state = await stateStore.read(repoPath, ws, handle.id);
-    let failedTasks: TaskCompletedCallback[] = [];
-    if (state) {
-      for (const [name, taskState] of state.tasks) {
-        if (taskState.status === 'failed') {
-          failedTasks.push({
-            name,
-            cached: false,
-            state: 'failed',
-            error: taskState.error.type === 'some' ? taskState.error.value : undefined,
-            exitCode: taskState.exitCode.type === 'some' ? Number(taskState.exitCode.value) : undefined,
-            duration: taskState.duration.type === 'some' ? Number(taskState.duration.value) : 0,
-          });
+  const rack = await rackEnabled(repoPath, options) ? await openRackRunner({ repoPath, workspace: ws, storage,
+    label: `e3 dataflow run ${ws} (pid ${process.pid})`, budget: options.budget, rackOnly: options.rackOnly,
+    onPlacement: printRackPlacement, log: console.log }) : undefined;
+  if (rack !== undefined) console.log(`Rack: ${rack.describe()}`);
+  try {
+    const handle = await orchestrator.start(storage, repoPath, ws, {
+      runner: rack?.runner ?? new LocalTaskRunner(repoPath, options.budget),
+      width: options.budget.cores + (rack?.rackSlots ?? 0),
+      force: options.force,
+      verbose: options.verbose,
+      filter: options.filter,
+      signal: options.signal,
+      onTaskStart: (name) => {
+        console.log(`  [START] ${name}`);
+      },
+      onTaskComplete: (taskResult: TaskCompletedCallback) => {
+        printTaskResult(taskResult);
+      },
+      onPartitionProgress: (task, progress) => {
+        if (progress.state !== 'completed') return;
+        const cached = progress.cached ? ' (cached)' : '';
+        const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
+        if (progress.phase === 'partition') {
+          console.log(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`);
+        } else {
+          const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
+          console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
         }
+      },
+      onUnitRequeued: (task, unit, requeue) => {
+        console.log(`  [REQUEUE] ${task} ${formatRequeue(unit, requeue.reason, requeue.peak, requeue.reserves)}`);
+      },
+    });
+
+    const result = await orchestrator.wait(handle);
+
+    printSummary({
+      executed: result.executed,
+      cached: result.cached,
+      failed: result.failed,
+      skipped: result.skipped,
+      duration: result.duration,
+    });
+
+    if (result.success) {
+      await printOutputs({ type: 'local', path: repoPath }, ws);
+    }
+
+    if (!result.success) {
+      // Get failed task details from state store
+      const state = await stateStore.read(repoPath, ws, handle.id);
+      let failedTasks: TaskCompletedCallback[] = [];
+      if (state) {
+        for (const [name, taskState] of state.tasks) {
+          if (taskState.status === 'failed') {
+            failedTasks.push({
+              name,
+              cached: false,
+              state: 'failed',
+              error: taskState.error.type === 'some' ? taskState.error.value : undefined,
+              exitCode: taskState.exitCode.type === 'some' ? Number(taskState.exitCode.value) : undefined,
+              duration: taskState.duration.type === 'some' ? Number(taskState.duration.value) : 0,
+            });
+          }
+        }
+        printFailedTasks(failedTasks);
       }
-      printFailedTasks(failedTasks);
+      // Fallback: result.success was false but no per-task failure was found —
+      // the orchestrator failed at a layer above task execution (state load,
+      // version vector conflict, lock, …). Emit SOMETHING on stderr so
+      // callers don't see a bare non-zero exit with empty stderr (was
+      // misdiagnosed as a CI flake more than once during PR work).
+      if (failedTasks.length === 0) {
+        console.error('');
+        console.error(
+          `Dataflow failed without any task-level failure recorded ` +
+          `(executed=${result.executed}, failed=${result.failed}, skipped=${result.skipped}). ` +
+          `Likely an orchestrator-level error before tasks started; check storage/state-store logs.`,
+        );
+      }
+      process.exitCode = 1;
     }
-    // Fallback: result.success was false but no per-task failure was found —
-    // the orchestrator failed at a layer above task execution (state load,
-    // version vector conflict, lock, …). Emit SOMETHING on stderr so
-    // callers don't see a bare non-zero exit with empty stderr (was
-    // misdiagnosed as a CI flake more than once during PR work).
-    if (failedTasks.length === 0) {
-      console.error('');
-      console.error(
-        `Dataflow failed without any task-level failure recorded ` +
-        `(executed=${result.executed}, failed=${result.failed}, skipped=${result.skipped}). ` +
-        `Likely an orchestrator-level error before tasks started; check storage/state-store logs.`,
-      );
-    }
-    process.exit(1);
-  }
+  } finally { await rack?.close(); }
 }
 
 // =============================================================================

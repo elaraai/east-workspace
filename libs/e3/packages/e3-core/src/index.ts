@@ -131,6 +131,8 @@ export {
   transferStagingDir,
   transferStagingPath,
   packageStagingPath,
+  atomicWriteFile,
+  renameWithRetry,
 } from './storage/local/localHelpers.js';
 
 // Package operations: a zip read from a file on this machine or a source, and
@@ -362,6 +364,9 @@ export {
   type ExecuteOptions,
   type ExecutionIds,
   type ExecutionResult,
+  type TaskBodyRequest,
+  type TaskBodyExecutor,
+  type LocalTaskRunnerOptions,
 } from './execution/LocalTaskRunner.js';
 
 // Process identification helpers (local execution support)
