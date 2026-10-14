@@ -513,6 +513,11 @@ pages and fonts, retained canvas identity, equal loading/loaded frame dimensions
 no accessible controls under the skeleton, and the first visible layout at
 both desktop and phone widths in both themes.
 
+Calendar tracks page arrivals outside its memoized frame content. Keep the
+displayed window stable while partial results arrive: the reader must keep
+advancing without rebuilding the toolbar, library and canvas for every page.
+Loading, errors and the next complete window still update the frame immediately.
+
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and
 phone People cards use the shared `VirtualRows` from the internal entry with
