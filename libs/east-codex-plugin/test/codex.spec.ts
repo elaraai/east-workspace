@@ -9,8 +9,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const root = process.cwd();
+// The plugin as it ships: assembled by `npm run package` from this package's
+// bundles, the shared skills catalog and the index (#1309).
+const plugin = resolve(root, '../east-plugin/marketplace/east-codex-plugin');
 function hook(event: Record<string, unknown>, deny = false): string {
-  return execFileSync(process.execPath, [join(root, '.build/hooks/codex-tools.js')], {
+  return execFileSync(process.execPath, [join(plugin, '.build/hooks/codex-tools.js')], {
     input: JSON.stringify(event), encoding: 'utf8', timeout: 30000,
     env: { ...process.env, EAST_REQUIRE_SEARCH: deny ? 'deny' : '' },
   });
@@ -60,7 +63,7 @@ test('every shared skill is materialized and Codex-adapted', () => {
   const names = readdirSync(resolve(root, '../east-plugin/skills'));
   assert.equal(names.length, 16);
   for (const name of names) {
-    const file = join(root, 'skills', name, 'SKILL.md');
+    const file = join(plugin, 'skills', name, 'SKILL.md');
     assert.ok(!lstatSync(file).isSymbolicLink());
     const text = readFileSync(file, 'utf8');
     const description = JSON.parse(/^description: (.+)$/m.exec(text)![1]!);
@@ -75,7 +78,7 @@ test('installed copy runs MCP search, fetch and both real LSP launchers without 
   const dir = mkdtempSync(join(tmpdir(), 'east-codex-install-'));
   const installed = join(dir, 'plugin with spaces');
   mkdirSync(installed);
-  for (const name of ['.build', '.codex-plugin', '.mcp.json', '.lsp.json', 'hooks', 'skills', 'index.json', 'package.json']) cpSync(join(root, name), join(installed, name), { recursive: true });
+  for (const name of ['.build', '.codex-plugin', '.mcp.json', '.lsp.json', 'hooks', 'skills', 'index.json', 'package.json']) cpSync(join(plugin, name), join(installed, name), { recursive: true });
   const config = JSON.parse(readFileSync(join(installed, '.mcp.json'), 'utf8')) as {
     mcpServers: { east: { command: string; args: string[]; cwd?: string } };
   };

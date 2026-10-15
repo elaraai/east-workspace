@@ -2,11 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 
 // Every skill carries the mandatory "Before writing code" section (#654,
 // SKILLS_STANDARD.md): the agent must search the example index before
 // writing East code, and nothing is injected for it.
-const SKILLS = join(process.cwd(), "skills");
+const SKILLS = join(PLUGIN_ROOT, "skills");
 
 test("every skill mandates searching the example index before coding", () => {
   const dirs = readdirSync(SKILLS, { withFileTypes: true }).filter((d) => d.isDirectory() || d.isSymbolicLink()).map((d) => d.name);

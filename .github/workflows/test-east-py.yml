@@ -8,6 +8,7 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - "libs/east-c/**"
+      - "libs/east-plugin/index.json"
       - "docker/services/**"
       - ".github/workflows/test-east-py.yml"
   pull_request:
@@ -17,6 +18,7 @@ on:
       - "libs/east/**"
       - "libs/east-node/**"
       - "libs/east-c/**"
+      - "libs/east-plugin/index.json"
       - "docker/services/**"
       - ".github/workflows/test-east-py.yml"
 

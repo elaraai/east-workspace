@@ -155,11 +155,11 @@ and establish a stable hit target; a previous drop or tab change can scroll it.
   `virtual:e3-showcase-package`, either way.
   `tests/e3-package/` imports it into an in-memory e3 (`pnpm run test`).
 - `scripts/example-renderings.ts` — joins every Code Reference example
-  with the Claude plugin's example index (`libs/east-claude-plugin/index.json`)
+  with the plugins' example index (`libs/east-plugin/index.json`)
   by id, for its python rendering (#655): the index stores each program
   example as IR with the TypeScript and python printed from it. A Code
   Reference example missing from the index fails the build naming it —
-  regenerate with `cd libs/east-claude-plugin && make index`. The
+  regenerate with `make -C libs/east-plugin index`. The
   TypeScript / Python selector on each Code Reference entry is that
   example's own choice (`code-language.ts`, session-persisted so a row
   keeps it across virtualizer remounts; `?lang=python` opens every example

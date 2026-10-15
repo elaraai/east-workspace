@@ -616,7 +616,7 @@ Four independent discovery points hardcode `*.examples.ts`. **Widen all four to
 `*.examples.{ts,tsx}` first** (a harmless superset that keeps a half-migrated
 tree green), then convert:
 
-1. `libs/east-claude-plugin/index.config.json` — the east-ui/e3-ui source
+1. `libs/east-plugin/index.config.json` — the east-ui/e3-ui source
    `pattern` (array form supported). The regex/brace parser handles JSX bodies
    unchanged.
 2. `.github/workflows/plugin-artifacts.yml` — `paths:` filters (`push` +

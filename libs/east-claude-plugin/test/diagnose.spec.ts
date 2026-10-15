@@ -2,19 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, execSync } from "node:child_process";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 
 // Exercises the SHIPPED PostToolUse pipeline end-to-end: spawn the bundled
 // diagnose hook with a real event, let it spawn the daemon, and assert it
 // injects the merged <east-code-review>. Uses the east-diagnostics fixture
 // (a real East project with @elaraai/east resolvable + intentional antipatterns).
-const pluginDir = process.cwd();
-const eastDiagDir = join(pluginDir, "..", "east-diagnostics");
+const eastDiagDir = join(process.cwd(), "..", "east-diagnostics");
 const fixture = join(eastDiagDir, "test-fixtures", "proj", "bad.ts");
-const hook = join(pluginDir, ".build", "hooks", "diagnose.js");
+const hook = join(PLUGIN_ROOT, ".build", "hooks", "diagnose.js");
 
 function killDaemon(): void {
   try {
-    execSync("pkill -f 'east-claude-plugin/.build/daemon/server.js'");
+    execSync("pkill -f 'marketplace/east-claude-plugin/.build/daemon/server.js'");
   } catch {
     /* none running */
   }

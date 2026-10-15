@@ -2,7 +2,7 @@
 
 A Claude Code plugin for the East programming language ecosystem.
 
-Runtime code, native skill sources, index generation and CLI installers are shared with the Codex plugin in [`../east-plugin`](../east-plugin). This plugin ships self-contained bundles and a generated index; users do not need the shared library or a local checkout.
+Runtime code, the skill catalog, index generation and CLI installers are shared with the Codex plugin in [`../east-plugin`](../east-plugin). The plugin ships as the npm package `@elaraai/east-claude-plugin`, assembled at build time from this directory's manifests and bundles, the shared skills and the index — self-contained, with no dependency; users need neither the shared library nor a checkout.
 
 ## Skills
 
@@ -38,10 +38,10 @@ The `PreToolUse(Edit|Write)` hook is the gate: an East write in a session with n
 ### Generating the index locally
 
 ```bash
-make index      # generate-index (the packages' BUILT example modules → IR + TypeScript) + render-python.py (east-py)
+make index      # generate-index (the packages' BUILT example modules → IR + TypeScript) + render-python.py (east-py) → ../east-plugin/index.json
 ```
 
-Build `east`, `east-node`, `east-py-datascience` first (their `dist/test/*.examples.js` are imported), and have `libs/east-py` synced (`uv sync --all-packages`): the python printing runs through `uv run --project ../east-py`. See `index.config.json` for the package-to-path mappings and which packages are programs (`ir: true`).
+Build `east`, `east-node`, `east-py-datascience` first (their `dist/test/*.examples.js` are imported), and have `libs/east-py` synced (`uv sync --all-packages`): the python printing runs through `uv run --project ../east-py`. See `../east-plugin/index.config.json` for the package-to-path mappings and which packages are programs (`ir: true`). The index is the one committed artifact; `make build` copies it into the assembled plugin.
 
 > **Use the search, not `.d.ts` files.** The East API is large and idiom-heavy; its `.d.ts` type signatures show shapes but not the runtime constraints and patterns that make East code correct. Learning the API by reading or grepping type definitions reliably produces broken code. The plugin steers both the main agent and subagents (via the SessionStart/SubagentStart hooks) to search the example index first, and gates the first East write on it.
 
@@ -56,58 +56,48 @@ The rules come from [`@elaraai/east-diagnostics`](../east-diagnostics) and run a
 
 ## Installation
 
-The monorepo root is a Claude Code plugin **marketplace** (`.claude-plugin/marketplace.json`, named `elaraai`), which lists the `east` plugin with `source: ./libs/east-claude-plugin`. Install it either from inside Claude Code (slash commands) or from a terminal (the `claude plugin` CLI).
+The plugin is the npm package `@elaraai/east-claude-plugin`, published by each release on the `@elaraai` lockstep version, and listed by the public catalog [elaraai/plugins](https://github.com/elaraai/plugins) (a Claude Code **marketplace** named `elaraai`) as an `npm` source pinned at the released version. Install it either from inside Claude Code (slash commands) or from a terminal (the `claude plugin` CLI). Node.js 22+ on `PATH` is all it needs.
 
-### From the published marketplace (GitHub)
-
-Inside Claude Code:
-```text
-/plugin marketplace add elaraai/east-workspace
-/plugin install east
-```
-
-From a terminal:
-```bash
-claude plugin marketplace add elaraai/east-workspace
-claude plugin install east@elaraai
-```
-
-### From a local checkout (development)
-
-Point the marketplace at your local monorepo instead of GitHub. Build the plugin's artifacts first, since the marketplace copies whatever is on disk:
-
-```bash
-# 1. Refresh the committed artifacts the plugin ships (hooks bundle + search index)
-cd ~/src/east-workspace
-pnpm --filter '@elaraai/east-claude-plugin' run build           # shared runtime + host entry points
-pnpm --filter '@elaraai/east-claude-plugin' run bundle          # -> .build/*.js
-pnpm --filter '@elaraai/east-claude-plugin' run generate-index  # -> index.json
-```
+### From the published catalog
 
 Inside Claude Code:
 ```text
-/plugin marketplace add ~/src/east-workspace
+/plugin marketplace add elaraai/plugins
 /plugin install east@elaraai
 ```
 
 From a terminal:
 ```bash
-claude plugin marketplace add ~/src/east-workspace
+claude plugin marketplace add elaraai/plugins
 claude plugin install east@elaraai
 ```
 
-**Replacing an existing install:** the local marketplace is also named `elaraai`, so if you already added it from GitHub, remove that first (same name can't be registered twice):
+A new release reaches you with `claude plugin update east@elaraai` (or `/plugin marketplace update elaraai`), or without asking once auto-update is on for the marketplace under **Marketplaces** in `/plugin`. Pre-releases are the catalog's `beta` branch (`elaraai/plugins#beta`, named `elaraai-beta`).
+
+The monorepo root keeps a marketplace of the same name whose entry points at the same package, so an install added as `elaraai/east-workspace` keeps updating; the catalog is the documented way in. One name registers once: to move, `claude plugin marketplace remove elaraai` first.
+
+### From a local checkout (development)
+
+A checkout is a local marketplace once the plugin is assembled: `make build` (or `make -C libs/east-plugin package`) writes both plugins and the marketplace files that name them under `libs/east-plugin/marketplace/`, under the catalog's name `elaraai`: one name registers once, so adding the checkout points `elaraai` at it (and adding `elaraai/plugins` again points it back), and `east@elaraai` stays the plugin either way.
+
 ```bash
-claude plugin uninstall east
-claude plugin marketplace remove elaraai
-claude plugin marketplace add ~/src/east-workspace
+cd ~/src/east-workspace
+make -C libs/east-claude-plugin build    # shared runtime + host entry points → .build/*.js → ../east-plugin/marketplace/east-claude-plugin/
+```
+
+Inside Claude Code:
+```text
+/plugin marketplace add ~/src/east-workspace/libs/east-plugin/marketplace
+/plugin install east@elaraai
+```
+
+From a terminal:
+```bash
+claude plugin marketplace add ~/src/east-workspace/libs/east-plugin/marketplace
 claude plugin install east@elaraai
 ```
 
-**Iterating on the plugin:** installed plugins are copied to `~/.claude/plugins/cache/elaraai/east/<version>/` (skill symlinks are dereferenced into the copy). Editing the working tree does **not** change the running plugin — after changes, re-run the `bundle` / `generate-index` commands above, then refresh the cache and restart the session:
-```bash
-claude plugin marketplace update elaraai   # re-read the local source
-```
+**Iterating on the plugin:** a plugin installed from a local marketplace is read in place, so a rebuild (`make -C libs/east-claude-plugin build`, or `make index` first when the examples changed) is seen at the next session start or `/reload-plugins`. The assembled directory is exactly what the release publishes.
 
 ## Project Scaffolding
 

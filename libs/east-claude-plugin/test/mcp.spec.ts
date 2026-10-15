@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 
 // The SHIPPED MCP server, spoken to over stdio the way Claude Code does. A
 // client that closes the server's stdin has gone, so the server exits — also
 // once east_lsp_diagnostics has started a language server, whose pipes would
 // otherwise hold it open (the stdio transport never reports end of input).
 // Uses the east-diagnostics fixture, as the diagnose hook test does.
-const server = join(process.cwd(), ".build", "mcp", "server.js");
+const server = join(PLUGIN_ROOT, ".build", "mcp", "server.js");
 const fixture = join(process.cwd(), "..", "east-diagnostics", "test-fixtures", "proj", "bad.ts");
 
 interface Reply {

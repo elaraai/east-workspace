@@ -4,12 +4,13 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 
 // The PostToolUse(Bash) pipeline (#684): a file written through the shell —
 // the way a heredoc or a redirect writes one — reaches the same review as a
 // file written with Write. Before this hook nothing saw those at all. The
 // `east-py` here is the same stand-in the python hook test uses.
-const hook = join(process.cwd(), ".build", "hooks", "diagnose-bash.js");
+const hook = join(PLUGIN_ROOT, ".build", "hooks", "diagnose-bash.js");
 
 function project(): string {
   const dir = mkdtempSync(join(tmpdir(), "east-bash-hook-"));

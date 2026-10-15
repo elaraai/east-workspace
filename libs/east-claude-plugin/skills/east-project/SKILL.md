@@ -1,1 +1,0 @@
-../../../east-plugin/skills/east-project/SKILL.md

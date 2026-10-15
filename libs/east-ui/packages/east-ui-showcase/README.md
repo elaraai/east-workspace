@@ -36,9 +36,9 @@ npm run build        # Production build
 The Code Reference section shows every example in TypeScript (the authored
 source) or Python (printed from the example's IR), from a selector on each
 entry — each example's own choice; `?lang=python` opens every example in Python.
-The python comes from the Claude plugin's example index
-(`libs/east-claude-plugin/index.json`); after adding or changing a core
-example, regenerate it (`cd libs/east-claude-plugin && make index`) or the
+The python comes from the plugins' example index
+(`libs/east-plugin/index.json`); after adding or changing a core
+example, regenerate it (`make -C libs/east-plugin index`) or the
 showcase build fails naming the missing example.
 
 ## See also

@@ -82,14 +82,14 @@ Title prefixes are literal scopes. Map to the directory, then load the per-packa
 | `e3` | `libs/e3` | `e3` |
 | `east-ui` / `causal` | `libs/east-ui/packages/{east-ui,e3-ui,e3-ui-cli}` | `east-ui` / `e3-ui` / `e3-ui-cli` |
 | `east-c` | `libs/east-c` | **no per-API skill** — read `libs/east-c/CLAUDE.md`, use `make test-east-c` |
-| dev-tooling | `libs/{east-diagnostics,eslint-plugin-east,tsserver-plugin-east,east-claude-plugin}` | none — read the lib's README/CLAUDE.md |
+| dev-tooling | `libs/{east-diagnostics,eslint-plugin-east,tsserver-plugin-east,east-plugin,east-claude-plugin,east-codex-plugin}` | none — read the lib's README/CLAUDE.md |
 
 **Blast radius (run the union locally — CI will).** A change to a core lib triggers downstream workflows via `paths:` filters:
 
 - `libs/east` → tests for east, east-node, e3, east-c, east-py, east-ui, diagnostics
 - `libs/east-node` → east-node, e3, east-c, east-py, east-ui
 - `libs/e3` → e3, east-ui · `libs/east-c` → east-c, east-py · `libs/east-py` → east-py, e3
-- any `libs/**/SKILL.md` or `libs/**/*.examples.ts(x)` → **plugin-artifacts** (regenerates the search index)
+- any `libs/**/SKILL.md` or `libs/**/*.examples.ts(x)` → **plugin-artifacts** (checks the committed search index is current and that both plugins assemble)
 - **every PR** → `version-drift` (`make check-version`)
 
 Heuristic: always `make build` the union; run a downstream lib's **tests** when your change touches exported types or IR (anything `make test-export` would emit), otherwise the directly-edited lib's tests suffice plus a root `make build`.
@@ -127,7 +127,7 @@ Heuristic: always `make build` the union; run a downstream lib's **tests** when 
 | C runtime / IR execution / serialization | `libs/east-c` | — | grep `libs/east-c/**/src` + headers; `make test-east-c` |
 | UI components / tags / decision surfaces | `east-ui`, `e3-ui` | `east-ui` / `e3-ui` | index / SKILL |
 | Headless render / screenshot of a component or surface (CLI + programmatic) | `east-ui/packages/e3-ui-cli` | `e3-ui-cli` | SKILL + grep `libs/east-ui/packages/e3-ui-cli/src` |
-| Dev tooling: diagnostics, eslint/tsserver plugin, scaffolds, Claude plugin | `east-diagnostics`, `eslint-plugin-east`, `tsserver-plugin-east`, `create`, `east-claude-plugin` | — | grep that lib's `src` + README |
+| Dev tooling: diagnostics, eslint/tsserver plugin, scaffolds, the agent plugins | `east-diagnostics`, `eslint-plugin-east`, `tsserver-plugin-east`, `create`, `east-plugin` (+ `east-claude-plugin`, `east-codex-plugin`) | — | grep that lib's `src` + README |
 
 If a near-match exists, **extend/reuse it** rather than adding a parallel implementation. If a genuinely new capability is needed, place it in the lib that owns the concern (dependency order: `east` → `east-node`/`e3`/`east-ui`; `east-c`/`east-py` consume exported IR). **Record what you searched in the PR body** so review can see duplication was checked. Adding a capability = "register" it: add the `example()` (auto-flows into the index via CI — §6/§8), update the lib SKILL.md table, and add a row here only if a new package/domain appeared.
 
@@ -299,14 +299,14 @@ cd libs/<lib> && make help        # lib-specific extras (e3: make fuzz; east-c: 
 
 If you changed public API: update that lib's `SKILL.md` API tables + decision tree **and** the companion `*.examples.ts`, in lockstep. Keep `SKILL.md` self-contained (three-column `Signature | Description | Example`, bold category headers, `❗` on throwing ops, no links to sibling `reference/` files). **Coordinate before editing a lib `SKILL.md` — they back the published plugin skills (the plugin symlinks to them).**
 
-If you touched **any** `libs/**/SKILL.md`, `*.examples.ts(x)`, or the plugin `lib/hooks/mcp`, regenerate and **commit** the artifacts (CI `plugin-artifacts` fails on a diff):
+If you touched **any** `*.examples.ts(x)`, regenerate and **commit** the one committed artifact, the search index (CI `plugin-artifacts` fails on a diff). A `SKILL.md` or plugin `lib/hooks/mcp` change commits nothing generated: the plugins are assembled at build time, under `libs/east-plugin/marketplace/` (ignored), and the release publishes them to npm, where the `elaraai/plugins` catalog lists them.
 
 ```bash
-cd libs/east-claude-plugin && make index && make build   # regenerates index.json + .build/
-# commit BOTH libs/east-claude-plugin/index.json AND libs/east-claude-plugin/.build/ (.build/ IS git-tracked)
+make -C libs/east-plugin index     # regenerates libs/east-plugin/index.json — commit it
+make -C libs/east-plugin package   # assembles both plugins (a local marketplace for Claude Code and Codex); the plugin tests run over them
 ```
 
-(Authoring a *new plugin-native skill* like this one is directory-based: drop `skills/<name>/SKILL.md`, add it to the repo-root `CLAUDE.md` "plugin-native" list; do **not** edit `plugin.json`/`marketplace.json`/`index.config.json`, and it does not feed the search index.)
+(Authoring a *new plugin-native skill* like this one is directory-based: drop `libs/east-plugin/skills/<name>/SKILL.md`, add it to the repo-root `CLAUDE.md` "plugin-native" list; do **not** edit `plugin.json`/`marketplace.json`/`index.config.json`, and it does not feed the search index.)
 
 ## 9. Branch → commit → PR (only after approval)
 

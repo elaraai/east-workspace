@@ -1,9 +1,11 @@
 name: Plugin Artifacts
 
-# Verifies the Claude Code plugin's generated artifacts are committed-and-current.
-# Replaces the old cross-repo update-skills workflow — skills are now symlinks
-# to the in-tree lib SKILL.md files (no copying), and the search index + hook
-# bundle are regenerated locally from the monorepo (no repo cloning).
+# Verifies the one committed plugin artifact, libs/east-plugin/index.json, is
+# current, and that both agent plugins assemble as a marketplace installs them
+# (#1309): the plugins are published to npm by the release and listed by the
+# catalog (elaraai/plugins); nothing else generated is committed. Skills are
+# symlinks from libs/east-plugin/skills into the in-tree lib SKILL.md files,
+# and the index is regenerated from the monorepo (no repo cloning).
 
 on:
   push:
@@ -14,13 +16,7 @@ on:
       - 'libs/**/*.examples.tsx'
       - 'libs/east-plugin/**'
       - 'libs/east-codex-plugin/**'
-      - 'libs/east-claude-plugin/daemon/**'
-      - 'libs/east-claude-plugin/hooks/**'
-      - 'libs/east-claude-plugin/lib/**'
-      - 'libs/east-claude-plugin/mcp/**'
-      - 'libs/east-claude-plugin/scripts/**'
-      - 'libs/east-claude-plugin/index.config.json'
-      - 'libs/east-claude-plugin/index.static.json'
+      - 'libs/east-claude-plugin/**'
       - 'libs/east/src/codegen/**'
       - 'libs/east-py/packages/east-py/east/codegen/**'
       - '.github/workflows/plugin-artifacts.yml'
@@ -32,13 +28,7 @@ on:
       - 'libs/**/*.examples.tsx'
       - 'libs/east-plugin/**'
       - 'libs/east-codex-plugin/**'
-      - 'libs/east-claude-plugin/daemon/**'
-      - 'libs/east-claude-plugin/hooks/**'
-      - 'libs/east-claude-plugin/lib/**'
-      - 'libs/east-claude-plugin/mcp/**'
-      - 'libs/east-claude-plugin/scripts/**'
-      - 'libs/east-claude-plugin/index.config.json'
-      - 'libs/east-claude-plugin/index.static.json'
+      - 'libs/east-claude-plugin/**'
       - 'libs/east/src/codegen/**'
       - 'libs/east-py/packages/east-py/east/codegen/**'
 
@@ -92,24 +82,33 @@ jobs:
         run: uv sync --all-packages
 
       - name: Regenerate search index
-        working-directory: libs/east-claude-plugin
+        working-directory: libs/east-plugin
         run: make index
 
-      - name: Regenerate hook/MCP bundle
-        working-directory: libs/east-claude-plugin
-        run: make build
-
-      - name: Regenerate Codex artifacts and materialized skills
-        working-directory: libs/east-codex-plugin
-        run: make build
-
-      - name: Fail if artifacts are stale
+      - name: Fail if the index is stale
         run: |
-          if ! git diff --quiet -- libs/east-plugin/index.json libs/east-claude-plugin/index.json libs/east-claude-plugin/.build libs/east-codex-plugin/index.json libs/east-codex-plugin/.build libs/east-codex-plugin/skills; then
-            echo "::error::Plugin artifacts are out of date. Run:"
-            echo "  make -C libs/east-plugin index && make -C libs/east-claude-plugin build"
-            echo "Also run make -C libs/east-codex-plugin build; commit both host bundles, indexes and Codex skills."
-            git --no-pager diff --stat -- libs/east-plugin/index.json libs/east-claude-plugin/index.json libs/east-claude-plugin/.build libs/east-codex-plugin/index.json libs/east-codex-plugin/.build libs/east-codex-plugin/skills
+          if ! git diff --quiet -- libs/east-plugin/index.json; then
+            echo "::error::libs/east-plugin/index.json is out of date. Run make -C libs/east-plugin index and commit it."
+            git --no-pager diff --stat -- libs/east-plugin/index.json
             exit 1
           fi
-          echo "Plugin artifacts are current."
+          echo "The index is current."
+
+      # Both plugins as a marketplace installs them, from this tree: bundles,
+      # skills as real files, the index, a dependency-free package.json.
+      - name: Assemble both agent plugins
+        working-directory: libs/east-plugin
+        run: make package
+
+      - name: The assembled plugins publish as they are
+        run: node scripts/publish-plugins.mjs latest --dry-run
+
+      - name: Nothing generated is committed
+        run: |
+          stray="$(git ls-files libs/east-claude-plugin libs/east-codex-plugin | grep -E '(^|/)(\.build/|index\.json$|index\.config\.json$|index\.static\.json$|skills/)' || true)"
+          if [ -n "$stray" ]; then
+            echo "::error::Generated plugin artifacts are committed under the host plugins:"
+            echo "$stray"
+            exit 1
+          fi
+          echo "No generated artifact is committed under the host plugins."

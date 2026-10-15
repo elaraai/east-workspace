@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkPluginStatus, formatStatus } from "../lib/plugin-status.js";
+import { PLUGIN_ROOT } from "./plugin.js";
 
-// Runs from the plugin dir (built + bundled by the test script), so the
-// plugin-global features should report OK; project-context features (East
+// Runs over the assembled plugin (bundled + packaged by the test script), so
+// the plugin-global features should report OK; project-context features (East
 // project / diagnostics prereqs) may be warn here and aren't asserted.
 test("plugin status reports plugin-global features OK and never throws", async () => {
-  const root = process.cwd();
-  const checks = await checkPluginStatus(root, root);
+  const checks = await checkPluginStatus(PLUGIN_ROOT, process.cwd());
   const byName = new Map(checks.map((c) => [c.name, c]));
 
   assert.equal(byName.get("Plugin")?.status, "ok");

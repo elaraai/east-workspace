@@ -113,16 +113,16 @@ install: check-deps
 
 ## Build everything: east-c native, east-py (incl. native Cython
 ## extensions built by scikit-build-core during install), all TS packages,
-## then regenerate the shared plugin search index + both hook/MCP bundles (the
-## committed artifacts CI verifies — keeps local search in sync with
-## *.examples.ts).
+## then regenerate the shared plugin search index (the committed
+## libs/east-plugin/index.json CI verifies — keeps local search in sync with
+## *.examples.ts) and assemble both agent plugins under
+## libs/east-plugin/marketplace/, a local marketplace for Claude Code and Codex.
 build: check-deps
 	$(MAKE) -C $(CURDIR)/libs/east-c build
 	$(MAKE) -C $(CURDIR)/libs/east-py install
 	pnpm build
 	pnpm --filter '@elaraai/east-plugin' run generate-index
-	pnpm --filter '@elaraai/east-claude-plugin' run bundle
-	pnpm --filter '@elaraai/east-codex-plugin' run bundle
+	$(MAKE) -C $(CURDIR)/libs/east-plugin package
 
 ## Link all CLIs globally (e3, e3-api-server, east-node, east-py, east-c)
 link:
