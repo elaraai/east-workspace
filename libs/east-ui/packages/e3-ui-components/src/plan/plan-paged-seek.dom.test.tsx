@@ -262,7 +262,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         // The compiled source carries the handle's `seek` — an East function
         // over the fixture's keys — which is what the jump test then drives.
         expect(pagedOf(root).seek.type).toBe("some");
-    }, 30_000);
+    });
 
     test("seeking element 3,000 REBASES — the windows in between are never fetched", async () => {
         const restore = emulateWindowScroll();
@@ -325,7 +325,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             cleanup();
             restore();
         }
-    }, 30_000);
+    });
 
     test("a search the canvas has shown leaves the page to the reader — a window landing above its target never scrolls back to it", async () => {
         const restore = emulateWindowScroll();
@@ -370,7 +370,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             cleanup();
             restore();
         }
-    }, 30_000);
+    });
 
     test("the bar appears for the SOURCE's sake — and only when there is a reason", async () => {
         // #587's other half. Giving the frame its toolbar for a seek-capable
@@ -388,7 +388,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         const inline: PlanRootValue = { ...root, rows: variant("inline", []) as PlanRootValue["rows"] };
         const { container: plain } = renderPlan(inline, "plan-bar-inline");
         expect(plain.querySelector('[data-frame-slot="toolbar"]')).toBeNull();
-    }, 30_000);
+    });
 });
 
 /** `n` units of one shape — generated at module scope (East bodies never call host helpers). */
@@ -474,13 +474,13 @@ describe("the same canvas inline and paged (#822)", () => {
         expect(inline.slice(0, 2)).toEqual(["jobs/u0000", "jobs/u0001"]);
         expect(inline[30]).toBe("loads/u0000");
         expect(paged).toEqual(inline);
-    }, 30_000);
+    });
 
     test("one series over two windows: the windows concatenate into the inline order", async () => {
         const [inline, paged] = await bothWays(300, false);
         expect(inline).toHaveLength(300);
         expect(paged).toEqual(inline);
-    }, 30_000);
+    });
 
     test("two series over two windows: two blocks, each paging on its own — the inline order, one read of a window for both (#823)", async () => {
         // 300 units: window 0 holds 200, window 1 the rest. Each series is a
@@ -509,7 +509,7 @@ describe("the same canvas inline and paged (#822)", () => {
             else delete (window as { innerHeight?: number }).innerHeight;
             restore();
         }
-    }, 30_000);
+    });
 });
 
 /** A press: a run, its sheets, and three weeks of load. */
@@ -630,5 +630,5 @@ describe("a parent sits whole in its window (#823)", () => {
         expect(said(paged.container)).toEqual(expected);
         // One read of each landed window served both blocks.
         expect(asked.filter((w) => w < 3).sort((x, y) => x - y)).toEqual([0, 1, 2]);
-    }, 30_000);
+    });
 });

@@ -23,5 +23,6 @@ await describe("Cross-language stem", (test) => {
         crosslangStringsDatetime: ex.crosslangStringsDatetime,
         crosslangTryCatch: ex.crosslangTryCatch,
         crosslangWhile: ex.crosslangWhile,
+        crosslangCallbackStatements: ex.crosslangCallbackStatements,
     });
 });

@@ -121,7 +121,7 @@ describe("the query's save popover (#936)", () => {
             .toEqual([GENERATED, true, "Generated from the steps · edit to write your own"]);
         expect(popover.queryByRole("button", { name: "Use generated" })).toBeNull();
         expect([cancelButton(popover).disabled, saveButton(popover).disabled]).toEqual([false, false]);
-    }, 30_000);
+    });
 
     test("its description is muted by the edit popover's recipe while it is the generated sentence", () => {
         const recipe = system.getSlotRecipe("sliceEdit") as { base: Record<string, Record<string, unknown>> };
@@ -142,7 +142,7 @@ describe("the query's save popover (#936)", () => {
         expect([field.value, field.hasAttribute("data-generated"), hintOf(field)])
             .toEqual([GENERATED, true, "Generated from the steps · edit to write your own"]);
         expect(popover.queryByRole("button", { name: "Use generated" })).toBeNull();
-    }, 30_000);
+    });
 
     test("the description holds at most 140 characters", async () => {
         const { popover, onSave } = await mount();
@@ -154,7 +154,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", some(`${"x".repeat(138)}yz`)]]);
-    }, 30_000);
+    });
 
     test("a name another saved query holds is the field's error and keeps Save off, ⏎ included; the open query's own name is not", async () => {
         const { popover, onSave } = await mount();
@@ -177,14 +177,14 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.change(name, { target: { value: "Big orders" } }); });
         expect(popover.queryByText("Order count is taken")).toBeNull();
         expect([name.getAttribute("aria-invalid"), saveButton(popover).disabled]).toEqual([null, false]);
-    }, 30_000);
+    });
 
     test("Save hands the host the name and none while the description is untouched, and closes once the host has saved", async () => {
         const { popover, onSave } = await mount();
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", none]]);
-    }, 30_000);
+    });
 
     test("once edited, Save hands the host the description as written, trimmed — under the name as typed, trimmed", async () => {
         const { popover, onSave } = await mount();
@@ -193,7 +193,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
         expect(onSave.mock.calls).toEqual([["Large orders", some("Orders of 1,000 or more.")]]);
-    }, 30_000);
+    });
 
     test("a description cleared is no description: Save hands the host none, and the generated sentence shows in its place", async () => {
         const { popover, onSave } = await mount({ description: some("Orders of 1,000 or more.") });
@@ -201,7 +201,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", none]]);
-    }, 30_000);
+    });
 
     test("a query that has a description opens edited, showing it; Use generated returns it to the generated sentence, saved as none", async () => {
         const { popover, onSave } = await mount({ description: some("Orders of 1,000 or more.") });
@@ -212,7 +212,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", none]]);
-    }, 30_000);
+    });
 
     test("⏎ saves from the name, and from the description; Shift ⏎ in the description is a new line", async () => {
         const { popover, onSave } = await mount();
@@ -229,7 +229,7 @@ describe("the query's save popover (#936)", () => {
         await userEvent.type(field, "Shipped only.{Enter}");
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", none], ["Big orders", some(`${GENERATED}\nShipped only.`)]]);
-    }, 30_000);
+    });
 
     test("what refused the save shows in the popover, which stays open; a save that resolves undefined closes it", async () => {
         const refusal = "Another query took the name Big orders first — choose another.";
@@ -245,7 +245,7 @@ describe("the query's save popover (#936)", () => {
         await act(async () => { fireEvent.click(saveButton(popover)); });
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", none], ["Big orders", none]]);
-    }, 30_000);
+    });
 
     test("while the save runs, Save is loading and Cancel and Save are disabled", async () => {
         let finish: (refused: string | undefined) => void = () => {};
@@ -257,7 +257,7 @@ describe("the query's save popover (#936)", () => {
         expect([save.hasAttribute("data-loading"), save.disabled, cancel.disabled]).toEqual([true, true, true]);
         await act(async () => { finish(undefined); });
         await closed();
-    }, 30_000);
+    });
 
     test("Esc cancels — nothing is saved — and each opening starts over from the open query's name and description", async () => {
         const { popover, onSave } = await mount();
@@ -271,7 +271,7 @@ describe("the query's save popover (#936)", () => {
         const field = descriptionField(again);
         expect([nameField(again).value, field.value, field.hasAttribute("data-generated"), hintOf(field)])
             .toEqual(["Big orders", GENERATED, true, "Generated from the steps · edit to write your own"]);
-    }, 30_000);
+    });
 });
 
 describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
@@ -306,7 +306,7 @@ describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
         await closed();
         expect(onSave.mock.calls).toEqual([["Big orders", none]]);
         await waitFor(() => expect(document.activeElement).toBe(chip));
-    }, 30_000);
+    });
 
     test("Esc closes it, nothing saved, and the focus goes back to the chip; a control the viewer moves to keeps the focus", async () => {
         const onSave = vi.fn<Save>(async () => undefined);
@@ -324,5 +324,5 @@ describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
         await closed();
         await settle();
         expect(document.activeElement).toBe(elsewhere);
-    }, 30_000);
+    });
 });

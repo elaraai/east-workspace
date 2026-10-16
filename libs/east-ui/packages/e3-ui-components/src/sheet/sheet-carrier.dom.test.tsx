@@ -173,5 +173,5 @@ describe("an edit through the carrier (#1179)", () => {
         await waitFor(() => expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true));
         expect(row().hasAttribute("data-draft")).toBe(false);
         expect(cell().textContent).toBe("7");
-    }, 30_000);
+    });
 });

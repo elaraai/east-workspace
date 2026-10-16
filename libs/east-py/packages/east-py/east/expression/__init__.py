@@ -30,7 +30,8 @@ and method surface on ``Expression`` (operators overload only where python
 and East semantics coincide — ``//``, ``%``, integer ``**`` and negative
 indexing raise with named-builtin fix-its, #624), ``East.if_else`` /
 ``greatest`` / ``least``, every ``East.<Type>.*`` namespace builtin, captured
-East constants (build-once hoisted snapshots), ``some``/``none``/``variant``
+East values (snapshots of their contents, rebuilt where they are read, as in
+TypeScript), ``some``/``none``/``variant``
 with declared-type context (#541), struct literals as dicts, and the
 block-level control constructs (#578): ``East.while_`` / ``East.for_`` /
 ``block`` / ``let`` / ``ref`` / ``label`` / ``break_`` / ``continue_`` /
@@ -95,7 +96,7 @@ from east.expression.expr import (
     VariantExpression,
     VectorExpression,
 )
-from east.expression.finalize import _capturing_fn, _finalize_ir, _free_vars, _function_ir
+from east.expression.finalize import _capturing_fn, _free_vars, _function_ir
 from east.expression.function import (
     async_function,
     compile_,

@@ -687,22 +687,31 @@ def test_platform_optional_generic_and_widening_arguments():
     assert built._east_platforms == (("log", False), ("show", False))
 
 
-# ── cse=False ────────────────────────────────────────────────────────────────
+# ── a python variable holding an expression is re-emitted at every read ─────
 
 
-def test_cse_false_builds_exactly_what_the_body_spells():
+def test_the_builder_spells_what_the_body_says():
+    # A python variable names an expression TREE, not a binding: read twice,
+    # the tree is emitted twice, as a JS const holding an Expr is in
+    # TypeScript (#1312). The binding is spelled b.const / b.let.
     def body(_b, x):
         y = x + 1
         return y * y
 
-    shared = East.function([IntegerType], IntegerType, body)
-    assert body_of(shared).type == "Block"  # the shared node bound to a Let
-    exact = East.function([IntegerType], IntegerType, body, cse=False)
+    exact = East.function([IntegerType], IntegerType, body)
     assert body_of(exact).type == "Builtin"
-    assert exact(2) == 9 == shared(2)
+    assert exact(2) == 9
+
+    def bound(b, x):
+        y = b.const(x + 1)
+        return y * y
+
+    shared = East.function([IntegerType], IntegerType, bound)
+    assert kinds(body_of(shared)) == ["Let", "Builtin"]
+    assert shared(2) == 9
 
 
-def test_a_mutable_variable_is_never_bound_once_by_cse():
+def test_each_read_of_a_python_variable_sees_the_current_state():
     def body(b, x):
         a = b.let(x)
         y = a + 1

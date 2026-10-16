@@ -171,7 +171,7 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
         ]);
         expect(footer()).toEqual({ count: "10 orders", plan: "Split call · 4 pieces", run: expect.stringMatching(/^run #1 · /), reads: "reads customers #9b07e3a4 · orders #4f2a1c8d" });
         expect(results().querySelector("table")).not.toBeNull();
-    }, 30_000);
+    });
 
     test("in the jq view: the jq as typed, its result the one-shot call's", async () => {
         const one = fixtureCall();
@@ -184,7 +184,7 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
         const answer = decoded(split.answers[0]!);
         expect(equalFor(expected.type)(answer.value as never, expected.value as never)).toBe(true);
         expect([footer().count, footer().plan]).toEqual(["8 rows", "Split call · 7 pieces"]);
-    }, 30_000);
+    });
 
     test("a join both of whose sides weigh more than one piece is re-keyed (#942): two split calls, the second over the first's output by its hash; the one-shot call's result", async () => {
         const one = fixtureCall();
@@ -208,7 +208,7 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
             ["combine", "Their distinct rows are kept:", "unique"],
             ["pieces", "Orders is cut into 4 pieces, about 256 MB each.", undefined],
         ]);
-    }, 30_000);
+    });
 
     test("the plan's explanation: the path and why, what each piece runs, how the pieces combine, what runs once after, what each reads whole, and the pieces", async () => {
         await mountBuilder(fixtureCall().call, { split: fixtureSplit({ pieces: 4 }).split, status: fixtureStatus({ orders: LARGE }) });
@@ -229,7 +229,7 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
             ["broadcast", "Every piece reads customers whole.", undefined],
             ["pieces", "Orders is cut into 4 pieces, about 256 MB each.", undefined],
         ]);
-    }, 30_000);
+    });
 
     test("its progress while it goes — pieces done of all, in the running head and the read-out — then its pieces", async () => {
         const split = fixtureSplit({ pieces: 4, hold: true });
@@ -240,7 +240,7 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
         expect((await explanation()).at(-1)).toEqual(["pieces", "2 of 4 pieces done", undefined]);
         await split.release();
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 4 pieces"]);
-    }, 30_000);
+    });
 });
 
 // ─── Its pieces, counted by its explain ──────────────────────────────────────
@@ -256,14 +256,14 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         expect(split.explained).toHaveLength(1);
         expect(sameRequest(split.explained[0]!, split.requests[0]!)).toBe(true);
         expect((await explanation()).at(-1)).toEqual(["pieces", `Orders is cut into 5 pieces, about ${byteWords(Math.round(LARGE / 5), words)} each.`, undefined]);
-    }, 30_000);
+    });
 
     test("a run whose progress named its pieces is never explained: an explain is work in proportion to the dataset", async () => {
         const split = fixtureSplit({ pieces: 4 });
         await mountBuilder(fixtureCall().call, { split: split.split, explain: split.explain, status: fixtureStatus({ orders: LARGE }) });
         await openQuery(variant("saved", TOP.name));
         expect([footer().plan, split.explained.length]).toEqual(["Split call · 4 pieces", 0]);
-    }, 30_000);
+    });
 
     test("a re-keyed join's pieces are its join call's: that call explained, the re-key call's output read by its hash", async () => {
         const split = fixtureSplit({ pieces: 4, quiet: true });
@@ -272,7 +272,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         expect([split.requests.length, footer().count, footer().plan]).toEqual([2, "5 rows", "Re-keyed join · 4 pieces"]);
         expect(split.explained).toHaveLength(1);
         expect(sameRequest(split.explained[0]!, split.requests[1]!)).toBe(true);
-    }, 30_000);
+    });
 
     test("an explain e3 refuses leaves the count unknown: the read-out says Split call, and nothing is wrong with the run", async () => {
         const split = fixtureSplit({ pieces: 4, quiet: true });
@@ -280,7 +280,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         await mountBuilder(fixtureCall().call, { split: split.split, explain: refusing, status: fixtureStatus({ orders: LARGE }) });
         await openQuery(variant("saved", TOP.name));
         expect([footer().count, footer().plan, banners()]).toEqual(["10 orders", "Split call", []]);
-    }, 30_000);
+    });
 
     test("a new run abandons the explain of the run before with it: that count never lands, and the new run's does", async () => {
         const split = fixtureSplit({ pieces: 4, quiet: true, holdExplain: true });
@@ -291,7 +291,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         expect(split.explainSignals.map((s) => s.aborted)).toEqual([true, false]);
         await split.releaseExplains();
         expect([footer().run, footer().plan]).toEqual([expect.stringMatching(/^run #2 · /), "Split call · 4 pieces"]);
-    }, 30_000);
+    });
 
     test("a host's split calls are explained by the host, or not at all: with no explain of its own, the server's is never asked", async () => {
         const e3 = givenE3({ orders: LARGE });
@@ -302,7 +302,7 @@ describe("<Query.Builder> — a split run that answered before e3 said how many 
         await openQuery(variant("saved", TOP.name));
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call"]);
         expect(e3.seen.filter((request) => request.path.includes("/one-shot/split"))).toEqual([]);
-    }, 30_000);
+    });
 });
 
 // ─── One call ────────────────────────────────────────────────────────────────
@@ -319,7 +319,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         expect(footer().plan).toBe("One call");
         const weighed = (await createInMemorySourceStatus(fixtureDatasets())(ORDERS)).bytes!;
         expect(await explanation()).toEqual([["path", `One call: orders weighs ${byteWords(weighed, words)}, within one piece (16 MB).`, undefined]]);
-    }, 30_000);
+    });
 
     test("the plan's options' own piece: a small dataset splits over a small one", async () => {
         const one = fixtureCall();
@@ -328,7 +328,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         await openQuery(variant("saved", TOP.name));
         expect([split.requests.length, one.requests.length]).toEqual([1, 0]);
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 3 pieces"]);
-    }, 30_000);
+    });
 
     test("a status that can't be read leaves the dataset's weight unknown: one call, which says so", async () => {
         const one = fixtureCall();
@@ -336,7 +336,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
         await openQuery(variant("saved", TOP.name));
         expect([one.requests.length, footer().count, footer().plan]).toEqual([1, "10 orders", "One call"]);
         expect(await explanation()).toEqual([["path", "One call: what orders weighs isn't known.", undefined]]);
-    }, 30_000);
+    });
 
     test("a query that runs as one unit is one call however much its dataset weighs, and says why", async () => {
         const one = fixtureCall();
@@ -348,7 +348,7 @@ describe("<Query.Builder> — one call, and when a split run can't be made (#941
             ["path", "One call: it reads a count, a key or a value of orders, and works through none of its rows.", undefined],
             ["pruning", "Reads the count from the index of orders, and no segment:", ".orders\n| length"],
         ]);
-    }, 30_000);
+    });
 });
 
 // ─── Abandoned, refused, unreachable ─────────────────────────────────────────
@@ -363,7 +363,7 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
         await split.release();
         expect(footer().run).toMatch(/^run #2 · /);
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 4 pieces"]);
-    }, 30_000);
+    });
 
     test("the run a saved query starts as the builder mounts, under React's mount → unmount → mount: abandoned by the unmount, started again under its number, and answering", async () => {
         const split = fixtureSplit({ pieces: 4 });
@@ -372,7 +372,7 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
         expect(footer()).toEqual({ count: "10 orders", plan: "Split call · 4 pieces", run: expect.stringMatching(/^run #1 · /), reads: "reads customers #9b07e3a4 · orders #4f2a1c8d" });
         // The unmount abandoned the run while it weighed the orders, before it called: the one split call is the run's again.
         expect(split.signals.map((s) => s.aborted)).toEqual([false]);
-    }, 30_000);
+    });
 
     test("a split call e3 could not run is Not run, with e3's words; one that never reached the server, Couldn't reach the server", async () => {
         const refusing: QuerySplitCall = async () => { throw new Error("Split call failed: the pieces could not be planned"); };
@@ -386,14 +386,14 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
         await mountBuilder(fixtureCall().call, { split: offline, status: fixtureStatus({ orders: LARGE }) });
         await openQuery(variant("saved", TOP.name));
         expect(banners()).toEqual(["Couldn't reach the serverfetch failed"]);
-    }, 30_000);
+    });
 
     test("a split run with no split call to make never reached a server", async () => {
         const one = fixtureCall();
         await mountBuilder(one.call, { status: fixtureStatus({ orders: LARGE }) });
         await openQuery(variant("saved", TOP.name));
         expect([one.requests.length, banners()]).toEqual([0, ["Couldn't reach the server"]]);
-    }, 30_000);
+    });
 });
 
 // ─── Through the provider's fetch ────────────────────────────────────────────
@@ -502,5 +502,5 @@ describe("<Query.Builder> — under an E3Provider that gives its own fetch, ever
         ]));
         expect(e3.seen.filter((request) => request.auth !== "Bearer tok")).toEqual([]);
         expect(escaped).toEqual([]);
-    }, 30_000);
+    });
 });

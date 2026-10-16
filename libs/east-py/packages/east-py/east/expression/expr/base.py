@@ -26,9 +26,9 @@ import warnings
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from east.expression.errors import ExpressionError, _trace_bail
-from east.expression.lift import _hoisted_const_names, _lift, _note_effect
+from east.expression.lift import _is_captured_constant, _lift, _note_effect
 from east.expression.location import location_id as _loc_id
-from east.expression.nodes import _builtin, _fresh_name, _k_block, _root_var_name, _var
+from east.expression.nodes import _builtin, _fresh_name, _k_block, _var
 from east.ir.builders import ir_let
 from east.types.types import BooleanType, EastType
 
@@ -177,13 +177,11 @@ class Expression:
         """Evaluate the receiver ONCE and hand the binding to ``build``.
 
         Any composed method that reads the receiver more than a single time
-        needs this. ``_finalize_ir``'s CSE only hoists a shared subtree whose
-        free variables are the function's own parameters, so at the top level a
-        repeated receiver is bound for free — but inside an inner lambda it
-        closes over that lambda's parameter, the hoist is refused, and the
-        subtree is emitted AND EXECUTED once per use, squaring with nesting
-        depth. That is the group-then-aggregate shape this surface exists for,
-        so the binding is explicit rather than left to the optimiser (#525).
+        needs this: the builder emits what the body spells, so a repeated
+        receiver would be emitted AND EXECUTED once per use — inside a
+        per-element callback, squaring with nesting depth. That is the
+        group-then-aggregate shape this surface exists for, so the binding
+        is explicit (#525).
         """
         name = _fresh_name()
         recv = self._expr(_var(name, self.east_type), self.east_type)
@@ -202,21 +200,23 @@ class Expression:
     def _mutable(self, op: str) -> EastType:
         """Check the receiver can legitimately be mutated; return its type.
 
-        A CAPTURED East collection is a build-time SNAPSHOT hoisted to a
-        ``Let`` that the compiled function closes over, so ONE value is shared
-        by every call to the function — mutating it would leak state between
-        calls, silently and only at scale. Refusing it here turns that into a
-        trace-time error naming the two spellings that do work.
+        A CAPTURED East collection is a build-time SNAPSHOT of its contents,
+        rebuilt wherever the body reads it, so every evaluation builds a
+        fresh copy: a mutation of one would change a copy nothing else sees
+        and persist nowhere — a loop that silently does nothing. Refusing it
+        here turns that into a build-time error naming the spellings that do
+        work.
         """
-        root = _root_var_name(self.ir)
-        if root is not None and root in _hoisted_const_names():
+        if _is_captured_constant(self.ir):
             raise ExpressionError(
                 f".{op}() would mutate a captured constant. A captured East "
-                "collection is a build-time snapshot shared by every call to "
-                "the compiled function, so the mutation would leak between "
-                "calls. Build the collection inside the function with "
-                "East.new_array/new_set/new_dict, or pass it as a trailing "
-                "parameter and bind it by reference (East.function(...).bind(table))."
+                "collection is a snapshot of its contents, rebuilt wherever the "
+                "body reads it, so the mutation would change a copy nothing else "
+                "sees and persist nowhere. Build the collection inside the "
+                "function with East.new_array/new_set/new_dict, bind the snapshot "
+                "once with b.const(table) and mutate the binding (a copy per "
+                "call), or pass it as a trailing parameter bound by reference "
+                "(East.function(...).bind(table))."
             )
         return self.east_type
 

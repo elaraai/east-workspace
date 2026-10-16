@@ -111,7 +111,7 @@ describe("the builder's Library tab (#939 D3)", () => {
         expect([descriptionOf(card("Cancelled orders")), descriptionOf(card("Big orders")), descriptionOf(card("Archived orders"))])
             .toEqual(["Count of orders where status is cancelled.", "Orders of 1,000 or more.", "Count of orders."]);
         expect(descriptionOf(card("Top shipped orders, 2026"))).toMatch(/^Top 10 orders by total where status is shipped/);
-    }, 30_000);
+    });
 
     test("a click opens a saved query, which runs, with its notice; the open query is placed", async () => {
         const fixture = fixtureCall();
@@ -124,7 +124,7 @@ describe("the builder's Library tab (#939 D3)", () => {
         expect(fixture.requests).toHaveLength(1);
         await show("Library");
         expect([card("Big orders").hasAttribute("data-placed"), card("Top shipped orders, 2026").hasAttribute("data-placed")]).toEqual([true, false]);
-    }, 30_000);
+    });
 
     test("a recent run never saved opens as a new query begun as it, which runs; a recent run of a saved query opens the saved query", async () => {
         remember(CANCELLED, { ...BIG, saved_at: new Date(Date.UTC(2026, 9, 1, 8, 0)) });
@@ -143,7 +143,7 @@ describe("the builder's Library tab (#939 D3)", () => {
         const recentBig = cards().filter((c) => within(c).queryByText("Big orders", { exact: true }) !== null)[0]!;
         await pick(recentBig);
         expect(openQueryId()).toBe(`query.saved:"Big orders"`);
-    }, 30_000);
+    });
 });
 
 // ─── D4 ──────────────────────────────────────────────────────────────────────
@@ -162,5 +162,5 @@ describe("the builder's Library tab (#939 D4)", () => {
         await pick(card("Customers by region"));
         expect(tab().querySelector("[data-query-library-notice]")!.textContent).toBe("Reads regions, which isn't here");
         expect([openQueryId(), fixture.requests.length]).toEqual([before, 0]);
-    }, 30_000);
+    });
 });

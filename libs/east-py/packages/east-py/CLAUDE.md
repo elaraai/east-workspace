@@ -73,7 +73,8 @@ make test-file FILE=tests/conformance                    # IR round trip, ~1 min
    `statements.py` (the block a body receives: `b.let`, `b.if_`, `b.for_`,
    `b.return_`, …), `control.py` (the expression forms `East.while_`,
    `East.for_`, `block`/`let`/`ref`/`try_catch`), `nodes.py`/`lift.py`/
-   `finalize.py` (IR construction, lifting python values, build-time CSE),
+   `finalize.py` (IR construction, lifting python values, the final IR —
+   exactly what the body spells, with no optimisation pass, #1312),
    `location.py` (authoring-frame source maps, #626), `naming.py`
    (authoring names for IR variables, #639: parameters from a body's
    signature, `b.let`/`b.const` bindings from the authoring file parsed
@@ -138,8 +139,8 @@ make test-file FILE=tests/conformance                    # IR round trip, ~1 min
     names (a `QueryCallType` constant) beside the translation, an East
     function of every input, which the builtin gives — every runtime
     implements it as any builtin. IR analysis (`east/ir/analyze.py`) holds a
-    call to its query, the build's CSE (`finalize.py`) leaves its arguments
-    as built, and the printer prints it back as `East.jq` from its query. On
+    call to its query, and the printer prints it back as `East.jq` from its
+    query. On
     values `East.jq` runs now. The corpus fixture holds them to TypeScript:
     `tests/test_query_corpus.py` (checked programs with their element types
     and multiplicities, diagnostics, translations and `Query` calls under

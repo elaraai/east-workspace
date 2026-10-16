@@ -201,8 +201,8 @@ def _collect_mask(body: Any, target: str) -> Any:
 
 
 def _function_node(ir: Any) -> Any | None:
-    """The Function node of a finalized function IR (possibly under a Block of
-    hoisted-constant Lets)."""
+    """The Function node of a finalized function IR (or the one under the
+    ``Block[Let…, Function]`` root an earlier python build wrote)."""
     kind = getattr(ir, "type", None)
     if kind == "Function":
         return ir

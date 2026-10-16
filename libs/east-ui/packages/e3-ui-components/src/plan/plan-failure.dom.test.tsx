@@ -184,7 +184,7 @@ describe("Plan failure is local (#811)", () => {
         const chip = container.querySelector('[data-plan-diagnostics="rows"]')!;
         expect(chip.getAttribute("data-count")).toBe("1");
         expect(chip.textContent).toBe("1 row skipped");
-    }, 30_000);
+    });
 
     test("paged: window 2's page throws — a window-height band with Retry; Retry lands the rows once the source recovers; its neighbours are untouched", async () => {
         const state = { failing: true };

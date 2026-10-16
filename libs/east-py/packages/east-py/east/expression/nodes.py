@@ -9,9 +9,11 @@ Two flavours of constructor live here. The ``ir_*`` builders in
 ``east.ir.builders`` are the canonical ones (scalar children keep object
 identity); the ``_k_*`` twins below hold ARRAY children in plain python lists
 during tracing, because ``EastArray`` is a C-backed proxy whose every read
-materializes a fresh python object — node identity, which the CSE in
-``east.expression.finalize`` detects, would die at each array boundary. One
-finalize pass converts those lists to real ``EastArray``s.
+materializes a fresh python object — node identity, which the passes in
+``east.expression.finalize`` walk by (a subtree the trace shared is rebuilt
+once; an embedded function is re-homed and renamed in place), would die at
+each array boundary. One finalize pass converts those lists to real
+``EastArray``s.
 """
 
 from __future__ import annotations
@@ -77,10 +79,9 @@ def _literal(value: Any, t: EastType):
         raise ExpressionError(f"cannot embed a literal of East type {tag} in an East function body")
     return ir_value(t, coerced, _loc_id())
 
-#: The builtins that MUTATE their first argument. Two callers need to know:
-#: the finalize pass, which must not hoist a mutation of anything the hoisted
-#: node does not itself create, and the traced mutators, which refuse a
-#: build-time constant as a receiver.
+#: The builtins that MUTATE their first argument — what makes a built function
+#: effectful (``function._effectful``), so a call of it thrown away is named
+#: as a mutation thrown away is (#565).
 _MUTATING_BUILTINS = frozenset({
     "RefUpdate", "RefMerge",
     "ArrayPushLast", "ArrayPopLast", "ArrayPushFirst", "ArrayPopFirst",
@@ -93,27 +94,6 @@ _MUTATING_BUILTINS = frozenset({
     "DictPop", "DictClear", "DictUnionInPlace",
     "VectorSet", "MatrixSet",
 })
-
-
-def _root_var_name(node: Any) -> str | None:
-    """The variable a node ultimately reads through, or None.
-
-    Follows the accessors that do not change WHICH value is addressed — a
-    struct field read, a ref read — so ``s.order`` and ``RefGet(r)`` both
-    report the binding they hang off. Anything else (a fresh ``NewArray``, a
-    builtin result) has no root variable and is by definition local.
-    """
-    while True:
-        kind = getattr(node, "type", None)
-        if kind == "Variable":
-            return node.value["name"]
-        if kind == "GetField":
-            node = node.value["struct"]
-            continue
-        if kind == "Builtin" and node.value["builtin"] == "RefGet":
-            node = node.value["arguments"][0]
-            continue
-        return None
 
 
 def _option_type(inner: EastType) -> EastType:
@@ -146,12 +126,12 @@ def _fresh_name() -> str:
 # ─── Lazy node construction (identity-preserving, #411) ─────────────────────
 #
 # EastArray is a C-backed proxy: pushing a child converts it and every read
-# materializes a FRESH python object — node identity (what CSE detects) dies
-# at every array boundary. During tracing, array-bearing nodes therefore hold
-# their children in plain python lists; one finalize pass (_finalize_ir) runs
-# the identity-based CSE and converts every list to the proper EastArray in
-# the same rebuild. Scalar-child nodes use the shared builders directly —
-# EastStruct fields keep object identity.
+# materializes a FRESH python object — node identity (what the finalize
+# passes walk by) dies at every array boundary. During tracing, array-bearing
+# nodes therefore hold their children in plain python lists; one finalize
+# pass (_arrayify_tree) converts every list to the proper EastArray in one
+# rebuild, a shared subtree rebuilt once. Scalar-child nodes use the shared
+# builders directly — EastStruct fields keep object identity.
 
 
 def _k_builtin(name: str, out: EastType, type_params: list, args: list):

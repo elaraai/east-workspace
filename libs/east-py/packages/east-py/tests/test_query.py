@@ -262,9 +262,9 @@ def test_ir_analysis_refuses_a_call_without_its_one_type_parameter() -> None:
 
 
 def test_a_query_inside_a_callback_keeps_its_constant() -> None:
-    # The build's common-subexpression pass leaves a Query call's arguments as
-    # East.jq built them: hoisted out of the callback, the query would be a
-    # variable read, which IR analysis refuses.
+    # A Query call's arguments stay as East.jq built them — the builder emits
+    # what the body spells (#1312); hoisted out of the callback, the query
+    # would be a variable read, which IR analysis refuses.
     sums = East.function([ArrayType(Numbers)], Numbers,
                          lambda _b, rows: rows.map(lambda _b2, row: East.jq(row, "map(. * 2) | add", IntegerType)))
     assert_value(Numbers, sums(EastArray(Numbers, [_numbers(1, 2), _numbers(3)])), _numbers(6, 6))

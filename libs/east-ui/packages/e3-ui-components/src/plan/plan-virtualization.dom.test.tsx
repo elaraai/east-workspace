@@ -417,7 +417,7 @@ describe("Plan narrow paged demand (#812)", () => {
         expect(tailShown).toBe(false);
         // Window by window, each asked once — it followed the list.
         expect(asked.filter((w) => w === 9)).toHaveLength(1);
-    }, 60_000);
+    });
 
     test("with no IntersectionObserver the list's load-more still loads the next window", async () => {
         phoneWidth();
@@ -437,7 +437,7 @@ describe("Plan narrow paged demand (#812)", () => {
         fireEvent.click(tail);
         await vi.waitFor(() => expect(container.querySelector(rowSel("u0600", "data-plan-card"))).toBeTruthy());
         expect(asked).toContain(3);
-    }, 60_000);
+    });
 });
 
 // ── Paged canvases page by parents (#823) ───────────────────────────────────
@@ -577,7 +577,7 @@ describe("a paged window drawing otherwise than its estimate (#823, #878)", () =
         // exactly what window 5 drew beyond its estimate.
         expect(frameOf(container).scrollTop).toBe(head + 10 + (TALL - EST));
         expect(frameOf(container).scrollTop - topOf(container, first())).toBe(10);
-    }, 30_000);
+    });
 });
 
 describe("a link into an evicted window (#823, #818)", () => {
@@ -646,5 +646,5 @@ describe("a link into an evicted window (#823, #818)", () => {
         scrollFrame(container, near - 100);
         expect(head().getAttribute("data-plan-stub")).toBe("above");
         expect(tipOf(head().getAttribute("d")!)[1]).toBe(near - 100);
-    }, 30_000);
+    });
 });

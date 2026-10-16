@@ -22,7 +22,9 @@ its cause, in the example's place (`data-e3-start="failed"`), with a Retry
 that starts e3 again. What loaded before renders at once, so a row the doc
 list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
-`DocList` starts at a deep link before mounting the first window. Its
+`DocList` starts at a deep link before mounting the first window, and keeps
+the linked entry mounted wherever the list scrolls: what a link opened is
+never dropped while the link stands. Its
 virtualizer is keyed by category so navigation cannot reuse another
 category's measurements or pending scroll corrections. Overscan
 rows keep their headings and source disclosures, while `PatternEntry`
@@ -30,7 +32,10 @@ defers IR compilation and e3 subscriptions until a preview intersects the
 document viewport. Previously activated examples render immediately on
 remount to preserve scroll anchoring. Responsive checks must bring a
 preview into view and wait for `settled`; offscreen deferred previews do
-not block readiness. Query changes can keep the old Calendar window
+not block readiness. `settled` gives what a page starts (East compiling,
+e3 starting, builders loading) a budget of its own, apart from the
+layout's: a cold e3 deploys a fresh workspace in the page, some 20 s on a
+hosted runner. Query changes can keep the old Calendar window
 painted while `data-calendar-main` is `aria-busy`; wait for that state to
 clear before asserting the new rows. Remount checks must explicitly
 unmount and revisit a representative example per category, rather than

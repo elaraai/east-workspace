@@ -133,3 +133,24 @@ export const crosslangUnwrapMerge = example({
     inputs: [new Map([["k", 1n]]), some(2n)],
     returns: 3n,
 });
+
+// A built function called inside another body: its callback appends the key
+// to `order` and returns the index it was appended at, so the statement runs
+// before the returned read — on every runtime, and from either builder (#1312).
+const slotOf = East.function([DictType(StringType, IntegerType), ArrayType(StringType), StringType], IntegerType, ($, index, order, key) =>
+    index.getOrInsert(key, ($, _k) => {
+        $(order.pushLast(key));
+        return order.size().subtract(1n);
+    }));
+
+export const crosslangCallbackStatements = example({
+    keywords: ["cross-language", "python", "function", "call", "callback", "getOrInsert", "pushLast", "statement", "#1312"],
+    description: "A called function's callback runs its statements before its returned value: the index each key was first seen at",
+    fn: East.function([ArrayType(StringType)], ArrayType(IntegerType), ($, keys) => {
+        const index = $.const(new Map(), DictType(StringType, IntegerType));
+        const order = $.const([], ArrayType(StringType));
+        return keys.map(($, k) => slotOf(index, order, k));
+    }),
+    inputs: [["A", "B", "A", "C"]],
+    returns: [0n, 1n, 0n, 2n],
+});

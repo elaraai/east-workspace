@@ -146,4 +146,4 @@ test("indexed Sheet keeps source order, restores saved narrowing and saves hidde
     fireEvent.mouseDown(ui.tab("all"), { button: 0 });
     await settle();
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
-}, 30_000);
+});

@@ -295,7 +295,7 @@ describe("one message table (#861)", () => {
         const { q } = mount(PAGED(), "sheet-861-paged", (sheet) => <I18nProvider locale="de-DE">{marked(sheet)}</I18nProvider>);
         await waitFor(() => expect(q('[data-slot="footerTransport"]')!.textContent).toMatch(/^⟦[\d.]+ loaded of 1\.000$/), { timeout: 15_000 });
         expect(q('[data-slot="toolbarBadge"]')!.textContent).toBe("⟦loaded rows only");
-    }, 30_000);
+    });
 });
 
 // ── Overrides ─────────────────────────────────────────────────────────────

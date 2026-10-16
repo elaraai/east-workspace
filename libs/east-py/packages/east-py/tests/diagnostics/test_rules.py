@@ -86,6 +86,22 @@ def test_the_rules_are_numbered_once_and_stably():
     assert all(rule.category in ("error", "warning", "suggestion") and rule.description for rule in ALL_RULES)
 
 
+def test_every_callback_taking_method_is_classified_by_how_often_its_body_runs():
+    """``no-reinlined-east-binding`` flags a read inside a body that runs per
+    element and stays silent inside one that runs once per call — so every
+    callback-taking method of the spelling table must be in exactly one of its
+    two sets, and a new callback builtin forces the classification."""
+    from east.diagnostics.rules.no_reinlined_east_binding import (
+        ONCE_CALLBACK_METHODS,
+        REPEATING_METHODS,
+    )
+    from east.diagnostics.scope import CALLBACK_METHODS
+
+    assert ONCE_CALLBACK_METHODS <= CALLBACK_METHODS
+    assert not (ONCE_CALLBACK_METHODS & REPEATING_METHODS)
+    assert CALLBACK_METHODS <= ONCE_CALLBACK_METHODS | REPEATING_METHODS
+
+
 # ── one message, two moments ─────────────────────────────────────────────────
 #
 # Each case is ONE source: the rules read it, and then it is built. Where the

@@ -380,5 +380,5 @@ describe("each tab its own bound data (#1248, the user, 2026-10-08)", () => {
         expect(readRecord(harness).get("Inbound parcels")!.lanes.map((l) => l.key)).toEqual(["intake", "sort", "lane-3"]);
         expect(tabs(container)).toEqual([`${m.flowsTab()} 2`, "Steps 3", "Owners 2"]);
         expect(await stepKeys()).toEqual(["CH*", "CLR", "HLD"]);
-    }, 30_000);
+    });
 });

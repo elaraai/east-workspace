@@ -173,14 +173,14 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect(container.querySelector("[data-query-save-open]")!.textContent).toBe("Save…");
         const run = container.querySelector<HTMLElement>("[data-query-run]")!;
         expect([run.textContent, run.querySelector("kbd")?.textContent]).toEqual(["Run⌘⏎", "⌘⏎"]);
-    }, 30_000);
+    });
 
     test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, then Copy jq and Save… into the ⋯ chip in one move (#1229), then the history item; the results' band, Download to its icon, then Table · Tree to its icons", async () => {
         const { container } = await mountBuilder(offlineCall().call);
         expect(builderOf(container).querySelector("[data-frame-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder"))
             .toBe("run>1 copy>1 copy>2 save>1 more>1 history>1");
         expect(container.querySelector("[data-query-results-bar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("download>1 result-view>1");
-    }, 30_000);
+    });
 
     test("B3: the pane — Query, Datasets and Library; collapsed, its rail counts the steps; one width in either view", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -199,7 +199,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         await act(async () => { fireEvent.click(viewButton("jq")); });
         await settle();
         expect([container.querySelector("[data-query-tab=query]")!.getAttribute("data-mode"), width()]).toEqual(["jq", visual]);
-    }, 30_000);
+    });
 
     test("B4: the Query tab over the default query — the source, five cards with their numbers, titles and rows, the shape lines, and the foot", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -234,7 +234,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect([...foot.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
             "Add a step at the end", "Keep rows", "Group and total", "Sort by", "Keep the first", "Show only fields",
         ]);
-    }, 30_000);
+    });
 
     test("B5: an unfinished step is dashed and says so; its empty slot is dashed with its placeholder; a step added opens its first empty slot", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -247,7 +247,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect([slot.hasAttribute("data-empty"), slot.textContent, faIcons(slot, "caret-down").length]).toEqual([true, "field", 1]);
         expect([slot.hasAttribute("data-open"), popoverLabel()]).toEqual([true, "Sort by"]);
         expect(statusOf(container).check).toEqual(["warning", "1 to finish"]);
-    }, 30_000);
+    });
 
     test("B6: the status line — the check and the shape the query gives; the save state and the name", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -257,7 +257,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect(container.querySelector("[data-query-status]")!.textContent).toContain("· order, customer, region, total, shipped");
         await quickAdd("Keep the first");
         expect(statusOf(container).save).toEqual(["unsaved", "Unsaved changes", "Top shipped orders, 2026"]);
-    }, 30_000);
+    });
 
     test("B7: the save popover — Save query · its name, the name offered, the generated description muted with its hint; edited, its count and Use generated", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -272,7 +272,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect(dialog.getByText("Generated from the steps · edit to write your own")).toBeTruthy();
         await act(async () => { fireEvent.change(description, { target: { value: "Orders of 1,000 or more." } }); });
         expect([dialog.getByText("24/140 · shown under the name in the library"), dialog.getByRole("button", { name: "Use generated" })]).toHaveLength(2);
-    }, 30_000);
+    });
 
     test("B8: no border around the builder; the slots' and the cards' states are the recipe's, by data attributes", () => {
         const recipe = system.getSlotRecipe("queryBuilder") as { base: Record<string, Record<string, unknown>> };
@@ -305,7 +305,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         await pick("is not");
         expect(popover()).toBeNull();
         expect(rowsOf(cardsOf(container)[1]!)).toEqual([["", "<status>", "<is not>", "<pending>", "(Remove)"]]);
-    }, 30_000);
+    });
 
     test("the autocomplete's keys: ↓ ↑ move and wrap, Esc closes, Tab and ⏎ pick, typing offers the value typed; ⌘⏎ anywhere runs", async () => {
         const offline = offlineCall();
@@ -350,7 +350,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
             some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
         ]);
         expect(container.querySelector("[data-query-run]")!.textContent).toBe("Run⌘⏎");
-    }, 30_000);
+    });
 
     test("a fix: a payload's field read before the rows are narrowed says so, and Keep only shipped orders first narrows them", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -374,7 +374,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
             ["and", "<shipped date>", "<is in year>", "<2026>", "(Remove)"],
         ]);
         expect([fixed.querySelector("[data-query-problem]"), fixed.hasAttribute("data-error")]).toEqual([null, false]);
-    }, 30_000);
+    });
 
     test("the history: a pick, undone and redone by the history item; Discard returns to the saved query", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -391,7 +391,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         expect(cardsOf(container).map(titleOf)).toEqual(["Keep rows where", "Keep the first"]);
         await press("Discard");
         expect([cardsOf(container).map(titleOf), row()]).toEqual([["Keep rows where"], ["", "<total>", "<is at least>", "<1000>", "(Remove)"]]);
-    }, 30_000);
+    });
 });
 
 // ─── U2 ──────────────────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.click(viewButton("Visual")); });
         await settle();
         expect([cardsOf(container).map(titleOf), statusOf(container).save[0]]).toEqual([["Keep rows where"], "saved"]);
-    }, 30_000);
+    });
 
     test("the jq view says what it leaves out; jq it cannot read as steps stays jq, said; parts that are not steps stay jq steps, with a notice", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -444,7 +444,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
             .toEqual(["jq", ".orders | map(select(.total >= 1000)"]);
         await press("Undo");
         expect(cardsOf(container).map(titleOf)).toEqual(["Keep rows where", "Sort"]);
-    }, 30_000);
+    });
 
     test("Copy jq copies the program — in the jq view, the jq as typed — and shows its check for a moment; Run says Running while its call goes", async () => {
         const copied: string[] = [];
@@ -478,7 +478,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
             vi.useRealTimers();
             Reflect.deleteProperty(navigator, "clipboard");
         }
-    }, 30_000);
+    });
 
     test("Save… saves the open query as one patch of its entry, under its name, with its description", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -496,7 +496,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(saved.description).toEqual(some("The first ten big orders."));
         expect(statusOf(container).save).toEqual(["saved", "Saved", "Big orders"]);
         expect(container.querySelector("[data-query-save]")!.hasAttribute("data-fresh")).toBe(true);
-    }, 30_000);
+    });
 
     test("the history item's Save: from its click until the record reads back, the steps are the drafts it saves — never the query as it stood before them", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -518,7 +518,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await settle();
         expect(await committed(harness)).toEqual(["patch", "$init"]);
         expect([steps(), statusOf(container).save[0]]).toEqual([drafted, "saved"]);
-    }, 30_000);
+    });
 
     test("a rename: saved under a new name, the query moves to it, and the builder opens it", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -531,7 +531,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect([...recordOf(harness).keys()]).toEqual(["Large orders", "Order count", "Top shipped orders, 2026"]);
         expect(programEqual(savedProgramOf("Large orders"), BIG.program)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"Large orders"`);
-    }, 30_000);
+    });
 
     test("a name another saved query holds is refused in the popover; a stale entry's save is refused there, and the other save stands", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -560,7 +560,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
             "Big orders changed since this edit began — last changed by memory. Discard your changes to see it, or save under another name.",
         );
         expect(savedEqual(recordOf(harness).get(BIG.name)!, other)).toBe(true);
-    }, 30_000);
+    });
 
     test("drafts gone stale under another save of the query are not saved: the popover says why, and the other save stands", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -577,7 +577,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Source changed — review or discard these drafts");
         expect(await committed(harness)).toEqual(["patch", "$init"]);
         expect(savedEqual(recordOf(harness).get(BIG.name)!, other)).toBe(true);
-    }, 30_000);
+    });
 
     test("a new query's Apply opens the save popover to name it, and its save opens the saved query", async () => {
         const { container } = await mountBuilder(offlineCall().call);
@@ -591,7 +591,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(programEqual(savedProgramOf("First ten orders"), checkJq(".orders\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"First ten orders"`);
         expect(statusOf(container).save).toEqual(["saved", "Saved", "First ten orders"]);
-    }, 30_000);
+    });
 });
 
 // ─── The toolbar on a row short of room (#1229) ──────────────────────────────
@@ -715,7 +715,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         expect([chipOf(container)!.getAttribute("aria-label"), chipOf(container)!.parentElement!.getAttribute("data-part")]).toEqual(["More", "anchor"]);
         expect([bar(container).querySelector("[data-query-copy]"), bar(container).querySelector("[data-query-save-open]")]).toEqual([null, null]);
         expect(bar(container).querySelector("[data-query-run]")!.textContent).toBe("Run");
-    }, 30_000);
+    });
 
     test("the ⋯ chip's menu holds Copy jq and Save…: Copy jq copies the program and shows its check, the menu staying open", async () => {
         const copied: string[] = [];
@@ -734,7 +734,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         } finally {
             Reflect.deleteProperty(navigator, "clipboard");
         }
-    }, 30_000);
+    });
 
     test("the ⋯ chip's Copy jq copies the query as it stands — in the jq view, the jq as typed", async () => {
         const copied: string[] = [];
@@ -752,7 +752,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         } finally {
             Reflect.deleteProperty(navigator, "clipboard");
         }
-    }, 30_000);
+    });
 
     test("the ⋯ chip's Save… opens the save popover hung from the chip: its save is the query's one patch, and the focus is back on the chip", async () => {
         row.px = 1;
@@ -774,7 +774,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         expect(programEqual(saved.program, checkJq(".orders\n| map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(saved.description).toEqual(some("The first ten big orders."));
         await waitFor(() => expect(document.activeElement).toBe(chipOf(container)));
-    }, 30_000);
+    });
 
     test("while the save popover hangs from the ⋯ chip, the chip and what folded into it keep their forms as the row widens — Run and the history item unfold around it; closed, the row unfolds", async () => {
         row.px = 1;
@@ -789,5 +789,5 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         await closed();
         await waitFor(() => expect(stateOf(container)).toEqual(new Map([["history", 0], ["copy", 0], ["save", 0], ["more", 0], ["run", 0]])));
         expect(await committed(harness)).toEqual(["$init"]);
-    }, 30_000);
+    });
 });

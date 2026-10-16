@@ -515,7 +515,7 @@ describe("the paged arm (G13)", () => {
         const frame = container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
         act(() => { frame.scrollTop = extent - frame.clientHeight; fireEvent.scroll(frame); });
         expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
-    }, 30_000);
+    });
 
     test("⌘End jumps to the source's last plan and lands on its last line — never the blank line under it (#860)", async () => {
         // The frame scrolls to the ring, as a browser's does.
@@ -532,7 +532,7 @@ describe("the paged arm (G13)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    });
 });
 
 
@@ -797,7 +797,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         const h = framed(fresh);
         expect(h.extent()).toBe(300 * PLAN_PX);
         expect(h.frame().scrollTop).toBe(0);
-    }, 30_000);
+    });
 
     test("a persisted anchor whose item is gone lands at its index, clamped to the items", async () => {
         // Item 120 is plan 40's band: every plan is its band and two lines.
@@ -813,7 +813,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         const end = mount(buildFramedInline(300), "sheet-grouped-end");
         await waitFor(() => expect(framed(end).frame().scrollTop).toBe(300 * PLAN_PX - 600));
         expect(end.container.querySelector('[data-slot="row"][data-group-id="P10299"][data-line="1"]')).not.toBeNull();
-    }, 30_000);
+    });
 
     test("paged: the anchor's window is fetched first, and the view lands on its item", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P11500", offset: 20, index: 3, element: 1500 } }));
@@ -823,7 +823,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500") + 20));
         expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX);
-    }, 30_000);
+    });
 
     test("paged: an anchor past the end of a source that shrank lands on its last item, and hands the viewport back", async () => {
         // Plan 3,500 was in view; the source holds 2,000 plans now.
@@ -838,7 +838,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         // The jump is over: where the viewer scrolls, the rows follow.
         f.scrollTo(0);
         await waitFor(() => expect(ui.band("P10000")).not.toBeNull(), { timeout: 10_000 });
-    }, 30_000);
+    });
 
     test("paged: an anchor whose item is gone lands on the item now at its element — not at its index in another run", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P1GONE", offset: 20, index: 3, element: 1_500 } }));
@@ -847,7 +847,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
         expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX);
-    }, 30_000);
+    });
 
     test("paged: a view resting over an unloaded band persists the element the band draws there, and comes back to it", async () => {
         const ui = mount(buildFramedPlans());
@@ -868,7 +868,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         await waitFor(() => expect(again.band("P10250")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(g.frame().scrollTop).toBe(g.bandTop("P10250")));
         expect(g.bandTop("P10250")).toBe(250 * PLAN_PX);
-    }, 30_000);
+    });
 
     test("paged: a band is never an anchor's item — one persisted over the tail band lands on its element, not on the band a remount draws", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "band:tail", offset: 20, index: 1, element: 1_500 } }));
@@ -876,7 +876,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         const f = framed(ui);
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
-    }, 30_000);
+    });
 
     test("folds left on a tab come back when the sheet opens on it again; a sheet no one folded records no tab", async () => {
         // The sheet opens on its SPRAY view, as its host declares — and opening a view folds nothing.
@@ -951,7 +951,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         // above it — the head band, window 6's rows — took other than its height.
         expect(f.frame.scrollTop).toBe(1_500 * PLAN_PX);
         expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX);
-    }, 30_000);
+    });
 
     test("a window landing above the rows in view leaves them where they are", async () => {
         const ui = mount(buildFramedPlans());
@@ -967,7 +967,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         // It landed above the rows in view and took exactly its band's slot.
         expect(f.bandTop("P11210") - f.frame.scrollTop).toBe(0);
         expect(f.extent()).toBe(2_000 * PLAN_PX);
-    }, 30_000);
+    });
 
     test("what a planner opens and folds counts: the window is re-measured, and leaving the run it leaves exactly what its rows drew", async () => {
         const ui = mount(buildFramedPlans());
@@ -988,7 +988,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         expect(ui.band("P10000")).toBeNull();
         expect(f.extent()).toBe(2_000 * PLAN_PX + change);
         expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX + change);
-    }, 30_000);
+    });
 
     describe("a window drawing otherwise than its estimate (#878)", () => {
         // The frame anchors its scroll through `scrollTo`, which jsdom lacks:
@@ -1028,7 +1028,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
             const top = Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
             // P11468's second line started 30 px into the view when window 7 landed, and still does.
             expect(top - f.frame.scrollTop).toBe(30);
-        }, 30_000);
+        });
     });
 });
 

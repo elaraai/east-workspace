@@ -40,7 +40,7 @@ like any linter.
 - **`no-relative-src-import`** - Importing *another* package's internals via `../src/…` or a deep `@elaraai/x/src` path instead of its published name. (A package importing its **own** `src` relatively — e.g. a spec's `../src/index.js` — is exempt; it cannot import its own published name.)
 - **`no-let-const-in-expression`** - `$.let`/`$.const` used anywhere other than a `const`/`let` initializer, a bare statement, a `return`, or a concise arrow body (e.g. a struct-field value, array element, call argument, or chain target buries the declaration in an expression).
 - **`no-unexecuted-east-expression`** - A bare East expression statement that is never executed with `$( … )` or bound.
-- **`no-reinlined-east-binding`** - An East `Expr` bound to a JS `const`/`let` and reused inside a block is re-inlined per use — bind it once with `$.let`/`$.const`.
+- **`no-reinlined-east-binding`** - An East `Expr` bound to a JS `const`/`let` and read twice inside one East body, or read inside a per-element callback, a `$.for`/`$.while` body or a nested `East.function`, is re-inlined — and re-evaluated — at each read; bind it once with `$.let`/`$.const`. One read per exclusive arm (`.ifElse`, `$.if … .else`, a `match` arm) and a `$.const` read anywhere stay silent.
 - **`prefer-jsx-over-factory-call`** - In a `.tsx` file, a factory's `Foo.Root(...)` whose result is a JSX element — author it with the `<Foo>` tag instead.
 - **`no-untracked-east-data`** - A bare JS `const` literal consumed in an East-typed position inside a block — bind it with `$.const`/`$.let`.
 

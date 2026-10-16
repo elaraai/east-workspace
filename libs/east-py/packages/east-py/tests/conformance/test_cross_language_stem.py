@@ -119,6 +119,24 @@ def unwrap_merge(b, d, o):
     return m.get("k")
 
 
+@East.function([DictType(StringType, IntegerType), ArrayType(StringType), StringType], IntegerType)
+def slot_of(b, index, order, key):
+    def fresh(b, _k):
+        b.do(order.push_last(key))
+        return order.size() - 1
+
+    return index.get_or_insert(key, fresh)
+
+
+# #1312: the callee's callback runs its push before its returned read, and
+# its build hoists nothing above the callback — the IR TypeScript builds.
+@East.function([ArrayType(StringType)], ArrayType(IntegerType))
+def callback_statements(b, keys):
+    index = b.const(East.new_dict(StringType, IntegerType))
+    order = b.const(East.new_array(StringType))
+    return keys.map(lambda b, k: slot_of(index, order, k))
+
+
 STEM = {
     "crosslangArithmetic": arithmetic,
     "crosslangStatements": statements,
@@ -130,6 +148,7 @@ STEM = {
     "crosslangTryCatch": try_catch,
     "crosslangWhile": while_loop,
     "crosslangUnwrapMerge": unwrap_merge,
+    "crosslangCallbackStatements": callback_statements,
 }
 
 STEM_DIR = os.path.join(EXAMPLES_DIR, "crosslang") if EXAMPLES_DIR else None
