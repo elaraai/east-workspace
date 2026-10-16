@@ -284,6 +284,23 @@ function isDoorSource<S extends object>(source: CollectionSource | S): source is
 }
 
 /**
+ * How a stored manifest was cut, when it is not as the door cuts one now:
+ * under another rule, or under another header than the Writer's. An older e3
+ * wrote it, and none of its segments is what the Writer writes now.
+ *
+ * @param manifest - The manifest
+ * @returns How it was cut, in a refusal's words; `null` when the door cuts it
+ *   so now
+ * @internal
+ */
+export function manifestCutElsewhere(manifest: CollectionManifest): string | null {
+  const rule = segmentRuleFor(manifest.type);
+  if (manifest.rule !== rule) return `under ${manifest.rule}, not the current ${rule}`;
+  const header = new Beast2ElementWriter(manifest.type, { segment: () => {} }).header;
+  return manifest.header === computeHash(header) ? null : 'under another header than the current one';
+}
+
+/**
  * Store beast2 bytes a program produced as a dataset value: a collection
  * through the door, any other value as the object the bytes are.
  *

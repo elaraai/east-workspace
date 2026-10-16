@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import {
   ArrayType,
   DictType,
+  East,
   IntegerType,
   RUN_MAX_BYTES,
   StringType,
@@ -45,8 +46,16 @@ import {
   variant,
 } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, type DatasetSource } from '@elaraai/e3';
-import type { LockProgress, LockStatus } from '@elaraai/e3-types';
-import { datasetAdoptKnown, datasetAdoptObject, type DatasetAdoptProgress } from './dataset-adopt.js';
+import {
+  RECORD_STATE_KIND,
+  RecordStateType,
+  decodeCollectionManifest,
+  encodeCollectionManifest,
+  manifestByteSize,
+  type LockProgress,
+  type LockStatus,
+} from '@elaraai/e3-types';
+import { datasetAdoptKnown, datasetAdoptObject, datasetSetStored, type DatasetAdoptProgress } from './dataset-adopt.js';
 import { datasetAdoptFile, objectAdoptFile } from './dataset-adopt-file.js';
 import { DatasetSegments } from './dataset-open.js';
 import { rememberedManifest } from './delivery-intake.js';
@@ -55,11 +64,13 @@ import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { computeHash } from './objects.js';
 import { packageImport } from './package-files.js';
+import * as portable from './portable.js';
+import { storeCollection } from './store-collection.js';
 import { workspaceGetState, workspaceLockStatus, type DeploySourceProgress } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { datasetWrite, workspaceGetDatasetStatus, workspaceSetDataset, workspaceSetDatasetBytes } from './trees.js';
+import { datasetWrite, workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset, workspaceSetDatasetBytes } from './trees.js';
 import { repoGc } from './gc.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf, storeSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
@@ -787,6 +798,186 @@ describe('path-initialised inputs', () => {
       const adopted = await datasetAdoptKnown(withStores({ objects }), testRepo, 'ws', tallyPath, five);
       assert.deepEqual([adopted?.taken, adopted?.hash], ['carried', five], 'adopted, not taken for a delivery the store does not hold');
       assert.equal(looks, 2, 'it looked once more');
+    });
+  });
+
+  describe('datasetSetStored (a value the store holds, by its own hash)', () => {
+    /** `storage`, with the objects it reads and the objects it touches recorded. */
+    function recording(): { storage: StorageBackend; read: Set<string>; touched: Set<string> } {
+      const read = new Set<string>();
+      const touched = new Set<string>();
+      const objects = Object.create(storage.objects, {
+        read: {
+          value: (repo: string, hash: string): Promise<Uint8Array> => {
+            read.add(hash);
+            return storage.objects.read(repo, hash);
+          },
+        },
+        readRange: {
+          value: (repo: string, hash: string, offset: number, length: number): Promise<Uint8Array> => {
+            read.add(hash);
+            return storage.objects.readRange(repo, hash, offset, length);
+          },
+        },
+        touch: {
+          value: (repo: string, hashes: readonly string[]): Promise<boolean[]> => {
+            for (const hash of hashes) touched.add(hash);
+            return storage.objects.touch(repo, hashes);
+          },
+        },
+      }) as StorageBackend['objects'];
+      return { storage: withStores({ objects }), read, touched };
+    }
+
+    it('points a collection at the manifest its writer stored through the door, reading no segment and remembering nothing', async () => {
+      await deployTableWorkspace('stored-append');
+      await workspaceSetDataset(storage, testRepo, 'ws', [...tablePath], rows(20_000), TableType);
+      const current = (await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash!;
+      // A writer that appends: the current value's segments carried over by
+      // reference, and the new rows cut after them
+      const stored = await storeCollection(storage, testRepo, TableType, [{ stored: current }, { elements: rows(10, 20_000) }]);
+      const { manifest } = await DatasetSegments.open(storage, testRepo, stored);
+      const segments = manifest.entries.map((entry) => entry.hash);
+      assert.ok(segments.length > 1, `20,010 rows should span segments, not ${segments.length}`);
+
+      const watched = recording();
+      const result = await datasetSetStored(watched.storage, testRepo, 'ws', [...tablePath], stored);
+
+      assert.deepEqual(result, { hash: stored, size: manifestByteSize(manifest), taken: 'known', segments: segments.length, rows: 20_010 });
+      assert.deepEqual(segments.filter((hash) => watched.read.has(hash)), [], 'no segment is read');
+      assert.ok([stored, manifest.header, ...segments].every((hash) => watched.touched.has(hash)), 'the manifest, its header and every segment are re-referenced');
+      const ref = await storage.datasets.read(testRepo, 'ws', 'inputs/table');
+      assert.ok(ref?.type === 'value');
+      assert.equal(ref.value.hash, stored);
+      assert.deepEqual([...ref.value.versions], [['.inputs.table', stored]], 'versioned as any input write is');
+      assert.deepEqual(await storage.refs.adoptionList(testRepo), [], 'nothing is remembered in the adoption memo');
+      assert.equal(stored, await datasetWrite(storage, testRepo, rows(20_010), TableType), 'the hash a write of the same value gives');
+    });
+
+    it('points any other value at the object it is, and refuses an object of another type, writing nothing', async () => {
+      const pkg = e3.package('stored-value', '1.0.0', e3.input('tally', IntegerType));
+      const zipPath = join(tempDir, 'stored-value.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'ws', 'stored-value', '1.0.0');
+      const tallyPath = [variant('field', 'inputs'), variant('field', 'tally')];
+
+      const bytes = encodeBeast2For(IntegerType)(5n);
+      const five = await storage.objects.write(testRepo, bytes);
+      assert.deepEqual(await datasetSetStored(storage, testRepo, 'ws', tallyPath, five),
+        { hash: five, size: bytes.length, taken: 'known', segments: null, rows: null });
+
+      const text = await storage.objects.write(testRepo, encodeBeast2For(StringType)('five'));
+      await assert.rejects(datasetSetStored(storage, testRepo, 'ws', tallyPath, text), (err: unknown) => {
+        assert.ok(err instanceof DatasetTypeMismatchError, String(err));
+        assert.equal(err.path, '.inputs.tally');
+        assert.match(err.message, new RegExp(`^dataset '\\.inputs\\.tally' declares \\.Integer but object ${text.slice(0, 8)}\\.\\.\\. carries \\.String`));
+        return true;
+      });
+      const table = await datasetWrite(storage, testRepo, rows(4), TableType);
+      await assert.rejects(datasetSetStored(storage, testRepo, 'ws', tallyPath, table), DatasetTypeMismatchError, 'a collection is not an Integer');
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', tallyPath)).hash, five, 'the refusals left the ref where it was');
+    });
+
+    it("refuses a collection held whole, a manifest an older e3 cut, and a record's state, writing nothing", async () => {
+      await deployTableWorkspace('stored-refused');
+      const current = await datasetWrite(storage, testRepo, rows(12), TableType);
+      const refused = (hash: string, message: RegExp): Promise<void> =>
+        assert.rejects(datasetSetStored(storage, testRepo, 'ws', [...tablePath], hash), message);
+
+      // A delivery stored as it came, which an adopt takes in
+      const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
+      await refused(whole, new RegExp(`^Error: object ${whole.slice(0, 8)}\\.\\.\\. holds a collection whole, not as the manifest of its segments: ` +
+        'adopt it \\(datasetAdoptObject\\), which takes it in$'));
+      // Cut under another rule, and under another header than the Writer's
+      const older = await storeSegmentsOf(storage, testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
+      await refused(older, new RegExp(`^Error: object ${older.slice(0, 8)}\\.\\.\\. is a manifest cut under test/as-encoded, not the current .+: ` +
+        'an older e3 wrote this repository — re-create it: deploy again and import its data again$'));
+      const header = await storage.objects.write(testRepo, new TextEncoder().encode('another header'));
+      const reheaded = await storage.objects.write(testRepo, encodeCollectionManifest({
+        ...decodeCollectionManifest(await storage.objects.read(testRepo, current)),
+        header,
+      }));
+      await refused(reheaded, /is a manifest cut under another header than the current one: an older e3 wrote this repository/);
+      // A record's state names a manifest, and is not one: an object of another type
+      const state = await storage.objects.write(testRepo, encodeBeast2For(RecordStateType)({ kind: RECORD_STATE_KIND, primary: current, indexes: new Map() }));
+      await assert.rejects(datasetSetStored(storage, testRepo, 'ws', [...tablePath], state), DatasetTypeMismatchError);
+
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned', 'nothing was written');
+    });
+
+    it('refuses a value the store does not hold whole, writing nothing', async () => {
+      await deployTableWorkspace('stored-gone');
+      await assert.rejects(datasetSetStored(storage, testRepo, 'ws', [...tablePath], 'f'.repeat(64)), ObjectNotFoundError);
+      // What a sweep leaves of a collection nothing named: rooting it would
+      // name a value that cannot be read
+      const stored = await datasetWrite(storage, testRepo, rows(40), TableType);
+      const { manifest } = await DatasetSegments.open(storage, testRepo, stored);
+      rmSync(objectPath(testRepo, manifest.entries[0]!.hash));
+      await assert.rejects(datasetSetStored(storage, testRepo, 'ws', [...tablePath], stored), ObjectNotFoundError);
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned', 'nothing was written');
+    });
+
+    it('refuses a dataset that is not writable', async () => {
+      const input = e3.input('table', TableType);
+      const pkg = e3.package('stored-output', '1.0.0', e3.task('copy', [input], East.function([TableType], TableType, ($, table) => table)));
+      const zipPath = join(tempDir, 'stored-output.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'ws', 'stored-output', '1.0.0');
+      const output = [variant('field', 'tasks'), variant('field', 'copy'), variant('field', 'output')];
+
+      const stored = await datasetWrite(storage, testRepo, rows(12), TableType);
+      await assert.rejects(datasetSetStored(storage, testRepo, 'ws', output, stored), /Dataset at 'tasks\.copy\.output' is not writable/);
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', output)).refType, 'unassigned');
+    });
+
+    it('holds off a deploy, and writes under the lock its caller holds', async () => {
+      await deployTableWorkspace('stored-locked');
+      const stored = await datasetWrite(storage, testRepo, rows(12), TableType);
+      const deploying = await storage.locks.acquire(testRepo, 'ws', variant('deployment', null));
+      assert.ok(deploying);
+      try {
+        await assert.rejects(datasetSetStored(storage, testRepo, 'ws', [...tablePath], stored), WorkspaceLockError);
+        assert.equal((await datasetSetStored(storage, testRepo, 'ws', [...tablePath], stored, { lock: deploying })).hash, stored);
+      } finally {
+        await deploying.release();
+      }
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, stored);
+    });
+
+    it('holds off a sweep from its first look at the value to its ref', async () => {
+      await deployTableWorkspace('stored-fence');
+      // Named by no ref until the set names it: a sweep in between takes it
+      const stored = await datasetWrite(storage, testRepo, rows(40), TableType);
+      let entered!: () => void;
+      const touching = new Promise<void>((resolve) => { entered = resolve; });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const objects = Object.create(storage.objects, {
+        touch: {
+          value: async (repo: string, hashes: readonly string[]): Promise<boolean[]> => {
+            entered();
+            await released;
+            return storage.objects.touch(repo, hashes);
+          },
+        },
+      }) as StorageBackend['objects'];
+
+      const setting = datasetSetStored(withStores({ objects }), testRepo, 'ws', [...tablePath], stored);
+      await touching;
+      try {
+        await assert.rejects(repoGc(storage, testRepo, { minAge: 0 }), /a task is running/);
+      } finally {
+        release();
+      }
+      await setting;
+      await repoGc(storage, testRepo, { minAge: 0 });
+      assert.equal((await workspaceGetDataset(storage, testRepo, 'ws', [...tablePath]) as unknown[]).length, 40, 'the value its ref names is kept whole');
+    });
+
+    it('is the same door through the portable entry, which a host in a page reaches it through', () => {
+      assert.strictEqual(portable.datasetSetStored, datasetSetStored);
     });
   });
 

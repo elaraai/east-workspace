@@ -38,28 +38,40 @@
  *
  * A delivery the store holds — an upload committed as an object — is adopted
  * here, wherever e3 runs. A delivered file is adopted on the machine it lies on
- * (`dataset-adopt-file.ts`).
+ * (`dataset-adopt-file.ts`). A value the store already holds as it is — a
+ * collection its writer stored through the door itself — is pointed at here
+ * too, by its own hash ({@link datasetSetStored}).
  *
  * @packageDocumentation
  */
 
-import { checkDatasetType, isCollectionRoot, manifestByteSize, manifestElementCount, type IntakeFile, type TreePath } from '@elaraai/e3-types';
+import {
+  checkDatasetType,
+  isCollectionRoot,
+  manifestByteSize,
+  manifestElementCount,
+  type CollectionManifest,
+  type IntakeFile,
+  type TreePath,
+} from '@elaraai/e3-types';
 import {
   readBeast2Type,
   variant,
   type EastTypeValue,
 } from '@elaraai/east';
 import { DatasetTypeMismatchError, DeliveryRefusedError, ObjectNotFoundError } from './errors.js';
-import { readManifest } from './dataset-open.js';
+import { openDatasetObject, readManifest } from './dataset-open.js';
 import { intakeDelivery, rememberDelivery, rememberedManifest, type DeliveryIntake, type DeliveryIntakeOptions } from './delivery-intake.js';
-import { readTouched } from './gc-graph.js';
+import { readTouched, touchReachable } from './gc-graph.js';
+import { manifestCutElsewhere } from './store-collection.js';
 import { withDatasetWriteLock, workspaceSetDatasetByHash, type DatasetLeaf } from './trees.js';
 import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
 /** How an adopt took its file in. */
 export type DatasetTaken =
-  /** The store already knew the delivery by its hash: nothing was taken in. */
+  /** The store already held it — a delivery it knew by its hash, or a value
+   *  named by its own ({@link datasetSetStored}): nothing was taken in. */
   | 'known'
   /** A value that is not a collection, stored as the object the file is. */
   | 'carried'
@@ -85,8 +97,9 @@ export interface DatasetAdoptResult {
   /** The dataset's new content address: the manifest a collection was
    *  stored as, or the object the file is. */
   hash: string;
-  /** Bytes the value arrived as: the delivered file's, or — for a delivery
-   *  the store already knew as a collection — its stored segments'. */
+  /** Bytes the value arrived as: the delivered file's or the stored object's,
+   *  or — for a collection the store already held as a manifest — its stored
+   *  segments'. */
   size: number;
   /** Segment count, for a collection root; `null` otherwise. */
   segments: number | null;
@@ -293,6 +306,87 @@ export async function datasetAdoptKnown(
 }
 
 /**
+ * Point a workspace dataset at a value the store already holds, named by its
+ * own hash, checking its type first.
+ *
+ * @remarks
+ * For a writer that stores the value itself: a collection built through the
+ * store's door (`storeCollection`) a piece at a time, carrying the current
+ * value's untouched segments over by reference, is pointed at as the manifest
+ * it became, and no segment of it is read. It is written as every door writes:
+ * under the workspace lock shared, or the one its caller holds; refused when
+ * the dataset is not writable, or while a garbage collection runs; and the ref
+ * given its version vector's self entry. Nothing is remembered in the adoption
+ * memo, whose keys are deliveries'.
+ *
+ * A collection dataset takes the manifest the door writes now, so it holds the
+ * hash a write of the same value gives: a collection held whole is a
+ * delivery's, which an adopt takes in (`datasetAdoptObject`), and a manifest
+ * an older e3 cut is refused, as the door refuses it. The value, and every
+ * object it names, is re-referenced before the ref names it
+ * (`touchReachable`), so gc beside running work leaves it, however long
+ * nothing named it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param treePath - Path to the dataset
+ * @param valueHash - The stored value: the manifest, for a collection; the
+ *   object the value is, for any other
+ * @param options - A lock the caller already holds
+ * @returns The dataset's new hash, the value's stored size and geometry, and
+ *   `taken: 'known'`
+ * @throws {DatasetTypeMismatchError} When the stored value's type is not the
+ *   type the dataset declares
+ * @throws {ObjectNotFoundError} When the store does not hold the value, or an
+ *   object it names
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before any
+ *   store is asked
+ * @throws {WorkspaceLockError} When the workspace is locked by another process
+ * @throws If the dataset is not writable, a collection is held whole or was
+ *   cut by an older e3, or a garbage collection is running
+ *
+ * @example
+ * ```ts
+ * import { datasetSetStored, storeCollection } from '@elaraai/e3-core';
+ *
+ * // Rows appended to the current value, whose segments are carried over unread
+ * const stored = await storeCollection(storage, repo, TableType, [{ stored: current }, { elements: added }]);
+ * const { hash } = await datasetSetStored(storage, repo, 'main', path, stored);
+ * ```
+ */
+export async function datasetSetStored(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath,
+  valueHash: string,
+  options: { lock?: LockHandle } = {},
+): Promise<DatasetAdoptResult> {
+  return withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
+    const object = `object ${valueHash.slice(0, 8)}...`;
+    const stored = await storedDatasetValue(storage, repo, valueHash);
+    if (stored === null) throw new ObjectNotFoundError(valueHash);
+    const mismatch = checkDatasetType(`dataset '${leaf.address}'`, object, leaf.type, stored.type);
+    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+    if (isCollectionRoot(leaf.type)) {
+      if (stored.manifest === null) {
+        throw new Error(`${object} holds a collection whole, not as the manifest of its segments: ` +
+          'adopt it (datasetAdoptObject), which takes it in');
+      }
+      const cut = manifestCutElsewhere(stored.manifest);
+      if (cut !== null) {
+        throw new Error(`${object} is a manifest cut ${cut}: ` +
+          'an older e3 wrote this repository — re-create it: deploy again and import its data again');
+      }
+    }
+    // Re-referenced whole before the ref roots it, as a write of it would be
+    if (!await touchReachable(storage, repo, [valueHash])) throw new ObjectNotFoundError(valueHash);
+    return pointAt(storage, repo, ws, treePath, leaf, { hash: valueHash, size: stored.size, taken: 'known' });
+  });
+}
+
+/**
  * Adopts, for the dataset `leaf` declares, a delivery the store holds — as the
  * manifest the memo names, or as an object — checking its type first, under
  * the dataset's write lock its caller holds.
@@ -371,6 +465,32 @@ async function storedValue(storage: StorageBackend, repo: string, hash: string):
     if (err instanceof ObjectNotFoundError) return null;
     throw err;
   }
+}
+
+/**
+ * A value the store holds, by its own hash: a manifest, as the collection's
+ * type and its segments' bytes; any other object as its wire type and size.
+ * `null` when the store does not hold it.
+ */
+async function storedDatasetValue(
+  storage: StorageBackend,
+  repo: string,
+  hash: string,
+): Promise<{ size: number; type: EastTypeValue; manifest: CollectionManifest | null } | null> {
+  let opened: { hash: string; manifest: CollectionManifest | null };
+  try {
+    opened = await openDatasetObject(storage, repo, hash);
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return null;
+    throw err;
+  }
+  // A record's state opens as its primary's manifest; here the state is the
+  // object named, read by its own type as any other object is
+  if (opened.manifest !== null && opened.hash === hash) {
+    return { size: manifestByteSize(opened.manifest), type: opened.manifest.type, manifest: opened.manifest };
+  }
+  const stored = await storedValue(storage, repo, hash);
+  return stored === null ? null : { ...stored, manifest: null };
 }
 
 /** An object's wire type, from ranged reads of its head. */
