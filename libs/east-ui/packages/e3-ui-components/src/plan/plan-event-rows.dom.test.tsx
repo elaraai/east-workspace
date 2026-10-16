@@ -454,5 +454,5 @@ describe("the event kinds' rows beside `data`'s editing session (#880)", () => {
         expect(jobsDrawn(c, "p200")).toEqual(["job-1"]);
         expect(pressRow(c, "p200").textContent).toContain("Press 200");
         expect(canvas.patches.map((p) => p.draftChanges.map((d) => d.id))).toEqual([["p200"]]);
-    }, 30_000);
+    });
 });

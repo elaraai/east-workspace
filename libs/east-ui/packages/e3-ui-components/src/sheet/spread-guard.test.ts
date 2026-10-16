@@ -43,4 +43,4 @@ test("a spread into a call or a constructor under src/sheet/ fails lint; into an
     expect(sheet.every((m) => m.includes("src/sheet/") && m.includes("#859"))).toBe(true);
     // A folder with no guard of its own is untouched by it.
     expect(await spreadsAt("src/components/probe-spread.ts", CODE)).toEqual([]);
-}, 60_000);
+});

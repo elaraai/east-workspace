@@ -195,5 +195,5 @@ describe("closure-only changes through the dispatcher (#809)", () => {
         // equal and the open region kept saying ALPHA.
         act(() => { getStore().write(LABEL_KEY, encodeString("BETA")); });
         await waitFor(() => expect(container.querySelector("[data-plan-expandrender]")?.textContent).toBe("BETA"));
-    }, 30_000);
+    });
 });

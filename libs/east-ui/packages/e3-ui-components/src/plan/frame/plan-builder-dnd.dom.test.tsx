@@ -327,7 +327,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(bar(c, "brochure-2")).toBeNull();
         expect(pending(c)).toBe("0 pending");
         expect(historyButton(c, UNDO).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("templates highlight only matching sub-rows and refuse a different draw on the same resource", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -354,7 +354,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         await drop(cardOf(c, elementKey("stop", "plates"))!, OFF, { x: xAt(3), y: y(A1_MARKS) });
         expect(named(stop(c, "plates-2"))).toMatch(/Oct 8, 2026/);
         expect(pending(c)).toBe("2 pending");
-    }, 30_000);
+    });
 
     test("refused on a resource of a kind it is not placed on — the ghost says what it needs, in red, and the drop makes nothing", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -368,7 +368,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(announced()).toBe("Brochure run was not dropped.");
         expect(chip(c, "brochure-2")).toBeNull();
         expect(pending(c)).toBe("0 pending");
-    }, 30_000);
+    });
 
     test("refused where the Plan's canDrop says so — its message on the ghost; taken a press away", async () => {
         const { container: c } = mount(vetoed, DRAG);
@@ -382,7 +382,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(jobsOn(c, B3)).not.toContain(elementKey("job", "brochure-2"));
         await drop(card, OFF, { x: xAt(9), y: y(B2) });
         expect(jobsOn(c, B2)).toContain(elementKey("job", "brochure-2"));
-    }, 30_000);
+    });
 
     test("dropped twice on one day it makes two events, each under a new key of its own", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -394,7 +394,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(named(bar(c, "brochure-2"))).toMatch(/^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00/);
         expect(named(bar(c, "brochure-3"))).toMatch(/^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00/);
         expect(pending(c)).toBe("2 pending");
-    }, 30_000);
+    });
 
     test("refused while its kind's save is out — the ghost says the kind can't change now — and taken once the save is back", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -419,7 +419,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         await drop(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(9), y: y(A3) });
         expect(bar(c, "brochure-2", A3)).not.toBeNull();
         expect(pending(c)).toBe("1 pending");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -449,7 +449,7 @@ describe("a backlog card dropped on a resource's row (PB33)", () => {
         expect(bar(c, "J-1023", A3)).toBeNull();
         expect(tabs(pane(c))[1]).toBe("Backlog 8");
         expect(cardKeys(c)).toContain(reprint);
-    }, 30_000);
+    });
 
     test("refused on a crew, and where canDrop refuses it — the same refusals as a template's", async () => {
         const works = mount(programOf(ex.planPrintWorks), DRAG);
@@ -468,7 +468,7 @@ describe("a backlog card dropped on a resource's row (PB33)", () => {
         expect(caption()).toBe("refused: Press B3 is down for service");
         await vetoedLetGo();
         expect(jobsOn(c, B3)).not.toContain(elementKey("job", "J-1023"));
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -499,7 +499,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         await press(historyButton(c, UNDO));
         expect(named(bar(c, "J-1001"))).toMatch(/^Spring catalogue, Oct 5, 2026, 06:00/);
         expect(bar(c, "J-1001")!.hasAttribute("data-draft")).toBe(false);
-    }, 30_000);
+    });
 
     test("refused onto a resource of a kind it is not placed on: a job over a crew says what it needs", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -515,7 +515,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
             expect(announced()).toBe("Spring catalogue was not dropped.");
             expect(pending(c)).toBe("0 pending");
         }
-    }, 30_000);
+    });
 
     test("a selected element moves the selection: the others by the same days, in one step", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -534,7 +534,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         expect(named(bar(c, "J-1001"))).toMatch(/^Spring catalogue, Oct 5, 2026, 06:00/);
         expect(named(bar(c, "J-1002"))).toMatch(/^Museum guide, Oct 7, 2026, 06:00/);
         expect(historyButton(c, UNDO).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("carried onto another press, a selection takes the events on the grabbed one's press with it — one on a press of its own stays, undrafted", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -556,7 +556,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         await press(historyButton(c, UNDO));
         expect(jobsOn(c, B1)).not.toContain(elementKey("job", "J-1001"));
         expect(jobsOn(c, A1)).toEqual(expect.arrayContaining([elementKey("job", "J-1001"), elementKey("job", "J-1002")]));
-    }, 30_000);
+    });
 
     test("one part refused refuses the whole selection: a job on a press canDrop refuses holds the others where they are", async () => {
         const { container: c } = mount(vetoed, DRAG);
@@ -578,7 +578,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         await drop(bar(c, "J-1018", B2)!, { x: xAt(15, 9), y: y(B2) }, { x: xAt(16, 9), y: y(B2) });
         expect(named(bar(c, "J-1018", B2))).toMatch(/^Market posters, Oct 21, 2026, 06:00/);
         expect(pending(c)).toBe("1 pending");
-    }, 30_000);
+    });
 
     test("a mark moves along its press, by the days crossed", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -588,7 +588,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         await drop(stop(c, "S-01")!, { x: xAt(2, 12), y: y(A1_MARKS) }, { x: xAt(3, 12), y: y(A1_MARKS) });
         expect(named(stop(c, "S-01"))).toMatch(/Oct 8, 2026, 12:00/);
         expect(stop(c, "S-01")!.hasAttribute("data-draft")).toBe(true);
-    }, 30_000);
+    });
 
     test("a tile moves to another press's day — it has no ends to drag — and wears the drafted look until Undo", async () => {
         const { container: c } = mount(vetoed, DRAG);
@@ -607,7 +607,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         await press(historyButton(c, UNDO));
         const back = c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`);
         expect(back!.hasAttribute("data-draft")).toBe(false);
-    }, 30_000);
+    });
 
     test("a tile of a kind with a start and an end moves its event's times by the days crossed — its length kept", async () => {
         const { container: c } = mount(tiled, DRAG);
@@ -622,7 +622,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
         await select(tile()!);
         expect(named(tile())).toMatch(/Oct 7, 2026/);
         expect(when()).toBe("Wed, Oct 7, 2026 · 06:00–14:00");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -648,7 +648,7 @@ describe("a bar's or a chip's edge resizes it (PB35)", () => {
         expect(named(chip(c, "SH-01"))).toMatch(/^Early, Oct 5, 2026, 06:00 – Oct 6, 2026, 14:00/);
         expect(chip(c, "SH-01")!.hasAttribute("data-draft")).toBe(true);
         expect(pending(c)).toBe("2 pending");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -675,7 +675,7 @@ describe("an event dropped on the Backlog tab (PB36)", () => {
         await press(historyButton(c, UNDO));
         expect(bar(c, "J-1001")).not.toBeNull();
         expect(tabs(pane(c))[1]).toBe("Backlog 8");
-    }, 30_000);
+    });
 
     test("refused for a kind whose times are no Options: a stop has no backlog", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -689,7 +689,7 @@ describe("an event dropped on the Backlog tab (PB36)", () => {
         await letGo();
         expect(stop(c, "S-01")).not.toBeNull();
         expect(pending(c)).toBe("0 pending");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -717,7 +717,7 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
         expect(bar(c, "J-1001")!.hasAttribute("data-draft")).toBe(true);
         await press(historyButton(c, UNDO));
         expect((within(customer).getByRole("textbox") as HTMLInputElement).value).toBe("Alder & Finch");
-    }, 30_000);
+    });
 
     test("refused anywhere but an event of that kind: between events, and on a stop", async () => {
         const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
@@ -736,7 +736,7 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
         expect(caption()).toBe("refused: Stops take no customer");
         await onStop();
         expect(pending(c)).toBe("0 pending");
-    }, 30_000);
+    });
 
     test("a patch that sets two fields sets both on the event, as one step — and Save writes both", async () => {
         const { container: c } = mount(stocked, DRAG);
@@ -754,7 +754,7 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
         expect(pending(c)).toBe("1 pending");
         await press(historyButton(c, SAVE));
         expect(sameJob(readJobs().get("J-1001")!, { ...before, customer: "Harbour Arts Society", stock: variant("board", null) })).toBe(true);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -807,7 +807,7 @@ describe("every gesture is one step of the Plan's one history", () => {
         expect(state().poster).toBe(false);
         expect(pending(c)).toBe("0 pending");
         expect(historyButton(c, UNDO).disabled).toBe(true);
-    }, 60_000);
+    });
 
     test("the keyboard carries a job along its kind's rows — the next press's bars, past its marks — and says why canDrop refuses a press", async () => {
         const { container: c } = mount(vetoed, DRAG);
@@ -827,7 +827,7 @@ describe("every gesture is one step of the Plan's one history", () => {
         expect(carrySaid(c)).toBe("Dropped Market posters on Press B1, Oct 21, 2026, 06:00 – Oct 21, 2026, 12:00");
         expect(jobsOn(c, B1)).toContain(elementKey("job", "J-1018"));
         expect(pending(c)).toBe("1 pending");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -846,5 +846,5 @@ describe("data's rows beside the event kinds", () => {
         run.focus();
         await keyOn({ key: " " });
         expect(carrySaid(c)).toBe("");
-    }, 30_000);
+    });
 });

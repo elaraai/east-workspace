@@ -590,7 +590,7 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(enabled(SAVE)).toBe(false);
         expect(laneHeads(container)).toEqual(["INDUCT", "SORTATION", "HOLD", laneLabel(4).toUpperCase()]);
         expect(container.querySelector("[data-frame-slot='start'] [data-library-item='Sort'] [data-tone]")).toBeNull();
-    }, 30_000);
+    });
 
     test("a new flow takes gestures as its drafts: Save inserts it, as its gestures left it, by name", async () => {
         const harness = recordHarness(FLOWS);
@@ -607,7 +607,7 @@ describe("Save's commit (FB22, FB23)", () => {
         const night = edits.addState(edits.addLane({ description: none, lanes: [], states: [], links: [], triggers: [] }, laneLabel).flow, "lane-1", "NGT", "Night intake");
         expect(flowsEqual(readRecord(harness), withFlow(FLOWS, "Night shift", night))).toBe(true);
         expect(await commits(harness)).toEqual(["patch", "$init"]);
-    }, 30_000);
+    });
 
     const FLOWS_KEY = "flowchart.editing.host-flows";
     const FLOW_KEY = "flowchart.editing.host-flow";
@@ -686,7 +686,7 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(flowsEqual(readHostFlows(), withFlow(FLOWS, "Sort", edits.deleteState(SORT, "CH*")))).toBe(true);
         await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
         expect([stateKeys(container), enabled(SAVE)]).toEqual([["IND", "SRD"], false]);
-    }, 30_000);
+    });
 
     test("the host's onApply is handed the batch's request id with its patch: the Retry after a write with no answer hands the same id, and the next Save a new one (#1275)", async () => {
         const { container } = await mountHost(hostFlowsOnce);
@@ -709,7 +709,7 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(nameEqual(all[2]!, all[0]!), "a new Save hands a new request id").toBe(false);
         // Written once each: the Retry's write and the next Save's, two lanes on the sort flow's three.
         expect(readHostFlows().get("Sort")!.lanes).toHaveLength(5);
-    }, 30_000);
+    });
 
     test("over the host's one flow, the flow's own patch through its onApply, and the drafts retire once it reads back", async () => {
         const { container } = await mountHost(hostFlow);
@@ -718,5 +718,5 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(flowEqual(readHostFlow(), edits.editState(SORT, "IND", "INX", "Inducted"))).toBe(true);
         await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
         expect([stateKeys(container), enabled(SAVE)]).toEqual([["INX", "CH*", "SRD"], false]);
-    }, 30_000);
+    });
 });

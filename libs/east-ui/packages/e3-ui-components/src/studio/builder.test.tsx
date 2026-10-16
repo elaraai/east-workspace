@@ -312,7 +312,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         // Four components offered: the deprecated one is not counted.
         expect(pane.getByText("4")).toBeTruthy();
         expect(pane.getByText("Components")).toBeTruthy();
-    }, 30_000);
+    });
 
     test("B2: the search counts the components, with its key; the grouping is by category; the Filter menu", async () => {
         const { container } = await mountBuilder();
@@ -321,7 +321,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(within(pane.getByRole("tabpanel", { name: "Components" })).getByText("⌘ /")).toBeTruthy();
         expect(pane.getByRole("button", { name: "Group by" }).textContent).toBe("Group · Category");
         expect(pane.getByRole("button", { name: "Filter" })).toBeTruthy();
-    }, 30_000);
+    });
 
     test("B3: cards by category, each group counted; a card holds its icon, its name, what it reads and a lock", async () => {
         const { container } = await mountBuilder();
@@ -335,7 +335,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(within(cardOf(container, "KPI rail")).getByText("no data")).toBeTruthy();
         expect(within(trend).getByRole("img", { name: "Logic fixed by the developer" })).toBeTruthy();
         expect(within(palette(container)).getAllByRole("img", { name: "Logic fixed by the developer" })).toHaveLength(4);
-    }, 30_000);
+    });
 
     test("B4: the component the canvas has selected is placed, and counts its placements on the page", async () => {
         const { container } = await mountBuilder();
@@ -346,7 +346,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(trend.hasAttribute("data-placed")).toBe(true);
         expect(within(trend).getByText("ON CANVAS · ×2")).toBeTruthy();
         expect(cardOf(container, "KPI rail").hasAttribute("data-placed")).toBe(false);
-    }, 30_000);
+    });
 
     test("B5: a click selects the component's first placement; one the page does not place selects nothing new; the cards are drag sources", async () => {
         const { container } = await mountBuilder();
@@ -358,7 +358,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         await settle();
         expect(tile(container, "c-trend").hasAttribute("data-selected")).toBe(true);
         expect(cardOf(container, "Orders by week").hasAttribute("data-draggable")).toBe(true);
-    }, 30_000);
+    });
 
     test("B6: the Pages tab lists the project's pages with their status dots; the open page is placed; a click opens a page, with nothing selected", async () => {
         const { container } = await mountBuilder();
@@ -385,7 +385,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         await act(async () => { fireEvent.click(cardOf(container, "Revenue trend")); });
         await settle();
         expect(container.querySelector("[data-snap-grid-tile][data-selected]")).toBeNull();
-    }, 30_000);
+    });
 
     test("B7: a deprecated component is hidden; the search and the Filter narrow the cards, and the counts follow", async () => {
         const { container } = await mountBuilder();
@@ -405,7 +405,7 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(pane.getByText("Orders by week")).toBeTruthy();
         expect(pane.queryByText("Revenue trend")).toBeNull();
         expect(pane.queryByText("KPI rail")).toBeNull();
-    }, 30_000);
+    });
 });
 
 describe("<Studio.Builder> — the canvas (#995)", () => {
@@ -423,7 +423,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         const frame = container.querySelector("[data-snap-grid-editor]")!.firstElementChild!;
         expect(frame.hasAttribute("data-builder-frame")).toBe(true);
         expect(frame.firstElementChild!.getAttribute("data-frame-slot")).toBe("toolbar");
-    }, 30_000);
+    });
 
     test("B8: the status is ○ Draft until a page is published, ● Live while its draft is its live layout, Live · edited once they differ, and Template for a template", async () => {
         const { container } = await mountBuilder();
@@ -435,7 +435,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(status()).toBe("Live · edited");
         await openPage("e-starter");
         expect(status()).toBe("Template");
-    }, 30_000);
+    });
 
     test("B9: the selection bar names the selected placement — its component's icon and name, its key and what it reads; with none, what to do", async () => {
         const { container } = await mountBuilder();
@@ -444,7 +444,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await select(container, "c-trend");
         expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("chart-area");
         expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Revenue trend", `revenue_trend · ${RECORD}`]);
-    }, 30_000);
+    });
 
     test("B10: the grid panel holds the page's cells on the editing canvas — each its component's own UI — with its guides and its end zone", async () => {
         const { container } = await mountBuilder();
@@ -454,7 +454,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect([...main.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))).toEqual(["c-kpi", "c-trend"]);
         expect(tile(container, "c-kpi").textContent).toBe("KPIs");
         await waitFor(() => expect(tile(container, "c-trend").textContent).toBe("7 pages"));
-    }, 30_000);
+    });
 
     test("B11: a component dropped from the palette becomes a cell at its span, storing its fingerprint — Save commits it", async () => {
         const { container } = await mountBuilder();
@@ -475,7 +475,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         if (overview.type !== "page") throw new Error("expected a page");
         const cell = overview.value.draft.cells.at(-1)!;
         expect([cell.key, cell.component, cell.span, cell.fingerprint]).toEqual([dropped, "orders_by_week", 6n, ordersPrint]);
-    }, 30_000);
+    });
 
     test("B12: Save is one patch commit on the page, and the toolbar says when it saved", async () => {
         const { container } = await mountBuilder();
@@ -488,7 +488,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(overview.value.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 9n]]);
         expect(container.querySelector("[data-snap-grid-saved]")!.textContent).toMatch(/^Saved · \d\d:\d\d$/);
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("B12: a save another landed first is a conflict, in the history item's words — and the other save stands", async () => {
         const { container } = await mountBuilder();
@@ -516,7 +516,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
-    }, 30_000);
+    });
 
     test("B13: the palette and the inspector sit either side of the canvas under the toolbar, and the palette collapses to its rail", async () => {
         const { container } = await mountBuilder();
@@ -527,7 +527,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(body.querySelector('[data-frame-slot="start"] [data-collapsed]')).not.toBeNull();
         expect(screen.getByRole("button", { name: "Expand Components" })).toBeTruthy();
         expect(body.querySelector("[data-snap-grid-main] [data-snap-grid-tile]")).not.toBeNull();
-    }, 30_000);
+    });
 
     test("B14: Preview and Publish open the publish preview in the canvas's place, the canvas kept as it was; Tablet draws the canvas at 1024px", async () => {
         const { container } = await mountBuilder();
@@ -552,7 +552,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await settle();
         expect(width()).toBe("1024px");
         expect(item(container, "readout").textContent).toBe("1024 px");
-    }, 30_000);
+    });
 });
 
 describe("<Studio.Builder> — the inspector (#996)", () => {
@@ -562,7 +562,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(screen.getByRole("button", { name: "Collapse Inspector" }).getAttribute("aria-expanded")).toBe("true");
         expect(inspector(container).querySelector('[data-inspector="empty"]')!.textContent)
             .toBe("Nothing selectedClick a component on the grid to see what it reads and its layout.");
-    }, 30_000);
+    });
 
     test("B15: collapsed, the rail — the sliders tile and the span badge in the brand while a placement is selected, and its name; else Nothing selected", async () => {
         const { container } = await mountBuilder();
@@ -575,7 +575,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(rail.hasAttribute("data-active")).toBe(true);
         expect([...rail.children].map((el) => el.textContent)).toEqual(["", "8/12", "Inspector", "Revenue trend"]);
         expect(rail.querySelector("svg[data-icon=sliders]")).not.toBeNull();
-    }, 30_000);
+    });
 
     test("B16–B18, B21: the selected placement's name and its component's key, what its code reads, its description fixed by its developer, and the footer", async () => {
         const { container } = await mountBuilder();
@@ -591,14 +591,14 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         await select(container, "c-kpi");
         expect(inspector(container).querySelector('[data-inspector="data"]')!.textContent).toBe("Datareads no data");
         expect(inspector(container).querySelector('[data-inspector="config"] p')!.textContent).toBe("No description");
-    }, 30_000);
+    });
 
     test("B16: a placement whose component's code changed since the page went live says so", async () => {
         const { container } = await mountBuilder();
         await openPage("c-monthly");
         await select(container, "m-orders");
         expect(inspector(container).querySelector("[data-inspector-changed]")!.textContent).toBe("logic changed since this page went live");
-    }, 30_000);
+    });
 
     test("B20: the span stepper asks the canvas — each step a draft, held to the row's room — and Undo takes one back", async () => {
         const { container } = await mountBuilder();
@@ -615,7 +615,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         await press("Undo");
         expect(spanOf(container, "c-trend")).toBe("11");
         expect(span()).toBe("11 / 12");
-    }, 30_000);
+    });
 
     test("B20: the row field moves the placement — into row 1, beside the KPI rail and fitted to it", async () => {
         const { container } = await mountBuilder();
@@ -630,7 +630,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(rowsDrawn(container)).toEqual([["c-kpi", "c-trend"]]);
         expect([spanOf(container, "c-kpi"), spanOf(container, "c-trend")]).toEqual(["6", "6"]);
         expect(inspector(container).querySelector<HTMLInputElement>("[data-inspector-row]")!.value).toBe("1");
-    }, 30_000);
+    });
 
     test("B20: the height select sets the placement's height, and Auto returns it to its content's", async () => {
         const { container } = await mountBuilder();
@@ -645,7 +645,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(frame().style.height).toBe("240px");
         await pick("Auto");
         expect(frame().style.height).toBe("");
-    }, 30_000);
+    });
 
     test("B20: the height select's chevron and the picked height's check are Font Awesome's, never Chakra's own (#1263)", async () => {
         const { container } = await mountBuilder();
@@ -659,7 +659,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         // Shown on the height the placement has: its content's.
         expect(checks.filter(([, check]) => !check.hidden).map(([name]) => name)).toEqual(["Auto"]);
         expect([...foreignIcons(control), ...foreignIcons(screen.getByRole("listbox"))]).toEqual([]);
-    }, 30_000);
+    });
 
     test("B20: the alignment segments set where the placement sits in a taller row", async () => {
         const { container } = await mountBuilder();
@@ -668,7 +668,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         await press("Center");
         expect(tile(container, "c-trend").getAttribute("data-align")).toBe("center");
         expect(screen.getByRole("button", { name: "Center" }).getAttribute("aria-pressed")).toBe("true");
-    }, 30_000);
+    });
 
     test("B12: the inspector's edits are drafts of the page's session — Save commits them in the page's one patch", async () => {
         const { container } = await mountBuilder();
@@ -681,7 +681,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         if (overview.type !== "page") throw new Error("expected a page");
         const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
         expect([trend.span, trend.align.type]).toEqual([9n, "stretch"]);
-    }, 30_000);
+    });
 
     test("the palette counts the canvas's unsaved drafts: a placement removed and not yet saved leaves ON CANVAS · ×1", async () => {
         const { container } = await mountBuilder();
@@ -695,7 +695,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         const double = (await readRecord()).get({ project: "ops", page: "d-double" })!;
         if (double.type !== "page") throw new Error("expected a page");
         expect(double.value.draft.cells).toHaveLength(2);
-    }, 30_000);
+    });
 });
 
 describe("<Studio.Builder> — Save as template (#997)", () => {
@@ -727,7 +727,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
         // The page's draft is still the canvas's to save.
         expect(spanOf(container, "c-trend")).toBe("9");
-    }, 30_000);
+    });
 
     test("D7: a name the project holds is the field's error, an empty one asks for a name, and nothing is written", async () => {
         await mountBuilder();
@@ -744,7 +744,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect(await commits()).toEqual(["$init"]);
-    }, 30_000);
+    });
 
     test("D7: a name another write took first is refused in the popover, in its words, and the other write stands", async () => {
         await mountBuilder();
@@ -767,7 +767,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.title).toBe("Theirs");
         expect(await commits()).toEqual(["patch", "$init"]);
-    }, 30_000);
+    });
 
     test("D7: while a template is open it is disabled, and says why", async () => {
         await mountBuilder();
@@ -776,7 +776,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         const button = screen.getByRole("button", { name: "Save as template" }) as HTMLButtonElement;
         expect(button.disabled).toBe(true);
         expect(button.title).toBe("A template is open — open a page to save it as a template");
-    }, 30_000);
+    });
 });
 
 describe("<Studio.Builder> — the publish preview (#998)", () => {
@@ -813,7 +813,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await settle();
         expect(container.querySelector("[data-studio-publish]")).toBeNull();
         expect(container.querySelector<HTMLElement>("[data-studio-canvas]")!.hidden).toBe(false);
-    }, 30_000);
+    });
 
     test("E2: the page as it will publish — its project, its title, and its layout at most the device's width", async () => {
         const { container } = await mountBuilder();
@@ -833,7 +833,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, 'device="mobile"')!.getAttribute("aria-pressed")).toBe("true");
         // The builder's canvas keeps its own width.
         expect(container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style.maxWidth).toBe("1440px");
-    }, 30_000);
+    });
 
     test("E3, E5: ready to publish — the version it replaces and the next, the changes since, and who sees it when", async () => {
         const { container } = await mountBuilder();
@@ -851,7 +851,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(publishButton(container).disabled).toBe(false);
         // Nothing unsaved: there is no draft to save.
         expect(saveButton(container).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("E3: a page never published is its first version — every placement added — and no banner", async () => {
         const { container } = await mountBuilder();
@@ -862,7 +862,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(rows(container)).toEqual([["fas plus", "Added KPI rail", "row 1 · span 12"], ["fas plus", "Added Revenue trend", "row 2 · span 8"]]);
         expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).textContent).toBe("Publish v1 to Staging");
-    }, 30_000);
+    });
 
     test("E3: a placement the draft removes since the live version is signed with Font Awesome's minus (#1263)", async () => {
         const { container } = await mountBuilder();
@@ -875,7 +875,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
             ["fas plus", "Added Breakdown bars"],
             ["fas minus", "Removed KPI rail"],
         ]);
-    }, 30_000);
+    });
 
     test("E3: a page live as it stands is up to date — nothing to publish, and no banner", async () => {
         const { container } = await mountBuilder();
@@ -887,7 +887,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).disabled).toBe(true);
         expect(saveButton(container).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("E3: a template is not published — no change list, and no banner", async () => {
         const { container } = await mountBuilder();
@@ -898,7 +898,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "banner")).toBeNull();
         expect(publishButton(container).textContent).toBe("Publish");
         expect(publishButton(container).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("E4: the banner says the logic is unchanged — or names the components whose code changed since the live version", async () => {
         const { container } = await mountBuilder();
@@ -916,7 +916,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(banner().getAttribute("role")).toBe("alert");
         expect([markOf(banner().firstElementChild), banner().lastElementChild!.textContent])
             .toEqual(["fas triangle-exclamation", "Logic changed since v3 in Orders by week — its placements publish with its new code"]);
-    }, 30_000);
+    });
 
     test("E4: the banner's words — one component is its; several are theirs, named in the order they are placed", () => {
         expect(studioMessages.logicChangedIn({ version: "v2", components: ["Revenue trend"] }))
@@ -939,7 +939,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(regional.value.live.value.page).toEqual(regional.value.draft);
         expect(regional.value.draft.cells.map((c) => c.fingerprint)).toEqual([kpiPrint, trendPrint, fingerprintOf(barsFn)]);
         expect(part(container, "versions")!.textContent).toBe("Regional · v4 live");
-    }, 30_000);
+    });
 
     test("E6: with drafts on the canvas, the page shown is the drafted one; Publish saves them first — the canvas's own commit — then publishes them", async () => {
         const { container } = await mountBuilder();
@@ -959,7 +959,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(regional.value.live.value.version).toBe(4n);
         expect(regional.value.live.value.page.cells.map((c) => [c.key, c.span])).toEqual([["p-kpi", 12n], ["p-trend", 7n], ["p-bars", 4n]]);
         expect(saveButton(container).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("E6: Save as draft is the canvas's Save alone — one commit to the draft, nothing published", async () => {
         const { container } = await mountBuilder();
@@ -975,7 +975,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(regional.value.draft.cells.find((c) => c.key === "p-trend")!.span).toBe(7n);
         expect(regional.value.live.value.version).toBe(3n);
         expect(part(container, "head")!.textContent).toBe("Ready to publish");
-    }, 30_000);
+    });
 
     test("E6: a publish another overtook is refused above the footer, in the preview's words — and the other stands", async () => {
         const { container } = await mountBuilder();
@@ -998,7 +998,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "refused")!.getAttribute("role")).toBe("alert");
         expect(part(container, "refused")!.textContent).toBe("Another write changed this page first — review it and publish again");
         expect(await commits()).toEqual(["patch", "$init"]);
-    }, 30_000);
+    });
 });
 
 describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () => {
@@ -1125,7 +1125,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         expect(toolbarItems(container)).toEqual(["zoom", "rule", "history", "more"]);
         expect([viewChipOf(container)!.getAttribute("aria-label"), chipOf(container)!.getAttribute("aria-label")]).toEqual(["View", "More"]);
         expect(chipOf(container)!.parentElement!.getAttribute("data-part")).toBe("anchor");
-    }, 30_000);
+    });
 
     test("the ⋯ chip's menu holds Save as template…, Preview and Publish: Preview and Publish open the publish preview in the canvas's place; the View chip's widths draw the canvas at theirs", async () => {
         row.px = 1;
@@ -1145,7 +1145,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
             .toEqual(["Zoom out", "Zoom in", "Desktop (checked)", "Tablet"]);
         await pick(viewChipOf(container)!, "Tablet");
         expect(container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style.maxWidth).toBe("1024px");
-    }, 30_000);
+    });
 
     test("the ⋯ chip's Save as template… opens its popover hung from the chip: it saves the open page, as last saved, in one commit, and the focus is back on the chip", async () => {
         row.px = 1;
@@ -1166,7 +1166,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
         await waitFor(() => expect(document.activeElement).toBe(chipOf(container)));
-    }, 30_000);
+    });
 
     test("while a template is open, the ⋯ chip's Save as template… is disabled, and says why", async () => {
         row.px = 1;
@@ -1178,7 +1178,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
             .toEqual(["Save as template…", "true", "A template is open — open a page to save it as a template"]);
         await pick(chipOf(container)!, "Save as template…");
         expect(screen.queryByRole("dialog")).toBeNull();
-    }, 30_000);
+    });
 
     test("while Save as template's popover hangs from the ⋯ chip, the chip and the three it holds keep their forms as the row widens — the canvas's own items and the status unfold around it; closed, the row unfolds", async () => {
         row.px = 1;
@@ -1196,5 +1196,5 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await waitFor(() => expect(stateOf(container).get("more")).toBe(0));
         expect(["save-template", "preview", "publish"].map((key) => stateOf(container).get(key))).toEqual([0, 0, 0]);
         expect(await commits()).toEqual(["$init"]);
-    }, 30_000);
+    });
 });

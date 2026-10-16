@@ -69,7 +69,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         expect(sameJob(storedJobs(canvas, "m1")[0]!, { key: "j1", label: "J1", start: W(28), end: W(30) })).toBe(true);
         await history(canvas, "Save");
         expect(sameJob(storedJobs(canvas, "m1")[0]!, { key: "j1", label: "J1", start: W(30), end: W(32) })).toBe(true);
-    }, 30_000);
+    });
 
     test("a run let go in the week it was grabbed in moved nowhere — said as not dropped, and nothing drafted", async () => {
         const canvas = await mountMoves();
@@ -80,7 +80,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         expect(announced()).toBe("J1 was not dropped.");
         expect(canvas.patches).toEqual([]);
         expect(markOf(c, "jobs", "m1")).toBeUndefined();
-    }, 30_000);
+    });
 
     test("with Shift held it moves by days — the finer unit under a week", async () => {
         const canvas = await mountMoves();
@@ -91,7 +91,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         await dragTo(bar, { x: xAt(28, 0.5), y: y("jobs", "m1") }, { x: xAt(28, 3.5), y: y("jobs", "m1") }, true);
         await history(canvas, "Save");
         expect(sameJob(storedJobs(canvas, "m1")[0]!, { key: "j1", label: "J1", start: D(28, 3), end: D(30, 3) })).toBe(true);
-    }, 30_000);
+    });
 
     test("an end handle resizes — the end by whole weeks, the start never past the end's last week", async () => {
         const canvas = await mountMoves();
@@ -106,7 +106,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         await history(canvas, "Save");
         expect(sameJob(storedJobs(canvas, "m1")[0]!, { key: "j1", label: "J1", start: W(31), end: W(32) })).toBe(true);
         expect(gestures(canvas)).toEqual([["resize", "Resize J1"], ["resize", "Resize J1"]]);
-    }, 30_000);
+    });
 
     test("a canvas that names no drop target still moves its own elements — only a card needs the canvas's id", async () => {
         const canvas = await mountMoves({ id: false });
@@ -123,7 +123,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         await keyOn({ key: "ArrowRight" });
         await keyOn({ key: " " });
         expect(gestures(canvas)).toEqual([["move", "Move J1 to M2"], ["move", "Move J1"]]);
-    }, 30_000);
+    });
 
     test("a chip moves and resizes on its own fields; a tile moves to another week", async () => {
         const canvas = await mountMoves();
@@ -142,7 +142,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
         const m1 = canvas.stored().get("m1")!;
         expect([m1.shifts[0]!.from, m1.shifts[0]!.to]).toEqual([W(28), W(31)]);
         expect(m1.slots[0]!.at).toEqual(W(31));
-    }, 30_000);
+    });
 });
 
 describe("a move reaches the rows of its item type (#825)", () => {
@@ -159,7 +159,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         await history(canvas, "Save");
         expect(storedJobs(canvas, "m1")).toEqual([]);
         expect(sameJob(storedJobs(canvas, "m2")[0]!, { key: "j1", label: "J1", start: W(29), end: W(31) })).toBe(true);
-    }, 30_000);
+    });
 
     test("onto another series of the same item type — the press's backlog — in one request over its entry", async () => {
         const canvas = await mountMoves();
@@ -172,7 +172,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         await history(canvas, "Save");
         expect(storedJobs(canvas, "m1")).toEqual([]);
         expect(sameJob(storedJobs(canvas, "m1", "backlog")[0]!, { key: "j1", label: "J1", start: W(28), end: W(30) })).toBe(true);
-    }, 30_000);
+    });
 
     test("a row of another item type is no destination — it never lights up, and a drop there drafts nothing", async () => {
         const canvas = await mountMoves();
@@ -191,7 +191,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         await letGo();
         expect(canvas.patches).toEqual([]);
         expect(keysOf(c, "jobs", "m1")).toEqual(["j1"]);
-    }, 30_000);
+    });
 
     test("a row already drawing the job's key refuses it — the ⊘ stage and the refusal said, by pointer and by keyboard, and nothing drafted", async () => {
         // Press 2 already holds a job keyed j1 — another job, the same key. A
@@ -223,7 +223,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         await dragTo(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(28), y: y("backlog", "m2") });
         expect(keysOf(c, "backlog", "m2")).toEqual(["j1"]);
         expect(keysOf(c, "jobs", "m2")).toEqual(["j1"]);
-    }, 30_000);
+    });
 
     test("the landing band spans the extent it would take, labelled with it", async () => {
         const canvas = await mountMoves();
@@ -238,7 +238,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         expect(band.querySelector("[data-plan-drop-preview-text]")!.textContent).toBe("Jul 20, 2026 – Aug 3, 2026");
         expect(announced()).toBe("J1 is over M2, Jul 20, 2026 – Aug 3, 2026.");
         await letGo();
-    }, 30_000);
+    });
 });
 
 describe("a move is a draft of the session (#825)", () => {
@@ -274,7 +274,7 @@ describe("a move is a draft of the session (#825)", () => {
         expect(canvas.stored().get("m1")!.jobs[0]!.start).toEqual(W(28));
         await history(canvas, "Save");
         expect(sameJob(storedJobs(canvas, "m1")[0]!, { key: "j1", label: "J1", start: W(29), end: W(33) })).toBe(true);
-    }, 30_000);
+    });
 
     test("canDrop refuses a move before it becomes a draft — the ⊘ stage, and it says so", async () => {
         const canvas = await mountMoves({ veto: true });
@@ -291,7 +291,7 @@ describe("a move is a draft of the session (#825)", () => {
         // The same press's backlog takes it.
         await dragTo(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(28), y: y("backlog", "m2") });
         expect(keysOf(c, "backlog", "m2")).toEqual(["j1"]);
-    }, 30_000);
+    });
 });
 
 describe("the same move inline and paged (#825)", () => {
@@ -325,7 +325,7 @@ describe("the same move inline and paged (#825)", () => {
             expect(moved.map((j) => j.key)).toEqual(["k1"]);
             expect(sameInstant(moved[0]!.at, variant("time", W(30)))).toBe(true);
             expect(drawnMarks("p2")).toEqual(["k1"]);
-        }, 30_000);
+        });
     }
 });
 
@@ -361,7 +361,7 @@ describe("the keyboard moves an element (#825)", () => {
         expect(document.activeElement).toBe(elementOf(c, "jobs", "m2", "j1"));
         await history(canvas, "Save");
         expect(sameJob(storedJobs(canvas, "m2")[0]!, { key: "j1", label: "J1", start: W(28), end: W(32) })).toBe(true);
-    }, 30_000);
+    });
 
     test("Escape and Tab cancel — it stays where it was, and focus returns to it", async () => {
         const canvas = await mountMoves();
@@ -378,7 +378,7 @@ describe("the keyboard moves an element (#825)", () => {
             expect(document.activeElement).toBe(bar);
         }
         expect(canvas.patches).toEqual([]);
-    }, 30_000);
+    });
 
     test("a refused place is said, and the carry goes on; a tile has no ends to move", async () => {
         const canvas = await mountMoves({ veto: true });
@@ -403,5 +403,5 @@ describe("the keyboard moves an element (#825)", () => {
         expect(carrySaid(c)).toBe("T1: M1, Jul 20, 2026");
         await keyOn({ key: "Enter" });
         expect(gestures(canvas)).toEqual([["move", "Move T1"]]);
-    }, 30_000);
+    });
 });

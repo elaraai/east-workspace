@@ -394,7 +394,7 @@ describe("a new flow over a record (#1246, FB14)", () => {
         expect(cards(container).find((c) => c.name === "Night shift")).toEqual({ name: "Night shift", line: "1 lane · 0 states · 0 transitions", placed: true, chip: null });
         expect(enabled(editingMessages.apply())).toBe(false);
         expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
-    }, 30_000);
+    });
 
     test("a new flow's name, not yet committed, is refused for another, with the reason", async () => {
         recordHarness(FLOWS);
@@ -404,7 +404,7 @@ describe("a new flow over a record (#1246, FB14)", () => {
         await act(async () => { fireEvent.change(name, { target: { value: "Night shift" } }); });
         expect(popover.getByText(m.flowNameTaken({ name: "Night shift" })).id).toBe(name.getAttribute("aria-describedby"));
         expect((popover.getByRole("button", { name: m.createFlow() }) as HTMLButtonElement).disabled).toBe(true);
-    }, 30_000);
+    });
 
     test("Discard drops it: it leaves the tab, the record never held it, and the first flow by name is open again", async () => {
         const harness = recordHarness(FLOWS);
@@ -416,7 +416,7 @@ describe("a new flow over a record (#1246, FB14)", () => {
         expect(stateKeys(container)).toEqual(["ARV", "SRT"]);
         expect(flowsEqual(readRecord(harness), FLOWS)).toBe(true);
         expect((await commits(harness))).toEqual(["$init"]);
-    }, 30_000);
+    });
 });
 
 describe("each flow its own session (#1246, FB15)", () => {
@@ -444,7 +444,7 @@ describe("each flow its own session (#1246, FB15)", () => {
         await press(editingMessages.discard());
         expect(cards(container).map((c) => c.name)).toEqual(["Inbound parcels", "Night shift", "Returns"]);
         expect([...readRecord(harness).keys()]).toEqual(["Inbound parcels", "Night shift", "Returns"]);
-    }, 30_000);
+    });
 
     test("an empty record: the Flows tab says so, with no button; main's empty state carries the one \"+ New flow\", and a flow made there opens", async () => {
         const harness = recordHarness(new SortedMap([], compareFor(StringType)));
@@ -469,5 +469,5 @@ describe("each flow its own session (#1246, FB15)", () => {
         expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
         await press(editingMessages.apply());
         expect([...readRecord(harness).keys()]).toEqual(["Night shift"]);
-    }, 30_000);
+    });
 });

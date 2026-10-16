@@ -5,7 +5,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { Box, chakra, Flex, Heading, Text } from "@chakra-ui/react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { PatternEntry } from "./PatternEntry";
 import type { CatalogEntry } from "../catalog";
 
@@ -128,6 +128,20 @@ export function DocList({
         ? item.kind === "entry" && item.groupKey === scrollTarget.pathKey && item.entry.name === scrollTarget.name
         : item.kind === "head" && item.pathKey === scrollTarget.pathKey);
     const itemKey = useCallback((index: number) => items[index].key, [items]);
+    /* The linked entry stays mounted wherever the list scrolls: what a link
+     * opened is never dropped from the page while the link stands. Anything
+     * that moves the list far enough — a reader, or a test's pointer
+     * scrolling a control into view while the rows around the link measure —
+     * otherwise left the window without it, and nothing scrolled it back:
+     * each spec driving an entry it opened by its link waited for it until
+     * it timed out. Kept, it is where its row says, and scrolling to it
+     * shows it as it was left. */
+    const rangeExtractor = useCallback((range: Range) => {
+        const indexes = defaultRangeExtractor(range);
+        return targetIndex < 0 || indexes.includes(targetIndex)
+            ? indexes
+            : [...indexes, targetIndex].sort((a, b) => a - b);
+    }, [targetIndex]);
 
     const virtualizer = useVirtualizer({
         count: items.length,
@@ -142,6 +156,7 @@ export function DocList({
         // scroll anchoring settles. Larger overscan mounts several expensive
         // builders and adds their subscriptions to every interaction.
         overscan: 1,
+        rangeExtractor,
         paddingStart: PAD_START,
         paddingEnd: PAD_END,
     });

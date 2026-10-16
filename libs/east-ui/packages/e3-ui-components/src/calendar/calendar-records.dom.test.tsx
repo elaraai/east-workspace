@@ -94,4 +94,4 @@ test("indexed Calendar preserves overlaps, replaces windows atomically, and save
     expect(card(container, "carry")).not.toBeNull();
     expect(card(container, "long")).not.toBeNull();
     expect(reads.paths.filter(path => path === "records.indexed_calendar_events")).toEqual([]);
-}, 30_000);
+});

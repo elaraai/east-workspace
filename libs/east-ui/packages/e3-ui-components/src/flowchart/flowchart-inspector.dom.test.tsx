@@ -257,7 +257,7 @@ describe("the pane (#1250, FB35, FB44)", () => {
         const rail = detail.parentElement!;
         expect(rail.querySelector('svg[data-icon="sliders"]')).not.toBeNull();
         expect(within(rail).getByText("1")).toBeTruthy();
-    }, 30_000);
+    });
 
     test("`inspector={false}` takes it away; `true` gives it, as no prop does", async () => {
         recordHarness(FLOWS);
@@ -269,7 +269,7 @@ describe("the pane (#1250, FB35, FB44)", () => {
         recordHarness(FLOWS);
         const on = await mountRecord({ ...SORT_OPEN, inspector: true });
         expect(tabs(on.container)).toEqual(["Details", "Issues 1"]);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -293,7 +293,7 @@ describe("Details: a state (§5.3, FB36)", () => {
         // A transition listed selects it.
         await click(panel(container).querySelector("[data-inspector-link='CH*→SRD#1']")!);
         expect([showing(container), head(container)[0]]).toEqual(["transition", "Transition · CH* → SRD"]);
-    }, 30_000);
+    });
 
     test("an edit is one transaction, tinted and Pending: a new key rekeys its transitions and the decisions' queues; Undo takes it back; Save commits it", async () => {
         const { container, harness } = await mountSort();
@@ -314,7 +314,7 @@ describe("Details: a state (§5.3, FB36)", () => {
         await press(SAVE);
         expect(flowEqual(readRecord(harness).get("Sort")!, edits.editState(SORT, "IND", "IND", "Inducted"))).toBe(true);
         expect(await commits(harness)).toEqual(["patch", "$init"]);
-    }, 30_000);
+    });
 
     test("its lane a select over the flow's lanes, its members a number with Set and Clear, its notes — each one transaction", async () => {
         const { container } = await mountSort();
@@ -333,7 +333,7 @@ describe("Details: a state (§5.3, FB36)", () => {
         // Four edits, four transactions.
         for (let i = 0; i < 4; i++) await press(UNDO);
         expect(enabled(UNDO)).toBe(false);
-    }, 30_000);
+    });
 
     test("an empty key is refused, the footer saying why, and the field shows the key again", async () => {
         const { container } = await mountSort();
@@ -342,7 +342,7 @@ describe("Details: a state (§5.3, FB36)", () => {
         expect(footerMessage(container)).toBe(m.inspectorRefused({ why: "emptyKey", what: "state" }));
         expect(box(container, "key").value).toBe("SRD");
         expect(pending(container)).toBe(pendingOf(0));
-    }, 30_000);
+    });
 
     test("Duplicate puts a copy right after it, in its lane, selected; Delete takes it with its transitions, and selects nothing", async () => {
         const { container } = await mountSort();
@@ -357,7 +357,7 @@ describe("Details: a state (§5.3, FB36)", () => {
         expect(stateKeys(container)).not.toContain("CH*");
         expect(container.querySelectorAll("[data-flowchart-link]")).toHaveLength(1);
         expect(showing(container)).toBe("flow");
-    }, 30_000);
+    });
 
     test("a state no row stands for — an unresolved transition's end — says so, with its transitions; Delete takes them away", async () => {
         const { container } = await mountSort();
@@ -367,7 +367,7 @@ describe("Details: a state (§5.3, FB36)", () => {
         await click(action(container, "delete")!);
         expect(stateKeys(container)).not.toContain("GONE");
         expect(tabs(container)).toEqual(["Details", "Issues 0"]);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -389,7 +389,7 @@ describe("Details: a transition (§5.3, FB36)", () => {
                 ["count", "readonly", "386"],
                 ["measured", "readonly", WORDS.dateTime(new Date("2026-06-30T00:00:00Z"))],
             ]);
-    }, 30_000);
+    });
 
     test("each edit one transaction: its kind, its decision — none among them — its ends and its key, the selection following the key it goes by", async () => {
         const { container, harness } = await mountSort();
@@ -410,7 +410,7 @@ describe("Details: a transition (§5.3, FB36)", () => {
         await press(SAVE);
         const saved = readRecord(harness).get("Sort")!;
         expect(saved.links[1]).toEqual({ key: some("back"), from: "CH*", to: "IND", kind: some(variant("planned", null)), trigger: none, evidence: none });
-    }, 30_000);
+    });
 
     test("Delete deletes it, and selects nothing", async () => {
         const { container } = await mountSort();
@@ -418,7 +418,7 @@ describe("Details: a transition (§5.3, FB36)", () => {
         await click(action(container, "delete")!);
         expect(container.querySelector("[data-flowchart-link='IND→CH*']")).toBeNull();
         expect(showing(container)).toBe("flow");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -449,7 +449,7 @@ describe("Details: a decision (§5.3, FB36)", () => {
         await click(action(container, "delete")!);
         expect(container.querySelector("[data-flowchart-trigger]")).toBeNull();
         expect(showing(container)).toBe("flow");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -478,7 +478,7 @@ describe("Details: a lane (§5.3, FB36)", () => {
         await click(action(container, "delete")!);
         expect(laneHeads(container)).toEqual(["INDUCT", "SORTING"]);
         expect(showing(container)).toBe("flow");
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -505,7 +505,7 @@ describe("Details: several states (§5.3, FB36)", () => {
         await click(node(container, "CH*"), { shiftKey: true });
         await click(node(container, "IND"), { shiftKey: true });
         expect([showing(container), head(container)[0]]).toEqual(["state", "State · CH*"]);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -530,7 +530,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         await click(node(container, "IND"));
         await click(container.querySelector("[data-flowchart-canvas]")!);
         expect(showing(container)).toBe("flow");
-    }, 30_000);
+    });
 
     test("a new description is one transaction, which Save commits", async () => {
         const { container, harness } = await mountSort();
@@ -538,7 +538,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         expect([pending(container), chip(container)]).toEqual([pendingOf(1), "Pending"]);
         await press(SAVE);
         expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, description: some("From the belt to the hold") })).toBe(true);
-    }, 30_000);
+    });
 
     test("a new name renames the flow, one transaction — refused for a name the flowchart holds, or none — and Save commits it as one patch, the flow then open under its new name", async () => {
         const { container, harness } = await mountSort();
@@ -577,7 +577,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         expect([footerFlow(container), pending(container)]).toEqual(["Sorting", pendingOf(0)]);
         expect(cards(container).map((card) => [card.name, card.chip])).toEqual([["Returns", null], ["Sorting", null]]);
         expect(stateKeys(container)).toContain("SRD");
-    }, 30_000);
+    });
 
     test("a rename whose Save is answered with a conflict is not followed: its drafts undone, a flow of that name another write makes leaves the open flow where it is", async () => {
         const issue = { entry: "Sort", row: none, field: none, message: "Changed since this edit began" };
@@ -596,7 +596,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         );
         await settle();
         expect([footerFlow(container), stateKeys(container).filter((k) => k !== "GONE")]).toEqual(["Sort", ["IND", "CH*", "SRD"]]);
-    }, 30_000);
+    });
 
     test("a rename whose Save got no answer is followed once its Retry is seen through: the record reading back the flow under its new name", async () => {
         let sends = 0;
@@ -619,7 +619,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         );
         await settle();
         expect([footerFlow(container), pending(container), head(container)]).toEqual(["Sorting", pendingOf(0), ["Flow", "Sorting"]]);
-    }, 30_000);
+    });
 
     test("a flow deleted and saved is done with: made again by another write, it opens as that write left it, with nothing to confirm", async () => {
         const { container, harness } = await mountSort();
@@ -631,7 +631,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         await click(container.querySelector("[data-frame-slot='start'] [data-library-item='Sort']")!);
         expect([footerFlow(container), stateKeys(container), pending(container)]).toEqual(["Sort", ["NGT"], pendingOf(0)]);
         expect([container.querySelector("[data-flowchart-deleted]"), enabled(SAVE)]).toEqual([null, false]);
-    }, 30_000);
+    });
 
     test("Duplicate opens a copy as a new flow, Pending, which Save inserts", async () => {
         const { container, harness } = await mountSort();
@@ -641,7 +641,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         expect(cards(container).map((card) => [card.name, card.chip])).toEqual([["Returns", null], ["Sort", null], ["Sort copy", m.flowPending()]]);
         await press(SAVE);
         expect(flowEqual(readRecord(harness).get("Sort copy")!, SORT)).toBe(true);
-    }, 30_000);
+    });
 
     test("Delete deletes it: main says so and Details too; Undo brings it back; Save removes it from the record, and the next flow opens", async () => {
         const { container, harness } = await mountSort();
@@ -669,7 +669,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         // Its history holds the new flow alone: one Undo takes it, and there is nothing more to undo.
         await press(UNDO);
         expect(enabled(UNDO)).toBe(false);
-    }, 30_000);
+    });
 
     test("over one flow: its description alone — no name, no Duplicate, no Delete", async () => {
         const host = East.compile(East.function([], Flowchart.Types.Payload, (_$) => Flowchart.Payload({
@@ -679,7 +679,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         expect([showing(container), head(container)]).toEqual(["flow", ["Flow", null]]);
         expect(editors(container)).toEqual(["description:text"]);
         expect([action(container, "duplicate"), action(container, "delete")]).toEqual([null, null]);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -710,7 +710,7 @@ describe("Issues (FB37)", () => {
         await click(container.querySelector("[data-flowchart-canvas]")!);
         await press(editingMessages.issues({ n: 1, count: "1" }));
         expect([showing(container), head(container)[0]]).toEqual(["state", "State · SRD"]);
-    }, 30_000);
+    });
 
     test("a Save's conflict is listed, blocking, while it stands", async () => {
         const issue = { entry: "Sort", row: none, field: none, message: "Changed since this edit began" };
@@ -728,7 +728,7 @@ describe("Issues (FB37)", () => {
         expect([first.querySelector("span:first-child")?.textContent, first.querySelector("[data-kind]")?.textContent, first.querySelector("[data-kind]")?.getAttribute("data-kind")])
             .toEqual(["Sort", "Changed since this edit began", "invalid"]);
         expect(tabs(container)).toEqual(["Details", "Issues 2"]);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -753,14 +753,14 @@ describe("read only (FB38)", () => {
         await click(container.querySelector("[data-flowchart-node='CH*']")!);
         expect(editors(container)).toEqual(["key:readonly", "label:readonly", "lane:readonly", "members:readonly", "notes:readonly"]);
         expect(box(container, "lane").value).toBe("Sort");
-    }, 30_000);
+    });
 
     test("with `readOnly`, over a record, the same", async () => {
         const { container } = await mountSort({ ...SORT_OPEN, readOnly: true });
         await click(node(container, "SRD"));
         expect(editors(container)).toEqual(["key:readonly", "label:readonly", "lane:readonly", "members:readonly", "notes:readonly"]);
         expect(panel(container).querySelector("[data-inspector-action]")).toBeNull();
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -795,12 +795,12 @@ describe("a kind's own Details (FB45)", () => {
         expect(edits.stateRow(readRecord(harness).get("Sort")!, "SRD")!.members).toEqual(some(3n));
         await click(container.querySelector("[data-flowchart-link='IND→CH*']")!);
         expect(editors(container)[0]).toBe("from:reference");
-    }, 30_000);
+    });
 
     test("read only, their update writes nothing", async () => {
         const { container } = await mountSort(own(true));
         await click(node(container, "SRD"));
         await click(within(panel(container)).getByRole("button", { name: "Make SRD a class of three" }));
         expect(node(container, "SRD").textContent).not.toContain("×");
-    }, 30_000);
+    });
 });

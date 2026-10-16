@@ -96,7 +96,7 @@ describe("the builder's Datasets tab (#939 D1)", () => {
         expect(groups()).toEqual([["Rows", "1"], ["Lookups", "1"]]);
         expect(cards().map((c) => [c.textContent, iconOf(c)])).toEqual([["orders", "table-list"], ["customers", "key"]]);
         expect(datasetGetStatus).not.toHaveBeenCalled();
-    }, 30_000);
+    });
 
     test("with an e3 server, each data source's size and hash from its status", async () => {
         vi.mocked(datasetGetStatus).mockImplementation(async (_url, _repo, _workspace, path) => {
@@ -117,7 +117,7 @@ describe("the builder's Datasets tab (#939 D1)", () => {
         expect(cards().map((c) => c.textContent)).toEqual(["orders40 orders · #4f2a1c8d", "customers8 customers by ID · #9b07e3a4"]);
         const asked = vi.mocked(datasetGetStatus).mock.calls.map(([, , workspace, path]) => [workspace, pathToString(path)]);
         expect(asked).toEqual(expect.arrayContaining([["query-builder-test", pathToString(ORDERS)], ["query-builder-test", pathToString(CUSTOMERS)]]));
-    }, 30_000);
+    });
 
     test("Source and Looked up where the open query reads a data source, the card placed", async () => {
         await mountBuilder(fixtureCall().call);
@@ -127,7 +127,7 @@ describe("the builder's Datasets tab (#939 D1)", () => {
         await openQuery(variant("saved", TOP.name));
         await show("Datasets");
         expect([roleOf(card("orders")), roleOf(card("customers"))]).toEqual([["Source", true], ["Looked up", true]]);
-    }, 30_000);
+    });
 });
 
 // ─── D2 ──────────────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ describe("the builder's Datasets tab (#939 D2)", () => {
         // The query that was open: its drafts as they were.
         await openQuery(variant("saved", TOP.name));
         expect(container.querySelectorAll("[data-step-id]")).toHaveLength(6);
-    }, 30_000);
+    });
 
     test("⌘/ opens the Datasets tab, the pane expanded", async () => {
         const { container } = await mountBuilder(fixtureCall().call);
@@ -162,5 +162,5 @@ describe("the builder's Datasets tab (#939 D2)", () => {
         await settle();
         expect(container.querySelector("[data-query-builder] [data-collapsed]")).toBeNull();
         expect(screen.getByRole("tab", { name: "Datasets" }).getAttribute("aria-selected")).toBe("true");
-    }, 30_000);
+    });
 });

@@ -65,4 +65,4 @@ test("indexed Plan preserves order and hidden operation drafts through Undo, Red
     expect(reads.paths).toEqual([]);
     expect(paging.requests.some(request => request.includes('seek "JOB-10000"'))).toBe(true);
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
-}, 30_000);
+});

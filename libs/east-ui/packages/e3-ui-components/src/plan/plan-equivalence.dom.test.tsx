@@ -147,7 +147,7 @@ describe("Plan — closures that change (#809)", () => {
         // the canvas kept rendering "ALPHA".
         rerender(view(inlineCanvas("BETA")));
         await waitFor(() => expect(container.querySelector("[data-plan-expandrender]")?.textContent).toBe("BETA"));
-    }, 30_000);
+    });
 
     test("a paged series whose captured threshold changes re-derives the resident windows", async () => {
         initializeStore(new UIStore());
@@ -157,5 +157,5 @@ describe("Plan — closures that change (#809)", () => {
         // Same handle id, same raw windows — only the series closure moved.
         rerender(view(pagedCanvas(40)));
         await waitFor(() => expect(rowKeys(container)).toEqual(["u08", "u09", "u10", "u11"]));
-    }, 30_000);
+    });
 });

@@ -391,5 +391,5 @@ describe("the paged arm's key search (§3.13)", () => {
         fireEvent.click(search.querySelector('[aria-label="Next match"]')!);
         await waitFor(() => expect(cellOf(container, "J10231", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
         expect(search.textContent).toMatch(/2 of 10/);
-    }, 30_000);
+    });
 });
