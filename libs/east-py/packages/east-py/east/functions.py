@@ -121,7 +121,8 @@ def function_ir(fn_or_ir: Any) -> Any:
 
 def _root_function(ir: Any, what: str) -> Any:
     """The Function / AsyncFunction node: the root, or the last statement of
-    the ``Block[Let…, Function]`` a build with hoisted constants emits."""
+    the ``Block[Let…, Function]`` an earlier python build wrote for its
+    hoisted constants (a form no builder emits since #1312, still read)."""
     root = ir
     if root.type == "Block":
         statements = list(root.value["statements"])
@@ -228,10 +229,10 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
     Every function exports as a closed value: one that reads a variable its
     own IR does not bind (a closure over an enclosing body) is rejected, as
     is a ``.bind`` result (no IR of its own) and a function that itself holds
-    an unresolved import — link before exporting; exports do not chain. A
-    build's OWN hoisted constants — the ``Block[Let…, Function]`` a captured
-    lookup table or a stdlib format string produces — are exported with the
-    function and close over nothing (#669). Each function carries the
+    an unresolved import — link before exporting; exports do not chain. An
+    IR value still rooted at the ``Block[Let…, Function]`` an earlier python
+    build wrote for its hoisted constants exports whole, its Lets with it,
+    and closes over nothing (#669). Each function carries the
     locations its IR names, renumbered into a source map of its own, so the
     frames of an error or a profile name its python source wherever it is
     linked (#1271); a bare IR value, which carries no map, exports without
@@ -267,18 +268,18 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
             raise TypeError(f"export_functions: {name}: {e}") from None
         source_map = getattr(functions[name], "_east_source_map", None)
         root = _root_function(ir, f"export_functions: {name}")
-        # Closed means the exported IR BINDS every name it reads. A build's
-        # own hoisted constants sit in Lets above the function and travel
-        # with it (the whole Block is what is exported below), so a capture
-        # naming one resolves wherever the IR lands; only a name nothing in
-        # the IR binds is a closure over an enclosing body (#669).
+        # Closed means the exported IR BINDS every name it reads. The Lets an
+        # earlier python build hoisted above its function travel with it (the
+        # whole Block is what is exported below), so a capture naming one
+        # resolves wherever the IR lands; only a name nothing in the IR binds
+        # is a closure over an enclosing body (#669).
         free: dict[str, Any] = {}
         _free_vars(ir, frozenset(), free)
         if free:
             raise ValueError(
                 f"export_functions: {name} reads {', '.join(free)}, which its own IR does not "
                 "bind — an exported function is a closed value: it may bind what it reads "
-                "(a build's hoisted constants do), but it may not close over an enclosing body")
+                "(a Block root's Lets do), but it may not close over an enclosing body")
         ir = _rename_hoisted_constants(ir, package, name)
         imports = _count_imports(ir)
         if imports:
@@ -304,10 +305,11 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
 
 
 def _rename_hoisted_constants(ir: Any, package: str, name: str) -> Any:
-    """The build's hoisted constants renamed uniquely to this export.
+    """The hoisted constants of a ``Block[Let…, Function]`` root — the form
+    an earlier python build wrote — renamed uniquely to this export.
 
-    A build names them from a per-PROCESS counter (``__n0``, ``__n1``), so
-    two packages exported from two different processes both start at
+    Such a build named them from a per-PROCESS counter (``__n0``, ``__n1``),
+    so two packages exported from two different processes both start at
     ``__n0``. Linked into one program those ``Let``s land in one scope —
     east-c binds a Block's statements in the enclosing environment and its
     closures share that environment, so the second constant overwrites the

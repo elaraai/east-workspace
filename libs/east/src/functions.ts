@@ -144,8 +144,8 @@ function functionBundle(fnOrIr: unknown): { ir: IR; sourceMap: SourceMap | null 
 
 /**
  * The `Function` / `AsyncFunction` node of a function's IR: the root, or the
- * last statement of the `Block[Let…, Function]` a python build with hoisted
- * constants emits.
+ * last statement of the `Block[Let…, Function]` an earlier python build wrote
+ * for its hoisted constants (a form no builder emits since #1312, still read).
  */
 function rootFunction(ir: IR, what: string): FunctionIR | AsyncFunctionIR {
   let root: IR = ir;

@@ -98,10 +98,12 @@ platform = East.platform_functions(__name__)   # pass to East.compile(fn, platfo
 A body's parameters are expressions already. A python scalar or `datetime` inside
 a body lifts to a literal; `East.value(v, T)` / `b.const(v)` lift anything else
 (TS `East.value` / `$.const`); an East COLLECTION an `East.function` body closes
-over is snapshot into the IR (`.bind(table)` it as a trailing parameter to keep it
-live). The other way, an artifact is a plain callable on values, every eager
-method accepts one (a VALUE takes no block), and one called inside another body
-is a call of its inline Function node — see [Python values vs East expressions](#python-values-vs-east-expressions).
+over is snapshot into the IR as a literal of its contents, rebuilt wherever the
+body reads it — `t = b.const(table)` builds it once per call, and `.bind(table)`
+as a trailing parameter keeps it live. The other way, an artifact is a plain
+callable on values, every eager method accepts one (a VALUE takes no block),
+and one called inside another body is a call of its inline Function node — see
+[Python values vs East expressions](#python-values-vs-east-expressions).
 
 ## Decision Tree: What Do You Need?
 
@@ -136,7 +138,7 @@ Task → What do you need?
     │   ├─ Call python from a body → the @East.platform_function you hold IS the Platform node (no declaration) · East.platform /
     │   │   asyncPlatform / genericPlatform only for one implemented elsewhere · East.compile(fn, platform=East.platform_functions(__name__))
     │   │                                                                        → "Declare, implement, build, compile", "Platform functions"
-    │   ├─ Make it fast → data stays in East · chain · CSE by reusing a python variable · capture small tables, .bind big ones
+    │   ├─ Make it fast → data stays in East · chain · bind shared work with b.const · b.const a captured table, .bind big ones
     │   │                                                                        → "Performance — the levers, ranked"
     │   ├─ IR ↔ python → to_python_source · east-py transpile · compile_from_beast2 / json / east / value · east-c ir …  → "IR ↔ python"
     │   ├─ Refusals at edit time → east-py lint · flake8 --select EAS · east-py lsp; TYPE errors → east-py check
@@ -167,9 +169,10 @@ Task → What do you need?
     │   └─ Let East call python → @East.platform_function · @East.generic_platform_function · @memoize → "Platform functions"
     │
     ├─ C. Cross between them → a body's parameters are expressions · python scalars and datetimes lift · East.value(v, T) /
-    │   b.const(v) · a captured East collection is a build-time SNAPSHOT (an eager callback refuses it), .bind(table) keeps it
-    │   live · an East function is a callable on values, and a VALUE takes no block · east.runtime.compiler.eager_stats()
-    │   shows how a hot call ran                                       → "Python values vs East expressions", "Performance"
+    │   b.const(v) · a captured East collection is a build-time SNAPSHOT, a literal rebuilt at each read (an eager callback
+    │   refuses it) — b.const(table) builds it once per call, .bind(table) keeps it live · an East function is a callable on
+    │   values, and a VALUE takes no block · east.runtime.compiler.eager_stats() shows how a hot call ran
+    │                                                                   → "Python values vs East expressions", "Performance"
     │
     └─ D. Run a program from the shell → east-py run (IR + input files → a result) · exec (a unit: the runner protocol e3
         speaks) · convert (a beast2 value → East text) · version · where its time goes: --profile / EAST_PROFILE=1
@@ -309,12 +312,12 @@ artifact used as an `East.if_else` arm evaluates only when that arm is taken,
 an error inside it names its own lines, and a profile lists it as an entry of
 its own, placed where it was written and where it was called. (One called with
 arguments narrower than its parameters — a column projection's narrowed rows —
-re-runs its source in its own frame and splices in instead, as does one whose
-build hoisted constants.) An artifact that mutates or raises, called and
-DISCARDED, is the build's "evaluated and thrown away" error — spell it
-`b.do(push(xs))` / `East.block(push(xs), result)`, as with any mutation. An
-artifact that calls platform functions stays first-class (composable,
-serializable) but raises until `East.compile` pairs it with implementations.
+re-runs its source in its own frame and splices in instead.) An artifact that
+mutates or raises, called and DISCARDED, is the build's "evaluated and thrown
+away" error — spell it `b.do(push(xs))` / `East.block(push(xs), result)`, as
+with any mutation. An artifact that calls platform functions stays first-class
+(composable, serializable) but raises until `East.compile` pairs it with
+implementations.
 `East.function(...)` spelled INSIDE a body is the inline `Function` node, a
 Function-typed expression: bind it with `b.const`, hand it to a callback slot,
 or call it (a `Call`; in an `East.asyncFunction`, calling an async one is a
@@ -512,7 +515,7 @@ East values. A worked example is in
 | `East.while_(state, cond, body, label=…)` | `While` | `cond(b, s) -> Boolean`, `body(b, s) -> next state` |
 | `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(b, s, el[, i])`, Set `body(b, s, el)`, Dict `body(b, s, k, v)` |
 | `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators (`East.block(lambda b: …)` is the statement form) |
-| `East.let(value, fn)` | `Let` | `fn(b, bound)` — bind once, use many times (explicit CSE inside a loop) |
+| `East.let(value, fn)` | `Let` | `fn(b, bound)` — bind once, use many times, inside an expression body (`b.const` is the statement form) |
 | `East.ref(v)` | `NewRef` | a cell — `.get()` / `.update(v)` / `.merge(v, fn(b, current, patch))` |
 | `East.label(name=None)` | — | names a loop, for `break_`/`continue_` from a NESTED one |
 | `East.break_(state=…, label=…)` / `East.continue_(state=…, label=…)` | `Break` / `Continue` | leave / next iteration, optionally committing a last state |
@@ -535,10 +538,10 @@ counts = East.for_(rows, {"counts": East.new_dict(StringType, IntegerType)},
 ```
 
 ⚠️ Seed accumulators with `East.new_array/new_set/new_dict`. A captured
-`EastArray(T)` works too — a loop's seed is built fresh per call — but
-anywhere ELSE in a function a captured collection is a build-time snapshot
-shared by every call, and mutating one raises rather than leaking state
-between calls.
+`EastArray(T)` works too — a captured collection is a snapshot of its
+contents, rebuilt wherever the body reads it, so a seed is fresh per call —
+but mutating one anywhere ELSE changes a copy nothing else sees, and the
+build raises rather than compile a mutation that persists nowhere.
 
 ### Queries — `East.jq`
 
@@ -621,34 +624,39 @@ element**.
    crossing per element — convert at most once, at the very end.
 2. **Let the callbacks build, and chain on the results** — a chain of
    `map`/`filter`/`reduce` stays native between steps. Return a dict literal
-   (`lambda b, r: {"a": …, "b": …}`) to derive every column in ONE pass. **Reuse
-   a python variable to share work** (build-time CSE): `fields =
-   r.data.split("|")` read for 30 columns compiles to ONE `Let` — the split runs
-   once per row (re-calling `.split()` per column re-emits it). Loop-invariant
-   subexpressions hoist out of nested lambdas to the function body, a value read
-   once inside a callback included, so `table = derive(rec)` before a `.map` runs
-   once. A hoist never leaves a guard: a subexpression shared inside `b.try_` /
-   `East.try_catch` binds inside that body, so `s.try_parse(T)` still answers
-   `none` when CSE'd. `East.function(..., cse=False)` switches the pass off and
-   builds exactly what the body spells (what the transpiler emits).
-3. **Side tables: capture small ones, `bind` big ones** — opposite contracts:
+   (`lambda b, r: {"a": …, "b": …}`) to derive every column in ONE pass. **Bind
+   shared work with `b.const`** — the builder emits exactly what the body
+   spells, as TypeScript's does, so a python variable holding an expression is
+   re-emitted (and re-evaluated) at every read: `fields = r.data.split("|")`
+   read for 30 columns runs the split 30 times per row, and `table =
+   derive(rec)` read inside a `.map` runs `derive` once per element. `fields =
+   b.const(r.data.split("|"))` and `table = b.const(derive(rec))` run each
+   once, as `$.const` does — the `no-reinlined-east-binding` rule (`east-py
+   lint`, the LSP) points at every such read. There is no optimisation pass
+   (#1312 removed the trace-time CSE: it moved reads across mutations it could
+   not see), so what you write is what runs — a callback that pushes onto
+   `order` and returns `order.size() - 1` reads the size after its push.
+3. **Side tables: `b.const` a captured one, `bind` big ones** — opposite contracts:
    - **Capture (snapshot).** A collection captured by an `East.function` body
-     is snapshot into its IR — hoisted and identity-deduped, so it builds **once
-     per compiled function** and each lookup runs in C. Right for tables up to
-     ~10⁴–10⁵ entries; the snapshot's build cost and memory ride the function (a
-     1M-entry dict takes ~10 s), and later mutations are **not** seen. Only an
+     is snapshot into its IR as a literal of its contents — exactly as a
+     TypeScript literal is — and rebuilt wherever the body reads it: per call
+     at the function's top level, per element inside a callback. **Bind it
+     once per call with `t = b.const(TABLE)`** and read `t`. Right for small
+     tables (up to a few thousand entries): the literal's size rides the IR,
+     every call rebuilds it, and later mutations are **not** seen. Only an
      EXPLICIT build snapshots: an eager callback refuses a mutable capture.
    - **`East.function(...).bind(table)` (by reference, live).** Declare the
-     table as a trailing parameter and pre-bind it: zero copy, O(1) at any size
-     (1M entries: ~0.1 ms), the per-row cost of the hoisted case, and the
-     function **sees later mutations**. Rebinding gives independent callables,
-     the unbound function stays usable, and a wrong-typed value raises
-     `TypeError`.
+     table as a trailing parameter and pre-bind it: zero copy, O(1) at any
+     size, nothing rebuilt per call, and the function **sees later
+     mutations**. Rebinding gives independent callables, the unbound function
+     stays usable, and a wrong-typed value raises `TypeError`.
 
    ```python
    fx = EastDict(StringType, FloatType, rates)          # small table → capture
-   to_usd = East.function([Row], FloatType,             # (the EXPLICIT build
-       lambda b, r: r.amount * fx.get_or_default(r.ccy, 1.0))   # opts into snapshot)
+   @East.function([Row], FloatType)                     # (the EXPLICIT build
+   def to_usd(b, r):                                    #  opts into the snapshot)
+       t = b.const(fx)                                  # the literal, once per call
+       return r.amount * t.get_or_default(r.ccy, 1.0)
 
    TableT = DictType(StringType, FloatType)             # huge table → bind
    conv = East.function([Row, TableT], FloatType,
@@ -680,7 +688,7 @@ REBUILDS it through the surface above:
 
 ```python
 from east.codegen import to_python_source
-print(to_python_source(classify))        # `@East.function(..., cse=False)` / `def main(b, …)`
+print(to_python_source(classify))        # `@East.function(...)` / `def main(b, …)`
 ```
 
 ```bash
@@ -789,6 +797,7 @@ The rules — `east-py lint --list-rules` prints them:
 | `no-python-string-building` (EAS023, warning) | an f-string assembling an East string CONSTANT — a regex, a template, a key | spell the constant out |
 | `no-derived-struct-fields` (EAS024, warning) | `Derived = StructType([… for f in Other.value])` | a type declaration is a wire format — spell the fields |
 | `no-python-data-work` (EAS025, warning) | a python helper doing parse / strip / null-check / coerce work on an EXPRESSION a body hands it | express it in East, where it runs on every row |
+| `no-reinlined-east-binding` (EAS026, warning) | a python local holding an EXPRESSION (`n = xs.size()`, not a `b.let`/`b.const` binding) read more than once in one body, or read inside a per-element callback, a loop body or a nested function below the body that bound it | each read re-emits — and re-evaluates — the expression: bind it once, `n = b.const(xs.size())`, where it is needed (the TypeScript rule of the same name) |
 
 Configure it once in the project's `pyproject.toml`; every surface reads it, and
 `east-py lint`'s own flags add to it:
@@ -811,10 +820,7 @@ A file that does not import `east` is never diagnosed; a line ending in `# noqa`
 `node_modules`, `dist`, `build`, `.git`, `__pycache__`, `tests` and `test` are not
 walked. The rules are syntactic, so a clean `lint` is necessary, not sufficient —
 the type errors live behind `east-py check`. The rules are disjoint (each
-mistake is one rule's to report). One TypeScript rule has no python twin on
-purpose: `no-reinlined-east-binding` warns that a JS `const` holding an `Expr`
-re-inlines it at each use, but the python build's CSE binds a reused python local
-to ONE `Let`, so the hazard does not exist here.
+mistake is one rule's to report).
 
 ### Cross-language functions: `east-py export-functions` and `East.import_function`
 
@@ -833,12 +839,11 @@ from east.types.types import FloatType, StructType, IntegerType
 Row = StructType([("qty", IntegerType), ("price", FloatType)])
 score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * r.price)
 east_functions = {"score": score}          # name -> East.function artifact. CLOSED values: the
-                                           # exported IR must BIND every name it reads. A build's
-                                           # own hoisted constants — a captured lookup table, a
-                                           # stdlib format string — ride along and close over
-                                           # nothing; a .bind result (no IR of its own) and
-                                           # an unresolved import are refused, and a genuinely free
-                                           # variable is refused BY NAME
+                                           # exported IR must BIND every name it reads. A captured
+                                           # lookup table or a stdlib format string is a literal in
+                                           # the body and closes over nothing; a .bind result (no IR
+                                           # of its own) and an unresolved import are refused, and a
+                                           # genuinely free variable is refused BY NAME
 ```
 
 ```typescript
@@ -1635,7 +1640,7 @@ CUTOFF = 100
 @East.function([Row], FloatType)
 def usd(b, r):
     return East.if_else(r.amount > CUTOFF,                # a scalar constant lifts (TS East.value)
-                        r.amount * RATES.get_or_default(r.ccy, 1.0),   # an EXPLICIT build snapshots the dict
+                        r.amount * RATES.get_or_default(r.ccy, 1.0),   # an EXPLICIT build snapshots the dict: a literal, rebuilt per call
                         0.0)
 
 rows.map(lambda b, r: r.amount * RATES.get_or_default(r.ccy, 1.0))   # ❌ an eager callback REFUSES

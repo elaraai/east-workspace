@@ -578,8 +578,8 @@ class ArrayExpression(Expression):
             return lifted.to_float() if widen else lifted
 
         # mean touches the receiver twice — the fold and size() — so bind it
-        # once (see _with_bound_receiver for why the CSE cannot be relied on
-        # inside an inner lambda).
+        # once (see _with_bound_receiver: a repeated receiver is emitted, and
+        # run, once per use).
         return self._with_bound_receiver(
             lambda recv: recv.reduce(lambda b, acc, el, i: acc + as_float(proj(b, el, i)), 0.0)
             / recv.size().to_float())
@@ -765,12 +765,11 @@ class ArrayExpression(Expression):
             )
         # Bind the target to a Let before the builtin. Unlike the ArrayFind*
         # family — where the target is a builtin ARGUMENT and so evaluated once
-        # — this probe lives inside the per-element callback, and the trace-time
-        # CSE cannot rescue it: the target node occurs exactly once, and only
-        # nodes seen twice are hoisted. An EXPRESSION target (`a.maximum(...)`)
-        # would therefore be recomputed per element: measured O(N^2), 3.7s at
-        # N=4000 against 1.3ms for the same search via find_first — a
-        # traced-vs-eager divergence in COMPLEXITY (#524/#525).
+        # — this probe lives inside the per-element callback, where an
+        # EXPRESSION target (`a.maximum(...)`) spliced in would be recomputed
+        # per element: measured O(N^2), 3.7s at N=4000 against 1.3ms for the
+        # same search via find_first — a traced-vs-eager divergence in
+        # COMPLEXITY (#524/#525).
         tname = _fresh_name()
         bound = self._expr(_var(tname, p_t), p_t)
         node, _out_t = self._callback(

@@ -100,7 +100,7 @@ def trace_builtin_call(
 
 def trace(fn: Any, param_types: list[EastType],
           out_hint: EastType | None = None,
-          is_async: bool = False, *, cse: bool = True) -> tuple[Any, EastType, list]:
+          is_async: bool = False) -> tuple[Any, EastType, list]:
     """Trace ``fn`` over expression proxies; return
     ``(IR value, output type, called-function binds)``.
 
@@ -158,7 +158,7 @@ def trace(fn: Any, param_types: list[EastType],
         result = assemble(frame, result, "function", out_hint)
         popped = True
         _pop_effects(result.ir)
-        consts, fn_consts = _registry_entries() if outer else ([], [])
+        fn_consts = _registry_entries() if outer else []
     finally:
         if not popped:
             _effect_frames.pop()
@@ -168,8 +168,7 @@ def trace(fn: Any, param_types: list[EastType],
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     all_types = list(param_types) + [t for _name, _hold, t in fn_consts]
     all_params = params + [_var(name, t) for name, _hold, t in fn_consts]
-    ir = _function_ir(all_types, all_params, result, consts, is_async=is_async,
-                      out=out_hint, cse=cse)
+    ir = _function_ir(all_types, all_params, result, is_async=is_async, out=out_hint)
     return ir, result.east_type, [hold for _name, hold, _t in fn_consts]
 
 
@@ -190,15 +189,14 @@ def detached_build():
 
     global _async_build
     saved = {
-        "const": lift._const_registry, "fn": lift._fn_registry,
-        "hoisting": lift._hoisting, "effects": list(lift._effect_frames),
+        "fn": lift._fn_registry, "captured": dict(lift._captured_nodes),
+        "effects": list(lift._effect_frames),
         "loops": list(lift._loop_frames), "frames": list(statements._frames),
         "scopes": list(naming._scopes), "pending": set(naming._pending),
         "async": _async_build, "map": location._current,
     }
-    lift._const_registry = None
     lift._fn_registry = None
-    lift._hoisting = True
+    lift._captured_nodes.clear()
     lift._effect_frames.clear()
     lift._loop_frames.clear()
     statements._frames.clear()
@@ -209,9 +207,9 @@ def detached_build():
     try:
         yield
     finally:
-        lift._const_registry = saved["const"]
         lift._fn_registry = saved["fn"]
-        lift._hoisting = saved["hoisting"]
+        lift._captured_nodes.clear()
+        lift._captured_nodes.update(saved["captured"])
         lift._effect_frames[:] = saved["effects"]
         lift._loop_frames[:] = saved["loops"]
         statements._frames[:] = saved["frames"]
@@ -407,11 +405,10 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     both. Its variables are renamed apart from the caller's, so a local it
     shares a name with is still its own (#1279).
 
-    An artifact that cannot embed — one whose build hoisted constants above
-    its Function node (their ``Let``s belong to its own build), one that
-    calls compiled function values through hidden trailing parameters, or
-    one called with arguments its declared parameters do not take (a column
-    projection re-runs it against the narrow struct it decodes) — re-runs
+    An artifact that cannot embed — one that calls compiled function values
+    through hidden trailing parameters, or one called with arguments its
+    declared parameters do not take (a column projection re-runs it against
+    the narrow struct it decodes) — re-runs
     its source body in its OWN statement frame instead, and the expression
     that frame assembles splices into the surrounding build (#470). The
     frame is the whole point there (#670): a statement the body
@@ -550,8 +547,7 @@ def _check_signature(param_types: Any, out: Any, entry: str) -> list[EastType]:
     return types
 
 
-def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
-           cse: bool = True) -> Any:
+def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
     """The shared strict-builder core behind ``East.function``/``asyncFunction``.
 
     Under a check (:func:`collect_build_errors`) a failure is recorded and a
@@ -559,16 +555,15 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
     broken function in the module.
     """
     if _current_collector() is None:
-        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry)
     call_site = capture_frames()
     try:
-        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry)
     except Exception as error:  # noqa: BLE001 - the checker reports whatever the build raised
         return _record_build_error(error, body, entry, call_site)
 
 
-def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
-                  cse: bool = True) -> Any:
+def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
     """The build itself — raises on any failure."""
     types = _check_signature(param_types, out, entry)
     if not callable(body):
@@ -586,8 +581,7 @@ def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entr
         # The build's source map: fresh, or the enclosing build's when this
         # function is being built inside another body (#626).
         with source_map_scope() as source_map:
-            ir_value, out_type, fn_binds = trace(body, types, out_hint=out,
-                                                 is_async=is_async, cse=cse)
+            ir_value, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async)
     finally:
         _async_build = previous
     if not _output_matches(out_type, out):
@@ -718,8 +712,7 @@ def _record_build_error(error: BaseException, body: Any, entry: str,
     return _FailedArtifact(name, str(error))
 
 
-def function(param_types: list[EastType], out: EastType, body: Any = None, *,
-             cse: bool = True) -> Any:
+def function(param_types: list[EastType], out: EastType, body: Any = None) -> Any:
     """Build an East function from a python body — the strict expression
     builder, mirroring the TypeScript ``East.function`` (#625).
 
@@ -737,10 +730,13 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
         East.function([IntegerType], IntegerType, lambda b, x: x + 1)
 
     The statements it appends and the expression it returns are the
-    function's whole behavior. Anything East cannot express raises
-    immediately — there is no purity gate and no per-element python
-    fallback. The built IR is analyzed (``east.ir.analyze``) exactly as the
-    TypeScript compiler analyzes it before it compiles.
+    function's whole behavior — exactly what the body spells, as the
+    TypeScript builder emits it: a python variable holding an expression is
+    re-emitted (and re-evaluated) at every read, and work is shared by
+    binding it with ``b.const`` / ``b.let`` (#1312). Anything East cannot
+    express raises immediately — there is no purity gate and no per-element
+    python fallback. The built IR is analyzed (``east.ir.analyze``) exactly
+    as the TypeScript compiler analyzes it before it compiles.
 
     With ``body`` omitted the call returns a DECORATOR (the two spellings
     build the same artifact; the decorated ``def`` keeps its name). Spelled
@@ -758,12 +754,6 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
             or an ``if_else`` over variant arms (#541).
         body: The python callable to capture — ``fn(b, *params)``; omit it
             to use the result as a decorator.
-        cse: Keep the trace-time common-subexpression pass (a python
-            expression object referenced twice binds to one ``Let``; a
-            callback invariant hoists out of the callback). ``cse=False``
-            builds exactly the IR the body spells — the form the IR→python
-            printer emits, so a printed program rebuilds structurally
-            identical IR.
 
     Returns:
         A python callable. A PURE body compiles immediately: the result runs
@@ -789,13 +779,11 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
     """
     if body is None:
         _check_signature(param_types, out, "East.function")
-        return lambda fn: _build(param_types, out, fn, is_async=False,
-                                 entry="East.function", cse=cse)
-    return _build(param_types, out, body, is_async=False, entry="East.function", cse=cse)
+        return lambda fn: _build(param_types, out, fn, is_async=False, entry="East.function")
+    return _build(param_types, out, body, is_async=False, entry="East.function")
 
 
-def async_function(param_types: list[EastType], out: EastType, body: Any = None, *,
-                   cse: bool = True) -> Any:
+def async_function(param_types: list[EastType], out: EastType, body: Any = None) -> Any:
     """Build an East ASYNC function — the ``East.asyncFunction`` twin of
     :func:`function`, for bodies that call ``East.asyncPlatform`` declarations.
 
@@ -811,7 +799,6 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None,
         body: The python callable to capture (``fn(b, *params)``; omit it
             for the decorator form) — it still runs once, synchronously, at
             build time; only the COMPILED artifact is async.
-        cse: As for :func:`function`.
 
     Returns:
         The built artifact: uncompiled when platform declarations are
@@ -826,9 +813,8 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None,
     """
     if body is None:
         _check_signature(param_types, out, "East.asyncFunction")
-        return lambda fn: _build(param_types, out, fn, is_async=True,
-                                 entry="East.asyncFunction", cse=cse)
-    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction", cse=cse)
+        return lambda fn: _build(param_types, out, fn, is_async=True, entry="East.asyncFunction")
+    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction")
 
 
 def _artifact_ir(fn: Any, entry: str) -> tuple[Any, bool, tuple, SourceMap | None]:

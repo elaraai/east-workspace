@@ -124,19 +124,20 @@ class TestExport:
         bare = East.export_functions("p", "1", {"double": function_ir(double)})
         assert [list(s) for s in bare["functions"][0]["source_map"]] == [[]]
 
-    def test_a_build_hoisted_constant_is_not_a_capture(self):
-        """#669: a build hoists a constant — a stdlib format-token table, an
-        empty typed vector — into a ``Let`` above the ``Function`` and lists
-        it in the function's captures. Nothing in the source captures
-        anything, and the whole ``Block`` is what exports, so the binding
-        travels with it. Closed means the IR binds every name it reads."""
+    def test_a_stdlib_table_is_a_literal_of_the_function_not_a_capture(self):
+        """#669, #1312: a stdlib format-token table, an empty typed vector —
+        once hoisted into a ``Let`` above the ``Function`` — is a literal
+        where the body reads it, so the export is the Function node itself
+        and nothing in it captures anything. Closed means the IR binds every
+        name it reads."""
         from east.types.types import DateTimeType, VectorType
 
         parse = East.function([StringType], DateTimeType,
                               lambda b, s: East.DateTime.parse_formatted(s, "YYYY-MM-DD HHmm"))
         manifest = East.export_functions("dates", "1.0.0", {"parse": parse})
         exported = list(manifest["functions"])[0]
-        assert exported["ir"].type == "Block"      # the constant Let ships alongside
+        assert exported["ir"].type == "Function"
+        assert list(exported["ir"].value["captures"]) == []
         assert exported["type"].type == "Function"
 
         imported = East.import_function("dates", "parse", FunctionType([StringType], DateTimeType))
@@ -147,33 +148,43 @@ class TestExport:
         assert compile_from_value(ir, [])("2025-01-15 1430") == datetime(
             2025, 1, 15, 14, 30, tzinfo=UTC)
 
-        # the other two shapes the same hoist produces
+        # the other two shapes that once hoisted
         printer = East.function([DateTimeType], StringType,
                                 lambda b, d: East.DateTime.print_formatted(d, "YYYY-MM-DD"))
         zeros = East.function([], VectorType(FloatType),
                               lambda b: East.Vector.zeros(FloatType, 0))
-        assert len(East.export_functions("p", "1", {"p": printer, "z": zeros})["functions"]) == 2
+        both = East.export_functions("p", "1", {"p": printer, "z": zeros})
+        assert [f["ir"].type for f in both["functions"]] == ["Function", "Function"]
 
-    def test_hoisted_constants_of_two_packages_do_not_collide(self):
-        """#669: a build names its hoisted constants from a per-PROCESS
-        counter, so two packages exported from two processes both start at
-        ``__n0``. Linked together those Lets land in one scope — east-c binds
-        a Block's statements in the enclosing environment, so the second
-        would overwrite the first and BOTH functions would read it (silently,
-        and only on that runner). Export renames them per package+function."""
-        import itertools
+    def test_the_hoisted_constants_of_two_earlier_builds_do_not_collide(self):
+        """#669: an earlier python build wrote its captured constants as Lets
+        above the Function, named from a per-PROCESS counter, so two packages
+        exported from two processes both start at ``__n0``. Linked together
+        those Lets land in one scope — east-c binds a Block's statements in
+        the enclosing environment, so the second would overwrite the first
+        and BOTH functions would read it (silently, and only on that runner).
+        No builder writes the form since #1312, but an IR value read from a
+        file still may: export renames its Lets per package+function."""
+        from east.ir.builders import (
+            ir_block,
+            ir_function,
+            ir_let,
+            ir_new_array,
+            ir_value,
+            ir_variable,
+        )
 
-        import east.expression.nodes as nodes
-        from east.types.types import DateTimeType
+        arr_t = ArrayType(IntegerType)
 
-        def dated(fmt):
-            return East.function([DateTimeType], StringType,
-                                 lambda b, d: East.DateTime.print_formatted(d, fmt))
+        def earlier_build(values):
+            # Block[Let __n0 = [values…], Function() -> __n0]: the shape 1.0.90 wrote
+            table = ir_variable(arr_t, "__n0")
+            return ir_block(FunctionType([], arr_t), [
+                ir_let(NullType, table, ir_new_array(arr_t, [ir_value(IntegerType, v) for v in values])),
+                ir_function(FunctionType([], arr_t), [table], [], table)])
 
-        nodes._fresh_names = itertools.count()          # a fresh "process"
-        p = East.export_functions("p", "1", {"f": dated("YYYY-MM-DD")})
-        nodes._fresh_names = itertools.count()          # and another
-        q = East.export_functions("q", "1", {"f": dated("DD/MM/YYYY")})
+        p = East.export_functions("p", "1", {"f": earlier_build([10, 20])})
+        q = East.export_functions("q", "1", {"f": earlier_build([30, 40])})
 
         def const_names(manifest):
             ir = list(manifest["functions"])[0]["ir"]
@@ -182,15 +193,11 @@ class TestExport:
         assert const_names(p) == ["_export_p_f_0"]
         assert const_names(q) == ["_export_q_f_0"]
 
-        fp = East.import_function("p", "f", FunctionType([DateTimeType], StringType))
-        fq = East.import_function("q", "f", FunctionType([DateTimeType], StringType))
-        both = East.function([DateTimeType], StringType,
-                             lambda b, d: East.String.concat(East.String.concat(fp(d), "|"), fq(d)))
+        fp = East.import_function("p", "f", FunctionType([], arr_t))
+        fq = East.import_function("q", "f", FunctionType([], arr_t))
+        both = East.function([], arr_t, lambda b: fp().concat(fq()))
         ir, _imports = East.link_imports(both, [p, q])
-        from datetime import datetime
-
-        assert compile_from_value(ir, [])(datetime(2025, 1, 15, tzinfo=UTC)) == \
-            "2025-01-15|15/01/2025"
+        assert list(compile_from_value(ir, [])()) == [10, 20, 30, 40]
 
     def test_a_function_reading_a_name_its_ir_does_not_bind_is_still_refused(self):
         """The refusal keys on FREE variables, so a genuine closure — a

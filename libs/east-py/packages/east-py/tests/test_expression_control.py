@@ -22,7 +22,7 @@ These tests pin four things:
   one body serves a build and a plain-value call;
 * the failure modes are LOUD — a state that changes shape or type, a mutation
   written as a statement (evaluated and thrown away), a mutation of a
-  build-time constant (shared by every call to the function);
+  captured constant (a copy nothing else sees);
 * the workload the issue is about — Kahn's algorithm over a DAG — is ONE
   compiled function.
 """
@@ -201,9 +201,9 @@ def test_append_accumulates_in_place_and_starts_fresh_each_call():
 
 
 def test_a_captured_seed_collection_is_also_built_per_call():
-    """A loop's SEED is its mutable working set, so a captured collection is
-    inlined rather than hoisted to the one build-time constant every call
-    would otherwise share (the spelling the issue's own example uses)."""
+    """A captured collection is a snapshot of its contents, rebuilt wherever
+    the body reads it, so a loop seeded with one starts from a fresh copy on
+    every call (the spelling the issue's own example uses)."""
     seed = EastArray(IntegerType, [])
     k = East.function([INTS], INTS, lambda _b, a: East.for_(
         a, {"out": seed}, lambda _b, s, el: East.block(s.out.push_last(el), s)).out)
@@ -257,6 +257,35 @@ def _capture_append(table, el):
     from east.expression import _lift
 
     return _lift(table).push_last(el)
+
+
+def test_a_captured_constant_bound_once_is_a_copy_the_body_may_mutate():
+    """``b.const(table)`` binds the snapshot once per call, as ``$.const`` of
+    a literal does in TypeScript: the body mutates that copy, the next call
+    starts from the contents again, and the captured object is untouched."""
+    table = EastArray(IntegerType, [1, 2, 3])
+
+    @East.function([IntegerType], IntegerType)
+    def grown(b, n):
+        t = b.const(table)
+        b.do(t.push_last(n))
+        return t.size()
+
+    assert (grown(9), grown(9)) == (4, 4)
+    assert list(table) == [1, 2, 3], "the captured object itself was mutated"
+
+
+def test_a_captured_collection_is_a_literal_where_the_body_reads_it():
+    """The TypeScript shape (#1312): a captured array is a ``NewArray`` of its
+    contents at the site that reads it, inside a callback included — no
+    ``Let`` above the function, and nothing captured."""
+    table = EastArray(IntegerType, [10, 20])
+    ir = trace(lambda _b, a: a.map(lambda _b, i: table.get(i)), [INTS])[0]
+    assert ir.type == "Function"
+    assert list(ir.value["captures"]) == []
+    assert "NewArray" in _node_kinds(ir)
+    k = East.function([INTS], INTS, lambda _b, a: a.map(lambda _b, i: table.get(i)))
+    assert list(k(_ints(1, 0))) == [20, 10]
 
 
 def test_mutators_yield_what_their_eager_twins_yield():

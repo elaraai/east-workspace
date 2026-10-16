@@ -399,11 +399,11 @@ class EagerEvaluator:
 
     @staticmethod
     def _in_trace() -> bool:
-        """Whether an expression build is active. A MUTABLE-container construction
-        inside a trace must emit constructor IR even with no traced children:
-        an eager value would lift as a hoisted CONSTANT shared across calls —
-        an init callback returning `[]` would hand every group one aliased
-        accumulator."""
+        """Whether an expression build is active. A construction inside a
+        trace emits constructor IR even with no traced children: it is the
+        node the IR holds, typed as declared (a set's element order, a
+        variant's every case, #450), where an eager value would be rebuilt
+        from its contents wherever it was later read."""
         from east.expression import _tracing
 
         return _tracing()
@@ -492,8 +492,8 @@ class EagerEvaluator:
             fields = [(f["name"], self.eval(f["value"], env)) for f in p["fields"]]
             if any(isinstance(v, Expression) for _n, v in fields) or self._in_trace():
                 # construction from traced parts IS a traced expression —
-                # an eager value holding proxies would hoist as a "constant"
-                # referencing function parameters (unbound outside the fn).
+                # an eager value cannot hold proxies (the constructor would
+                # validate them as data).
                 # Use the expression builder's LAZY constructors: the eager builders'
                 # EastArray children convert nodes mid-trace (#411)
                 from east.expression import _k_struct
@@ -812,8 +812,8 @@ class EagerEvaluator:
 
     def _compile_closure(self, clo: Closure) -> Any:
         """``compile_from_value`` on the callback IR, captures baked as Lets of
-        quoted values — the same ``Block[Let…, Function]`` shape the expression
-        builder emits for hoisted constants.
+        quoted values — a ``Block[Let…, Function]`` whose Lets bind what the
+        node captures.
 
         The compiled callable is used AS-IS: called with expression proxies
         (an argument-reordering wrapper under the strict wrap) it lowers to a

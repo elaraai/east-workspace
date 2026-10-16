@@ -7,7 +7,7 @@ import type { RuleContext, TsModule } from "./types.js";
 import { isBlockBuilderType } from "./east-type.js";
 
 /** `East.function(...)` / `East.asyncFunction(...)` — the classic East block root. */
-function isEastFunctionCall(node: ts.Node, t: TsModule): node is ts.CallExpression {
+export function isEastFunctionCall(node: ts.Node, t: TsModule): node is ts.CallExpression {
   if (!t.isCallExpression(node)) return false;
   const callee = node.expression;
   return (

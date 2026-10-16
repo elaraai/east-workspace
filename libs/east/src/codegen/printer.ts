@@ -763,8 +763,9 @@ class Printer {
 
   /**
    * The `East.function([types], out, ($, params) => { ... })` document of a
-   * Function / AsyncFunction node; `consts` are hoisted Lets printed first
-   * as the body's own bindings (a python artifact's captured constants).
+   * Function / AsyncFunction node; `consts` are the Lets above the function in
+   * the `Block[Let…, Function]` root an earlier python build wrote for its
+   * captured constants, printed first as the body's own bindings.
    */
   functionExpr(node: Node, scope: Scope, consts: Node[] = []): Doc {
     const p = node.value;
@@ -1516,7 +1517,7 @@ class Printer {
     }
     this.varCounter = nextVIndex(ir);
     this.prepare(ir);
-    // A python artifact's hoisted constants become the body's own consts.
+    // An earlier python build's hoisted constants become the body's own consts.
     const fnDoc = this.functionExpr(root, new Scope(null), consts);
     // exactly the names the module uses, in one fixed order
     const names = ["East", "Expr", "variant", "some", "none", "ref", "matrix", "SortedSet", "SortedMap", "compareFor", ...TYPE_IMPORTS].filter(n => this.used.has(n));
@@ -1585,8 +1586,8 @@ function irOf(fnOrIr: unknown): Node {
  *
  * @param fnOrIr - A built `East.function` / `East.asyncFunction` expression,
  *   its `toIR()` result, or a homoiconic IR value (a Function / AsyncFunction
- *   node, or the `Block[Let…, Function]` a python build with hoisted
- *   constants emits — its constants become the body's first `$.const`s)
+ *   node, or the `Block[Let…, Function]` root an earlier python build wrote
+ *   for its hoisted constants — they become the body's first `$.const`s)
  * @param options - The export name (default `main`), the module the
  *   printed source imports from (default `@elaraai/east`), the line width,
  *   and the library modules whose exported declarations spell the platform
