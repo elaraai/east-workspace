@@ -78,7 +78,11 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         controls: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
         footer: builderFooter,
         footerItem: builderFooterItem,
-        legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", flexShrink: 0 },
+        legendItem: {
+            display: "inline-flex", alignItems: "center", gap: "8px", flexShrink: 0,
+            // Wrapped, an item wider than the rail wraps its own words (A79); the others keep theirs on one line.
+            "[data-builder-narrow] > &": { flexShrink: 1, minWidth: 0, whiteSpace: "normal" },
+        },
         // The mock's swatches, 16 × 10 (a link a 16 × 4 bar, a slot's status an 8px dot).
         legendSwatch: {
             width: "16px", height: "10px", flexShrink: 0, borderRadius: "sm", boxSizing: "border-box",

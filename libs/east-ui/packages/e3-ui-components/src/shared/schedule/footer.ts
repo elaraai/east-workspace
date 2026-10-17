@@ -14,7 +14,9 @@
  * recipe keeps in `--builder-footer-gap` while the rail wraps at a narrower
  * one, and its inline padding and borders. Measured with the wrapped gap, a
  * rail between the two would fit once wrapped, unwrap, and no longer fit —
- * a render loop.
+ * a render loop. An item a host lets wrap its own words once the rail wraps
+ * shrinks only when it alone is wider than the rail, and then the rail's items
+ * together still are: it stays wrapped.
  *
  * @packageDocumentation
  */
