@@ -6,12 +6,15 @@
 /** The shared status rail used by framed builders, extracted from Plan. */
 import type { SystemStyleObject } from "@chakra-ui/react";
 
-/** The 28px panel rail, wrapping only when the host's main is narrow. */
+/** The 28px panel rail, wrapping only when the host's main is narrow, or its items do not fit on one line. */
 export const builderFooter = {
     minHeight: "28px",
     display: "flex",
     alignItems: "center",
-    gap: "14px",
+    // The unwrapped gap, kept as a property while the rail wraps: what a host
+    // measures whether its items fit on one line by, whatever form it is in now.
+    "--builder-footer-gap": "14px",
+    gap: "var(--builder-footer-gap)",
     padding: "0 12px",
     background: "bg.panel",
     borderTopWidth: "1px",
