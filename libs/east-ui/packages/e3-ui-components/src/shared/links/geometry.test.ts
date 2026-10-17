@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { routeRibbon, type RibbonBounds, type RibbonEnd, type RibbonPath, type RibbonRoute } from "./ribbon-geometry.js";
+import { routeRibbon, type RibbonBounds, type RibbonEnd, type RibbonPath, type RibbonRoute } from "./geometry.js";
 
 /** One path command and its numbers. */
 interface Cmd {
