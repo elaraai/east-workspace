@@ -156,7 +156,7 @@ class DictExpression(Expression):
 
     def has(self, key: Any) -> BooleanExpression:
         """Traced DictHas."""
-        k = _lift(key, hint=self._key())
+        k = self._typed("has", key, self._key())
         return self._expr(
             _builtin("DictHas", BooleanType, [self._key(), self._value()], [self.ir, k.ir]),
             BooleanType)
@@ -166,7 +166,7 @@ class DictExpression(Expression):
         absent) — or DictGetOrDefault with ``default_fn(b, key)`` producing
         the value for an absent key (TS ``get(key, onMissing?)``)."""
         k_t, v_t = self._key(), self._value()
-        k = _lift(key, hint=k_t)
+        k = self._typed("get", key, k_t)
         if default_fn is not None:
             node, out_t = _trace_inner_fn(default_fn, [k_t], out_hint=v_t)
             if out_t != v_t:
@@ -180,13 +180,14 @@ class DictExpression(Expression):
         """Traced DictGetOrDefault: the value at ``key``, or ``default`` when
         absent — ``get(key, lambda b, k: default)``, the constant handler
         traced like any other so the two spellings build one IR."""
-        d = _lift(default, hint=self._value())
-        return self.get(key, lambda _b, _k: d)
+        k = self._typed("get_or_default", key, self._key())
+        d = self._typed("get_or_default", default, self._value())
+        return self.get(k, lambda _b, _k: d)
 
     def try_get(self, key: Any) -> VariantExpression:
         """Traced DictTryGet: ``some(value)`` when present, else ``none``."""
         k_t, v_t = self._key(), self._value()
-        k = _lift(key, hint=k_t)
+        k = self._typed("try_get", key, k_t)
         out = _option_type(v_t)
         return self._expr(_builtin("DictTryGet", out, [k_t, v_t], [self.ir, k.ir]), out)
 
@@ -700,8 +701,8 @@ class DictExpression(Expression):
         """Traced DictInsert (yields Null); a key already present is an East
         runtime ERROR — :meth:`insert_or_update` is the tolerant form."""
         kv = self._mutable("insert").value
-        k = _lift(key, hint=kv["key"])
-        v = _lift(value, hint=kv["value"])
+        k = self._typed("insert", key, kv["key"])
+        v = self._typed("insert", value, kv["value"])
         return self._effect(
             "insert",
             _builtin("DictInsert", NullType, [kv["key"], kv["value"]], [self.ir, k.ir, v.ir]),
@@ -717,8 +718,8 @@ class DictExpression(Expression):
         """
         kv = self._mutable("insert_or_update").value
         k_t, v_t = kv["key"], kv["value"]
-        k = _lift(key, hint=k_t)
-        v = _lift(value, hint=v_t)
+        k = self._typed("insert_or_update", key, k_t)
+        v = self._typed("insert_or_update", value, v_t)
         node, c_out = _trace_inner_fn(combine, [v_t, v_t, k_t], out_hint=v_t)
         if c_out != v_t:
             raise ExpressionError(
@@ -733,7 +734,7 @@ class DictExpression(Expression):
         """Traced DictDelete (yields Null); an absent key is an East runtime
         error — :meth:`try_delete` is the tolerant form."""
         kv = self._mutable("delete").value
-        k = _lift(key, hint=kv["key"])
+        k = self._typed("delete", key, kv["key"])
         return self._effect(
             "delete", _builtin("DictDelete", NullType, [kv["key"], kv["value"]], [self.ir, k.ir]),
             NullType)
@@ -741,7 +742,7 @@ class DictExpression(Expression):
     def try_delete(self, key: Any) -> BooleanExpression:
         """Traced DictTryDelete, yielding whether anything was removed."""
         kv = self._mutable("try_delete").value
-        k = _lift(key, hint=kv["key"])
+        k = self._typed("try_delete", key, kv["key"])
         return self._effect(
             "try_delete",
             _builtin("DictTryDelete", BooleanType, [kv["key"], kv["value"]], [self.ir, k.ir]),

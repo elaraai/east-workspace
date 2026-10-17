@@ -213,8 +213,50 @@ def _function_node(ir: Any) -> Any | None:
     return None
 
 
+#: Every struct ``narrow_type_for`` has narrowed, by its narrow type's key:
+#: the wide types it narrows. A callback run on a masked decode hands the
+#: functions it calls the narrow rows (and narrowed nested structs) the
+#: decode yields, which their declared parameters do not take, and each such
+#: call re-runs its function's body against them (#467). A call checks its
+#: arguments against this (``narrowing_of``) so that only a narrowing made
+#: here is let through, every other argument of another type refused
+#: (#1316). The callbacks were built against the whole row first
+#: (``infer_field_mask``), so their calls were checked there.
+_NARROWINGS_MAX = 4096
+_narrowings: OrderedDict[str, list[EastType]] = OrderedDict()
+
+
+def _note_narrowing(narrow: EastType, wide: EastType) -> None:
+    key = _type_key(narrow)
+    wides = _narrowings.get(key)
+    if wides is None:
+        _narrowings[key] = wides = []
+        if len(_narrowings) > _NARROWINGS_MAX:
+            _narrowings.popitem(last=False)
+    else:
+        _narrowings.move_to_end(key)
+    if not any(w == wide for w in wides):
+        wides.append(wide)
+
+
+def narrowing_of(t: EastType, declared: EastType) -> bool:
+    """Whether ``t`` is a struct ``narrow_type_for`` made by narrowing a type
+    that fills a slot of ``declared``: the projection's narrow row, or a
+    nested struct of it, handed to a function declared over the whole one."""
+    if t.type != "Struct":
+        return False
+    wides = _narrowings.get(_type_key(t))
+    if not wides:
+        return False
+    from east.expression.expr.base import _fits
+
+    return any(_fits(w, declared) for w in wides)
+
+
 def narrow_type_for(wire_t: EastType, mask: Any) -> EastType:
-    """The subset type ``mask`` keeps of ``wire_t`` (wire field order)."""
+    """The subset type ``mask`` keeps of ``wire_t`` (wire field order). Each
+    struct it narrows is noted, for the calls a callback makes on the
+    narrow rows (``narrowing_of``)."""
     if mask is WHOLE_MASK:
         return wire_t
     if wire_t.type != "Struct":
@@ -225,7 +267,10 @@ def narrow_type_for(wire_t: EastType, mask: Any) -> EastType:
         name = f["name"]
         if name in mask:
             fields.append((name, narrow_type_for(f["type"], mask[name])))
-    return StructType(fields)
+    narrow = StructType(fields)
+    if narrow != wire_t:
+        _note_narrowing(narrow, wire_t)
+    return narrow
 
 
 def _retrace_wrapper(fn: Any, arity: int) -> Any:

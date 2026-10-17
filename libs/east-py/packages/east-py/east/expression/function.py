@@ -396,6 +396,49 @@ def _effectful(artifact: Any) -> bool:
     return hit
 
 
+def _call_arguments(artifact: Any, body: Any, args: tuple,
+                    declared: tuple) -> tuple[tuple, bool]:
+    """A call's arguments held to the callee's declared parameters, as a
+    call of a function value is (``FunctionExpression``) and as the
+    TypeScript builder holds one: an argument of a parameter's type, or of
+    a subtype widened to it, and any other refused at build, naming the
+    function and the parameter (#1316). A body re-run on an argument of
+    another type is a function of other types than the callee's: its result
+    is not of the declared output, and a write in it hands the runtime a key
+    or value of a type its builtin does not read.
+
+    The one exception is the column projection's narrowed struct
+    (``project.narrowing_of``): a callback run on a masked decode hands it
+    to the functions it calls, whose bodies re-run against it (#467).
+    Returns the arguments and whether any is one."""
+    from east.expression.expr.base import _fits, _type_words
+    from east.expression.lift import _coerce
+    from east.expression.naming import hint_at, parameter_names
+    from east.expression.project import narrowing_of
+
+    name = getattr(artifact, "__name__", "")
+    callee = f"{name}()" if name.isidentifier() else "East.function"
+    if len(args) != len(declared):
+        raise ExpressionError(
+            f"{callee} takes {len(declared)} argument(s), called with {len(args)}")
+    names = parameter_names(body)
+    checked = []
+    narrowed = False
+    for i, (a, t) in enumerate(zip(args, declared, strict=True)):
+        e = _lift(a, hint=t)
+        if _fits(e.east_type, t):
+            checked.append(_coerce(e, t))
+        elif narrowing_of(e.east_type, t):
+            checked.append(e)
+            narrowed = True
+        else:
+            hint = hint_at(names, i + 1)  # the block is the body's first parameter
+            parameter = f"parameter {hint!r}" if hint is not None else f"parameter {i + 1}"
+            want, got = _type_words(t, e.east_type)
+            raise ExpressionError(f"{callee}: {parameter} takes {want}, got {got}")
+    return tuple(checked), narrowed
+
+
 def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     """An artifact called with expression proxies INSIDE another body: it
     embeds as its inline Function node and the call lowers to a ``Call`` —
@@ -403,19 +446,21 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     ``b.return_`` returns from it, a profile lists it as an entry of its own,
     placed by its definition and by the call, and an error inside it names
     both. Its variables are renamed apart from the caller's, so a local it
-    shares a name with is still its own (#1279).
+    shares a name with is still its own (#1279). Every argument is held to
+    its declared parameter first (#1316), so the call's result is of the
+    declared output.
 
     An artifact that cannot embed — one that calls compiled function values
-    through hidden trailing parameters, or one called with arguments its
-    declared parameters do not take (a column projection re-runs it against
-    the narrow struct it decodes) — re-runs
+    through hidden trailing parameters, or one a callback of the column
+    projection calls with the narrow struct it decodes, which its declared
+    parameter does not take — re-runs
     its source body in its OWN statement frame instead, and the expression
     that frame assembles splices into the surrounding build (#470). The
     frame is the whole point there (#670): a statement the body
     appends — ``b.let``, ``b.const``, ``b.if_`` — belongs to the spliced
     expression, not to the caller's block, or a body used as an
     ``East.if_else`` arm would evaluate even when the arm was not taken."""
-    from east.expression.lift import _lift_artifact
+    from east.expression.lift import _coerce, _lift_artifact
     from east.expression.statements import (
         _call_function_body,
         _close_frame,
@@ -431,6 +476,9 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     declared = getattr(artifact, "_east_param_types", None)
     if declared is not None and len(args) > len(declared):
         args = tuple(args[: len(declared)])
+    narrowed = False
+    if declared is not None:
+        args, narrowed = _call_arguments(artifact, fn, args, declared)
     fits = declared is not None and len(args) == len(declared) and all(
         not isinstance(a, Expression) or is_subtype(a.east_type, t)
         for a, t in zip(args, declared, strict=True))
@@ -451,13 +499,18 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
         result = _call_function_body(fn, frame, list(args), "East.function")
     finally:
         _close_frame(frame)
+    out_t = getattr(artifact, "_east_out_type", None)
     if not frame.statements:
-        return result          # a pure body: the expression it built, as before
+        if narrowed or out_t is None:
+            return result      # a pure body: the expression it built, as before
+        # Re-run on the declared parameter types, the body builds what it
+        # built at definition: the declared output, which a python value it
+        # returns (a dict, a bare `none`) is lifted under.
+        return _coerce(_lift(result, hint=out_t), out_t)
     # The EFFECTS frame stays the CALLER's: a body whose assembled value the
     # caller then throws away is a discarded expression, and the caller's
     # check names it — pushing one here would swallow the mutation instead.
-    return assemble(frame, result, "function",
-                    getattr(artifact, "_east_out_type", None))
+    return assemble(frame, result, "function", out_t)
 
 
 def _assemble(fn: Any, ir_value: Any, out_type: EastType,
