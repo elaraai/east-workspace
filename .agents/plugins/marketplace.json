@@ -9,7 +9,7 @@
       "source": {
         "source": "npm",
         "package": "@elaraai/east-codex-plugin",
-        "version": "1.0.92"
+        "version": "1.0.93"
       },
       "policy": {
         "installation": "AVAILABLE",
