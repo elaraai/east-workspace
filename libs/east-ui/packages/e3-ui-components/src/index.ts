@@ -24,6 +24,7 @@ import './query/builder.js';              // → implementUIComponent(QueryBuild
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
 import './calendar/index.js';
 import './roster/index.js';
+import './allocation/index.js';            // → implementUIComponent(AllocationComponent, EastChakraAllocation)
 import './plan/index.js';                 // → implementUIComponent(PlanComponent, EastChakraPlanPayload)
 import './sheet/frame/index.js';          // → implementUIComponent(SheetComponent, EastChakraSheet)
 import './flowchart/index.js';            // → implementUIComponent(Flowchart.Component, EastChakraFlowchart)
@@ -198,3 +199,6 @@ export { EastChakraCalendar, type EastChakraCalendarProps, type CalendarValue } 
 
 // The record-backed staffing roster, with its internal shared builder frame.
 export { EastChakraRoster, type EastChakraRosterProps, type RosterValue } from "./roster/index.js";
+
+// The record-backed Allocation: a day's events in lane slots, each bin allocated to a resource.
+export { EastChakraAllocation, type EastChakraAllocationProps, type AllocationValue } from "./allocation/index.js";
