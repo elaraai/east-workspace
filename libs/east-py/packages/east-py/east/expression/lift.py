@@ -307,9 +307,14 @@ def builtin(name: str, type_parameters: list, arguments: list, out: EastType) ->
 
     Returns:
         The Builtin expression, typed ``out``.
+
+    Raises:
+        ExpressionError: If an argument is not of its declared input's type
+            or a subtype of it (#1316) — a python literal is lifted under
+            that type, so ``1`` fills a Float slot as ``1.0``.
     """
     from east.expression.expr import Expression
-    from east.expression.nodes import _k_builtin
+    from east.expression.nodes import _builtin_slots, _k_builtin
 
     if not isinstance(name, str) or not name:
         raise ExpressionError("East.builtin() takes the builtin's name first")
@@ -319,7 +324,11 @@ def builtin(name: str, type_parameters: list, arguments: list, out: EastType) ->
     for t in tps:
         if not isinstance(t, EastType):
             raise ExpressionError("East.builtin() type parameters must be East types")
-    args = [_lift(a).ir for a in arguments]
+    arguments = list(arguments)
+    slots = _builtin_slots(name, tps)
+    if slots is None or len(slots) != len(arguments):
+        slots = [None] * len(arguments)
+    args = [_lift(a, hint=t).ir for a, t in zip(arguments, slots, strict=True)]
     return Expression(_k_builtin(name, out, tps, args), out)
 
 

@@ -26,11 +26,17 @@ import warnings
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from east.expression.errors import ExpressionError, _trace_bail
-from east.expression.lift import _coerce, _is_captured_constant, _lift, _note_effect
+from east.expression.lift import (
+    _coerce,
+    _is_captured_constant,
+    _lift,
+    _note_effect,
+    _trace_inner_fn,
+)
 from east.expression.location import location_id as _loc_id
-from east.expression.nodes import _builtin, _fresh_name, _k_block, _var
+from east.expression.nodes import _builtin, _fits, _fresh_name, _k_block, _type_words, _var
 from east.ir.builders import ir_let
-from east.types.types import BooleanType, EastType, is_subtype, is_type_equal
+from east.types.types import BooleanType, EastType, is_type_equal
 
 if TYPE_CHECKING:
     from east.expression.expr.boolean import BooleanExpression
@@ -112,26 +118,31 @@ def _fn_init(op: str, a: Any, b: Any) -> tuple[Any, Any]:
     raise ExpressionError(f".{op}() takes (fn, init): a step body and the initial accumulator")
 
 
-def _type_words(expected: EastType, got: EastType) -> tuple[str, str]:
-    """Words for the East type a slot takes and the one it was given: their
-    kinds (``String``, ``Integer``), or, when the kinds agree (a ``Struct``
-    and a ``Struct``), each type in East's syntax, so a refusal shows what
-    differs."""
-    if expected.type != got.type:
-        return expected.type, got.type
-    from east.serialization.east_printer import print_type
+def _widening(t: EastType) -> Any:
+    """A callback ``wrap`` widening the value a body returns to ``t`` when
+    it is of a subtype, as the TypeScript builder coerces a function's
+    result to its declared output; a value of another type is left as it
+    is, for the method to refuse in its own words."""
 
-    try:
-        return print_type(expected), print_type(got)
-    except Exception:  # pragma: no cover - a printer failure must not mask the refusal
-        return expected.type, got.type
+    def widen(result: Any) -> Any:
+        from east.expression.statements import IfBuilder, TryBuilder
+
+        if result is None or isinstance(result, (IfBuilder, TryBuilder)):
+            return result  # nothing returned: the body's statements are its value
+        v = _lift(result, hint=t)
+        return _coerce(v, t) if _fits(v.east_type, t) else v
+
+    return widen
 
 
-def _fits(value_t: EastType, slot_t: EastType) -> bool:
-    """Whether a value of ``value_t`` may fill a slot of ``slot_t``: the
-    type itself (two copies of one recursive type included) or a subtype of
-    it, as the TypeScript builder admits an argument."""
-    return is_type_equal(value_t, slot_t) or is_subtype(value_t, slot_t)
+def _widened_callback(fn: Any, params: list, t: EastType) -> tuple:
+    """``_trace_inner_fn(fn, params, out_hint=t)``; a body whose value is of
+    a subtype of ``t`` is traced again with it widened to ``t``, so a
+    callback of the type itself builds what it always built."""
+    node, out_t = _trace_inner_fn(fn, params, out_hint=t)
+    if not is_type_equal(out_t, t) and _fits(out_t, t):
+        node, out_t = _trace_inner_fn(fn, params, out_hint=t, wrap=_widening(t))
+    return node, out_t
 
 
 class Expression:
@@ -261,6 +272,8 @@ class Expression:
         what east-c reads the argument as, so a key or value of another type
         reaching it is a wrong answer, garbage stored or a crash (#1316)."""
         v = _lift(value, hint=t)
+        if v.east_type == t:
+            return v
         # A value of Never (an error, a jump) never arrives: it stands for any
         # type, as a TypeScript builtin argument does.
         if not _fits(v.east_type, t):

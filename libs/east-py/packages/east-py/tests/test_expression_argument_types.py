@@ -2,21 +2,21 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""A body's keyed calls and calls of East functions are held to their
+"""A body's builtin calls and calls of East functions are held to their
 arguments' declared types at build (#1316) — the expression-surface twin of
 #534.
 
-A keyed Dict or Set builtin carries the collection's key and value types as
-its type parameters, and east-c reads its arguments as those types: a key or
-value of another type answered as if absent, stored garbage, or segfaulted
-the process when the function ran. A call of an East function inside a body
-re-ran the callee's body on whatever it was handed, building a function of
-other types than the callee's, whose writes reached the runtime unchecked.
-Each is now refused where it is written, naming the method, or the function
+A builtin carries its arguments' types as its type parameters, and east-c
+reads each argument as its declared input: a Dict key or value of another
+type answered as if absent, stored garbage, or segfaulted the process when
+the function ran. A call of an East function inside a body re-ran the
+callee's body on whatever it was handed, building a function of other types
+than the callee's, whose writes reached the runtime unchecked. Each is now
+refused where it is written, naming the method, the builtin, or the function
 and its parameter; an argument of a subtype is widened to its slot, as the
 TypeScript builder widens one. The one argument of another type a call still
-takes is the column projection's narrowed row (#467), which
-``tests/serialization/test_beast2_projection.py`` runs end to end.
+takes is a row of the column projection's narrowed decode (#467), while that
+decode runs.
 """
 
 import pytest
@@ -26,6 +26,9 @@ from east import (
     BooleanType,
     DictType,
     East,
+    EastArray,
+    FloatType,
+    FunctionType,
     IntegerType,
     OptionType,
     SetType,
@@ -37,7 +40,10 @@ from east import (
     variant,
 )
 from east.expression import ExpressionError
+from east.runtime.compiler import eager_stats
+from east.serialization.beast2 import open_beast2_file
 from east.types.types import is_type_equal
+from tests.segments import write_in_segments
 
 D = DictType(StringType, IntegerType)
 S = SetType(StringType)
@@ -231,10 +237,28 @@ def test_a_call_with_too_few_arguments_is_refused():
         "East.function takes 2 argument(s), called with 1"
 
 
+def test_a_call_with_too_many_arguments_is_refused():
+    # the extras were dropped without a word: wrap(s, 99) built wrap(s)
+    assert _refusal(lambda: East.function([StringType], Row, lambda _b, s: wrap(s, 99))) == \
+        "wrap() takes 1 argument(s), called with 2"
+    zero = East.function([], IntegerType, lambda _b: 7)
+    assert _refusal(lambda: East.function([IntegerType], IntegerType, lambda _b, n: zero(n))) == \
+        "East.function takes 0 argument(s), called with 1"
+
+
+def test_a_callback_slot_still_hands_a_function_the_prefix():
+    # ArrayMap's callback signature is (element, index): a function of one
+    # parameter takes the element alone, as the eager arity adapter does
+    def caller(b, names):
+        return names.map(wrap)
+    built = East.function([ArrayType(StringType)], ArrayType(Row), caller)
+    assert [r["name"] for r in built(["x", "y"])] == ["x", "y"]
+
+
 def test_a_struct_of_fewer_fields_than_the_parameter_is_refused():
     # the body reads only `left`, so re-running it against the narrower
-    # struct built; a struct is let through only as the projection's
-    # narrowed row
+    # struct built; a struct is let through only as a projected decode's
+    # narrowed row, while that decode runs
     wide = StructType([("left", IntegerType), ("right", StringType)])
 
     @East.function([wide], IntegerType)
@@ -250,19 +274,164 @@ def test_a_struct_of_fewer_fields_than_the_parameter_is_refused():
         "(name=\"right\", type=.String)], got .Struct [(name=\"left\", type=.Integer)]"
 
 
-def test_the_projections_narrowed_row_is_let_through_to_a_helper():
-    # a callback run on a masked decode hands its helpers the narrow row;
-    # their bodies re-run against it (#467)
-    from east.expression.project import WHOLE_MASK, narrow_type_for
+def test_a_bound_function_value_still_reaches_the_body():
+    # a .bind result has no IR to embed, so the callee's body re-runs and
+    # its call of the value lowers to a Call of it (#561)
+    add = East.function([IntegerType, IntegerType], IntegerType, lambda _b, x, y: x + y)
+    inc = add.bind(1)
 
-    wide = StructType([("kept", IntegerType), ("skipped", StringType)])
-    narrow = narrow_type_for(wide, {"kept": WHOLE_MASK})
+    @East.function([FunctionType([IntegerType], IntegerType), IntegerType], IntegerType)
+    def apply_then_inc(b, f, n):
+        return inc(f(n))
 
-    @East.function([wide], IntegerType)
-    def kept_of(b, r):
+    assert East.function([IntegerType], IntegerType,
+                         lambda _b, n: apply_then_inc(inc, n))(5) == 7
+
+
+def test_a_re_run_body_returns_its_declared_output():
+    # a body calling a compiled value re-runs rather than embeds; the dict it
+    # returns is lifted under the declared output, so the caller reads a
+    # field of it (it used to be a python dict: "no attribute 'b'")
+    add = East.function([IntegerType, IntegerType], IntegerType, lambda _b, x, y: x + y)
+    inc = add.bind(1)
+    pair = StructType([("a", IntegerType), ("b", IntegerType)])
+
+    @East.function([IntegerType], pair)
+    def pair_of(b, n):
+        return {"a": n, "b": inc(n)}
+
+    assert East.function([IntegerType], IntegerType, lambda _b, n: pair_of(n).b)(4) == 5
+
+
+# ─── the column projection's narrowed rows (#467) ────────────────────────────
+
+
+WIDE = StructType([("kept", IntegerType), ("skipped", StringType)])
+NARROW = StructType([("kept", IntegerType)])
+
+
+@East.function([WIDE], IntegerType)
+def kept_of(b, r):
+    return r.kept
+
+
+@pytest.fixture
+def wide_file(tmp_path):
+    path = tmp_path / "wide.beast2"
+    write_in_segments(path, ArrayType(WIDE), EastArray(
+        WIDE, [{"kept": i, "skipped": f"s{i}"} for i in range(12)]), 5)
+    return path
+
+
+def _projected(run):
+    before = eager_stats()["beast2_segments_projected"]
+    result = run()
+    assert eager_stats()["beast2_segments_projected"] > before
+    return result
+
+
+def test_the_projections_narrowed_row_is_let_through_to_a_helper(wide_file):
+    # the callback reads only `kept`, so each segment decodes {kept} alone,
+    # and the helper's body re-runs against that row
+    with open_beast2_file(wide_file) as f:
+        assert list(_projected(lambda: f.map(lambda _b, r: kept_of(r) + 1))) == \
+            list(range(1, 13))
+
+
+def test_a_narrowed_row_is_refused_once_its_decode_has_ended(wide_file):
+    # whatever ran before, a struct of the narrow type built anywhere else
+    # is refused: the decode admits its rows only while it runs
+    with open_beast2_file(wide_file) as f:
+        _projected(lambda: f.map(lambda _b, r: kept_of(r) + 1))
+    assert _refusal(lambda: East.function([NARROW], IntegerType, lambda _b, r: kept_of(r))) == \
+        "kept_of(): parameter 'r' takes .Struct [(name=\"kept\", type=.Integer), " \
+        "(name=\"skipped\", type=.String)], got .Struct [(name=\"kept\", type=.Integer)]"
+
+
+def test_a_helper_on_a_narrowed_row_is_of_its_declared_output(wide_file):
+    # the dict the re-run body returns is lifted under the declared output
+    pair = StructType([("a", IntegerType), ("b", IntegerType)])
+
+    @East.function([WIDE], pair)
+    def pair_of(b, r):
+        return {"a": r.kept, "b": r.kept * 2}
+
+    with open_beast2_file(wide_file) as f:
+        assert list(_projected(lambda: f.map(lambda _b, r: pair_of(r).b))) == \
+            [i * 2 for i in range(12)]
+
+
+def test_a_compiled_callback_over_another_row_is_refused_naming_the_row(wide_file):
+    # its parameter does not take the row, so nothing it reads narrows the
+    # decode, and the refusal names the file's row, as it does in memory
+    zz = East.function([StructType([("zz", StringType)])], StringType, lambda _b, r: r.zz)
+    with open_beast2_file(wide_file) as f, pytest.raises(ExpressionError) as raised:
+        f.map(zz)
+    assert str(raised.value) == (
+        "East.function: parameter 'r' takes .Struct [(name=\"zz\", type=.String)], "
+        "got .Struct [(name=\"kept\", type=.Integer), (name=\"skipped\", type=.String)]")
+
+
+def test_an_explicitly_projected_file_is_a_collection_of_its_projected_type(wide_file):
+    # project= makes every read serve the projected rows, so its callbacks
+    # and the functions they call take that type; one declared over the
+    # wire's row is refused, as any argument of another type is
+    @East.function([NARROW], IntegerType)
+    def narrow_kept(b, r):
         return r.kept
 
-    assert East.function([narrow], IntegerType, lambda _b, r: kept_of(r) + 1)({"kept": 4}) == 5
+    with open_beast2_file(wide_file, project=ArrayType(NARROW)) as f:
+        assert list(f.map(lambda _b, r: narrow_kept(r) * 10)) == [i * 10 for i in range(12)]
+        with pytest.raises(ExpressionError, match=r"^kept_of\(\): parameter 'r' takes"):
+            f.map(lambda _b, r: kept_of(r))
+
+
+# ─── a subtype widens wherever a value fills a typed slot ───────────────────
+
+
+def test_a_default_or_a_search_target_of_a_subtype_is_widened():
+    def defaults(b, d, xs):
+        a = East.value(variant("a", 1), A)
+        return East.value([
+            d.get(9, lambda _b, _k: a).match({"a": lambda _b, x: x, "b": lambda _b, _s: -1}),
+            d.get_or_default(9, a).match({"a": lambda _b, x: x, "b": lambda _b, _s: -1}),
+            xs.get(9, lambda _b, _i: a).match({"a": lambda _b, x: x, "b": lambda _b, _s: -1}),
+            xs.get_or_default(9, a).match({"a": lambda _b, x: x, "b": lambda _b, _s: -1}),
+            xs.find_first(a).unwrap_or(-1),
+            xs.find_all(a).size(),
+        ], ArrayType(IntegerType))
+
+    built = East.function([DictType(IntegerType, AB), ArrayType(AB)], ArrayType(IntegerType),
+                          defaults)
+    assert list(built({}, [variant("b", "x"), variant("a", 1)])) == [1, 1, 1, 1, 1, 1]
+
+
+def test_a_default_of_another_type_is_refused_naming_both():
+    assert _refusal(lambda: East.function(
+        [DictType(IntegerType, Row)], Row,
+        lambda _b, d: d.get(1, lambda _b, _k: {"name": 7}))) == \
+        '.get() default returns .Struct [(name="name", type=.Integer)], ' \
+        'values are .Struct [(name="name", type=.String)]'
+
+
+# ─── every builtin is held to its signature ──────────────────────────────────
+
+
+def test_a_raw_builtin_is_held_to_its_signature():
+    # the spelling of last resort reached east-c unchecked: DictHas read the
+    # Integer as a String key and answered False
+    assert _refusal(lambda: East.function(
+        [D, IntegerType], BooleanType,
+        lambda _b, d, n: East.builtin("DictHas", [StringType, IntegerType], [d, n], BooleanType))) == \
+        "DictHas: argument 2 takes String, got Integer"
+
+
+def test_a_python_literal_fills_a_builtin_slot_as_its_type():
+    # `2` reached FloatPow as an Integer, whose bits east-c read as a Float
+    # (about 1e-323), so 3.0 ** 2 answered 1.0
+    assert East.function([FloatType], FloatType, lambda _b, x: East.Float.pow(x, 2))(3.0) == 9.0
+    assert East.function([FloatType], FloatType, lambda _b, x: East.builtin(
+        "FloatAdd", [], [x, 1], FloatType))(0.5) == 1.5
 
 
 def test_a_call_of_the_declared_types_runs_and_is_of_the_declared_output():

@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError, _trace_bail
-from east.expression.expr.base import Expression, _deprecated_alias, _fn_init
+from east.expression.expr.base import Expression, _deprecated_alias, _fn_init, _widened_callback
 from east.expression.lift import _body, _lift, _trace_inner_fn, if_else
 from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
@@ -31,6 +31,7 @@ from east.expression.nodes import (
     _literal,
     _option_inner,
     _option_type,
+    _type_words,
     _var,
 )
 from east.ir.builders import ir_error, ir_let
@@ -45,6 +46,7 @@ from east.types.types import (
     NullType,
     SetType,
     StringType,
+    is_type_equal,
 )
 
 if TYPE_CHECKING:
@@ -164,14 +166,19 @@ class DictExpression(Expression):
     def get(self, key: Any, default_fn: Any = None) -> Expression:
         """Traced DictGet: the value at ``key`` (an East runtime error when
         absent) — or DictGetOrDefault with ``default_fn(b, key)`` producing
-        the value for an absent key (TS ``get(key, onMissing?)``)."""
+        the value for an absent key, a value of a subtype widened to the
+        value type (TS ``get(key, onMissing?)``)."""
+        return self._get(self._typed("get", key, self._key()), default_fn)
+
+    def _get(self, k: Expression, default_fn: Any) -> Expression:
+        """DictGet, or DictGetOrDefault with ``default_fn``, of a key already
+        held to the key type."""
         k_t, v_t = self._key(), self._value()
-        k = self._typed("get", key, k_t)
         if default_fn is not None:
-            node, out_t = _trace_inner_fn(default_fn, [k_t], out_hint=v_t)
-            if out_t != v_t:
-                raise ExpressionError(
-                    f".get() default returns {out_t.type}, values are {v_t.type}")
+            node, out_t = _widened_callback(default_fn, [k_t], v_t)
+            if not is_type_equal(out_t, v_t):
+                want, got = _type_words(v_t, out_t)
+                raise ExpressionError(f".get() default returns {got}, values are {want}")
             return self._expr(
                 _builtin("DictGetOrDefault", v_t, [k_t, v_t], [self.ir, k.ir, node]), v_t)
         return self._expr(_builtin("DictGet", v_t, [k_t, v_t], [self.ir, k.ir]), v_t)
@@ -182,7 +189,7 @@ class DictExpression(Expression):
         traced like any other so the two spellings build one IR."""
         k = self._typed("get_or_default", key, self._key())
         d = self._typed("get_or_default", default, self._value())
-        return self.get(k, lambda _b, _k: d)
+        return self._get(k, lambda _b, _k: d)
 
     def try_get(self, key: Any) -> VariantExpression:
         """Traced DictTryGet: ``some(value)`` when present, else ``none``."""
