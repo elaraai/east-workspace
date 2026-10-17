@@ -11,10 +11,10 @@
  * @packageDocumentation
  */
 
-import { variant } from "@elaraai/east";
+import { SortedMap, none, some, variant } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { AllocationEditing } from "./editing.js";
-import { partsOf, type AllocationDomain, type AllocationValue, type Bin, type Day, type Selection } from "./model.js";
+import { compareString, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Day, type Selection } from "./model.js";
 
 /**
  * What a drag onto a resource carries of a bin (A39, A73): a link's part, or
@@ -54,6 +54,14 @@ export interface AllocationCommands {
     link(id: string, resource: string, from: string | undefined): boolean;
     /** Fills a reservation with a bin (A38): the bin takes its lane, time and resource, and the reservation goes. */
     fill(id: string, reservation: string): boolean;
+    /** Books an event into a lane slot (A49): a new bin of it, with the app's starting values, on a resource or not linked yet. */
+    book(event: string, lane: string, at: Date, resource: string | undefined): boolean;
+    /** Replaces a bin's event (A49): a bin of the other event takes its lane, time and resource; the replaced one goes back to Events. */
+    replace(id: string, event: string): boolean;
+    /** Books an event into a reservation (A38, A49): its bin takes the reservation's lane, time and resource, and the reservation goes. */
+    fillWith(reservation: string, event: string): boolean;
+    /** Reserves a lane slot on a resource (A49): a bin with no event, no quantity and no hold. */
+    reserve(lane: string, at: Date, resource: string): boolean;
     /** Publishes the day (A4): its status and its drafts, one patch. */
     publish(): void;
 }
@@ -73,6 +81,20 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
     const write = (label: string, origin: Origin, change: (next: Day) => void) => {
         if (!canEdit()) return false;
         const next = domain.copyDay(plan); change(next); return editing.record(next, origin, label);
+    };
+    // A new bin's id: the first of its series the day holds neither in its drafts nor as the record has it.
+    const freshId = (series: "N" | "V") => {
+        for (let n = 1; ; n++) { const id = `${series}${n}`; if (!plan.bins.has(id) && editing.held?.bins.has(id) !== true) return id; }
+    };
+    // A bin of an event: its quantity, kind, hold and the app's starting values, on a resource or none.
+    const binOf = (event: string, lane: string, at: Date, resource: string | undefined): Bin | undefined => {
+        const row = value.events.find(e => e.key === event);
+        if (row === undefined) return undefined;
+        return {
+            lane, at, event: some(event), quantity: row.quantity, kind: row.kind, hold: row.hold,
+            parts: new SortedMap(resource === undefined ? [] : [[resource, row.quantity]], compareString),
+            values: domain.decodeValues(value.initial(event)),
+        } as Bin;
     };
     return {
         editing, canEdit,
@@ -119,6 +141,44 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
                 if (resource !== undefined) into.parts.set(resource, into.quantity);
                 next.bins.delete(reservation);
             });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        book(event, lane, at, resource) {
+            const bin = binOf(event, lane, at, resource);
+            if (bin === undefined) return false;
+            const id = freshId("N");
+            const done = write("Book", "drop", next => { next.bins.set(id, bin); });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        replace(id, event) {
+            const was = plan.bins.get(id);
+            if (was === undefined || was.event.type === "none") return false;
+            const bin = binOf(event, was.lane, was.at, partsOf(was)[0]?.key);
+            if (bin === undefined) return false;
+            const into = freshId("N");
+            const done = write("Replace", "typed", next => { next.bins.delete(id); next.bins.set(into, bin); });
+            if (done) select({ type: "bin", id: into }, true);
+            return done;
+        },
+        fillWith(reservation, event) {
+            const held = plan.bins.get(reservation);
+            if (held === undefined || held.event.type !== "none") return false;
+            const bin = binOf(event, held.lane, held.at, [...held.parts.keys()][0]);
+            if (bin === undefined) return false;
+            const id = freshId("N");
+            const done = write("Book into the reservation", "drop", next => { next.bins.delete(reservation); next.bins.set(id, bin); });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        reserve(lane, at, resource) {
+            const id = freshId("V");
+            const bin = {
+                lane, at, event: none, quantity: 0, kind: none, hold: variant("days", 0),
+                parts: new SortedMap([[resource, 0]], compareString), values: domain.blankValues(),
+            } as Bin;
+            const done = write("Reserve", "drop", next => { next.bins.set(id, bin); });
             if (done) select({ type: "bin", id }, true);
             return done;
         },

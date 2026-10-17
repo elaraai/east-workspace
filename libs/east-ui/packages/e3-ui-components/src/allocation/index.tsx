@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SortedMap, none, variant } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
@@ -26,7 +27,8 @@ import { useAllocationFit } from "./fit.js";
 import { useAllocationData } from "./data.js";
 import { useAllocationEditing } from "./editing.js";
 import { AllocationFooter } from "./footer.js";
-import { NARROW_WIDTH, allocationContext, allocationDomain, configError, focusOf, type AllocationStyles, type AllocationValue, type Day, type Issue, type Selection } from "./model.js";
+import { NARROW_WIDTH, allocationContext, allocationDomain, compareString, configError, dayKey, focusOf, type AllocationStyles, type AllocationValue, type Bin, type Day, type Issue, type Selection } from "./model.js";
+import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
@@ -68,8 +70,8 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     // Another day: its own selection and refusal.
     const dayEpoch = window.day.getTime();
     useEffect(() => { setSelection(undefined); setLink(undefined); setError(undefined); setRefusal(undefined); }, [dayEpoch]);
-    // Another layout closes the selected link (A7).
-    useEffect(() => { setLink(undefined); }, [window.view.layout]);
+    // Another layout closes the selected link (A7), and shows the selection there.
+    useEffect(() => { setLink(undefined); setFollow(before => before.nonce === 0 ? before : { nonce: before.nonce + 1, soft: false }); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
     const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
@@ -92,15 +94,26 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     // The drafts are the cache's key: new drafts, a new cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const withouts = useMemo(() => new Map<string, Day>(), [plan]);
-    const scene: DropScene = {
-        plan, context, slots, fit, commands,
-        without: reservation => {
-            let day = withouts.get(reservation);
-            if (day === undefined) { day = domain.copyDay(plan); day.bins.delete(reservation); withouts.set(reservation, day); }
-            return day;
-        },
-        laneLabel: lane => value.lanes.find(l => l.key === lane)?.label ?? lane,
+    const without = (bin: string) => {
+        let derived = withouts.get(bin);
+        if (derived === undefined) { derived = domain.copyDay(plan); derived.bins.delete(bin); withouts.set(bin, derived); }
+        return derived;
     };
+    // The day with a probe reservation in a free slot: what a free Table row's resource Chooser asks the fit of (A48).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const reservings = useMemo(() => new Map<string, Day>(), [plan]);
+    const reserving = (lane: string, at: Date) => {
+        const key = `${lane}|${dayKey(at)}`;
+        let derived = reservings.get(key);
+        if (derived === undefined) {
+            derived = domain.copyDay(plan);
+            derived.bins.set(RESERVE_PROBE, { lane, at, event: none, quantity: 0, kind: none, hold: variant("days", 0),
+                parts: new SortedMap([], compareString), values: domain.blankValues() } as Bin);
+            reservings.set(key, derived);
+        }
+        return derived;
+    };
+    const scene: DropScene = { plan, context, slots, fit, commands, without, laneLabel: lane => value.lanes.find(l => l.key === lane)?.label ?? lane };
     const drag = useAllocationDrag(key, commands.canEdit() && !narrow, scene, setRefusal);
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();
@@ -147,7 +160,10 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
                         held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={visibility.keys} selection={selection} focus={focus}
                         editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow}
-                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} /> : null}
+                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
+                    : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={window.day} plan={plan} held={editing.held}
+                        sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={select} follow={follow}
+                        drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} />}
             </Box>
         </BuilderFrame>
     </Box>;
