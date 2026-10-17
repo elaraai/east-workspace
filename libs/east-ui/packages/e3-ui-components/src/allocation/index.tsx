@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
@@ -24,14 +24,17 @@ import { allocationCommands } from "./actions.js";
 import { useAllocationData } from "./data.js";
 import { useAllocationEditing } from "./editing.js";
 import { AllocationFooter } from "./footer.js";
-import { NARROW_WIDTH, allocationContext, allocationDomain, configError, type AllocationStyles, type AllocationValue, type Issue, type Selection } from "./model.js";
+import { NARROW_WIDTH, allocationContext, allocationDomain, configError, focusOf, type AllocationStyles, type AllocationValue, type Issue, type Selection } from "./model.js";
+import { AllocationTimeline, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
+import { useKeyVisibility } from "../shared/schedule/visibility.js";
 export type { AllocationValue } from "./model.js";
 
 /** Props of the record-backed Allocation extension. */
 export interface EastChakraAllocationProps { value: AllocationValue; storageKey: string }
 const NO_DATES: readonly Date[] = [];
+const VISIBILITY_WORDS = { changed: "Resource results changed; retry the narrowing.", failed: "Could not load resource results" };
 
 function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "allocation"}`;
@@ -42,7 +45,15 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const data = useAllocationData(value, domain, window.day, picker);
     const editing = useAllocationEditing(value, domain, window.day, key, data);
     const [selection, setSelection] = useState<Selection>();
+    // Selecting follows the selection (A12); a selection a command makes after a drop follows it softly.
+    const [follow, setFollow] = useState<TimelineFollow>({ nonce: 0, soft: false });
+    const select = useCallback((next: Selection | undefined, soft = false) => {
+        setSelection(next);
+        if (next !== undefined) setFollow(before => ({ nonce: before.nonce + 1, soft }));
+    }, []);
     const [error, setError] = useState<string>();
+    // The narrowing chooses which rows the Timeline shows; fits, checks and totals read every resource.
+    const visibility = useKeyVisibility({ visibleSource: value.visibleSource, visible: value.visibleResources, rows: value.resources, recordSlice: value.recordSlice }, VISIBILITY_WORDS);
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
@@ -56,20 +67,24 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const plan = editing.plan;
     const loads = useMemo(() => domain.loads(window.day, plan, context), [domain, window.day, plan, context]);
     const builtIn = useMemo(() => domain.check(window.day, plan, context), [domain, window.day, plan, context]);
+    const slots = useMemo(() => domain.slots(window.day, plan, context), [domain, window.day, plan, context]);
+    const focus = focusOf(selection, plan);
     // The app's check, after the built-in ones wherever issues show; a check that fails leaves them shown.
     const readCheck = useCallback((): Issue[] => value.check.type === "some"
         ? value.check.value(domain.encodeCheckContext({ day: window.day, plan, context, loads })) : [], [value.check, domain, window.day, plan, context, loads]);
     const custom = useTrackedEvaluation(readCheck);
     const issues = useMemo(() => [...builtIn, ...(custom.result.ok ? custom.result.value : [])], [builtIn, custom.result]);
     // Commands update what is selected without changing the panes or their tabs.
-    const commands = allocationCommands(value, domain, editing, setSelection);
+    const commands = allocationCommands(value, domain, editing, select);
     const onIssues = () => revealPane("Inspector");
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
-    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks });
+    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
+        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: visibility.keys.type === "some" && !visibility.keys.value.has(focus) },
+        onClearFocus: () => setSelection(undefined) });
     const published = editing.held?.status.type === "published";
     const notStarted = !data.loading && data.error === undefined && editing.held === undefined && plan.bins.size === 0;
     return <Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={data.loading && data.error === undefined} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={(data.loading && data.error === undefined) || (!visibility.ready && visibility.loading)} toolbar={toolbar} onKeyDown={event => {
             // The keys, never while typing (A6).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
@@ -82,11 +97,16 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             {published && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
             {notStarted && <BannerView status="info" title="Day not started" description="Book an event or reserve a slot to start this day's plan." />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The plan's additional checks could not run. Built-in checks are still shown." />}
+            {visibility.error !== undefined && <BannerView status="error" title="Resource results unavailable" description={visibility.error} actions={<Button size="xs" variant="outline" onClick={visibility.retry}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} narrow={narrow} />}>
             <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
-                aria-busy={data.loading && data.error === undefined} data-allocation-narrow={narrow ? "" : undefined}>
-                {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} /> : null}
+                aria-busy={(data.loading && data.error === undefined) || visibility.loading} inert={visibility.loading || visibility.error !== undefined ? true : undefined}
+                data-allocation-narrow={narrow ? "" : undefined}>
+                {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
+                    : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
+                        held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={visibility.keys} selection={selection} focus={focus}
+                        editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow} /> : null}
             </Box>
         </BuilderFrame>
     </Box>;

@@ -16,14 +16,14 @@
 import { useMemo } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCalendarDay, faChartGantt, faTable, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { ChipMenu, historyToolbarItem, useSliceReactivity, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
 import { HOST_RANK, coarseHitArea, railAffordanceKinds, useRecordSliceToolbarItems, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationWindow } from "./window.js";
-import { DAY, type AllocationStyles, type AllocationValue, type Day, type Issue } from "./model.js";
+import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
@@ -72,6 +72,9 @@ interface ToolbarArgs extends AllocationWindow {
     onIssues: () => void;
     onAction: (action: HistoryAction) => void;
     onPickerWeeks: (weeks: readonly Date[]) => void;
+    /** The focus (A13): its resource, its load, and whether the narrowing hides its row. */
+    focus: { resource: ResourceRow; load: Load; hidden: boolean } | undefined;
+    onClearFocus: () => void;
 }
 
 /** The board's toolbar items: the shared Toolbar's, ranked around `HOST_RANK`. */
@@ -114,6 +117,19 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         {value.inspector.type === "some" && summary.count > 0 && <ChakraMenu.Item value="issues">{summary.label}</ChakraMenu.Item>}
         {canPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish</ChakraMenu.Item></>}
     </ChipMenu>;
+    // The focus chip (A13, A81): `K-203 · 3 bins · 31 m³`, `· hidden by Filters` when its row is narrowed out; × or Esc clears it.
+    const focus = args.focus;
+    const focusChip = (compact: boolean) => {
+        if (focus === undefined) return null;
+        const unit = value.quantity.unit.type === "some" ? value.quantity.unit.value : "";
+        const meta = `${plural(Number(focus.load.bins), "bin")} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
+        return <chakra.span css={chip({ tone: "brand", numeric: true })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
+            aria-label={`Focus ${focus.resource.label}, ${meta}`}>
+            <span data-chip-icon=""><FontAwesomeIcon icon={faLink} /></span>
+            {!compact && <><span>{focus.resource.label}</span><span data-chip-meta="">{meta}</span></>}
+            <chakra.button type="button" css={styles.focusClear} aria-label="Show all" title="Show all · Esc" onClick={args.onClearFocus}><FontAwesomeIcon icon={faXmark} /></chakra.button>
+        </chakra.span>;
+    };
     const navigation = (compact = false, combined = false) => <TimeNavigator scope="allocation" date={view.date} period="day" sunday={false}
         onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"} initialPanel="day"
         onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started"
@@ -124,6 +140,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
         { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
         { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "allocation.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
+        timeline && focus !== undefined && { key: "allocation.focus", side: "start", rank: HOST_RANK + 2, forms: [focusChip(false), focusChip(true)] },
         value.settings.publish && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [
             <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
         summary.count > 0 && value.inspector.type === "some" && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [
