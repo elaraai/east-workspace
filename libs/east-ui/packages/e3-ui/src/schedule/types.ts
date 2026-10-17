@@ -13,7 +13,7 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, DictType, FunctionType, IntegerType, NullType, OptionType, StringType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType,
     StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
@@ -120,6 +120,43 @@ export const ScheduleCandidateType = StructType({
 
 /** Type representing {@link ScheduleCandidateType}. */
 export type ScheduleCandidateType = typeof ScheduleCandidateType;
+
+/**
+ * Why something does not fit: the refusal a fit gives, and what a run of
+ * refusals of one group gathers into one label (`Over max · by 4–13 m³`).
+ *
+ * @property group - Its group, the run label's lead (`Over max`, `Busy`, `Gap too short`)
+ * @property reason - Its words (`over max by 4 m³`)
+ * @property measure - What the run's label gathers: nothing, an amount (`by` 4) or a day (`until` Fri 14)
+ */
+export const ScheduleRefusalType = StructType({
+    group: StringType,
+    reason: StringType,
+    measure: VariantType({
+        none: NullType,
+        amount: StructType({ lead: StringType, value: FloatType }),
+        day: StructType({ lead: StringType, at: DateTimeType }),
+    }),
+});
+
+/** Type representing {@link ScheduleRefusalType}. */
+export type ScheduleRefusalType = typeof ScheduleRefusalType;
+
+/**
+ * One verdict of a fit: it fits, with its score, its reason and a warning,
+ * or it is refused. A builder ranks the fits by score and shows each reason
+ * as it is; it computes none of its own.
+ *
+ * @property fits - It fits: higher scores rank first; `why` its reason (`3 d spare to Wed 19 · leaves 31 m³ · takes 20–40`); `warn` a warning it still fits with (`under min`)
+ * @property refused - It does not fit, and why
+ */
+export const ScheduleFitType = VariantType({
+    fits: StructType({ score: FloatType, why: StringType, warn: OptionType(StringType) }),
+    refused: ScheduleRefusalType,
+});
+
+/** Type representing {@link ScheduleFitType}. */
+export type ScheduleFitType = typeof ScheduleFitType;
 
 // ============================================================================
 // The kinds' wire

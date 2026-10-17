@@ -30,6 +30,7 @@
     "dist/src",
     "dist/test/**/*.examples.*",
     "dist/test/roster/warehouse.*",
+    "dist/test/allocation/kiln-yard.*",
     "!dist/**/*.spec.*",
     "README.md",
     "CONTRIBUTING.md",

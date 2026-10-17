@@ -138,6 +138,8 @@ export const BinValues = StructType({
 /** A drying kiln. */
 export const Kiln = StructType({
     name: StringType, group: StringType, min: FloatType, max: FloatType,
+    days: FloatType,                                 // the days it usually dries for: a reservation's hold
+    note: OptionType(StringType),                    // a line about its next charge
     charges: ArrayType(Allocation.Types.Job),        // the charge drying now, and the next one planned
 });
 /** A load of sawn timber on its way from a mill. */
@@ -145,6 +147,7 @@ export const TimberLoad = StructType({
     code: StringType, mill: StringType, spec: StringType, grade: StringType,
     m3: FloatType, dryingDays: FloatType, due: DateTimeType, from: DateTimeType, to: DateTimeType,
     schedule: StringType,                            // the kiln schedule it dries on
+    instruction: OptionType(StringType),             // its loading instruction
 });
 
 // The plans the board edits: one per UTC day, each patched as a whole.
@@ -166,20 +169,26 @@ export const yardBays = e3.record("yard_bays", ArrayType(Allocation.Types.Lane),
 // then a greedy look-ahead — a fit that leaves more of the day's unbooked loads with nowhere to go ranks lower.
 export const yardFit = e3.function("yard_fit", East.function(
     [Allocation.Types.FitRequest(BinValues)], Allocation.Types.FitResult, ($, req) => {
-        const answer = $.const(Allocation.answer);
+        const answer = $.const(Allocation.answer(BinValues));
         const rule = $.const(Allocation.fit);
-        const ahead = $.const(Allocation.lookahead);
-        return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => ahead(req, c, rule)));
+        const ahead = $.const(Allocation.lookahead(BinValues));
+        return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => ahead(req, c, rule)),
+            "ranked by load, kind and spare days, and what it leaves for the day's other loads");
     }));
 ```
 
 `Allocation.answer` builds the candidates for the request and maps a
-per-candidate fit over them; `Allocation.fit` is the built-in rule set (§12);
+per-candidate fit over them, with the app's words for how its fit ranks (the
+answer's `basis`); `Allocation.fit` is the built-in rule set (§12);
 `Allocation.lookahead` is a pure greedy best-fit-decreasing pass: it places the
 candidate, then the day's unbooked events largest first, each on its best
 fitting resource, and lowers the score by one for each event left with no fit,
 adding `· leaves 1 load with no fit` to `why`. All three are ordinary East
-functions an app may call, replace or ignore.
+functions an app may call, replace or ignore. Those over a plan take the plans'
+bin values type, as `Editing.apply` takes its source type —
+`Allocation.answer(BinValues)` is an East function over
+`Allocation.Types.FitRequest(BinValues)` — because an East function has one
+type; `Allocation.fit` reads one candidate and needs none.
 
 ### 3.2 The smallest board
 
@@ -195,7 +204,7 @@ export const allocationMinimal = example({
         const fit = $.let(Func.bind(yardFit));
         return <Box width="100%" height="760px"><Allocation id="allocationMinimal" days={days} lanes={bays.read()} fit={fit}
             events={Allocation.events(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
-                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade, gradeMeasured: l.grade, instruction: none }) })}
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }) })}
             resources={Allocation.resources(yard.read(), { label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges })}
             quantity={{ unit: "m³" }} view={{ date: new Date("2027-05-11T00:00:00Z") }} />
         </Box>;
@@ -204,7 +213,10 @@ export const allocationMinimal = example({
 ```
 
 Five props and the values an event gives a new bin make a working board:
-`days`, `lanes`, `events`, `resources` and `fit`. Cards drag between bay hours, the
+`days`, `lanes`, `events`, `resources` and `fit`. `values` is reified at the
+plans' bin values, so an event can only start a bin the plans hold; a
+reservation's values are `V`'s default (East's `defaultValue`), as the mock's
+reservations are blank. Cards drag between bay hours, the
 connector links, every gesture is one undo step, and Save patches the open day.
 
 ### 3.3 The kiln yard
@@ -239,12 +251,14 @@ export const allocationKilnYard = example({
         const check = $.const(East.function([Allocation.Types.CheckContext(BinValues)], ArrayType(Allocation.Types.Issue), ($2, cx) => {
             const issues = $2.let([], ArrayType(Allocation.Types.Issue));
             $2.for(cx.plan.bins, ($3, bin, id) => {
-                $3.if(East.notEqual(bin.values.specBooked, bin.values.specMeasured), $4 => {
-                    $4(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null),
-                        title: East.str`${bin.event.unwrap("some")} · bin ${id}`,
-                        detail: East.str`Spec booked ${bin.values.specBooked} · measured ${bin.values.specMeasured}`,
-                        bin: some(id), resource: none, flag: some("≠ spec"), fix: none }));
-                });
+                $3.match(bin.event, { some: ($4, code) => {
+                    $4.if(East.notEqual(bin.values.specBooked, bin.values.specMeasured), $5 => {
+                        $5(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null),
+                            title: East.str`${code} · bin ${id}`,
+                            detail: East.str`Spec booked ${bin.values.specBooked} · measured ${bin.values.specMeasured} · ${bin.lane} ${bin.at.printFormatted("HH:mm")}`,
+                            bin: some(id), resource: none, flag: some("≠ spec"), fix: none }));
+                    });
+                } });
             });
             return issues;
         }));
@@ -255,16 +269,16 @@ export const allocationKilnYard = example({
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
                 due: l => some(l.due), window: l => some({ from: l.from, to: l.to }),
                 details: l => [{ label: "Settings", value: l.schedule }],
-                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade, gradeMeasured: l.grade, instruction: none }),
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`),
-                min: k => k.min, max: k => k.max, jobs: k => k.charges,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
                 { key: "spec", label: "Spec", text: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => v.specMeasured, () => East.str`booked ${v.specBooked} · measured ${v.specMeasured}`),
                     tone: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
-                { key: "grade", label: "Grade", text: v => East.equal(v.gradeBooked, v.gradeMeasured).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
+                { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
             visibleResources={Slice.rows(slice)} slice={{ slice }}
@@ -320,7 +334,9 @@ function, as `Roster.people` does.
 | `min`, `max` | `Float` | Its range in the quantity's unit. Required. |
 | `group` | `Option<String>` | Its group: its row's line, the Library, the narrowing's field when indexed. |
 | `meta` | `Option<String>` | Its free line (`Hall B · 40 m³`). |
-| `jobs` | `Array<Job>` | Other work on it: a job covering the plan day's start makes it busy; one starting inside a hold is a short gap. |
+| `note` | `Option<String>` | A line about its next job, after the inspector's next fill (`the plan had this charge on Wed 12`). |
+| `hold` | `Duration`, no time by default | How long a reservation on it is checked for, and how long it is held when it holds only reservations: the mock's kiln hold. |
+| `jobs` | `Array<Job>` | Other work on it: a job covering the plan day's start makes it busy, until it ends; the first starting after the day's start is its next job, a short gap when a hold runs past it. |
 
 ### 4.2 `Allocation` props
 
@@ -359,8 +375,10 @@ Allocation.Types.Bin(V)       = StructType({
     at:       DateTimeType,                                  // the bin time; a batch's bins follow one minute apart
     event:    OptionType(StringType),                        // none: a reservation
     quantity: FloatType,                                     // 0 for a reservation
+    kind:     OptionType(StringType),                        // what it goes with: its event's kind when booked
+    hold:     TimeStepType,                                  // how long a resource holds it: its event's hold when booked
     parts:    DictType(StringType, FloatType),               // the quantity on each resource, by key; empty: not linked
-    values:   V,                                             // the app's
+    values:   V,                                             // the app's; V's default for a reservation
 });
 Allocation.Types.Status       = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }) });
 Allocation.Types.Day(V)       = StructType({ status: Status, bins: DictType(StringType, Bin(V)) });
@@ -371,7 +389,9 @@ Allocation.Types.Event        = StructType({ key: StringType, label: StringType,
                                              due: OptionType(DateTimeType), window: OptionType(StructType({ from: DateTimeType, to: DateTimeType })),
                                              details: ArrayType(StructType({ label: StringType, value: StringType })) });
 Allocation.Types.Resource     = StructType({ key: StringType, label: StringType, group: OptionType(StringType), meta: OptionType(StringType),
-                                             min: FloatType, max: FloatType, jobs: ArrayType(Job) });
+                                             note: OptionType(StringType), min: FloatType, max: FloatType,
+                                             hold: TimeStepType,     // a reservation's hold; a resource holding only reservations holds for it
+                                             jobs: ArrayType(Job) });
 Allocation.Types.Rules        = StructType({ under: BooleanType });
 Allocation.Types.Context      = StructType({ lanes: ArrayType(Lane), every: TimeStepType, events: DictType(StringType, Event),
                                              resources: DictType(StringType, Resource), rules: Rules, unit: StringType });
@@ -379,9 +399,13 @@ Allocation.Types.Context      = StructType({ lanes: ArrayType(Lane), every: Time
 Allocation.Types.Load         = StructType({ resource: StringType, fill: FloatType, bins: IntegerType,
                                              hold: OptionType(StructType({ from: DateTimeType, to: DateTimeType })),   // the day for its longest bin's hold
                                              state: VariantType({ free: NullType, loading: NullType, busy: NullType }) });
-Allocation.Types.Candidate    = StructType({ day: DateTimeType, quantity: FloatType, event: OptionType(Event), resource: Resource,
-                                             load: Load, after: FloatType, hold: StructType({ from: DateTimeType, to: DateTimeType }),
-                                             spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType });
+Allocation.Types.Candidate    = StructType({ day: DateTimeType, bin: OptionType(StringType), reserve: BooleanType, quantity: FloatType,
+                                             event: OptionType(Event), kind: OptionType(StringType), resource: Resource, load: Load,
+                                             after: FloatType, hold: StructType({ from: DateTimeType, to: DateTimeType }),
+                                             spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType,
+                                             rules: Rules, unit: StringType });
+// bin: the bin it is for (none for an event not yet booked, and a new reservation); reserve: it reserves a slot, checked
+// with no quantity and refused when the resource is full; kind: its own; rules and unit: what the rules warn and write by
 Allocation.Types.Refusal      = StructType({ group: StringType, reason: StringType,
                                              measure: VariantType({ none: NullType,
                                                  amount: StructType({ lead: StringType, value: FloatType }),
@@ -408,15 +432,25 @@ Allocation.Types.Slot         = StructType({ lane: StringType, at: DateTimeType,
                                              bins: ArrayType(StringType) });
 Allocation.Types.Layout       = VariantType({ timeline: NullType, table: NullType });
 
-Allocation.loads      : (DateTime, Day(V), Context) → Dict<String, Load>
-Allocation.candidates : (FitRequest(V)) → Array<Candidate>         // place: one per resource; take: one per bin, and one for an empty slot
-Allocation.fit        : (Candidate) → Fit                          // the built-in rules (§12)
-Allocation.answer     : (FitRequest(V), Fn(Candidate) → Fit) → FitResult
-Allocation.lookahead  : (FitRequest(V), Candidate, Fn(Candidate) → Fit) → Fit
-Allocation.place      : (Day(V), DateTime, Candidate, Context) → Day(V)     // what a gesture would leave; the look-ahead's step
-Allocation.check      : (DateTime, Day(V), Context) → Array<Issue>
-Allocation.slots      : (DateTime, Day(V), Context) → Array<Slot>
+// Each over a plan takes the plans' bin values type and returns its East function, as Editing.apply(Type) does:
+Allocation.loads(V)      : (DateTime, Day(V), Context) → Dict<String, Load>
+Allocation.candidates(V) : (FitRequest(V)) → Array<Candidate>      // place: one per resource; take: one per bin, and one for an empty slot
+Allocation.fit           : (Candidate) → Fit                       // the built-in rules (§12)
+Allocation.answer(V)     : (FitRequest(V), Fn(Candidate) → Fit, String) → FitResult   // the String: the answer's basis, the app's words
+Allocation.lookahead(V)  : (FitRequest(V), Candidate, Fn(Candidate) → Fit) → Fit
+Allocation.check(V)      : (DateTime, Day(V), Context) → Array<Issue>
+Allocation.slots(V)      : (DateTime, Day(V), Context) → Array<Slot>
 ```
+
+A bin keeps what it was booked with: its kind and its hold come from its event
+when it is booked, as its values do, and stay with it when it moves, as the
+mock's bins carry theirs — so a delivery measured on arrival can differ from
+its event, and the mock's committed bins, whose holds it seeds from their kiln,
+keep exactly the holds the worked facts are figured from. `Allocation.events`
+returns a declaration the tag resolves at the plans' `V`: a values literal
+carries no East type of its own. `Allocation.place` is not built: a new bin of
+an event needs the app's values, which a request does not carry, and the
+look-ahead places onto loads alone.
 
 A type constructor such as `Allocation.Types.Days(V)` returns the same East type
 for the same `V` (`isTypeEqual`), so a record declared once matches the board's
@@ -427,8 +461,10 @@ props and the fit's request. A board whose `fit` was bound over a different
 
 ```ts
 AllocationPayloadType = StructType({
-    sourceId: StringType, read: FunctionType([], Days(V) as bytes), apply: AsyncFunctionType([Editing.Types.ChangeSet(Day(V), DateTimeType)], Editing.Types.ApplyResult),
-    window: OptionType(DataPagedHandle), valuesType: EastTypeValue,                 // the day's entries cross as bytes at Day(V)
+    sourceId: StringType,
+    read: FunctionType([], BlobType),                                               // the plans, as bytes at Days(V)
+    apply: AsyncFunctionType([BlobType], Editing.Types.ApplyResult),               // a day's ChangeSet(Day(V), DateTime), as bytes
+    window: OptionType(DataPagedHandleType(BlobType)), valuesType: EastTypeType,   // Data.bindPaged(plans), its windows as bytes at Days(V)
     lanes: ArrayType(Lane), every: TimeStepType, events: ArrayType(Event), resources: ArrayType(Resource), initial: FunctionType([StringType], BlobType),
     visibleResources: OptionType(SetType(StringType)), visibleSource: OptionType(RowSourceType(ArrayType(StringType))),
     fit: FuncBindingType, check: OptionType(FunctionType([BlobType], ArrayType(Issue))),
@@ -768,9 +804,9 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
   resource`. Brand-dd, or warn-text when refused or under min.
 - **A34.** During a drag the inspector lists the fits as drop targets (§8): for an
   event or a link, `Gaps that fit · LD-2231 · 21 m³ · 8-day hold from Tue 11 ·
-  ranked by load, kind and spare days` (the answer's `basis`: `Allocation.answer`
-  says `ranked by load, kind and spare days`, `Allocation.lookahead` adds `and what
-  it leaves for the day's other loads`), the three best with their reasons, `no
+  ranked by load, kind and spare days` (the answer's `basis`, the app's own words:
+  the yard's fit says `ranked by load, kind and spare days, and what it leaves for
+  the day's other loads`), the three best with their reasons, `no
   resource has a gap that fits` when none, and the layout's hint (`Drop on a
   resource row or a lane hour, or on a resource here.`); for a card body, `Move
   bin · between lanes and hours · its resource stays K-203` (Table: `to a free
@@ -1157,13 +1193,15 @@ quantity on one resource, against the drafted plan):
    (`next job`).
 3. **Over max:** fill + quantity over max → refused, `Over max`, `over max by
    4 m³`, measure the amount (`by`).
-4. **Fits:** score = after ÷ max + 0.25 when a bin of the same kind is already on
-   the resource − 0.1 when only other kinds are − 0.5 when under min −
-   0.04 × min(spare days, 6); why = `open gap` or `3 d spare to Wed 19`, then `·
-   leaves` and the load line (A19); warn `under min` when after < min and
-   `rules.under`.
-5. **Reserving** (a take's `reserve`, and a bin with no event): the same with
-   quantity 0, refused `full · …` when the resource's fill is at its max.
+4. **Reserving** (a take's `reserve`, and a bin with no event): the same with
+   quantity 0 and the resource's hold, then refused, group `Full`, `full · 40 m³ ·
+   takes 20–40`, when the resource's fill is at its max.
+5. **Fits:** score = after ÷ max + 0.25 when a bin of the same kind is already on
+   the resource − 0.1 when it holds other bins, none of the kind − 0.5 when under
+   min − 0.04 × min(spare days, 6), a resource with no next job counting six;
+   why = `open gap` or `3 d spare to Wed 19`, then `· leaves` and the load line
+   (A19); warn `under min` when after < min and `rules.under`. The terms are added
+   in that order, as the mock adds them, so equal fits tie exactly.
 
 `Allocation.check` reports, over committed and drafted bins alike: Not linked,
 Partly allocated, Over max, Under minimum (when `rules.under`), Overlaps the next
@@ -1177,6 +1215,9 @@ day's unbooked events, largest first, on its best fitting resource, and lowers t
 score by one for each event left with no fit, adding `· leaves 1 load with no
 fit`. In the yard, LD-2231 (21 m³) fits K-107 and K-601; the look-ahead ranks
 K-107 first, because K-601 is the only fit for LD-2232, LD-2233 and LD-2234.
+LD-2236 (11 m³), which the built-in rules rank K-107, K-103, K-601, the look-ahead
+reorders K-103, K-601, K-107: on K-107 it leaves LD-2231 nowhere but K-601, and
+two loads with no fit.
 
 - **e3-ui specs** (`test/allocation/fit.spec.ts`) compile `Allocation.fit`,
   `Allocation.answer`, `Allocation.lookahead` and the yard's function body, and
@@ -1266,7 +1307,7 @@ Only the rulings of §2 change the mock's behaviour.
 4. The shared day reader, TimeNavigator's `dayMarker`, and `shared/func/`; Roster
    and Experiment onto them.
 5. e3-ui: the types, adapters, pure functions (`loads`, `candidates`, `fit`,
-   `answer`, `lookahead`, `place`, `check`, `slots`), the tag, payload and
+   `answer`, `lookahead`, `check`, `slots`), the tag, payload and
    carrier; the yard's records and fit; examples and specs.
 6. The frame, the toolbar, the session and Publish (A1–A7, A75–A77, A79, A80).
 7. The Timeline: lane grid, link channel, resource rows, focus (A8–A21).
