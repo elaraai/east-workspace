@@ -51,11 +51,12 @@
  * links out from its rows and names what a hit on each is.
  */
 
-import { useCallback, useMemo, useSyncExternalStore, useRef, type RefObject } from "react";
+import { useCallback, useMemo, useRef, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant } from "@elaraai/east";
 import { layoutRibbons, type LinkedElement, type RibbonBeyond, type RibbonBody } from "./ribbon-layout.js";
 import { LinksLayer, type LinkRibbon } from "../../shared/links/layer.js";
+import { useScrollTop } from "../../shared/links/scroll.js";
 import { rowKeyOf, type PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import { usePlanResolvers, type PlanElementRefValue } from "../context.js";
@@ -89,23 +90,6 @@ export interface LinksOverlayProps {
      *  what the view is read from. Absent for an unbounded frame, which shows
      *  every row. */
     frame?: { scrollElRef: RefObject<HTMLElement | null>; headerRef: RefObject<HTMLElement | null> } | undefined;
-}
-
-/**
- * How far an element has scrolled, followed through its scroll events.
- *
- * @param ref - The scroll element
- * @param active - Whether to follow it at all
- * @returns Its `scrollTop` (0 while inactive)
- */
-function useScrollTop(ref: RefObject<HTMLElement | null>, active: boolean): number {
-    const subscribe = useCallback((notify: () => void) => {
-        const el = ref.current;
-        if (!active || el === null) return () => undefined;
-        el.addEventListener("scroll", notify, { passive: true });
-        return () => el.removeEventListener("scroll", notify);
-    }, [ref, active]);
-    return useSyncExternalStore(subscribe, () => (active ? ref.current?.scrollTop ?? 0 : 0), () => 0);
 }
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */

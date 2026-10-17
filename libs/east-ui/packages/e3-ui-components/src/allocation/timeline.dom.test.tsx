@@ -9,7 +9,7 @@
  * sessions (#1325) acted on through the Timeline's cards. Every expected word
  * and figure is the mock's, as it draws the same yard.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
@@ -293,5 +293,114 @@ describe("the day's sessions, through the Timeline (#1325)", () => {
         const saved = h.read(ex.kilnPlans).get(TUE)!;
         expect(saved.bins.size).toBe(24);
         expect([saved.bins.has("3101"), saved.bins.has("3102")]).toEqual([false, false]);
+    });
+});
+
+/** The board's three boxes the links run between, as a browser lays them out: jsdom lays out nothing. */
+function stubLinkGeometry() {
+    const spy = vi.mocked(Element.prototype.getBoundingClientRect);
+    const base = spy.getMockImplementation()!;
+    spy.mockImplementation(function (this: Element) {
+        const box = (left: number, width: number, height: number) => ({ x: left, y: 0, top: 0, left, right: left + width, bottom: height, width, height, toJSON() {} });
+        if (this.hasAttribute("data-allocation-timeline")) return box(0, 1200, 700);
+        if (this.hasAttribute("data-allocation-grid")) return box(10, 336, 1116);
+        if (this.hasAttribute("data-allocation-channel")) return box(347, 48, 700);
+        return base.call(this);
+    });
+}
+const links = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-links] [data-plan-link]")];
+const hitOf = (c: HTMLElement, bin: string, resource: string) => c.querySelector<SVGPathElement>(`[data-allocation-link="${bin}|${resource}"]`)!;
+const captionOf = (c: HTMLElement, bin: string, resource: string) => c.querySelector<SVGGElement>(`[data-allocation-caption="${bin}|${resource}"]`)!;
+
+describe("the focus's links (#1327)", () => {
+    test("A65 — links draw only for the focus: none at rest; the selected bin's resource's family; the selected resource's", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        expect(c.querySelector("[data-allocation-links]")).toBeNull();
+        await press(card(c, "3101")!);
+        expect(links(c)).toHaveLength(1);
+        await press(row(c, "K-202")!);
+        expect(links(c)).toHaveLength(2);
+        expect([...c.querySelectorAll("[data-allocation-links] [data-plan-ribbon-caption]")].map(t => t.textContent)).toEqual(["22 m³", "17 m³"]);
+        await key(c, "Escape");
+        expect(c.querySelector("[data-allocation-links]")).toBeNull();
+    });
+
+    test("A66 — each link is weighted by its share of the family's largest: K-304's 1 m³ bins at 4, its 2 m³ bins at 8", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        await press(row(c, "K-304")!);
+        const weights = Object.fromEntries(links(c).map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"), g.querySelector("[data-plan-ribbon-band]")!.getAttribute("stroke-width")]));
+        expect(weights).toEqual({ "3106|K-304": "4", "3110|K-304": "4", "3112|K-304": "8", "3114|K-304": "8", "3121|K-304": "4" });
+    });
+
+    test("A67 — a link under the pointer lights, its bin card and its resource's load haloed; its line's label and tooltip name it", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        await press(row(c, "K-202")!);
+        const hit = hitOf(c, "3123", "K-202");
+        expect(hit.getAttribute("aria-label")).toBe("Link of LD-2219, 22 m³");
+        expect(hit.querySelector("title")!.textContent).toBe("Link of LD-2219, 22 m³ · click to select");
+        expect(captionOf(c, "3123", "K-202").querySelector("title")!.textContent).toBe("Click to select the link, then Delete · drag onto a resource row to move it");
+        await act(async () => { fireEvent.pointerEnter(hit); });
+        expect(card(c, "3123")!.hasAttribute("data-link-lit")).toBe(true);
+        expect(card(c, "3126")!.hasAttribute("data-link-lit")).toBe(false);
+        expect(row(c, "K-202")!.querySelector("[data-allocation-load]")!.hasAttribute("data-link-lit")).toBe(true);
+        await act(async () => { fireEvent.pointerLeave(hit); });
+        expect(card(c, "3123")!.hasAttribute("data-link-lit")).toBe(false);
+        // The caption lights it too.
+        await act(async () => { fireEvent.pointerEnter(captionOf(c, "3126", "K-202")); });
+        expect(card(c, "3126")!.hasAttribute("data-link-lit")).toBe(true);
+    });
+
+    test("A68 — a click selects a link and its bin; its caption carries a × that unlinks; Delete unlinks too", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        await press(row(c, "K-202")!);
+        await press(hitOf(c, "3123", "K-202"));
+        expect(card(c, "3123")!.getAttribute("aria-pressed")).toBe("true");
+        const caption = captionOf(c, "3123", "K-202");
+        expect(caption.hasAttribute("data-selected")).toBe(true);
+        expect(caption.getAttribute("aria-label")).toBe("Selected link of LD-2219, 22 m³");
+        expect(caption.querySelector("title")!.textContent).toBe("Selected · × or Delete removes the link");
+        const unlink = c.querySelector<HTMLButtonElement>("[data-allocation-links] [data-plan-ribbon-unlink] button")!;
+        expect(unlink.getAttribute("aria-label")).toBe("Unlink LD-2219 · Delete");
+        await press(unlink);
+        expect(card(c, "3123")!.querySelector("[data-unlinked]")).not.toBeNull();
+        await press(toolbar(c).getByRole("button", { name: editingMessages.undo() }));
+        expect(card(c, "3123")!.querySelector("[data-allocation-to]")!.textContent).toBe("K-202");
+        // Selected by its caption, Delete unlinks it.
+        await press(row(c, "K-202")!);
+        await press(captionOf(c, "3126", "K-202"));
+        await key(c, "Delete");
+        expect(card(c, "3126")!.querySelector("[data-unlinked]")).not.toBeNull();
+        expect(card(c, "3123")!.querySelector("[data-allocation-to]")!.textContent).toBe("K-202");
+    });
+
+    test("A68 — a reservation's link has no caption: selected by its line, Delete unlinks it", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        const plans = h.read(ex.kilnPlans);
+        plans.get(TUE)!.bins.set("R1", { lane: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), event: none, quantity: 0, kind: none, hold: variant("days", 0),
+            parts: new SortedMap([["K-202", 0]], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
+        await h.commit(ex.kilnPlans, plans);
+        await press(row(c, "K-202")!);
+        expect(links(c)).toHaveLength(3);
+        expect(captionOf(c, "R1", "K-202")).toBeNull();
+        expect(hitOf(c, "R1", "K-202").getAttribute("aria-label")).toBe("Link of the reservation");
+        await press(hitOf(c, "R1", "K-202"));
+        await key(c, "Delete");
+        expect(card(c, "R1")!.querySelector("[data-unlinked]")).not.toBeNull();
+    });
+
+    test("A7 — another layout closes the selected link; the bin stays selected", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        await press(row(c, "K-202")!);
+        await press(hitOf(c, "3123", "K-202"));
+        await press(toolbar(c).getByRole("radio", { name: "Table" }));
+        await press(toolbar(c).getByRole("radio", { name: "Timeline" }));
+        expect(card(c, "3123")!.getAttribute("aria-pressed")).toBe("true");
+        expect(c.querySelector("[data-allocation-links] [data-plan-ribbon-label][data-selected]")).toBeNull();
     });
 });

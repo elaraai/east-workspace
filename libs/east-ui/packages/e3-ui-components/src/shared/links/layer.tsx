@@ -21,8 +21,12 @@
  *
  * What a host may add, unused unless it opts in: a SELECTED link, its caption
  * outlined, carrying a × in its own 16px target whose pointer-down is stopped
- * (never a drag) and whose click unlinks (A68); and a link DRAG's preview — the
- * moved link faded to its `was` line, and the new line to the pointer (A69).
+ * (never a drag) and whose click unlinks (A68); a link DRAG's preview — the
+ * moved link faded to its `was` line, and the new line to the pointer (A69);
+ * captions that take the pointer as the line does, lighting it (`caption`); a
+ * link's tone (`data-tone`, a draft's); and the lit link reported (`onLit`), for
+ * a host that rings the ends itself (`halo={false}`), as the Allocation rings
+ * its bin card and its resource's load bar (A67).
  *
  * The DOM's vocabulary is Plan's, where these parts began (`data-plan-link`,
  * `data-plan-ribbon-band`, `data-plan-casing`, …), so Plan's tests and its
@@ -66,6 +70,8 @@ export interface LinkRibbon extends RibbonPath {
     to: RibbonEnd;
     /** Its caption — also its hit area's label; `undefined` for none. */
     label: string | undefined;
+    /** Its tone, which the host's recipe draws (`data-tone`): a draft's. */
+    tone?: string | undefined;
 }
 
 /** A link drag's preview (A69). */
@@ -97,6 +103,12 @@ export interface LinksLayerProps {
     unlinkLabel?: ((ribbon: LinkRibbon) => string) | undefined;
     /** A link drag's preview (A69). */
     preview?: LinkPreview | undefined;
+    /** What a caption carries when it takes the pointer as its line does: its attributes, its handlers and its tooltip. Omitted, captions only label. */
+    caption?: ((ribbon: LinkRibbon) => SVGProps<SVGGElement> & { title?: string | undefined }) | undefined;
+    /** Hears which link is lit, as it changes; `null` for none. */
+    onLit?: ((id: number | null) => void) | undefined;
+    /** Whether the layer rings a lit link's ends itself (true by default); a host that rings them passes false. */
+    halo?: boolean | undefined;
 }
 
 /** The halo round an end a lit link joins — 1px, four outside it as it draws; in view only. */
@@ -124,7 +136,7 @@ function Casing({ r }: { r: LinkRibbon }) {
  * Size each caption's knockout to its text, 4 either side of it, and keep the
  * two inside the bounds: a caption the layout centred near an edge moves in
  * (`data-x` holds where the layout centred it). A selected caption's × sits
- * just past its knockout.
+ * just past its knockout, outside the clip.
  */
 function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): void {
     if (svg === null) return;
@@ -137,8 +149,9 @@ function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): v
         text.setAttribute("x", String(x));
         knockout.setAttribute("x", String(x - half));
         knockout.setAttribute("width", String(2 * half));
-        const unlink = text.nextElementSibling;
-        if (unlink !== null && unlink.hasAttribute("data-plan-ribbon-unlink")) unlink.setAttribute("x", String(x + half + UNLINK_GAP));
+        const id = text.parentElement?.getAttribute("data-plan-ribbon-label");
+        const unlink = id === null || id === undefined ? null : svg.querySelector(`[data-plan-ribbon-unlink="${id}"]`);
+        if (unlink !== null) unlink.setAttribute("x", String(x + half + UNLINK_GAP));
     }
 }
 
@@ -149,7 +162,7 @@ function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): v
  * @returns The SVG, or nothing when there is nothing to draw
  */
 export function LinksLayer({
-    ribbons, edgeSlots = [], width, height, clip, hit, selected, onUnlink, unlinkLabel, preview,
+    ribbons, edgeSlots = [], width, height, clip, hit, selected, onUnlink, unlinkLabel, preview, caption, onLit, halo = true,
 }: LinksLayerProps): ReactNode {
     // The link under the pointer — lit, drawn over the others, its ends haloed.
     const [lit, setLit] = useState<number | null>(null);
@@ -157,6 +170,13 @@ export function LinksLayer({
     useLayoutEffect(() => {
         if (lit !== null && !ribbons.some((r) => r.id === lit)) setLit(null);
     }, [lit, ribbons]);
+    // The host hears the lit link as it changes.
+    const heard = useRef<number | null>(null);
+    useLayoutEffect(() => {
+        if (heard.current === lit) return;
+        heard.current = lit;
+        onLit?.(lit);
+    }, [lit, onLit]);
     // Each caption's knockout is as wide as its text, the two inside the
     // bounds: measured after every render, and again once the fonts have come in.
     const svgRef = useRef<SVGSVGElement | null>(null);
@@ -202,13 +222,13 @@ export function LinksLayer({
                 {ordered.map((r) => {
                     const isLit = lit === r.id;
                     return (
-                        <g key={r.id} data-plan-link={r.id} data-plan-route={r.route} data-lit={isLit ? "" : undefined}
+                        <g key={r.id} data-plan-link={r.id} data-plan-route={r.route} data-lit={isLit ? "" : undefined} data-tone={r.tone}
                             data-selected={selected === r.id ? "" : undefined} data-was={preview?.was === r.id ? "" : undefined}>
                             {isLit && <Casing r={r} />}
                             <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
                             <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
                             {r.tail !== "" && <path data-plan-ribbon-head d={r.tail} data-plan-stub={r.from.off} />}
-                            {isLit && (
+                            {isLit && halo && (
                                 <>
                                     <EndHalo end={r.from} side="from" />
                                     <EndHalo end={r.to} side="to" />
@@ -232,23 +252,36 @@ export function LinksLayer({
                 )}
                 {/* The captions, over every link: each on its paper knockout,
                     sized to its text once drawn; the selected one carries its ×. */}
-                {ribbons.map((r) => (r.label === undefined ? null : (
-                    <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-selected={selected === r.id ? "" : undefined}>
-                        <rect data-plan-ribbon-knockout x={r.lx} y={r.ly - KNOCKOUT_RISE} width={0} height={KNOCKOUT_H} />
-                        <text data-plan-ribbon-caption data-x={r.lx} x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
-                        {selected === r.id && onUnlink !== undefined && (
-                            <foreignObject data-plan-ribbon-unlink="" x={r.lx} y={r.ly - KNOCKOUT_RISE - (UNLINK_SIZE - KNOCKOUT_H) / 2}
-                                width={UNLINK_SIZE} height={UNLINK_SIZE}>
-                                <chakra.button type="button" aria-label={unlinkLabel?.(r) ?? "Unlink"} title={unlinkLabel?.(r) ?? "Unlink"}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onClick={(event) => { event.stopPropagation(); onUnlink(r.id); }}>
-                                    <FontAwesomeIcon icon={faXmark} />
-                                </chakra.button>
-                            </foreignObject>
-                        )}
-                    </g>
-                )))}
+                {ribbons.map((r) => {
+                    if (r.label === undefined) return null;
+                    const { title, ...takes } = caption?.(r) ?? {};
+                    return (
+                        <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-selected={selected === r.id ? "" : undefined}
+                            data-lit={caption !== undefined && lit === r.id ? "" : undefined}
+                            {...(caption === undefined ? {} : {
+                                ...takes,
+                                onPointerEnter: () => setLit(r.id),
+                                onPointerLeave: () => setLit((now) => (now === r.id ? null : now)),
+                            })}>
+                            {title !== undefined && <title>{title}</title>}
+                            <rect data-plan-ribbon-knockout x={r.lx} y={r.ly - KNOCKOUT_RISE} width={0} height={KNOCKOUT_H} />
+                            <text data-plan-ribbon-caption data-x={r.lx} x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
+                        </g>
+                    );
+                })}
             </g>
+            {/* The selected caption's × in its own target, just past its knockout: a control, not a link, so the
+                bounds' clip does not cut it where its caption sits by an edge. */}
+            {ribbons.map((r) => (selected === r.id && r.label !== undefined && onUnlink !== undefined ? (
+                <foreignObject key={`unlink-${r.id}`} data-plan-ribbon-unlink={r.id} x={r.lx} y={r.ly - KNOCKOUT_RISE - (UNLINK_SIZE - KNOCKOUT_H) / 2}
+                    width={UNLINK_SIZE} height={UNLINK_SIZE}>
+                    <chakra.button type="button" aria-label={unlinkLabel?.(r) ?? "Unlink"} title={unlinkLabel?.(r) ?? "Unlink"}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => { event.stopPropagation(); onUnlink(r.id); }}>
+                        <FontAwesomeIcon icon={faXmark} />
+                    </chakra.button>
+                </foreignObject>
+            ) : null))}
         </svg>
     );
 }
