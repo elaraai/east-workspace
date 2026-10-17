@@ -21,10 +21,12 @@ import {
 } from "@elaraai/east-ui-components";
 import { StatusDisplay } from "../components/StatusDisplay.js";
 import { allocationCommands } from "./actions.js";
+import { placeAsk, useAllocationDrag, type DropScene, type Refusal } from "./drag.js";
+import { useAllocationFit } from "./fit.js";
 import { useAllocationData } from "./data.js";
 import { useAllocationEditing } from "./editing.js";
 import { AllocationFooter } from "./footer.js";
-import { NARROW_WIDTH, allocationContext, allocationDomain, configError, focusOf, type AllocationStyles, type AllocationValue, type Issue, type Selection } from "./model.js";
+import { NARROW_WIDTH, allocationContext, allocationDomain, configError, focusOf, type AllocationStyles, type AllocationValue, type Day, type Issue, type Selection } from "./model.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
@@ -56,6 +58,8 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     }, []);
     const selectLink = useCallback((next: SelectedLink) => { select({ type: "bin", id: next.bin }); setLink(next); }, [select]);
     const [error, setError] = useState<string>();
+    // A refused drop's reason (A40): it adds no banner; the inspector (#1331) shows it at its top until the next action.
+    const [_refusal, setRefusal] = useState<Refusal>();
     // The narrowing chooses which rows the Timeline shows; fits, checks and totals read every resource.
     const visibility = useKeyVisibility({ visibleSource: value.visibleSource, visible: value.visibleResources, rows: value.resources, recordSlice: value.recordSlice }, VISIBILITY_WORDS);
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
@@ -63,7 +67,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // Another day: its own selection and refusal.
     const dayEpoch = window.day.getTime();
-    useEffect(() => { setSelection(undefined); setLink(undefined); setError(undefined); }, [dayEpoch]);
+    useEffect(() => { setSelection(undefined); setLink(undefined); setError(undefined); setRefusal(undefined); }, [dayEpoch]);
     // Another layout closes the selected link (A7).
     useEffect(() => { setLink(undefined); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
@@ -82,6 +86,32 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const issues = useMemo(() => [...builtIn, ...(custom.result.ok ? custom.result.value : [])], [builtIn, custom.result]);
     // Commands update what is selected without changing the panes or their tabs.
     const commands = allocationCommands(value, domain, editing, select);
+    // The app's fit (§12): every verdict a drag or a pick shows is its answer.
+    const fit = useAllocationFit(value, domain, window.day, plan, context);
+    // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38).
+    // The drafts are the cache's key: new drafts, a new cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const withouts = useMemo(() => new Map<string, Day>(), [plan]);
+    const scene: DropScene = {
+        plan, context, slots, fit, commands,
+        without: reservation => {
+            let day = withouts.get(reservation);
+            if (day === undefined) { day = domain.copyDay(plan); day.bins.delete(reservation); withouts.set(reservation, day); }
+            return day;
+        },
+        laneLabel: lane => value.lanes.find(l => l.key === lane)?.label ?? lane,
+    };
+    const drag = useAllocationDrag(key, commands.canEdit() && !narrow, scene, setRefusal);
+    // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
+    const [fitError, setFitError] = useState<string>();
+    useEffect(() => { if (drag.grip === undefined) setFitError(fit.error); }, [drag.grip, fit.error]);
+    // The selected bin is the board's subject at rest: its connector's question is asked before a drag needs it (A23, F1).
+    const selectedBin = selection?.type === "bin" ? selection.id : undefined;
+    const { ask: askFit } = fit;
+    useEffect(() => {
+        const asked = selectedBin === undefined ? undefined : placeAsk(plan, { kind: "port", bin: selectedBin });
+        if (asked !== undefined) askFit(asked.ask);
+    }, [selectedBin, plan, askFit]);
     const onIssues = () => revealPane("Inspector");
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
@@ -96,7 +126,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             const action = historyShortcut(event);
             if (action !== undefined && !value.settings.readOnly && !published) { event.preventDefault(); onAction(action); }
             else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.step(event.key === "[" ? -1 : 1); }
-            else if (event.key === "Escape") { setSelection(undefined); setLink(undefined); setError(undefined); }
+            else if (event.key === "Escape") { setSelection(undefined); setLink(undefined); setError(undefined); setRefusal(undefined); }
             // Delete unlinks the selected link, else removes the selected bin (A6, A68).
             else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { event.preventDefault(); commands.unlink(link.bin, link.resource); }
             else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { event.preventDefault(); commands.remove(selection.id); }
@@ -106,6 +136,8 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             {notStarted && <BannerView status="info" title="Day not started" description="Book an event or reserve a slot to start this day's plan." />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The plan's additional checks could not run. Built-in checks are still shown." />}
             {visibility.error !== undefined && <BannerView status="error" title="Resource results unavailable" description={visibility.error} actions={<Button size="xs" variant="outline" onClick={visibility.retry}>Retry</Button>} />}
+            {/* A fit that failed (F3): its message, and Retry; a drop meanwhile is refused with `fits unavailable`. */}
+            {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} narrow={narrow} />}>
             <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
@@ -115,7 +147,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
                         held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={visibility.keys} selection={selection} focus={focus}
                         editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow}
-                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} /> : null}
+                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} /> : null}
             </Box>
         </BuilderFrame>
     </Box>;

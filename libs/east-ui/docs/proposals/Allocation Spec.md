@@ -598,13 +598,24 @@ buttons 32 × 32. In the product the shared Toolbar's row and items.
   a neg border; the focus a 2px ink outline offset 1; lit by a link a 1px ink-2
   outline offset 4), the overlap (warn 6% wash with warn side rules, the full row
   height), and a ranked fit's preview (dashed brand-d on brand-tint, `+11 m³ ·
-  22 m³`); the reason label at right 22px, top 10px, mono 9.5px on paper.
+  22 m³` in brand-dd); the reason label at right 22px, top 10px, padding 0 4px,
+  mono 9.5px 600 on a 16px line on paper — ink-2 for a fit, warn-text after a ×
+  for a refusal. The rank badge: 16px high, at least 16px wide, padding 0 4px,
+  radius sm, brand-d with mono 10px 600 paper figures.
 - The now line: at the plan day's start, the shared now line (1.5px of the brand; the mock's is 1px). Weekends paper-2; week
   rules at each Monday; the focus's hold banded brand-tint at 0.7.
-- Refused runs (the default `recede` style): rows fade (ink-4, bars paper-2 on a
-  rule border) and one label per run at right 22px, centred on the run: 20px, a
-  warn border on paper, `✕ Over max · 3 resources · by 4–13 m³`, hidden while the
-  pointer is inside the run, its tooltip every row's reason.
+- Refused runs (the default `recede` style): rows recede — the name ink-4; the
+  load paper-3 on a rule-strong border, its figure ink-4; a prior job paper-2 on
+  a rule border and a next job dashed rule-strong, both without their names —
+  and what the refusal is about (the load over max, the job a day names) is
+  outlined 1px warn, offset 2. One label per run at right 22px, centred on the
+  run: 20px, padding 0 8px, gap 8, a warn border on paper, mono 10px 600
+  warn-text, `✕ Over max · 3 resources · by 4–13 m³` with its count and range
+  ink-3 500, hidden while the pointer is inside the run, its tooltip every row's
+  reason. Under the pointer a refusing row is back in full ink on warn 6% over
+  paper, its outline kept; its bins outline warn on the warn wash.
+- A body's drag: every free lane hour shows a dashed rule-strong target 4px in,
+  radius sm; the one under the pointer dashed brand-d on brand-tint.
 - The fits marker: 28px, padding 0 12px, a dashed brand-d border radius md, mono
   10.5px 600 brand-dd, at the resource plot's left + 12px, 12px from the top or
   40px from the bottom.

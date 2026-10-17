@@ -14,7 +14,24 @@
 import { variant } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { AllocationEditing } from "./editing.js";
-import type { AllocationDomain, AllocationValue, Day, Selection } from "./model.js";
+import { partsOf, type AllocationDomain, type AllocationValue, type Bin, type Day, type Selection } from "./model.js";
+
+/**
+ * What a drag onto a resource carries of a bin (A39, A73): a link's part, or
+ * a connector's remainder — all of it with no part — or, with nothing left
+ * over, its largest part.
+ *
+ * @param bin - The bin
+ * @param from - The link's resource, for a link's drag
+ * @returns The quantity and the part it leaves, or `undefined` for a part the bin no longer has
+ */
+export function linkedQuantity(bin: Bin, from: string | undefined): { quantity: number; from: string | undefined } | undefined {
+    if (from !== undefined) { const quantity = bin.parts.get(from); return quantity === undefined ? undefined : { quantity, from }; }
+    const allocated = [...bin.parts.values()].reduce((n, q) => n + q, 0);
+    if (bin.quantity - allocated > 0 || bin.parts.size === 0) return { quantity: bin.quantity - allocated, from: undefined };
+    const largest = partsOf(bin)[0]!;
+    return { quantity: largest.quantity, from: largest.key };
+}
 
 /** The board's commands. */
 export interface AllocationCommands {
@@ -27,6 +44,16 @@ export interface AllocationCommands {
     revert(id: string): void;
     /** Unlinks one part of a bin (A68): its quantity on that resource is unallocated again. */
     unlink(id: string, resource: string): void;
+    /** Moves a bin to a lane slot, after the slot's bins by a minute each (A37); its resource never changes. */
+    move(id: string, lane: string, at: Date): boolean;
+    /**
+     * Links a bin on a resource (A39): a link's part moves there (`from`), or a
+     * connector's quantity goes there — its remainder, or, with none, its
+     * largest part.
+     */
+    link(id: string, resource: string, from: string | undefined): boolean;
+    /** Fills a reservation with a bin (A38): the bin takes its lane, time and resource, and the reservation goes. */
+    fill(id: string, reservation: string): boolean;
     /** Publishes the day (A4): its status and its drafts, one patch. */
     publish(): void;
 }
@@ -40,7 +67,7 @@ export interface AllocationCommands {
  * @param select - Sets what is selected, keeping the panes as they are
  * @returns The commands
  */
-export function allocationCommands(value: AllocationValue, domain: AllocationDomain, editing: AllocationEditing, select: (next: Selection | undefined) => void): AllocationCommands {
+export function allocationCommands(value: AllocationValue, domain: AllocationDomain, editing: AllocationEditing, select: (next: Selection | undefined, soft?: boolean) => void): AllocationCommands {
     const { plan } = editing;
     const canEdit = () => editing.available && !value.settings.readOnly && plan.status.type === "draft";
     const write = (label: string, origin: Origin, change: (next: Day) => void) => {
@@ -60,6 +87,40 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
                 return;
             }
             if (write("Revert", "typed", next => { next.bins.set(id, domain.copyDay(editing.held!).bins.get(id)!); })) select({ type: "bin", id });
+        },
+        move(id, lane, at) {
+            if (!plan.bins.has(id)) return false;
+            const done = write("Move", "move", next => { const bin = next.bins.get(id)!; bin.lane = lane; bin.at = at; });
+            // A selection a command makes follows softly: the row stays where it is when it is in view (A12).
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        link(id, resource, from) {
+            const bin = plan.bins.get(id);
+            if (bin === undefined) return false;
+            const moved = linkedQuantity(bin, from);
+            if (moved === undefined || moved.from === resource) return false;
+            const done = write("Link", "drop", next => {
+                const parts = next.bins.get(id)!.parts;
+                if (moved.from !== undefined) parts.delete(moved.from);
+                parts.set(resource, (parts.get(resource) ?? 0) + moved.quantity);
+            });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        fill(id, reservation) {
+            const bin = plan.bins.get(id), held = plan.bins.get(reservation);
+            if (bin === undefined || held === undefined || held.event.type !== "none") return false;
+            const resource = [...held.parts.keys()][0];
+            const done = write("Fill the reservation", "drop", next => {
+                const into = next.bins.get(id)!;
+                into.lane = held.lane; into.at = held.at;
+                into.parts.clear();
+                if (resource !== undefined) into.parts.set(resource, into.quantity);
+                next.bins.delete(reservation);
+            });
+            if (done) select({ type: "bin", id }, true);
+            return done;
         },
         unlink(id, resource) {
             if (plan.bins.get(id)?.parts.has(resource) !== true) return;

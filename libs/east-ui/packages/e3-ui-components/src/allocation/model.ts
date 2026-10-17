@@ -17,9 +17,10 @@ import {
     fromEastTypeValue, parseFor, printFor, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    AllocationBinTypeFor, AllocationCheckContextTypeFor, AllocationContextType, AllocationDayTypeFor, AllocationDaysTypeFor, AllocationEventType,
-    AllocationIssueType, AllocationLoadType, AllocationPayloadType, AllocationResourceLineType, AllocationResourceType, AllocationSlotType,
-    allocationCheck, allocationLoadText, allocationLoads, allocationMilliseconds, allocationQuantityText, allocationResourceLine, allocationSlots,
+    AllocationBinTypeFor, AllocationCandidateType, AllocationCheckContextTypeFor, AllocationContextType, AllocationDayTypeFor, AllocationDaysTypeFor,
+    AllocationEventType, AllocationFitAskType, AllocationFitRequestTypeFor, AllocationFitResultType, AllocationFitType, AllocationIssueType, AllocationLoadType,
+    AllocationPayloadType, AllocationResourceLineType, AllocationResourceType, AllocationSlotType, allocationCandidates, allocationCheck,
+    allocationLoadText, allocationLoads, allocationMilliseconds, allocationQuantityText, allocationResourceLine, allocationSlots,
     type AllocationBinType, type AllocationDayType,
 } from "@elaraai/e3-ui/internal";
 export { DAY, NARROW_WIDTH, dayStart } from "../shared/schedule/window.js";
@@ -40,6 +41,13 @@ export type Issue = ValueTypeOf<typeof AllocationIssueType>;
 export type Slot = ValueTypeOf<typeof AllocationSlotType>;
 /** A resource's line on the day, and its marks. */
 export type ResourceLine = ValueTypeOf<typeof AllocationResourceLineType>;
+/** A fit's question, its answer, one verdict and one candidate. */
+export type FitAsk = ValueTypeOf<typeof AllocationFitAskType>;
+export type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
+export type Fit = ValueTypeOf<typeof AllocationFitType>;
+export type Candidate = ValueTypeOf<typeof AllocationCandidateType>;
+/** A fit's request: the day as drafted and the question. */
+export interface FitRequest { day: Date; plan: Day; ask: FitAsk; context: Context }
 /** A duration, as the payload holds it. */
 export type TimeStep = AllocationValue["every"];
 export type AllocationStyles = Record<string, Record<string, unknown>>;
@@ -83,6 +91,10 @@ export interface AllocationDomain {
     check: (day: Date, plan: Day, context: Context) => Issue[];
     /** The day's lane slots. */
     slots: (day: Date, plan: Day, context: Context) => Slot[];
+    /** A question's candidates: what a placement would leave on each resource — a fit's preview, never its verdict. */
+    candidates: (request: FitRequest) => Candidate[];
+    /** The fit's request type at the bin values: what the app's function takes. */
+    requestType: EastType;
 }
 
 const sameTypeValue = equalFor(EastTypeType);
@@ -116,6 +128,8 @@ export function allocationDomain(valuesType: EastTypeValue): AllocationDomain {
         loads: East.compile(allocationLoads(values), []) as unknown as AllocationDomain["loads"],
         check: East.compile(allocationCheck(values), []) as unknown as AllocationDomain["check"],
         slots: East.compile(allocationSlots(values), []) as unknown as AllocationDomain["slots"],
+        candidates: East.compile(allocationCandidates(values), []) as unknown as AllocationDomain["candidates"],
+        requestType: AllocationFitRequestTypeFor(values),
     };
     domains.push({ type: valuesType, domain });
     return domain;

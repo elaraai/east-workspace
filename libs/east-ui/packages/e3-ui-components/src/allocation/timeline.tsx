@@ -14,12 +14,12 @@
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faArrowRight, faCircleExclamation, faLink, faLinkSlash, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowRight, faArrowUp, faCircleExclamation, faFilter, faLink, faLinkSlash, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap, option } from "@elaraai/east";
-import { useContainerBelow, type Formatters } from "@elaraai/east-ui-components";
+import { useContainerBelow, useDragEventChip, useDropCell, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { VirtualRows, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { LinksLayer, type LinkRibbon } from "../shared/links/layer.js";
 import { useScrollTop } from "../shared/links/scroll.js";
@@ -27,11 +27,13 @@ import { NowLine } from "../shared/time/now-line.js";
 import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
+import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { gripCoord, gripOf, gripOfPayload, laneCoord, placeAsk, rowCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import { familyOf, layoutLinks, type FamilyLink } from "./links.js";
 import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
 import {
-    allocationWords, partsOf, sameParts, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Issue, type Load,
-    type ResourceLine, type ResourceRow, type Selection, type Slot,
+    allocationWords, compareDate, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Fit,
+    type Issue, type Load, type ResourceLine, type ResourceRow, type Selection, type Slot,
 } from "./model.js";
 
 /** The panes' head, the recipe's: the rows sit under it. */
@@ -79,6 +81,108 @@ export interface TimelineProps {
     selectLink: (link: SelectedLink) => void;
     /** Unlinks a bin's part on a resource: the selected link's ×. */
     unlink: (bin: string, resource: string) => void;
+    /** The board's drags (#1328). */
+    drag: AllocationDrag;
+    /** A question's candidates: what a ranked fit's preview bar shows (A28), e3-ui's own arithmetic. */
+    candidates: AllocationDomain["candidates"];
+}
+
+/** A drop cell's veto and caption for a target: the board's one verdict (§10). */
+function dropOptions(drag: AllocationDrag, target: Target, hover?: (allowed: boolean) => void) {
+    const gripOfEvent = (candidate: DragEventValue): Grip | undefined => candidate.type === "move" ? gripOf(candidate.value.from) : undefined;
+    return {
+        veto: (candidate: DragEventValue) => { const grip = gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
+        options: {
+            accepts: (payload: DragPayload) => gripOfPayload(payload) !== undefined,
+            caption: (_coord: unknown, payload: DragPayload, allowed: boolean) => {
+                hover?.(allowed);
+                const grip = gripOfPayload(payload);
+                if (grip === undefined) return undefined;
+                const verdict = drag.verdict(grip, target);
+                return { text: verdict.caption, warn: verdict.warn };
+            },
+        },
+    };
+}
+
+/** A refusing run's label (A27): `✕ Over max · 3 resources · by 4–13 m³`, over the rows it gathers. */
+interface RefusalRun { from: number; to: number; label: string; meta: string; tip: string }
+
+/** A fit's refusal. */
+type Refused = Extract<Fit, { type: "refused" }>["value"];
+
+/**
+ * The runs of contiguous rows refusing for one reason (A27), each labelled by
+ * its group, how many it gathers, and the range of its measures: `by 4–13 m³`,
+ * `next job Wed 19 – Thu 20`, `until Fri 14 – Sat 15`; its tooltip every row's reason.
+ */
+function refusalRuns(verdicts: readonly (Fit | undefined)[], words: ReturnType<typeof allocationWords>, unit: string): RefusalRun[] {
+    const out: RefusalRun[] = [];
+    let run: { from: number; to: number; refusals: Refused[] } | undefined;
+    const close = () => {
+        if (run === undefined) return;
+        const n = run.to - run.from + 1, refusals = run.refusals;
+        const lead = refusals.map(r => r.measure.type === "none" ? undefined : r.measure.value.lead).find(l => l !== undefined);
+        const amounts = refusals.flatMap(r => r.measure.type === "amount" ? [r.measure.value.value] : []);
+        const days = [...new Set(refusals.flatMap(r => r.measure.type === "day" ? [r.measure.value.at] : []).sort(compareDate).map(at => formatDatePattern("ddd D", at)))];
+        let detail = "";
+        if (amounts.length > 0) {
+            const lo = Math.min(...amounts), hi = Math.max(...amounts);
+            detail = `${lead} ${lo === hi ? words.quantity(lo, unit) : `${words.quantity(lo, "")}–${words.quantity(hi, unit)}`}`;
+        } else if (days.length > 0) detail = `${lead} ${days.length > 1 ? `${days[0]} – ${days.at(-1)}` : days[0]}`;
+        out.push({ from: run.from, to: run.to, label: refusals[0]!.group, meta: [n > 1 ? `${n} resources` : "", detail].filter(part => part !== "").join(" · "),
+            tip: refusals.map(r => r.reason).join(" · ") });
+        run = undefined;
+    };
+    verdicts.forEach((verdict, i) => {
+        const refusal = verdict?.type === "refused" ? verdict.value : undefined;
+        if (refusal !== undefined && run !== undefined && run.refusals[0]!.group === refusal.group) { run.to = i; run.refusals.push(refusal); return; }
+        close();
+        if (refusal !== undefined) run = { from: i, to: i, refusals: [refusal] };
+    });
+    close();
+    return out;
+}
+
+/** The fits marker (A31): where the #1 fit lies out of view, and what it says. */
+interface Marker { side: "above" | "below" | "hidden"; label: string; resource: string }
+
+/**
+ * The fits marker, when the #1 fit's row is out of the resource pane's view
+ * (A31): `2 fits below · #1 K-103 · drop here`, or `#1 K-601 is hidden by
+ * Filters · drop here` when the narrowing hides it.
+ */
+function fitsMarker(ranks: readonly string[], rowIndex: ReadonlyMap<string, number>, top: number, view: number, nameOf: (key: string) => string): Marker | undefined {
+    const best = ranks[0];
+    if (best === undefined || view <= 0) return undefined;
+    const at = rowIndex.get(best), name = nameOf(best);
+    if (at === undefined) return { side: "hidden", label: `#1 ${name} is hidden by Filters · drop here`, resource: best };
+    const inView = (i: number) => i * ROW_H >= top && i * ROW_H + ROW_H <= top + view;
+    if (inView(at)) return undefined;
+    const below = at * ROW_H > top;
+    const n = ranks.filter(key => { const i = rowIndex.get(key); return i !== undefined && !inView(i) && i * ROW_H > top === below; }).length;
+    return { side: below ? "below" : "above", label: `${plural(n, "fit")} ${below ? "below" : "above"} · #1 ${name} · drop here`, resource: best };
+}
+
+/** A lane hour: a drop target for a bin's body (A14, A37). */
+function LaneCellView({ props, lane, at, free, style, onRest }: { props: TimelineProps; lane: string; at: Date; free: boolean; style: CSSProperties; onRest: () => void }) {
+    const { drag, styles } = props;
+    const { veto, options } = dropOptions(drag, { kind: "lane", lane, at, card: undefined }, onRest);
+    const ref = useDropCell(drag.enabled ? laneCoord(drag.surface, lane, at) : null, false, veto, undefined, options);
+    return <Box ref={ref} css={styles.laneCell} data-allocation-cell={`${lane}|${at.getTime()}`} data-free={free ? "" : undefined} style={style}
+        onClick={() => props.select(undefined)}>
+        {free && <Box as="span" css={styles.lanePlaceholder} data-allocation-placeholder="" />}
+    </Box>;
+}
+
+/** The fits marker over the rows (A31): a drop on it goes to the #1. */
+function FitsMarker({ props, marker, top }: { props: TimelineProps; marker: Marker; top: number }) {
+    const { drag, styles } = props;
+    const { veto, options } = dropOptions(drag, { kind: "resource", resource: marker.resource });
+    const ref = useDropCell(drag.enabled ? rowCoord(drag.surface, marker.resource) : null, false, veto, undefined, options);
+    return <Box ref={ref} css={styles.fitsMarker} data-allocation-marker={marker.side} style={{ top: `${top}px` }}>
+        <FontAwesomeIcon icon={marker.side === "hidden" ? faFilter : marker.side === "below" ? faArrowDown : faArrowUp} aria-hidden="true" />{marker.label}
+    </Box>;
 }
 
 /** `1 bin`, `9 bins`. */
@@ -137,11 +241,52 @@ export function AllocationTimeline(props: TimelineProps) {
     const rscPane = useRef<HTMLDivElement | null>(null);
     const ruler = useRef<HTMLDivElement | null>(null);
     const root = useRef<HTMLDivElement | null>(null), gridBox = useRef<HTMLDivElement | null>(null), channel = useRef<HTMLDivElement | null>(null);
+    // A drag near a pane's top or bottom scrolls it a row at a time, on the rows' grid (A25): the shared edge scroller's row step.
+    useLayoutEffect(() => { rscPane.current?.setAttribute("data-edge-scroll-row", String(ROW_H)); });
+
+    // A drag (#1328): what is dragged, and for a connector's or a link's, every resource's verdict, the fit's (A27–A29).
+    const { drag } = props;
+    const grip = drag.grip;
+    const linkDrag = grip !== undefined && grip.kind !== "body";
+    const verdicts = linkDrag ? drag.answer?.resources : undefined;
+    const dragged = grip === undefined ? undefined : placeAsk(plan, grip);
+    // A ranked fit's preview: the load it leaves, for the hold (A28) — e3-ui's candidates, never the renderer's arithmetic.
+    const answer = drag.answer;
+    const previews = useMemo(() => {
+        const out = new Map<string, { after: number; to: Date }>();
+        if (!linkDrag || dragged === undefined || answer === undefined) return out;
+        for (const c of props.candidates({ day, plan, ask: dragged.ask, context })) out.set(c.resource.key, { after: c.after, to: c.hold.to });
+        return out;
+        // The answer stands for its question: a new question is a new answer.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [linkDrag, answer, plan, day, context]);
+    // Each run of contiguous rows refusing for one reason gathers under one label (A27).
+    const runs = useMemo((): RefusalRun[] => verdicts === undefined ? [] : refusalRuns(rows.map(r => verdicts.get(r.key)), words, unit), [verdicts, rows, words, unit]);
 
     // The links (A65–A68): the focus's family, through the channel; none at rest and none on hover.
     const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus), [plan, held, props.focus]);
     const linking = family.length > 0;
-    const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking);
+    const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking || linkDrag);
+    // The fits out of view, marked at the pane's edge over the rows; a drop on it goes to the #1 (A31).
+    const [rowsView, setRowsView] = useState(0);
+    useLayoutEffect(() => { if (linkDrag && rscPane.current !== null) setRowsView(rscPane.current.clientHeight - HEAD); }, [linkDrag]);
+    const marker = linkDrag ? fitsMarker(drag.ranks, rowIndex, rowsTop, rowsView, key => context.resources.get(key)?.label ?? key) : undefined;
+    // While a drag rests on a row, its bins outline for the verdict and its run's label steps aside (A27, A29) —
+    // marked on the elements, so pointer motion repaints no card (A35).
+    const hover = useCallback((resource: string | undefined, index: number | undefined, allowed: boolean) => {
+        const box = root.current;
+        if (box === null) return;
+        for (const el of box.querySelectorAll("[data-drop-target]")) el.removeAttribute("data-drop-target");
+        for (const el of box.querySelectorAll("[data-run][data-pointer]")) el.removeAttribute("data-pointer");
+        if (resource === undefined || index === undefined) return;
+        for (const el of box.querySelectorAll(`[data-allocation-card]`)) {
+            if ((el.getAttribute("data-resources") ?? "").split(" ").includes(resource)) el.setAttribute("data-drop-target", allowed ? "fits" : "refused");
+        }
+        for (const el of box.querySelectorAll<HTMLElement>("[data-run]")) {
+            if (Number(el.dataset.from) <= index && index <= Number(el.dataset.to)) el.setAttribute("data-pointer", "");
+        }
+    }, []);
+    useEffect(() => { if (grip === undefined) hover(undefined, undefined, false); }, [grip, hover]);
     // Where they run: the lane grid's left edge and the channel's right edge, in the board's px, and the panes' view.
     const [view, setView] = useState<{ gridLeft: number; channelRight: number; height: number }>();
     useLayoutEffect(() => {
@@ -209,8 +354,8 @@ export function AllocationTimeline(props: TimelineProps) {
 
     const vars = { "--allocation-lanes": value.lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
     const flags = props.issues.length === 0 ? NO_ISSUES : props.issues;
-    return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="">
-        <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="">
+    return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="" data-allocation-drag={grip?.kind}>
+        <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="" data-edge-scroll-row={ROW_H}>
             <Box css={styles.laneContent}>
                 <Box css={[styles.head, styles.laneHead]}>
                     <Box data-head-caption="" css={styles.headCaption}><span>Lane</span><span>Hour</span></Box>
@@ -231,10 +376,9 @@ export function AllocationTimeline(props: TimelineProps) {
                     {grid.bands.map(band => <Box key={band.slot} css={styles.laneBand} style={{ "--band-row": band.row, "--band-span": band.span } as CSSProperties} data-allocation-band={band.slot}>
                         <Box as="span" css={styles.laneHour}>{formatDatePattern(value.every.type === "hours" ? "HH" : "HH:mm", band.at)}</Box>
                     </Box>)}
-                    {grid.cells.map(cell => <Box key={`${cell.lane}:${cell.slot}`} css={styles.laneCell} data-allocation-cell={`${value.lanes[cell.lane]!.key}|${cell.at.getTime()}`}
-                        data-free={cell.free ? "" : undefined} style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties}
-                        onClick={() => props.select(undefined)} />)}
-                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} />)}
+                    {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={value.lanes[cell.lane]!.key} at={cell.at} free={cell.free}
+                        style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} onRest={() => hover(undefined, undefined, false)} />)}
+                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} onRest={() => hover(undefined, undefined, false)} />)}
                 </Box>
             </Box>
         </Box>
@@ -243,6 +387,13 @@ export function AllocationTimeline(props: TimelineProps) {
         </Box>
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.resourcePane} minWidth={`calc(${LABEL_W}px + ${axis.days.length * MIN_DAY}px)`}
             scrollElRef={rscPane} headerZIndex={6} count={rows.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
+            overlay={runs.length === 0 && marker === undefined ? null : <>
+                {runs.map(run => <Box key={run.from} css={styles.runLabel} title={run.tip} data-run="" data-from={run.from} data-to={run.to}
+                    style={{ top: `${(run.from + run.to + 1) * ROW_H / 2 - 10}px` }}>
+                    <FontAwesomeIcon icon={faXmark} aria-hidden="true" />{run.label}<Box as="span" css={styles.runMeta}>{run.meta}</Box>
+                </Box>)}
+                {marker !== undefined && <FitsMarker props={props} marker={marker} top={marker.side === "above" ? rowsTop + 12 : rowsTop + Math.max(0, rowsView - 40)} />}
+            </>}
             header={<Box css={[styles.head, styles.resourceHead]} data-allocation-resource-head="">
                 <Box data-head-caption="" css={styles.headCaption}><span>Week</span><span>Resource</span></Box>
                 <Box ref={ruler} css={styles.ruler}>
@@ -253,8 +404,11 @@ export function AllocationTimeline(props: TimelineProps) {
             </Box>}
             renderRow={index => {
                 const resource = rows[index]!;
+                const rank = drag.ranks.indexOf(resource.key);
                 return <ResourceRowView resource={resource} line={lines.get(resource.key)!} load={loads.get(resource.key)!} axis={axis} props={props}
-                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={litLink?.resource === resource.key} />;
+                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={litLink?.resource === resource.key}
+                    verdict={verdicts?.get(resource.key)} rank={linkDrag && rank >= 0 ? rank + 1 : undefined} preview={previews.get(resource.key)}
+                    quantity={dragged?.quantity} onRest={allowed => hover(resource.key, index, allowed)} />;
             }} />
         {view !== undefined && ribbons.length > 0 && <Box css={styles.links} data-allocation-links="" style={{ height: view.height }}>
             <LinksLayer ribbons={ribbons} width={view.channelRight} height={view.height} halo={false} onLit={setLit}
@@ -276,9 +430,38 @@ export function AllocationTimeline(props: TimelineProps) {
     </Box>;
 }
 
-/** A bin's card (A16, A21). */
-function Card({ card, props, lines, flags, lit }: { card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[]; lit: boolean }) {
-    const { styles, context, value } = props;
+interface CardProps { card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[]; lit: boolean }
+type DragHandle = ReturnType<typeof useDragEventChip>;
+
+/**
+ * A bin's card (A16, A21): the shared drag hooks here, outside the card's
+ * body, so pointer motion repaints nothing in it (A35, the Roster's chips).
+ */
+function Card({ onRest, ...args }: CardProps & { onRest: () => void }) {
+    const { card, props } = args;
+    const { styles, context, drag } = props;
+    const { id, bin } = card;
+    const words = allocationWords();
+    const event = bin.event.type === "some" ? context.events.get(bin.event.value) : undefined;
+    const code = bin.event.type === "none" ? undefined : event?.label ?? bin.event.value;
+    const label = useMemo(() => code === undefined ? "Reserved" : `${code} · ${words.quantity(bin.quantity, context.unit)}`, [code, words, bin.quantity, context.unit]);
+    // The card body drags the bin between lane hours (A24); its connector drags what it carries onto a resource (A21).
+    const ghost = useMemo(() => <MoveGhost styles={styles} label={label} />, [styles, label]);
+    const bodyAt = useMemo(() => drag.enabled ? gripCoord(drag.surface, { kind: "body", bin: id }) : null, [drag.enabled, drag.surface, id]);
+    const portAt = useMemo(() => drag.enabled ? gripCoord(drag.surface, { kind: "port", bin: id }) : null, [drag.enabled, drag.surface, id]);
+    const body = useDragEventChip(bodyAt, ghost, false, label);
+    const port = useDragEventChip(portAt, ghost, false, label);
+    // A card is its lane hour's drop target too, and a reservation's a bin fills (A38).
+    const { veto, options } = dropOptions(drag, { kind: "lane", lane: bin.lane, at: card.slotAt, card: id }, onRest);
+    const drop = useDropCell(drag.enabled ? laneCoord(drag.surface, bin.lane, card.slotAt, id) : null, false, veto, undefined, options);
+    const bodyRef = body?.ref;
+    const attach = useCallback((el: HTMLElement | null) => { bodyRef?.(el); drop(el); }, [bodyRef, drop]);
+    return <CardBody {...args} body={body} port={port} attach={attach} />;
+}
+
+/** A card's body: what it says, from the drafts and the issues. */
+const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, port, attach }: CardProps & { body: DragHandle; port: DragHandle; attach: (el: HTMLElement | null) => void }) {
+    const { styles, context, value, drag } = props;
     const { id, bin } = card;
     const words = allocationWords();
     const reserved = bin.event.type === "none";
@@ -298,10 +481,10 @@ function Card({ card, props, lines, flags, lit }: { card: LaneCard; props: Timel
     const at = `${lane} ${formatDatePattern("HH:mm", bin.at)}`;
     const qty = words.quantity(bin.quantity, context.unit);
     const to = resource === undefined ? "" : `${resource.label}${parts.length > 1 ? ` + ${parts.length - 1}` : ""}`;
-    const drag = props.editable ? " · drag to another lane hour to move it" : "";
+    const moves = props.editable ? " · drag to another lane hour to move it" : "";
     const tip = reserved
-        ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no event yet${drag}`
-        : `${code}${event?.meta.type === "some" ? ` · ${event.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${drag}`;
+        ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no event yet${moves}`
+        : `${code}${event?.meta.type === "some" ? ` · ${event.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${moves}`;
     const marks: ReactNode[] = [];
     for (const issue of flags) {
         if (issue.bin.type === "some" && issue.bin.value === id && issue.flag.type === "some") {
@@ -318,11 +501,13 @@ function Card({ card, props, lines, flags, lit }: { card: LaneCard; props: Timel
     const connector = resource === undefined
         ? `Drag the connector onto a resource to allocate ${reserved ? "this reservation" : code} · click to choose one`
         : `Allocated to ${to} · drag the connector onto a resource to move it · click to choose another`;
-    return <Box css={styles.card} role="button" tabIndex={0} title={tip} aria-label={tip} aria-pressed={selected}
-        data-allocation-card={id} data-reserved={reserved ? "" : undefined} data-draft={draft ? "" : undefined}
-        data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
-        style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
-        onClick={() => props.select({ type: "bin", id })} onKeyDown={onActivate(() => props.select({ type: "bin", id }))}>
+    return <Box {...body} ref={attach} css={styles.card} role="button" tabIndex={0} title={tip} aria-label={tip} aria-pressed={selected}
+        data-scope="allocation" data-allocation-card={id} data-resources={parts.map(p => p.key).join(" ")} data-reserved={reserved ? "" : undefined}
+        data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
+        data-draggable={body !== undefined ? "" : undefined} style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
+        onPointerDown={event => { drag.arm({ kind: "body", bin: id }); body?.onPointerDown?.(event); }}
+        onClick={() => props.select({ type: "bin", id })}
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); props.select({ type: "bin", id }); } else { if (event.key === " ") drag.arm({ kind: "body", bin: id }); body?.onKeyDown?.(event); } }}>
         <Box as="span" css={styles.cardTop}>
             <Box as="span" css={styles.cardCode} data-allocation-code="">{code}</Box>
             {!reserved && <Box as="span" css={styles.cardQty}>{qty}</Box>}
@@ -335,18 +520,31 @@ function Card({ card, props, lines, flags, lit }: { card: LaneCard; props: Timel
             </Box>
             {marks}
         </Box>
-        {props.editable && <chakra.button type="button" css={styles.connector} aria-label={connector} title={connector} data-allocation-connector={id}
-            onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}
+        {props.editable && <chakra.button type="button" {...port} css={styles.connector} aria-label={connector} title={connector} data-allocation-connector={id}
+            onPointerDown={event => { event.stopPropagation(); drag.arm({ kind: "port", bin: id }); port?.onPointerDown?.(event); }}
+            onKeyDown={event => { event.stopPropagation(); if (event.key === " ") { drag.arm({ kind: "port", bin: id }); port?.onKeyDown?.(event); } }}
             onClick={event => { event.stopPropagation(); props.choose(id); }}>
             <Box as="span" css={styles.connectorMark} data-state={resource === undefined ? "unlinked" : linkDraft ? "draft" : undefined} />
         </chakra.button>}
     </Box>;
+});
+
+interface ResourceRowProps {
+    resource: ResourceRow; line: ResourceLine; load: Load; axis: ResourceAxis; props: TimelineProps; focusHold: { from: Date; to: Date } | undefined; draft: boolean; lit: boolean;
+    /** During a connector's or a link's drag: the fit's verdict here, its rank among the three best, the load it would leave for the hold, and the quantity it carries. */
+    verdict: Fit | undefined; rank: number | undefined; preview: { after: number; to: Date } | undefined; quantity: number | undefined;
 }
 
-/** A resource's row: its label cell and its plot (A18–A20). */
-function ResourceRowView({ resource, line, load, axis, props, focusHold, draft, lit }: {
-    resource: ResourceRow; line: ResourceLine; load: Load; axis: ResourceAxis; props: TimelineProps; focusHold: { from: Date; to: Date } | undefined; draft: boolean; lit: boolean;
-}) {
+/** A resource's row (A18–A20): a drop target for a connector or a link (A39), and a body's refusal (§10) — its hook outside the row's body (A35). */
+function ResourceRowView({ onRest, ...args }: ResourceRowProps & { onRest: (allowed: boolean) => void }) {
+    const { drag } = args.props;
+    const { veto, options } = dropOptions(drag, { kind: "resource", resource: args.resource.key }, onRest);
+    const drop = useDropCell(drag.enabled ? rowCoord(drag.surface, args.resource.key) : null, false, veto, undefined, options);
+    return <ResourceRowBody {...args} drop={drop} />;
+}
+
+/** A resource's row: its label cell and its plot. */
+const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, axis, props, focusHold, draft, lit, verdict, rank, preview, quantity, drop }: ResourceRowProps & { drop: (el: HTMLElement | null) => void }) {
     const { styles, context, day } = props;
     const words = allocationWords();
     const focus = props.focus === resource.key;
@@ -358,12 +556,18 @@ function ResourceRowView({ resource, line, load, axis, props, focusHold, draft, 
         const at = axisSpan(axis, from, to);
         return at === undefined ? null : <Box key={key} css={styles.bar} style={at} {...attrs}><Box as="span" css={styles.barLabel}>{label}</Box></Box>;
     };
+    // What a refusal is about, outlined (A27): the load for an amount (`over max by 4 m³`), the job a day names (`busy until`, `next job`).
+    const measure = verdict?.type === "refused" ? verdict.value.measure : undefined;
+    const about = (job: { start: Date; end: Date }) => measure?.type === "day" && (compareDate(job.start, measure.value.at) === 0 || compareDate(job.end, measure.value.at) === 0);
     const loadSpan = hold === undefined ? undefined : axisSpan(axis, day, hold.to);
     const overlap = line.overlap && line.next.type === "some" && hold !== undefined ? axisSpan(axis, line.next.value.start, hold.to) : undefined;
     const focusSpan = focusHold === undefined ? undefined : axisSpan(axis, day, focusHold.to);
-    return <Box css={styles.resourceRow} role="button" tabIndex={0} aria-label={`${resource.label}, ${line.text}`} aria-pressed={focus}
-        data-allocation-resource={resource.key} data-selected={focus ? "" : undefined} onClick={select} onKeyDown={onActivate(select)}>
+    const previewSpan = rank === undefined || preview === undefined ? undefined : axisSpan(axis, day, preview.to);
+    return <Box ref={drop} css={styles.resourceRow} role="button" tabIndex={0} aria-label={`${resource.label}, ${line.text}`} aria-pressed={focus}
+        data-allocation-resource={resource.key} data-selected={focus ? "" : undefined} data-refused={verdict?.type === "refused" ? "" : undefined}
+        data-ranked={rank !== undefined ? "" : undefined} onClick={select} onKeyDown={onActivate(select)}>
         <Box css={styles.resourceLabel}>
+            {rank !== undefined && <Box as="span" css={styles.rank} data-allocation-rank="">{rank}</Box>}
             <Box css={styles.resourceText}>
                 <Box as="span" css={styles.resourceName}>{resource.label}</Box>
                 <Box as="span" css={styles.resourceLine} data-tone={line.tone.type === "neutral" ? undefined : line.tone.type} data-allocation-line="">{line.text}</Box>
@@ -373,13 +577,23 @@ function ResourceRowView({ resource, line, load, axis, props, focusHold, draft, 
             {focusSpan !== undefined && <Box css={styles.span} style={focusSpan} data-allocation-span="" />}
             {shades.map((band, i) => <Box key={i} css={styles.shade} style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
             {mondays.map(monday => <Box key={monday.getTime()} css={styles.weekRule} style={{ left: `${axisFraction(axis, monday) * 100}%` }} />)}
-            {resource.jobs.map((job, i) => bar(`job:${i}`, job.start, job.end, { "data-kind": job.start.getTime() <= day.getTime() ? "prior" : "next" }, job.label))}
+            {resource.jobs.map((job, i) => bar(`job:${i}`, job.start, job.end,
+                { "data-kind": job.start.getTime() <= day.getTime() ? "prior" : "next", "data-refusal": about(job) ? "" : undefined }, job.label))}
             {loadSpan !== undefined && hold !== undefined && <Box css={styles.bar} style={loadSpan} data-kind="load" data-allocation-load=""
-                data-draft={draft ? "" : undefined} data-over={line.over ? "" : undefined} data-focus={focus ? "" : undefined} data-link-lit={lit ? "" : undefined}>
+                data-draft={draft ? "" : undefined} data-over={line.over ? "" : undefined} data-focus={focus ? "" : undefined} data-link-lit={lit ? "" : undefined}
+                data-refusal={measure?.type === "amount" ? "" : undefined}>
                 <Box as="span" css={styles.barLabel}>{load.fill > 0 ? words.quantity(load.fill, context.unit) : "reserved"}</Box>
             </Box>}
             {overlap !== undefined && <Box css={styles.overlap} style={overlap} data-allocation-overlap="" />}
+            {/* A ranked fit's preview: what it would hold, for the hold (A28). */}
+            {previewSpan !== undefined && quantity !== undefined && <Box css={styles.bar} style={previewSpan} data-kind="preview" data-allocation-preview="">
+                <Box as="span" css={styles.barLabel}>+{words.quantity(quantity, context.unit)} · {words.quantity(preview!.after, context.unit)}</Box>
+            </Box>}
             <NowLine styles={styles} at={axisFraction(axis, day)} data-allocation-now="" />
+            {/* Its reason, ranked or under the pointer (A29). */}
+            {verdict !== undefined && <Box as="span" css={styles.reason} data-allocation-reason="" data-refused={verdict.type === "refused" ? "" : undefined}>
+                {verdict.type === "refused" ? <><FontAwesomeIcon icon={faXmark} aria-label="Doesn't fit" /> {verdict.value.reason}</> : verdict.value.why}
+            </Box>}
         </Box>
     </Box>;
-}
+});
