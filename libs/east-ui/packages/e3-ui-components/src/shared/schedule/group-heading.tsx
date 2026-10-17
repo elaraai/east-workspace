@@ -18,11 +18,12 @@ export function useGroupCollapse(surface: string) {
 
 /** Native button semantics keep Enter/Space and focus identical in both builders. */
 export function GroupHeading({ scope, group, styles, collapsed, toggle, children }: {
-    scope: "calendar" | "roster"; group: { key: string; label: string }; styles: Record<string, Record<string, unknown>>;
+    scope: "calendar" | "roster" | "allocation"; group: { key: string; label: string }; styles: Record<string, Record<string, unknown>>;
     collapsed: boolean; toggle: (group: string) => void; children?: ReactNode;
 }) {
     return <chakra.button type="button" css={styles.group} data-schedule-group={group.key}
         data-roster-group={scope === "roster" ? group.key : undefined} data-calendar-group={scope === "calendar" ? group.key : undefined}
+        data-allocation-band={scope === "allocation" ? group.key : undefined}
         aria-expanded={!collapsed} onClick={() => toggle(group.key)}>
         <Box as="span" css={styles.groupContent} data-schedule-group-content="">
             <FontAwesomeIcon icon={collapsed ? faChevronRight : faChevronDown} /><Box as="span" css={styles.groupLabel} data-schedule-group-label="">{group.label}</Box>{children}

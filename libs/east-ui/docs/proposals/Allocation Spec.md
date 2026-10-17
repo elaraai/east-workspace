@@ -628,13 +628,19 @@ buttons 32 × 32. In the product the shared Toolbar's row and items.
 **Table.** At least 900px wide; a 36px sticky header; columns `84px 64px
 minmax(200px, 1.3fr) 64px` then one 72px column per `columns` entry shown in
 the Table, then `minmax(176px, 1fr) 144px 128px` (Time · Lane · Event ·
-Quantity · the app's columns · Resource · Load · Status). Time bands 36px on
-paper-2 (chevron, `00:00–06:00`, count badge, `5 bins · 1 reserved · 14 free
-· 96 m³`, `· collapsed`); rows 36px; an event chip 28px (grip, code mono 12px 600,
-meta 10px, a 20px chevron, a 20px ×); a resource chip 28px (link mark, name, a
-20px chevron, a 20px ×); a placeholder 28px dashed (`no event` / `no resource`
-italic, or what a drop does); the Load cell mono 11px with its marks; the Status
-cell an 8px dot and the word, uppercase.
+Quantity · the app's columns · Resource · Load · Status); the heads mono 10px 600
+uppercase, tracked 0.14em, ink-4. Time bands are the shared group band (§6):
+chevron, `00:00–06:00`, a 16px count badge on paper-3, `5 bins · 1 reserved · 14
+free · 96 m³` (no reservations said when there are none), `· collapsed`; rows
+36px, the time mono 11px 500 (ink when it holds a bin, else ink-3), the lane
+10.5px 500 ink-3; an event chip 28px on the rule-strong border, radius sm (grip,
+code mono 11px 600, meta 10px ink-4, a 20px chevron, a 20px ×); a resource chip
+28px (link mark, name, a 20px chevron, a 20px ×); a placeholder 28px dashed
+rule-strong (`no event` / `no resource` italic 10.5px ink-4, or what a drop
+does), a free row's event placeholder spanning the quantity and the app's
+columns, its resource placeholder the load; the quantity 11px right-aligned; the
+Load cell mono 10.5px 500 ink-2 with its marks; the Status cell an 8px dot and
+the word, mono 10.5px 600 uppercase tracked 0.1em, ink-3.
 
 **The Chooser.** Anchored under its cell or its field: at least 320px (the cell
 less 24px), at most 360px tall (340 in the inspector): a 32px search, section

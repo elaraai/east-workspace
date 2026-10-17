@@ -36,6 +36,12 @@
  *   badge, `rank`; a row's reason, `reason`; a refusing run's label, `runLabel`, `runMeta`; the fits marker,
  *   `fitsMarker`; and the shared move ghost's `moveGhost`, `moveGhostLabel`, `moveGhostSpan`. The board draws its
  *   own drop stages, as the mock does: the shared frames and washes are off on its targets.
+ * - The Table (A41–A49, #1329): `table`, its scroll pane `tablePane`, its column heads `tableHead`; a band, the shared
+ *   group band's `group`, `groupContent`, `groupLabel`, `groupMeta`, with its row count `bandCount`; a row,
+ *   `tableRow`, its `tableTime`, `tableLane`, `tableCell` (a placeholder spanning the event's columns `tableSpan`, or
+ *   the resource's and its load's `tableResourceSpan`), `tableUnits`, `tableValue`, `tableLoad`, `tableStatus` and its
+ *   `tableStatusDot`; a chip, `tableChip`, `tableChipIcon`, `tableChipCode`, `tableChipMeta`, `tableChipButton`; and a
+ *   dashed placeholder, `tablePlaceholder`, `tablePlaceholderText`.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -46,6 +52,7 @@ import { linkRibbons } from "./links/ribbons.js";
 import { planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
+import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { timeRulerBase } from "./time/axis.js";
 
 /** A head's caption (`LANE`, `HOUR`, `WEEK`, `RESOURCE`, a week): mono 10 / 600, tracked 0.16em, uppercase, `--ink-4`. */
@@ -70,6 +77,13 @@ const ownStages = {
 const warnWash = "color-mix(in oklch, {colors.status.warn} 6%, {colors.bg.surface})";
 /** A row that refuses the drag recedes, unless the pointer is on it (A27). */
 const receded = "[data-refused]:not([data-drop-invalid]) &";
+/** The Table's columns: Time · Lane · Event · Quantity · the app's columns (72px each) · Resource · Load · Status (A43). */
+const tableColumns = {
+    display: "grid", gridTemplateColumns: "84px 64px minmax(200px, 1.3fr) 64px repeat(var(--allocation-columns), 72px) minmax(176px, 1fr) 144px 128px",
+    "&[data-columns=none]": { gridTemplateColumns: "84px 64px minmax(200px, 1.3fr) 64px minmax(176px, 1fr) 144px 128px" },
+} as const;
+/** A Table cell's text: mono, one line, cut with an ellipsis. */
+const tableText = { fontFamily: "mono", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 } as const;
 
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
@@ -81,10 +95,14 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "rulerRow", "rulerTick", "rulerLabel", "resourceRow", "resourceLabel", "resourceText", "resourceName", "resourceLine",
         "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", ...nowSlots,
         "lanePlaceholder", "rank", "reason", "runLabel", "runMeta", "fitsMarker", ...moveGhostSlots,
+        ...scheduleGroupSlots, "bandCount", "table", "tablePane", "tableHead", "tableRow", "tableTime", "tableLane", "tableCell", "tableSpan",
+        "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
+        "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText",
     ],
     base: {
         ...nowBase,
         ...moveGhostBase,
+        ...scheduleGroupBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
@@ -427,6 +445,106 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             ...ownStages,
             "&[data-drag-cell][data-drop-active]": { background: "brandTint" },
             "&[data-drag-cell][data-drop-invalid]": { borderColor: "status.warn", background: warnWash },
+        },
+        // ── The Table ── at least 900px wide, scrolling inside main; the bands are the shared group band's.
+        table: { position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "bg.surface" },
+        tablePane: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
+        bandCount: {
+            display: "inline-flex", alignItems: "center", height: "16px", padding: "0 4px", borderRadius: "sm", background: "bg.subtle",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "fg.strong",
+        },
+        // The column heads: 36px, mono 10px 600 uppercase, tracked, ink-4, over a rule.
+        tableHead: {
+            ...tableColumns, alignItems: "center", height: "36px", boxSizing: "border-box", borderBottomWidth: "1px", borderColor: "border.subtle", background: "bg.surface",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
+            "& > span": { padding: "0 12px", whiteSpace: "nowrap", overflow: "hidden" },
+            "& > span:first-of-type": { paddingLeft: "20px" },
+            "& > span:last-of-type": { paddingRight: "20px" },
+            "& > [data-align=end]": { textAlign: "right" },
+        },
+        // A row, 36px over its rule: paper-2 under the pointer, paper-3 selected (A44).
+        tableRow: {
+            ...tableColumns, alignItems: "center", height: "36px", boxSizing: "border-box", borderBottomWidth: "1px", borderColor: "border.subtle",
+            background: "bg.surface", cursor: "default",
+            "&:hover": { background: "bg.canvas" },
+            "&[data-selected]": { background: "bg.subtle" },
+        },
+        tableTime: { ...tableText, padding: "0 12px 0 20px", fontSize: "label.lg", fontWeight: "medium", color: "fg.muted", "&[data-holds]": { color: "fg" } },
+        tableLane: { ...tableText, padding: "0 12px", fontSize: "label.md", fontWeight: "medium", color: "fg.muted" },
+        tableCell: { minWidth: 0, height: "28px", padding: "0 12px", display: "flex", alignItems: "center", ...ownStages,
+            "&[data-drag-cell][data-drop-active]": { background: "transparent" }, "&[data-drag-cell][data-drop-invalid]": { background: "transparent" } },
+        tableSpan: { gridColumn: "span var(--allocation-event-span)" },
+        tableResourceSpan: { gridColumn: "span 2" },
+        tableUnits: { ...tableText, padding: "0 12px", textAlign: "right", fontSize: "label.lg", fontWeight: "medium", color: "fg" },
+        // The app's column: its tone in warn-text 600 (A43).
+        tableValue: { ...tableText, padding: "0 12px", fontSize: "label.lg", fontWeight: "medium", color: "fg", "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" } },
+        // The load line, ink-2 500; neg-text over max, warn-text overlapping or under min, both 600 (A43, A19).
+        tableLoad: {
+            ...tableText, padding: "0 12px", display: "flex", alignItems: "center", gap: "4px", fontSize: "label.md", fontWeight: "medium", color: "fg.strong",
+            "& > span:first-of-type": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+            "&[data-tone=danger]": { color: "fg.danger", fontWeight: "semibold" },
+            "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
+        },
+        // The status: an 8px dot and the word, mono 10.5px 600 uppercase, ink-3.
+        tableStatus: {
+            ...tableText, padding: "0 20px 0 12px", display: "flex", alignItems: "center", gap: "8px",
+            fontSize: "label.md", fontWeight: "semibold", letterSpacing: "caps", textTransform: "uppercase", color: "fg.muted",
+        },
+        tableStatusDot: {
+            flex: "none", width: "8px", height: "8px", borderRadius: "full", background: "fg.faint",
+            "[data-status='Not linked'] > &": { background: "status.warn" },
+            "[data-status=Check] > &": { background: "status.warn" },
+            "[data-status=Draft] > &": { background: "fg.subtle" },
+            "[data-status=Reserved] > &": { background: "brandMark" },
+            "[data-status=Committed] > &": { background: "status.pos" },
+        },
+        // A chip, 28px on the rule-strong border: a draft dashed in the brand on brand-tint; dragged, a dashed hole (A16).
+        tableChip: {
+            flex: 1, minWidth: 0, height: "28px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "sm", background: "bg.surface",
+            "&[data-draggable]": { cursor: "grab", touchAction: "none" },
+            "&[data-draft]": { borderStyle: "dashed", borderColor: "brand.solid", background: "brandTint" },
+            "&[data-dragging]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent" },
+            ...planElementFocus,
+        },
+        tableChipIcon: {
+            ...fontAwesomeSize("9.5px"), flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "fg.subtle",
+            "&[data-icon-role=chevron]": { ...fontAwesomeSize("10px"), width: "20px", color: "fg.muted" },
+            "[data-allocation-placeholder] > &": { ...fontAwesomeSize("10px"), "&[data-icon-role=refused]": { display: "none" } },
+            "[data-allocation-cell-side=event][data-drop-invalid] > [data-allocation-placeholder] > &": {
+                "&[data-icon-role=idle]": { display: "none" }, "&[data-icon-role=refused]": { display: "inline-flex", color: "fg.warning" },
+            },
+        },
+        tableChipCode: { ...tableText, flex: "none", maxWidth: "60%", fontSize: "label.lg", fontWeight: "semibold", color: "fg", "[data-draft] > &": { color: "brandPressed" } },
+        tableChipMeta: { ...tableText, flex: 1, fontSize: "label.sm", fontWeight: "normal", color: "fg.subtle" },
+        // A chip's chevron and ×: 20px targets, ink-3.
+        tableChipButton: {
+            flex: "none", width: "20px", height: "20px", display: "grid", placeItems: "center", padding: 0, marginLeft: "auto", borderRadius: "sm",
+            background: "transparent", color: "fg.muted", cursor: "pointer",
+            "& + &": { marginLeft: 0 },
+            "& svg": fontAwesomeSize("10px"),
+            "&[data-allocation-chip-remove] svg": fontAwesomeSize("11px"),
+            "&:hover": { background: "bg.canvas" },
+            ...planElementFocus,
+        },
+        // A dashed placeholder (A45): `no event`, `no resource`, italic ink-4; during a body's drag a free row's says what a drop does.
+        tablePlaceholder: {
+            flex: 1, minWidth: 0, height: "28px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
+            borderWidth: "1px", borderStyle: "dashed", borderColor: "border.strong", borderRadius: "sm", background: "transparent", textAlign: "left",
+            fontFamily: "mono", fontSize: "label.md", fontWeight: "normal", fontStyle: "italic", color: "fg.subtle",
+            "&:is(button)": { cursor: "pointer" },
+            "&[data-open]": { borderColor: "brand.solid" },
+            ...planElementFocus,
+            "[data-allocation-cell-side=event][data-drop-valid] > &": { borderColor: "brand.solid" },
+            "[data-allocation-cell-side=event][data-drop-active] > &": { background: "brandTint", color: "brandPressed", fontStyle: "normal" },
+            "[data-allocation-cell-side=event][data-drop-invalid] > &": { borderColor: "status.warn", background: warnWash, color: "fg.warning", fontStyle: "normal" },
+        },
+        tablePlaceholderText: {
+            flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            "&[data-say=drop]": { display: "none" },
+            "&[data-say=refused]": { display: "none" },
+            "[data-allocation-cell-side=event][data-drop-active] > * > &": { "&[data-say=idle]": { display: "none" }, "&[data-say=drop]": { display: "block" } },
+            "[data-allocation-cell-side=event][data-drop-invalid] > * > &": { "&[data-say=idle]": { display: "none" }, "&[data-say=refused]": { display: "block" } },
         },
         // The focus chip's ×, a 16px target (A81).
         focusClear: {

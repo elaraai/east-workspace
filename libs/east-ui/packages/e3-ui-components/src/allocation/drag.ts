@@ -27,17 +27,29 @@ import { compareDate, compareFloat, dayKey, parseDay, partsOf, type Context, typ
 /** What a drag carries: a bin's body (A24), its connector, or one of its links. */
 export type Grip = { kind: "body"; bin: string } | { kind: "port"; bin: string } | { kind: "link"; bin: string; resource: string };
 
-/** Where a drag rests: a lane hour (a card in it names the card), or a resource's row. */
-export type Target = { kind: "lane"; lane: string; at: Date; card: string | undefined } | { kind: "resource"; resource: string };
+/**
+ * Where a drag rests: a lane hour (a card in it names the card; a Table row's
+ * event cell is its slot's, `table`), a resource's row, or a Table row's
+ * resource cell.
+ */
+export type Target =
+    | { kind: "lane"; lane: string; at: Date; card: string | undefined; table?: boolean }
+    | { kind: "resource"; resource: string }
+    | { kind: "cell"; row: string };
 
 /** A grip as the drag grammar's coordinate. */
 export function gripCoord(surface: string, grip: Grip): Required<CellCoord> {
     return { surface, row: grip.kind, slot: grip.kind === "link" ? grip.resource : "", event: grip.bin };
 }
 
-/** A lane hour's coordinate, or a card's in it. */
-export function laneCoord(surface: string, lane: string, at: Date, card?: string): CellCoord {
-    return { surface, row: `lane:${lane}`, slot: dayKey(at), ...(card === undefined ? {} : { event: card }) };
+/** A lane hour's coordinate, or a card's in it; a Table row's event cell names its slot's (`table`). */
+export function laneCoord(surface: string, lane: string, at: Date, card?: string, table = false): CellCoord {
+    return { surface, row: `${table ? "table-lane" : "lane"}:${lane}`, slot: dayKey(at), ...(card === undefined ? {} : { event: card }) };
+}
+
+/** A Table row's resource cell's coordinate. */
+export function resourceCellCoord(surface: string, row: string): CellCoord {
+    return { surface, row: "table-resource", slot: row };
 }
 
 /** A resource row's coordinate. */
@@ -57,9 +69,12 @@ export function gripOf(ref: { row: string; slot: string; event: option<string> }
 /** The target a drag grammar's reference names. */
 export function targetOf(ref: { row: string; slot: string; event: option<string> }): Target | undefined {
     if (ref.row === "resource") return { kind: "resource", resource: ref.slot };
-    if (!ref.row.startsWith("lane:")) return undefined;
+    if (ref.row === "table-resource") return { kind: "cell", row: ref.slot };
+    const table = ref.row.startsWith("table-lane:");
+    if (!table && !ref.row.startsWith("lane:")) return undefined;
     const at = parseDay(ref.slot);
-    return at.success ? { kind: "lane", lane: ref.row.slice("lane:".length), at: at.value, card: ref.event.type === "some" ? ref.event.value : undefined } : undefined;
+    return at.success ? { kind: "lane", lane: ref.row.slice(table ? "table-lane:".length : "lane:".length), at: at.value,
+        card: ref.event.type === "some" ? ref.event.value : undefined, ...(table ? { table: true } : {}) } : undefined;
 }
 
 /** A refusal, as the inspector's note says it (A40, A88): `Not allocated · LD-2232 can't go into K-103: gap too short · next job Tue 18.` */
@@ -167,6 +182,8 @@ function onResource(scene: DropScene, grip: Grip, resource: string, of: Day | un
  */
 export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: readonly string[]): Verdict {
     const code = codeOf(scene, grip.bin);
+    // A Table row's resource cell takes a resource's drag only (A33).
+    if (target.kind === "cell") return refused("drop on the event cell", { word: "Not booked", text: `Drop ${code} on a row’s event cell to book it.` });
     if (grip.kind === "body") {
         if (target.kind === "resource") {
             return refused("lane hours only · drag its connector to change the resource",
@@ -178,8 +195,9 @@ export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: r
             const resource = [...card.parts.keys()][0];
             const reservation = target.card!;
             if (resource === undefined) return { allowed: true, caption: `to ${scene.laneLabel(card.lane)} ${formatDatePattern("HH:mm", card.at)}`, warn: false, refusal: undefined, pending: false, run: () => scene.commands.fill(grip.bin, reservation) };
-            const verdict = onResource(scene, grip, resource, scene.without(reservation), "Not moved", "into the reservation on ", () => scene.commands.fill(grip.bin, reservation), []);
-            return verdict;
+            // The Table names the reserved row's slot, as its row reads (A33).
+            const verb = target.table === true ? `to ${scene.laneLabel(card.lane)} ${formatDatePattern("HH:mm", card.at)} on ` : "into the reservation on ";
+            return onResource(scene, grip, resource, scene.without(reservation), "Not moved", verb, () => scene.commands.fill(grip.bin, reservation), []);
         }
         const bin = scene.plan.bins.get(grip.bin);
         const at = landing(scene.slots, scene.plan, target.lane, target.at, grip.bin);
@@ -259,7 +277,9 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const kept = useMemo(() => new Map<string, Verdict>(), [scene.plan, scene.slots, answer, ranks, fit.error]);
     const verdict = (g: Grip, target: Target): Verdict => {
-        const key = `${g.kind}|${g.bin}|${g.kind === "link" ? g.resource : ""}|${target.kind === "resource" ? `r:${target.resource}` : `l:${target.lane}|${target.at.getTime()}|${target.card ?? ""}`}`;
+        const where = target.kind === "resource" ? `r:${target.resource}` : target.kind === "cell" ? `c:${target.row}`
+            : `l:${target.lane}|${target.at.getTime()}|${target.card ?? ""}|${target.table === true ? "t" : ""}`;
+        const key = `${g.kind}|${g.bin}|${g.kind === "link" ? g.resource : ""}|${where}`;
         const known = kept.get(key);
         if (known !== undefined && !known.pending) return known;
         const next = verdictOf(scene, g, target, ranks);
