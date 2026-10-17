@@ -5,12 +5,13 @@
 /**
  * The Allocation's frame (#1325) on the real in-page e3: its one toolbar row
  * at every width, the combined View fold that keeps the date, the layout and
- * Publish reachable in the narrowest frame (A1), and the footer — Plan's rail,
- * the layout's legend only (A79) — in both themes.
+ * Publish reachable in the narrowest frame (A1), the date picker's day marks
+ * (A2), and the footer — Plan's rail, the layout's legend only (A79) — in both
+ * themes.
  */
 import { expect, test } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
-import { open, size } from "./allocation-page";
+import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 
 for (const theme of ["light", "dark"] as const) {
@@ -50,5 +51,35 @@ for (const theme of ["light", "dark"] as const) {
         expect(wrapped).toEqual({ wrap: "wrap", overflow: 0, items: true });
         await settled(page);
         expect(await footer.evaluate(el => getComputedStyle(el).flexWrap)).toBe("wrap");
+    });
+
+    test(`A2 — the picker marks each day Published · Draft · Not started: a 6px dot under its number, out of the day's flow (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const entry = await open(page, "allocationKilnYard", theme);
+        await size(page, entry, 1440);
+        await entry.getByRole("button", { name: "Choose plan day" }).first().click();
+        const picker = page.getByRole("dialog");
+        // The popover opens with a zoom: measure once its own animations have finished.
+        await picker.evaluate(el => Promise.all(el.getAnimations({ subtree: true }).filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished)));
+        const day = (iso: string) => picker.locator(`[data-time-day="${Date.parse(iso)}"]`);
+        const mark = (iso: string) => day(iso).locator("[data-state]").evaluate(el => {
+            const s = getComputedStyle(el), b = el.getBoundingClientRect(), d = el.closest("[data-time-day]")!.getBoundingClientRect();
+            return { state: el.getAttribute("data-state"), w: b.width, h: b.height, radius: s.borderTopLeftRadius, fill: s.backgroundColor, ring: s.borderTopColor,
+                centred: Math.abs((b.left + b.width / 2) - (d.left + d.width / 2)) <= 0.5, bottom: Math.round(d.bottom - b.bottom) };
+        });
+        const published = await mark("2027-05-04T00:00:00Z"), draft = await mark("2027-05-11T00:00:00Z"), empty = await mark("2027-05-13T00:00:00Z");
+        const [success, brand, subtle] = [await token(page, "fg-success"), await token(page, "brand-solid"), await token(page, "fg-subtle")];
+        expect(published).toEqual({ state: "published", w: 6, h: 6, radius: "50%", fill: success, ring: success, centred: true, bottom: 4 });
+        expect(draft).toEqual({ state: "draft", w: 6, h: 6, radius: "50%", fill: brand, ring: brand, centred: true, bottom: 4 });
+        expect(empty).toEqual({ state: "empty", w: 6, h: 6, radius: "50%", fill: "rgba(0, 0, 0, 0)", ring: subtle, centred: true, bottom: 4 });
+        // Out of the day's flow: every day's number sits where an unmarked one would, at one height across the month.
+        const numbers = await picker.locator("[data-time-day]").evaluateAll(days => days.map(d => {
+            const b = d.getBoundingClientRect(), text = [...d.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+            const range = document.createRange(); if (text) range.selectNodeContents(text);
+            return Math.round((text ? range.getBoundingClientRect().top : b.top) - b.top);
+        }));
+        expect(new Set(numbers).size).toBe(1);
+        await expect(picker).toContainText("Published · Draft · Not started");
+        await page.keyboard.press("Escape");
     });
 }
