@@ -44,8 +44,12 @@ for (const theme of ["light", "dark"] as const) {
         const rail = await footer.evaluate(el => { const s = getComputedStyle(el), item = getComputedStyle(el.firstElementChild!);
             return { height: el.getBoundingClientRect().height, gap: s.columnGap, size: item.fontSize, weight: item.fontWeight, casing: item.textTransform, wrap: s.flexWrap }; });
         expect(rail).toEqual({ height: 28, gap: "14px", size: "10px", weight: "600", casing: "uppercase", wrap: "nowrap" });
+        await expect(footer.locator("[data-allocation-legend=link]")).toHaveText("Link");
         // Narrower than its legend, the rail wraps and stays wrapped: each item on its own, nothing past its edge.
-        await size(page, entry, 1024);
+        const needed = await footer.evaluate(el => { const s = getComputedStyle(el), items = [...el.children];
+            return items.reduce((w, i) => w + i.getBoundingClientRect().width, 0) + parseFloat(s.columnGap) * (items.length - 1)
+                + parseFloat(s.paddingLeft) + parseFloat(s.paddingRight); });
+        await size(page, entry, Math.floor(needed) - 40);
         const wrapped = await footer.evaluate(el => ({ wrap: getComputedStyle(el).flexWrap, overflow: el.scrollWidth - el.clientWidth,
             items: [...el.children].every(item => item.getBoundingClientRect().right <= el.getBoundingClientRect().right + 0.5) }));
         expect(wrapped).toEqual({ wrap: "wrap", overflow: 0, items: true });

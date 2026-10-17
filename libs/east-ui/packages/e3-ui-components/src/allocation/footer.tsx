@@ -7,12 +7,12 @@ import { Box } from "@chakra-ui/react";
 import { useRailWrap } from "../shared/schedule/footer.js";
 import type { AllocationStyles } from "./model.js";
 
-/** Each layout's legend, as the mock's footer lists it (§8). */
+/** Each layout's legend, as the mock's footer lists it (§8): a link is `Link`, its width unexplained (ruled 17 Oct). */
 export const LEGENDS = {
     timeline: [
         { kind: "bin", label: "Bin" }, { kind: "draft", label: "Draft" }, { kind: "load", label: "Today's load" },
         { kind: "prior", label: "Prior job" }, { kind: "next", label: "Next job" }, { kind: "overlap", label: "Overlap" },
-        { kind: "link", label: "Link · width by share of the focus's largest load" }, { kind: "draftLink", label: "Draft link" },
+        { kind: "link", label: "Link" }, { kind: "draftLink", label: "Draft link" },
     ],
     table: [
         { kind: "bin", label: "Event or resource" }, { kind: "draft", label: "Draft" }, { kind: "empty", label: "Empty · drop here" },
