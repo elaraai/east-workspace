@@ -674,9 +674,10 @@ auto`, the batch line), Other gaps that fit (36px rows with a rank badge and
 Move or Link), the event's details, and the was line on paper-2 for a draft.
 
 **Footer.** The shared rail with the layout's legend: Timeline — Bin, Draft,
-Today's load, Prior job, Next job, Overlap, `Link · width by share of the
-focus's largest load`, Draft link; Table — Event or resource, Draft, `Empty ·
-drop here`, Reserved, Free. 16 × 10 swatches, a 16 × 4 bar for a link.
+Today's load, Prior job, Next job, Overlap, Link, Draft link (*ruled 17 Oct*:
+the mock's `Link · width by share of the focus's largest load` is `Link`);
+Table — Event or resource, Draft, `Empty · drop here`, Reserved, Free. 16 × 10
+swatches, a 16 × 4 bar for a link.
 
 **The drag caption.** The shared MoveGhost: 24px, a brand-d border, the label
 (`LD-2231 · 21 m³`) and its target in brand-dd, or in warn-text after a ×.
