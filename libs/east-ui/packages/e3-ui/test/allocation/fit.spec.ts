@@ -251,6 +251,42 @@ test("a take: a verdict for every bin on the resource, and one for reserving —
     assert.equal(candidates(ask("K-203")).at(-1)!.reserve, true);
 });
 
+test("A48, A61 — a take: a verdict for booking each event the plan has not booked onto the resource, the one a place of it gives there", () => {
+    const take = (resource: string, plan = fresh()) => builtIn({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+    // The six loads still to book, and no other: every one fits K-601, under its minimum.
+    const k601 = take("K-601");
+    assert.deepEqual([...k601.events.keys()], ["LD-2231", "LD-2232", "LD-2233", "LD-2234", "LD-2235", "LD-2236"]);
+    assert.ok([...k601.events.values()].every(f => f.type === "fits" && f.value.warn.type === "some" && f.value.warn.value === "under min"));
+    // Each verdict is the one a place of the event gives on that resource.
+    for (const resource of ["K-601", "K-107", "K-101", "K-503"]) {
+        const answer = take(resource);
+        for (const [code, verdict] of answer.events) assert.deepEqual(verdict, builtIn(placeEvent(code)).resources.get(resource), `${code} on ${resource}`);
+    }
+    assert.equal(refusal(take("K-101").events.get("LD-2235")).reason, "over max by 7 m³");
+    // Asked of the day without a bin, that bin's event is one to book: what a row's Chooser offers in its place.
+    const without = fresh();
+    without.bins.delete("3101");
+    assert.ok(take("K-209", without).events.has("LD-2201"));
+    assert.equal(take("K-209").events.has("LD-2201"), false);
+    // A place answers no events, as a take answers no resources.
+    assert.equal(builtIn(placeEvent("LD-2231")).events.size, 0);
+});
+
+test("§12.3 rule 4 — a reservation placed is checked with no quantity and each resource's own hold, as a take reserves", () => {
+    const plan = fresh();
+    plan.bins.set("V1", { lane: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), event: none, quantity: 0, kind: none, hold: variant("days", 0),
+        parts: new SortedMap([], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
+    const placed = builtIn({ day: yardDay, plan, context, ask: variant("place", { subject: variant("bin", "V1"), quantity: 0 }) });
+    // Each resource's verdict is the one its take gives for reserving.
+    for (const resource of ["K-101", "K-104", "K-207", "K-503", "K-601"]) {
+        const take = builtIn({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+        assert.ok(take.reserve.type === "some");
+        assert.deepEqual(placed.resources.get(resource), take.reserve.value, resource);
+    }
+    // K-104's own 8-day hold runs past its next job, a 0-day hold would not: the resource's hold decides.
+    assert.equal(refusal(placed.resources.get("K-104")).reason, "gap too short · next job Fri 14");
+});
+
 test("a type constructor returns the same East type for the same bin values", () => {
     assert.ok(isTypeEqual(Allocation.Types.Days(BinValues), Allocation.Types.Days(BinValues)));
     assert.ok(isTypeEqual(Allocation.Types.FitRequest(BinValues).fields.plan, Allocation.Types.Day(BinValues)));
