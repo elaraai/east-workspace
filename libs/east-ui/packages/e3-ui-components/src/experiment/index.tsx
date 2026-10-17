@@ -47,7 +47,7 @@ import {
 } from '@elaraai/east-ui-components';
 
 import { useBindingValue } from './bind-runtime.js';
-import { useFuncCall, type FuncCallError } from './run-runtime.js';
+import { useFuncCall, type FuncCallError } from '../shared/func/use-func-call.js';
 import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
 import { ForestPlot, AreaRange, OverlapHistogram } from './charts.js';
 import { GuidanceProvider, GuidanceToggle, GuidanceGist, Help } from './help-ui.js';

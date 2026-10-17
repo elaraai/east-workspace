@@ -38,6 +38,8 @@ export interface TimeNavigatorProps {
     /** Read just the open month's week statuses. Closing/unmounting releases them. */
     onWeeks?: (dates: readonly Date[]) => void;
     weekMarker?: (date: Date) => ReactNode;
+    /** A mark in each day of the day panel — a day record's status (Published · Draft · Not started), read for the open month through `onWeeks`. */
+    dayMarker?: (date: Date) => ReactNode;
     legend?: ReactNode;
     /** Final toolbar fold: view controls share the same reachable popover. */
     controls?: ReactNode;
@@ -46,7 +48,7 @@ export interface TimeNavigatorProps {
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, legend, controls, rangeEditor }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     const recipe = useSlotRecipe({ key: "timeNavigator" });
@@ -116,7 +118,8 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
                 {weeks.flatMap(week => Array.from({ length: 7 }, (_, i) => new Date(week.getTime() + i * DAY))).map(day => <chakra.button key={day.getTime()} type="button" css={styles.day}
                     aria-label={format.weekdayDate(day)} aria-pressed={day.getTime() === current.getTime()} aria-current={day.getTime() === today ? "date" : undefined}
                     data-time-day={day.getTime()} data-selected={day.getTime() === current.getTime() ? "" : undefined} data-outside={day.getUTCMonth() !== new Date(month).getUTCMonth() ? "" : undefined}
-                    onClick={() => choose(day.getTime())}>{format.number(day.getUTCDate())}</chakra.button>)}
+                    onClick={() => choose(day.getTime())}>{format.number(day.getUTCDate())}
+                    {dayMarker !== undefined && <Box as="span" css={styles.dayMark} data-time-daymark="">{dayMarker(day)}</Box>}</chakra.button>)}
             </Box>}
             {panel === "month" && <Box css={styles.choices}>{Array.from({ length: 12 }, (_, i) => <chakra.button key={i} type="button" css={styles.choice}
                 aria-label={format.monthYear(new Date(Date.UTC(year, i, 1)))} data-time-month={i}

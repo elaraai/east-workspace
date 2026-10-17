@@ -14,9 +14,9 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ArrayType, IntegerType, RecursiveType, StringType, StructType, type EastType } from "@elaraai/east";
-import { E3Provider } from "../platform/e3-config.js";
-import { ReactiveDatasetProvider } from "../platform/dataset-hooks.js";
-import { useFuncCall, type FuncCall } from "./run-runtime.js";
+import { E3Provider } from "../../platform/e3-config.js";
+import { ReactiveDatasetProvider } from "../../platform/dataset-hooks.js";
+import { useFuncCall, type FuncCall } from "./use-func-call.js";
 
 afterEach(cleanup);
 
