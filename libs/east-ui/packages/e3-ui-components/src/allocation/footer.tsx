@@ -2,8 +2,9 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { useLayoutEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
+import { useRailWrap } from "../shared/schedule/footer.js";
 import type { AllocationStyles } from "./model.js";
 
 /** Each layout's legend, as the mock's footer lists it (§8). */
@@ -22,23 +23,7 @@ export const LEGENDS = {
 /** The shared footer rail with the layout's legend only (A79): no counts, hints or status; each item wraps on its own. */
 export function AllocationFooter({ styles, layout, narrow }: { styles: AllocationStyles; layout: "timeline" | "table"; narrow: boolean }) {
     const ref = useRef<HTMLDivElement>(null);
-    const [wrap, setWrap] = useState(false);
-    // The rail can be wider than main: fit its actual items rather than assume a breakpoint does.
-    useLayoutEffect(() => {
-        const rail = ref.current; if (rail === null) return;
-        const measure = () => {
-            const items = [...rail.children];
-            const css = getComputedStyle(rail);
-            const required = items.reduce((n, item) => n + item.getBoundingClientRect().width, 0)
-                + Math.max(0, items.length - 1) * (Number.parseFloat(css.columnGap) || 0)
-                + Number.parseFloat(css.paddingInlineStart) + Number.parseFloat(css.paddingInlineEnd)
-                + Number.parseFloat(css.borderInlineStartWidth) + Number.parseFloat(css.borderInlineEndWidth);
-            setWrap(required > rail.getBoundingClientRect().width);
-        };
-        measure(); const observer = new ResizeObserver(measure); observer.observe(rail);
-        for (const item of rail.children) observer.observe(item);
-        return () => observer.disconnect();
-    });
+    const wrap = useRailWrap(ref, layout);
     return <Box ref={ref} css={styles.footer} data-allocation-footer={layout} data-builder-narrow={narrow || wrap ? "" : undefined}>
         {LEGENDS[layout].map(item => <Box as="span" key={item.kind} css={[styles.footerItem, styles.legendItem]} data-allocation-legend={item.kind}>
             <Box as="span" aria-hidden="true" css={styles.legendSwatch} data-kind={item.kind} />{item.label}
