@@ -25,7 +25,7 @@ import { useAllocationData } from "./data.js";
 import { useAllocationEditing } from "./editing.js";
 import { AllocationFooter } from "./footer.js";
 import { NARROW_WIDTH, allocationContext, allocationDomain, configError, focusOf, type AllocationStyles, type AllocationValue, type Issue, type Selection } from "./model.js";
-import { AllocationTimeline, type TimelineFollow } from "./timeline.js";
+import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
 import { useKeyVisibility } from "../shared/schedule/visibility.js";
@@ -45,12 +45,16 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const data = useAllocationData(value, domain, window.day, picker);
     const editing = useAllocationEditing(value, domain, window.day, key, data);
     const [selection, setSelection] = useState<Selection>();
+    // A selected link (A68) is its bin's part on a resource; any other selection lets it go.
+    const [link, setLink] = useState<SelectedLink>();
     // Selecting follows the selection (A12); a selection a command makes after a drop follows it softly.
     const [follow, setFollow] = useState<TimelineFollow>({ nonce: 0, soft: false });
     const select = useCallback((next: Selection | undefined, soft = false) => {
         setSelection(next);
+        setLink(undefined);
         if (next !== undefined) setFollow(before => ({ nonce: before.nonce + 1, soft }));
     }, []);
+    const selectLink = useCallback((next: SelectedLink) => { select({ type: "bin", id: next.bin }); setLink(next); }, [select]);
     const [error, setError] = useState<string>();
     // The narrowing chooses which rows the Timeline shows; fits, checks and totals read every resource.
     const visibility = useKeyVisibility({ visibleSource: value.visibleSource, visible: value.visibleResources, rows: value.resources, recordSlice: value.recordSlice }, VISIBILITY_WORDS);
@@ -59,7 +63,9 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // Another day: its own selection and refusal.
     const dayEpoch = window.day.getTime();
-    useEffect(() => { setSelection(undefined); setError(undefined); }, [dayEpoch]);
+    useEffect(() => { setSelection(undefined); setLink(undefined); setError(undefined); }, [dayEpoch]);
+    // Another layout closes the selected link (A7).
+    useEffect(() => { setLink(undefined); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
     const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
@@ -80,7 +86,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: visibility.keys.type === "some" && !visibility.keys.value.has(focus) },
-        onClearFocus: () => setSelection(undefined) });
+        onClearFocus: () => { setSelection(undefined); setLink(undefined); } });
     const published = editing.held?.status.type === "published";
     const notStarted = !data.loading && data.error === undefined && editing.held === undefined && plan.bins.size === 0;
     return <Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
@@ -90,7 +96,9 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             const action = historyShortcut(event);
             if (action !== undefined && !value.settings.readOnly && !published) { event.preventDefault(); onAction(action); }
             else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.step(event.key === "[" ? -1 : 1); }
-            else if (event.key === "Escape") { setSelection(undefined); setError(undefined); }
+            else if (event.key === "Escape") { setSelection(undefined); setLink(undefined); setError(undefined); }
+            // Delete unlinks the selected link, else removes the selected bin (A6, A68).
+            else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { event.preventDefault(); commands.unlink(link.bin, link.resource); }
             else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { event.preventDefault(); commands.remove(selection.id); }
         }} banners={<>
             {editing.session !== undefined && <SessionBanners session={editing.session} words={words} onAction={action => editing.history.actOn(editing.key, action)} />}
@@ -106,7 +114,8 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                 {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
                         held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={visibility.keys} selection={selection} focus={focus}
-                        editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow} /> : null}
+                        editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow}
+                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} /> : null}
             </Box>
         </BuilderFrame>
     </Box>;

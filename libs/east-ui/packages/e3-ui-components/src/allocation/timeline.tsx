@@ -14,18 +14,21 @@
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowDown, faArrowRight, faCircleExclamation, faLink, faLinkSlash, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap, option } from "@elaraai/east";
 import { useContainerBelow, type Formatters } from "@elaraai/east-ui-components";
 import { VirtualRows, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { LinksLayer, type LinkRibbon } from "../shared/links/layer.js";
+import { useScrollTop } from "../shared/links/scroll.js";
 import { NowLine } from "../shared/time/now-line.js";
 import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
-import { LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
+import { familyOf, layoutLinks, type FamilyLink } from "./links.js";
+import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
 import {
     allocationWords, partsOf, sameParts, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Issue, type Load,
     type ResourceLine, type ResourceRow, type Selection, type Slot,
@@ -33,12 +36,13 @@ import {
 
 /** The panes' head, the recipe's: the rows sit under it. */
 const HEAD = 48;
-/** A card's height, the recipe's: what a scroll keeps in view. */
-const CARD_H = 28;
 const NO_ISSUES: readonly Issue[] = [];
 
 /** How a selection asks to be followed (A12): `soft` leaves the resource pane where it is when the row is in view. */
 export interface TimelineFollow { nonce: number; soft: boolean }
+
+/** A selected link (A68): its bin's part on a resource. */
+export interface SelectedLink { bin: string; resource: string }
 
 /** The Timeline's props. */
 export interface TimelineProps {
@@ -70,6 +74,11 @@ export interface TimelineProps {
     /** A connector clicked: its bin's resource Chooser, in the inspector (A21). */
     choose: (bin: string) => void;
     follow: TimelineFollow;
+    /** The selected link (A68), and selecting one: its bin and the link. */
+    link: SelectedLink | undefined;
+    selectLink: (link: SelectedLink) => void;
+    /** Unlinks a bin's part on a resource: the selected link's ×. */
+    unlink: (bin: string, resource: string) => void;
 }
 
 /** `1 bin`, `9 bins`. */
@@ -127,6 +136,37 @@ export function AllocationTimeline(props: TimelineProps) {
     const lanePane = useRef<HTMLDivElement | null>(null);
     const rscPane = useRef<HTMLDivElement | null>(null);
     const ruler = useRef<HTMLDivElement | null>(null);
+    const root = useRef<HTMLDivElement | null>(null), gridBox = useRef<HTMLDivElement | null>(null), channel = useRef<HTMLDivElement | null>(null);
+
+    // The links (A65–A68): the focus's family, through the channel; none at rest and none on hover.
+    const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus), [plan, held, props.focus]);
+    const linking = family.length > 0;
+    const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking);
+    // Where they run: the lane grid's left edge and the channel's right edge, in the board's px, and the panes' view.
+    const [view, setView] = useState<{ gridLeft: number; channelRight: number; height: number }>();
+    useLayoutEffect(() => {
+        const box = root.current;
+        if (!linking || box === null) return undefined;
+        const measure = () => {
+            const at = box.getBoundingClientRect(), from = gridBox.current?.getBoundingClientRect(), to = channel.current?.getBoundingClientRect();
+            if (from === undefined || to === undefined) return;
+            const next = { gridLeft: from.left - at.left, channelRight: to.right - at.left, height: Math.max(0, at.height - HEAD) };
+            setView(before => before !== undefined && before.gridLeft === next.gridLeft && before.channelRight === next.channelRight && before.height === next.height ? before : next);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(box);
+        return () => observer.disconnect();
+    }, [linking]);
+    const cardOf = useMemo(() => new Map(grid.cards.map(card => [card.id, card] as const)), [grid]);
+    const codeOf = (bin: string) => { const event = plan.bins.get(bin)?.event; return event?.type === "some" ? context.events.get(event.value)?.label ?? event.value : ""; };
+    const selectedLink = props.link === undefined ? undefined : family.find(l => l.bin === props.link!.bin && l.resource === props.link!.resource)?.id;
+    const ribbons = useMemo(() => view === undefined || !linking ? [] : layoutLinks(family, cardOf, rowIndex, { ...view, laneTop, rowsTop },
+        link => words.quantity(link.quantity!, unit), selectedLink), [view, linking, family, cardOf, rowIndex, laneTop, rowsTop, words, unit, selectedLink]);
+    const linkOf = (ribbon: LinkRibbon): FamilyLink => (ribbon as (typeof ribbons)[number]).link;
+    const linkName = (link: FamilyLink) => link.quantity === undefined ? "the reservation" : `${codeOf(link.bin)}, ${words.quantity(link.quantity, unit)}`;
+    const [lit, setLit] = useState<number | null>(null);
+    const litLink = lit === null ? undefined : family[lit];
     // Under 36px a day, its tick shows its number only.
     const short = useContainerBelow(ruler, axis.days.length * SHORT_DAY);
     const time = useMemo(() => timeWords(props.format.locale), [props.format.locale]);
@@ -169,7 +209,7 @@ export function AllocationTimeline(props: TimelineProps) {
 
     const vars = { "--allocation-lanes": value.lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
     const flags = props.issues.length === 0 ? NO_ISSUES : props.issues;
-    return <Box css={styles.timeline} style={vars} data-allocation-timeline="">
+    return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="">
         <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="">
             <Box css={styles.laneContent}>
                 <Box css={[styles.head, styles.laneHead]}>
@@ -187,18 +227,18 @@ export function AllocationTimeline(props: TimelineProps) {
                         </Box>;
                     })}
                 </Box>
-                <Box css={styles.laneGrid} data-allocation-grid="">
+                <Box ref={gridBox} css={styles.laneGrid} data-allocation-grid="">
                     {grid.bands.map(band => <Box key={band.slot} css={styles.laneBand} style={{ "--band-row": band.row, "--band-span": band.span } as CSSProperties} data-allocation-band={band.slot}>
                         <Box as="span" css={styles.laneHour}>{formatDatePattern(value.every.type === "hours" ? "HH" : "HH:mm", band.at)}</Box>
                     </Box>)}
                     {grid.cells.map(cell => <Box key={`${cell.lane}:${cell.slot}`} css={styles.laneCell} data-allocation-cell={`${value.lanes[cell.lane]!.key}|${cell.at.getTime()}`}
                         data-free={cell.free ? "" : undefined} style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties}
                         onClick={() => props.select(undefined)} />)}
-                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} />)}
+                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} />)}
                 </Box>
             </Box>
         </Box>
-        <Box css={styles.channel} data-allocation-channel="">
+        <Box ref={channel} css={styles.channel} data-allocation-channel="">
             <Box css={styles.channelHead} title="Links run through this channel"><span /><span><FontAwesomeIcon icon={faLink} /></span></Box>
         </Box>
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.resourcePane} minWidth={`calc(${LABEL_W}px + ${axis.days.length * MIN_DAY}px)`}
@@ -214,13 +254,30 @@ export function AllocationTimeline(props: TimelineProps) {
             renderRow={index => {
                 const resource = rows[index]!;
                 return <ResourceRowView resource={resource} line={lines.get(resource.key)!} load={loads.get(resource.key)!} axis={axis} props={props}
-                    focusHold={focusHold} draft={drafted.has(resource.key)} />;
+                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={litLink?.resource === resource.key} />;
             }} />
+        {view !== undefined && ribbons.length > 0 && <Box css={styles.links} data-allocation-links="" style={{ height: view.height }}>
+            <LinksLayer ribbons={ribbons} width={view.channelRight} height={view.height} halo={false} onLit={setLit}
+                clip={{ left: view.gridLeft + HOUR_W, width: Math.max(0, view.channelRight - view.gridLeft - HOUR_W) }}
+                selected={selectedLink} onUnlink={props.editable ? id => { const link = family[id]; if (link !== undefined) props.unlink(link.bin, link.resource); } : undefined}
+                unlinkLabel={ribbon => `Unlink ${codeOf(linkOf(ribbon).bin)} · Delete`}
+                hit={ribbon => {
+                    const link = linkOf(ribbon), name = `${selectedLink === ribbon.id ? "Selected link" : "Link"} of ${linkName(link)}`;
+                    return { "data-allocation-link": `${link.bin}|${link.resource}`, "aria-label": name, children: <title>{`Link of ${linkName(link)} · click to select`}</title>,
+                        onClick: () => props.selectLink({ bin: link.bin, resource: link.resource }) };
+                }}
+                caption={ribbon => {
+                    const link = linkOf(ribbon), selected = selectedLink === ribbon.id;
+                    return { role: "button", "aria-label": `${selected ? "Selected link" : "Link"} of ${linkName(link)}`, "data-allocation-caption": `${link.bin}|${link.resource}`,
+                        title: !props.editable ? `Link of ${linkName(link)}` : selected ? "Selected · × or Delete removes the link" : "Click to select the link, then Delete · drag onto a resource row to move it",
+                        onClick: () => props.selectLink({ bin: link.bin, resource: link.resource }) };
+                }} />
+        </Box>}
     </Box>;
 }
 
 /** A bin's card (A16, A21). */
-function Card({ card, props, lines, flags }: { card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[] }) {
+function Card({ card, props, lines, flags, lit }: { card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[]; lit: boolean }) {
     const { styles, context, value } = props;
     const { id, bin } = card;
     const words = allocationWords();
@@ -263,7 +320,7 @@ function Card({ card, props, lines, flags }: { card: LaneCard; props: TimelinePr
         : `Allocated to ${to} · drag the connector onto a resource to move it · click to choose another`;
     return <Box css={styles.card} role="button" tabIndex={0} title={tip} aria-label={tip} aria-pressed={selected}
         data-allocation-card={id} data-reserved={reserved ? "" : undefined} data-draft={draft ? "" : undefined}
-        data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined}
+        data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
         style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
         onClick={() => props.select({ type: "bin", id })} onKeyDown={onActivate(() => props.select({ type: "bin", id }))}>
         <Box as="span" css={styles.cardTop}>
@@ -287,8 +344,8 @@ function Card({ card, props, lines, flags }: { card: LaneCard; props: TimelinePr
 }
 
 /** A resource's row: its label cell and its plot (A18–A20). */
-function ResourceRowView({ resource, line, load, axis, props, focusHold, draft }: {
-    resource: ResourceRow; line: ResourceLine; load: Load; axis: ResourceAxis; props: TimelineProps; focusHold: { from: Date; to: Date } | undefined; draft: boolean;
+function ResourceRowView({ resource, line, load, axis, props, focusHold, draft, lit }: {
+    resource: ResourceRow; line: ResourceLine; load: Load; axis: ResourceAxis; props: TimelineProps; focusHold: { from: Date; to: Date } | undefined; draft: boolean; lit: boolean;
 }) {
     const { styles, context, day } = props;
     const words = allocationWords();
@@ -318,7 +375,7 @@ function ResourceRowView({ resource, line, load, axis, props, focusHold, draft }
             {mondays.map(monday => <Box key={monday.getTime()} css={styles.weekRule} style={{ left: `${axisFraction(axis, monday) * 100}%` }} />)}
             {resource.jobs.map((job, i) => bar(`job:${i}`, job.start, job.end, { "data-kind": job.start.getTime() <= day.getTime() ? "prior" : "next" }, job.label))}
             {loadSpan !== undefined && hold !== undefined && <Box css={styles.bar} style={loadSpan} data-kind="load" data-allocation-load=""
-                data-draft={draft ? "" : undefined} data-over={line.over ? "" : undefined} data-focus={focus ? "" : undefined}>
+                data-draft={draft ? "" : undefined} data-over={line.over ? "" : undefined} data-focus={focus ? "" : undefined} data-link-lit={lit ? "" : undefined}>
                 <Box as="span" css={styles.barLabel}>{load.fill > 0 ? words.quantity(load.fill, context.unit) : "reserved"}</Box>
             </Box>}
             {overlap !== undefined && <Box css={styles.overlap} style={overlap} data-allocation-overlap="" />}

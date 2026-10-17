@@ -17,6 +17,12 @@ import { DAY } from "./model.js";
 
 /** A grid row's height, the recipe's: what the resource rows are virtualised and the panes scroll by. */
 export const ROW_H = 36;
+/** The lane grid's hour column, a lane's width, a card's inset in its lane and grid row, and its size: the recipe's, which a link leaves a card by. */
+export const HOUR_W = 48;
+export const LANE_W = 96;
+export const CARD_INSET = 4;
+export const CARD_W = 88;
+export const CARD_H = 28;
 /** The resource plot's narrowest day, in px; under {@link SHORT_DAY} a day's tick shows its number only. */
 export const MIN_DAY = 24;
 export const SHORT_DAY = 36;

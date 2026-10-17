@@ -30,13 +30,15 @@
  *   `resourcePane`, `resourceHead`, `resourceCaption`, `ruler` and the shared ruler's `rulerRow`, `rulerTick`,
  *   `rulerLabel`; a resource row, `resourceRow`, `resourceLabel`, `resourceText`, `resourceName`, `resourceLine`, and
  *   its plot, `plot`, `shade`, `weekRule`, `span`, `bar`, `barLabel`, `overlap`; the now line's `nowLine`, `nowDot`,
- *   `nowChip`; the toolbar's focus chip's ×, `focusClear`.
+ *   `nowChip`; the toolbar's focus chip's ×, `focusClear`; the focus's links over the panes, `links` (A65–A68: Plan's
+ *   look, a draft's in the brand, the selected one in the ink, its captions taking the pointer).
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
+import { linkRibbons } from "./links/ribbons.js";
 import { planElementFocus, planRowFocus } from "./plan/focus.js";
 import { nowBase, nowSlots } from "./time/now.js";
 import { timeRulerBase } from "./time/axis.js";
@@ -60,7 +62,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
         "rulerRow", "rulerTick", "rulerLabel", "resourceRow", "resourceLabel", "resourceText", "resourceName", "resourceLine",
-        "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", ...nowSlots,
+        "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", ...nowSlots,
     ],
     base: {
         ...nowBase,
@@ -161,6 +163,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-dim]:not(:hover)": { borderColor: "border.subtle", background: "bg.surface" },
             // Hovered or selected, it rises over the link layer with its connector (A21).
             "&:hover, &[data-selected], &:focus-within": { zIndex: 6 },
+            // A lit link's halo round its bin (A67): 1px of the strong ink, 4 outside it.
+            "&[data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
             ...planElementFocus,
         },
         cardTop: { display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0, lineHeight: "12px" },
@@ -288,6 +292,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-kind=load][data-draft]": { background: "brandTint", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid" },
             "&[data-kind=load][data-over]": { borderWidth: "1px", borderStyle: "solid", borderColor: "status.neg" },
             "&[data-kind=load][data-focus]": { outline: "2px solid", outlineColor: "fg", outlineOffset: "1px" },
+            // A lit link's halo round its resource's load (A67).
+            "&[data-kind=load][data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
         },
         barLabel: {
             padding: "0 8px", fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", lineHeight: "18px", fontVariantNumeric: "tabular-nums",
@@ -300,6 +306,23 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         overlap: {
             position: "absolute", top: 0, bottom: 0, zIndex: 0, boxSizing: "border-box", background: "status.warnSubtle",
             borderLeftWidth: "1px", borderRightWidth: "1px", borderColor: "status.warn", pointerEvents: "none",
+        },
+        // The focus's links (§11), from the cards through the channel to each row's leading edge, over the panes' rows.
+        links: {
+            // As wide as the board: the links keep to their bounds, and a selected caption's × may overhang the resource rows' edge, as the mock's does.
+            ...linkRibbons, position: "absolute", left: 0, right: 0, top: "48px", zIndex: 5, overflow: "hidden", pointerEvents: "none",
+            // A draft link is the brand's; a lit one the brand's darker step.
+            "& [data-tone=draft] [data-plan-ribbon-band]": { stroke: "brand.solid" },
+            "& [data-tone=draft] [data-plan-ribbon-head]": { fill: "brand.solid" },
+            "& [data-tone=draft][data-lit] [data-plan-ribbon-band]": { stroke: "brandPressed" },
+            "& [data-tone=draft][data-lit] [data-plan-ribbon-head]": { fill: "brandPressed" },
+            // The selected link, in the ink (A68).
+            "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },
+            "& [data-plan-link][data-selected] [data-plan-ribbon-head]": { fill: "fg" },
+            // A caption takes the pointer as its line does, in the strong ink while lit.
+            "& [data-plan-ribbon-label]": { pointerEvents: "auto", cursor: "pointer" },
+            "& [data-plan-ribbon-label][data-lit] [data-plan-ribbon-caption]": { fill: "fg.strong" },
+            "& [data-link]": { ...linkRibbons["& [data-link]"], pointerEvents: "stroke" },
         },
         // The focus chip's ×, a 16px target (A81).
         focusClear: {

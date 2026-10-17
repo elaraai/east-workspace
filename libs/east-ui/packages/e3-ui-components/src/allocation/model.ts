@@ -52,7 +52,7 @@ export const dayKey = printFor(DateTimeType);
 export const parseDay = parseFor(DateTimeType);
 export const compareDate = compareFor(DateTimeType);
 export const compareString = compareFor(StringType);
-const compareFloat = compareFor(FloatType);
+export const compareFloat = compareFor(FloatType);
 
 /** The plans' codecs and pure functions at one values type, compiled once. */
 export interface AllocationDomain {

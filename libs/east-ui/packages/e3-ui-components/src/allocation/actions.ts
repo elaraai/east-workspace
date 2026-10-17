@@ -25,6 +25,8 @@ export interface AllocationCommands {
     remove(id: string): void;
     /** Reverts a bin (A76): a committed one back as the day holds it; a new one's event back to Events. */
     revert(id: string): void;
+    /** Unlinks one part of a bin (A68): its quantity on that resource is unallocated again. */
+    unlink(id: string, resource: string): void;
     /** Publishes the day (A4): its status and its drafts, one patch. */
     publish(): void;
 }
@@ -58,6 +60,10 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
                 return;
             }
             if (write("Revert", "typed", next => { next.bins.set(id, domain.copyDay(editing.held!).bins.get(id)!); })) select({ type: "bin", id });
+        },
+        unlink(id, resource) {
+            if (plan.bins.get(id)?.parts.has(resource) !== true) return;
+            if (write("Unlink", "remove", next => { next.bins.get(id)!.parts.delete(resource); })) select({ type: "bin", id });
         },
         publish() {
             if (canEdit() && editing.record({ ...domain.copyDay(plan), status: variant("published", { at: new Date() }) } as Day, "typed", "Publish day")) editing.history.act("apply");

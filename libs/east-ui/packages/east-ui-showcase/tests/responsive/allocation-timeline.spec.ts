@@ -8,34 +8,10 @@
  * board at every width with nothing overflowing; and the scrolls that follow a
  * selection (A12).
  */
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, test } from "playwright/test";
+import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 
-const FILE = "e3/allocation/allocation";
-async function open(page: Page, name = "allocationKilnYard", theme: "light" | "dark" = "light") {
-    await page.goto(`/?theme=${theme}#${FILE}/${name}`);
-    await page.evaluate(() => document.fonts.ready.then(() => undefined));
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${FILE}/${name}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    await expect(entry.locator("[data-allocation-card]").first()).toBeVisible({ timeout: 30_000 });
-    await settled(page);
-    return entry;
-}
-async function size(page: Page, entry: Locator, width: number) {
-    await entry.locator("[data-allocation-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-    await settled(page);
-}
-/** A theme token as the page resolves it, as a computed colour. */
-function token(page: Page, name: string) {
-    return page.evaluate((n) => {
-        const probe = document.createElement("span");
-        probe.style.color = `var(--chakra-colors-${n})`;
-        document.body.appendChild(probe);
-        const value = getComputedStyle(probe).color;
-        probe.remove();
-        return value;
-    }, name);
-}
 /** An element's type, as the page draws it. */
 const type = (el: Element) => { const s = getComputedStyle(el); return { size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, mono: /mono/i.test(s.fontFamily) }; };
 
@@ -157,4 +133,67 @@ for (const theme of ["light", "dark"] as const) {
         await k602.click(); await settled(page);
         expect(await k602.evaluate(el => { const b = el.getBoundingClientRect(), p = el.closest("[data-virtual-rows]")!.getBoundingClientRect(); return b.top >= p.top + 48 && b.bottom <= p.bottom; })).toBe(true);
     });
+
+    test(`A65–A68 — the focus's links: Plan's look, its routes through the channel, lit, selected and unlinked (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const entry = await open(page, "allocationKilnYard", theme);
+        await size(page, entry, 1440);
+        const timeline = entry.locator("[data-allocation-timeline]").first();
+        await expect(timeline.locator("[data-allocation-links]")).toHaveCount(0);
+        // K-202 holds LD-2219 (B-3 20:55, 22 m³) and LD-2221 (B-2 23:35, 17 m³). Selecting LD-2219 brings its card and its row level.
+        const row = timeline.locator('[data-allocation-resource="K-202"]');
+        const ld2219 = timeline.locator('[data-allocation-card="3123"]');
+        await ld2219.scrollIntoViewIfNeeded();
+        await ld2219.click(); await settled(page);
+        const layer = timeline.locator("[data-allocation-links]");
+        await expect(layer.locator("[data-plan-link]")).toHaveCount(2);
+        const routeOf = () => timeline.evaluate((root) => {
+            const box = root.getBoundingClientRect(), layerBox = root.querySelector("[data-allocation-links]")!.getBoundingClientRect();
+            const card = root.querySelector('[data-allocation-card="3123"]')!.getBoundingClientRect();
+            const channel = root.querySelector("[data-allocation-channel]")!.getBoundingClientRect();
+            const hit = root.querySelector('[data-allocation-link="3123|K-202"]')!;
+            const link = hit.closest("[data-plan-link]")!;
+            const start = hit.getAttribute("d")!.match(/^M ([\d.]+) ([\d.]+)/)!;
+            const tips = [...link.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.matchAll(/L ([\d.]+) ([\d.]+)/g)].map(m => Number(m[1]));
+            return { route: link.getAttribute("data-plan-route"), stub: link.querySelector("[data-plan-stub]")?.getAttribute("data-plan-stub") ?? null,
+                startX: Math.round(Number(start[1]) + layerBox.left - box.left), cardRight: Math.round(card.right - box.left),
+                startY: Math.round(Number(start[2]) + layerBox.top), cardMiddle: Math.round(card.top + card.height / 2),
+                tip: Math.round(Math.max(...tips) + layerBox.left), channelRight: Math.round(channel.right) };
+        });
+        const level = await routeOf();
+        // Both ends in view: an S through the channel (a straight feed when the two lie level).
+        expect(["s", "feed"]).toContain(level.route);
+        // It leaves the card's right edge at its middle, and its head meets the row's leading edge.
+        expect(level.startX).toBe(level.cardRight);
+        expect(Math.abs(level.startY - level.cardMiddle)).toBeLessThanOrEqual(1);
+        expect(level.tip).toBe(level.channelRight);
+        // The card scrolled out of the lane grid's view below: the link enters up from the view's edge, in Plan's stub.
+        await timeline.locator("[data-allocation-lanes]").evaluate(el => { el.scrollTop = 0; }); await settled(page);
+        const off = await routeOf();
+        expect([off.route, off.stub]).toEqual(["stub", "below"]);
+        await ld2219.scrollIntoViewIfNeeded(); await settled(page);
+        // Plan's look: the muted ink over a paper casing; captions mono 10 / 500 on a paper knockout 12 tall.
+        const band = layer.locator('[data-plan-link] [data-plan-ribbon-band]').first();
+        expect(await band.evaluate(el => getComputedStyle(el).stroke)).toBe(await token(page, "fg-muted"));
+        expect(await layer.locator('[data-plan-casing="band"]').first().evaluate(el => getComputedStyle(el).stroke)).toBe(await token(page, "bg-surface"));
+        const caption = layer.locator("[data-plan-ribbon-caption]").first();
+        expect(await caption.evaluate(el => { const s = getComputedStyle(el); return [s.fontSize, s.fontWeight, /mono/i.test(s.fontFamily)]; })).toEqual(["10px", "500", true]);
+        expect(await layer.locator("[data-plan-ribbon-knockout]").first().evaluate(el => [el.getAttribute("height"), getComputedStyle(el).fill])).toEqual(["12", await token(page, "bg-surface")]);
+        // A67: the pointer on a link lights it in the strong ink, its card and its resource's load haloed 1px, 4 outside.
+        const hit = layer.locator('[data-allocation-link="3123|K-202"]');
+        await hit.hover({ force: true }); await settled(page);
+        expect(await layer.locator("[data-plan-link][data-lit] [data-plan-ribbon-band]").evaluate(el => getComputedStyle(el).stroke)).toBe(await token(page, "fg-strong"));
+        const halo = (el: Element) => { const s = getComputedStyle(el); return [s.outlineStyle, s.outlineWidth, s.outlineOffset, s.outlineColor]; };
+        const strong = await token(page, "fg-strong");
+        expect(await timeline.locator('[data-allocation-card="3123"]').evaluate(halo)).toEqual(["solid", "1px", "4px", strong]);
+        expect(await row.locator("[data-allocation-load]").evaluate(halo)).toEqual(["solid", "1px", "4px", strong]);
+        // A68: a click selects it, in the ink, its caption outlined with a 16px × that unlinks.
+        await hit.click({ force: true }); await settled(page);
+        expect(await layer.locator("[data-plan-link][data-selected] [data-plan-ribbon-band]").evaluate(el => getComputedStyle(el).stroke)).toBe(await token(page, "fg"));
+        const unlink = layer.locator("[data-plan-ribbon-unlink] button");
+        expect(await unlink.evaluate(el => { const b = el.getBoundingClientRect(); return [b.width, b.height]; })).toEqual([16, 16]);
+        await unlink.click(); await settled(page);
+        await expect(timeline.locator('[data-allocation-card="3123"] [data-unlinked]')).toHaveCount(1);
+    });
 }
+

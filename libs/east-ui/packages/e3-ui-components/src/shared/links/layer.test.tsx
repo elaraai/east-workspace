@@ -97,6 +97,40 @@ describe("the shared links layer", () => {
         expect(preview.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")).toBe(line.head);
     });
 
+    test("A67 — a host's captions take the pointer as their line does: one lights its link, carries its tooltip, and the host hears the lit link", () => {
+        const onLit = vi.fn();
+        const choose = vi.fn();
+        const { container } = mount({ onLit, halo: false, caption: (r) => ({ role: "button", title: `Caption ${r.id}`, onClick: () => choose(r.id) }) });
+        const caption = container.querySelector<SVGGElement>("[data-plan-ribbon-label='1']")!;
+        expect(caption.getAttribute("role")).toBe("button");
+        expect(caption.querySelector("title")!.textContent).toBe("Caption 1");
+        fireEvent.pointerEnter(caption);
+        expect(container.querySelector("[data-plan-link='1']")!.hasAttribute("data-lit")).toBe(true);
+        expect(caption.hasAttribute("data-lit")).toBe(true);
+        expect(onLit).toHaveBeenLastCalledWith(1);
+        // A host that rings the ends itself: the layer draws no halo.
+        expect(container.querySelector("[data-plan-linkend]")).toBeNull();
+        fireEvent.click(caption);
+        expect(choose).toHaveBeenCalledWith(1);
+        fireEvent.pointerLeave(caption);
+        expect(onLit).toHaveBeenLastCalledWith(null);
+    });
+
+    test("without a host's captions they only label: no role, no lit mark — Plan's captions", () => {
+        const { container } = mount();
+        const caption = container.querySelector("[data-plan-ribbon-label='0']")!;
+        expect(caption.hasAttribute("role")).toBe(false);
+        fireEvent.pointerEnter(container.querySelector("[data-link='0']")!);
+        expect(caption.hasAttribute("data-lit")).toBe(false);
+        expect(container.querySelectorAll("[data-plan-linkend]")).toHaveLength(2);
+    });
+
+    test("a link's tone marks its group for the host's recipe", () => {
+        const { container } = mount({ ribbons: [{ ...LINKS[0]!, tone: "draft" }, LINKS[1]!] });
+        expect(container.querySelector("[data-plan-link='0']")!.getAttribute("data-tone")).toBe("draft");
+        expect(container.querySelector("[data-plan-link='1']")!.hasAttribute("data-tone")).toBe(false);
+    });
+
     test("Plan's recipe merges the shared look, with the selected caption's outline and the preview's brand line", () => {
         let styles: Styles = {};
         function Read() { styles = useSlotRecipe({ key: "plan" })() as unknown as Styles; return null; }
