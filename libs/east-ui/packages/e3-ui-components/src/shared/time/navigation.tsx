@@ -130,7 +130,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
                 }}>{format.month(new Date(Date.UTC(year, i, 1)))}</chakra.button>)}</Box>}
             {panel === "year" && <Box css={styles.choices}>{Array.from({ length: 12 }, (_, i) => yearBase + i).map(y => <chakra.button key={y} type="button" css={styles.choice}
                 data-selected={current.getUTCFullYear() === y ? "" : undefined} onClick={() => { if (period === "year") choose(shiftCalendar(current, "year", y - current.getUTCFullYear()).getTime()); else { setMonth(Date.UTC(y, new Date(month).getUTCMonth(), 1)); setPanel("month"); } }}>{format.year(new Date(Date.UTC(y, 0, 1)))}</chakra.button>)}</Box>}
-            {panel === "week" && legend !== undefined && <Box css={styles.legend}>{legend}</Box>}
+            {(panel === "week" || (panel === "day" && dayMarker !== undefined)) && legend !== undefined && <Box css={styles.legend}>{legend}</Box>}
             {controls !== undefined && <Box css={styles.controls}>{controls}</Box>}
         </Box>
     </SliceEditPopover>;

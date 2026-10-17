@@ -7,7 +7,7 @@
 import { useMemo, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { coarseHitArea, radioGroupKey } from "@elaraai/east-ui-components/internal";
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -20,7 +20,7 @@ interface SegProps<K extends string> {
     /** Host name for DOM measurements. */
     scope?: string;
     /** The segments, in order. */
-    items: ReadonlyArray<{ key: K; label: string; disabled?: boolean | undefined; hint?: string | undefined }>;
+    items: ReadonlyArray<{ key: K; label: string; disabled?: boolean | undefined; hint?: string | undefined; icon?: IconDefinition | undefined }>;
     /** The checked segment's key — any other string checks none. */
     active: string;
     /** Fills the available strip width with equal segments; folded menus keep their intrinsic size. */
@@ -54,6 +54,7 @@ export function Seg<K extends string>({ label, name, scope = "plan", items, acti
                     disabled={it.disabled} title={it.hint} aria-checked={it.key === active} tabIndex={it.key === stop ? 0 : -1}
                     data-state={it.key === active ? "on" : undefined}
                     onClick={() => onPick(it.key)}>
+                    {it.icon !== undefined && <FontAwesomeIcon icon={it.icon} data-seg-icon="" aria-hidden="true" />}
                     {it.label}
                 </chakra.button>
             ))}

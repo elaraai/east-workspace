@@ -54,6 +54,8 @@ export const segSlotRecipe = defineSlotRecipe({
             borderLeftColor: "border.subtle",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            // A segment's icon (the Allocation's Table · Timeline), before its label.
+            "& [data-seg-icon]": { marginInlineEnd: "6px" },
             ...coarseHitArea({ position: true, axis: "block" }),
             // The strip's 6px corner, less its border, on the end segments.
             "&:first-of-type": {
