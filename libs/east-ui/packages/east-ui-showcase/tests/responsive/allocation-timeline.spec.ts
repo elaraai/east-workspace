@@ -5,15 +5,56 @@
 /**
  * The Allocation's Timeline (#1326) on the real in-page e3: the mock's
  * anatomy, measured in the page in both themes (`Allocation Spec.md` §8); the
- * board at every width with nothing overflowing; and the scrolls that follow a
- * selection (A12).
+ * board at every width with nothing overflowing; the scrolls that follow a
+ * selection (A12); and what a drag draws (#1328, A24–A31), as the mock draws
+ * LD-2201's.
  */
-import { expect, test } from "playwright/test";
+import { expect, test, type Locator, type Page } from "playwright/test";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 
 /** An element's type, as the page draws it. */
 const type = (el: Element) => { const s = getComputedStyle(el); return { size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, mono: /mono/i.test(s.fontFamily) }; };
+/** A colour the page mixes, as it resolves it: `pct` of one token into another. */
+const mix = (page: Page, a: string, pct: number, b: string) => page.evaluate(([a, pct, b]) => {
+    const probe = document.createElement("span");
+    probe.style.backgroundColor = `color-mix(in oklch, var(--chakra-colors-${a}) ${pct}%, var(--chakra-colors-${b}))`;
+    document.body.appendChild(probe);
+    const value = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return value;
+}, [a, pct, b] as const);
+/** Picks an element up with the mouse, past the 5px a drag waits for, and waits for the board to draw the drag. */
+async function pickUp(page: Page, el: Locator, timeline: Locator, kind: "body" | "port") {
+    const box = (await el.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 4; i++) await page.mouse.move(box.x + box.width / 2 + i * 3, box.y + box.height / 2 + i * 2);
+    await expect(timeline).toHaveAttribute("data-allocation-drag", kind);
+    await settled(page);
+}
+/**
+ * Scrolls the resource pane to a row offset as the board does: its mandatory
+ * snap waits for the rows there to mount, else it would land on the nearest
+ * row mounted before the jump.
+ */
+const rowsTo = (timeline: Locator, top: "start" | "end") => timeline.locator("[data-virtual-rows]").evaluate(async (el, top) => {
+    el.setAttribute("data-snap-suspended", "");
+    el.scrollTop = top === "start" ? 0 : el.scrollHeight;
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    el.removeAttribute("data-snap-suspended");
+}, top);
+/**
+ * Brings an under-way drag over an element, at a point of it — by default a
+ * third of the way in, clear of every scrolling box's edge band, where the
+ * drag layer would scroll the box under the pointer.
+ */
+async function bring(page: Page, el: Locator, at: { x: number } = { x: 0.3 }) {
+    const box = (await el.boundingBox())!;
+    await page.mouse.move(box.x + box.width * at.x - 4, box.y + box.height / 2, { steps: 4 });
+    await page.mouse.move(box.x + box.width * at.x, box.y + box.height / 2);
+    await settled(page);
+}
 
 for (const theme of ["light", "dark"] as const) {
     test(`Timeline anatomy is the mock's (${theme}) @desktop`, async ({ page }) => {
@@ -195,5 +236,94 @@ for (const theme of ["light", "dark"] as const) {
         await unlink.click(); await settled(page);
         await expect(timeline.locator('[data-allocation-card="3123"] [data-unlinked]')).toHaveCount(1);
     });
-}
 
+    test(`A27–A31 — a connector's drag: receded rows under run labels, the row under the pointer, the #1's marker, its rank and preview (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const entry = await open(page, "allocationKilnYard", theme);
+        await size(page, entry, 1440);
+        const timeline = entry.locator("[data-allocation-timeline]").first();
+        const card = timeline.locator('[data-allocation-card="3101"]');
+        await card.scrollIntoViewIfNeeded();
+        // Selected, its connector shows; the resource pane back at its top, where K-101 is.
+        await card.click(); await settled(page);
+        // The whole board in the window, clear of the page's own header.
+        await timeline.evaluate(el => el.scrollIntoView({ block: "center" })); await settled(page);
+        await rowsTo(timeline, "start"); await settled(page);
+        await pickUp(page, card.locator("[data-allocation-connector]"), timeline, "port");
+        const k101 = timeline.locator('[data-allocation-resource="K-101"]');
+        await expect(k101).toHaveAttribute("data-refused", "");
+        // A27: a refusing row recedes — its name in ink-4, its load on paper-3 in the rule, what it refuses for outlined in warn.
+        const k102 = timeline.locator('[data-allocation-resource="K-102"]');
+        expect(await k102.locator("span").first().evaluate(el => getComputedStyle(el).color)).toBe(await token(page, "fg-subtle"));
+        const load = await k102.locator("[data-allocation-load]").evaluate(el => { const s = getComputedStyle(el); return [s.backgroundColor, s.borderTopColor, s.outlineStyle, s.outlineWidth, s.outlineOffset, s.outlineColor]; });
+        expect(load).toEqual([await token(page, "bg-subtle"), await token(page, "border-strong"), "solid", "1px", "2px", await token(page, "status-warn")]);
+        // Its run's label: mono 10 / 600 in warn-text on the paper, ringed in warn, 20 tall, 22px in from the plot's right; its count and range in ink-3 500.
+        const run = timeline.locator("[data-run][data-from='0']");
+        expect(await run.evaluate(el => { const s = getComputedStyle(el), b = el.getBoundingClientRect(), row = el.closest("[data-virtual-rows]")!.querySelector('[data-allocation-resource="K-101"]')!.getBoundingClientRect();
+            return [s.fontSize, s.fontWeight, /mono/i.test(s.fontFamily), s.color, s.backgroundColor, s.borderTopColor, b.height, Math.round(row.right - b.right)]; }))
+            .toEqual(["10px", "600", true, await token(page, "fg-warning"), await token(page, "bg-surface"), await token(page, "status-warn"), 20, 22]);
+        expect(await run.locator("span").last().evaluate(el => [getComputedStyle(el).fontWeight, getComputedStyle(el).color])).toEqual(["500", await token(page, "fg-muted")]);
+        // A31: the #1 lies below the view — one marker at the pane's edge, dashed in the brand on the paper, 28 tall, mono 10.5 / 600.
+        const marker = timeline.locator("[data-allocation-marker]");
+        await expect(marker).toHaveText("1 fit below · #1 K-601 · drop here");
+        expect(await marker.evaluate(el => { const s = getComputedStyle(el), b = el.getBoundingClientRect(), pane = el.closest("[data-virtual-rows]")!.getBoundingClientRect();
+            return [s.borderTopStyle, s.borderTopColor, s.borderTopLeftRadius, s.backgroundColor, s.color, s.fontSize, s.fontWeight, b.height, Math.round(pane.bottom - b.bottom), Math.round(b.left - pane.left)]; }))
+            .toEqual(["dashed", await token(page, "brand-solid"), "6px", await token(page, "bg-surface"), await token(page, "brand-pressed"), "10.5px", "600", 28, 12, 164]);
+        // A29: the row under the pointer refuses — warn 6% on the paper, its reason `✕ over max by 34 m³` in warn-text, its bin outlined warn, its run's label aside.
+        await bring(page, k101);
+        await expect(k101).toHaveAttribute("data-drop-invalid", "");
+        expect(await k101.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await mix(page, "status-warn", 6, "bg-surface"));
+        const why = k101.locator("[data-allocation-reason]");
+        expect(await why.evaluate(el => { const s = getComputedStyle(el); return [s.display, s.fontSize, s.fontWeight, s.lineHeight, s.color, s.backgroundColor]; }))
+            .toEqual(["block", "9.5px", "600", "16px", await token(page, "fg-warning"), await token(page, "bg-surface")]);
+        await expect(why).toHaveText(/over max by 34 m³/);
+        expect(await timeline.locator('[data-allocation-card="3125"]').evaluate(el => getComputedStyle(el).borderTopColor)).toBe(await token(page, "status-warn"));
+        expect(await run.evaluate(el => getComputedStyle(el).visibility)).toBe("hidden");
+        // A refused drop: nothing moves (A40).
+        await page.mouse.up(); await settled(page);
+        await expect(timeline.locator("[data-refused], [data-run], [data-allocation-marker]")).toHaveCount(0);
+
+        // A28: with K-601 in view, its #1 — a 16px brand badge before its name, a dashed preview `+35 m³ · 35 m³` in brand-tint, its reason in ink-2.
+        await rowsTo(timeline, "end"); await settled(page);
+        await pickUp(page, card.locator("[data-allocation-connector]"), timeline, "port");
+        const k601 = timeline.locator('[data-allocation-resource="K-601"]');
+        const rank = k601.locator("[data-allocation-rank]");
+        await expect(rank).toHaveText("1");
+        expect(await rank.evaluate(el => { const s = getComputedStyle(el), b = el.getBoundingClientRect(); return [b.width, b.height, s.backgroundColor, s.color, s.fontSize, s.fontWeight, s.borderTopLeftRadius]; }))
+            .toEqual([16, 16, await token(page, "brand-solid"), await token(page, "bg-surface"), "10px", "600", "4px"]);
+        const preview = k601.locator("[data-allocation-preview]");
+        await expect(preview).toHaveText("+35 m³ · 35 m³");
+        expect(await preview.evaluate(el => { const s = getComputedStyle(el); return [s.borderTopStyle, s.borderTopColor, s.backgroundColor, getComputedStyle(el.firstElementChild!).color]; }))
+            .toEqual(["dashed", await token(page, "brand-solid"), await token(page, "brand-tint"), await token(page, "brand-pressed")]);
+        expect(await k601.locator("[data-allocation-reason]").evaluate(el => [getComputedStyle(el).display, getComputedStyle(el).color])).toEqual(["block", await token(page, "fg-strong")]);
+        // Under the pointer it fits: brand-tint.
+        await bring(page, k601);
+        await expect(k601).toHaveAttribute("data-drop-active", "");
+        expect(await k601.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(await token(page, "brand-tint"));
+        await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
+    });
+
+    test(`A24 — a card body's drag: every free lane hour a dashed target 4px in, the one under the pointer brand-tint; the card it leaves a dashed hole (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const entry = await open(page, "allocationKilnYard", theme);
+        await size(page, entry, 1440);
+        const timeline = entry.locator("[data-allocation-timeline]").first();
+        const card = timeline.locator('[data-allocation-card="3103"]');
+        await card.scrollIntoViewIfNeeded();
+        await pickUp(page, card, timeline, "body");
+        const free = timeline.locator("[data-allocation-cell][data-free]").first();
+        const placeholder = (cell: Locator) => cell.locator("[data-allocation-placeholder]").evaluate(el => {
+            const s = getComputedStyle(el), b = el.getBoundingClientRect(), c = el.parentElement!.getBoundingClientRect();
+            return { style: [s.display, s.borderTopStyle, s.borderTopColor, s.backgroundColor, s.borderTopLeftRadius], inset: [Math.round(b.top - c.top), Math.round(c.bottom - b.bottom), Math.round(c.right - b.right)] };
+        });
+        expect(await placeholder(free)).toEqual({ style: ["block", "dashed", await token(page, "border-strong"), "rgba(0, 0, 0, 0)", "4px"], inset: [4, 4, 4] });
+        const target = timeline.locator("[data-allocation-cell][data-free]").nth(4);
+        await bring(page, target, { x: 0.5 });
+        expect((await placeholder(target)).style.slice(1, 4)).toEqual(["dashed", await token(page, "brand-solid"), await token(page, "brand-tint")]);
+        // The pointer gone from it, the card it leaves is a hole.
+        expect(await card.evaluate(el => { const s = getComputedStyle(el); return [s.borderTopStyle, s.borderTopColor, s.backgroundColor]; }))
+            .toEqual(["dashed", await token(page, "brand-solid"), "rgba(0, 0, 0, 0)"]);
+        await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
+        await expect(timeline.locator("[data-allocation-placeholder]").first()).toBeHidden();
+    });
+}

@@ -38,6 +38,8 @@ export interface LaneCard {
     lane: number;
     /** Its slot's index in the day. */
     slot: number;
+    /** Its slot's time: the lane hour a drop on it names. */
+    slotAt: Date;
     /** Its grid row: its slot's first row, and its place in the slot's batch. */
     row: number;
 }
@@ -105,7 +107,7 @@ export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan:
             slot.bins.forEach((id, place) => {
                 const bin = plan.bins.get(id);
                 if (bin === undefined) return;
-                cards.push({ id, bin, lane, slot: k, row: bands[k]!.row + place });
+                cards.push({ id, bin, lane, slot: k, slotAt: slot.at, row: bands[k]!.row + place });
                 if (bin.event.type === "some") { heads[lane]!.bins += 1; heads[lane]!.quantity += bin.quantity; }
             });
         });

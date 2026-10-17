@@ -32,6 +32,10 @@
  *   its plot, `plot`, `shade`, `weekRule`, `span`, `bar`, `barLabel`, `overlap`; the now line's `nowLine`, `nowDot`,
  *   `nowChip`; the toolbar's focus chip's ×, `focusClear`; the focus's links over the panes, `links` (A65–A68: Plan's
  *   look, a draft's in the brand, the selected one in the ink, its captions taking the pointer).
+ * - The drags (A24–A35, #1328): a free lane hour's target during a body's drag, `lanePlaceholder`; a ranked fit's
+ *   badge, `rank`; a row's reason, `reason`; a refusing run's label, `runLabel`, `runMeta`; the fits marker,
+ *   `fitsMarker`; and the shared move ghost's `moveGhost`, `moveGhostLabel`, `moveGhostSpan`. The board draws its
+ *   own drop stages, as the mock does: the shared frames and washes are off on its targets.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -40,6 +44,7 @@ import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { linkRibbons } from "./links/ribbons.js";
 import { planElementFocus, planRowFocus } from "./plan/focus.js";
+import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
 import { timeRulerBase } from "./time/axis.js";
 
@@ -53,6 +58,18 @@ const headUpper = { height: "24px", flexShrink: 0, display: "flex", alignItems: 
 const headLower = { height: "23px", flexShrink: 0, display: "flex", alignItems: "center" } as const;
 /** A mark's icon, at the line's size. */
 const markIcon = fontAwesomeSize("9.5px");
+/** The shared drop stages' frames, washes and ⊘ badge, off on a target: the board draws its own (A29, A32), as the mock does. */
+const ownStages = {
+    "&[data-drag-cell][data-drop-valid]::before": { content: "none" },
+    "&[data-drag-cell][data-drop-active]::before": { content: "none" },
+    "&[data-drag-cell][data-drop-invalid]::before": { content: "none" },
+    "&[data-drag-cell][data-drop-invalid]::after": { content: "none" },
+    "&[data-drag-cell][data-drop-invalid]": { cursor: "no-drop" },
+} as const;
+/** A refusal's wash: warn at 6% on the paper, opaque so a sticky label over it hides what scrolls under it (A29). */
+const warnWash = "color-mix(in oklch, {colors.status.warn} 6%, {colors.bg.surface})";
+/** A row that refuses the drag recedes, unless the pointer is on it (A27). */
+const receded = "[data-refused]:not([data-drop-invalid]) &";
 
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
@@ -63,9 +80,11 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
         "rulerRow", "rulerTick", "rulerLabel", "resourceRow", "resourceLabel", "resourceText", "resourceName", "resourceLine",
         "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", ...nowSlots,
+        "lanePlaceholder", "rank", "reason", "runLabel", "runMeta", "fitsMarker", ...moveGhostSlots,
     ],
     base: {
         ...nowBase,
+        ...moveGhostBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
@@ -150,6 +169,14 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         laneCell: {
             position: "absolute", left: "calc(48px + var(--cell-lane) * 96px)", top: "calc(var(--cell-row) * 36px)", width: "96px",
             height: "calc(var(--cell-span) * 36px)", boxSizing: "border-box", borderLeftWidth: "1px", borderColor: "border.subtle",
+            ...ownStages, "&[data-drag-cell][data-drop-active]": { background: "transparent" },
+        },
+        // During a body's drag every free lane hour is a dashed target, 4px in; the one under the pointer brand-tint (A24).
+        lanePlaceholder: {
+            display: "none", position: "absolute", inset: "4px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "dashed",
+            borderColor: "border.strong", borderRadius: "sm", pointerEvents: "none",
+            "[data-allocation-drag=body] &": { display: "block" },
+            "[data-drop-active] > &": { borderColor: "brand.solid", background: "brandTint" },
         },
         // A bin's card, 88 × 28 at its lane and grid row (A16).
         card: {
@@ -170,6 +197,18 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             // A lit link's halo round its bin (A67): 1px of the strong ink, 4 outside it.
             "&[data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
             ...planElementFocus,
+            ...ownStages,
+            // Its body dragged, the card it leaves is a dashed brand hole (A24).
+            "&[data-dragging]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent" },
+            // A body's drop on it: its slot, or the reservation it fills (A37, A38).
+            "&[data-drag-cell][data-drop-active]": { borderStyle: "dashed", borderColor: "brand.solid", background: "brandTint" },
+            "&[data-drag-cell][data-drop-invalid]": { borderColor: "status.warn", background: warnWash },
+            // Its resource's row under a connector's or a link's drag: ink-3 when the drop fits, warn when it refuses (A29) —
+            // over the focus's dimming too.
+            "&[data-drop-target=fits]": { borderColor: "fg.muted" },
+            "&[data-drop-target=refused]": { borderStyle: "solid", borderColor: "status.warn", background: warnWash },
+            "&[data-dim][data-drop-target=fits]": { borderColor: "fg.muted" },
+            "&[data-dim][data-drop-target=refused]": { borderColor: "status.warn", background: warnWash },
         },
         cardTop: { display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0, lineHeight: "12px" },
         cardCode: {
@@ -264,6 +303,10 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&:hover": { background: "bg.canvas" },
             "&[data-selected]": { background: "bg.subtle" },
             ...planRowFocus,
+            ...ownStages,
+            // Under the pointer during a drag: brand-tint when it fits, warn 6% when it refuses (A29).
+            "&[data-drag-cell][data-drop-active]": { background: "brandTint" },
+            "&[data-drag-cell][data-drop-invalid]": { background: warnWash },
         },
         resourceLabel: {
             position: "sticky", left: 0, zIndex: 3, flex: "none", width: "152px", boxSizing: "border-box", display: "flex", alignItems: "center",
@@ -273,6 +316,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         resourceName: {
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "semibold", lineHeight: "14px", color: "fg",
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            [receded]: { color: "fg.subtle" },
         },
         // Its line: ink-4; neg-text over max, warn-text overlapping or under min, both 600 (A19).
         resourceLine: {
@@ -298,6 +342,17 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-kind=load][data-focus]": { outline: "2px solid", outlineColor: "fg", outlineOffset: "1px" },
             // A lit link's halo round its resource's load (A67).
             "&[data-kind=load][data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
+            // A ranked fit's preview of the hold: brand-tint, dashed (A28).
+            "&[data-kind=preview]": { zIndex: 3, background: "brandTint", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid" },
+            // Receded (A27): the load on paper-3, the jobs on paper-2 and the rules.
+            [receded]: {
+                "&[data-kind=load]": { background: "bg.subtle", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong" },
+                "&[data-kind=load][data-over]": { borderColor: "status.neg" },
+                "&[data-kind=prior]": { background: "bg.canvas", borderColor: "border.subtle" },
+                "&[data-kind=next]": { borderColor: "border.strong" },
+            },
+            // What a refusal is about — the load over max, the job in the way — outlined in warn (A27).
+            "&[data-refusal]": { outline: "1px solid", outlineColor: "status.warn", outlineOffset: "2px" },
         },
         barLabel: {
             padding: "0 8px", fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", lineHeight: "18px", fontVariantNumeric: "tabular-nums",
@@ -305,6 +360,13 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "[data-kind=next] > &": { color: "fg.subtle" },
             "[data-kind=load] > &": { color: "bg.surface" },
             "[data-kind=load][data-draft] > &": { color: "brandPressed" },
+            "[data-kind=preview] > &": { color: "brandPressed" },
+            // Receded, the load's figure in ink-4 and the jobs' names gone (A27).
+            [receded]: {
+                "[data-kind=load] > &": { color: "fg.subtle" },
+                "[data-kind=prior] > &": { visibility: "hidden" },
+                "[data-kind=next] > &": { visibility: "hidden" },
+            },
         },
         // A hold running into the next job: the warn wash, its sides ruled, the full row high.
         overlap: {
@@ -327,6 +389,44 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "& [data-plan-ribbon-label]": { pointerEvents: "auto", cursor: "pointer" },
             "& [data-plan-ribbon-label][data-lit] [data-plan-ribbon-caption]": { fill: "fg.strong" },
             "& [data-link]": { ...linkRibbons["& [data-link]"], pointerEvents: "stroke" },
+        },
+        // A ranked fit's badge, #1 #2 #3 before its name (A28).
+        rank: {
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none", minWidth: "16px", height: "16px", boxSizing: "border-box",
+            padding: "0 4px", borderRadius: "sm", background: "brand.solid",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "bg.surface",
+        },
+        // A row's reason at the plot's right: a ranked fit's always, any row's under the pointer (A29).
+        reason: {
+            display: "none", position: "absolute", right: "22px", top: "10px", zIndex: 5, padding: "0 4px", borderRadius: "sm", background: "bg.surface",
+            fontFamily: "mono", fontSize: "label.xs", fontWeight: "semibold", lineHeight: "16px", fontVariantNumeric: "tabular-nums", color: "fg.strong",
+            whiteSpace: "nowrap", pointerEvents: "none",
+            "&[data-refused]": { color: "fg.warning" },
+            "& svg": fontAwesomeSize("9.5px"),
+            "[data-ranked] &": { display: "block" },
+            "[data-drop-active] &": { display: "block" },
+            "[data-drop-invalid] &": { display: "block" },
+        },
+        // A refusing run's label, over its rows at the plot's right; it steps aside while the pointer is in the run (A27).
+        runLabel: {
+            position: "absolute", right: "22px", zIndex: 5, height: "20px", display: "inline-flex", alignItems: "center", gap: "8px", padding: "0 8px",
+            boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "status.warn", borderRadius: "sm", background: "bg.surface",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "fg.warning",
+            whiteSpace: "nowrap", pointerEvents: "none",
+            "& svg": fontAwesomeSize("10px"),
+            "&[data-pointer]": { visibility: "hidden" },
+        },
+        runMeta: { fontWeight: "medium", color: "fg.muted" },
+        // The fits marker at the pane's edge, 12px in from the plot's start: a drop on it goes to the #1 (A31).
+        fitsMarker: {
+            position: "absolute", left: "calc(152px + 12px)", zIndex: 8, height: "28px", display: "inline-flex", alignItems: "center", gap: "8px",
+            padding: "0 12px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid", borderRadius: "md",
+            background: "bg.surface", fontFamily: "mono", fontSize: "label.md", fontWeight: "semibold", fontVariantNumeric: "tabular-nums",
+            color: "brandPressed", whiteSpace: "nowrap", pointerEvents: "auto",
+            "& svg": fontAwesomeSize("10.5px"),
+            ...ownStages,
+            "&[data-drag-cell][data-drop-active]": { background: "brandTint" },
+            "&[data-drag-cell][data-drop-invalid]": { borderColor: "status.warn", background: warnWash },
         },
         // The focus chip's ×, a 16px target (A81).
         focusClear: {
