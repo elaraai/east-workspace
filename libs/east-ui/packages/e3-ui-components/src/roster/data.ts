@@ -4,21 +4,16 @@
  */
 
 import { useCallback } from "react";
-import { SortedMap, equalFor, none, some, variant, type option } from "@elaraai/east";
+import { SortedMap, equalFor, variant, type option } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { TreePathType } from "@elaraai/e3-types";
 import { pagedSourceOf } from "../platform/index.js";
+import { readKeyedEntry } from "../shared/schedule/keyed-read.js";
 import { DAY, compareDate, weekKey, type RosterValue, type Week } from "./model.js";
 
-/** A keyed page distinguishes loading from a confirmed absent week. */
+/** A keyed page distinguishes loading from a confirmed absent week (the shared keyed read). */
 export function readWindowWeek(window: Extract<RosterValue["window"], { type: "some" }>["value"], date: Date): option<option<Week>> {
-    if (window.seek.type !== "some") throw new Error("Roster history requires keyed seek support.");
-    const found = window.seek.value(variant("key", weekKey(date)));
-    if (found.type !== "some") return none;
-    const page = window.page(found.value.row, 1n);
-    if (page.type !== "some") return none;
-    const week = page.value.get(date);
-    return some(week === undefined ? none : some(week));
+    return readKeyedEntry(window, weekKey(date), page => page.get(date), "Roster history");
 }
 export interface RosterData {
     weeks: Map<Date, Week>; snapshot: Map<Date, Week> | undefined; loading: boolean; error: string | undefined;

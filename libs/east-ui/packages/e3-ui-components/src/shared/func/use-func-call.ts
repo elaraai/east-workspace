@@ -4,19 +4,22 @@
  */
 
 /**
- * Imperative `Func.bind` orchestration for the Experiment surface's **Run**.
+ * Imperative `Func.bind` orchestration for a renderer that calls a bound
+ * function itself (#1323): the Experiment surface's **Run**, and the
+ * Allocation's fit.
  *
- * The surface receives only the function *name* in its payload
+ * A surface receives only the function *name* in its payload
  * ({@link FuncBindingType}), not a live handle — the bound function runs after
- * the user edits the spec, so the renderer rebuilds the call handle itself. This
- * hook reconstructs the handle's signature from the bound data's row type
- * (recovered via `getBindingTypes`) plus the e3-ui-owned contract types, builds
- * a handle on the shared {@link defaultFuncRuntime}, subscribes to its tracked
- * channel, and exposes `call` / `result` / `status` / `pending` for React.
+ * the user acts, so the renderer rebuilds the call handle itself. This hook
+ * takes the handle's signature (the Experiment's recovered from the bound
+ * data's row type via `getBindingTypes`, the Allocation's from its plans' bin
+ * values), builds a handle on the shared {@link defaultFuncRuntime}, subscribes
+ * to its tracked channel, and exposes `call` / `result` / `status` / `pending`
+ * for React.
  *
- * All handles bound to the same `(workspace, name)` share one channel, so the
- * three calls (estimate / refute / dose) observe independently and re-render the
- * surface as each settles — exactly the launch/observe split `Func.bind` uses.
+ * All handles bound to the same `(workspace, name)` share one channel, so
+ * calls observe independently and re-render the surface as each settles —
+ * exactly the launch/observe split `Func.bind` uses.
  *
  * @packageDocumentation
  */
@@ -29,7 +32,7 @@ import {
     defaultFuncRuntime,
     funcChannelKey,
     getReactiveDatasetCache,
-} from '../platform/index.js';
+} from '../../platform/index.js';
 
 /** Lifecycle of the most recent call on a bound function's channel. */
 export type FuncStatus = ValueTypeOf<FuncStatusType>['type'];
