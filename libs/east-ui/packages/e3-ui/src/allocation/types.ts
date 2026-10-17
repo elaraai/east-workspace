@@ -325,7 +325,7 @@ export type AllocationFitType = typeof AllocationFitType;
  * The question a fit answers.
  *
  * @property place - Where can this subject — a bin, or an event — go with this quantity: a verdict per resource
- * @property take - What can this resource take: a verdict per bin, and one for reserving an empty slot on it
+ * @property take - What can this resource take: a verdict per bin, one per event the plan has not booked, and one for reserving an empty slot on it
  */
 export const AllocationFitAskType = VariantType({
     place: StructType({ subject: VariantType({ bin: StringType, event: StringType }), quantity: FloatType }),
@@ -363,12 +363,13 @@ export function AllocationFitRequestTypeFor<V extends EastType>(values: V): Allo
  * @property ask - The question answered
  * @property resources - A place's verdicts, by resource
  * @property bins - A take's verdicts, by bin
+ * @property events - A take's verdicts for booking each event the plan has not booked onto the resource, by event (the Table's event Chooser, a reservation's Book list)
  * @property reserve - A take's verdict for reserving an empty slot
  * @property basis - How the fits are ranked, in words (`ranked by load, kind and spare days`)
  */
 export const AllocationFitResultType = StructType({
     ask: AllocationFitAskType, resources: DictType(StringType, AllocationFitType), bins: DictType(StringType, AllocationFitType),
-    reserve: OptionType(AllocationFitType), basis: StringType,
+    events: DictType(StringType, AllocationFitType), reserve: OptionType(AllocationFitType), basis: StringType,
 });
 
 /** Type representing {@link AllocationFitResultType}. */

@@ -435,13 +435,16 @@ export function allocationLoads<V extends EastType>(values: V) {
  *
  * @typeParam V - The app's bin values
  * @param values - The app's bin values type
- * @returns An East function `(request) → Array<Candidate>`: a place's subject on every resource, in the resources' key order; or for a take, every bin on its resource, then a reservation
+ * @returns An East function `(request) → Array<Candidate>`: a place's subject on every resource, in the resources' key order; or for a take, every bin on its resource, then every event the plan has not booked, then a reservation
  *
  * @remarks
- * A bin is placed with its own kind and hold, an event with its; the
- * resource's other parts are every bin's but the subject's. A take places each
+ * A bin is placed with its own kind and hold, an event with its, and a bin
+ * with no event — a reservation — with no quantity and each resource's own
+ * hold (§12.3, rule 4); the resource's other parts are every bin's but the
+ * subject's. A take places each
  * bin's unallocated quantity (with its part already there), or the whole bin
- * when it has none, and last a reservation with the resource's hold.
+ * when it has none; then each event no bin of the plan books, whole, as a
+ * place of it would; and last a reservation with the resource's hold.
  */
 export function allocationCandidates<V extends EastType>(values: V) {
     const matesOf = allocationMates(values);
@@ -481,7 +484,8 @@ export function allocationCandidates<V extends EastType>(values: V) {
                 $2.for(context.resources, ($3, resource, key) => {
                     const all = $3.const(mates.get(key));
                     const others = $3.const(all.filter(($4, mate) => East.notEqual(mate.bin, subject)));
-                    $3(out.pushLast(candidateOf(day, bin, reserve, place.quantity, event, kind, hold, resource, others, loadOf(day, resource, all), context.rules, context.unit)));
+                    const length = $3.const(reserve.ifElse(() => step(resource.hold), () => hold));
+                    $3(out.pushLast(candidateOf(day, bin, reserve, place.quantity, event, kind, length, resource, others, loadOf(day, resource, all), context.rules, context.unit)));
                 });
             },
             take: ($2, take) => {
@@ -503,6 +507,16 @@ export function allocationCandidates<V extends EastType>(values: V) {
                     const others = $3.const(all.filter(($4, mate) => East.notEqual(mate.bin, id)));
                     $3(out.pushLast(candidateOf(day, some(id), reserve, quantity, event, bin.kind, step(bin.hold), resource, others, load, context.rules, context.unit)));
                 });
+                // Every event the plan has not booked, whole on the resource.
+                const booked = $2.let(new Set<string>(), SetType(StringType));
+                $2.for(request.plan.bins, ($3, bin) => {
+                    $3.match(bin.event, { some: ($4, key) => { $4.if(booked.has(key).not(), ($5) => { $5(booked.insert(key)); }); } });
+                });
+                $2.for(context.events, ($3, event, key) => {
+                    $3.if(booked.has(key).not(), ($4) => {
+                        $4(out.pushLast(candidateOf(day, none, false, event.quantity, some(event), event.kind, step(event.hold), resource, all, load, context.rules, context.unit)));
+                    });
+                });
                 $2(out.pushLast(candidateOf(day, none, true, 0.0, none, none, step(resource.hold), resource, all, load, context.rules, context.unit)));
             },
         });
@@ -515,7 +529,7 @@ export function allocationCandidates<V extends EastType>(values: V) {
  *
  * @typeParam V - The app's bin values
  * @param values - The app's bin values type
- * @returns An East function `(request, fit, basis) → FitResult`: a place's verdict for every resource, or a take's for every bin and for reserving; `basis` says in words how the fit ranks (`ranked by load, kind and spare days`)
+ * @returns An East function `(request, fit, basis) → FitResult`: a place's verdict for every resource, or a take's for every bin, every event the plan has not booked, and reserving; `basis` says in words how the fit ranks (`ranked by load, kind and spare days`)
  */
 export function allocationAnswer<V extends EastType>(values: V) {
     const candidatesOf = allocationCandidates(values);
@@ -525,6 +539,7 @@ export function allocationAnswer<V extends EastType>(values: V) {
         const candidates = $.const(candidatesOf);
         const resources = $.let(new Map(), DictType(StringType, AllocationFitType));
         const bins = $.let(new Map(), DictType(StringType, AllocationFitType));
+        const events = $.let(new Map(), DictType(StringType, AllocationFitType));
         const reserve = $.let(none, OptionType(AllocationFitType));
         $.for(candidates(request), ($2, candidate) => {
             $2.match(request.ask, {
@@ -532,12 +547,17 @@ export function allocationAnswer<V extends EastType>(values: V) {
                 take: ($3) => {
                     $3.match(candidate.bin, {
                         some: ($4, id) => { $4(bins.insert(id, fit(candidate))); },
-                        none: ($4) => { $4.assign(reserve, some(fit(candidate))); },
+                        none: ($4) => {
+                            $4.match(candidate.event, {
+                                some: ($5, event) => { $5(events.insert(event.key, fit(candidate))); },
+                                none: ($5) => { $5.assign(reserve, some(fit(candidate))); },
+                            });
+                        },
                     });
                 },
             });
         });
-        return { ask: request.ask, resources, bins, reserve, basis };
+        return { ask: request.ask, resources, bins, events, reserve, basis };
     }) as unknown as ExprType<FunctionType<[AllocationFitRequestType<V>, FunctionType<[typeof AllocationCandidateType], typeof AllocationFitType>, StringType], typeof AllocationFitResultType>>;
 }
 

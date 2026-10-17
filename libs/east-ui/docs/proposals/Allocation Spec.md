@@ -84,7 +84,10 @@ These are settled.
    that returns a verdict for every resource; the renderer computes no fit of
    its own. `Allocation.fit` and `Allocation.candidates` are pure East parts
    for that function. *(Ruled 17 Oct.)* The Roster's Find fixes move onto the
-   same contract in this epic (§13). *(Ruled 17 Oct.)*
+   same contract in this epic (§13). *(Ruled 17 Oct.)* A `take` also answers
+   each event the plan has not booked, on its resource: the Table's event
+   Chooser (A48) and a reservation's Book list (A61) are one question each.
+   *(Ruled 17 Oct.)*
 6. **Issues never block Save or Publish.** What the fit refuses never becomes
    a draft; everything else is a warning with its fix. *(Ruled 17 Oct.)*
 7. **Publish** sets the day's status, as the Roster's Publish sets a week's; a
@@ -416,7 +419,9 @@ Allocation.Types.FitAsk       = VariantType({
     take:  StructType({ resource: StringType }),                                                               // → a verdict per bin, and one to reserve
 });
 Allocation.Types.FitRequest(V) = StructType({ day: DateTimeType, plan: Day(V), ask: FitAsk, context: Context });
-Allocation.Types.FitResult    = StructType({ ask: FitAsk, resources: DictType(StringType, Fit), bins: DictType(StringType, Fit), reserve: OptionType(Fit),
+Allocation.Types.FitResult    = StructType({ ask: FitAsk, resources: DictType(StringType, Fit), bins: DictType(StringType, Fit),
+                                             events: DictType(StringType, Fit),   // a take's: each event the plan has not booked, on its resource
+                                             reserve: OptionType(Fit),
                                              basis: StringType });   // how the fits are ranked, in words: the drop list's meta (A34)
 
 Allocation.Types.Issue        = StructType({
@@ -434,7 +439,7 @@ Allocation.Types.Layout       = VariantType({ timeline: NullType, table: NullTyp
 
 // Each over a plan takes the plans' bin values type and returns its East function, as Editing.apply(Type) does:
 Allocation.loads(V)      : (DateTime, Day(V), Context) → Dict<String, Load>
-Allocation.candidates(V) : (FitRequest(V)) → Array<Candidate>      // place: one per resource; take: one per bin, and one for an empty slot
+Allocation.candidates(V) : (FitRequest(V)) → Array<Candidate>      // place: one per resource; take: one per bin, one per event not booked, and one for an empty slot
 Allocation.fit           : (Candidate) → Fit                       // the built-in rules (§12)
 Allocation.answer(V)     : (FitRequest(V), Fn(Candidate) → Fit, String) → FitResult   // the String: the answer's basis, the app's words
 Allocation.lookahead(V)  : (FitRequest(V), Candidate, Fn(Candidate) → Fit) → Fit
@@ -1175,8 +1180,11 @@ answers one question about the drafted plan:
 
 - **place** a subject (a bin, or an event) with a quantity: a verdict for every
   resource (`resources`);
-- **take** a resource (a dragged resource card): a verdict for every bin
-  (`bins`), and one for reserving an empty slot on it (`reserve`).
+- **take** a resource (a dragged resource card, a Table row's event Chooser, a
+  reservation's Book list): a verdict for every bin (`bins`), one for booking
+  each event the plan has not booked onto it (`events`), and one for reserving
+  an empty slot on it (`reserve`). Asked of the day without a row's bin, its
+  event is one to book: the Chooser's `Replace with`. *(Ruled 17 Oct.)*
 
 The result echoes its `ask`, so the board matches each answer to its question:
 `Func.bind` calls are latest-wins on one channel per function.
