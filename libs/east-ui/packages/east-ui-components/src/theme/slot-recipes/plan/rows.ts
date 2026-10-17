@@ -17,6 +17,7 @@
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
 import { timeHeaderText } from "../time/axis.js";
+import { linkRibbons } from "../links/ribbons.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
@@ -445,39 +446,8 @@ export const rowsBase = {
         pointerEvents: "none",
         animation: "plan-settle-in {durations.normal} {easings.out} {durations.slow} backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
-        "& svg": { display: "block", overflow: "visible" },
-        // The casing: the paper one px either side of every link, under
-        // every link's ink — so a link reads over a bar it crosses.
-        "& [data-plan-casing='band']": { fill: "none", stroke: "bg.surface", strokeLinejoin: "round" },
-        "& [data-plan-casing='head']": { fill: "bg.surface", stroke: "bg.surface", strokeWidth: "2px", strokeLinejoin: "round" },
-        // The link and its heads, in the muted ink.
-        "& [data-plan-ribbon-band]": { fill: "none", stroke: "fg.muted" },
-        "& [data-plan-ribbon-head]": { fill: "fg.muted", stroke: "none" },
-        // A lit link (hovered): the strong ink, over the others.
-        "& [data-lit] [data-plan-ribbon-band]": { stroke: "fg.strong" },
-        "& [data-lit] [data-plan-ribbon-head]": { fill: "fg.strong" },
-        // The runs a lit link joins: a 1px halo in the strong ink.
-        "& [data-plan-linkend]": { fill: "none", stroke: "fg.strong", strokeWidth: "1px" },
-        // An end past the window: its slot, dashed in the subtle ink.
-        "& [data-plan-linkslot]": { fill: "none", stroke: "fg.subtle", strokeWidth: "1px", strokeDasharray: "4 4" },
-        // The caption — the edge label, mono 10/500 in the muted ink, on a
-        // paper knockout.
-        "& [data-plan-ribbon-knockout]": { fill: "bg.surface" },
-        "& [data-plan-ribbon-caption]": {
-            fontFamily: "mono",
-            fontSize: "label.sm",
-            fontWeight: "medium",
-            fontVariantNumeric: "tabular-nums",
-            fill: "fg.muted",
-        },
-        // The hit area: the stroke and 5 either side — the only part of the
-        // layer that takes the pointer.
-        "& [data-link]": {
-            fill: "none",
-            stroke: "transparent",
-            pointerEvents: "stroke",
-            cursor: "pointer",
-        },
+        // The links themselves: the shared links layer's look (#1321).
+        ...linkRibbons,
     },
     // The developer render region (R2) — fills the canvas below the
     // focused row (every other row hides for the focus); fades in once

@@ -281,3 +281,10 @@ export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calenda
 export { Roster, type RosterProps, type RosterNamespace, type RosterWeeksHandle } from "./roster/index.js";
 export type { RosterPeopleConfig } from "./roster/people.js";
 export type { RosterPatchOptions, RosterLibraryTabConfig, RosterLibraryTab } from "./roster/library.js";
+
+// The Allocation: a day's events booked into lane slots and allocated to
+// resources, over one plans record, with the app's fit on e3.
+export {
+    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationDaysHandle, type AllocationLibraryDeclaration,
+} from "./allocation/index.js";
+export type { AllocationEvents, AllocationEventsConfig, AllocationResourcesConfig } from "./allocation/adapters.js";

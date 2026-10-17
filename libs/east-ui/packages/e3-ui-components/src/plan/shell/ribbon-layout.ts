@@ -45,33 +45,13 @@ import { PLAN_CELL_INSET, type PlanGeometry } from "../geometry.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText } from "../quantity.js";
 import type { PlanWords } from "../words.js";
-import { routeRibbon, type RibbonEnd, type RibbonOff, type RibbonPath } from "./ribbon-geometry.js";
+import { routeRibbon, type RibbonEdgeSlot, type RibbonEnd, type RibbonOff, type RibbonPath } from "../../shared/links/geometry.js";
+import { placeCaptions, ribbonWeight } from "../../shared/links/captions.js";
 
-/** Width of the dashed slot an end past the window lands in (px). */
-export const RIBBON_SLOT_W = 40;
-
-/** A caption's knockout: the paper either side of its text (px). */
-export const RIBBON_CAPTION_PAD = 4;
-
-/** The widest a caption's letter draws — mono 10px, its advance 0.6em and a
- *  margin over it (px): what keeps a caption inside the plot before its text
- *  is measured. */
-export const RIBBON_CAPTION_CHAR = 6.5;
-
-/**
- * A link's weight — its stroke's width (`Plan links.html` §15): its
- * quantity's third of the family's largest — above two thirds 8, above one
- * third 4, else 2 — and 1.5 for a link with no quantity.
- *
- * @param quantity - The link's quantity's size, or `undefined` when it has none
- * @param largest - The largest quantity among the family's links
- * @returns The weight, in px
- */
-export function ribbonWeight(quantity: number | undefined, largest: number): number {
-    if (quantity === undefined) return 1.5;
-    const share = largest > 0 ? quantity / largest : 0;
-    return share > 2 / 3 ? 8 : share > 1 / 3 ? 4 : 2;
-}
+// The weight, the caption measures and the off-window slot are the shared
+// link parts' (#1321).
+export { RIBBON_CAPTION_CHAR, RIBBON_CAPTION_PAD, ribbonWeight } from "../../shared/links/captions.js";
+export { RIBBON_SLOT_W, type RibbonEdgeSlot } from "../../shared/links/geometry.js";
 
 /** Where one body row sits, in the rows' own px. */
 export interface RibbonSlot {
@@ -245,16 +225,6 @@ export function ribbonBody(
 export interface RibbonViewport {
     top: number;
     bottom: number;
-}
-
-/** The dashed slot at a window edge an off-window end lands in — as tall as
- *  its element draws, {@link RIBBON_SLOT_W} wide, open toward the edge. */
-export interface RibbonEdgeSlot {
-    /** The plot edge it opens onto. */
-    x: number;
-    y: number;
-    h: number;
-    side: "left" | "right";
 }
 
 /** One laid-out ribbon. */
@@ -463,24 +433,8 @@ export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]
         const bounds = { left: input.plot.left, right: input.plot.left + input.plot.width };
         ribbons.push({ ...routeRibbon(from.end, to.end, weight, bounds), link, from: from.end, to: to.end, weight, label });
     }
-    // A caption keeps inside the plot with its knockout: one the route centred
-    // near an edge moves in, by its text's width at the widest a mono label's
-    // letter draws — so the renderer, which fits the knockout to the text,
-    // finds it inside already and the step below sees where it draws.
-    const plotRight = input.plot.left + input.plot.width;
-    for (const r of ribbons) {
-        if (r.label === undefined) continue;
-        const half = (r.label.length * RIBBON_CAPTION_CHAR) / 2 + RIBBON_CAPTION_PAD;
-        r.lx = Math.max(input.plot.left + half, Math.min(plotRight - half, r.lx));
-    }
-    // Greedy caption de-overlap — links sharing a source edge can land their
-    // captions on one another: a caption within 60 × 12 of an earlier one
-    // steps down 12 until clear. A link with no caption takes no line.
-    const placed: { x: number; y: number }[] = [];
-    for (const r of ribbons) {
-        if (r.label === undefined) continue;
-        while (placed.some((p) => Math.abs(p.x - r.lx) < 60 && Math.abs(p.y - r.ly) < 12)) r.ly += 12;
-        placed.push({ x: r.lx, y: r.ly });
-    }
+    // Each caption kept inside the plot with its knockout, then stepped clear
+    // of any earlier one within 60 × 12 (the shared link parts' rule).
+    placeCaptions(ribbons, input.plot.left, input.plot.left + input.plot.width);
     return { ribbons, edgeSlots };
 }

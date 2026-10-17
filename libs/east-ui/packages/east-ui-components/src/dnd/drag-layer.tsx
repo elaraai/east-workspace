@@ -204,9 +204,11 @@ export interface DropCellOptions {
      * the drop would land (`Edge banding · after row 3`), or, when the cell
      * refuses it, why (the caption turns red) — at the coordinate the drag
      * rests on, for what is dragged. `allowed` is the cell's verdict there.
-     * Absent, or `undefined`, the ghost goes alone.
+     * A drop it takes with a warning says so in the warning's ink (`{ text,
+     * warn: true }`: `to K-203 · under min`). Absent, or `undefined`, the
+     * ghost goes alone.
      */
-    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | undefined;
+    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | { text: string; warn?: boolean } | undefined;
 }
 
 interface CellRegistration extends DropCellOptions {
@@ -425,10 +427,19 @@ function clearStages(el: HTMLElement): void {
     el.removeAttribute("data-drop-invalid");
 }
 
-/** What the ghost says (#1187): its words, and whether they say why the cell refuses the drop. */
+/** What the ghost says (#1187): its words, whether they say why the cell refuses the drop, and whether a drop it takes warns. */
 interface DragCaption {
     text: string;
     refused: boolean;
+    warn: boolean;
+}
+
+/** A cell's or a library's caption, as the ghost says it. */
+function captionOf(said: string | { text: string; warn?: boolean } | undefined, refused: boolean): DragCaption | undefined {
+    if (said === undefined) return undefined;
+    const text = typeof said === "string" ? said : said.text;
+    if (text === "") return undefined;
+    return { text, refused, warn: !refused && typeof said !== "string" && said.warn === true };
 }
 
 /**
@@ -450,7 +461,7 @@ class CaptionStore {
     /** Say something else — or nothing — telling the view only when the words or their verdict change. */
     set(next: DragCaption | undefined): void {
         const was = this.value;
-        if (was === next || (was !== undefined && next !== undefined && was.text === next.text && was.refused === next.refused)) return;
+        if (was === next || (was !== undefined && next !== undefined && was.text === next.text && was.refused === next.refused && was.warn === next.warn)) return;
         this.value = next;
         for (const listener of this.listeners) listener();
     }
@@ -460,7 +471,7 @@ class CaptionStore {
 function DragCaptionView({ store }: { store: CaptionStore }) {
     const caption = useSyncExternalStore(store.subscribe, store.get, store.get);
     if (caption === undefined) return null;
-    return <div data-drag-caption="" data-refused={caption.refused ? "" : undefined} aria-hidden="true">{caption.text}</div>;
+    return <div data-drag-caption="" data-refused={caption.refused ? "" : undefined} data-warn={caption.warn ? "" : undefined} aria-hidden="true">{caption.text}</div>;
 }
 
 export interface DragLayerProviderProps {
@@ -676,8 +687,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 el.removeAttribute("data-drop-active");
                 el.setAttribute("data-drop-invalid", "");
             }
-            const text = cell.caption?.(coord, d.payload, allowed);
-            caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
+            caption.set(captionOf(cell.caption?.(coord, d.payload, allowed), !allowed));
             return;
         }
         // Over nothing the ghost goes alone; over a sink, with what its surface says of a return there.
@@ -695,8 +705,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             }
             if (sink.kind === "library" && sink.library !== undefined && d.payload.kind === "event") {
                 const returns = targets.current.get(d.payload.from.surface)?.returns;
-                const text = returns?.caption?.(returnEvent(sink, d.payload.from), sink.library, allowed);
-                caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
+                caption.set(captionOf(returns?.caption?.(returnEvent(sink, d.payload.from), sink.library, allowed), !allowed));
             }
         }
     }, [connected, sinkValid, returnAllowed, returnEvent, track, caption]);

@@ -5,7 +5,7 @@
 
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
 import { expect, test, type Locator, type Page } from "playwright/test";
-import { frameAt } from "./builder-frame";
+import { frameAt, toolbarFaults } from "./builder-frame";
 import { settled } from "./settle";
 const FILE = "e3/calendar/calendar";
 async function open(page: Page, name = "calendarOperations", theme: "light" | "dark" = "light") {
@@ -20,22 +20,6 @@ async function open(page: Page, name = "calendarOperations", theme: "light" | "d
 async function size(page: Page, entry: Locator, width: number) {
     await entry.locator("[data-calendar-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
     await settled(page);
-}
-async function toolbarFaults(entry: Locator) {
-    return entry.locator("[data-calendar-frame]").first().evaluate(root => {
-        const band = root.querySelector('[data-frame-slot="toolbar"]')!;
-        const row = band.querySelector('[data-toolbar]')!;
-        const box = band.getBoundingClientRect(); const r = row.getBoundingClientRect();
-        const bad: string[] = [];
-        if (Math.abs(box.height - 44) > 0.5) bad.push(`toolbar height ${box.height}`);
-        for (const item of row.querySelectorAll('[data-toolbar-item]')) {
-            const b = item.getBoundingClientRect(); if (b.width === 0) continue;
-            if (b.left < r.left - 0.5 || b.right > r.right + 0.5 || b.top < box.top - 0.5 || b.bottom > box.bottom + 0.5) bad.push(`overflow ${item.getAttribute("data-toolbar-item")}`);
-        }
-        const ladder = (row.getAttribute("data-toolbar-ladder") ?? "").split(" ");
-        if (ladder.some(step => step.startsWith("history>")) && !ladder.at(-1)?.startsWith("history>")) bad.push("history does not fold last");
-        return bad;
-    });
 }
 async function viewChoice(page: Page, frame: Locator, name: string) {
     const radio = frame.getByRole("radio", { name, exact: true });
@@ -56,7 +40,7 @@ for (const theme of ["light", "dark"] as const) {
         const entry = await open(page, "calendarOperations", theme);
         for (const width of [1440, 1024, 768, 390, 360]) {
             await size(page, entry, width);
-            expect(await toolbarFaults(entry), `${width}px toolbar`).toEqual([]);
+            expect(await toolbarFaults(entry.locator("[data-calendar-frame]").first()), `${width}px toolbar`).toEqual([]);
             const frame = await frameAt(entry);
             const main = entry.locator("[data-calendar-main]").first();
             expect((await main.boundingBox())!.width).toBeGreaterThan(0);
@@ -93,7 +77,7 @@ for (const theme of ["light", "dark"] as const) {
                 await expect(page.getByRole('menuitem', { name: /^(Day|Week|Month)$/ })).toHaveCount(0);
                 await page.keyboard.press('Escape');
             }
-            expect(await toolbarFaults(entry)).toEqual([]);
+            expect(await toolbarFaults(entry.locator("[data-calendar-frame]").first())).toEqual([]);
             await viewChoice(page, frame, 'Calendar');
         }
         await size(page, entry, 1440);
@@ -103,7 +87,7 @@ for (const theme of ["light", "dark"] as const) {
         const entry = await open(page, "calendarMobile", theme);
         const frame = entry.locator("[data-calendar-frame]").first();
         await expect(frame.locator("[data-calendar-agenda]")).toBeVisible();
-        expect(await toolbarFaults(entry)).toEqual([]);
+        expect(await toolbarFaults(entry.locator("[data-calendar-frame]").first())).toEqual([]);
         await frame.getByRole("button", { name: "Expand Library" }).click();
         const backlog = frame.getByRole("tab", { name: "Backlog" });
         if (await backlog.isVisible()) await backlog.click();

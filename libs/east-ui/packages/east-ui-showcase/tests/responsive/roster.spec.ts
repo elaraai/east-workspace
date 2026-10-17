@@ -4,7 +4,7 @@
  */
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, test, type Locator, type Page } from "playwright/test";
-import { frameAt } from "./builder-frame";
+import { frameAt, toolbarFaults } from "./builder-frame";
 import { settled } from "./settle";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
@@ -18,22 +18,6 @@ async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark
 async function size(page: Page, entry: Locator, width: number) {
     await entry.locator("[data-roster-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
     await settled(page);
-}
-async function toolbarFaults(frame: Locator) {
-    return frame.evaluate(root => {
-        const band = root.querySelector('[data-frame-slot="toolbar"]')!;
-        const row = band.querySelector('[data-toolbar]')!;
-        const box = band.getBoundingClientRect(), r = row.getBoundingClientRect();
-        const faults: string[] = [];
-        if (Math.abs(box.height - 44) > 0.5) faults.push(`height ${box.height}`);
-        for (const item of row.querySelectorAll('[data-toolbar-item]')) {
-            const b = item.getBoundingClientRect(); if (!b.width) continue;
-            if (b.left < r.left - 0.5 || b.right > r.right + 0.5 || b.top < box.top - 0.5 || b.bottom > box.bottom + 0.5) faults.push(`overflow ${item.getAttribute('data-toolbar-item')}`);
-        }
-        const ladder = (row.getAttribute('data-toolbar-ladder') ?? '').split(' ');
-        if (ladder.some(s => s.startsWith('history>')) && !ladder.at(-1)?.startsWith('history>')) faults.push('history must fold last');
-        return faults;
-    });
 }
 async function view(page: Page, frame: Locator, name: string) {
     const radio = frame.getByRole('radio', { name, exact: true });

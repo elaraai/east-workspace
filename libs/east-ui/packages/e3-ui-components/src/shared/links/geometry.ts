@@ -5,8 +5,10 @@
 
 /**
  * Pure links-ribbon routing (R1) — no DOM, no React, so every geometric
- * permutation is testable offline (`ribbon-geometry.test.ts` holds the case
- * table) and the rendered cases can be reviewed as a contact sheet.
+ * permutation is testable offline (`geometry.test.ts` holds the case table)
+ * and the rendered cases can be reviewed as a contact sheet. Shared by Plan's
+ * links and the Allocation's (#1321): each lays its ends out from its own
+ * model and routes them here.
  *
  * The grammar is `Plan links.html`'s (#1258), its case table this module's
  * test table. The routing rule is SEMANTIC, not geometric: a link always
@@ -62,6 +64,19 @@
 
 /** The viewport edge an out-of-view endpoint lies beyond. */
 export type RibbonOff = "above" | "below";
+
+/** Width of the dashed slot an end past the window lands in (px). */
+export const RIBBON_SLOT_W = 40;
+
+/** The dashed slot at a window edge an off-window end lands in — as tall as
+ *  its element draws, {@link RIBBON_SLOT_W} wide, open toward the edge. */
+export interface RibbonEdgeSlot {
+    /** The plot edge it opens onto. */
+    x: number;
+    y: number;
+    h: number;
+    side: "left" | "right";
+}
 
 /** One ribbon endpoint — the run bar's rect, in the rows' own px. */
 export interface RibbonEnd {
