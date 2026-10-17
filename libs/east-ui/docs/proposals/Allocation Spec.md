@@ -622,10 +622,13 @@ cell an 8px dot and the word, uppercase.
 
 **The Chooser.** Anchored under its cell or its field: at least 320px (the cell
 less 24px), at most 360px tall (340 in the inspector): a 32px search, section
-heads 24px (mono 9.5px uppercase), options at least 40px on `14px 1fr auto` (a
-check for Current, a × for Doesn't fit; the label mono 12px 600; the reason mono
-9.5px, warn-text when refused; the range mono 11px), and a 32px foot `↑ ↓ move ·
-Enter chooses · Esc closes`.
+heads 24px (mono 10px 600 uppercase), options at least 40px on `14px 1fr auto` (a
+check for Current, a × for Doesn't fit; the label mono 11px 600; the reason mono
+9.5px, warn-text when refused; the range mono 10.5px), and a 32px foot `↑ ↓ move ·
+Enter chooses · Esc closes` (mono 10px) — the mock's own label sizes, the design
+system's `label.lg`, `label.xs`, `label.md` and `label.sm`. In a cell it is the
+shared `SliceEditPopover`'s body (its width the popover's 320px); in the
+inspector it is laid in the pane with its own border.
 
 **Library.** Tabs 44px with counts; a search band padding 12px 20px on paper-2
 round a 32px input; groups 16px apart, each head 16px (label mono 9.5px
