@@ -15,11 +15,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError, _trace_bail
-from east.expression.expr.base import Expression, _deprecated_alias, _fn_init
-from east.expression.lift import _body, _lift, _trace_inner_fn, greatest, if_else, least
+from east.expression.expr.base import Expression, _deprecated_alias, _fn_init, _widened_callback
+from east.expression.lift import _body, _coerce, _lift, _trace_inner_fn, greatest, if_else, least
 from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _builtin,
+    _fits,
     _fresh_name,
     _is_option,
     _k_block,
@@ -30,6 +31,7 @@ from east.expression.nodes import (
     _literal,
     _option_inner,
     _option_type,
+    _type_words,
     _var,
 )
 from east.ir.builders import ir_error, ir_let
@@ -48,6 +50,7 @@ from east.types.types import (
     StructType,
     VectorType,
     is_data_type,
+    is_type_equal,
 )
 
 if TYPE_CHECKING:
@@ -158,17 +161,17 @@ class ArrayExpression(Expression):
     def get(self, index: Any, default_fn: Any = None) -> Expression:
         """Traced ArrayGet: the element at ``index`` (an East runtime error
         when out of bounds) — or ArrayGetOrDefault with ``default_fn(b,
-        index)`` producing the value for an index out of bounds (TS
-        ``get(key, defaultFn?)``)."""
+        index)`` producing the value for an index out of bounds, a value of
+        a subtype widened to the element type (TS ``get(key, defaultFn?)``)."""
         i = _lift(index)
         if i.east_type.type != "Integer":
             raise ExpressionError("Array.get() takes an Integer index")
         elem_t = self._elem()
         if default_fn is not None:
-            node, out_t = _trace_inner_fn(default_fn, [IntegerType], out_hint=elem_t)
-            if out_t != elem_t:
-                raise ExpressionError(
-                    f".get() default returns {out_t.type}, elements are {elem_t.type}")
+            node, out_t = _widened_callback(default_fn, [IntegerType], elem_t)
+            if not is_type_equal(out_t, elem_t):
+                want, got = _type_words(elem_t, out_t)
+                raise ExpressionError(f".get() default returns {got}, elements are {want}")
             return self._expr(
                 _builtin("ArrayGetOrDefault", elem_t, [elem_t], [self.ir, i.ir, node]), elem_t)
         return self._expr(_builtin("ArrayGet", elem_t, [elem_t], [self.ir, i.ir]), elem_t)
@@ -185,8 +188,8 @@ class ArrayExpression(Expression):
         """Traced ArrayGetOrDefault: the element at ``index``, or ``default``
         when out of bounds — ``get(index, lambda b, i: default)``, the
         constant handler traced like any other so the two spellings build
-        one IR."""
-        d = _lift(default, hint=self._elem())
+        one IR. A default of a subtype is widened to the element type."""
+        d = self._typed("get_or_default", default, self._elem())
         return self.get(index, lambda _b, _i: d)
 
     def try_get(self, index: Any) -> VariantExpression:
@@ -711,18 +714,21 @@ class ArrayExpression(Expression):
     def _find_keyed(self, builtin: str, op: str, target: Any, key: Any, out_t: EastType) -> Any:
         """The shared ``(array, target, key)`` shape of the ArrayFind* family.
         The key projects each element into the target's type; without one
-        the elements are compared directly, exactly as eagerly."""
+        the elements are compared directly, exactly as eagerly. A target of
+        a subtype is widened to that type."""
         elem_t = self._elem()
         if key is None:
             node, t2 = self._identity_node(), elem_t
         else:
             node, t2 = _trace_inner_fn(key, [elem_t])
         tgt = _lift(target, hint=t2)
-        if tgt.east_type != t2:
+        if not _fits(tgt.east_type, t2):
+            want, got = _type_words(t2, tgt.east_type)
             raise ExpressionError(
-                f".{op}() target is {tgt.east_type.type} but the key projects "
-                f"to {t2.type} — they must be the same East type"
+                f".{op}() target is {got} but the key projects to {want} — the "
+                "target must be of that type"
             )
+        tgt = _coerce(tgt, t2)
         return self._expr(_builtin(builtin, out_t, [elem_t, t2], [self.ir, tgt.ir, node]), out_t)
 
     def find_first(self, target: Any, key: Any = None) -> VariantExpression:
@@ -758,11 +764,13 @@ class ArrayExpression(Expression):
         elem_t = self._elem()
         proj, p_t = self._projection(by)
         target = _lift(value, hint=p_t)
-        if target.east_type != p_t:
+        if not _fits(target.east_type, p_t):
+            want, got = _type_words(p_t, target.east_type)
             raise ExpressionError(
-                f".find_all() value is {target.east_type.type} but the "
-                f"projection yields {p_t.type} — they must be the same East type"
+                f".find_all() value is {got} but the projection yields {want} — "
+                "the value must be of that type"
             )
+        target = _coerce(target, p_t)
         # Bind the target to a Let before the builtin. Unlike the ArrayFind*
         # family — where the target is a builtin ARGUMENT and so evaluated once
         # — this probe lives inside the per-element callback, where an
@@ -1011,10 +1019,12 @@ class ArrayExpression(Expression):
         key_node, k2 = self._callback(kf)
         proj, p_t = self._projection(by)
         target = _lift(value, hint=p_t)
-        if target.east_type != p_t:
+        if not _fits(target.east_type, p_t):
+            want, got = _type_words(p_t, target.east_type)
             raise ExpressionError(
-                f".{op}() value is {target.east_type.type} but the projection "
-                f"yields {p_t.type} — they must be the same East type")
+                f".{op}() value is {got} but the projection yields {want} — "
+                "the value must be of that type")
+        target = _coerce(target, p_t)
         pair_t = StructType([("i", IntegerType), ("k", k2)])
         # Bind the target to a Let first: the probe lives INSIDE the per-element
         # callback, so an expression target spliced in would be recomputed per

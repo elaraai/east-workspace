@@ -26,11 +26,17 @@ import warnings
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from east.expression.errors import ExpressionError, _trace_bail
-from east.expression.lift import _is_captured_constant, _lift, _note_effect
+from east.expression.lift import (
+    _coerce,
+    _is_captured_constant,
+    _lift,
+    _note_effect,
+    _trace_inner_fn,
+)
 from east.expression.location import location_id as _loc_id
-from east.expression.nodes import _builtin, _fresh_name, _k_block, _var
+from east.expression.nodes import _builtin, _fits, _fresh_name, _k_block, _type_words, _var
 from east.ir.builders import ir_let
-from east.types.types import BooleanType, EastType
+from east.types.types import BooleanType, EastType, is_type_equal
 
 if TYPE_CHECKING:
     from east.expression.expr.boolean import BooleanExpression
@@ -110,6 +116,33 @@ def _fn_init(op: str, a: Any, b: Any) -> tuple[Any, Any]:
         )
         return b, a
     raise ExpressionError(f".{op}() takes (fn, init): a step body and the initial accumulator")
+
+
+def _widening(t: EastType) -> Any:
+    """A callback ``wrap`` widening the value a body returns to ``t`` when
+    it is of a subtype, as the TypeScript builder coerces a function's
+    result to its declared output; a value of another type is left as it
+    is, for the method to refuse in its own words."""
+
+    def widen(result: Any) -> Any:
+        from east.expression.statements import IfBuilder, TryBuilder
+
+        if result is None or isinstance(result, (IfBuilder, TryBuilder)):
+            return result  # nothing returned: the body's statements are its value
+        v = _lift(result, hint=t)
+        return _coerce(v, t) if _fits(v.east_type, t) else v
+
+    return widen
+
+
+def _widened_callback(fn: Any, params: list, t: EastType) -> tuple:
+    """``_trace_inner_fn(fn, params, out_hint=t)``; a body whose value is of
+    a subtype of ``t`` is traced again with it widened to ``t``, so a
+    callback of the type itself builds what it always built."""
+    node, out_t = _trace_inner_fn(fn, params, out_hint=t)
+    if not is_type_equal(out_t, t) and _fits(out_t, t):
+        node, out_t = _trace_inner_fn(fn, params, out_hint=t, wrap=_widening(t))
+    return node, out_t
 
 
 class Expression:
@@ -232,12 +265,21 @@ class Expression:
         return self._expr(node, out_t)
 
     def _typed(self, op: str, value: Any, t: EastType) -> Any:
+        """``value`` as a builtin argument of type ``t``, as the TypeScript
+        builder takes one (``valueOrExprToAstTyped``): a value of ``t`` or of
+        a subtype, widened to ``t``; any other is refused here, at build,
+        naming the method and both types. The builtin's type parameters say
+        what east-c reads the argument as, so a key or value of another type
+        reaching it is a wrong answer, garbage stored or a crash (#1316)."""
         v = _lift(value, hint=t)
+        if v.east_type == t:
+            return v
         # A value of Never (an error, a jump) never arrives: it stands for any
         # type, as a TypeScript builtin argument does.
-        if v.east_type != t and v.east_type.type != "Never":
-            raise ExpressionError(f".{op}() takes {t.type}, got {v.east_type.type}")
-        return v
+        if not _fits(v.east_type, t):
+            want, got = _type_words(t, v.east_type)
+            raise ExpressionError(f".{op}() takes {want}, got {got}")
+        return _coerce(v, t)
 
     # ── attribute misses name the surface ───────────────────────────────
 

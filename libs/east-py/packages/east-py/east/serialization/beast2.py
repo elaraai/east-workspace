@@ -646,6 +646,9 @@ class Beast2File:
         self._lazy = None
         self._projection: Any = None
         self._proj_cache: dict[str, Any] = {}
+        # Each inferred projection's narrowings, by the projection's id (the
+        # cache keeps it alive): what its segment streams admit (#1316).
+        self._proj_narrowed: dict[int, dict] = {}
         try:
             size = os.fstat(self._file.fileno()).st_size
             if size < 8:
@@ -824,20 +827,24 @@ class Beast2File:
         falls back to a whole decode of just that segment — sound here
         because only operations whose every element use flows through the
         callbacks infer a projection, and those observe the same fields
-        either way.
+        either way. While the stream runs, a call the callbacks make may hand
+        a function the narrow rows it yields (``narrowed_rows``).
         """
         self._check_open()
         counters = _counters()
         if project is not None and self._pages is not None and self._pages.self_contained:
+            from east.expression.project import narrowed_rows
+
             core = self._pages._core
-            for i in range(self._pages.segment_count):
-                try:
-                    seg = core.segment_projected(i, project)
-                    counters["beast2_segments_projected"] += 1
-                except Beast2ProjectionAlias:
-                    counters["beast2_projection_alias_fallback"] += 1
-                    seg = core.segment(i)
-                yield seg
+            with narrowed_rows(self._proj_narrowed.get(id(project))):
+                for i in range(self._pages.segment_count):
+                    try:
+                        seg = core.segment_projected(i, project)
+                        counters["beast2_segments_projected"] += 1
+                    except Beast2ProjectionAlias:
+                        counters["beast2_projection_alias_fallback"] += 1
+                        seg = core.segment(i)
+                    yield seg
             return
         # The sequential reader walks the WIRE bytes; the file's explicit
         # projection (project=) rides it so every stream consumer sees the
@@ -948,6 +955,8 @@ class Beast2File:
             merge_masks,
             narrow_type_for,
         )
+
+        narrowings: dict = {}
         from east.types.types import ArrayType, DictType, IntegerType
         from east.types.values.collections import _callback_arity
 
@@ -1002,7 +1011,7 @@ class Beast2File:
         if mask is WHOLE_MASK:
             counters["beast2_projection_declined_escape"] += 1
             return None, fns
-        narrow_row = narrow_type_for(row_t, mask)
+        narrow_row = narrow_type_for(row_t, mask, narrowings)
         if narrow_row == row_t:
             return None, fns  # every field read: nothing to skip, no cliff
         narrow_root = ArrayType(narrow_row) if kind == "Array" else DictType(key_t, narrow_row)
@@ -1021,6 +1030,7 @@ class Beast2File:
                 counters["beast2_projection_declined_shape"] += 1
                 return None, fns
             self._proj_cache[cache_key] = proj
+            self._proj_narrowed[id(proj)] = narrowings
         return proj, out_fns
 
     def __len__(self) -> int:
@@ -1047,19 +1057,24 @@ class Beast2File:
         ``project`` narrows each decode per operation (#599); keys stay
         whole (they order the container), so the disjointness checks are
         unchanged, and an alias crossing the projection boundary falls back
-        to that one segment's whole decode."""
+        to that one segment's whole decode. While a projected stream runs, a
+        call the callbacks make may hand a function the narrow values it
+        yields (``narrowed_rows``)."""
         pages = self._require_pages()
         core = pages._core
         counters = _counters()
         if project is not None:
-            for i in range(pages.segment_count):
-                try:
-                    seg = core.segment_disjoint_projected(i, project)
-                    counters["beast2_segments_projected"] += 1
-                except Beast2ProjectionAlias:
-                    counters["beast2_projection_alias_fallback"] += 1
-                    seg = core.segment_disjoint(i)
-                yield seg
+            from east.expression.project import narrowed_rows
+
+            with narrowed_rows(self._proj_narrowed.get(id(project))):
+                for i in range(pages.segment_count):
+                    try:
+                        seg = core.segment_disjoint_projected(i, project)
+                        counters["beast2_segments_projected"] += 1
+                    except Beast2ProjectionAlias:
+                        counters["beast2_projection_alias_fallback"] += 1
+                        seg = core.segment_disjoint(i)
+                    yield seg
             return
         key = "beast2_segments_projected" if self._projection is not None \
             else "beast2_segments_whole"

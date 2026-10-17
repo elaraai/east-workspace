@@ -25,7 +25,7 @@ from east.expression.errors import ExpressionError
 from east.expression.location import location_id as _loc_id
 from east.ir.builders import ir_value, ir_variable
 from east.types.type_of_type import EastTypeType
-from east.types.types import EastType
+from east.types.types import EastType, is_subtype, is_type_equal
 from east.types.values import EastStruct, EastVariant
 
 # ─── Homoiconic IR construction (#398) ──────────────────────────────────────
@@ -46,6 +46,28 @@ def _type_key(t: EastType) -> str:
 
     encoded = encode_json_for(EastTypeType)(t)
     return encoded.decode("utf-8") if isinstance(encoded, bytes) else encoded
+
+
+def _fits(value_t: EastType, slot_t: EastType) -> bool:
+    """Whether a value of ``value_t`` may fill a slot of ``slot_t``: the
+    type itself (two copies of one recursive type included) or a subtype of
+    it, as the TypeScript builder admits an argument."""
+    return value_t == slot_t or is_type_equal(value_t, slot_t) or is_subtype(value_t, slot_t)
+
+
+def _type_words(expected: EastType, got: EastType) -> tuple[str, str]:
+    """Words for the East type a slot takes and the one it was given: their
+    kinds (``String``, ``Integer``), or, when the kinds agree (a ``Struct``
+    and a ``Struct``), each type in East's syntax, so a refusal shows what
+    differs."""
+    if expected.type != got.type:
+        return expected.type, got.type
+    from east.serialization.east_printer import print_type
+
+    try:
+        return print_type(expected), print_type(got)
+    except Exception:  # pragma: no cover - a printer failure must not mask the refusal
+        return expected.type, got.type
 
 
 def _var(name: str, t: EastType):
@@ -134,10 +156,75 @@ def _fresh_name() -> str:
 # builders directly — EastStruct fields keep object identity.
 
 
+#: ``(builtin_inputs, FN)`` from ``east.runtime.builtin_signatures``, read on
+#: the first builtin built (its table imports types this module must not).
+_signatures: Any = None
+
+#: Each builtin's slots by its name and type parameters, which hash and
+#: compare as the types they are: building one is a table lookup and a type
+#: per slot, built for every node a body builds otherwise.
+_SLOTS_MAX = 4096
+_slots_memo: dict[tuple, list | None] = {}
+
+
+def _builtin_slots(name: str, type_params: list) -> list | None:
+    """The builtin's declared inputs, instanced with its type parameters —
+    an East type per slot, ``None`` for a Function-typed slot — or ``None``
+    when the table does not know the builtin or its type parameters. The
+    list is shared: read it, never change it."""
+    key = (name, tuple(type_params))
+    hit = _slots_memo.get(key, _slots_memo)
+    if hit is not _slots_memo:
+        return hit
+    global _signatures
+    if _signatures is None:
+        from east.runtime.builtin_signatures import FN, builtin_inputs
+
+        _signatures = (builtin_inputs, FN)
+    inputs_of, fn_slot = _signatures
+    try:
+        slots = [None if t is fn_slot else t for t in inputs_of(name, list(type_params))]
+    except TypeError:
+        slots = None
+    if len(_slots_memo) >= _SLOTS_MAX:
+        _slots_memo.clear()
+    _slots_memo[key] = slots
+    return slots
+
+
+def _typed_arguments(name: str, type_params: list, args: list) -> list:
+    """``args`` held to the builtin's declared inputs, as the TypeScript
+    lowering coerces every builtin argument to its signature: an argument of
+    its slot's type, or of a subtype widened to it, and any other refused
+    here, naming the builtin (#1316). east-c reads each argument as its
+    declared input, so one of another type is a wrong answer, garbage stored
+    or a crash. A builtin the table does not know, or a call of another
+    arity, is the analyzer's to name."""
+    slots = _builtin_slots(name, type_params)
+    if slots is None or len(slots) != len(args):
+        return list(args)
+    typed = list(args)
+    for i, (node, want) in enumerate(zip(args, slots, strict=True)):
+        if want is None:
+            continue
+        got = node.value["type"]
+        if got == want:
+            continue
+        if not _fits(got, want):
+            w, g = _type_words(want, got)
+            raise ExpressionError(f"{name}: argument {i + 1} takes {w}, got {g}")
+        from east.expression.expr import Expression
+        from east.expression.lift import _coerce
+
+        typed[i] = _coerce(Expression(node, got), want).ir
+    return typed
+
+
 def _k_builtin(name: str, out: EastType, type_params: list, args: list):
     return EastVariant("Builtin", EastStruct({
         "type": out, "loc_id": _loc_id(), "builtin": name,
-        "type_parameters": list(type_params), "arguments": list(args),
+        "type_parameters": list(type_params),
+        "arguments": _typed_arguments(name, type_params, args),
     }))
 
 

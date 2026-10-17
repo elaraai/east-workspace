@@ -24,11 +24,13 @@ positively recognize widens the mask, never narrows it.
 
 from __future__ import annotations
 
+import contextlib
+import threading
 from collections import OrderedDict
 from typing import Any
 
 from east.expression.finalize import _node_children
-from east.expression.nodes import _type_key
+from east.expression.nodes import _fits, _type_key
 from east.types.types import EastType, StructType
 
 #: A subtree that must decode whole (also the "element escapes" answer).
@@ -213,8 +215,62 @@ def _function_node(ir: Any) -> Any | None:
     return None
 
 
-def narrow_type_for(wire_t: EastType, mask: Any) -> EastType:
-    """The subset type ``mask`` keeps of ``wire_t`` (wire field order)."""
+#: The narrowings of the projected decodes open on this thread, innermost
+#: last: each maps a narrow struct's key to the types it narrows. A callback
+#: run on a masked decode hands the functions it calls the narrow rows (and
+#: narrowed nested structs) the decode yields, which their declared
+#: parameters do not take, and each such call re-runs its function's body
+#: against them (#467). The decode opens :func:`narrowed_rows` around the
+#: segments its callbacks run on, so a call admits a narrowing only while the
+#: decode that made it runs (``narrowing_of``), and a struct of fewer fields
+#: built anywhere else is refused, whatever ran before (#1316). The
+#: callbacks were built against the whole row first (``infer_field_mask``),
+#: outside any decode, so their calls were checked there. Per thread: the
+#: language server builds on worker threads.
+_open = threading.local()
+
+
+@contextlib.contextmanager
+def narrowed_rows(narrowings: dict[str, list[EastType]] | None):
+    """Admit ``narrowings`` — what ``narrow_type_for`` recorded of a
+    projection — while the block runs. Beast2's segment streams hold it open
+    across their ``yield``s, so it covers the code each segment is handed
+    to, and a stream stopped early closes it as its generator closes."""
+    if not narrowings:
+        yield
+        return
+    stack = getattr(_open, "narrowings", None)
+    if stack is None:
+        stack = _open.narrowings = []
+    stack.append(narrowings)
+    try:
+        yield
+    finally:
+        # Its own entry, the latest by identity: two streams interleaved
+        # close out of order.
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i] is narrowings:
+                del stack[i]
+                break
+
+
+def narrowing_of(t: EastType, declared: EastType) -> bool:
+    """Whether ``t`` is a struct a projected decode open on this thread
+    narrowed from a type that fills a slot of ``declared``: its narrow row,
+    or a nested struct of one, handed to a function declared over the whole
+    one."""
+    stack = getattr(_open, "narrowings", None)
+    if not stack or t.type != "Struct":
+        return False
+    key = _type_key(t)
+    return any(_fits(w, declared) for narrowings in stack for w in narrowings.get(key, ()))
+
+
+def narrow_type_for(wire_t: EastType, mask: Any,
+                    narrowings: dict[str, list[EastType]] | None = None) -> EastType:
+    """The subset type ``mask`` keeps of ``wire_t`` (wire field order).
+    ``narrowings``, when given, records each struct it narrows by its narrow
+    type's key — the types it narrows — for :func:`narrowed_rows`."""
     if mask is WHOLE_MASK:
         return wire_t
     if wire_t.type != "Struct":
@@ -224,8 +280,13 @@ def narrow_type_for(wire_t: EastType, mask: Any) -> EastType:
     for f in wire_t.value:
         name = f["name"]
         if name in mask:
-            fields.append((name, narrow_type_for(f["type"], mask[name])))
-    return StructType(fields)
+            fields.append((name, narrow_type_for(f["type"], mask[name], narrowings)))
+    narrow = StructType(fields)
+    if narrowings is not None and narrow != wire_t:
+        wides = narrowings.setdefault(_type_key(narrow), [])
+        if not any(w == wire_t for w in wides):
+            wides.append(wire_t)
+    return narrow
 
 
 def _retrace_wrapper(fn: Any, arity: int) -> Any:
@@ -240,13 +301,15 @@ def _retrace_wrapper(fn: Any, arity: int) -> Any:
     inspect — and needs not: a ``_east_retrace`` carrier is allowed capture
     anyway.
     """
-    # A body takes the block first; a compiled function takes none.
+    # The wrapper is the slot's body and calls the function as a slot does,
+    # the block first, so the function takes the prefix of what it is handed
+    # (``arity`` counts the IR's parameters, its hidden binds included).
     if arity == 1:
-        return lambda _b, a, *, _k=fn: _k(a)
+        return lambda _b, a, *, _k=fn: _k(_b, a)
     if arity == 2:
-        return lambda _b, a, c, *, _k=fn: _k(a, c)
+        return lambda _b, a, c, *, _k=fn: _k(_b, a, c)
     if arity == 3:
-        return lambda _b, a, c, d, *, _k=fn: _k(a, c, d)
+        return lambda _b, a, c, d, *, _k=fn: _k(_b, a, c, d)
     return None
 
 
@@ -278,6 +341,13 @@ def infer_field_mask(fn: Any, param_types: list[EastType], elem_pos: int) -> tup
         params = fn_node.value["parameters"]
         if elem_pos >= len(params):
             return {}, fn, None  # the function never receives the element
+        declared = getattr(fn, "_east_param_types", ())
+        if elem_pos < len(declared) and elem_pos < len(param_types) \
+                and not _fits(param_types[elem_pos], declared[elem_pos]):
+            # Declared over another type than the row, it narrows nothing:
+            # the row decodes whole, and the call is refused naming the row,
+            # as it is in memory.
+            return WHOLE_MASK, fn, None
         mask = _collect_mask(fn_node.value["body"], params[elem_pos].value["name"])
         wrapper = _retrace_wrapper(fn, len(params))
         if wrapper is None:

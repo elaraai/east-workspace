@@ -127,7 +127,7 @@ class SetExpression(Expression):
     def has(self, element: Any) -> BooleanExpression:
         """Traced SetHas."""
         elem_t = self._elem()
-        k = _lift(element, hint=elem_t)
+        k = self._typed("has", element, elem_t)
         return self._expr(_builtin("SetHas", BooleanType, [elem_t], [self.ir, k.ir]), BooleanType)
 
     def copy(self) -> SetExpression:
@@ -618,14 +618,14 @@ class SetExpression(Expression):
         """Traced SetInsert (yields Null); an element already present is an
         East runtime ERROR — :meth:`try_insert` is the tolerant form."""
         elem_t = self._mutable("insert").value
-        k = _lift(element, hint=elem_t)
+        k = self._typed("insert", element, elem_t)
         return self._effect(
             "insert", _builtin("SetInsert", NullType, [elem_t], [self.ir, k.ir]), NullType)
 
     def try_insert(self, element: Any) -> BooleanExpression:
         """Traced SetTryInsert: add ``element``, yielding whether it was new."""
         elem_t = self._mutable("try_insert").value
-        v = _lift(element, hint=elem_t)
+        v = self._typed("try_insert", element, elem_t)
         return self._effect(
             "try_insert", _builtin("SetTryInsert", BooleanType, [elem_t], [self.ir, v.ir]),
             BooleanType)
@@ -634,14 +634,14 @@ class SetExpression(Expression):
         """Traced SetDelete (yields Null); an absent element is an East
         runtime error — :meth:`try_delete` is the tolerant form."""
         elem_t = self._mutable("delete").value
-        k = _lift(element, hint=elem_t)
+        k = self._typed("delete", element, elem_t)
         return self._effect(
             "delete", _builtin("SetDelete", NullType, [elem_t], [self.ir, k.ir]), NullType)
 
     def try_delete(self, element: Any) -> BooleanExpression:
         """Traced SetTryDelete, yielding whether anything was removed."""
         elem_t = self._mutable("try_delete").value
-        k = _lift(element, hint=elem_t)
+        k = self._typed("try_delete", element, elem_t)
         return self._effect(
             "try_delete", _builtin("SetTryDelete", BooleanType, [elem_t], [self.ir, k.ir]),
             BooleanType)
