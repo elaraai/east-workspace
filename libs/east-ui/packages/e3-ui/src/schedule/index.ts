@@ -40,9 +40,9 @@ import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
-    ScheduleCandidateType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleGestureType,
+    ScheduleCandidateType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleFitType, ScheduleGestureType,
     ScheduleItemType, ScheduleKindType, ScheduleOverlapsType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
-    ScheduleResourcesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
+    ScheduleRefusalType, ScheduleResourcesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
 } from "./types.js";
 
 export * from "./types.js";
@@ -137,6 +137,10 @@ export interface ScheduleNamespace {
         Candidate: typeof ScheduleCandidateType;
         /** `Patch(R)`: a patch over an event kind's row type, every field an `Option` — what `Schedule.patch` builds. */
         Patch: typeof SchedulePatchTypeFor;
+        /** One verdict of a fit: it fits, with its score and reason, or it is refused — the Allocation's and the Roster's. */
+        Fit: typeof ScheduleFitType;
+        /** Why something does not fit, and what a run of refusals gathers into its label. */
+        Refusal: typeof ScheduleRefusalType;
     };
 }
 
@@ -161,6 +165,8 @@ export const Schedule: ScheduleNamespace = {
         Duration: ScheduleDurationType,
         Candidate: ScheduleCandidateType,
         Patch: SchedulePatchTypeFor,
+        Fit: ScheduleFitType,
+        Refusal: ScheduleRefusalType,
     },
 };
 

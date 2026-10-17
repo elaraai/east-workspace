@@ -565,3 +565,10 @@ export * from "./roster/types.js";
 export * from "./roster/library.js";
 export * from "./roster/coverage.js";
 export * from "./roster/rules.js";
+
+// The Allocation's renderer contracts and its pure functions, which the
+// renderer compiles over the plans' bin values.
+export * from "./allocation/index.js";
+export * from "./allocation/types.js";
+export * from "./allocation/functions.js";
+export * from "./allocation/adapters.js";
