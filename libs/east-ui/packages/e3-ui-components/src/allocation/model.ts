@@ -13,13 +13,14 @@
  */
 
 import {
-    DateTimeType, East, EastTypeType, SortedMap, StringType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor,
+    DateTimeType, DictType, East, EastTypeType, FloatType, SortedMap, StringType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor,
     fromEastTypeValue, parseFor, printFor, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    AllocationCheckContextTypeFor, AllocationContextType, AllocationDayTypeFor, AllocationDaysTypeFor, AllocationEventType, AllocationIssueType,
-    AllocationLoadType, AllocationPayloadType, AllocationResourceType, AllocationSlotType, allocationCheck, allocationLoadText, allocationLoads,
-    allocationQuantityText, allocationSlots, type AllocationBinType, type AllocationDayType,
+    AllocationBinTypeFor, AllocationCheckContextTypeFor, AllocationContextType, AllocationDayTypeFor, AllocationDaysTypeFor, AllocationEventType,
+    AllocationIssueType, AllocationLoadType, AllocationPayloadType, AllocationResourceLineType, AllocationResourceType, AllocationSlotType,
+    allocationCheck, allocationLoadText, allocationLoads, allocationMilliseconds, allocationQuantityText, allocationResourceLine, allocationSlots,
+    type AllocationBinType, type AllocationDayType,
 } from "@elaraai/e3-ui/internal";
 export { DAY, NARROW_WIDTH, dayStart } from "../shared/schedule/window.js";
 
@@ -37,6 +38,10 @@ export type ResourceRow = ValueTypeOf<typeof AllocationResourceType>;
 export type Load = ValueTypeOf<typeof AllocationLoadType>;
 export type Issue = ValueTypeOf<typeof AllocationIssueType>;
 export type Slot = ValueTypeOf<typeof AllocationSlotType>;
+/** A resource's line on the day, and its marks. */
+export type ResourceLine = ValueTypeOf<typeof AllocationResourceLineType>;
+/** A duration, as the payload holds it. */
+export type TimeStep = AllocationValue["every"];
 export type AllocationStyles = Record<string, Record<string, unknown>>;
 /** The viewer's persisted view; the date is an epoch for local storage. */
 export interface AllocationView { layout: "timeline" | "table"; date: number }
@@ -47,6 +52,7 @@ export const dayKey = printFor(DateTimeType);
 export const parseDay = parseFor(DateTimeType);
 export const compareDate = compareFor(DateTimeType);
 export const compareString = compareFor(StringType);
+const compareFloat = compareFor(FloatType);
 
 /** The plans' codecs and pure functions at one values type, compiled once. */
 export interface AllocationDomain {
@@ -61,6 +67,8 @@ export interface AllocationDomain {
     encodeDays: (days: Days) => Uint8Array;
     /** A day, detached: a draft is changed on its own copy, never the record's. */
     copyDay: (day: Day) => Day;
+    /** Whether two bins are the same: a bin unlike the committed day's is a draft. */
+    sameBin: (a: Bin, b: Bin) => boolean;
     /** An event's starting values, decoded from the payload's `initial`. */
     decodeValues: (bytes: Uint8Array) => unknown;
     /** Bin values as bytes: what the app's columns read. */
@@ -100,6 +108,7 @@ export function allocationDomain(valuesType: EastTypeValue): AllocationDomain {
         decodeDays: decodeBeast2For(daysType) as unknown as (bytes: Uint8Array) => Days,
         encodeDays: encodeBeast2For(daysType) as unknown as (days: Days) => Uint8Array,
         copyDay: day => decodeDay(encodeDay(day as never)) as unknown as Day,
+        sameBin: equalFor(AllocationBinTypeFor(values)) as unknown as AllocationDomain["sameBin"],
         decodeValues: decodeBeast2For(values),
         encodeValues: encodeBeast2For(values) as (v: unknown) => Uint8Array,
         blankValues: () => defaultValue(values),
@@ -112,12 +121,19 @@ export function allocationDomain(valuesType: EastTypeValue): AllocationDomain {
     return domain;
 }
 
-/** The words the board shares with e3-ui's functions, compiled once. */
-let words: { quantity: (value: number, unit: string) => string; load: (fill: number, resource: ResourceRow, unit: string) => string } | undefined;
+/** The words and figures the board shares with e3-ui's functions, compiled once. */
+let words: {
+    quantity: (value: number, unit: string) => string;
+    load: (fill: number, resource: ResourceRow, unit: string) => string;
+    line: (day: Date, resource: ResourceRow, load: Load, unit: string) => ResourceLine;
+    ms: (step: TimeStep) => bigint;
+} | undefined;
 export function allocationWords() {
     words ??= {
         quantity: East.compile(allocationQuantityText, []) as (value: number, unit: string) => string,
         load: East.compile(allocationLoadText, []) as (fill: number, resource: ResourceRow, unit: string) => string,
+        line: East.compile(allocationResourceLine, []) as unknown as (day: Date, resource: ResourceRow, load: Load, unit: string) => ResourceLine,
+        ms: East.compile(allocationMilliseconds, []) as unknown as (step: TimeStep) => bigint,
     };
     return words;
 }
@@ -130,6 +146,21 @@ export function allocationContext(value: AllocationValue): Context {
         resources: new SortedMap(value.resources.map(r => [r.key, r] as const), compareString),
         rules: value.rules, unit: value.quantity.unit.type === "some" ? value.quantity.unit.value : "",
     };
+}
+
+/** A bin's parts, the largest first (ties in key order): its first is the resource the bin is shown on. */
+export function partsOf(bin: Bin): { key: string; quantity: number }[] {
+    return [...bin.parts].map(([key, quantity]) => ({ key, quantity })).sort((a, b) => compareFloat(b.quantity, a.quantity) || compareString(a.key, b.key));
+}
+
+/** Whether two bins' parts are the same: a link a draft changed. */
+export const sameParts = equalFor(DictType(StringType, FloatType));
+
+/** The focus (A13): the selected resource, or the selected bin's resource. */
+export function focusOf(selection: Selection | undefined, plan: Day): string | undefined {
+    if (selection?.type === "resource") return selection.key;
+    const bin = selection?.type === "bin" ? plan.bins.get(selection.id) : undefined;
+    return bin === undefined ? undefined : partsOf(bin)[0]?.key;
 }
 
 /** A day with no entry yet: Not started, no bins. */

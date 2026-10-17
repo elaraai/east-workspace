@@ -263,6 +263,24 @@ export const AllocationLoadType = StructType({
 export type AllocationLoadType = typeof AllocationLoadType;
 
 /**
+ * A resource's line on the plan day, as its row and its bins' cards show it
+ * (A16, A19).
+ *
+ * @property text - Its line: the load it holds (`11 m³ · max 9 · 2 over`, `reserved · takes 26–48`, with `· 1 d into next job`), `busy until Fri 14`, or what it is and takes when free (`Hall B · 40 m³ · takes 20–40 m³`)
+ * @property tone - `danger` over its maximum, `warning` overlapping its next job or under its minimum, else `neutral`
+ * @property over - Whether it holds more than its maximum
+ * @property under - Whether it holds something, but less than its minimum
+ * @property overlap - Whether its hold runs into its next job
+ * @property next - Its next job: where an overlap starts
+ */
+export const AllocationResourceLineType = StructType({
+    text: StringType, tone: StatusTokenType, over: BooleanType, under: BooleanType, overlap: BooleanType, next: OptionType(AllocationJobType),
+});
+
+/** Type representing {@link AllocationResourceLineType}. */
+export type AllocationResourceLineType = typeof AllocationResourceLineType;
+
+/**
  * One quantity on one resource, against the drafted plan: what a fit is asked
  * about, one candidate at a time.
  *

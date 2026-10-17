@@ -272,7 +272,7 @@ export const allocationKilnYard = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -575,8 +575,8 @@ buttons 32 × 32. In the product the shared Toolbar's row and items.
 **Timeline.**
 - One header row, 48px over a 1px rule; every block inside it 47px, split 24 +
   23: the lane header (a 48px Lane / Hour column, then a 96px column per lane:
-  `B-1` mono 10.5px 600 with `at :15` in ink-4 over `9 bins · 177 m³` mono
-  9.5px), the 48px link channel (paper-2, a link mark on its lower row), the
+  `B-1` mono 10px 600, tracked 0.12em, with `at :15` in ink-4 over `7 bins · 131 m³`
+  mono 9.5px), the 48px link channel (paper-2, a link mark on its lower row), the
   152px resource label column (Week / Resource), and the ruler: a 24px week row
   (`W18`, `W19 · May 10`, `W20 · May 17`, ink-4 600 uppercase) over a 23px day
   row (`Tu 11`; the plan day in a 16px brand-d badge; names shrink to `11` when a
@@ -584,14 +584,14 @@ buttons 32 × 32. In the product the shared Toolbar's row and items.
 - The lane grid: hour rows 36px per bin in the hour's batch (one at least),
   each with its hour label (`06`) at the left; cards 88 × 28 at x 52 + 96 ×
   lane, y = the hour's top + 4 + 36 × its place in the batch; a card's two lines
-  (code mono 11px 600 with its quantity; `→ K-203` or `not linked` italic, with
+  (code mono 10.5px 600 with its quantity in ink-2 500; `→ K-203` or `not linked` italic, mono 9.5px ink-4, with
   its marks) at 12px line height, padding 0 8px.
 - The connector: a 22px target at right −12px, top 2px, above the link layer;
   inside it a 10px square, 1.5px border, a 1.5px paper ring; filled linked,
   hollow not linked, brand-tint while its link is dragged.
 - The link channel: 48px, paper-2, from the header to the bottom.
 - Resource rows 36px: the 152px label cell (sticky, padding 0 12px 0 20px: a
-  16px rank badge when ranked, the name mono 12px 600, the line mono 9.5px), and
+  16px rank badge when ranked, the name mono 11px 600 on a 14px line, the line mono 9.5px 500), and
   the plot: bars top 8px, 20px tall, radius sm — the prior job (paper-3,
   rule-strong border, its label), the next job (dashed ink-4, `planned`, 8 days
   wide), the day's load (brand-d; a draft dashed brand-d on brand-tint; over max
@@ -599,7 +599,7 @@ buttons 32 × 32. In the product the shared Toolbar's row and items.
   outline offset 4), the overlap (warn 6% wash with warn side rules, the full row
   height), and a ranked fit's preview (dashed brand-d on brand-tint, `+11 m³ ·
   22 m³`); the reason label at right 22px, top 10px, mono 9.5px on paper.
-- The now line: 1px brand-d at the plan day's start. Weekends paper-2; week
+- The now line: at the plan day's start, the shared now line (1.5px of the brand; the mock's is 1px). Weekends paper-2; week
   rules at each Monday; the focus's hold banded brand-tint at 0.7.
 - Refused runs (the default `recede` style): rows fade (ink-4, bars paper-2 on a
   rule border) and one label per run at right 22px, centred on the run: 20px, a
@@ -729,9 +729,10 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 
 - **A14.** The lane grid (§8): a card per bin at its lane and hour; an hour's
   batch stacks a 36px row per bin; free lane hours are drop targets.
-- **A15.** The lane header: the lane, `at :15` (its tooltip `Unloading bay B-1
-  takes one bin at :15 past each hour` is the app's lane label and offset), and
-  `N bins · Q m³` over the lane's bins, reservations not counted.
+- **A15.** The lane header: the lane, `at :15` (its tooltip, the mock's `Unloading
+  bay B-1 takes one bin at :15 past each hour`, is the app's lane label and offset:
+  `B-1 takes one bin at :15 past each hour`), and `N bins · Q m³` over the lane's
+  bins, reservations not counted.
 - **A16.** A card: border rule-strong on paper; a reservation dashed ink-4,
   `Reserved`, no quantity; a draft dashed brand-d on brand-tint, its code
   brand-dd; selected an ink border on paper-3 (dashed for a draft); while dragged
@@ -748,7 +749,8 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 - **A19.** A row's line: loading — the load (`11 m³ · max 9 · 2 over`, `16 m³ ·
   min 40 · 24 short`, `45 m³ · takes 26–48`; `reserved · takes 26–48` with only a
   reservation) and `· 1 d into next job` when it overlaps; busy — `busy until Fri
-  14`; free — `Hall B · takes 20–40 m³`. Neg-text 600 over max; warn-text 600
+  14`; free — its meta (or its group) and what it takes, `Hall B · 40 m³ · takes
+  20–40 m³`. Neg-text 600 over max; warn-text 600
   overlapping or under min; ink-4 otherwise.
 - **A20.** A row's plot (§8): the prior job, the next job (`planned`), the day's
   load for its hold (the longest of its bins' holds), the overlap wash.

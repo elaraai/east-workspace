@@ -109,7 +109,7 @@ export const allocationKilnYard = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -155,7 +155,7 @@ export const allocationTable = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -200,7 +200,7 @@ export const allocationPublished = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -245,7 +245,7 @@ export const allocationNoPublish = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -290,7 +290,7 @@ export const allocationSplit = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -336,7 +336,7 @@ export const allocationWindowed = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -381,7 +381,7 @@ export const allocationMobile = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -435,7 +435,7 @@ export const allocationCustomBin = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[
@@ -480,7 +480,7 @@ export const allocationFitRule = example({
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             })}
             resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${k.max} m³`), note: k => k.note,
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
                 min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
             })}
             columns={[

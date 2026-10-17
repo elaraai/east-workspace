@@ -22,11 +22,11 @@ import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, OptionType, SetType, StringType,
     StructType, none, some, variant, type EastType, type ExprType,
 } from "@elaraai/east";
-import { TimeStepType } from "@elaraai/east-ui";
+import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
 import {
     AllocationCandidateType, AllocationContextType, AllocationDayTypeFor, AllocationEventType, AllocationFitRequestTypeFor,
     AllocationFitResultType, AllocationFitType, AllocationFixType, AllocationIntervalType, AllocationIssueType, AllocationJobType, AllocationLoadType,
-    AllocationResourceType, AllocationRulesType, AllocationSlotType, type AllocationContextType as ContextType,
+    AllocationResourceLineType, AllocationResourceType, AllocationRulesType, AllocationSlotType, type AllocationContextType as ContextType,
     type AllocationDayType, type AllocationFitRequestType,
 } from "./types.js";
 
@@ -144,6 +144,77 @@ export const allocationNextJob = East.function([AllocationResourceType, DateTime
         });
     });
     return found;
+});
+
+/**
+ * A resource's line on the plan day (A19), and the marks its bins' cards carry
+ * (A16).
+ *
+ * @param day - The plan day
+ * @param resource - The resource
+ * @param load - Its load
+ * @param unit - The quantity's unit
+ * @returns Its line, its tone, whether it is over its maximum, under its minimum, or held into its next job, and that job
+ *
+ * @remarks
+ * Loading, the line is its load (`45 m³ · takes 26–48`; `reserved · takes
+ * 26–48` with only reservations) and `· 2 d into next job` when its hold runs
+ * into the job; busy, `busy until Fri 14`; free, its meta (or its group) and
+ * what it takes (`Hall B · 40 m³ · takes 20–40 m³`).
+ */
+export const allocationResourceLine = East.function([DateTimeType, AllocationResourceType, AllocationLoadType, StringType], AllocationResourceLineType, ($, day, resource, load, unit) => {
+    const busyOf = $.const(allocationBusyJob);
+    const nextOf = $.const(allocationNextJob);
+    const dayText = $.const(allocationDayText);
+    const num = $.const(allocationNumberText);
+    const qty = $.const(allocationQuantityText);
+    const loadText = $.const(allocationLoadText);
+    const over = $.const(East.greater(load.fill, resource.max));
+    const under = $.const(East.greater(load.fill, 0.0).and(() => East.less(load.fill, resource.min)));
+    const next = $.const(nextOf(resource, day));
+    const overlap = $.let(false, BooleanType);
+    const into = $.let(0.0, FloatType);
+    $.match(load.hold, {
+        some: ($2, hold) => {
+            $2.match(next, {
+                some: ($3, job) => {
+                    $3.if(East.greater(hold.to, job.start), ($4) => {
+                        $4.assign(overlap, true);
+                        $4.assign(into, job.start.durationMilliseconds(hold.to).toFloat().divide(DAY_MS));
+                    });
+                },
+            });
+        },
+    });
+    const text = $.let("", StringType);
+    $.match(load.state, {
+        loading: ($2) => {
+            const held = $2.const(East.greater(load.fill, 0.0).ifElse(
+                () => loadText(load.fill, resource, unit),
+                () => East.str`reserved · takes ${num(resource.min)}–${num(resource.max)}`));
+            $2.assign(text, overlap.ifElse(() => East.str`${held} · ${num(into)} d into next job`, () => held));
+        },
+        busy: ($2) => {
+            $2.assign(text, busyOf(resource, day).match({
+                some: (_$3, job) => East.str`busy until ${dayText(job.end)}`,
+                none: (_$3) => East.str`busy`,
+            }));
+        },
+        free: ($2) => {
+            const takes = $2.const(East.str`takes ${num(resource.min)}–${qty(resource.max, unit)}`);
+            $2.assign(text, resource.meta.match({
+                some: (_$3, meta) => East.str`${meta} · ${takes}`,
+                none: (_$3) => resource.group.match({ some: (_$4, group) => East.str`${group} · ${takes}`, none: (_$4) => takes }),
+            }));
+        },
+    });
+    return {
+        text,
+        tone: over.ifElse(
+            () => East.value(variant("danger", null), StatusTokenType),
+            () => overlap.or(() => under).ifElse(() => East.value(variant("warning", null), StatusTokenType), () => East.value(variant("neutral", null), StatusTokenType))),
+        over, under, overlap, next,
+    };
 });
 
 // ============================================================================
