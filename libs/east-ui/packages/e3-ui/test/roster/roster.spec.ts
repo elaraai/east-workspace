@@ -4,11 +4,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { East } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, SortedMap, StringType, StructType, compareFor, none, some } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
-import { Roster } from "@elaraai/e3-ui";
-import { Record, RosterPayloadType, createRosterPayload } from "@elaraai/e3-ui/internal";
+import { Slice } from "@elaraai/east-ui";
+import { Data, Roster } from "@elaraai/e3-ui";
+import { Record, RosterAuthorTabType, RosterPayloadType, buildRosterTab, createRosterPayload, type RosterProps } from "@elaraai/e3-ui/internal";
 import { memoryRecords } from "../schedule/memory-records.js";
 import { warehouseConfig } from "./warehouse.js";
 import * as ex from "./roster.examples.js";
@@ -34,4 +35,61 @@ test("library patches reject identity and slot changes even from untyped JavaScr
 
 test("the old Board and Roster are absent from east-ui's public API", () => {
     assert.equal("Board" in EastUI, false); assert.equal("Roster" in EastUI, false);
+});
+
+/** A payload built over the warehouse's weeks, with these props beside the required ones. */
+function payload(props: (weeks: RosterProps["weeks"]) => Partial<RosterProps>) {
+    return East.function([], RosterPayloadType, $ => {
+        const weeks = $.let(Record.bind(ex.rosterWeeks, [ex.rosterWeeksPatch]));
+        return createRosterPayload({ weeks, people: [], groups: warehouseConfig.groups, shifts: warehouseConfig.shifts, ...props(weeks) });
+    });
+}
+const staffSource = () => Data.bindPaged(ex.rosterStaff, { indexes: [ex.rosterStaffByTeamName, ex.rosterStaffByName] });
+const activitySource = () => Data.bindPaged(ex.rosterActivities, { indexes: [ex.rosterActivitiesByGroup] });
+
+test("the narrowing is Slice.bindRecords over people and activities: Slice.bind, a single Slice.bindRecord and a source of another name are refused (#1342)", () => {
+    const named = /Roster: `slice` is Slice.bindRecords\(key, \{ people, activities \}\) — name each source after what it narrows; Slice.bind and Slice.bindRecord are not taken/;
+    assert.throws(() => payload(() => ({ slice: { slice: Slice.bind("spec.local", [{ name: "A. Alder" }], { fields: { name: { label: "Name" } } }) } as never })), named);
+    assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecord("spec.single", staffSource()) } as never })), named);
+    assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.staff", { staff: { source: staffSource() } }) } })),
+        /Roster: `slice` narrows its people and its activities — its source 'staff' is none of them; name the sources `people` and `activities`/);
+});
+
+test("the props #1342 retired are refused by name: visiblePeople, duties, and groups that carry their skills", () => {
+    assert.throws(() => payload(() => ({ visiblePeople: new Set(["aalder"]) } as never)), /Roster: `visiblePeople` is gone — the Roster reads its people from `slice`'s `people` source/);
+    assert.throws(() => payload(() => ({ duties: [] } as never)), /Roster: `duties` is gone — a duty is an activity of no group in `activities`/);
+    assert.throws(() => payload(() => ({ groups: [{ key: "inbound", label: "Inbound", skills: [] }] } as never)),
+        /Roster: groups no longer carry their skills — each skill is an activity of its group in `activities`/);
+});
+
+test("an app's tab follows the source it names; a source the slice lacks is refused; with no slice nothing is narrowed", () => {
+    const Position = StructType({ label: StringType });
+    const positions = (source?: string) => Roster.library.tab(East.value(new Map([["lead", { label: "Supervisor" }]]), DictType(StringType, Position)),
+        { name: "Positions", label: p => p.label, ...(source === undefined ? {} : { source }) });
+    const tabOf = (source: string | undefined, names: readonly string[]) => East.compile(East.function([], RosterAuthorTabType, _$ =>
+        buildRosterTab(positions(source) as Extract<ReturnType<typeof positions>, { kind: "tab" }>, names)), [])();
+    assert.deepEqual(tabOf("people", ["people", "activities"]).source, some("people"));
+    assert.deepEqual(tabOf(undefined, ["people", "activities"]).source, none);
+    assert.throws(() => tabOf("positions", ["people"]), /Roster: the Positions tab's source 'positions' is not one of the slice's sources \(people\)/);
+    assert.throws(() => payload(() => ({ library: [positions("people")] })), /\(it has no slice\)/);
+    // The tag builds over both sources, and over either alone.
+    for (const sources of [{ people: { source: staffSource() } }, { activities: { source: activitySource() } }, { people: { source: staffSource() }, activities: { source: activitySource() } }]) {
+        assert.doesNotThrow(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.roster", sources as never) }, library: [Roster.library.people(), Roster.library.activities()] })));
+    }
+    const bare = East.compile(payload(() => ({})), memoryRecords(new Map([[ex.rosterWeeks.name, ex.rosterWeeks.default]])))();
+    assert.deepEqual([bare.slice.type, bare.narrowed.people.type, bare.narrowed.activities.type, bare.activities], ["none", "none", "none", []]);
+});
+
+test("Roster.activities reads a keyed record in its order: each skill with its group, a duty with none, a missing code empty", () => {
+    const Skills = ArrayType(Roster.Types.Skill);
+    const read = East.compile(East.function([DictType(StringType, Roster.Types.Activity)], Skills, (_$, rows) => Roster.activities(rows, { label: a => a.label, code: a => a.code, group: a => a.group })), []);
+    const rows = new SortedMap([["unload", { label: "Unloading", code: "UL", group: some("inbound") }], ["general", { label: "General duties", code: "GD", group: none }]], compareFor(StringType));
+    assert.deepEqual(read(rows), [
+        { key: "general", label: "General duties", code: "GD", group: none },
+        { key: "unload", label: "Unloading", code: "UL", group: some("inbound") },
+    ]);
+    const labelsOnly = East.compile(East.function([DictType(StringType, Roster.Types.Activity)], Skills, (_$, rows) => Roster.activities(rows, { label: a => a.label })), []);
+    assert.deepEqual(labelsOnly(new SortedMap([["pick", { label: "Order picking", code: "OP", group: some("picking") }]], compareFor(StringType))), [{ key: "pick", label: "Order picking", code: "", group: none }]);
+    assert.throws(() => East.function([DictType(DateTimeType, Roster.Types.Activity)], Skills, (_$, rows) => Roster.activities(rows as never, { label: () => "" })),
+        /Roster.activities: activities must be a Dict keyed by String/);
 });

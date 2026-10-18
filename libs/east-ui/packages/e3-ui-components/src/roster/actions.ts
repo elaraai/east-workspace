@@ -8,11 +8,12 @@ import { SortedMap, none, some, variant, type ValueTypeOf } from "@elaraai/east"
 import type { RosterPatchType } from "@elaraai/e3-ui/internal";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { RosterEditing } from "./editing.js";
-import { assignmentFor, availableProposals, compareString, copyWeek, sameSlot, type Assignment, type Issue, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
+import { activityOf, assignmentFor, availableProposals, compareString, copyWeek, sameSlot, type Assignment, type Issue, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
 
 /** Where a place command gets its person or request. */
 export type RosterSource = { type: "person" | "agency" | "assignment" | "proposal"; key: string };
-export type PeopleFocus = { type: "leads" | "trainers" | "off" } | { type: "skill"; key: string } | undefined;
+/** What a Find fix found: the leads, the trainers, or the holders of a skill — a result in the People tab, with its chip (#1342). */
+export type PeopleFocus = { type: "leads" | "trainers" } | { type: "skill"; key: string } | undefined;
 /** All mutation paths use these guarded commands and one session transaction. */
 export interface RosterCommands {
     editing: RosterEditing;
@@ -47,7 +48,8 @@ export function rosterCommands(value: RosterValue, editing: RosterEditing, start
         if (next.who.type === "request" && next.activity.type === "some") return "Assign an activity to a named person.";
         if (next.activity.type === "some") {
             const key = next.activity.value;
-            if (!value.duties.some(a => a.key === key) && !value.groups.find(g => g.key === next.slot.group)?.skills.some(a => a.key === key)) return "Choose an activity for this group, or a shared duty.";
+            const activity = activityOf(value, key);
+            if (activity === undefined || (activity.group.type === "some" && activity.group.value !== next.slot.group)) return "Choose an activity for this group, or a shared duty.";
         }
         return undefined;
     };

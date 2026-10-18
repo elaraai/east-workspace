@@ -123,7 +123,8 @@ for (const theme of ['light', 'dark'] as const) {
             expect(await toolbarFaults(frame)).toEqual([]);
             await view(page, frame, 'Shifts');
         }
-        await size(page, entry, 1440);
+        // Back on Shifts, its chosen period is kept: on the row from a 1920px frame, where the rail's summary and the view both fit.
+        await size(page, entry, 1920);
         await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
     });
     test(`phone edits a named assignment and saves through e3 (${theme}) @narrow`, async ({ page }) => {

@@ -3,11 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, StructType, example, some } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Roster } from "@elaraai/e3-ui";
-import { WarehouseConfig, WarehousePerson, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
+import { WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
 
 export const rosterWeeks = e3.record("roster_weeks", Roster.Types.Weeks, warehouseWeeks);
 export const rosterWeeksPatch = e3.mutation.patch(rosterWeeks);
@@ -15,10 +15,21 @@ export const rosterStaff = e3.record("roster_staff", DictType(StringType, Wareho
 export const rosterConfiguration = e3.record("roster_configuration", WarehouseConfig, warehouseConfig);
 export const rosterForecast = e3.record("roster_forecast", DictType(DateTimeType, Roster.Types.Requirements), warehouseForecast);
 export const rosterProposals = e3.record("roster_proposals", ArrayType(Roster.Types.Proposal), warehouseProposals);
+/** Every activity by its key: each group's skills, and the duty of none (#1342). */
+export const rosterActivities = e3.record("roster_activities", DictType(StringType, Roster.Types.Activity), warehouseActivities);
+
+// The rail's fields, each on an index of its own: the staff by group then name, position, trainer, agency, skill and name, the activities by group.
+export const rosterStaffByTeamName = e3.recordIndex("roster_staff_by_team_name", rosterStaff, { on: ["team", "name"] });
+export const rosterStaffByPosition = e3.recordIndex("roster_staff_by_position", rosterStaff, { on: ["position"] });
+export const rosterStaffByTrainer = e3.recordIndex("roster_staff_by_trainer", rosterStaff, { on: ["trainer"] });
+export const rosterStaffByAgency = e3.recordIndex("roster_staff_by_agency", rosterStaff, { on: ["agency"] });
+export const rosterStaffBySkill = e3.recordIndex("roster_staff_by_skill", rosterStaff, { on: ["skills"] });
+export const rosterStaffByName = e3.recordIndex("roster_staff_by_name", rosterStaff, { on: ["name"] });
+export const rosterActivitiesByGroup = e3.recordIndex("roster_activities_by_group", rosterActivities, { on: ["group"] });
 
 export const rosterWarehouse = example({
-    inputs: [], description: 'The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, a People/Activities/Positions library, shared Slice filtering, typed inspector, and whole-week Save and Publish.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    inputs: [], description: 'The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, and whole-week Save and Publish.',
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -26,17 +37,21 @@ export const rosterWarehouse = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterWarehouse.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterWarehouse", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         return <Box width="100%" height="760px"><Roster id="rosterWarehouse" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -48,7 +63,7 @@ export const rosterWarehouse = example({
 
 export const rosterMobile = example({
     inputs: [], description: 'The warehouse roster in a phone-width container: explicit Assign, Move, Edit, Remove, Restore, Request, Accept, Reject and target actions. The same session survives resizing; mobile cards register no drag sources or targets.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -56,17 +71,21 @@ export const rosterMobile = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterMobile.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterMobile", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         return <Box width="100%" maxWidth="390px" height="760px"><Roster id="rosterMobile" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -78,7 +97,7 @@ export const rosterMobile = example({
 
 export const rosterPeople = example({
     inputs: [], description: 'Weekly people layout over the same records: each person retains their original key, contract hours and daily shifts, with a separate agency-requests row.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -86,17 +105,21 @@ export const rosterPeople = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterPeople.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterPeople", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         return <Box width="100%" height="760px"><Roster id="rosterPeople" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -108,7 +131,7 @@ export const rosterPeople = example({
 
 export const rosterWeek = example({
     inputs: [], description: 'Seven days of group-by-shift coverage, opening any day for detailed staffing.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -116,17 +139,21 @@ export const rosterWeek = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterWeek.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterWeek", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         return <Box width="100%" height="760px"><Roster id="rosterWeek" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -137,8 +164,8 @@ export const rosterWeek = example({
 });
 
 export const rosterWindowed = example({
-    inputs: [], description: 'A bounded history window using Data.bindPaged on the same weeks record. The author-bound Slice range and roster navigation choose the same week. Only that week, the previous copy source and the open picker month are requested.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    inputs: [], description: 'A bounded history window using Data.bindPaged on the same weeks record. The roster\'s own navigation and its picker choose the week; only that week, the previous copy source and the open picker month are requested.',
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Data.bindPaged", "history", "BuilderFrame", "Save", "Publish"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -146,21 +173,13 @@ export const rosterWindowed = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
+        const acts = $.let(Data.bind(rosterActivities));
+        // The week history is paged: the roster reads the open week, the week before it and the open picker's month.
         const history = $.let(Data.bindPaged(rosterWeeks));
-        const WeekKey = StructType({ week: DateTimeType });
-        const first = $.const(new Date("2028-03-12T00:00:00Z"), DateTimeType);
-        // A bounded horizon of keys, independent of the record's rows and history.
-        const horizon = $.let(East.Array.generate(13n, WeekKey, (_$2, i) => ({ week: first.addDays(i.subtract(6n).multiply(7n)) })));
-        const slice = $.let(Slice.bind("ex.rosterWindowed.weeks", horizon, {
-            fields: { week: { label: "Week", format: { date: "MMM D" } } },
-            range: "week",
-            initial: { week: { from: first, to: first.addDays(7n).addMilliseconds(-1n) } },
-        }));
         return <Box width="100%" height="760px"><Roster id="rosterWindowed" weeks={weeks} window={history}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            slice={{ slice, affordances: ["range"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-12T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -172,7 +191,7 @@ export const rosterWindowed = example({
 
 export const rosterMinimal = example({
     inputs: [], description: 'A minimal roster without a library or inspector pane. Explicit assignment actions and forecast targets still use the shared week session.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -180,17 +199,21 @@ export const rosterMinimal = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterMinimal.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterMinimal", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         return <Box width="100%" height="760px"><Roster id="rosterMinimal" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-12T00:00:00Z") }}
  />
@@ -200,7 +223,7 @@ export const rosterMinimal = example({
 
 export const rosterPublished = example({
     inputs: [], description: 'The previous published roster is read-only: navigation, staff filtering, coverage and inspection remain available.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -208,17 +231,21 @@ export const rosterPublished = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterPublished.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterPublished", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         return <Box width="100%" height="760px"><Roster id="rosterPublished" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-02T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -230,7 +257,7 @@ export const rosterPublished = example({
 
 export const rosterCustomInspector = example({
     inputs: [], description: 'Typed author assignment and requirement forms replace the built-in fields while preserving the shared headers, coverage, actions and undo history.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Slice", "Slice.bind", "Slice.rows", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -238,12 +265,16 @@ export const rosterCustomInspector = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
-        const rows = $.let(staff.read().toArray((_$2, person, key) => ({ key, name: person.name, team: person.team, position: person.position, agency: person.agency, trainer: person.trainer })));
-        const slice = $.let(Slice.bind("ex.rosterCustomInspector.scope", rows, {
-            fields: { name: { label: "Name" }, team: { label: "Group" }, position: { label: "Position" }, agency: { label: "Agency" }, trainer: { label: "Trainer" } },
-            search: ["name", "team", "position"],
-        }));
-        const visible = $.let(Slice.rows(slice).toSet((_$2, person) => person.key));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const acts = $.let(Data.bind(rosterActivities));
+        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterCustomInspector", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
         const assignment = $.const(East.function([Roster.Types.Assignment, FunctionType([Roster.Types.Assignment], NullType)], UIComponentType, (_$2, row, update) =>
             <VStack><Field.FloatInput label="Custom overtime" value={row.overtime} min={0} max={4} step={0.5} onChange={(_$3, value) => update({ slot: row.slot, who: row.who, position: row.position, activity: row.activity, offset: row.offset, overtime: value, agreed: row.agreed })} /></VStack>));
         const requirement = $.const(East.function([Roster.Types.Requirement, FunctionType([Roster.Types.Requirement], NullType)], UIComponentType, (_$2, row, update) =>
@@ -251,8 +282,8 @@ export const rosterCustomInspector = example({
         return <Box width="100%" height="760px"><Roster id="rosterCustomInspector" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            visiblePeople={visible} slice={{ slice, affordances: ["filter", "search"] }}
-            groups={cfg.groups} shifts={cfg.shifts} duties={cfg.duties} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            slice={{ slice }}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {

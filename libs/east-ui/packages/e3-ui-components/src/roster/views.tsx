@@ -16,7 +16,7 @@ import { AssignmentActions, PlaceAction, RequirementAction } from "./controls.js
 import { readRosterSource } from "./identity.js";
 import { rosterCoord, type RosterDrag } from "./drag.js";
 import type { RosterCommands } from "./actions.js";
-import { DAY, assignmentTimes, sameAssignment, sameSlot, slotKey, type Assignment, type Coverage, type Issue, type Proposal, type RosterStyles, type RosterValue, type RosterView, type Selection, type Slot, type Week } from "./model.js";
+import { DAY, activityOf, assignmentTimes, groupSkills, sameAssignment, sameSlot, slotKey, type Assignment, type Coverage, type Issue, type Proposal, type RosterStyles, type RosterValue, type RosterView, type Selection, type Slot, type Week } from "./model.js";
 
 export interface RosterViewsProps {
     value: RosterValue; week: Week; held: Week | undefined; start: Date; day: number; view: RosterView; setView: (view: RosterView) => void;
@@ -59,7 +59,7 @@ export function CoverageView({ coverage: c, value, styles, format, compact = fal
             <Box css={styles.coverageTick} style={{ left: `${c.hours.needed / max * 100}%` }} />
         </Box>
         <Box css={styles.detail}>{parts.filter(p => p.kind !== "open" && p.width > 0).map(p => `${format.number(p.width)} ${p.kind === "permanent" ? "perm" : p.kind === "overtime" ? "OT" : p.kind}`).join(" · ") || "Nothing rostered"} h{value.costs.type === "some" && ` · ${money(format, value, c.cost)}`}</Box>
-        {!compact && c.lines.map(line => { const activity = [...value.groups.flatMap(g => g.skills), ...value.duties].find(a => a.key === line.skill); return <Box key={line.skill} css={styles.skillLine} data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
+        {!compact && c.lines.map(line => { const activity = activityOf(value, line.skill); return <Box key={line.skill} css={styles.skillLine} data-tone={line.gap > 0 ? "warning" : line.assigned >= line.needed ? "success" : undefined}
             title={`${activity?.label ?? line.skill} · ${format.number(line.assigned)} h assigned of ${format.number(line.needed)} h needed${line.capacity.type === "some" ? ` · ${format.number(line.capacity.value)} h capacity` : ""}`}>
             <Box as="span" css={styles.skillCode}>{activity?.code}</Box><span>{activity?.label ?? line.skill}</span><Box as="span" css={styles.skillCode}>{line.holders.type === "some" ? `${line.holders.value}/${c.people}` : "—"}</Box><span>{format.number(line.assigned)} / {format.number(line.needed)}</span>
         </Box>; })}
@@ -90,11 +90,11 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ props, id, assignm
     const person = a.who.type === "person" ? value.people.find(p => p.key === a.who.value) : undefined;
     const position = value.positions.find(p => p.key === a.position);
     const issues = removed ? [] : props.issues.filter(i => i.assignment.type === "some" && i.assignment.value === id);
-    const activity = a.activity.type === "some" ? [...value.groups.flatMap(g => g.skills), ...value.duties].find(activity => activity.key === a.activity.value) : undefined;
+    const activity = a.activity.type === "some" ? activityOf(value, a.activity.value) : undefined;
     const baseline = props.held?.assignments.get(id);
     const drafted = removed || baseline === undefined || !sameAssignment(baseline, a);
     const time = assignmentTimes(a, value, props.start);
-    const skills = value.groups.find(g => g.key === a.slot.group)?.skills ?? [];
+    const skills = groupSkills(value, a.slot.group);
     const label = `${name}${time === undefined ? "" : ` · ${props.format.time(time.from)}–${props.format.time(time.to)}`}${removed ? " · removed" : ""}`;
     return <Box {...handle} ref={attach} css={styles.assignment} tabIndex={0} role="button" aria-label={label} title={label} aria-pressed={props.selection?.type === "assignment" && props.selection.key === id}
         data-roster-assignment={id} data-layout={short ? "people" : "shifts"} data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined} data-density={value.settings.density.type} data-selected={props.selection?.type === "assignment" && props.selection.key === id ? "" : undefined}
@@ -270,7 +270,7 @@ function AssignmentCard({ props, id, assignment, removed }: { props: RosterViews
     const times = assignmentTimes(assignment, props.value, props.start), baseline = props.held?.assignments.get(id);
     return <Box css={props.styles.card} data-roster-card={id} data-selected={props.selection?.type === "assignment" && props.selection.key === id ? "" : undefined} data-drafted={removed || baseline === undefined || !sameAssignment(baseline, assignment) ? "" : undefined}>
         <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "assignment", key: id })}>{assignmentName(props.value, assignment)}{removed && " · removed"}</chakra.button>
-        <Box css={props.styles.detail}>{times !== undefined && `${props.format.time(times.from)}–${props.format.time(times.to)}`}{assignment.activity.type === "some" && ` · ${[...props.value.groups.flatMap(g => g.skills), ...props.value.duties].find(a => a.key === assignment.activity.value)?.label ?? assignment.activity.value}`}</Box>
+        <Box css={props.styles.detail}>{times !== undefined && `${props.format.time(times.from)}–${props.format.time(times.to)}`}{assignment.activity.type === "some" && ` · ${activityOf(props.value, assignment.activity.value)?.label ?? assignment.activity.value}`}</Box>
         {props.issues.filter(i => i.assignment.type === "some" && i.assignment.value === id).map((issue, i) => <Box key={i} css={props.styles.flag} data-tone={issue.tone.type}>{issue.title}</Box>)}
         <AssignmentActions id={id} assignment={assignment} removed={removed} value={props.value} start={props.start} commands={props.commands} styles={props.styles} />
     </Box>;

@@ -15,20 +15,27 @@ import { useRosterEditing } from "./editing.js";
 import { RosterFooter } from "./footer.js";
 import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
-import { DAY, NARROW_WIDTH, availableProposals, configError, rosterContext, rosterDomain, type Issue, type RosterStyles, type RosterValue, type Selection } from "./model.js";
+import { DAY, NARROW_WIDTH, availableProposals, configError, rosterContext, rosterDomain, type Issue, type RosterPayload, type RosterStyles, type RosterValue, type Selection } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
 import { RosterViews } from "./views.js";
 import { useRosterWindow } from "./window.js";
-import { useRosterVisibility } from "./visibility.js";
+import { rosterPart, useRosterVisibility } from "./visibility.js";
+import { useSourceShown } from "../shared/schedule/source-tab.js";
 export type { RosterValue } from "./model.js";
 /** Props of the record-backed Roster extension. */
-export interface EastChakraRosterProps { value: RosterValue; storageKey: string }
+export interface EastChakraRosterProps { value: RosterPayload; storageKey: string }
 const NO_DATES: readonly Date[] = [];
 function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const key = `${storageKey}.${source.id.type === "some" ? source.id.value : "roster"}`;
     const { state: display, setState: setDisplay } = usePersistedState(`${key}.display`, { density: source.settings.density.type, chipSkills: source.settings.chipSkills, requirements: source.settings.requirements });
-    const visibility = useRosterVisibility(source);
-    const value = useMemo(() => ({ ...source, visiblePeople: visibility.keys, settings: { ...source.settings, ...display, density: variant(display.density, null) } }), [source, display, visibility.keys]);
+    // The narrowing chooses which people and activities show, read from the slice itself (#1342); coverage, costs and checks read every one.
+    const visibility = useRosterVisibility(source, "people");
+    const activities = useRosterVisibility(source, "activities");
+    const value: RosterValue = useMemo(() => ({ ...source, visiblePeople: visibility.keys, visibleActivities: activities.keys, settings: { ...source.settings, ...display, density: variant(display.density, null) } }),
+        [source, display, visibility.keys, activities.keys]);
+    // What the rail shows of each Library tab's source, and how that source alone clears.
+    const peopleShown = useSourceShown(visibility, rosterPart(source, "people"));
+    const activitiesShown = useSourceShown(activities, rosterPart(source, "activities"));
     const window = useRosterWindow(value, key);
     const [pickerDates, setPickerDates] = useState(NO_DATES);
     const data = useRosterData(value, window.start, pickerDates);
@@ -65,7 +72,8 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const drag = useRosterDrag({ value, commands, storageKey: key, narrow, start: window.start, onError: setError });
     const viewProps = { value, week: editing.week, held: editing.held, start: window.start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, issues, proposals, selection, select, commands, drag, onError: setError };
-    const start = useRosterLibrary({ ...viewProps, storageKey: key, focus, tab: libraryTab, onTab: setLibraryTab });
+    const start = useRosterLibrary({ ...viewProps, storageKey: key, focus, onClearFocus: () => setFocus(undefined), tab: libraryTab, onTab: setLibraryTab,
+        shown: { people: peopleShown, activities: activitiesShown } });
     const end = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab });
     const onIssues = () => { setTab("issues"); revealPane("Inspector"); };
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
@@ -73,7 +81,7 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const previous = data.weeks.get(new Date(window.start.getTime() - 7 * DAY));
     const published = data.weeks.get(window.start)?.status.type === "published";
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={published || value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={(data.loading && data.error === undefined) || (!visibility.ready && visibility.loading)} start={start} end={end} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={(data.loading && data.error === undefined) || (!visibility.ready && visibility.loading) || (!activities.ready && activities.loading)} start={start} end={end} toolbar={toolbar} onKeyDown={event => {
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event); if (action !== undefined && !value.settings.readOnly && !published) { event.preventDefault(); onAction(action); }
             else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.setView({ ...window.view, date: window.view.date + (event.key === "[" ? -7 : 7) * DAY }); }
@@ -86,6 +94,7 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
                 actions={previous !== undefined && editing.available ? <Button size="xs" variant="outline" onClick={() => commands.copy(previous)}>Copy previous week</Button> : undefined} />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The roster's additional checks could not run. Built-in checks are still shown." />}
             {visibility.error !== undefined && <BannerView status="error" title="Staff results unavailable" description={visibility.error} actions={<Button size="xs" variant="outline" onClick={visibility.retry}>Retry</Button>} />}
+            {activities.error !== undefined && <BannerView status="error" title="Activity results unavailable" description={activities.error} actions={<Button size="xs" variant="outline" onClick={activities.retry}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<RosterFooter styles={styles} narrow={narrow} />}>
             <Box ref={main} css={styles.main} data-roster-main="" aria-busy={(data.loading && data.error === undefined) || visibility.loading} inert={visibility.loading || visibility.error !== undefined ? true : undefined} data-roster-narrow={narrow ? "" : undefined}>{data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Roster unavailable" message={data.error} /> : <RosterViews {...viewProps} />}</Box>

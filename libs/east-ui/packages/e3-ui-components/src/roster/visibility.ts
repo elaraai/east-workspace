@@ -2,13 +2,47 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-/** Indexed visibility is independent of complete roster calculations and sessions. */
-import { useKeyVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
-import type { RosterValue } from "./model.js";
+/**
+ * Which people and activities show (#1342): the Roster reads each source of its
+ * `Slice.bindRecords` itself through the shared source visibility, and a source
+ * with nothing chosen reads no page and hides nothing. Coverage, costs, checks
+ * and the editing session never see it.
+ */
+import type { ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { sourcePart, useSourceVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
+import type { RosterPayload } from "./model.js";
 
-const WORDS = { changed: "Staff results changed; retry the narrowing.", failed: "Could not load staff results" };
+/** A narrowed source's name: what its rows are on the Roster. */
+export type RosterNarrowed = "people" | "activities";
 
-/** Keep the previous complete membership while a new narrowing resolves. */
-export function useRosterVisibility(value: Pick<RosterValue, "visibleSource" | "visiblePeople" | "people" | "recordSlice">): KeyVisibility {
-    return useKeyVisibility({ visibleSource: value.visibleSource, visible: value.visiblePeople, rows: value.people, recordSlice: value.recordSlice }, WORDS);
+/** What a failed narrowing of each source says. */
+const WORDS = {
+    people: { changed: "Staff results changed; retry the narrowing.", failed: "Could not load staff results" },
+    activities: { changed: "Activity results changed; retry the narrowing.", failed: "Could not load activity results" },
+} as const;
+
+/**
+ * A source's part of the Roster's narrowing, if the slice has one.
+ *
+ * @param value - The payload
+ * @param source - The source
+ * @returns Its record Slice's controls
+ */
+export function rosterPart(value: RosterPayload, source: RosterNarrowed): ValueTypeOf<RecordSliceBindType> | undefined {
+    return sourcePart(value.slice.type === "some" ? value.slice.value : undefined, source);
+}
+
+/**
+ * Which of a source's rows show: its narrowed keys while a choice narrows it,
+ * every row while none does; the previous complete membership while a new one
+ * resolves.
+ *
+ * @param value - The payload
+ * @param source - The source
+ * @returns The keys to show, and the narrowing's state
+ */
+export function useRosterVisibility(value: RosterPayload, source: RosterNarrowed): KeyVisibility {
+    return useSourceVisibility(value.slice.type === "some" ? value.slice.value : undefined, source, value.narrowed[source],
+        source === "people" ? value.people : value.activities, WORDS[source]);
 }

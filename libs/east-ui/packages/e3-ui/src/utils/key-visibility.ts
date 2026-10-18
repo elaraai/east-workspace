@@ -6,9 +6,9 @@
 /**
  * Which of a builder's rows show: a Set of the rows' original String keys, or
  * `Slice.rows(recordSlice)` over an indexed record, projected to those keys —
- * never a row predicate. The Roster's `visiblePeople` and the Allocation's
- * `visibleResources`; the complete rows stay a separate input, for the
- * calculations a narrowing never changes.
+ * never a row predicate. `recordSources` reads each source of a builder's
+ * `Slice.bindRecords` through it (#1340); the complete rows stay a separate
+ * input, for the calculations a narrowing never changes.
  *
  * @packageDocumentation
  */
@@ -20,7 +20,7 @@ import { buildRowSource, resolveRowSource } from "@elaraai/east-ui/internal";
  * original keys through the shared paging.
  *
  * @param input - Original row keys, or indexed record windows
- * @param prop - The prop it was given as, for the refusal (`Roster.visiblePeople`)
+ * @param prop - What it was given as, for the refusal (`Roster.slice's people`)
  * @returns The inline Set, or a source of original keys
  * @throws {Error} Naming `prop`, when it is neither a Set of String keys nor `Slice.rows` of a record Slice with String keys
  */

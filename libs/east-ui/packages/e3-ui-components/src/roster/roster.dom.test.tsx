@@ -5,16 +5,11 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { act, builderHarness, mount, settle, slot, width } from "../shared/builder-harness.test-utils.js";
-import "./index.js";
-const WORKSPACE = "roster-test";
-const h = builderHarness(WORKSPACE, [ex.rosterWeeks, ex.rosterStaff, ex.rosterConfiguration, ex.rosterForecast, ex.rosterProposals], "data-roster-main");
-const START = new Date("2028-03-05T00:00:00Z");
-const assignment = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-assignment="${id}"]`)!;
-const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-card="${id}"]`)!;
+import { act, assignment, card, mount, narrow, open, rosterHarness, settle, slot, START, width, WORKSPACE, type Choice } from "./harness.test-utils.js";
+const h = rosterHarness();
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
 
@@ -24,7 +19,7 @@ describe("Roster in the shared record-backed frame", () => {
         expect(container.querySelectorAll("[data-builder-frame]")).toHaveLength(1);
         expect(assignment(container, "s37").textContent).toContain("C. Clover");
         expect(slot(container, "main").querySelectorAll("[data-roster-proposal]")).toHaveLength(2);
-        expect([...slot(container, "start").querySelectorAll('[role="tab"]')].map(t => t.textContent)).toEqual(["People 70", "Activities 17", "Positions 4"]);
+        expect([...slot(container, "start").querySelectorAll('[role="tab"]')].map(t => t.textContent)).toEqual(["People 69", "Activities 17", "Positions 4"]);
         expect(slot(container, "main").textContent).toContain("Inbound");
         expect(slot(container, "main").textContent).toContain("Early");
         expect(h.read(ex.rosterWeeks).get(START)!.assignments.size).toBe(316);
@@ -64,11 +59,10 @@ describe("Roster in the shared record-backed frame", () => {
         expect(within(card(container, "s37")).getByRole("button", { name: "Move" })).not.toBeNull();
         expect(h.read(ex.rosterWeeks).get(START)!.assignments.has("s37")).toBe(true);
     });
-    test("Slice narrows visible staff by their original keys while coverage and issues remain complete", async () => {
-        const { container } = mount(ex.rosterWarehouse); await settle();
+    test("the people source narrows visible staff by their original keys while coverage and issues remain complete", async () => {
+        const { container, store } = await open(ex.rosterWarehouse);
         const before = [...container.querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"));
-        const user = userEvent.setup();
-        await user.type(within(slot(container, "toolbar")).getByPlaceholderText("Search…"), "Clover"); await settle();
+        await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["name", variant("prefix", "C. Clo")]]));
         const people = [...container.querySelectorAll('[data-roster-assignment]:not([data-request])')];
         expect(people).toHaveLength(1); expect(people[0]!.getAttribute("data-roster-assignment")).toBe("s37");
         expect([...container.querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"))).toEqual(before);

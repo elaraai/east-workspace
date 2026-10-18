@@ -49,8 +49,8 @@ backlog remains part of the authoritative event record.
 A builder's tag checks its `slice` with `utils/record-sources.ts`'
 `recordSources`, and a Library tab's `source` with `tabSource` (#1340): each
 builder that has moved onto them takes only `Slice.bindRecords`, its sources
-named after what they narrow — the Allocation first, the others each in their
-own child of #1340. Until a builder has moved:
+named after what they narrow — the Allocation and the Roster so far, the others
+each in their own child of #1340. Until a builder has moved:
 
 Choose the Slice arm from the source, not from the builder:
 
@@ -60,7 +60,7 @@ Choose the Slice arm from the source, not from the builder:
 - Indexed records: declare `e3.recordIndex(name, record, { on: [fields...] })`,
   bind with `Data.bindPaged(record, { indexes })`, then
   `Slice.bindRecord(key, binding, options)`. Pass `Slice.rows(slice)` as Plan/
-  Sheet data or Roster `visiblePeople`, and the same handle to `slice` chrome.
+  Sheet data, and the same handle to `slice` chrome.
   Never turn the loaded page into another local Slice or implement a browser
   predicate. Typed controls and supported combinations come from declared indexes.
 - Calendar event records: declare an interval index, for example
@@ -198,8 +198,8 @@ a few characters per line. Preserve the shared destination/refusal caption.
 
 ### Weekly records: Roster's reference case
 
-The examples declare staff, configuration, forecasts and proposals as
-`e3.record` definitions. `Data.bind(record)` provides reactive reads of a
+The examples declare staff, activities, configuration, forecasts and proposals
+as `e3.record` definitions; a group's skills are the activities of that group. `Data.bind(record)` provides reactive reads of a
 record, just as it reads inputs and task outputs. `Record.bind(record,
 mutations)` adds the mutation commands for a record the surface edits. The
 binding name does not change the source's storage kind. Keep these declarations
@@ -213,24 +213,27 @@ one request. Unconfirmed writes retain the draft and the same retry identity.
 Switching weeks, filtering or resizing must not discard another week's draft.
 
 Keep **visibility separate from calculation scope** when the domain requires
-it. Roster takes complete `people` for coverage, costs, rest and skill/lead/
-trainer checks. A record Slice over staff supplies
-`visiblePeople={Slice.rows(slice)}` and `slice={{ slice }}`; local Slice supplies
-a Set of original staff keys. Indexed visibility pages only the chosen result,
+it. Roster takes complete `people` and `activities` (`Roster.activities` over a
+keyed activities record) for coverage, costs, rest and skill/lead/trainer
+checks. `slice={{ slice }}` takes `Slice.bindRecords(key, { people, activities
+})` alone, and the Roster reads each source's keys itself (#1342); it refuses
+`visiblePeople`, `duties` and groups that carry their skills, naming the change.
+Indexed visibility pages only the chosen result,
 retains the previous complete membership while pending and never changes the
 weekly editing session. Hidden assignment edits still Save the original week.
 The staff date fields are not the week-navigation state. Bounded complete staff
 may be read for domain arithmetic; never read all history or staff merely to
 make filter choices or pretend to implement an indexed predicate.
 
-The windowed example binds a separate week-key Slice range and
-`Data.bindPaged` on the weeks record. The same range is read by the shared
-range control and written by roster navigation. Seek the active week, the
-previous Copy source and the open picker's month only; do not read the whole
-record to build the picker. Test an external Slice write and reverse navigation.
+The windowed example binds `Data.bindPaged` on the weeks record; the week is
+the Roster's own navigation and its picker, never a Slice (ruled 18 Oct, #1342).
+Seek the active week, the previous Copy source and the open picker's month only;
+do not read the whole record to build the picker. Test reverse navigation.
 
-Use the Library's facet engine for role/skill focus. A host may control those
-facets, but must not create a second search/filter implementation. Keep typed
+The People tab has no filter of its own: leads, trainers, agency and skill are
+rail fields of the staff record (#1342). A Find fix's leads, trainers or skill
+holders are a result in the People tab, with a chip that clears it; never a
+second search/filter implementation. Keep typed
 inspector callbacks on the same guarded commands as dragging and mobile
 forms; they cannot replace assignment identity or bypass published/read-only
 state. Pure coverage and rule functions live in e3-ui and are compiled for

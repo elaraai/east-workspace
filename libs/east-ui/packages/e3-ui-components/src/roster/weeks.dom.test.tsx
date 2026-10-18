@@ -5,14 +5,13 @@
  */
 import { afterEach, describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { encodeBeast2For, equalFor, variant } from "@elaraai/east";
 import { RosterRequirementsType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { clearPagedApi, initializePagedApi, initializeRecordApi, type RecordApi } from "../platform/index.js";
 import { countWholeReads, recordPaging } from "../platform/record-paging.test-utils.js";
-import { act, assignment, card, mount, NEXT, rosterHarness, settle, slot, START, width, WORKSPACE } from "./harness.test-utils.js";
+import { act, assignment, card, mount, narrow, NEXT, open, rosterHarness, settle, slot, START, width, WORKSPACE, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
@@ -112,12 +111,12 @@ describe("Roster week lifecycle", () => {
         expect((await h.memory.history(WORKSPACE, ex.rosterWeeks.name, undefined)).commits.map(c => c.mutation)).toEqual(["patch", "$init"]);
     });
     test("record-backed staff and configuration refresh, and hidden drafts still Save under their original identities", async () => {
-        const { container } = mount(ex.rosterWarehouse); await settle();
+        const { container, store } = await open(ex.rosterWarehouse);
         const staff = h.read(ex.rosterStaff); staff.set("cclover", { ...staff.get("cclover")!, name: "C. Live" });
         await h.commit(ex.rosterStaff, staff);
         expect(assignment(container, "s37").textContent).toContain("C. Live");
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Live" }));
-        const user = userEvent.setup(); await user.type(within(slot(container, "toolbar")).getByPlaceholderText("Search…"), "Aspen"); await settle();
+        await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["name", variant("prefix", "H. Aspen")]]));
         expect(assignment(container, "s37")).toBeNull(); await press(history(container, editingMessages.apply()));
         expect(h.read(ex.rosterWeeks).get(START)!.assignments.has("s37")).toBe(false);
     });
