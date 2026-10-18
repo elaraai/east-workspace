@@ -21,6 +21,7 @@ import { enableRecordSlicePersistence } from "../../platform/slice/record.js";
 import type { SlicePersistMode } from "../../platform/slice/index.js";
 import { SliceEditPopover } from "../edit/index.js";
 import { useSliceRailItems, type SliceRailDescriptor } from "../rail/toolbar.js";
+import { SUMMARY_RANK } from "../rail/ranks.js";
 import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity.js";
 import { PRESETS, presetAnchor, presetWindow } from "../range/presets.js";
 import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabel } from "./value.js";
@@ -311,7 +312,8 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
             return field === undefined ? <Presets slice={slice} /> : <FieldChip slice={slice} field={field} />;
         },
     }, [{ key: "record-slice", kinds }]);
-    if (slice !== undefined && affordances.includes("summary")) items.push({ key: "record-summary", side: "end", rank: 12, forms: [
+    // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items.
+    if (slice !== undefined && affordances.includes("summary")) items.push({ key: "record-summary", side: "end", rank: SUMMARY_RANK, forms: [
         <RecordSliceSummary slice={slice} {...(options.noun === undefined ? {} : { noun: options.noun })} />, null,
     ] });
     return items;
@@ -389,6 +391,7 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
             return entry === undefined ? <ProductPresets slices={slices} /> : <FieldChip slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
         },
     }, [{ key: "record-slices", kinds }]);
-    if (summary !== undefined) items.push({ key: "record-summary", side: "end", rank: 12, forms: [summary, null] });
+    // As one record's: after every step of the rail, before the host's own items.
+    if (summary !== undefined) items.push({ key: "record-summary", side: "end", rank: SUMMARY_RANK, forms: [summary, null] });
     return items;
 }
