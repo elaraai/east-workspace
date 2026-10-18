@@ -13,7 +13,7 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { FloatType, StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
+import { FloatType, StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
@@ -40,11 +40,14 @@ async function narrow(store: UIStore, example: string, source: "lanes" | "resour
         where: new Map([[field, variant("values", values.map(v => printFor(StringType)(v)))]]) })); });
     await settle();
 }
+/** A source's narrowing: each field's choice. */
+type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
+type Choice = Where extends Map<string, infer C> ? C : never;
 /** A source's narrowing written whole, as the rail writes it: any choices one index answers. */
-async function write(store: UIStore, example: string, source: string, where: ReadonlyMap<string, ReturnType<typeof variant>>) {
+async function write(store: UIStore, example: string, source: string, where: Where) {
     const key = `ex.${example}.${source}`;
     const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
-    await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none, where: where as never })); });
+    await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none, where })); });
     await settle();
 }
 const where = (store: UIStore, example: string, source: string) => decodeBeast2For(RecordSliceStateType)(store.read(`ex.${example}.${source}`)!).where;
@@ -266,7 +269,7 @@ describe("several indexes on a source", () => {
 
     test("a kiln group and a range of max, one index on group then max: the board and the Resources tab show the four Hall A kilns of 24 m³", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
-        await write(store, "allocationKilnYard", "resources", new Map([["group", variant("values", [text("Hall A")])], ["max", variant("range", { from: float(24), to: float(25) })]]));
+        await write(store, "allocationKilnYard", "resources", new Map<string, Choice>([["group", variant("values", [text("Hall A")])], ["max", variant("range", { from: float(24), to: float(25) })]]));
         await waitFor(() => expect(resourceCount(c)).toBe(4));
         await waitFor(() => expect(tabs(c)).toEqual(["Events 27", "Resources 4 of 33"]));
         await tab(c, "Resources");
@@ -276,7 +279,7 @@ describe("several indexes on a source", () => {
 
     test("a kiln's name, searched by its start on its own index: `K-2` shows Hall B's nine", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
-        await write(store, "allocationKilnYard", "resources", new Map([["name", variant("prefix", "K-2")]]));
+        await write(store, "allocationKilnYard", "resources", new Map<string, Choice>([["name", variant("prefix", "K-2")]]));
         await waitFor(() => expect(resourceCount(c)).toBe(9));
         await waitFor(() => expect(tabs(c)).toEqual(["Events 27", "Resources 9 of 33"]));
         expect(h.paging.requests.some(r => / index kilns_by_name /.test(r))).toBe(true);
