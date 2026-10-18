@@ -199,7 +199,10 @@ component, nothing in east-ui.
   group's head (`groupMark`) — the Allocation's Library (#1330). While a
   host's narrowing — a builder's rail — leaves it no item, `narrowing` gives
   its empty state the host's words and a Clear filters (#1339); the Library
-  still lists only what its host feeds it. A collapsed
+  still lists only what its host feeds it. The paged Library (`PagedLibrary`,
+  `./internal`) takes the same `empty` and `narrowing` (#1341). A tab's count
+  while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
+  or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed
   pane's rail may carry a `mark` after its badge (`Overdue event`).
 - **Rail counts.** Pass a numeric `badge` for a count, keeping it numeric until
   `DockPane` formats it with the shared locale formatter's `compact()`.

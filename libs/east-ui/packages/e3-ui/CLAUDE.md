@@ -46,6 +46,12 @@ Bind editable records with their mutation doors inside `Reactive`. Resources,
 templates, backlog and configuration accept reactive records, inputs or tasks;
 backlog remains part of the authoritative event record.
 
+A builder's tag checks its `slice` with `utils/record-sources.ts`'
+`recordSources`, and a Library tab's `source` with `tabSource` (#1340): each
+builder that has moved onto them takes only `Slice.bindRecords`, its sources
+named after what they narrow — the Allocation first, the others each in their
+own child of #1340. Until a builder has moved:
+
 Choose the Slice arm from the source, not from the builder:
 
 - Rows held whole: `Slice.bind(key, rows, { fields, range, search, initial,

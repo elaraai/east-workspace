@@ -110,8 +110,10 @@ record chrome is a separate appended payload. Honor affordances and persistence.
 A builder bound to `Slice.bindRecords` reads each source's shown keys through
 `shared/schedule/visibility.ts`'s `useSourceVisibility`, and every place the
 source's rows appear — main, its Choosers and its Library's tabs — narrows by
-those keys; a tab counts what it shows (`narrowedCount`, `10 of 33`) and has no
-filter of its own (#1339). A source may name itself and carry an icon: folded,
+those keys. A tab over a source is `shared/schedule/source-tab.ts`' `sourceTab`,
+its source read through `useSourceShown`: the cards it shows, its count (`10 of
+33`), its narrowed empty state with that source's Clear filters, and its busy
+pane; it has no filter of its own (#1339, #1341). A source may name itself and carry an icon: folded,
 the rail heads its fields with them.
 Inside the folded editor, field editors expand inline, with one popup and
 normal keyboard focus return. Never copy another control family into a builder.

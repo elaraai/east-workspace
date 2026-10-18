@@ -25,14 +25,12 @@ import {
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type option,
 } from "@elaraai/east";
 import { EastUI, Editing, StatusTokenType, TimeStepType, UIComponentType, type UIElement } from "@elaraai/east-ui";
-import {
-    RecordSlicesChromeType, RowSourceType, isRecordSlices, recordSlicesChrome, type RecordSlicesChromeOptions,
-} from "@elaraai/east-ui/internal";
+import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType, type PagedValue } from "../bind/data.js";
 import { FuncBindingType, type BoundFunc } from "../bind/func.js";
 import { Record, type RecordBindingType } from "../bind/record.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
-import { keyVisibility } from "../utils/key-visibility.js";
+import { recordSources } from "../utils/record-sources.js";
 import { ALLOCATION_EVENTS, allocationEvents, allocationLanes, allocationResources, resolveAllocationEvents, type AllocationEvents } from "./adapters.js";
 import {
     allocationAnswer, allocationCandidates, allocationCheck, allocationFit, allocationLoads, allocationLookahead, allocationSlots,
@@ -450,24 +448,8 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
         }, AllocationWindowType);
     }
     // The narrowing names each source after what it narrows; the board reads each one's keys itself.
-    const narrowed: { lanes?: unknown; resources?: unknown; events?: unknown } = {};
-    if (props.slice !== undefined) {
-        if (!isRecordSlices(props.slice.slice)) {
-            throw new Error("Allocation: `slice` is Slice.bindRecords(key, { lanes, resources, events }) — name each source after what it narrows");
-        }
-        const handle = East.value(props.slice.slice) as unknown as ExprType<StructType>;
-        const sources = (Expr.type(handle as unknown as Expr) as StructType).fields["sources"];
-        const names = sources?.type === "Struct" ? Object.keys(sources.fields) : [];
-        for (const name of names) {
-            if (name !== "lanes" && name !== "resources" && name !== "events") {
-                throw new Error(`Allocation: \`slice\` narrows its lanes, its resources and its events — its source '${name}' is none of them; name the sources \`lanes\`, \`resources\` and \`events\``);
-            }
-            const rows = ((handle as unknown as { sources: Record<string, { data: unknown }> }).sources)[name]!.data;
-            const keys = keyVisibility(rows, `Allocation.slice's ${name}`);
-            if (keys.source === undefined) throw new Error(`Allocation: \`slice\`'s ${name} is a record Slice with String primary keys`);
-            narrowed[name] = keys.source;
-        }
-    }
+    const narrowing = recordSources(props.slice, { builder: "Allocation", names: ["lanes", "resources", "events"], what: "its lanes, its resources and its events" });
+    const narrowed = narrowing.keys as { lanes?: unknown; resources?: unknown; events?: unknown };
     const form = typeof props.inspector === "object" ? props.inspector.bin : undefined;
     return East.value({
         sourceId: handle.binding.name,
@@ -493,7 +475,7 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
             bin: form === undefined ? none : some(rowInspector(form, T.AllocationBinTypeFor(values) as unknown as StructType,
                 `Allocation: \`inspector.bin\` is an East function of the bin, Allocation.Types.Bin(${printType(values)}), and a writer of the edited bin, returning UIComponentType`)),
         }),
-        slice: props.slice === undefined ? none : some(recordSlicesChrome(props.slice)),
+        slice: narrowing.chrome,
         settings: {
             layout: variant(props.view?.layout ?? "timeline", null), date: props.view?.date === undefined ? none : some(props.view.date),
             horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },

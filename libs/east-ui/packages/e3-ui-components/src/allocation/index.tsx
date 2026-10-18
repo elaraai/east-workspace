@@ -36,8 +36,8 @@ import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
-import { narrowingPart, useNarrowed, type NarrowedSource } from "./narrowed.js";
-import type { KeyVisibility } from "../shared/schedule/visibility.js";
+import { narrowingPart, useNarrowed } from "./narrowed.js";
+import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { NounsContext, a } from "./nouns.js";
 export type { AllocationValue } from "./model.js";
 
@@ -78,11 +78,9 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const resourcesShown = useNarrowed(value, "resources", value.resources);
     const eventsShown = useNarrowed(value, "events", value.events);
     const narrowing = [lanesShown, resourcesShown, eventsShown];
-    // What the rail shows of a Library tab's source, and how that source alone clears (A98).
-    const sourceShown = (shown: KeyVisibility, source: NarrowedSource) => {
-        const part = narrowingPart(value, source);
-        return { keys: shown.keys, busy: shown.loading || shown.error !== undefined, ready: shown.ready, clear: part === undefined ? undefined : () => { part.clearAll(); } };
-    };
+    // What the rail shows of each Library tab's source, and how that source alone clears (A98).
+    const eventsSource = useSourceShown(eventsShown, narrowingPart(value, "events"));
+    const resourcesSource = useSourceShown(resourcesShown, narrowingPart(value, "resources"));
     const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
     const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
@@ -180,7 +178,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const start = useAllocationLibrary({
         value, context, day: window.day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
         tab: libraryTab.tab, onTab: tab => setLibraryTab({ tab }), onVerdict: runVerdict,
-        shown: { events: sourceShown(eventsShown, "events"), resources: sourceShown(resourcesShown, "resources") },
+        shown: { events: eventsSource, resources: resourcesSource },
         // A9: an event card picks it, again unpicks it; a selected free slot or reservation stays selected.
         onEvent: grip => {
             const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "event" ? pick.kind === "event" && pick.event === grip.event : pick.kind === "removed" && pick.bin === grip.bin);

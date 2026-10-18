@@ -81,3 +81,5 @@ export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps
 // Paged builder palettes reuse the Library face and the shared bounded window plan.
 export { LibraryCard } from "./collections/library/index.js";
 export { PagedLibrary, type LibraryPageSource } from "./collections/library/paged.js";
+// A tab's count while a builder's rail narrows it: over resident cards, and over a paged record (#1339, #1341).
+export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
