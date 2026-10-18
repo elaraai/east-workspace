@@ -14,7 +14,7 @@
  */
 
 import { none, type option } from "@elaraai/east";
-import { dayKey, type Day, type Slot } from "./model.js";
+import { dayKey, parseDay, type Day, type Slot } from "./model.js";
 
 /** What a row holds: nothing, a bin with an event, or a reservation. */
 export type TableRowKind = "free" | "bin" | "reserved";
@@ -72,6 +72,20 @@ export function tableRows(slots: readonly Slot[], plan: Day): TableRow[] {
             return bin === undefined ? [] : [{ key: `bin:${id}`, lane: slot.lane, at: bin.at, slotAt: slot.at, bin: id,
                 kind: bin.event.type === "none" ? "reserved" as const : "bin" as const }];
         }));
+}
+
+/**
+ * What a row's key names: its bin, or its free slot's lane and time.
+ *
+ * @param key - A row's key
+ * @returns Its bin, or its slot; `undefined` for no row's key
+ */
+export function rowOfKey(key: string): { bin: string } | { lane: string; at: Date } | undefined {
+    if (key.startsWith("bin:")) return { bin: key.slice("bin:".length) };
+    if (!key.startsWith("slot:")) return undefined;
+    const rest = key.slice("slot:".length), bar = rest.lastIndexOf("|");
+    const at = bar < 0 ? undefined : parseDay(rest.slice(bar + 1));
+    return at?.success === true ? { lane: rest.slice(0, bar), at: at.value } : undefined;
 }
 
 /**

@@ -93,6 +93,7 @@ export {
     // The Dock's pane as React — for a host renderer's own panes
     DockPane,
     type DockPaneProps,
+    type DockRailMark,
     // The one frame of a builder-style component (#1125): the toolbar, the
     // banners, the panes either side of main, and the footer
     BuilderFrame,
@@ -179,6 +180,8 @@ export {
     type LibraryValue,
     type LibraryItemValue,
     type LibraryEmpty,
+    type LibraryCardExtras,
+    type LibraryGroupMark,
     type EastChakraLibraryProps,
     EastChakraSchematic,
     type SchematicValue,

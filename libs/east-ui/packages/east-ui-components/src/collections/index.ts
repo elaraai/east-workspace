@@ -44,6 +44,8 @@ export {
     type LibraryValue,
     type LibraryItemValue,
     type LibraryEmpty,
+    type LibraryCardExtras,
+    type LibraryGroupMark,
     type EastChakraLibraryProps,
 } from "./library";
 

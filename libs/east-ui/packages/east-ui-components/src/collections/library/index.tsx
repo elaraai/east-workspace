@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
     Avatar as ChakraAvatar, Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
@@ -68,6 +68,14 @@ export interface EastChakraLibraryProps {
     onCardEnter?: ((key: string) => void) | undefined;
     /** Optional host-controlled facets; search and facet matching remain the shared Library engine. */
     facetFilter?: { values: Record<string, string[]>; onChange: (next: Record<string, string[]>) => void } | undefined;
+    /** The search box's words, a host's (`Find an event or site`), in place of `Search 27 items…`; its accessible name too. */
+    search?: string | undefined;
+    /** What the Library says while a search or a filter hides every card, in a host's words (`No events match`), in place of `No matches`. */
+    noMatch?: LibraryEmpty | undefined;
+    /** What a host draws on a compact card beside its shared face (#1330): its tooltip, a figure, a note line, a look and an ×. */
+    extras?: ((item: LibraryItemValue) => LibraryCardExtras | undefined) | undefined;
+    /** A group head's mark, by the group's label: a group that warns. */
+    groupMark?: ((label: string) => LibraryGroupMark | undefined) | undefined;
 }
 
 /** What an empty Library says: the empty state's title, and the line under it. */
@@ -76,6 +84,32 @@ export interface LibraryEmpty {
     title: string;
     /** The line under it. */
     description?: string | undefined;
+}
+
+/**
+ * What a host draws on a compact card beside its shared face (#1330) — what
+ * its domain shows on a card that a Library item has no field for.
+ */
+export interface LibraryCardExtras {
+    /** The card's tooltip: what a click and a drag do with it. */
+    title?: string | undefined;
+    /** A figure at the end of its name's line: a quantity, a range. */
+    figure?: string | undefined;
+    /** A line under its meta — when it is due, what it holds today — in a tone when it warns. */
+    note?: { text: string; tone?: "warning" | "danger" | undefined } | undefined;
+    /** How it is drawn besides its states: `dashed`, taken off the target and kept to put back; `sunken`, already on it. */
+    look?: "dashed" | "sunken" | undefined;
+    /** An × at its end that takes it back: its words, and what it does. */
+    remove?: { label: string; onRemove: () => void } | undefined;
+}
+
+/** A group head's mark: a Font Awesome solid icon in a tone before its label, and what it says. */
+export interface LibraryGroupMark {
+    /** A Font Awesome solid icon name. */
+    icon: string;
+    /** What it says, for assistive technology and the tooltip. */
+    label: string;
+    tone: "warning" | "danger";
 }
 
 /** The empty state's icon: an empty box, as the design system draws it — Font Awesome's open box (#1263). */
@@ -206,6 +240,8 @@ interface LibraryCardProps {
     onCardClick: ((key: string) => void) | undefined;
     /** A draggable card's ⏎, the host's. */
     onCardEnter: ((key: string) => void) | undefined;
+    /** What the host draws on it beside its shared face. */
+    extras?: LibraryCardExtras | undefined;
 }
 
 /**
@@ -236,7 +272,7 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
 }
 
 /** Render the shared compact card for a Library or a paged builder palette. @internal */
-export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter }: LibraryCardProps) {
+export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, extras }: LibraryCardProps) {
     const status = getSomeorUndefined(item.status);
     const glyph = getSomeorUndefined(item.trailing);
     const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
@@ -245,6 +281,9 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const draggable = item.draggable && !filtered;
     const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
     const tall = visibleDims.length > 0;
+    const figure = extras?.figure, note = extras?.note, remove = extras?.remove;
+    // A figure rides the name's line, as a tall card's status does.
+    const headed = figure !== undefined || (tall && status !== undefined);
 
     const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
     const ghost = useMemo(() => (
@@ -281,6 +320,8 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             {...(draggable && drag ? { "data-draggable": "" } : {})}
             {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
             {...(tall ? { "data-tall": "" } : {})}
+            {...(extras?.look !== undefined ? { "data-look": extras.look } : {})}
+            {...(extras?.title !== undefined ? { title: extras.title } : {})}
         >
             {draggable && drag && (
                 <Box as="span" css={styles.grip} data-drag-grip="">
@@ -293,16 +334,18 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                 </Box>
             )}
             <Box css={styles.cardBody}>
-                {tall && status ? (
-                    // Secondary facts take the body's full width, so the status rides the name's line.
+                {headed ? (
+                    // Secondary facts take the body's full width, so the status rides the name's line; a figure always does.
                     <Box css={styles.cardHead}>
                         <Box as="span" css={styles.cardLabel}>{item.label}</Box>
-                        <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
+                        {figure !== undefined && <Box as="span" css={styles.cardFigure} data-library-figure="">{figure}</Box>}
+                        {tall && status && <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>{status.label}</Box>}
                     </Box>
                 ) : (
                     <Box as="span" css={styles.cardLabel}>{item.label}</Box>
                 )}
                 {sublabel && <Box as="span" css={styles.cardSublabel}>{sublabel}</Box>}
+                {note !== undefined && <Box as="span" css={styles.cardNote} data-library-note="" {...(note.tone !== undefined ? { "data-tone": note.tone } : {})}>{note.text}</Box>}
                 <LibraryDims item={item} keys={visibleDims} styles={styles} />
             </Box>
             {((!tall && status) || glyph) && (
@@ -325,6 +368,15 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                         </Box>
                     )}
                 </Box>
+            )}
+            {remove !== undefined && (
+                // Its own target: it picks no drag up, and its click is not the card's.
+                <chakra.button type="button" css={styles.cardRemove} aria-label={remove.label} title={remove.label} data-library-remove=""
+                    onPointerDown={(event: ReactPointerEvent) => event.stopPropagation()}
+                    onKeyDown={(event: React.KeyboardEvent) => event.stopPropagation()}
+                    onClick={(event: React.MouseEvent) => { event.stopPropagation(); remove.onRemove(); }}>
+                    <FontAwesomeIcon icon={faXmark} />
+                </chakra.button>
             )}
         </Box>
     );
@@ -445,11 +497,18 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
 // Group head (shared by the virtual and non-virtual paths)
 // ============================================================================
 
-function LibraryGroupHead({ label, count, summary, styles }: { label: string; count: number; summary: string | undefined; styles: SlotStyles }) {
+function LibraryGroupHead({ label, count, summary, styles, mark }: { label: string; count: number; summary: string | undefined; styles: SlotStyles; mark?: LibraryGroupMark | undefined }) {
     const words = useFormatters();
     return (
-        <Box css={styles.groupHead} data-library-head="">
-            <Box as="span" css={styles.groupLabel}>{label}</Box>
+        <Box css={styles.groupHead} data-library-head="" {...(mark !== undefined ? { "data-tone": mark.tone } : {})}>
+            <Box as="span" css={styles.groupLabel}>
+                {mark !== undefined && (
+                    <Box as="span" css={styles.groupMark} role="img" aria-label={mark.label} title={mark.label} data-library-group-mark="">
+                        <FontAwesomeIcon icon={["fas", mark.icon as IconName]} />
+                    </Box>
+                )}
+                {label}
+            </Box>
             <Box as="span" css={styles.groupSummary}>{summary ?? words.number(count)}</Box>
         </Box>
     );
@@ -668,7 +727,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -771,10 +830,10 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         () => value.items.filter(hides).length,
         [value.items, hides],
     );
-    // Nothing to show: no item at all, in the host's words; or a search or a filter that hides every card.
+    // Nothing to show: no item at all, in the host's words; or a search or a filter that hides every card, in its words or the Library's.
     const nothing: LibraryEmpty | undefined = value.items.length === 0 ? empty
         : hiddenCount < value.items.length ? undefined
-            : { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
+            : noMatch ?? { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
     const noun = getSomeorUndefined(value.noun);
 
     const hint = getSomeorUndefined(value.hint);
@@ -910,8 +969,8 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
             <chakra.input
                 ref={searchRef}
                 css={styles.searchInput}
-                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
-                aria-label="Search library"
+                placeholder={search ?? `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
+                aria-label={search ?? "Search library"}
                 aria-keyshortcuts="Meta+/ Control+/"
                 value={query}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
@@ -1012,7 +1071,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         ) : groups.map((group, i) => (
             <Box key={group.label || "_flat"} css={styles.group}>
                 {group.label !== "" && (
-                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} />
+                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} mark={groupMark?.(group.label)} />
                 )}
                 <Box {...galleryGridProps}>
                     {group.items.map(item => (
@@ -1049,7 +1108,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                         style={{ transform: `translateY(${virtualItem.start}px)` }}
                     >
                         {entry.kind === "groupHead" ? (
-                            <LibraryGroupHead label={entry.label} count={entry.count} summary={entry.summary} styles={styles} />
+                            <LibraryGroupHead label={entry.label} count={entry.count} summary={entry.summary} styles={styles} mark={groupMark?.(entry.label)} />
                         ) : (
                             <Box css={styles.rowGrid} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
                                 {entry.items.map(item => (
@@ -1063,6 +1122,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                                         styles={styles}
                                         onCardClick={onCardClickFn ? handleCardClick : undefined}
                                         onCardEnter={onCardEnter}
+                                        extras={extras?.(item)}
                                     />
                                 ))}
                             </Box>
@@ -1075,7 +1135,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         groups.map(group => (
             <Box key={group.label || "_flat"} css={styles.group}>
                 {group.label !== "" && (
-                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} />
+                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} mark={groupMark?.(group.label)} />
                 )}
                 <Box css={styles.grid}>
                     {group.items.map(item => (
@@ -1089,6 +1149,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                             styles={styles}
                             onCardClick={onCardClickFn ? handleCardClick : undefined}
                             onCardEnter={onCardEnter}
+                            extras={extras?.(item)}
                         />
                     ))}
                 </Box>
@@ -1195,4 +1256,6 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
         </Box>
     );
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
-    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter);
+    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter
+    && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
+    && prev.extras === next.extras && prev.groupMark === next.groupMark);
