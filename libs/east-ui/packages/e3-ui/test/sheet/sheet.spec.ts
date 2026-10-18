@@ -982,9 +982,7 @@ describe("Sheet refusals", () => {
     hostTest("a lookup column that is not the driver is refused", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.lookup(JobType) }, { id: "id" }), /driver column/);
     });
-    hostTest("an axis affordance is refused", () => {
-        assert.throws(() => Sheet.Root(rows, { task: Sheet.column.text(JobType) }, { id: "id", affordances: ["brush"] }), /brush/);
-    });
+    // The narrowing is the tag's (#1345): its refusals, the axis affordance among them, are `sheet-payload.spec.ts`'s.
     hostTest("a provider over another row type is refused by its East input type", () => {
         const Other = StructType({ id: StringType, task: StringType });
         const foreign = East.function([Sheet.Types.DraftContext(Other)], OptionType(Sheet.Types.Fill(StringType)), (_$, _ctx) => East.value(none, OptionType(Sheet.Types.Fill(StringType))));

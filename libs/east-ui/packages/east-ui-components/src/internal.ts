@@ -59,8 +59,9 @@ export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
 export { SliceRangeContent } from "./slice/range/index.js";
-// The rail's field chip, for a result a host shows as one: a Find fix's, which its × clears (#1342).
-export { SliceFieldChip } from "./slice/choice.js";
+// The rail's field chip, for a result a host shows as one: a Find fix's, which its × clears (#1342); and its
+// choice chips and quiet reset, for choices a host offers as the rail does: a Sheet's views, folded with its key search (#1345).
+export { SliceChoiceGroup, SliceClearButton, SliceFieldChip, type SliceChoice } from "./slice/choice.js";
 export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
 export { recordSliceWindow, recordSliceDomain, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";

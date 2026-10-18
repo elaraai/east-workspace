@@ -26,8 +26,9 @@
  * editing session's callbacks and their closed transport, the inline
  * `onUpdate` adapter among them) · `root.ts` (the grid's root) · `sheet.ts`
  * (`<Sheet>` itself, its payload and its `Sheet` carrier, #1216) with
- * `record.ts` (a record's rows, #1182), `templates.ts` (the Rows tab's
- * cards), `library.ts` (`Sheet.library.*`, the library pane's tabs, #1186),
+ * `record.ts` (a record's rows, #1182), `templates.ts` (`Sheet.templates`,
+ * the Rows tab's cards from templates records, #1345), `library.ts`
+ * (`Sheet.library.*`, the library pane's tabs, #1186),
  * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188) and
  * `views.ts` (the views' bind handle).
  *
@@ -81,7 +82,6 @@ import {
     SheetArityType,
     SheetColumnKindType,
     SheetColumnType,
-    SheetViewType,
     SheetRecordViewType,
     SheetEditType,
     SheetSelectionType,
@@ -107,6 +107,7 @@ import { createArity, check, parseLink, printLink, SheetMembersType, SheetRegist
 import { createSheetRoot } from "./root.js";
 import { SheetComponent, SheetTag, createSheetPayload, type SheetTagType } from "./sheet.js";
 import { libraryColumns, libraryRows, libraryTab } from "./library.js";
+import { sheetTemplates } from "./templates.js";
 import { SheetField } from "./fields.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
@@ -172,7 +173,6 @@ export {
     SheetColumnKindType,
     type SheetColumnKindLiteral,
     SheetColumnType,
-    SheetViewType,
     SheetRecordViewType,
     SheetEditType,
     SheetSelectionType,
@@ -273,7 +273,7 @@ export {
     type SheetEntriesField,
     type SheetCommon,
 } from "./sheet.js";
-export { SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
+export { SheetTemplateWireType, sheetTemplates, type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesProp } from "./templates.js";
 export {
     SheetLibraryCardType,
     SheetLibraryDropType,
@@ -326,8 +326,8 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
- * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
  * export const BatchPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
@@ -360,16 +360,38 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  *     ] }],
  * ]));
  * export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
+ * export const BatchStepTemplate = StructType({ name: StringType, group: StringType, task: StringType });
+ * export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), new Map([
+ *     ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
+ *     ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
+ * ]));
+ * export const sheetBatchStepTemplatesByGroup = e3.recordIndex("sheet_batch_step_templates_by_group", sheetBatchStepTemplates, { on: ["group"] });
+ * export const BatchTemplate = StructType({ name: StringType, group: StringType, batch: StringType, steps: ArrayType(BatchStep) });
+ * export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), new Map([
+ *     ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
+ *         { task: "Sand", qty: none, parts: [], bookings: [] },
+ *         { task: "Seal", qty: none, parts: [], bookings: [] },
+ *         { task: "Spray", qty: none, parts: [], bookings: [] },
+ *     ] }],
+ * ]));
+ * export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_by_group", sheetBatchTemplates, { on: ["group"] });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
- *         // The steps a finishing batch starts with: the batch template's lines.
- *         const finishing = $.let([
- *             { task: "Sand", qty: none, parts: [], bookings: [] },
- *             { task: "Seal", qty: none, parts: [], bookings: [] },
- *             { task: "Spray", qty: none, parts: [], bookings: [] },
- *         ], ArrayType(BatchStep));
+ *         const stepTemplates = $.let(Data.bind(sheetBatchStepTemplates));
+ *         const batchTemplates = $.let(Data.bind(sheetBatchTemplates));
+ *         // One rail over the templates records, each its own source: they narrow the Rows tab's cards.
+ *         const slice = $.let(Slice.bindRecords("sheet.batches", {
+ *             rowTemplates: {
+ *                 source: Data.bindPaged(sheetBatchStepTemplates, { indexes: [sheetBatchStepTemplatesByGroup] }),
+ *                 label: "Step templates", fields: { group: { label: "Group", hints: ["Steps"] } },
+ *             },
+ *             groupTemplates: {
+ *                 source: Data.bindPaged(sheetBatchTemplates, { indexes: [sheetBatchTemplatesByGroup] }),
+ *                 label: "Batch templates", fields: { group: { label: "Group", hints: ["Batches"] } },
+ *             },
+ *         }));
  *         // A batch needs a name before Save.
  *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
@@ -406,12 +428,13 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  *                     // The sub rows show a step's parts and bookings; the inspector's form leaves them out.
  *                     inspector
  *                     fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
- *                     templates={{
- *                         groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
- *                                    values: Sheet.patch(Batch, { name: "Finishing", steps: finishing }) }],
- *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BatchStep, { task: "Sand", qty: none }) },
- *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BatchStep, { task: "Seal", qty: none }) }],
- *                     }}
+ *                     slice={{ slice }}
+ *                     templates={[
+ *                         Sheet.templates(stepTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(BatchStep, { task: t.task, qty: none }), source: "rowTemplates" }),
+ *                         Sheet.templates(batchTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(Batch, { name: t.batch, steps: t.steps }), source: "groupTemplates" }),
+ *                     ]}
  *                     library={[Sheet.library.rows(), Sheet.library.columns()]}
  *                     ready={{ group: readyBatch }}
  *                     newRow={newStep}
@@ -490,6 +513,8 @@ export interface SheetNamespace extends SheetTagType {
     };
     /** A row patch — the fields a proposal or a new row's defaults set (§3.6). */
     patch: typeof createPatch;
+    /** A templates record's rows as the Rows tab's cards, each list naming its source of `slice` (#1345) — `Sheet.templates(rows, { name, group?, values, source })`. */
+    templates: typeof sheetTemplates;
     /** The library pane's tabs, listed in order by `<Sheet library={[…]}>` (#1186). */
     library: {
         /** The Rows tab: the templates, by their group. */
@@ -664,9 +689,7 @@ export interface SheetNamespace extends SheetTagType {
         Check: typeof SheetCheckType;
         /** A link column's arity rule on the wire ({@link SheetArityType}). */
         Arity: typeof SheetArityType;
-        /** One saved view ({@link SheetViewType}). */
-        View: typeof SheetViewType;
-        /** One saved indexed-record view. */
+        /** One saved view: every source's narrowing, by name, the lens's context and reveals, and a grouped sheet's folds ({@link SheetRecordViewType}, #1345). */
         RecordView: typeof SheetRecordViewType;
         /** The WIRE edit event ({@link SheetEditType}); internal gesture transport. */
         WireEdit: typeof SheetEditType;
@@ -698,6 +721,7 @@ const SHEET_MEMBERS = {
     driver: createDriver,
     link: { arity: createArity, check, parse: parseLink, print: printLink },
     patch: createPatch,
+    templates: sheetTemplates,
     library: { rows: libraryRows, columns: libraryColumns, tab: libraryTab },
     field: SheetField,
     subRows: createSubRows,
@@ -768,7 +792,6 @@ const SHEET_MEMBERS = {
         WireCheckContext: SheetCheckContextType,
         Check: SheetCheckType,
         Arity: SheetArityType,
-        View: SheetViewType,
         RecordView: SheetRecordViewType,
         WireEdit: SheetEditType,
         Selection: SheetSelectionType,
@@ -795,7 +818,12 @@ const SHEET_MEMBERS = {
  *   `entry`, one entry's Array field, in its own order, identified by
  *   `entry.id` — its rows, its groups, or its groups with loose rows between
  *   them (`Sheet.Types.Entry(P, "lines")`, #846). Or they are `data`'s: an
- *   `Array<R>`, a bind handle or a paged source, identified by `id`.
+ *   `Array<R>`, a bind handle or a paged source, identified by `id`. Or they
+ *   are the `rows` source's of `slice` (#1345): the rows it narrows to,
+ *   paged from it, Save committing through `onApply`.
+ * - **The narrowing** (`slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`)
+ *   is one rail on the toolbar: its `rows` source narrows the rows, and each
+ *   other source the templates list or the library tab that names it.
  * - **Every gesture is a draft** of the shared editing session, which the
  *   history item in the one toolbar undoes, redoes and discards. Over a
  *   record, Save commits the drafts as one patch through the record's patch
@@ -812,10 +840,14 @@ const SHEET_MEMBERS = {
  *   `groupFields` for a group's own) — and the batch's Issues; given a
  *   function `(row, update) => UIComponentType`, Details for a complete row
  *   are the author's own.
- * - **Templates** (`templates={{ rows, groups }}`) are the Rows tab's cards,
- *   each `{ key, name, group?, values: Sheet.patch(…) }`: a dropped card is
- *   `newRow`'s (or `newGroup`'s) defaults with the template's fields over them.
- * - **Views** (`views`) are a bind handle: `State.bind` keeps them per viewer,
+ * - **Templates** are records (#1340): each list `Sheet.templates(rows, { name,
+ *   group?, values: Sheet.patch(…), source })` over its record, naming its
+ *   source of `slice`, whose rail narrows its cards on the Rows tab — a
+ *   grouped sheet's row templates and group templates two records, two
+ *   sources: a dropped card is `newRow`'s (or `newGroup`'s) defaults with the
+ *   template's fields over them.
+ * - **Views** (`views`) are a bind handle of `Array<Sheet.Types.RecordView>`,
+ *   each every source's narrowing: `State.bind` keeps them per viewer,
  *   `Data.bind` shares them.
  * - **The namespace**: the columns (`Sheet.column.*`, row type first),
  *   registers (`Sheet.register.members` / `.concat`) and the driver

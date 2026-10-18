@@ -748,7 +748,7 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1200, 900], nudge: [1200], box: 360 },
     { name: "Calendar", route: "e3/calendar/calendar/calendarOperations", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["calendar.filter"] },
-    { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
+    { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["record-slices"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Slice.Rail", route: "slice/slice/sliceRail", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
@@ -810,17 +810,27 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
  *  a record of flows (#1246; `flowchart-flows.spec.ts` sweeps that row). */
 const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
 
-/** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
- *  count goes, the context label, the strip's `+ TAB` label and whole-sheet
- *  count, its names cap, it closes up and the context switch goes; and last
- *  the strip folds into one chip, the open view's tab (#1221, SB20). */
+/** The Sheet's own order (§6.3), after its rail — the record rail (#1345),
+ *  whose shared summary takes its step at the summary's own rank, among the
+ *  tabs' steps, as the Roster's does: the tabs fold into `+n` one by one, then
+ *  the count goes, the context label, the strip's `+ TAB` label and
+ *  whole-sheet count, its names cap, it closes up and the context switch goes;
+ *  then the strip folds into one chip, the open view's tab (#1221, SB20); and
+ *  last, where the sheet has a key search, the chip and the search fold into
+ *  its popover, one move (#1345). The count and the context switch are the
+ *  lens's, which is off until #1349 brings it back over records: until then
+ *  the sheet draws neither, and only the tabs' and the search's steps are
+ *  read. */
 function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const tabs = state.get("tabs");
-    const maxFold = tabs === undefined ? 0 : tabs.forms - 5;
+    // With a key search the strip has one rung more: its chip folding with the search into its popover.
+    const searchViews = tabs !== undefined && state.has("seek");
+    const maxFold = tabs === undefined ? 0 : tabs.forms - (searchViews ? 6 : 5);
     return [
         ...Array.from({ length: maxFold }, (_x, k) => ["tabs", k + 1] as const),
         ["count", 1], ["context", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3], ["context", 2],
         ["tabs", maxFold + 4],
+        ...(searchViews ? [["tabs", maxFold + 5] as const, ["seek", 2] as const] : []),
     ];
 }
 

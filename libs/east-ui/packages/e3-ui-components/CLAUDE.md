@@ -116,21 +116,28 @@ its source read through `useSourceShown`: the cards it shows, its count (`10 of
 pane; it has no filter of its own (#1339, #1341). A source may name itself and carry an icon: folded,
 the rail heads its fields with them. A builder whose tabs follow several sources
 reads each through `shared/schedule/follow-sources.tsx`' `FollowSources`, one
-component a source so each one's hooks keep their order, and a tab over several
-sources is `sourcesTab` (#1343, #1345). The Calendar reads one date window
-across its event sources (#1343): the first event source holding a range leads,
-its range editor the time navigator's Range panel and every event source's
-range out of the rail; navigation writes the window into each, and a range
-written to one is written to the others. A narrowed kind reads its window and
-its backlog as one, so a draft moves an event between them by its times alone.
-Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside the
-stored events their choices hide, and its Clear filters keeps each window.
+component a source so each one's hooks keep their order, and the builder gives
+its own words for a narrowing that failed; a tab over several sources — the
+Sheet's Rows tab over its templates lists, the Calendar's templates — is
+`sourcesTab`, each card following its own source (#1343, #1345). A read that
+lands in many settles — a window over an interval index is some fifty-five key
+searches — runs in a component of its own that hands the frame what it read only
+when that moves, as the Calendar's `CalendarDataReader` does: a tracked read in
+the frame re-renders the whole frame at every settle (#1343). The Calendar reads
+one date window across its event sources (#1343): the first event source holding
+a range leads, its range editor the time navigator's Range panel and every event
+source's range out of the rail; navigation writes the window into each, and a
+range written to one is written to the others. A narrowed kind reads its window
+and its backlog as one, so a draft moves an event between them by its times
+alone. Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
+the stored events their choices hide, and its Clear filters keeps each window.
 Inside the folded editor, field editors expand inline, with one popup and
 normal keyboard focus return. Never copy another control family into a builder.
 
-Trace every choice to the source. Plan/Sheet read the ordered Slice source,
-Calendar event kinds read its interval queries, and Roster reads the selected
-staff identities for visibility only. No filtering over resident record rows,
+Trace every choice to the source. Plan reads the ordered Slice source and the
+Sheet pages its `rows` source (its lens is off until #1349), Calendar event
+kinds read its interval queries, and Roster reads the selected staff
+identities for visibility only. No filtering over resident record rows,
 private Slice, full scan for options or user-facing index picker. The shared
 summary is authoritative N of M original records; do not add a competing local
 count. Search Records remains primary-key navigation, not Slice field search.
@@ -225,6 +232,9 @@ Save leaving a filter and draft retention in one real e3 workflow per device.
 Let BuilderFrame own pane placement, rails, responsive overlays and focus.
 Supply its named regions; keep main's scrolling inside main. Compose one
 folding Toolbar using shared item ranks and menus, with history folding last.
+A row with nothing left to fold bundles host controls into the shared key
+search's compact popover, one move, as the Flowchart's orientation and the
+Sheet's views do (#1345); a control there that moves the focus away closes it.
 Use the established 44px row and coarse-pointer targets. Range/date and count
 readouts share one baseline; do not introduce a stacked two-line toolbar label.
 

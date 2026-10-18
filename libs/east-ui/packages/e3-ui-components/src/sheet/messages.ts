@@ -126,6 +126,8 @@ export interface SheetMessages extends EditingMessages {
     scopeBadge: () => string;
     /** The key search's icon — what a toolbar short of room folds its box to — and the head of the popover it opens the box in (#1221). */
     keySearch: () => string;
+    /** The key search's icon and popover head once the views fold into it, over the search box — the row's last rung (#1345). */
+    keySearchViews: () => string;
 
     // ── The view tabs (B§8) ────────────────────────────────────────────────
     /** The tablist's accessible name. */
@@ -581,6 +583,14 @@ export interface SheetMessages extends EditingMessages {
     savedAt: (p: { when: string }) => string;
     /** The banner over an entry the record does not hold (SB15). */
     entryMissing: (p: { key: string }) => string;
+    /** What the rail's summary counts a flat sheet's rows in where its `rows` source has no label of its own — `rows` (#1345); a grouped sheet's, in its groups' noun. */
+    railRows: () => string;
+    /** The banner over a source of the rail whose narrowing could not be read (#1345) — `Templates results unavailable`; `name` is the source's label, or what it is counted in. */
+    sourceUnavailable: (p: { name: string }) => string;
+    /** Why: its results moved while they were read. */
+    sourceChanged: (p: { name: string }) => string;
+    /** Why: its results could not be read. */
+    sourceFailed: (p: { name: string }) => string;
     /** Where a drop lands, under its ghost (#1187, SB38) — `after row 3`. */
     dropPlace: (p: SheetDropPlaceWord) => string;
     /** The same place as a screen reader hears the drag layer name it — `the gap after row 3`. */
@@ -610,6 +620,7 @@ export const sheetMessages: SheetMessages = {
     lensCount: ({ n, count, context }) => `${count} ${plural(n, "match", "matches")}${context !== undefined ? ` · ${context} context` : ""}`,
     scopeBadge: () => "loaded rows only",
     keySearch: () => "Search Records",
+    keySearchViews: () => "Views and search",
 
     tabList: () => "Views",
     tabAll: () => "All",
@@ -882,6 +893,10 @@ export const sheetMessages: SheetMessages = {
     inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
     savedAt: ({ when }) => `saved ${when}`,
     entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,
+    railRows: () => "rows",
+    sourceUnavailable: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results unavailable`,
+    sourceChanged: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results changed; retry the narrowing.`,
+    sourceFailed: ({ name }) => `Could not load ${name} results`,
     dropPlace: (p) => {
         switch (p.place) {
             case "before": case "after": return `${p.place} ${p.what}`;

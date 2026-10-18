@@ -50,8 +50,14 @@ const BATCHES = "e3/sheet/sheet/sheetBatches";
 /** The jobs read a window at a time in key order (§3.4): its key search seeks the record's keys. */
 const PAGED = "e3/sheet/sheet/sheetPaged";
 
-/** The fold ladder: the rail's four steps, the view tabs' strip closing up and then folding into its chip (#1221), the history item to its buttons. */
-const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 tabs>4 history>1";
+/**
+ * The fold ladder: the rail's six steps over its three sources, then its
+ * summary (#1345); the view tabs' strip closing up, the key search — the rows
+ * paged from the rail's `rows` source — into its icon, and the strip folding
+ * into its chip (#1221); then the chip and the key search into its popover,
+ * one move (#1345); the history item to its buttons.
+ */
+const LADDER = "record-slices>1 record-slices>2 record-slices>3 record-slices>4 record-slices>5 record-slices>6 record-summary>1 tabs>1 tabs>2 tabs>3 seek>1 tabs>4 tabs>5 seek>2 history>1";
 
 /**
  * Open the workshop's sheet and return the box its example gives it, at
@@ -188,7 +194,7 @@ test.describe("The Sheet's frame (#1184, #1216)", () => {
             narrowest = forms;
         }
         // At 360px the rail is down to its icon, as far as it folds, and the row still fits.
-        expect(narrowest.get("rail")).toBe(4);
+        expect(narrowest.get("record-slices")).toBe(6);
     });
 
     test("main holds the grid and, docked under it, the strip while a cell is edited", async ({ page }) => {
@@ -467,6 +473,14 @@ async function pickUp(page: Page, handle: Locator): Promise<void> {
     await expect(handle).toHaveAttribute("data-dragging", "");
 }
 
+/**
+ * A template's card in the open Rows tab (#1345), by its list's source and its
+ * key in that list's record: a card's key is the two printed together, as
+ * the sheet's `templateCardKey` prints them — two lists' templates may share a key.
+ */
+const templateCard = (box: Locator, source: string, key: string) =>
+    box.locator(`[data-frame-slot=start] [role="tabpanel"]:not([hidden]) [data-library-item='(source="${source}", key="${key}")']`);
+
 /** A grouped sheet's lines in a group, by the text under a column. */
 const lineTexts = (box: Locator, group: string, key: string) =>
     box.locator(`[data-frame-slot=main] [data-slot="row"][data-group-id="${group}"]:not([data-blank])`)
@@ -557,7 +571,7 @@ test.describe("The Sheet's frame — drag and drop (#1187)", () => {
     for (const theme of ["light", "dark"] as const) {
         test(`a template carried over a line: its caption under the ghost — mono, the muted ink on the paper in a strong rule — and along the seam it would land on a 2px brand line from the gutter's edge; dropped, the line inserted there (${theme})`, async ({ page }) => {
             const box = await openSheet(page, theme, 1440, BATCHES);
-            const card = box.locator('[data-frame-slot=start] [role="tabpanel"]:not([hidden]) [data-library-item="sand"]');
+            const card = templateCard(box, "rowTemplates", "sand");
             const target = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-101"]:not([data-blank])').nth(1);
             await pickUp(page, card);
             const at = await onRow(target, "top");
@@ -694,7 +708,7 @@ test.describe("The Sheet's frame — drag and drop (#1187)", () => {
             const at = await frameAt(box);
             return { open: !at.start!.collapsed, scrim: at.scrim !== null };
         }).toEqual({ open: true, scrim: true });
-        await pickUp(page, box.locator('[data-frame-slot=start] [role="tabpanel"]:not([hidden]) [data-library-item="seal"]'));
+        await pickUp(page, templateCard(box, "rowTemplates", "seal"));
         // Off main, toward its own edge, and no scrim over the drop targets.
         await expect.poll(async () => {
             const at = await frameAt(box);

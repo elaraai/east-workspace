@@ -185,3 +185,19 @@ Each wire changed under this rule, with the kind it is.
   UI task's output is not stored state, so no repository upgrade step ships
   with it. A Calendar's templates written in the code become a templates record
   of the application's own, as with any record an application declares.
+- **e3-ui's `Sheet` narrows through `Slice.bindRecords` alone, its
+  templates records (#1340, #1345)** — package-borne. The `Sheet` extension's
+  payload gains `narrowed`, each source's keys by its name; its root's `slice`
+  becomes the chrome of a Slice over several records, and it loses
+  `recordSlice`, `recordViews` and `onRecordViewsChange`. `Sheet.Types.View`
+  goes: `views` holds `Sheet.Types.RecordView`, whose `narrowing` is every
+  source's state by the source's name. A template on the wire
+  (`SheetTemplateWireType`) gains the `source` its list follows, and an app's
+  library tab (`SheetLibraryTabType`'s `tab`) gains the `source` it follows. A
+  UI value encoded under either type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, so no repository
+  upgrade step ships with it. An application's own record of saved views
+  (`Array<Sheet.Types.View>` in a dataset a `Data.bind` shares) changes type
+  with it; rewriting those views as `Sheet.Types.RecordView` is that record's
+  own migration, as with any record whose type an application changes.

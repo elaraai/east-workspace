@@ -47,10 +47,13 @@ templates, backlog and configuration accept reactive records, inputs or tasks;
 backlog remains part of the authoritative event record.
 
 A builder's tag checks its `slice` with `utils/record-sources.ts`'
-`recordSources`, and a Library tab's `source` with `tabSource` (#1340): each
-builder that has moved onto them takes only `Slice.bindRecords`, its sources
-named after what they narrow — the Allocation, the Roster and the Calendar so
-far, the others each in their own child of #1340.
+`recordSources`, a Library tab's `source` with `tabSource`, and a templates
+list's source with `templatesSource` (#1340): each builder that has moved onto
+them takes only `Slice.bindRecords`, its sources named after what they narrow —
+the Allocation, the Roster, the Calendar and the Sheet so far, the others each
+in their own child of #1340. Templates are records: each list names its source
+of the one `Slice.bindRecords`, and a list written in the code is refused,
+naming the change to make.
 
 A function captures what it reads, so a builder binds what a function reads of
 a source before the function reads it: `recordSources` pages each source's keys
@@ -59,6 +62,23 @@ kind's reads call. A function that read through the slice would capture every
 source's methods, each of which holds its source, and the payload would encode
 them, and its decode compile them, once for each such function (#1343: so an
 eight-source Calendar once held 350 MB a mount).
+
+A record a builder reads whole beside its pages — a templates list, the
+resources a check reads — binds with `Data.bind`. A UI task's manifest preloads
+a record `Data.bind` reads, but not one `Record.bind` reads beside
+`Data.bindPaged`: its `read()` fails on the real e3 ("record state not
+loaded"), though the in-memory test harness answers it (#1343). `Record.bind`
+stays the mutation door a Save commits through.
+
+The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
+}}`. Its `rows` source gives the rows, paged from it, edited through
+`onApply={Record.onApply(record, { keyed: true })}`; a sheet over `record` or
+`data` takes a slice of templates sources alone. Each list is
+`Sheet.templates(templates.read(), { name, group?, values, source })`, its
+record bound with `Data.bind`, a grouped sheet's row templates and group
+templates two records and two sources. A saved view is a
+`Sheet.Types.RecordView`, every source's narrowing by name. The lens is off
+until #1349: the rail filters the rows.
 
 Until a builder has moved:
 
@@ -69,8 +89,8 @@ Choose the Slice arm from the source, not from the builder:
   `Slice.apply` calls; do not use the removed positional binding form.
 - Indexed records: declare `e3.recordIndex(name, record, { on: [fields...] })`,
   bind with `Data.bindPaged(record, { indexes })`, then
-  `Slice.bindRecord(key, binding, options)`. Pass `Slice.rows(slice)` as Plan/
-  Sheet data, and the same handle to `slice` chrome.
+  `Slice.bindRecord(key, binding, options)`. Pass `Slice.rows(slice)` as Plan
+  data, and the same handle to `slice` chrome.
   Never turn the loaded page into another local Slice or implement a browser
   predicate. Typed controls and supported combinations come from declared indexes.
 

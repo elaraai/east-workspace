@@ -3,12 +3,12 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-// Every Sheet example reads its rows from e3 (#1180): a record, an input or a
-// task's output, declared beside it in its module. That is what lets the
-// showcase run it on e3-web, whose package carries every definition an
-// example module exports. A sheet that writes binds its record with the patch
-// door its Apply commits through; the rows made by a rule rather than written
-// out are tasks over a count, and their generators run here.
+// Every Sheet example reads its rows from e3 (#1180): a record or an input,
+// declared beside it in its module. That is what lets the showcase run it on
+// e3-web, whose package carries every definition an example module exports. A
+// sheet that writes binds its record with the patch door its Apply commits
+// through; the rows made by a rule rather than written out seed their record
+// from a generator over a count, and the generators run here.
 
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
@@ -23,12 +23,9 @@ const EXAMPLES = Object.entries(ex).flatMap(([name, value]) =>
     "keywords" in value && "fn" in value ? [{ name, fn: value.fn }] : []);
 
 /** The path of every dataset the module's e3 definitions provide — an input's
- *  or a record's own, a task's output — as e3 prints it (`.records.sheet_jobs`). */
+ *  or a record's own — as e3 prints it (`.records.sheet_jobs`). */
 const PROVIDED = new Set(Object.values(ex).flatMap((value) =>
-    !("kind" in value) ? []
-        : value.kind === "dataset" ? [pathToString(value.path)]
-        : value.kind === "task" ? [pathToString(value.output.path)]
-        : []));
+    "kind" in value && value.kind === "dataset" ? [pathToString(value.path)] : []));
 
 /** The records each sheet binds: the one its Apply commits to — the workshop's
  *  also the machines its register reads — and none for the one that only reads. */
@@ -70,7 +67,7 @@ describe("Sheet examples read e3", () => {
     });
 });
 
-describeEast("Sheet — the rows a task makes", (test) => {
+describeEast("Sheet — the rows a generator makes", (test) => {
     test("the stress sheet's jobs: their count, four a day from 5 January, the activities in turn, every fifth a count of routers, every seventh urgent, every eleventh quantity blank", $ => {
         const jobs = $.let(ex.generateStressJobs(2000n));
         $(Assert.equal(jobs.size(), 2000n));

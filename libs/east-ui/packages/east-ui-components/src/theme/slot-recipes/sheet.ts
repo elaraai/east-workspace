@@ -138,14 +138,16 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { schedulePaneBase } from "./schedule-pane.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
-        "toolbarRail", "toolbarCount", "toolbarBadge",
+        "pane", "toolbarCount", "toolbarBadge",
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabMenu", "tabRename",
+        "searchViews", "searchViewsActions",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
         "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
@@ -258,11 +260,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
         body: {
             paddingBottom: "120px",
         },
-        // The rail's forms, each wrapped so the tabs can claim the keys its
-        // search box takes — a wrapper that lays out nothing of its own.
-        toolbarRail: {
-            display: "contents",
-        },
+        // A library tab's body over a source of the rail (#1345): it fills the
+        // tab, and takes no gesture while its source resolves — the shared
+        // Library pane's part.
+        pane: schedulePaneBase.pane,
         toolbarCount: {
             fontFamily: "mono",
             fontSize: "10.5px",
@@ -467,6 +468,22 @@ export const sheetSlotRecipe = defineSlotRecipe({
             padding: "0",
             // A phone zooms into type under 16 px.
             _coarse: { fontSize: "16px" },
+        },
+        // The views, folded with the key search into its popover — the strip's
+        // last rung where the sheet has a key search (#1345): every view a
+        // choice over the search box, as the Flowchart's orientation sits over
+        // find state's; then `+ TAB` and the open view's close.
+        searchViews: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2",
+            marginBottom: "3",
+        },
+        searchViewsActions: {
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "1",
         },
         // the switch is the `+ TAB` button's size and idiom
         // (22 px, r-sm, `border.strong`, mono 9.5/600 uppercase), not a taller
