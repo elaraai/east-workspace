@@ -50,7 +50,7 @@ import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
 import { DensityType, RowSourceType, StatusValueType } from "@elaraai/east-ui";
-import { RecordSliceChromeType, RecordSliceStateType, SliceChromeType, SliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
+import { RecordSlicesChromeType, RecordSliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // Links — members, the typed link value, the cell
@@ -876,34 +876,30 @@ export type SheetGroupType = typeof SheetGroupType;
 // ============================================================================
 
 /**
- * One saved view — a slice-state snapshot plus the lens's context and reveals
- * (B§8), evaluated live.
+ * One saved view (B§8, #1345) — `Sheet.Types.RecordView`: the narrowing of
+ * every source of the sheet's `Slice.bindRecords` when the view was made, by
+ * the source's name, evaluated live as a tab.
+ *
+ * @remarks
+ * A source the view does not hold opens with nothing chosen, as a preset
+ * clears a source it does not name. The context and the reveals are the lens's
+ * (B§8), which draws a narrowing over the rows; it is switched off until e3 can
+ * place a record narrowing's rows (#1349), and a view keeps them for it.
  *
  * @property id - Stable identity
  * @property name - The tab name
- * @property narrowing - The slice state the view was made with
+ * @property narrowing - Each source's narrowing, by the source's name (`rows`, `rowTemplates`)
  * @property context - The lens's band width (`0` · `1` · `3`)
- * @property reveals - Revealed row indices
+ * @property reveals - Revealed row positions
  * @property folds - A grouped sheet's fold overrides (#740): group id → folded; a group not listed opens as its `folded` accessor says
  */
-export const SheetViewType = StructType({
+export const SheetRecordViewType = StructType({
     id:        StringType,
     name:      StringType,
-    narrowing: SliceStateType,
+    narrowing: DictType(StringType, RecordSliceStateType),
     context:   IntegerType,
     reveals:   ArrayType(IntegerType),
     folds:     DictType(StringType, BooleanType),
-});
-/** Type alias for {@link SheetViewType}. */
-export type SheetViewType = typeof SheetViewType;
-
-/**
- * A saved indexed-record view. Keeps record narrowing separate from the
- * existing local Slice wire; folds still belong to original record keys.
- */
-export const SheetRecordViewType = StructType({
-    ...SheetViewType.fields,
-    narrowing: RecordSliceStateType,
 });
 /** Type alias for {@link SheetRecordViewType}. */
 export type SheetRecordViewType = typeof SheetRecordViewType;
@@ -1012,13 +1008,13 @@ export type SheetStyleType = typeof SheetStyleType;
  * live onUpdate adapter writes once per application. `selection` present
  * makes the selection controlled (§3.14).
  *
- * @property rows - The row source: inline wire rows, or a paged source of them
+ * @property rows - The row source: inline wire rows, or a paged source of them — with a `rows` source, the rows it narrows to
  * @property columns - The declared columns, in order
  * @property registers - Register name → register
  * @property driver - The driver column and its members
  * @property suggest - The row-proposal declaration
- * @property slice - The slice chrome (search / filter / cohort); the lens reads the bound state
- * @property views - The saved views
+ * @property slice - The narrowing's chrome (#1345): one rail over the sheet's `Slice.bindRecords`, its `rows` source the rows' own narrowing
+ * @property views - The saved views, each every source's narrowing
  * @property activeView - The active view's id
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
  * @property onSelect - The ring moved
@@ -1038,10 +1034,10 @@ export const SheetRootType = StructType({
     registers:     DictType(StringType, SheetRegisterType),
     driver:        OptionType(SheetDriverType),
     suggest:       OptionType(SheetSuggestType),
-    slice:         OptionType(SliceChromeType),
-    views:         ArrayType(SheetViewType),
+    slice:         OptionType(RecordSlicesChromeType),
+    views:         ArrayType(SheetRecordViewType),
     activeView:    OptionType(StringType),
-    onViewsChange: OptionType(FunctionType([ArrayType(SheetViewType)], NullType)),
+    onViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),
     newRowId:      OptionType(FunctionType([], StringType)),
@@ -1051,11 +1047,6 @@ export const SheetRootType = StructType({
     density:       OptionType(DensityType),
     footer:        ArrayType(SheetFooterItemType),
     style:         OptionType(SheetStyleType),
-    /** Indexed record controls, separate from the local Slice wire. */
-    recordSlice:   OptionType(RecordSliceChromeType),
-    /** Saved record narrowings, separate from local views. */
-    recordViews: ArrayType(SheetRecordViewType),
-    onRecordViewsChange: OptionType(FunctionType([ArrayType(SheetRecordViewType)], NullType)),
     /** Source order is authoritative, including when drafts are overlaid. */
     ordered: BooleanType,
 });

@@ -11,20 +11,29 @@
  * author's tabs of cards (#1186), and `inspector`, the selected row's every
  * field (#1188). No prop, no pane.
  *
- * Its rows come from one of two sources:
+ * Its rows come from one of three sources:
  * - `record`, an e3 record bound with its patch mutation: its entries, a
  *   window of them, or one entry's rows (#1182). Apply commits through the
  *   record, and the footer gives the record's last save;
  * - `data`, the host's rows: an array, a bind handle (`State.bind`,
  *   `Data.bind`) or a paged source (`Data.bindPaged`). Edits reach the host
  *   through `onApply`, `onUpdate` and `onPatch`, and with none of them the
- *   sheet is read only.
+ *   sheet is read only;
+ * - the `rows` source of its `slice`, a `Slice.bindRecords` over records
+ *   (#1345): the rows it narrows to, paged from it, its record's keys their
+ *   ids; edits reach the record through `onApply`
+ *   (`Record.onApply(record, { keyed: true })`).
+ *
+ * Its narrowing is that one `Slice.bindRecords`, one rail on its toolbar:
+ * its `rows` source narrows the rows, and each other source the templates
+ * list or the library tab that names it. Templates are records, each list
+ * its own source (#1340).
  *
  * The sheet is an interface. Its payload holds the sheet whole — its grid,
- * its rows and its session ({@link SheetRootType}) — beside the templates'
- * cards and seeds, the library's tabs, the inspector's pane, the record's
- * history and the sheet's name. The `Sheet` renderer in
- * `@elaraai/e3-ui-components` draws it.
+ * its rows, its narrowing's chrome and its session ({@link SheetRootType}) —
+ * beside the templates' cards and seeds, the library's tabs, each source's
+ * narrowed keys, the inspector's pane, the record's history and the sheet's
+ * name. The `Sheet` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
@@ -32,7 +41,9 @@
 import {
     ArrayType,
     BooleanType,
+    DictType,
     East,
+    Expr,
     FunctionType,
     NullType,
     OptionType,
@@ -40,25 +51,25 @@ import {
     StructType,
     none,
     some,
-    type DictType,
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { UIComponentType, type UIElement } from "@elaraai/east-ui";
-import { EastUI, type DataRowType, type FieldHints, type PagedSource } from "@elaraai/east-ui/internal";
+import { RowSourceType, UIComponentType, type UIElement } from "@elaraai/east-ui";
+import { EastUI, isRecordSlices, type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
 import { createSheetBuild, type SheetBindHandle, type SheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetIndexedOptions, type SheetStringField } from "./root.js";
 import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
 import { recordRows, type SheetRecordEntry } from "./record.js";
-import { buildTemplates, SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
-import { buildLibrary, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
+import { buildTemplates, isSheetTemplates, SheetTemplateWireType, type SheetTemplatesList, type SheetTemplatesProp } from "./templates.js";
+import { buildLibrary, librarySources, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
 import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
+import { recordSources, templatesSource } from "../utils/record-sources.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 
 // ============================================================================
@@ -135,9 +146,10 @@ export type SheetHistoryType = typeof SheetHistoryType;
 /**
  * The `Sheet` renderer's payload: the sheet's interface.
  *
- * @property sheet - The sheet whole — its grid, its rows and its session wired to its source
- * @property templates - The Rows tab's cards and their seeds
+ * @property sheet - The sheet whole — its grid, its rows, its narrowing's chrome and its session wired to its source
+ * @property templates - The Rows tab's cards and their seeds, each with the source its list follows
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
+ * @property narrowed - Each source of the slice's narrowed keys, paged through its part, by the source's name (#1345): what the Rows tab and an author's tab read to show a source's rows
  * @property inspector - The inspector pane: its forms, and the author's own Details; `none`, no inspector pane
  * @property history - Over a record, its commits: the last save, and who changed it; `none` over `data`
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
@@ -147,6 +159,7 @@ export const SheetPayloadType = StructType({
     sheet: SheetRootType,
     templates: ArrayType(SheetTemplateWireType),
     library: ArrayType(SheetLibraryTabType),
+    narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     inspector: OptionType(SheetInspectorPaneType),
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
@@ -229,14 +242,32 @@ export interface SheetLooseEntryRows<K extends EastType, V extends StructType, P
 
 /**
  * What every `<Sheet>` takes beside its rows, its columns and the sheet's
- * own options: its panes, its templates, its views and its name.
+ * own options: its narrowing, its panes, its templates, its views and its
+ * name.
  *
  * @typeParam L - The row type (a grouped sheet's line type)
  * @typeParam G - The group type, on a grouped sheet
  */
 export interface SheetCommon<L extends StructType, G extends StructType = never> {
-    /** The Rows tab's cards. */
-    templates?: SheetTemplatesInput<L, G>;
+    /**
+     * The narrowing (#1345): `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`,
+     * one rail on the toolbar, with its `affordances` and `persist`. Its
+     * `rows` source narrows the sheet's rows, which the sheet pages from it —
+     * then `record`, `data`, `entry` and `window` give none, and edits reach the
+     * record through `onApply` (`Record.onApply(record, { keyed: true })`). Each
+     * other source narrows the templates list or the library tab that names it.
+     * `Slice.bind`, a single `Slice.bindRecord` and a source nothing names are
+     * refused.
+     */
+    slice?: RecordSlicesChromeOptions;
+    /**
+     * The Rows tab's cards: templates records, each list
+     * `Sheet.templates(rows, { name, group?, values, source })` over its
+     * record's `read()`, naming its source of `slice` — a grouped sheet's row
+     * templates and group templates two lists, two records, two sources. A
+     * list written in the code is refused.
+     */
+    templates?: SheetTemplatesProp<L, G>;
     /** The library pane's tabs, in order, each a `Sheet.library.*` call — `rows()`, `columns()` and `tab(data, { … })`; left out, or empty, no library pane (SB59). */
     library?: readonly SheetLibraryTab[];
     /**
@@ -256,7 +287,7 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
     fields?: FieldHints<L["fields"]>;
     /** Hints for a group's own fields in the inspector, on a grouped sheet. */
     groupFields?: [G] extends [never] ? never : FieldHints<G["fields"]>;
-    /** The saved views — a bind handle of `Array<Sheet.Types.View>`: `State.bind` keeps them per viewer, `Data.bind` shares them. */
+    /** The saved views — a bind handle of `Array<Sheet.Types.RecordView>`, each every source's narrowing: `State.bind` keeps them per viewer, `Data.bind` shares them. Their tabs show while `slice` narrows the rows. */
     views?: unknown;
     /** Names the sheet — needed only when one surface holds two. */
     name?: string;
@@ -276,7 +307,8 @@ type SheetAnyProps = {
     window?: unknown;
     data?: unknown;
     columns: unknown;
-    templates?: { rows?: SheetTemplate<StructType>[]; groups?: SheetTemplate<StructType>[] };
+    slice?: unknown;
+    templates?: unknown;
     library?: readonly SheetLibraryTab[];
     fields?: Readonly<Record<string, unknown>>;
     groupFields?: Readonly<Record<string, unknown>>;
@@ -288,30 +320,125 @@ type SheetAnyProps = {
     newGroup?: unknown;
 } & Record<string, unknown>;
 
+/** How a templates refusal writes the declaration to make. */
+const TEMPLATES_CALL = "Sheet.templates(rows, { …, source: \"rowTemplates\" })";
+
+/** What the sheet's slice narrows, as the refusal of a source nothing names says it. */
+const NARROWS = "its rows, and the templates lists and tabs that name a source";
+
+/** Each source's narrowed keys on the wire, by the source's name. */
+const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
+
+/**
+ * The sources a `Slice.bindRecords` handle holds, read off its type alone —
+ * none for anything else, which {@link recordSources} refuses.
+ *
+ * @param slice - The sheet's `slice` prop
+ * @returns The sources' names, in their order
+ */
+function sliceNames(slice: unknown): string[] {
+    const handle = (slice as { slice?: unknown } | undefined)?.slice;
+    if (handle === undefined || !isRecordSlices(handle)) return [];
+    const type = Expr.type(East.value(handle as SubtypeExprOrValue<EastType>) as Expr) as StructType;
+    const sources = (type.fields as Record<string, EastType>)["sources"];
+    return sources?.type === "Struct" ? Object.keys(sources.fields) : [];
+}
+
+/**
+ * The record identity of a slice's `rows` source: what the editing session
+ * of the rows it pages is named by — the record, whichever index a view lists.
+ *
+ * @param slice - The sheet's checked `slice` prop
+ * @returns The `rows` source's record identity
+ */
+function rowsSourceId(slice: RecordSlicesChromeOptions): ExprType<StringType> {
+    const handle = East.value(slice.slice) as unknown as { sources: { rows: { sourceId: ExprType<StringType> } } };
+    return handle.sources.rows.sourceId;
+}
+
 /**
  * Creates the sheet's payload alone — what `<Sheet>` returns through the
  * `Sheet` carrier — for the tests and the renderer's fixtures, which read it
- * whole: the sheet over its rows, its templates, its library's tabs, its
- * inspector pane, the record's history, the missing entry's key and the
- * sheet's name.
+ * whole: the sheet over its rows, its templates, its library's tabs, each
+ * source's narrowed keys, its inspector pane, the record's history, the
+ * missing entry's key and the sheet's name.
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
  * @returns An East expression of {@link SheetPayloadType}
- * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
+ * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<SheetPayloadType> {
-    const { record, entry, window, data, columns, templates, library, fields, groupFields, inspector, views, name, ...sheet } = props as SheetAnyProps;
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, views, name, ...sheet } = props as SheetAnyProps;
+    // The narrowing's props #1345 retired, refused by name for an app that still passes them.
+    if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
+        throw new Error("Sheet: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows }) }}: the bare handle and data={Slice.rows(slice)} are gone, and the sheet reads its rows from the slice's `rows` source");
+    }
+    for (const prop of ["affordances", "persist"]) {
+        if (prop in sheet) throw new Error(`Sheet: \`${prop}\` moved into \`slice\` — slice={{ slice, ${prop} }}`);
+    }
+    const narrowing = slice as RecordSlicesChromeOptions | undefined;
+    if (narrowing?.affordances?.includes("brush") === true) {
+        throw new Error("Sheet does not support the 'brush' affordance — it has no axis and no series. Mount fields, search, range, presets or summary.");
+    }
+    // Templates are records (#1340): each list a `Sheet.templates` over its record, naming its source of the slice.
+    const lists = templates === undefined ? [] : Array.isArray(templates) ? templates as unknown[] : [templates];
+    const declared = lists.filter(isSheetTemplates);
+    const listed = declared.flatMap((list) => (list.source === undefined ? [] : [list.source]));
+    const twice = listed.find((source, i) => listed.indexOf(source) !== i);
+    if (twice !== undefined) {
+        throw new Error(`Sheet: two templates lists name the source '${twice}' — each templates list is a record of its own, and its own source of the slice`);
+    }
+    if (listed.includes("rows")) {
+        throw new Error("Sheet: a templates list names the source 'rows', which narrows the sheet's rows — each templates list is a record of its own, and its own source of the slice");
+    }
+    // Each list names one of the slice's sources, and a list written in the code names none — refused before a
+    // source no list names is, so the refusal says the change to make. A slice of another kind is refused below.
+    if (narrowing === undefined || isRecordSlices(narrowing.slice)) {
+        const names = sliceNames(narrowing);
+        for (const list of lists) templatesSource("Sheet", TEMPLATES_CALL, isSheetTemplates(list) ? list.source : undefined, names);
+    }
+    // The slice's sources: its rows, and each a templates list or a tab names.
+    const named = [...listed, ...librarySources(library)];
+    const sources = recordSources(narrowing, {
+        builder: "Sheet", names: ["rows", ...named.filter((source, i) => named.indexOf(source) === i && source !== "rows")], what: NARROWS,
+        takes: (source) => source === "rows" || named.includes(source),
+    });
+    const checked = declared.map((list): SheetTemplatesList => ({ templates: list, source: templatesSource("Sheet", TEMPLATES_CALL, list.source, sources.names) }));
+    const narrowed = East.value(new Map(Object.entries(sources.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
     if (record !== undefined && data !== undefined) {
         throw new Error("Sheet: takes its rows from `record` or from `data`, never both");
-    }
-    if (record === undefined && data === undefined) {
-        throw new Error("Sheet: needs its rows — `record`, an e3 record bound with its patch mutation, or `data`: an array, a bind handle or a paged source");
     }
     if ("onViewsChange" in sheet) {
         throw new Error("Sheet: `views` is a bind handle — State.bind keeps them per viewer, Data.bind shares them — and the sheet writes every change to them through it; it takes no `onViewsChange`");
     }
     const viewOptions = views === undefined ? {} : viewsOf(views);
+    const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+    // The `rows` source's rows are the sheet's (#1345): paged from it, its record's keys their ids.
+    const rowsData = sources.data["rows"];
+    if (rowsData !== undefined) {
+        if (record !== undefined) {
+            throw new Error("Sheet: `slice`'s `rows` source gives the rows, paged from it — commit them with onApply={Record.onApply(record, { keyed: true })} rather than `record`");
+        }
+        if (data !== undefined) {
+            throw new Error("Sheet: `data={Slice.rows(slice)}` is gone — the sheet reads its rows from `slice`'s `rows` source: slice={{ slice }}");
+        }
+        if (window !== undefined) {
+            throw new Error("Sheet: `window={Slice.rows(slice)}` is gone — the sheet reads its rows from `slice`'s `rows` source: slice={{ slice }}");
+        }
+        if (entry !== undefined) {
+            throw new Error("Sheet: `entry` reads one entry's rows of a record, and `slice`'s `rows` source gives the rows — take them from one or the other");
+        }
+        const built = createSheetBuild(rowsData, columns, { ...sheet, ...viewOptions }, { sourceId: rowsSourceId(narrowing!), slice: sources.chrome });
+        return payloadOf(built, {
+            ...parts, id: sheet.id as string | undefined,
+            history: East.value(none, OptionType(SheetHistoryType)),
+            missing: East.value(none, OptionType(StringType)),
+        });
+    }
+    if (record === undefined && data === undefined) {
+        throw new Error("Sheet: needs its rows — `record`, an e3 record bound with its patch mutation, `data`: an array, a bind handle or a paged source, or the `rows` source of `slice`");
+    }
     if (record !== undefined) {
         for (const prop of ["onApply", "onUpdate"]) {
             if (prop in sheet) {
@@ -331,11 +458,10 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...rows.options,
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
-        }, rows.internal);
+        }, { ...rows.internal, slice: sources.chrome });
         const history = (record as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
-            templates, library, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup,
-            id: rows.options.id,
+            ...parts, id: rows.options.id,
             history: East.value(some(history), OptionType(SheetHistoryType)),
             missing: rows.missing,
         });
@@ -343,19 +469,20 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     if (entry !== undefined || window !== undefined) {
         throw new Error(`Sheet: \`${entry !== undefined ? "entry" : "window"}\` reads a record — pass \`record\` for it, or leave it out with \`data\``);
     }
-    const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, {});
+    const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome });
     return payloadOf(built, {
-        templates, library, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup,
-        id: sheet.id as string | undefined,
+        ...parts, id: sheet.id as string | undefined,
         history: East.value(none, OptionType(SheetHistoryType)),
         missing: East.value(none, OptionType(StringType)),
     });
 }
 
-/** The payload around a built sheet: its templates, its library, its inspector pane, its history and its name. */
+/** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history and its name. */
 function payloadOf(built: SheetBuild, parts: {
-    templates: SheetAnyProps["templates"];
+    templates: readonly SheetTemplatesList[];
     library: SheetAnyProps["library"];
+    sources: readonly string[];
+    narrowed: ExprType<typeof NarrowedType>;
     fields: SheetAnyProps["fields"];
     groupFields: SheetAnyProps["groupFields"];
     inspector: unknown;
@@ -369,7 +496,8 @@ function payloadOf(built: SheetBuild, parts: {
     return East.value({
         sheet: built.root,
         templates: buildTemplates(parts.templates, built.bridge, { newRow: parts.newRow, newGroup: parts.newGroup }),
-        library: buildLibrary(parts.library, built.bridge),
+        library: buildLibrary(parts.library, built.bridge, parts.sources),
+        narrowed: parts.narrowed,
         inspector: buildInspectorPane(parts.inspector, built, { fields: parts.fields, groupFields: parts.groupFields, id: parts.id }),
         history: parts.history,
         missing: parts.missing,
@@ -548,6 +676,28 @@ export function SheetTag<R extends StructType>(
 /** Indexed record rows, in index order, with primary-key editing. */
 export function SheetTag<K extends EastType, R extends StructType, P extends EastType, IK extends EastType>(
     props: { data: OrderedRowSource<K, R, P, IK>; columns: SheetColumnSpec<R> } & SheetCommon<R> & SheetIndexedOptions<K, R>,
+): UIElement;
+/**
+ * `<Sheet slice={{ slice }} group={Sheet.group(P, "lines", …)} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`
+ * — the groups the `rows` source of `slice` narrows to (#1345), paged from it
+ * in its index's order, each group's id its record key; `columns` are
+ * declared over their lines.
+ */
+export function SheetTag<K extends EastType, P extends StructType, F extends SheetLinesField<P>>(
+    props: {
+        slice: RecordSlicesChromeOptions;
+        group: SheetGroupValue<P, F>;
+        columns: SheetColumnSpec<SheetLineOf<P, F>>;
+    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F>, "group" | "onApply"> & Pick<SheetIndexedOptions<K, P>, "onApply">,
+): UIElement;
+/**
+ * `<Sheet slice={{ slice }} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`
+ * — the rows the `rows` source of `slice` narrows to (#1345), paged from it
+ * in its index's order, each row's id its record key: `slice`'s rail narrows
+ * them, and Save commits through `onApply` by original primary key.
+ */
+export function SheetTag<K extends EastType, R extends StructType>(
+    props: { slice: RecordSlicesChromeOptions; columns: SheetColumnSpec<R> } & SheetCommon<R> & SheetIndexedOptions<K, R>,
 ): UIElement;
 export function SheetTag(props: { columns: unknown }): UIElement {
     return SheetComponent.Root(createSheetPayload(props as { columns: unknown } & { [prop: string]: unknown }));

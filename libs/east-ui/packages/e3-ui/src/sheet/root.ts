@@ -40,19 +40,13 @@ import {
 
 import { DensityType, StatusValueType, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
 import {
-    SliceAffordanceType,
-    SliceBindType,
-    SliceChromeType,
-    localSliceHandle,
-    RecordSliceBindType, isRecordSlice, recordSliceChrome,
-    type RecordSliceAffordance, type RecordSliceChromeOptions,
+    RecordSlicesChromeType,
     TickFormatType,
     buildRowSource,
     resolveRowSource,
     resolveTag,
     type DataRowType,
     type PagedSource,
-    type SliceAffordanceLiteral,
 } from "@elaraai/east-ui/internal";
 import {
     SheetRootType,
@@ -70,7 +64,6 @@ import {
     SheetStoreType,
     SheetCheckType,
     SheetSuggestType,
-    SheetViewType,
     SheetRecordViewType,
     SheetSelectionType,
     SheetFooterItemType,
@@ -174,7 +167,8 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
 
 /**
  * The sheet's own options (§3) — `<Sheet>`'s props beside its rows (`record`
- * or `data`), its `columns`, its panes, its views and its name.
+ * or `data`, or its `slice`'s `rows` source), its `columns`, its panes, its
+ * narrowing, its views and its name.
  *
  * @typeParam R - The host's row type
  * @property id - The `String` field that identifies a row of `data` (required on a positional source; a keyed paged source's key is its id)
@@ -182,8 +176,6 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property driver - The driver declaration (`Sheet.driver`)
  * @property registers - Register name → members (`Sheet.register.*`)
  * @property suggest - The row-proposal declaration
- * @property slice - The bound slice whose narrowing the lens draws; the rail mounts `affordances`
- * @property affordances - Rail affordances when `slice` is set (default `["search"]`; `brush` / `legend` / `breakdown` refused)
  * @property activeView - The active view's id
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
  * @property onSelect - The ring moved
@@ -210,12 +202,6 @@ export interface SheetOptions<R extends StructType> {
     registers?: Record<string, SheetRegisterValue>;
     /** The row-proposal declaration. */
     suggest?: SheetSuggestInput<R>;
-    /** The bound slice whose narrowing the lens draws. */
-    slice?: SubtypeExprOrValue<SliceBindType> | SubtypeExprOrValue<RecordSliceBindType>;
-    /** Rail affordances when `slice` is set. */
-    affordances?: SliceAffordanceLiteral[] | RecordSliceAffordance[];
-    /** Persist record narrowing using the shared Slice store. */
-    persist?: RecordSliceChromeOptions["persist"];
     /** The active view's id. */
     activeView?: SubtypeExprOrValue<OptionType<StringType>>;
     /** The whole collection with the edit applied (inline arm only). */
@@ -340,15 +326,14 @@ type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onP
     onPatch?: unknown;
     newRow?: unknown;
     newGroup?: unknown;
-    views?: SubtypeExprOrValue<ArrayType<SheetViewType>>;
-    onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetViewType>], NullType>>;
-    recordViews?: SubtypeExprOrValue<ArrayType<SheetRecordViewType>>;
-    onRecordViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetRecordViewType>], NullType>>;
+    views?: SubtypeExprOrValue<ArrayType<SheetRecordViewType>>;
+    onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetRecordViewType>], NullType>>;
 };
 
 /**
  * What only e3-ui's own factories pass a sheet's root, never an author's prop
- * (#1182): a record's rows, as `<Sheet record>` reads them.
+ * (#1182): a record's rows, as `<Sheet record>` reads them, and the
+ * narrowing's chrome `<Sheet slice>` checked (#1345).
  *
  * @internal
  */
@@ -357,8 +342,10 @@ export interface SheetInternalOptions {
     keyOrdered?: boolean;
     /** The Apply over the session's keyed batches as they come, `ChangeSet(R, K)`: a record's `Record.onApply(record, { keyed: true })`. */
     applyKeyed?: unknown;
-    /** The session's source identity, when the factory names it: a record, or one entry of it. */
+    /** The session's source identity, when the factory names it: a record, or one entry of it, or the `rows` source's record. */
     sourceId?: SubtypeExprOrValue<StringType>;
+    /** The narrowing's chrome: one rail over the sheet's `Slice.bindRecords`, checked by `<Sheet>`. */
+    slice?: SubtypeExprOrValue<OptionType<RecordSlicesChromeType>>;
 }
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
@@ -889,43 +876,12 @@ function buildSheet(
         })()
         : East.value(none, OptionType(SheetSuggestType));
 
-    // The slice chrome — search, filter, cohort; nothing with an axis.
-    for (const a of opts.affordances ?? []) {
-        if (a === "brush" || a === "legend" || a === "breakdown") {
-            throw new Error(`Sheet does not support the '${a}' affordance — it has no axis and no series. Mount search, filter or cohort.`);
-        }
-    }
-    const record = opts.slice !== undefined && isRecordSlice(opts.slice);
-    const recordChrome = record ? recordSliceChrome({ slice: opts.slice as SubtypeExprOrValue<RecordSliceBindType>,
-        ...(opts.affordances === undefined ? {} : { affordances: opts.affordances as RecordSliceAffordance[] }),
-        ...(opts.persist === undefined ? {} : { persist: opts.persist }),
-    }) : undefined;
-    if (!record) {
-        for (const affordance of opts.affordances ?? []) {
-            if (!(affordance in SliceAffordanceType.cases)) throw new Error(`Sheet: local Slice does not support '${affordance}'`);
-        }
-    }
-    const slice = opts.slice !== undefined && !record
-        ? East.value(some({
-            slice: localSliceHandle(opts.slice as SubtypeExprOrValue<SliceBindType>),
-            affordances: East.value(((opts.affordances ?? ["search"]) as SliceAffordanceLiteral[]).map((a) => variant(a, null)), ArrayType(SliceAffordanceType)),
-        }), OptionType(SliceChromeType))
-        : East.value(none, OptionType(SliceChromeType));
-    if (opts.affordances !== undefined && opts.slice === undefined) {
-        throw new Error("Sheet: `affordances` needs `slice` — the rail mounts them on the bound slice");
-    }
-
-    if (recordChrome !== undefined && opts.views !== undefined) {
-        throw new Error("Sheet: a record Slice saves Array<Sheet.Types.RecordView>; use that type for the views binding");
-    }
-    if (recordChrome === undefined && opts.recordViews !== undefined) {
-        throw new Error("Sheet: Sheet.Types.RecordView requires a record Slice");
-    }
+    // The narrowing's chrome, as `<Sheet>` checked it (#1345): one rail over its Slice.bindRecords.
+    const slice = East.value(internal.slice ?? none, OptionType(RecordSlicesChromeType));
 
     const editing = buildSheetEditing(resolved, bridge, idField, {
         ...opts,
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
-        ...(recordChrome === undefined ? {} : { sourceId: recordChrome.slice.sourceId }),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
     }, driver?.column);
@@ -968,10 +924,10 @@ function buildSheet(
             : East.value(none, OptionType(SheetDriverType)),
         suggest,
         slice,
-        views:         East.value(opts.views ?? [], ArrayType(SheetViewType)),
+        views:         East.value(opts.views ?? [], ArrayType(SheetRecordViewType)),
         activeView:    opts.activeView !== undefined ? East.value(opts.activeView, OptionType(StringType)) : East.value(none, OptionType(StringType)),
         onViewsChange: opts.onViewsChange !== undefined
-            ? some(East.value(opts.onViewsChange, FunctionType([ArrayType(SheetViewType)], NullType)))
+            ? some(East.value(opts.onViewsChange, FunctionType([ArrayType(SheetRecordViewType)], NullType)))
             : none,
         onSelect:      opts.onSelect !== undefined
             ? some(East.value(opts.onSelect, FunctionType([SheetSelectionType], NullType)))
@@ -984,10 +940,6 @@ function buildSheet(
         density:       opts.density !== undefined ? some(resolveTag(opts.density, DensityType)) : none,
         footer,
         style,
-        recordSlice: recordChrome === undefined ? none : some(recordChrome),
-        recordViews: East.value(opts.recordViews ?? [], ArrayType(SheetRecordViewType)),
-        onRecordViewsChange: opts.onRecordViewsChange === undefined ? none
-            : some(East.value(opts.onRecordViewsChange, FunctionType([ArrayType(SheetRecordViewType)], NullType))),
         ordered: ordered !== undefined,
     }, SheetRootType);
     return { root, bridge, metas, registers: Object.keys(registers) };

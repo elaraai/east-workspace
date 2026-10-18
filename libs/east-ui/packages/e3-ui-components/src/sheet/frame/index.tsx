@@ -14,20 +14,22 @@
  * and the selection. The frame places the sheet's parts in its regions:
  *
  * - **the toolbar** — the sheet's items (`useSheetToolbarItems`) on the
- *   frame's one folding row, in §7.1's order: the view tabs, the context
- *   switch, the match count, the key search, the slice's rail, the scope
- *   badge, and the history item, which leaves its error to the banners. ⌘F
- *   in the grid reaches the key search in it — its box, or, folded to its
- *   icon, the box in its popover (#1221) — else the rail's search box. A sheet
- *   with none of them — read only, with no slice and no key search — has no
- *   toolbar;
+ *   frame's one folding row, in §7.1's order: the view tabs, the key search,
+ *   the rail over the sheet's `Slice.bindRecords` (#1345), the scope badge,
+ *   and the history item, which leaves its error to the banners. ⌘F in the
+ *   grid reaches the key search in it — its box, or, folded to its icon, the
+ *   box in its popover (#1221). A sheet with none of them — read only, with
+ *   no slice and no key search — has no toolbar;
  * - **the banners** — the session's (`SessionBanners`): an Apply's conflict,
  *   naming its rows and who changed the record last; a refusal, with its
  *   reason; an unknown outcome and a failed confirmation read, each with
- *   Retry; the out-of-date notice, with Discard — and last, an `entry` the
- *   record does not hold;
+ *   Retry; the out-of-date notice, with Discard — then each source the
+ *   library follows whose narrowing could not be read, with Retry — and last,
+ *   an `entry` the record does not hold;
  * - **the library**, the start pane, when the sheet is given one — its tabs
- *   the ones `library` lists, and no pane when it lists none (#1186, SB59) —
+ *   the ones `library` lists, and no pane when it lists none (#1186, SB59);
+ *   the Rows tab follows each templates list's source of the rail, and an
+ *   author's tab the source it names, each counting what it shows (#1345) —
  *   and **the inspector**, the end pane, when the sheet is given one —
  *   Details for what is selected, its every field through the pane's form or
  *   the author's own Details, and the batch's Issues (#1188): `BuilderFrame`'s
@@ -38,7 +40,8 @@
  * - **main** — the grid, filling the room the panes leave and scrolling its
  *   own rows, the strip docked under it;
  * - **the footer** — the sheet's, and over a record its last save, from the
- *   record's commits, which the inspector also says with who made it.
+ *   record's commits, which the inspector also says with who made it; over
+ *   the slice's `rows` source, the rows a Save took out of the narrowing.
  *
  * ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — a pane, the
  * toolbar — as the history item does (#1185, SB26): the grid answers its own,
@@ -55,20 +58,23 @@
  */
 
 import { memo, useCallback, useMemo, type KeyboardEvent } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, Button } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetComponent, SheetPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
+import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
+import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
 import { SheetFooter } from "../Footer.js";
 import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
-import { tabLibrary, templatesLibrary, useSheetLibrary } from "./library.js";
+import { tabLibrary, templateCardKey, templatesLibrary, useSheetLibrary } from "./library.js";
+import { followedNouns, followedSources } from "./sources.js";
 
 /** The renderer's payload, decoded. */
 export type SheetValue = ValueTypeOf<typeof SheetPayloadType>;
@@ -98,7 +104,8 @@ const NO_COLUMN_HIDDEN: ReadonlySet<string> = new Set();
  */
 function dropHostOf(value: SheetValue, keys: SheetKeys): SheetDropHost {
     const listsRows = value.library.some((tab) => tab.type === "rows");
-    const templates = new Map(value.templates.map((t): [string, SheetDropTemplate] => [t.key, {
+    // By each card's key: two lists' templates may share a key in their records (#1345).
+    const templates = new Map(value.templates.map((t): [string, SheetDropTemplate] => [templateCardKey(t), {
         name: t.name,
         kind: t.seed.type,
         seeds: t.seed.type === "row" ? { newRow: some(t.seed.value) } : { newGroup: some(t.seed.value) },
@@ -175,11 +182,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [store]);
     // What the sheet takes dropped: its templates and its author's cards, on its own surface (#1187).
     const drop = useMemo(() => dropHostOf(value, keys), [value, keys]);
-    // What the frame hands the parts: the columns the viewer hid, and the drops the sheet takes.
-    const host = useMemo((): SheetHost => ({ hidden, drop }), [hidden, drop]);
+    // What the rail counts each source the library follows in (#1345).
+    const words = useSheetWords();
+    const nouns = useMemo(() => followedNouns(value, words), [value, words]);
+    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, and the sources' nouns.
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns }), [hidden, drop, nouns]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
-            <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} />
+            <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} />
         </SheetProvider>
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
@@ -194,10 +204,31 @@ interface SheetFrameProps {
     hidden: ReadonlySet<string>;
     /** Hides a column, or shows it again. */
     onToggleColumn: (key: string) => void;
+    /** What the rail counts each source the library follows in. */
+    nouns: ReadonlyMap<string, string>;
+}
+
+/**
+ * The frame, once each source its library follows is read (#1345): what the
+ * Rows tab and an author's tab show of their sources, and the banners of the
+ * ones that could not be read.
+ */
+function SheetFrame(props: SheetFrameProps) {
+    const { m } = useSheetWords();
+    const { value, nouns } = props;
+    const chrome = getSomeorUndefined(value.sheet.slice);
+    const sources = useMemo(() => followedSources(value), [value]);
+    // What a source's failed narrowing says, in the sheet's words.
+    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: m.sourceChanged({ name }), failed: m.sourceFailed({ name }) }), [m]);
+    return (
+        <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>
+            {(followed) => <SheetFrameBody {...props} followed={followed} />}
+        </FollowSources>
+    );
 }
 
 /** The frame, its regions holding the sheet's parts. */
-function SheetFrame({ value, keys, hidden, onToggleColumn }: SheetFrameProps) {
+function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: SheetFrameProps & { followed: FollowedSources }) {
     const words = useSheetWords();
     const { m } = words;
     const items = useSheetToolbarItems();
@@ -206,8 +237,10 @@ function SheetFrame({ value, keys, hidden, onToggleColumn }: SheetFrameProps) {
     const { session, onAction } = useSheetHistory();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
-    const library = useSheetLibrary({ value, keys, hidden, onToggleColumn, words });
+    const library = useSheetLibrary({ value, keys, hidden, onToggleColumn, words, followed });
     const inspector = useSheetInspector({ value, keys, words, hidden, lastCommit });
+    // A Save that takes rows out of the `rows` source's narrowing says so in the footer.
+    const rowsPart = useMemo(() => sourcePart(getSomeorUndefined(value.sheet.slice), "rows"), [value.sheet.slice]);
     // An issue's place: its row's key, or on a grouped sheet its line in its group.
     const where = useCallback((issue: EditIssue) => (issue.entry === "" || issue.row.type === "none" ? issue.entry
         : m.rowRef({ line: true, number: words.number(Number(issue.row.value) + 1), title: issue.entry, noun: m.groupNoun() })), [m, words]);
@@ -223,9 +256,16 @@ function SheetFrame({ value, keys, hidden, onToggleColumn }: SheetFrameProps) {
     const missing = getSomeorUndefined(value.missing);
     // A sheet with no control to show — read only, no slice, no key search — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
+    const failed = [...followed.values()].filter((source) => source.error !== undefined);
     const banners = (
         <>
             <SessionBanners session={session} words={words} onAction={onAction} where={where} issueText={readIssue} />
+            {failed.map((source) => (
+                <Box key={source.name} data-sheet-banner="source">
+                    <BannerView status="error" title={m.sourceUnavailable({ name: source.name })} description={source.error}
+                        actions={<Button size="xs" variant="outline" onClick={source.retry}>{m.retry()}</Button>} />
+                </Box>
+            ))}
             {missing !== undefined && (
                 <Box data-sheet-banner="missing">
                     <BannerView status="neutral" title={m.entryMissing({ key: missing })} />
@@ -241,7 +281,7 @@ function SheetFrame({ value, keys, hidden, onToggleColumn }: SheetFrameProps) {
             banners={banners}
             start={library}
             end={inspector}
-            footer={<SheetFooter {...footer} saved={saved} recordSlice={value.sheet.recordSlice?.type === "some" ? value.sheet.recordSlice.value.slice : undefined} />}
+            footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
             onKeyDown={onKeyDown}
         >
             <SheetRoot>

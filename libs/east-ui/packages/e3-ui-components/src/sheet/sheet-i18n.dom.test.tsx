@@ -6,42 +6,37 @@
  *
  * The localizable Sheet (#861): every word the Sheet says itself comes from
  * ONE message table — the toolbar and the view tabs, the header, the rows,
- * bands and gap pills, the strip, the footer and the history bar, the
- * insertion chips, and the message each gesture leaves — its numbers in the
- * locale react-aria's `I18nProvider` sets, and `SheetMessagesProvider`
- * overrides the words for a subtree. The Plan's #820 test, for the Sheet.
- * Every sheet is built by `<Sheet>`'s factory and COMPILED, and rendered in
- * its frame (#1216).
+ * bands, the strip, the footer and the history bar, the insertion chips, and
+ * the message each gesture leaves — its numbers in the locale react-aria's
+ * `I18nProvider` sets, and `SheetMessagesProvider` overrides the words for a
+ * subtree. The Plan's #820 test, for the Sheet. Every sheet is built by
+ * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216); the
+ * view tabs over the workshop's orders, through the rail's `rows` source and
+ * the harness's records (#1345). (The lens's words — its count line, its
+ * context switch and its gap pills — went with the lens, #1345; #1349
+ * restores them over records.)
  */
 
-import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
+import { describe, test, expect, vi } from "vitest";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
-import { ArrayType, DateTimeType, East, IntegerType, OptionType, StringType, StructType, none, some } from "@elaraai/east";
+import { ArrayType, DateTimeType, East, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
+import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Slice, State } from "@elaraai/east-ui/internal";
-import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { system, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
-import { boundFrame } from "./frame.test-utils.js";
+import { act, sheetHarness } from "./frame/harness.test-utils.js";
 import { SheetBandRow, SheetFailedBandRow, SheetRowBoundary } from "./Rows.js";
 import { SheetMessagesProvider, sheetMessages, type SheetMessages } from "./messages.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-
-// The frame the rows scroll in: the flat and grouped sheets fit it whole; of
+// The harness's 400px frame, its store, and the examples' records and their
+// paging service (#1345): the flat and grouped sheets fit the frame whole; of
 // the paged thousand, the first windows land and the rest wait.
-let restoreFrame: () => void = () => {};
-beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(400); });
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-    restoreFrame();
-});
+sheetHarness();
 
 // ── Fixtures, at module scope: East bodies never call host helpers ─────────
 const RowType = StructType({ id: StringType, task: StringType, start: OptionType(DateTimeType), qty: IntegerType });
@@ -50,12 +45,9 @@ const ROWS = [
     { id: "b", task: "Second", start: none, qty: 2n },
 ];
 const JobType = StructType({ id: StringType, activity: StringType });
-const JOBS = ["Routing", "Spraying", "Wrapping", "Spraying", "Routing", "Wrapping"].map((activity, i) => ({ id: `j${i}`, activity }));
-const NARROWING = {
-    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, visible: none, selectedIndex: none, resolution: none,
-};
-const VIEWS = [{ id: "spray", name: "SPRAY", narrowing: { ...NARROWING, search: some("spray") }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
+/** A view of the PLANNED orders: the `rows` source's status, a value its `.east` literal (#1345). */
+const VIEWS = [{ id: "planned", name: "PLANNED", context: 0n, reveals: [], folds: new Map<string, boolean>(),
+    narrowing: new Map([["rows", { where: new Map([["status", variant("values", ["\"PLANNED\""])]]), preset: none, resolution: none }]]) }];
 const LineType = StructType({ task: StringType, qty: IntegerType });
 const PlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(LineType) });
 const PLANS = [
@@ -95,15 +87,17 @@ const EDITABLE = East.function([], SheetPayloadType, ($) => {
     });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
-/** A sheet over a bound slice, opening on a saved view that searches `spray`. */
-const LENS = East.function([], SheetPayloadType, ($) => {
-    const rows = $.const(JOBS, ArrayType(JobType));
-    const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-i18n-views", VIEWS));
-    const slice = $.let(Slice.bind("sheet_i18n_dom", rows, { fields: { activity: { label: "Activity" } }, search: "activity" }));
+/** The workshop's orders through the rail's `rows` source, opening on a saved view of the PLANNED ones (#1345). */
+const TABS = East.function([], SheetPayloadType, ($) => {
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+    const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet-i18n-views", VIEWS));
+    const slice = $.let(Slice.bindRecords("sheet_i18n_dom", {
+        rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: [ex.sheetWorkshopOrdersByStatus] }), fields: { status: { label: "Status" } } },
+    }));
     return Sheet.Payload({
-        data: rows,
-        columns: { activity: Sheet.column.text(JobType, { header: "Activity" }) },
-        id: "id", slice, affordances: ["search"], views, activeView: some("spray"),
+        slice: { slice }, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
+        columns: { activity: Sheet.column.text(ex.WorkshopOperation, { header: "Activity" }) },
+        views, activeView: some("planned"), onApply: Record.onApply(orders, { keyed: true }),
     });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
@@ -167,39 +161,31 @@ function Thrower(): never {
 
 // ── Every word the Sheet says is the table's ───────────────────────────────
 describe("one message table (#861)", () => {
-    test("the toolbar and the view tabs, the gap pills, and a tab's message", async () => {
-        const { q, container, flush, message } = mount(LENS(), "sheet-861-lens", marked);
-        await waitFor(() => expect(q("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
-        // The tabs: the list's name, the whole-sheet tab, a view's title, the close control, + TAB.
+    test("the toolbar's view tabs over the rail's `rows` source, and a tab's message (#1345)", async () => {
+        const { q, flush, message } = mount(TABS(), "sheet-861-tabs", marked);
+        await waitFor(() => expect(q("[data-sheet]")!.getAttribute("data-view")).toBe("planned"));
+        // The tabs: the list's name, the whole-sheet tab and its count, a view's title, the close control, + TAB.
         expect(q('[role="tablist"]')!.getAttribute("aria-label")).toBe("⟦Views");
         const all = q('[data-slot="tab"][data-tab="all"]')!;
-        expect(words(all)).toEqual(["⟦All", "6"]);
+        await waitFor(() => expect(words(all)).toEqual(["⟦All", "6"]));
         expect(all.getAttribute("title")).toBe("⟦Every row — the whole sheet");
-        const spray = q('[data-slot="tab"][data-tab="spray"]')!;
-        expect(spray.getAttribute("title")).toBe('⟦"spray" · live · double-click renames · middle-click closes');
-        expect(spray.querySelector('[data-slot="tabClose"]')!.getAttribute("title")).toBe("⟦Close tab");
+        const planned = q('[data-slot="tab"][data-tab="planned"]')!;
+        expect(planned.getAttribute("title")).toBe("⟦a filter · live · double-click renames · middle-click closes");
+        expect(planned.querySelector('[data-slot="tabClose"]')!.getAttribute("title")).toBe("⟦Close tab");
         const add = q('[data-slot="tabAdd"]')!;
         allMarked(attrs(add, "aria-label", "title"));
         expect(words(add)).toEqual(["⟦tab"]);
-        // The lens's count line and its context switch.
-        expect(q('[data-slot="toolbarCount"]')!.textContent).toBe("⟦2 matches");
-        const context = q('[data-slot="contextSwitch"]')!;
-        expect(context.getAttribute("aria-label")).toBe("⟦Context rows either side of a hit");
-        expect(words(context)).toEqual(["⟦context", "⟦none", "⟦±1", "⟦±3"]);
-        // A gap pill: its count and every control's words, names and titles.
-        const gap = [...container.querySelectorAll('[data-slot="band"][data-band="lens"]')].find((g) => g.querySelector('[data-where="top"]') !== null)!;
-        allMarked(words(gap));
-        allMarked(attrs(gap.querySelector('[data-where="top"]'), "aria-label", "title"));
-        allMarked(attrs(gap.querySelector('[data-where="all"]'), "aria-label", "title"));
-        expect(gap.querySelector('[data-slot="bandCount"]')!.getAttribute("title")).toBe("⟦Expand — each click reaches further");
+        // The lens is switched off (#1349): no count line, no context switch.
+        expect(q('[data-slot="toolbarCount"]')).toBeNull();
+        expect(q('[data-slot="contextSwitch"]')).toBeNull();
         // A rename box's name.
-        fireEvent.doubleClick(spray);
+        fireEvent.doubleClick(planned);
         expect(q('[data-slot="tabRename"]')!.getAttribute("aria-label")).toBe("⟦Rename tab");
         fireEvent.keyDown(q('[data-slot="tabRename"]')!, { key: "Escape" });
-        // + TAB: the message it leaves.
+        // + TAB: the message it leaves — the narrowing has no search to name it by.
         fireEvent.mouseDown(add, { button: 0 });
         await flush();
-        expect(message()).toBe('⟦Saved tab "spray" — a live view: rows that match join it as the sheet changes');
+        expect(message()).toBe('⟦Saved tab "⟦view 1" — no filter; type a search and ⏎ to scope it');
     });
 
     test("the header, a group's band, a line's name, the count line, and what folding leaves — a group named in the Sheet's own word", () => {

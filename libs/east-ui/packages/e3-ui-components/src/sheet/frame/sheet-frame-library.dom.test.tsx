@@ -8,11 +8,13 @@
  * SB32, SB33, SB36, SB37, SB59, SB60), over the Sheet's examples and their
  * seeded records (`harness.test-utils.tsx`): the tabs the author's `library`
  * lists, in its order, each with its count, and no pane when it lists none;
- * the rail's count; the Rows tab's templates by group with what they set; an
- * author's tab's cards — label, meta, icon and group — its search, and a
- * click selecting a card; the columns with their kind and eye, a column
- * hidden and shown, kept per viewer across a remount and still matched by the
- * lens; and the empty states.
+ * the rail's count; the Rows tab's templates by group with what they set —
+ * each list a templates record, in its key order (#1345); an author's tab's
+ * cards — label, meta, icon and group — its search, and a click selecting a
+ * card; the columns with their kind and eye, a column hidden and shown, kept
+ * per viewer across a remount, and none hidden without a Columns tab; and the
+ * empty states. (That a hidden column is still what the lens matches went with
+ * the lens, #1345; #1349 restores it over records.)
  */
 
 import { test, expect } from "vitest";
@@ -52,6 +54,12 @@ const crewsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
 const columnsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [Sheet.library.columns()] });
+}), getRegisteredPlatformImplementations());
+/** The jobs sheet over two columns, its library the Rows tab alone: no Columns tab. */
+const noColumnsTabPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    return Sheet.Payload({ record: jobs, name: "plain", library: [Sheet.library.rows()],
+        columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }), start: Sheet.column.date(ex.SheetJob, { header: "Start" }) } });
 }), getRegisteredPlatformImplementations());
 /** The jobs sheet with an author's tab with no rows, listed first, then no templates and the columns. */
 const emptyPayload = East.compile(East.function([], SheetPayloadType, ($) => {
@@ -150,24 +158,25 @@ test("Rows lists the templates by group: each its name, and what it sets as the 
     await settle();
     await openTab(container, "Rows");
     expect(heads(container)).toEqual([["Operations", "6"], ["Dispatch", "2"], ["Orders", "3"]]);
+    // Each list a templates record (#1345): the operation templates, then the order templates, each in its key order.
     expect(cards(container)).toEqual([
+        ["Assembly", "Assembly", null],
         ["Panel cutting", "Panel cutting · 1 × beam saw", null],
         ["Edge banding", "Edge banding · 1 × edge bander", null],
         ["CNC routing", "CNC routing · 1 × CNC router", null],
         ["Sanding", "Sanding", null],
         ["Spray finish", "Spray finish · 1 × spray booth", null],
-        ["Assembly", "Assembly", null],
-        ["Wrapping", "Wrapping", null],
         ["Delivery", "Delivery", null],
+        ["Wrapping", "Wrapping", null],
         ["Kitchen order", "PLANNED · 4 lines", null],
-        ["Wardrobe order", "PLANNED · 4 lines", null],
         ["Vanity unit", "PLANNED · 4 lines", null],
+        ["Wardrobe order", "PLANNED · 4 lines", null],
     ]);
     // The search reads a card's name, its group and what it sets.
     await search(container, "booth");
     expect(cards(container).map(([name]) => name)).toEqual(["Spray finish"]);
     await search(container, "dispatch");
-    expect(cards(container).map(([name]) => name)).toEqual(["Wrapping", "Delivery"]);
+    expect(cards(container).map(([name]) => name)).toEqual(["Delivery", "Wrapping"]);
 });
 
 test("an author's tab lists one card per row — its label, its meta, the tab's icon — grouped by its group (SB60)", async () => {
@@ -256,25 +265,11 @@ test("Columns lists the columns in order with their kind and an eye; a hidden co
     expect(localStorage.getItem("sheet.workshop.columns")).toBe(JSON.stringify([]));
 });
 
-test("a hidden column is still what the lens matches: hiding Activity, the slice's search still narrows to its rows (SB36)", async () => {
-    const { container } = mount(ex.sheetWorkshop);
+test("a sheet whose library lists no Columns tab hides no column, whatever its viewer hid under its name — nothing on it could show the column again (SB36)", async () => {
+    localStorage.setItem("sheet.plain.columns", JSON.stringify(["start"]));
+    const { container } = mountPayload(noColumnsTabPayload());
     await settle();
-    await openTab(container, "Columns");
-    fireEvent.click(cardNamed(container, "Activity"));
-    await settle();
-    expect(headerKeys(container)).not.toContain("activity");
-    // The slice's search, in the frame's toolbar — ⌘F in the grid opens it — narrows to the four orders that band their edges.
-    const grid = slot(container, "main")!.querySelector<HTMLElement>('[role="grid"]')!;
-    grid.focus();
-    fireEvent.keyDown(grid, { key: "f", metaKey: true });
-    await settle();
-    const searchBox = document.activeElement as HTMLInputElement;
-    expect(slot(container, "toolbar")!.contains(searchBox)).toBe(true);
-    await act(async () => { fireEvent.change(searchBox, { target: { value: "Edge banding" } }); });
-    fireEvent.keyDown(searchBox, { key: "Enter" });
-    await settle();
-    expect(slot(container, "toolbar")!.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("4 matches");
-    expect(slot(container, "main")!.querySelectorAll('[data-slot="gutterNumber"][data-hit]')).toHaveLength(4);
+    expect(headerKeys(container)).toEqual(["task", "start"]);
 });
 
 test("the last column shown stays, and its eye says so (SB36)", async () => {

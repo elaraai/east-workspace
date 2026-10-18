@@ -156,10 +156,10 @@ export {
 // `<Sheet>` — over an e3 record or the host's rows, in its frame, its library
 // and inspector panes optional props — its authoring vocabulary on `Sheet`
 // (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`,
-// `Sheet.group`, `Sheet.patch`, `Sheet.library.*`, `Sheet.field`,
-// `Sheet.apply`, `Sheet.Types`), and its props.
+// `Sheet.group`, `Sheet.patch`, `Sheet.templates`, `Sheet.library.*`,
+// `Sheet.field`, `Sheet.apply`, `Sheet.Types`), and its props.
 export {
-    Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplate, type SheetTemplatesInput,
+    Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesProp,
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 

@@ -22,14 +22,17 @@ import e3 from "@elaraai/e3";
 // - `sheetBasic`, the smallest: a record's entries as the rows (§3.1);
 // - `sheetVariants`, THE configurator: the sheet's options as axes, over the
 //   host's rows (`data`), committed through `onApply`;
-// - `sheetStress`, two thousand rows a task makes, read only, and the lens;
+// - `sheetStress`, two thousand rows of a record, read only, paged through
+//   the indexes its rail narrows them by, and views over that narrowing;
 // - `sheetLibrary`, a library of the author's own (§4.4);
 // - `sheetWorkshop`, the flagship — the joinery workshop's orders (§3.3):
 //   groups, the driver and registers, the link grammar, the copilot,
-//   readiness, the lens and views;
+//   readiness, one rail over the orders and the two templates records, and
+//   views;
 // - `sheetWeeks`, one entry's rows with every column kind and its rules (§3.4);
 // - `sheetBatches`, one entry's groups in the planner's order, dragged and
-//   moved (#1187), with their sub rows;
+//   moved (#1187), with their sub rows, its templates two records the rail
+//   narrows;
 // - `sheetLoose`, loose rows between the groups (#846);
 // - `sheetPaged`, a record read a window at a time;
 // - `sheetUpkeep`, the inspector's every field kind (#1220).
@@ -42,10 +45,11 @@ import e3 from "@elaraai/e3";
 //
 // Every sheet binds its rows from e3, so each runs on e3-web in the showcase
 // (#1180): a record seeded with an authored literal (§2a), whose patch door
-// every Save commits through, or a task's output, made where data is made.
-// `State` holds only what the viewer owns: a configurator's axes, saved views,
-// the week picked. The names are made up; the domain is a joinery workshop
-// (decision 14).
+// every Save commits through. A sheet's narrowing is one `Slice.bindRecords`
+// over records and their indexes (#1345): its `rows` source the rows, each
+// templates record a source of its own. `State` holds only what the viewer
+// owns: a configurator's axes, saved views, the week picked. The names are
+// made up; the domain is a joinery workshop (decision 14).
 //
 // A sheet fills its parent, as a ui task's page fills the window: each
 // example gives it a box of its own height. One page shows them all, so every
@@ -239,7 +243,7 @@ export const sheetVariants = example({
 });
 
 // ============================================================================
-// sheetStress — two thousand rows, and the lens over them
+// sheetStress — two thousand rows of a record, paged through its indexes
 // ============================================================================
 
 /** A job on the stress sheet — its start, activity, notes, work centres (a
@@ -248,10 +252,6 @@ export const StressJob = StructType({
     id: StringType, start: OptionType(DateTimeType), activity: StringType, notes: StringType,
     stations: Sheet.Types.Link, status: StringType, qty: OptionType(FloatType),
 });
-
-/** How many jobs the stress sheet holds — a small authored constant;
- *  {@link sheetStressJobs} makes the rows. */
-export const sheetStressJobCount = e3.input("sheet_stress_job_count", IntegerType, variant("value", 2000n));
 
 /**
  * The jobs, generated from their count — four a day from 5 January, the
@@ -280,54 +280,62 @@ export const generateStressJobs = East.function([IntegerType], ArrayType(StressJ
     }));
 });
 
-/** The task that generates the jobs — its output is what the stress sheet reads. */
-export const sheetStressJobs = e3.task("sheet_stress_jobs", [sheetStressJobCount], generateStressJobs);
+/** The jobs, keyed by their id — two thousand made by {@link generateStressJobs}: what the stress sheet pages and its rail narrows (#1345). */
+export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob),
+    East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
+        const generate = $.const(generateStressJobs);
+        return generate(count).toDict((_$, job) => job.id, (_$, job) => job);
+    }), [])(2000n));
+/** The jobs by activity, by status and by their notes: what the rail narrows them by, each choice one index's runs. */
+export const sheetStressByActivity = e3.recordIndex("sheet_stress_by_activity", sheetStressJobs, { on: ["activity"] });
+export const sheetStressByStatus = e3.recordIndex("sheet_stress_by_status", sheetStressJobs, { on: ["status"] });
+export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetStressJobs, { on: ["notes"] });
 
 /**
- * Stress, and the lens (§3.8) — two thousand jobs an e3 task generates, the
- * host's rows (`data`), read only, every row virtualised. Search and filter
- * run through the bound slice; the sheet never narrows, it draws the rows the
- * narrowing leaves as collapsed context bands while hits keep their row
- * numbers. The work centres are a set column searched through its display
- * form (`text: r => Sheet.link.print(r.stations)`); saved views are
- * slice-state snapshots evaluated live, with their context and reveals, the
- * first one open, kept per viewer through a `State` bind handle. The rows
- * are a task's output, made where data is made, so the sheet only reads
- * them. It is given no pane.
+ * Stress (§3.8) — two thousand jobs of an e3 record, read only, every row
+ * virtualised, paged a window at a time. The rail is the sheet's
+ * `Slice.bindRecords`: its `rows` source narrows the jobs by activity, by
+ * status and by a prefix of their notes, each through the record's own index,
+ * and the sheet pages what it narrows to. Saved views each keep every
+ * source's narrowing (`Sheet.Types.RecordView`, its values `.east` literals),
+ * the first one open, kept per viewer through a `State` bind handle. It is
+ * given no pane.
  */
 export const sheetStress = example({
-    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "data", "readOnly", "slice", "search", "filter", "lens", "bands", "context", "reveal", "views", "State.bind", "activeView", "text", "Sheet.link.print", "set", "register", "concat", "footer", "Slice", "config", "bind", "state", "Data.bind", "bound", "e3.task", "generated", "Reactive", "State"],
-    description: "Two thousand jobs an e3 task generates, read only and virtualised in the sheet's frame, with the lens over them — search and filter through the bound slice drawn as context bands (hits keep their row numbers), a set column searched through its display text, and saved views kept per viewer as slice-state snapshots with their context and reveals",
+    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "recordIndex", "record", "search", "filter", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
+    description: "Two thousand jobs of an e3 record, read only and virtualised in the sheet's frame, paged in the order of the rail's narrowing — by activity, by status and by a prefix of their notes, each through the record's index — with saved views kept per viewer, each every source's narrowing",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const MachineType = StructType({ code: StringType, family: StringType });
-            // Two thousand jobs an e3 task generates — made where data is made.
-            const jobs = $.let(Data.bind(sheetStressJobs));
-            const count = $.let(jobs.read().length());
             const machines = $.const([
                 { code: "R2140", family: "CNC router" }, { code: "R2141", family: "CNC router" }, { code: "R2145", family: "CNC router" },
                 { code: "P3210", family: "4-side planer" }, { code: "A7301", family: "assembly bench" },
             ], ArrayType(MachineType));
-            // The work centres are searched through their display form — `3 x CNC router`, `A7301` — not their `.east` text.
-            const slice = $.let(Slice.bind("sheet_stress_slice", jobs.read(), {
-                fields: {
-                    activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
-                    notes:    { label: "Notes" },
-                    stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) },
-                    status:   { label: "Status" },
+            // One rail over the jobs: the sheet's rows are what its `rows` source narrows them to, through the record's indexes.
+            const slice = $.let(Slice.bindRecords("sheet_stress", {
+                rows: {
+                    source: Data.bindPaged(sheetStressJobs, { indexes: [sheetStressByActivity, sheetStressByStatus, sheetStressByNotes] }),
+                    fields: {
+                        activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
+                        status:   { label: "Status", hints: ["PLANNED", "RELEASED", "COMPLETE"] },
+                        notes:    { label: "Notes" },
+                    },
+                    search: ["notes"],
                 },
-                search: ["activity", "notes", "stations"],
             }));
-            const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_stress_views", [
-                { id: "spraying", name: "SPRAYING", narrowing: Slice.state({ search: some("spraying") }), context: 1n, reveals: [], folds: new Map() },
-                { id: "routers", name: "ROUTERS", narrowing: Slice.state({ search: some("router") }), context: 0n, reveals: [], folds: new Map() },
-                { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [], folds: new Map() },
+            // Each view keeps every source's narrowing, by name: an activity's value is its `.east` literal, a search its prefix.
+            const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet_stress_views", [
+                { id: "spraying", name: "SPRAYING", context: 1n, reveals: [], folds: new Map(),
+                  narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Spraying\""])]]), preset: none, resolution: none }]]) },
+                { id: "routers", name: "ROUTERS", context: 0n, reveals: [], folds: new Map(),
+                  narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Routing\""])]]), preset: none, resolution: none }]]) },
+                { id: "urgent", name: "URGENT", context: 0n, reveals: [], folds: new Map(),
+                  narrowing: new Map([["rows", { where: new Map([["notes", variant("prefix", "urgent")]]), preset: none, resolution: none }]]) },
             ]));
             return (
                 <Box height="480px">
                     <Sheet
-                        data={jobs}
-                        id="id"
+                        slice={{ slice }}
                         name="stress"
                         registers={{
                             stations: Sheet.register.concat([
@@ -344,10 +352,9 @@ export const sheetStress = example({
                             status:   Sheet.column.text(StressJob, { header: "Status", width: "120px" }),
                             qty:      Sheet.column.quantity(StressJob, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                         }}
-                        slice={slice} affordances={["search", "filter"]}
                         views={views} activeView={some("spraying")}
                         readOnly
-                        footer={[{ text: East.str`${count} rows · virtualised` }]}
+                        footer={[{ text: "virtualised" }]}
                     />
                 </Box>
             );
@@ -538,6 +545,51 @@ export const sheetWorkshopOrders = e3.record("sheet_workshop_orders", DictType(S
 ]));
 /** The orders' patch door — every Save commits through it. */
 export const sheetWorkshopOrdersPatch = e3.mutation.patch(sheetWorkshopOrders);
+/** The orders by status and by customer: what the rail narrows them by, each choice one index's runs. */
+export const sheetWorkshopOrdersByStatus = e3.recordIndex("sheet_workshop_orders_by_status", sheetWorkshopOrders, { on: ["status"] });
+export const sheetWorkshopOrdersByCustomer = e3.recordIndex("sheet_workshop_orders_by_customer", sheetWorkshopOrders, { on: ["customer"] });
+
+/** An operation template — the Rows tab's card, the group it sits under, and the activity and work centres it drops. */
+export const WorkshopOperationTemplate = StructType({ name: StringType, group: StringType, activity: StringType, machines: Sheet.Types.Link });
+/** The operation templates, keyed by their key: a record of their own, the rail's `rowTemplates` source (#1345). */
+export const sheetWorkshopOperationTemplates = e3.record("sheet_workshop_operation_templates", DictType(StringType, WorkshopOperationTemplate), new Map([
+    ["assemble", { name: "Assembly", group: "Operations", activity: "Assembly", machines: { from: [], to: [] } }],
+    ["cut", { name: "Panel cutting", group: "Operations", activity: "Panel cutting", machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }],
+    ["deliver", { name: "Delivery", group: "Dispatch", activity: "Delivery", machines: { from: [], to: [] } }],
+    ["edge", { name: "Edge banding", group: "Operations", activity: "Edge banding", machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }],
+    ["route", { name: "CNC routing", group: "Operations", activity: "CNC routing", machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }],
+    ["sand", { name: "Sanding", group: "Operations", activity: "Sanding", machines: { from: [], to: [] } }],
+    ["spray", { name: "Spray finish", group: "Operations", activity: "Spray finish", machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }],
+    ["wrap", { name: "Wrapping", group: "Dispatch", activity: "Wrapping", machines: { from: [], to: [] } }],
+]));
+/** The operation templates by their group: what the rail narrows them by. */
+export const sheetWorkshopOperationTemplatesByGroup = e3.recordIndex("sheet_workshop_operation_templates_by_group", sheetWorkshopOperationTemplates, { on: ["group"] });
+
+/** An order template — the Rows tab's card, the group it sits under, and the operations each kind of order starts with. */
+export const WorkshopOrderTemplate = StructType({ name: StringType, group: StringType, ops: ArrayType(WorkshopOperation) });
+/** The order templates, keyed by their key: a record of their own, the rail's `groupTemplates` source (#1345). */
+export const sheetWorkshopOrderTemplates = e3.record("sheet_workshop_order_templates", DictType(StringType, WorkshopOrderTemplate), new Map([
+    ["kitchen", { name: "Kitchen order", group: "Orders", ops: [
+        { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+    ] }],
+    ["vanity", { name: "Vanity unit", group: "Orders", ops: [
+        { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+    ] }],
+    ["wardrobe", { name: "Wardrobe order", group: "Orders", ops: [
+        { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+    ] }],
+]));
+/** The order templates by their group: what the rail narrows them by. */
+export const sheetWorkshopOrderTemplatesByGroup = e3.recordIndex("sheet_workshop_order_templates_by_group", sheetWorkshopOrderTemplates, { on: ["group"] });
 
 /** The model behind the workshop's async proposer — an e3 function, a service, a notebook; the sheet needs only its types. */
 const workshopRecommend = East.asyncPlatform(
@@ -559,23 +611,31 @@ const workshopRecommend = East.asyncPlatform(
  * half the activity does not use, implies how many machines a quantity needs,
  * and checks each machine named. The copilot fills dates, quantities, notes
  * and work centres, and proposes the lines that follow — a pattern, one
- * learned from the order, and an async model. A check on each order, templates
- * for whole orders and single operations, the slice's search and filter with
- * the work centres searched by their display text, views kept per viewer and
- * a footer. Both panes: the library lists the templates, the statuses — a
- * card dropped on an order's band sets its status — and the columns; the
- * inspector shows every field of the selected operation, `created_by` (no
- * column) read only, and the order with no customer is the batch's issue.
+ * learned from the order, and an async model. A check on each order, and a
+ * footer counting every operation. One rail, its `Slice.bindRecords` over
+ * three records (#1345): the orders, by status and customer — the sheet's
+ * rows, paged from it, Save committing through the record's patch door — and
+ * the operation and order templates, each a record of its own, by their
+ * group; views kept per viewer hold every source's narrowing. Both panes: the
+ * library lists the templates the rail shows, the statuses — a card dropped
+ * on an order's band sets its status — and the columns; the inspector shows
+ * every field of the selected operation, `created_by` (no column) read only,
+ * and the order with no customer is the batch's issue.
  */
 export const sheetWorkshop = example({
-    keywords: ["Sheet", "BuilderFrame", "record", "Record", "group", "driver", "register", "members", "concat", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "link", "multiple", "sides", "locks", "arity", "check", "exists", "uom", "Format", "templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "slice", "search", "filter", "text", "Sheet.link.print", "copilot", "fill", "provider", "derive", "history", "sequence", "default", "phrase", "capacity", "propose", "proposer", "suggest", "learned", "follower", "asyncFunction", "asyncPlatform", "ready", "newGroup", "newRow", "footer", "joinery"],
-    description: "The flagship sheet — the workshop's orders as groups and their operations as lines; an activity driver giving units, durations and live halves; one work-centre register joined from a machines record (Dict), the bays (aliases) and the families (folded), its link grammar counting, locking, implying and checking machines; the copilot's fills (derive, history, sequence, default, phrase, capacity) and proposers (a pattern, a learned follower, an async model); an order check; order and operation templates; a library of the templates, the statuses (dropped on an order to set its status) and the columns; an inspector pane showing every field; the slice's search and filter over the link's display text; views kept per viewer; and a footer",
+    keywords: ["Sheet", "BuilderFrame", "record", "Record", "Record.onApply", "group", "driver", "register", "members", "concat", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "link", "multiple", "sides", "locks", "arity", "check", "exists", "uom", "Format", "templates", "Sheet.templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "RecordView", "slice", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "search", "filter", "copilot", "fill", "provider", "derive", "history", "sequence", "default", "phrase", "capacity", "propose", "proposer", "suggest", "learned", "follower", "asyncFunction", "asyncPlatform", "ready", "newGroup", "newRow", "footer", "joinery"],
+    description: "The flagship sheet — the workshop's orders as groups and their operations as lines; an activity driver giving units, durations and live halves; one work-centre register joined from a machines record (Dict), the bays (aliases) and the families (folded), its link grammar counting, locking, implying and checking machines; the copilot's fills (derive, history, sequence, default, phrase, capacity) and proposers (a pattern, a learned follower, an async model); an order check; one rail over the orders and the operation and order templates records, each its own source; a library of the templates, the statuses (dropped on an order to set its status) and the columns; an inspector pane showing every field; views kept per viewer; and a footer",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders     = $.let(Record.bind(sheetWorkshopOrders, [sheetWorkshopOrdersPatch]));
             const machines   = $.let(Record.bind(sheetWorkshopMachines, []));
             const activities = $.let(Data.bind(sheetWorkshopActivities));
-            const views      = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.workshop.views", []));
+            const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
+            const orderTemplates     = $.let(Data.bind(sheetWorkshopOrderTemplates));
+            // The orders read whole, for the footer's count: the sheet pages its rows from the rail's `rows` source,
+            // so `orders` is the patch door its Save commits through, never read whole.
+            const allOrders  = $.let(Data.bind(sheetWorkshopOrders));
+            const views      = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.workshop.views", []));
             const statuses   = $.let([
                 { word: "PLANNED",  tone: variant("neutral", null) },
                 { word: "RELEASED", tone: variant("info", null) },
@@ -589,15 +649,26 @@ export const sheetWorkshop = example({
                 { name: "Bay 4", aliases: ["b4", "spray bay"] },
                 { name: "Bay 7", aliases: ["b7", "assembly bay"] },
             ], ArrayType(BayType));
-            // Every operation of every order: what the slice searches and filters — the work centres by their display text.
-            const operations = $.let(orders.read().toArray((_$, o) => o.ops).flatMap((_$, ops) => ops));
-            const slice = $.let(Slice.bind("sheet_workshop", operations, {
-                    fields: {
-                        activity: { label: "Activity", hints: ["Panel cutting", "Edge banding", "CNC routing", "Drilling", "Sanding", "Assembly", "Spray finish", "Wrapping", "Delivery"] },
-                        notes:    { label: "Notes" },
-                        machines: { label: "Work centres", text: o => Sheet.link.print(o.machines) },
-                    },
-                    search: ["activity", "notes", "machines"],
+            // Every operation of every order: what the footer counts, whatever the rail shows.
+            const operations = $.let(allOrders.read().toArray((_$, o) => o.ops).flatMap((_$, ops) => ops));
+            // One rail over three records: the orders — the sheet's rows — and each templates record, its own source.
+            const slice = $.let(Slice.bindRecords("sheet.workshop", {
+                rows: {
+                    source: Data.bindPaged(sheetWorkshopOrders, { indexes: [sheetWorkshopOrdersByStatus, sheetWorkshopOrdersByCustomer] }),
+                    label: "Orders",
+                    fields: { status: { label: "Status", hints: ["PLANNED", "RELEASED", "ON HOLD"] }, customer: { label: "Customer" } },
+                    search: ["customer"],
+                },
+                rowTemplates: {
+                    source: Data.bindPaged(sheetWorkshopOperationTemplates, { indexes: [sheetWorkshopOperationTemplatesByGroup] }),
+                    label: "Operation templates",
+                    fields: { group: { label: "Group", hints: ["Operations", "Dispatch"] } },
+                },
+                groupTemplates: {
+                    source: Data.bindPaged(sheetWorkshopOrderTemplates, { indexes: [sheetWorkshopOrderTemplatesByGroup] }),
+                    label: "Order templates",
+                    fields: { group: { label: "Group", hints: ["Orders"] } },
+                },
             }));
             const Ctx = Sheet.Types.DraftContext(WorkshopOrder, "ops", WorkshopActivity);
             const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
@@ -779,25 +850,6 @@ export const sheetWorkshop = example({
                 });
                 return result;
             }));
-            // The operations each kind of order starts with: the group templates' lines.
-            const kitchen = $.let([
-                { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-            ], ArrayType(WorkshopOperation));
-            const wardrobe = $.let([
-                { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-            ], ArrayType(WorkshopOperation));
-            const vanity = $.let([
-                { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-                { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-            ], ArrayType(WorkshopOperation));
             // A new operation's and a new order's defaults, and the check every order passes before Save.
             const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WorkshopOperation), () =>
                 Sheet.patch(WorkshopOperation, { start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "planner" })));
@@ -812,7 +864,7 @@ export const sheetWorkshop = example({
             return (
                 <Box height="760px">
                     <Sheet
-                        record={orders}
+                        slice={{ slice }}
                         group={Sheet.group(WorkshopOrder, "ops", {
                             title: "name", sub: o => o.customer, noun: { singular: "order", plural: "orders" },
                             cells: { activity: Sheet.group.cell.enum(WorkshopOrder, "statuses", "status"),
@@ -856,38 +908,13 @@ export const sheetWorkshop = example({
                         // The inspector pane: every field of an operation; created_by, which no column shows, read only.
                         inspector
                         fields={{ created_by: Sheet.field.readonly() }}
-                        templates={{
-                            groups: [
-                                { key: "kitchen", name: "Kitchen order", group: "Orders",
-                                  values: Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: kitchen }) },
-                                { key: "wardrobe", name: "Wardrobe order", group: "Orders",
-                                  values: Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: wardrobe }) },
-                                { key: "vanity", name: "Vanity unit", group: "Orders",
-                                  values: Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: vanity }) },
-                            ],
-                            rows: [
-                                { key: "cut", name: "Panel cutting", group: "Operations",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Panel cutting",
-                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }) },
-                                { key: "edge", name: "Edge banding", group: "Operations",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Edge banding",
-                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }) },
-                                { key: "route", name: "CNC routing", group: "Operations",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "CNC routing",
-                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }) },
-                                { key: "sand", name: "Sanding", group: "Operations",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Sanding" }) },
-                                { key: "spray", name: "Spray finish", group: "Operations",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Spray finish",
-                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }) },
-                                { key: "assemble", name: "Assembly", group: "Operations",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Assembly" }) },
-                                { key: "wrap", name: "Wrapping", group: "Dispatch",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Wrapping" }) },
-                                { key: "deliver", name: "Delivery", group: "Dispatch",
-                                  values: Sheet.patch(WorkshopOperation, { activity: "Delivery" }) },
-                            ],
-                        }}
+                        // The templates: two records, each list following its source of the rail.
+                        templates={[
+                            Sheet.templates(operationTemplates.read(), { name: t => t.name, group: t => some(t.group),
+                                values: t => Sheet.patch(WorkshopOperation, { activity: t.activity, machines: t.machines }), source: "rowTemplates" }),
+                            Sheet.templates(orderTemplates.read(), { name: t => t.name, group: t => some(t.group),
+                                values: t => Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: t.ops }), source: "groupTemplates" }),
+                        ]}
                         library={[
                             Sheet.library.rows(),
                             // The statuses an order takes: a card dropped on an order's band sets its status.
@@ -898,8 +925,8 @@ export const sheetWorkshop = example({
                         newRow={newRow}
                         newGroup={newGroup}
                         ready={{ group: readyOrder }}
-                        slice={slice} affordances={["search", "filter"]}
                         views={views}
+                        onApply={Record.onApply(orders, { keyed: true })}
                         footer={[{ text: East.str`${operations.size()} operations` }]}
                         name="workshop"
                     />
@@ -1116,6 +1143,28 @@ export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType,
 /** The days' patch door — every Save commits through it. */
 export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
 
+/** A step template — the Rows tab's card, the group it sits under, and the task of the step it drops. */
+export const BatchStepTemplate = StructType({ name: StringType, group: StringType, task: StringType });
+/** The step templates, keyed by their key: a record of their own, the rail's `rowTemplates` source (#1345). */
+export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), new Map([
+    ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
+    ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
+]));
+/** The step templates by their group: what the rail narrows them by. */
+export const sheetBatchStepTemplatesByGroup = e3.recordIndex("sheet_batch_step_templates_by_group", sheetBatchStepTemplates, { on: ["group"] });
+/** A batch template — the Rows tab's card, the group it sits under, the batch's name and the steps it starts with. */
+export const BatchTemplate = StructType({ name: StringType, group: StringType, batch: StringType, steps: ArrayType(BatchStep) });
+/** The batch templates, keyed by their key: a record of their own, the rail's `groupTemplates` source (#1345). */
+export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), new Map([
+    ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
+        { task: "Sand", qty: none, parts: [], bookings: [] },
+        { task: "Seal", qty: none, parts: [], bookings: [] },
+        { task: "Spray", qty: none, parts: [], bookings: [] },
+    ] }],
+]));
+/** The batch templates by their group: what the rail narrows them by. */
+export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_by_group", sheetBatchTemplates, { on: ["group"] });
+
 /**
  * One day's batches, in the planner's order (#1187, SB39, SB40, SB44) — a
  * grouped sheet over one entry's groups, each batch a group of its steps. A
@@ -1128,20 +1177,30 @@ export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
  * (a struct source — chips and labelled facets, a `none` facet dropping out)
  * and its bookings (a variant source matched arm by arm). Its chevron opens
  * them. Both panes: the library holds the templates and the columns, and the
- * inspector a step's form, which leaves the sub rows' fields out.
+ * inspector a step's form, which leaves the sub rows' fields out. The
+ * templates are two records, the step templates and the batch templates, each
+ * a source of the sheet's one rail (#1345), which narrows their cards by
+ * their group.
  */
 export const sheetBatches = example({
-    keywords: ["Sheet", "BuilderFrame", "drag", "drop", "move", "grip", "seam", "templates", "group", "grouped", "entry", "order", "Sheet.library.rows", "children", "newGroup", "newRow", "Patch", "defaults", "completeness", "fold", "undo", "redo", "ready", "subRows", "subRow", "sub rows", "SubRow", "Facet", "chips", "facets", "lead", "detail", "noun", "variant", "match", "read-only", "inspector", "Sheet.field", "hidden"],
-    description: "A sheet over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips, a batch named before Save, new steps and batches from their defaults, and each step's parts and bookings as read-only sub rows under it, declared per array field like columns, beside a library and an inspector pane",
+    keywords: ["Sheet", "BuilderFrame", "drag", "drop", "move", "grip", "seam", "templates", "Sheet.templates", "slice", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "group", "grouped", "entry", "order", "Sheet.library.rows", "children", "newGroup", "newRow", "Patch", "defaults", "completeness", "fold", "undo", "redo", "ready", "subRows", "subRow", "sub rows", "SubRow", "Facet", "chips", "facets", "lead", "detail", "noun", "variant", "match", "read-only", "inspector", "Sheet.field", "hidden"],
+    description: "A sheet over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips, a batch named before Save, new steps and batches from their defaults, and each step's parts and bookings as read-only sub rows under it, declared per array field like columns, beside a library and an inspector pane; its step and batch templates two records, each a source of one rail",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
-            // The steps a finishing batch starts with: the batch template's lines.
-            const finishing = $.let([
-                { task: "Sand", qty: none, parts: [], bookings: [] },
-                { task: "Seal", qty: none, parts: [], bookings: [] },
-                { task: "Spray", qty: none, parts: [], bookings: [] },
-            ], ArrayType(BatchStep));
+            const stepTemplates = $.let(Data.bind(sheetBatchStepTemplates));
+            const batchTemplates = $.let(Data.bind(sheetBatchTemplates));
+            // One rail over the templates records, each its own source: they narrow the Rows tab's cards.
+            const slice = $.let(Slice.bindRecords("sheet.batches", {
+                rowTemplates: {
+                    source: Data.bindPaged(sheetBatchStepTemplates, { indexes: [sheetBatchStepTemplatesByGroup] }),
+                    label: "Step templates", fields: { group: { label: "Group", hints: ["Steps"] } },
+                },
+                groupTemplates: {
+                    source: Data.bindPaged(sheetBatchTemplates, { indexes: [sheetBatchTemplatesByGroup] }),
+                    label: "Batch templates", fields: { group: { label: "Group", hints: ["Batches"] } },
+                },
+            }));
             // A batch needs a name before Save.
             const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
                 $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
@@ -1178,12 +1237,13 @@ export const sheetBatches = example({
                         // The sub rows show a step's parts and bookings; the inspector's form leaves them out.
                         inspector
                         fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
-                        templates={{
-                            groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
-                                       values: Sheet.patch(Batch, { name: "Finishing", steps: finishing }) }],
-                            rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BatchStep, { task: "Sand", qty: none }) },
-                                     { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BatchStep, { task: "Seal", qty: none }) }],
-                        }}
+                        slice={{ slice }}
+                        templates={[
+                            Sheet.templates(stepTemplates.read(), { name: t => t.name, group: t => some(t.group),
+                                values: t => Sheet.patch(BatchStep, { task: t.task, qty: none }), source: "rowTemplates" }),
+                            Sheet.templates(batchTemplates.read(), { name: t => t.name, group: t => some(t.group),
+                                values: t => Sheet.patch(Batch, { name: t.batch, steps: t.steps }), source: "groupTemplates" }),
+                        ]}
                         library={[Sheet.library.rows(), Sheet.library.columns()]}
                         ready={{ group: readyBatch }}
                         newRow={newStep}
@@ -1272,7 +1332,7 @@ export const sheetLoose = example({
 
 /**
  * A record read a window at a time (§3.4) — the jobs, paged in key order: the
- * key search seeks a job by its key, and the lens narrows the loaded rows. Its
+ * key search seeks a job by its key. Its
  * `edits` let rows be added — from a gutter seam, the selection strip, or
  * Alt+Insert — and never removed: a job leaves through the record's own
  * process, not the sheet. It is given no pane.

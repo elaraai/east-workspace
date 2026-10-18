@@ -50,20 +50,22 @@ export const indexedWorkByUrgent = e3.recordIndex("by_urgent", indexedWorkOrders
 export const indexedWorkByTag = e3.recordIndex("by_tag", indexedWorkOrders, { on: ["tags"] });
 
 export const sheetRecordIndexes = example({
-    keywords: ["Sheet", "Slice.bindRecord", "Data.bindPaged", "Record", "recordIndex", "saved views", "paging", "primary key", "filter"],
-    description: "50,000 work orders, narrowed by maintained record indexes. Choose Ready and Scheduled together, then a Due range: their disjoint index ranges form one paged view. Save retains original keys and hidden drafts; saved tabs retain the query.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "saved views", "RecordView", "paging", "primary key", "filter"],
+    description: "50,000 work orders, narrowed by maintained record indexes through the rail's rows source, which the sheet pages its rows from. Choose Ready and Scheduled together, then a Due range: their disjoint index ranges form one paged view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-            const source = $.let(Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }));
-            const slice = $.let(Slice.bindRecord("ex.sheetRecordIndexes.scope", source, {
-                fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
-                range: "due", search: ["job"], initial: { status: ["Ready"] },
-                presets: [{ id: "ready", name: "Ready", where: { status: ["Ready"] } }, { id: "urgent", name: "Urgent", where: { urgent: [true] } }],
-            }));
+            // One rail over the work orders: its `rows` source narrows them, and the sheet pages what it narrows to.
+            const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", {
+                rows: {
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
+                    fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
+                    range: "due", search: ["job"], initial: { status: ["Ready"] },
+                },
+            }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
             const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "ex.sheetRecordIndexes.views", []));
             return <Box width="100%" height="760px">
-                <Sheet name="sheetRecordIndexes" data={Slice.rows(slice)} slice={slice} views={views}
+                <Sheet name="sheetRecordIndexes" slice={{ slice }} views={views}
                     columns={{ reference: Sheet.column.text(IndexedWork, { header: "Reference", width: "136px" }), job: Sheet.column.text(IndexedWork, { header: "Job", width: "180px" }), status: Sheet.column.text(IndexedWork, { header: "Status", width: "120px" }), due: Sheet.column.date(IndexedWork, { header: "Due", width: "144px" }), quantity: Sheet.column.integer(IndexedWork, { header: "Quantity", width: "112px" }) }}
                     onApply={Record.onApply(record, { keyed: true })} edits={{ insertRows: false }} />
             </Box>;
@@ -73,20 +75,22 @@ export const sheetRecordIndexes = example({
 });
 
 export const sheetRecordIndexesMobile = example({
-    keywords: ["Sheet", "Slice.bindRecord", "mobile", "record", "filters", "saved views"],
-    description: "The same indexed work orders in a phone-width frame, with shared Slice controls on the toolbar's responsive ladder.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "mobile", "record", "filters", "saved views", "RecordView"],
+    description: "The same indexed work orders in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-            const source = $.let(Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }));
-            const slice = $.let(Slice.bindRecord("ex.sheetRecordIndexesMobile.scope", source, {
-                fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
-                range: "due", search: ["job"], initial: { status: ["Ready"] },
-                presets: [{ id: "ready", name: "Ready", where: { status: ["Ready"] } }, { id: "urgent", name: "Urgent", where: { urgent: [true] } }],
-            }));
+            // One rail over the work orders: its `rows` source narrows them, and the sheet pages what it narrows to.
+            const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexesMobile", {
+                rows: {
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
+                    fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
+                    range: "due", search: ["job"], initial: { status: ["Ready"] },
+                },
+            }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
             const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "ex.sheetRecordIndexesMobile.views", []));
             return <Box width="390px" maxWidth="100%" height="760px">
-                <Sheet name="sheetRecordIndexesMobile" data={Slice.rows(slice)} slice={slice} views={views}
+                <Sheet name="sheetRecordIndexesMobile" slice={{ slice }} views={views}
                     columns={{ reference: Sheet.column.text(IndexedWork, { header: "Reference", width: "136px" }), job: Sheet.column.text(IndexedWork, { header: "Job", width: "180px" }), status: Sheet.column.text(IndexedWork, { header: "Status", width: "120px" }), due: Sheet.column.date(IndexedWork, { header: "Due", width: "144px" }), quantity: Sheet.column.integer(IndexedWork, { header: "Quantity", width: "112px" }) }}
                     onApply={Record.onApply(record, { keyed: true })} edits={{ insertRows: false }} />
             </Box>;

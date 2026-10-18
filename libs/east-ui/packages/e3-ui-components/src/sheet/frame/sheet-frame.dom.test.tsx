@@ -130,9 +130,9 @@ test("the toolbar is the frame's one row, the sheet's items in §7.1's order; th
     await settle();
     // Main holds no toolbar: the sheet's items are the frame's (each library tab keeps its own search band).
     expect(slot(container, "main")!.querySelector('[data-slot="toolbar"], [data-toolbar]')).toBeNull();
-    // The view tabs, the slice's rail, and the history item last.
-    expect(toolbarKeys(container)).toEqual(["tabs", "rail", "history"]);
-    // ⌘F in the grid finds the search box in the frame's toolbar.
+    // The view tabs, the key search over the `rows` source, the rail over the slice's sources and its summary (#1345), and the history item last.
+    expect(toolbarKeys(container)).toEqual(["tabs", "seek", "record-slices", "record-summary", "history"]);
+    // ⌘F in the grid finds the key search's box in the frame's toolbar.
     const grid = slot(container, "main")!.querySelector<HTMLElement>('[role="grid"]')!;
     grid.focus();
     fireEvent.keyDown(grid, { key: "f", metaKey: true });

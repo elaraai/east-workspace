@@ -23,16 +23,19 @@
  * forms of its one ladder (#952): its trailing tabs fold — the active one
  * always kept — into a `+n` menu that switches to the tab picked; then, as
  * the row needs, the strip drops its `+ TAB` label and the whole-sheet
- * count, caps its names, and closes up; last (#1221), it folds into one
+ * count, caps its names, and closes up; then (#1221) it folds into one
  * chip — the open view's tab with a caret — whose menu holds every view,
- * `+ TAB` and the open view's close ({@link SheetTabsFold}). Renaming and
- * reordering wait for a row with room for the tabs.
+ * `+ TAB` and the open view's close ({@link SheetTabsFold}). Where the sheet
+ * has a key search, the chip folds last into the key search's popover
+ * (#1345): every view a choice over the search box, then `+ TAB` and the open
+ * view's close. Renaming and reordering wait for a row with room for the tabs.
  */
 
 import { memo, useEffect, useLayoutEffect, useRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { SliceChoiceGroup, SliceClearButton } from "@elaraai/east-ui-components/internal";
 import { foldTabs } from "./lens.js";
 import { useSheetWords } from "./words.js";
 
@@ -54,10 +57,15 @@ export interface SheetTabsFold {
     folded: number;
     /** Past its fold, how far the strip closes up: `compact` drops the
      *  `+ TAB` label and the whole-sheet count, `capped` caps the tab names
-     *  at 72px as well, `closed` closes the gaps and drops every count; and
+     *  at 72px as well, `closed` closes the gaps and drops every count;
      *  `menu` (#1221) folds it into one chip, the open view's, whose menu
-     *  holds every view, `+ TAB` and the open view's close. */
-    strip?: "compact" | "capped" | "closed" | "menu" | undefined;
+     *  holds every view, `+ TAB` and the open view's close; and `search`
+     *  (#1345) is the views as the key search's popover holds them, once the
+     *  chip folds into it: every view a choice, then `+ TAB` and the open
+     *  view's close. */
+    strip?: "compact" | "capped" | "closed" | "menu" | "search" | undefined;
+    /** In the key search's popover: closes it once a view is picked, made or closed there, as the chip's menu closes. */
+    onDone?: (() => void) | undefined;
 }
 
 /** One tab's facts. */
@@ -182,6 +190,31 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
         if (skipBlur.current) { skipBlur.current = false; return; }
         props.onRenameCommit();
     };
+
+    // Folded with the key search into its popover (#1345): every view a choice, the open one pressed, each with
+    // its count; then `+ TAB` and the open view's close — what the chip's menu holds, and each closes the popover,
+    // as an item closes the chip's menu.
+    if (fold?.strip === "search") {
+        const open = active === null ? undefined : views.find((v) => v.id === active);
+        const count = (n: number | undefined) => (n === undefined ? null : BigInt(n));
+        const done = (act: () => void) => () => { act(); fold.onDone?.(); };
+        return (
+            <Box css={styles.searchViews} data-slot="searchViews" role="group" aria-label={m.tabList()}>
+                <SliceChoiceGroup
+                    choices={[
+                        { id: ALL, label: m.tabAll(), active: active === null, count: count(wholeCount) },
+                        ...views.map((v) => ({ id: `${MENU_VIEW}${v.id}`, label: v.name, active: v.id === active, count: count(v.count) })),
+                    ]}
+                    onPick={(id) => done(() => props.onSwitch(id.startsWith(MENU_VIEW) ? id.slice(MENU_VIEW.length) : null))()} />
+                <Box css={styles.searchViewsActions}>
+                    <Button size="xs" variant="ghost" title={m.tabAddTitle({ query: hasQuery })} onClick={done(props.onCreate)}>
+                        <FontAwesomeIcon icon={faPlus} />{m.tabAddName()}
+                    </Button>
+                    {open !== undefined && <SliceClearButton label={m.tabCloseView({ name: open.name })} onClick={done(() => props.onClose(open.id))} />}
+                </Box>
+            </Box>
+        );
+    }
 
     // Folded into one chip (#1221): the open view's tab and a caret, its menu
     // every view, `+ TAB` and the open view's close.

@@ -356,12 +356,16 @@ export {
     type SheetEntriesField,
     type SheetCommon,
 } from './sheet/sheet.js';
-export { SheetTemplateWireType, buildTemplates, type SheetTemplate, type SheetTemplatesInput } from './sheet/templates.js';
+export {
+    SheetTemplateWireType, buildTemplates, isSheetTemplates, sheetTemplates,
+    type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesList, type SheetTemplatesProp,
+} from './sheet/templates.js';
 export {
     SheetLibraryCardType,
     SheetLibraryDropType,
     SheetLibraryTabType,
     buildLibrary,
+    librarySources,
     type SheetLibraryTab,
     type SheetLibraryTabConfig,
 } from './sheet/library.js';

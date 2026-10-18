@@ -67,8 +67,11 @@ export interface KeySearchToolbarOptions {
     /** The input's placeholder, icon's accessible name and popover's head — `Search Records` when omitted. */
     label?: string | undefined;
     /** Optional final form sharing the search popover with host controls.
-     * Bundle this step with the step hiding those controls in the toolbar. */
-    compact?: { label: string; controls: ReactNode } | undefined;
+     * Bundle this step with the step hiding those controls in the toolbar.
+     * Given as a function, the controls take the popover's close: a control
+     * that does what it is for and moves the focus away (a Sheet's view
+     * picked, #1345) closes it, as a menu's item closes its menu. */
+    compact?: { label: string; controls: ReactNode | ((close: () => void) => ReactNode) } | undefined;
 }
 
 /**
@@ -95,7 +98,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
             onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery}
             onInputChange={(text) => setTyped({ resetKey: search.resetKey, text })} />
     );
-    const popup = (heading: string, controls?: ReactNode) => (
+    const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode)) => (
         <SliceEditPopover open={open} onOpenChange={setOpen} label={heading} size="lg" initialFocusEl={initialFocusEl}
             trigger={
                 // A 44px touch target on a coarse pointer (#346).
@@ -105,7 +108,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
                     <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
                 </chakra.button>
             }>
-            {controls}
+            {typeof controls === "function" ? controls(() => setOpen(false)) : controls}
             <Box ref={boxRef} data-key-search="popover">{box}</Box>
         </SliceEditPopover>
     );

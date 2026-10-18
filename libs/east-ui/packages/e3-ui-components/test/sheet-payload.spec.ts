@@ -7,9 +7,9 @@
  * `<Sheet>`'s payload over the runtime (#1183, #1216, `Sheet Builder Spec.md`
  * SB11, SB12, SB15, SB16): built from an in-memory record and the State
  * runtime. The sheet holds the record's entries and commits through it, the
- * views are read from their bind handle and written back to it, and one
- * entry's payload names an entry the record does not hold and keeps its
- * sheet read-only.
+ * views — each every source's narrowing, by name (#1345) — are read from
+ * their bind handle and written back to it, and one entry's payload names an
+ * entry the record does not hold and keeps its sheet read-only.
  */
 
 import assert from "node:assert/strict";
@@ -69,12 +69,12 @@ describe("the record's entries", () => {
     const CUT: Job = { task: "Panel cutting", qty: some(48.0) };
     const BAND: Job = { task: "Edge banding", qty: some(120.0) };
     const COLUMNS = { task: Sheet.column.text(JobType, { header: "Task" }), qty: Sheet.column.quantity(JobType, { header: "Qty" }) };
-    const NARROWING = {
-        range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, visible: none, selectedIndex: none, resolution: none,
-    };
-    const SPRAY = { id: "spray", name: "SPRAY", narrowing: { ...NARROWING, search: some("spray") }, context: 0n, reveals: [], folds: new Map<string, boolean>() };
-    const viewsEqual = equalFor(ArrayType(Sheet.Types.View));
+    // A view over two sources (#1345): the rows by a prefix of their task, the templates by their group.
+    const SPRAY = { id: "spray", name: "SPRAY", context: 0n, reveals: [], folds: new Map<string, boolean>(), narrowing: new SortedMap([
+        ["rows", { where: new Map([["task", variant("prefix", "spray")]]), preset: none, resolution: none }],
+        ["templates", { where: new Map([["group", variant("values", ["\"Finishing\""])]]), preset: none, resolution: none }],
+    ], keys) };
+    const viewsEqual = equalFor(ArrayType(Sheet.Types.RecordView));
 
     function jobs() {
         return inMemory("jobs", JobsType, new SortedMap([["J-0002", BAND], ["J-0001", CUT]], keys), JobsHandle);
@@ -101,11 +101,11 @@ describe("the record's entries", () => {
         assert.deepEqual(commits.map((c) => c.mutation), ["patch", "$init"], "one commit");
     });
 
-    test("views are read from their bind handle, and every change is written back to it (SB11)", () => {
+    test("views are read from their bind handle, each every source's narrowing, and every change is written back to it (SB11, #1345)", () => {
         StateRuntime.initializeStore(new UIStore());
         const { runtime, handle } = jobs();
         const payloadOf = East.compile(East.function([JobsHandle], SheetPayloadType, ($, record) => {
-            const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.payload.views", []));
+            const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.payload.views", []));
             return Sheet.Payload({ record, columns: COLUMNS, views });
         }), [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown) => Payload;
         const first = payloadOf(handle);
