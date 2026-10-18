@@ -88,7 +88,7 @@ component is not automatically a correct reference for every shared behavior.
 | --- | --- |
 | Pane placement, overlay rails, focus and scrim | `east-ui-components/src/layout/builder-frame/` |
 | Folding toolbar, overflow menus, history and key search | `east-ui-components/src/toolbar/`, shared BuilderFrame toolbar items; `src/plan/shell/Toolbar.tsx`, `src/query/toolbar.tsx` |
-| Author-bound Slice and window | `src/plan/root/window.ts`, `src/plan/shell/Toolbar.tsx`; e3-ui's indexed `slicePlanChrome` and `planWindows` examples |
+| Author-bound Slice and window | `src/plan/root/sources.ts`, `src/plan/root/window.ts`, `src/plan/shell/Toolbar.tsx`; e3-ui's `slicePlanChrome`, `planWindows` and `planPrintWorks` examples |
 | Drafts, validation, Save, retry, undo/redo | Shared `EditSession`, `EditHistory`, `historyToolbarItem` and `SessionBanners`; `src/shared/schedule/editing.ts` where the domain is event records |
 | Library cards/search/tabs and inspector fields | Shared Library, Fields and FieldForm; existing builder integrations |
 | Drag targets, keyboard drag, ghosts and cancellation | `east-ui-components/src/dnd/` |
@@ -102,11 +102,10 @@ weekly roster record need not become Schedule event records to share a frame.
 
 ### Slice controls and data have one declared owner
 
-Authors bind either local rows or a declared indexed record. Use
-`useSliceToolbarItems` for the local carrier and `useRecordSliceToolbarItems`
-for the record carrier. Both use the shared rail, editors, choice/search/range
-parts and toolbar ladder in east-ui-components. Keep the old local wire intact;
-record chrome is a separate appended payload. Honor affordances and persistence.
+A builder binds one `Slice.bindRecords` (#1340): its rail is
+`useRecordSlicesToolbarItems`, over the shared rail, editors, choice/search/range
+parts and toolbar ladder in east-ui-components; east-ui's own collections keep
+the local carrier (`useSliceToolbarItems`). Honor affordances and persistence.
 A builder bound to `Slice.bindRecords` reads each source's shown keys through
 `shared/schedule/visibility.ts`'s `useSourceVisibility`, and every place the
 source's rows appear — main, its Choosers and its Library's tabs — narrows by
@@ -130,12 +129,23 @@ source's range out of the rail; navigation writes the window into each, and a
 range written to one is written to the others. A narrowed kind reads its window
 and its backlog as one, so a draft moves an event between them by its times
 alone. Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
-the stored events their choices hide, and its Clear filters keeps each window.
-Inside the folded editor, field editors expand inline, with one popup and
-normal keyboard focus return. Never copy another control family into a builder.
+the stored events their choices hide, and its Clear filters keeps each window
+(`shared/schedule/backlog.ts`, the Calendar's and the Plan's). The Plan's
+window is its sources' one range too (#1344, `src/plan/root/window.ts`): every
+source holding a range of the axis's arm holds it, the first leading, and the
+date navigator, the horizon brush, the keys and the resolution write each of
+them (`writePlanWindow`); a source that holds none takes it unless that would
+replace a choice of its own (`recordSliceWindowFits`). A record's resolution
+only re-buckets, and the brush commits once a gesture, with no histogram. The
+Plan reads its event kinds' rows, counts and backlog and the selected events in
+components of their own (`PlanEventsReader`, `PlanKindsReader`,
+`PlanSelectionReader`). Inside the folded editor, field editors expand inline,
+with one popup and normal keyboard focus return. Never copy another control
+family into a builder.
 
-Trace every choice to the source. Plan reads the ordered Slice source, the
-Sheet pages its `rows` source (its lens is off until #1349) and the Flowchart
+Trace every choice to the source. Plan pages its `rows` source and reads each
+event kind through its own (#1344), the Sheet pages its `rows` source (its lens
+is off until #1349) and the Flowchart
 its `flows` source (#1346), Calendar event kinds read its interval queries, and
 Roster reads the selected staff identities for visibility only. No filtering
 over resident record rows, private Slice, full scan for options or user-facing
@@ -242,6 +252,9 @@ folding Toolbar using shared item ranks and menus, with history folding last.
 A row with nothing left to fold bundles host controls into the shared key
 search's compact popover, one move, as the Flowchart's orientation and the
 Sheet's views do (#1345); a control there that moves the focus away closes it.
+The Plan, which has no key search over a rail, bundles its fold toggle, its
+resolution and its overlaps chip into the date navigator's View, one move
+(#1344): a phone's row holds the rail's icon, the View and the history item.
 Use the established 44px row and coarse-pointer targets. Range/date and count
 readouts share one baseline; do not introduce a stacked two-line toolbar label.
 
@@ -497,9 +510,10 @@ recentring. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
-year), preserves the visible bucket count and writes the same Slice range as
-the horizon brush. Its Range panel embeds the shared `SliceRangeContent` or
-`RecordSliceFieldEditor`; never create another input or filter implementation.
+year), preserves the visible bucket count and writes the window into every
+source holding it, as the horizon brush does (#1344). Its Range panel embeds
+the leading source's `RecordSliceFieldEditor`; never create another input or
+filter implementation.
 Date inputs reuse the existing React Aria compound date field. Retain UTC,
 sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
 Plan axes keep their own appropriate controls.

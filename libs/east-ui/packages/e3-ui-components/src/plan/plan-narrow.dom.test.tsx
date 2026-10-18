@@ -6,9 +6,10 @@
  *
  * Plan narrow-layout DOM tests (§10 / #570) — below the compact width the
  * canvas is a review tool: tabs, cards, the shared ruler and the chips; a
- * section header's go mark is Font Awesome's chevron (#1263).
+ * section header's go mark is Font Awesome's chevron (#1263). A pan writes the
+ * window as the record Slice's half-open range (#1344).
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -16,13 +17,14 @@ import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { markOf, sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { system, UIStore } from "@elaraai/east-ui-components";
+import { markOf } from "@elaraai/east-ui-components/testing";
+import { initializeStore, recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { NO_EDITS, blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
+import { recordPart, recordSlices } from "./record-slices.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -254,20 +256,12 @@ describe("Plan narrow layout (§10 / #570)", () => {
 
     test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", async () => {
         initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        const handle = buildSliceHandle("plan.narrow.pan", cfg, initial as never,
-            [{ at: W27 }, { at: W39 }] as never, none) as never as {
-                read(): { range: { value: { value: { from: Date; to: Date } } } };
-            };
-        const { container } = renderPlan(fixture({ slice: some({ slice: handle, affordances: [variant("range", null)] }) }), "plan-570-measures");
+        const part = recordPart({
+            key: "plan.narrow.pan.rows", range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime(), W39.getTime()] },
+            window: [W27.getTime(), W39.getTime()], resolution: "week",
+        });
+        const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
+        const { container } = renderPlan(fixture({ slice: some(recordSlices("plan.narrow.pan", [{ source: "rows", slice: part }], ["range"])) }), "plan-570-measures");
         // A tab is Zag's (#819): its click selects on the machine's next turn.
         fireEvent.click(container.querySelector("[data-plan-tab='measures']")!);
         await waitFor(() => expect(container.querySelector(rowSel("ontime", "data-plan-card"))).toBeTruthy());
@@ -286,14 +280,13 @@ describe("Plan narrow layout (§10 / #570)", () => {
         fireEvent.pointerDown(list, { pointerId: 2, clientX: 240 });
         fireEvent.pointerMove(list, { pointerId: 1, clientX: 174 });          // centroid −13
         fireEvent.pointerMove(list, { pointerId: 2, clientX: 214 });          // centroid −26 → one period
-        expect(handle.read().range.value.value.from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
-        // A slice range is closed: the window `[W28, W40)` ends the
-        // millisecond before W40 (#949).
-        expect(handle.read().range.value.value.to.toISOString()).toBe("2026-09-27T23:59:59.999Z");
+        expect(range().from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
+        // A record's range is half-open, as the window is: `[W28, W40)` (#1344).
+        expect(range().to.toISOString()).toBe("2026-09-28T00:00:00.000Z");
         // One finger alone never pans — page scroll stays vertical.
         fireEvent.pointerUp(list, { pointerId: 2, clientX: 214 });
         fireEvent.pointerMove(list, { pointerId: 1, clientX: 0 });
-        expect(handle.read().range.value.value.from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
+        expect(range().from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
     });
 
     test("one or two strip-less groups are no index: the plan LANDS on Rows, sectioned by group; a section header scopes", () => {

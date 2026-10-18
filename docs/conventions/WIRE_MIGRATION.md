@@ -185,6 +185,18 @@ Each wire changed under this rule, with the kind it is.
   UI task's output is not stored state, so no repository upgrade step ships
   with it. A Calendar's templates written in the code become a templates record
   of the application's own, as with any record an application declares.
+- **e3-ui's `Plan` narrows through `Slice.bindRecords` alone, its templates
+  records (#1340, #1344)** — package-borne. The `Plan` extension's payload
+  gains `narrowed`, each source's keys by its name; its canvas's `slice`
+  (`PlanRootType`) becomes the chrome of a Slice over several records, and the
+  canvas loses `recordSlice`. The resources' rows seam (`PlanEventBlocksType`)
+  takes the resources the rail shows, by resource kind, after the ids the
+  viewer hides. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. A Plan's templates written in the
+  code become a templates record of the application's own, as with any record
+  an application declares.
 - **e3-ui's `Sheet` narrows through `Slice.bindRecords` alone, its
   templates records (#1340, #1345)** — package-borne. The `Sheet` extension's
   payload gains `narrowed`, each source's keys by its name; its root's `slice`

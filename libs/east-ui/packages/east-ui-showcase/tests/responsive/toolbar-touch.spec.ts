@@ -46,7 +46,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, drawnSel } from "./plan-page";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
 
@@ -321,20 +321,6 @@ async function touchFaults(entry: Locator): Promise<string[]> {
 /** The slice's edit popover, open: a compact trigger's editor, or the rail's sectioned one. */
 const openEditor = (page: Page) => page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
 
-/**
- * A filter on the first field the open editor's clause builder offers — the
- * workshop's activity, the plan's task — its value typed, then Add (not
- * `+ filter`, named Add filter): `<field> contains <word>`.
- */
-async function buildFilter(page: Page, word: string): Promise<void> {
-    const editor = openEditor(page);
-    await editor.locator("[data-clause-stacked]").getByRole("textbox").fill(word);
-    await editor.getByRole("button", { name: "Add", exact: true }).tap();
-}
-
-/** The row's clause chip, by its words. */
-const clauseChip = (entry: Locator, words: string) => entry.locator("[data-frame-slot='toolbar']").getByText(words);
-
 /** Sizes the box a builder frame fills: its nearest ancestor that lays out — the Plan's `display: contents` wrapper does not. */
 async function sizeFrame(entry: Locator, width: number): Promise<void> {
     await entry.locator("[data-builder-frame]").first().evaluate((frame, w) => {
@@ -345,15 +331,42 @@ async function sizeFrame(entry: Locator, width: number): Promise<void> {
 }
 
 /**
- * The builders' rails filtered (#1231): every clause chip and `+N more` one
- * button, and every control in the row still a 44px tap target. The
- * workshop's rail is its records' (#1345): on the phone an order status is
- * chosen in its editor and then cleared from it; on the wide screen two
- * sources are chosen from their chips — an order status and the operation
- * templates' group — and the row holds the chips it shows chosen. The
- * slice-chrome plan's row has the room for clause chips: the one it starts
- * with, a second set from `+ filter`, then the frame narrowed until one folds
- * into `+N more`.
+ * Team B chosen in the slice-chrome plan rail's Owner editor (#1344), beside
+ * the Team A its tasks start narrowed to: Team B's Design draws — its row, or
+ * on a phone its card.
+ */
+const ownerChosen: Gesture = {
+    what: "Team B chosen in the rail's Owner editor",
+    run: async (entry, page) => {
+        const editor = await recordField(page, entry.locator("[data-builder-frame]").first(), "owner");
+        await editor.getByRole("button", { name: /^Team B/ }).tap();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(entry.locator(`[data-frame-slot='main'] ${drawnSel("jobs", "Design")}`)).toHaveCount(1);
+        await settled(page);
+    },
+};
+
+/**
+ * The frame narrowed until the plan's rail folds its one field, Owner, to its
+ * chip (#1344): a rail of one field has no icon rung, and the tasks' start is
+ * the date navigator's, never the rail's.
+ */
+const railFolded: Gesture = {
+    what: "the frame narrowed until the rail folds its Owner to its chip",
+    run: (entry, page) => narrowUntil(entry, page, "[data-toolbar-item='record-slices'] [data-slice-fold='field:rows.owner']"),
+};
+
+/**
+ * The builders' rails filtered (#1231): every control in the row still a 44px
+ * tap target. The workshop's rail is its records' (#1345): on the phone an
+ * order status is chosen in its editor and then cleared from it; on the wide
+ * screen two sources are chosen from their chips — an order status and the
+ * operation templates' group — and the row holds the chips it shows chosen.
+ * The slice-chrome plan's rail is its tasks' record's (#1344): Team B is
+ * chosen in its Owner editor, beside the Team A it starts with, and on the
+ * wide screen the frame is then narrowed until the rail folds Owner to its
+ * chip.
  */
 const FILTERED: ReadonlyArray<{ name: string; hash: string; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
     {
@@ -400,32 +413,8 @@ const FILTERED: ReadonlyArray<{ name: string; hash: string; phone: readonly Gest
     },
     {
         name: "slicePlanChrome", hash: `${PLAN_EXAMPLES}/slicePlanChrome`,
-        phone: [],
-        wide: [
-            {
-                what: "a second filter set from the rail's + filter",
-                run: async (entry, page) => {
-                    await entry.locator("[data-frame-slot='toolbar'] [data-slice-add='filter']").tap();
-                    await buildFilter(page, "Design");
-                    await expect(openEditor(page)).toHaveCount(0);
-                    await expect(clauseChip(entry, "contains Design")).toBeVisible();
-                    await expect(clauseChip(entry, "owner = Team A")).toBeVisible();
-                    await settled(page);
-                },
-            },
-            {
-                what: "the frame narrowed until a clause folds into +N more",
-                run: async (entry, page) => {
-                    const more = entry.locator("[data-frame-slot='toolbar']").getByText(/^\+\d+ more$/);
-                    for (let width = 960; width >= 360 && !(await more.isVisible()); width -= 40) {
-                        await sizeFrame(entry, width);
-                        await settled(page);
-                    }
-                    await expect(more).toBeVisible();
-                    await expect(entry.locator("[data-frame-slot='toolbar'] [data-slice-clause]")).not.toHaveCount(0);
-                },
-            },
-        ],
+        phone: [ownerChosen],
+        wide: [ownerChosen, railFolded],
     },
 ];
 

@@ -26,10 +26,10 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, layOut } from "@elaraai/east-ui-components/testing";
-import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { initializeRecordApi } from "../../platform/index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
@@ -161,14 +161,19 @@ const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 
 /**
- * The jobs on the presses, with their templates and backlog, and the stops as
- * tiles in each press's day — its `canDrop` refusing Press B3, which is down
- * for service, whatever is dropped there.
+ * The jobs on the presses, with their templates — a record of their own,
+ * following their source of the Plan's one rail (#1344) — and backlog, and the
+ * stops as tiles in each press's day — its `canDrop` refusing Press B3, which
+ * is down for service, whatever is dropped there.
  */
 const vetoed = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+    const jobTemplates = $.let(Data.bind(ex.planPrintJobTemplates));
+    const slice = $.let(Slice.bindRecords("plan.dnd.vetoed", {
+        jobTemplates: { source: Data.bindPaged(ex.planPrintJobTemplates, { indexes: [ex.planPrintJobTemplatesByGroup] }) },
+    }));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
         const said = $2.let(none, OptionType(StringType));
@@ -187,10 +192,9 @@ const vetoed = East.compile(East.function([], UIComponentType, (_$) => Reactive.
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
                 resource: { field: "press", of: "presses" },
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-                templates: [{
-                    key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                    values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none },
-                }],
+                templates: Schedule.templates(jobTemplates.read(), {
+                    name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
+                }),
             }),
             stop: Schedule.events(stops, {
                 name: "Stop", icon: "screwdriver-wrench", draw: "buckets", title: "title", at: "at",
@@ -198,6 +202,7 @@ const vetoed = East.compile(East.function([], UIComponentType, (_$) => Reactive.
             }),
         },
         library: [Plan.library.events(), Plan.library.backlog()],
+        slice: { slice },
         canDrop,
     });
 }))), getRegisteredPlatformImplementations());

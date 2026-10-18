@@ -34,6 +34,14 @@ export const rowId = (series: string, ...path: string[]): string =>
 export const rowSel = (series: string, ...path: string[]): string =>
     `[data-plan-row=${JSON.stringify(rowId(series, ...path))}]`;
 
+/** A row as the Plan draws it at its width: its row on the canvas, or below
+ *  480px of container its card in the narrow layout (`data-plan-card`, the
+ *  same id). */
+export const drawnSel = (series: string, ...path: string[]): string => {
+    const id = JSON.stringify(rowId(series, ...path));
+    return `:is([data-plan-row=${id}], [data-plan-card=${id}])`;
+};
+
 /** Open one example's page and return its entry (the virtualized doc row
  *  holding its anchor and its live canvas) — a Plan example unless another
  *  examples file is named, in the light theme unless another is named. */
@@ -59,6 +67,20 @@ export async function sizeBox(page: Page, box: Locator, width: number): Promise<
 }
 
 /**
+ * Sets the width of the Plan's builder frame itself — a 294px frame is what a
+ * 360px phone leaves it — through its box (`planBox`), which holds the frame
+ * inside what it pads it with, and waits for the page to be at rest.
+ */
+export async function sizePlanFrame(page: Page, entry: Locator, width: number): Promise<void> {
+    await planBox(entry).evaluate((box, w) => {
+        const frame = box.querySelector("[data-builder-frame]")!;
+        const around = box.getBoundingClientRect().width - frame.getBoundingClientRect().width;
+        (box as HTMLElement).style.width = `${w + around}px`;
+    }, width);
+    await settled(page);
+}
+
+/**
  * Leaves an example's page for another e3 page and comes back to it, in the
  * same page — its e3 kept in memory — so the Plan mounts afresh over what its
  * records hold.
@@ -78,8 +100,8 @@ export async function remount(page: Page, name: string, file: string): Promise<L
     return entry;
 }
 
-/** The rail's clusters: every step of theirs folds before any of the Plan's own. */
-const RAIL = ["cluster", "range"];
+/** The rail of the Plan's one `Slice.bindRecords` (#1344): every step of it folds before any of the Plan's own, its summary first among them. */
+const RAIL = ["record-slices"];
 
 /**
  * What is wrong with a Plan's toolbar as its box narrows through `widths`,

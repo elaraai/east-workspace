@@ -262,10 +262,11 @@ export {
 } from './plan/index.js';
 // The resources' rows a Plan of event kinds draws over a window (#1192): the
 // `blocks` seam its payload carries, made inside the payload's assembly, and
-// the drafts it reads, by kind; and a paged resource kind's rows, a window of
-// its resources at a time, with the events placed on them (#1199).
+// the drafts it reads, by kind, and the resources the rail shows (#1344); and a
+// paged resource kind's rows, a window of its resources at a time, with the
+// events placed on them (#1199).
 export {
-    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType,
+    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType,
 } from './plan/event-rows.js';
 // The Plan's library pane on the wire (#1195): its tabs, an author's tab's
 // cards, the Series tab's lines and what hiding each hides, and the ids a

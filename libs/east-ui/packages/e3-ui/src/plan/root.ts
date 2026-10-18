@@ -35,6 +35,7 @@ import {
     variant,
     some,
     none,
+    type option,
 } from "@elaraai/east";
 import {
     DensityType,
@@ -54,11 +55,6 @@ import {
     EditingPatchEventTypeWith,
     EditingReadinessType,
     EditingWireApplyType,
-    SliceAffordanceType,
-    SliceBindType,
-    SliceChromeType,
-    localSliceHandle,
-    isRecordSlice, recordSliceChrome, type RecordSliceChromeOptions,
     buildKeyedInlineApply,
     buildPagedWindow,
     buildRowSource,
@@ -66,8 +62,8 @@ import {
     pickActive,
     resolveRowSource,
     resolveTag,
+    type RecordSlicesChromeType,
     type ResolvedRowSource,
-    type SliceAffordanceLiteral,
 } from "@elaraai/east-ui/internal";
 import {
     PlanAxisType,
@@ -98,10 +94,6 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
 // ============================================================================
 // Root
 // ============================================================================
-
-/** The default slice affordance list (§1 toolbar). */
-const DEFAULT_PLAN_AFFORDANCES: SliceAffordanceLiteral[] =
-    ["cohort", "filter", "search", "range", "resolution", "brush", "summary"];
 
 /**
  * The Plan's editing session (#880) — the Sheet's, over the canvas's entries:
@@ -182,7 +174,6 @@ export interface PlanBindHandle {
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row's id)
  * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row's id)
  * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch
- * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
  * @property id - DnD target identity — what a Library beside the Plan reaches it by
  * @property sources - The ids of the Libraries beside the Plan whose cards it takes; its own library panel's need none
@@ -196,8 +187,8 @@ export interface PlanBindHandle {
  */
 export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> {
     /** The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`) — fixes the canvas kind `K`.
-     *  A time or number axis states its `window`, or the canvas binds a `slice` whose range supplies it —
-     *  there is no fit to the data (#822), inline or paged. */
+     *  A time or number axis states its `window`, or a source of the Plan's `slice` holds it in its `range`
+     *  (#1344) — there is no fit to the data (#822), inline or paged. */
     axis: PlanAxisInput<K>;
     /** The source — a KEYED collection: a `Dict<K, R>` value or expression (a
      *  `$.let`-bound map, `Data.bind(...).read()`) or a whole-value bind handle
@@ -235,7 +226,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *
      * The Plan does the rest — it feeds itself the picked series (in the pick's
      * order, which is the layout) and mounts the library panel as chrome, the
-     * way `slice` mounts the rail.
+     * way a Plan's `slice` mounts the rail.
      *
      * A pick is STATE, so a Plan carrying one must sit inside a `Reactive` —
      * `Plan.pick` binds through `State.bind`, and a bind outside a reactive
@@ -267,13 +258,6 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     /** The editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: no card
      *  lands and nothing moves. */
     editing?: PlanEditingConfig;
-    /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
-    slice?: {
-        /** The bound handle from `Slice.bind`. */
-        slice: SubtypeExprOrValue<SliceBindType>;
-        /** The toolbar affordances, in order. */
-        affordances?: SliceAffordanceLiteral[];
-    } | RecordSliceChromeOptions;
     /** Status-footer items (`end: true` right-aligns). */
     footer?: {
         /** The footer text. */
@@ -354,16 +338,17 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  * @param config - The canvas's configuration ({@link PlanConfig})
  * @returns An East expression of {@link PlanRootType}
  * @throws {Error} When `data` is not a keyed source, `series` / `pick` are both or neither given, two series share a
- *   key, a bound series list reads another key type than `data`, or the axis states no window and no slice is bound
+ *   key, a bound series list reads another key type than `data`, or the axis states no window — the canvas alone
+ *   holds no slice, whose sources' ranges are a Plan's window (`<Plan slice>`, #1344)
  *
  * @remarks
- * Window and resolution have no callbacks by design: they are slice writes
- * (`setRange` / `setResolution`) — hosts observe the slice. A change to the
- * data — a dropped card, a moved or resized element — is a draft of the
+ * Window and resolution have no callbacks by design: they are writes to the
+ * ranges and resolutions of a Plan's slice — hosts observe the slice. A change
+ * to the data — a dropped card, a moved or resized element — is a draft of the
  * `editing` session, saved as one checked batch (#880, #825).
  */
 export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<PlanRootType> {
-    return buildPlanRoot(config, undefined);
+    return buildPlanRoot(config, undefined, none);
 }
 
 /**
@@ -377,15 +362,19 @@ export type PlanCanvasOptions = Omit<PlanConfig, "data"> & { data?: PlanConfig["
 /**
  * Builds the canvas's root (#1191): its rows over `data`, and then `extra`,
  * fixed blocks every window serves alike — or, with no `data`, `extra`
- * alone.
+ * alone — and the chrome of the Plan's narrowing, its sources already
+ * checked (`recordSources`, #1344).
  *
  * @param config - The canvas's configuration, `data` optional
  * @param extra - The fixed blocks after `data`'s: a Plan's `rows`
+ * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
  * @returns An East expression of {@link PlanRootType}
- * @throws {Error} As {@link createPlanRoot} does; and with no `data`, a `series`, `pick` or `editing`, each of which reads it
+ * @throws {Error} As {@link createPlanRoot} does — an axis stating no window is taken beside a slice, a source of which
+ *   holds the window in its `range`; and with no `data`, a `series`, `pick` or `editing`, each of which reads it
  * @internal
  */
-export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined): ExprType<PlanRootType> {
+export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined,
+    chrome: option<ExprType<RecordSlicesChromeType>>): ExprType<PlanRootType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to. A Plan of event kinds or `rows` alone has no data.
@@ -418,17 +407,18 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         );
     }
     // There is no fit to the data (#822): every canvas states its window, or
-    // binds a slice whose range supplies it — inline and paged alike.
-    if (WINDOWLESS_AXES.has(config.axis as object) && config.slice === undefined) {
+    // its slice holds it, a source's `range` — inline and paged alike.
+    if (WINDOWLESS_AXES.has(config.axis as object) && chrome.type === "none") {
         throw new Error(
             "Plan: the axis states no `window` and no `slice` is bound — declare the window " +
-            "(`Plan.axis({ window: { min, max }, … })`), or bind a slice whose range supplies it. " +
+            "(`Plan.axis({ window: { min, max }, … })`), or bind a slice a source of which holds it in its `range`: " +
+            "slice={{ slice: Slice.bindRecords(key, { rows: { source, range } }) }}. " +
             "A canvas never fits its axis to the data, so it reads the same inline and paged.",
         );
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan");
     const data = config.data;
-    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined);
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome);
     // A pick feeds the canvas its SURVIVING series; everything downstream sees
     // one series input either way.
     const seriesInput: PlanSeriesInput = config.pick !== undefined
@@ -478,18 +468,20 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         },
     ) as unknown as ExprType<PlanRowsType>;
     const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, config.editing);
-    return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing);
+    return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome);
 }
 
 /**
- * The canvas's root around its rows and its editing session.
+ * The canvas's root around its rows, its editing session and its narrowing's chrome.
  *
  * @param config - The canvas's configuration
  * @param rowsValue - Its rows: inline blocks, or a paged source of them
  * @param editing - Its editing session over `data`, if it has one
+ * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
  * @returns An East expression of {@link PlanRootType}
  */
-function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined): ExprType<PlanRootType> {
+function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined,
+    chrome: option<ExprType<RecordSlicesChromeType>>): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -498,17 +490,6 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
             density:     style.density !== undefined ? some(resolveTag(style.density, DensityType)) : none,
             gutterWidth: style.gutterWidth !== undefined ? some(style.gutterWidth) : none,
         }, PlanStyleType))
-        : none;
-    const record = config.slice !== undefined && isRecordSlice(config.slice.slice);
-    const recordOptions = record ? config.slice as RecordSliceChromeOptions : undefined;
-    const sliceChrome = config.slice !== undefined && !record
-        ? some(East.value({
-            slice: localSliceHandle(config.slice.slice as SubtypeExprOrValue<SliceBindType>),
-            affordances: East.value(
-                ((config.slice.affordances ?? DEFAULT_PLAN_AFFORDANCES) as SliceAffordanceLiteral[]).map(a => variant(a, null)),
-                ArrayType(SliceAffordanceType),
-            ),
-        }, SliceChromeType))
         : none;
     return East.value({
         rows:     rowsValue,
@@ -535,7 +516,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         pick:     config.pick !== undefined
             ? some(East.value((config.pick as unknown as ExprType<StructType<{ pick: PickBindType }>>).pick, PickBindType))
             : none,
-        slice:    sliceChrome,
+        slice:    chrome,
         footer:   (config.footer ?? []).map(f => East.value({
             text: f.text,
             tone: f.tone !== undefined ? some(resolveTag(f.tone, StatusValueType)) : none,
@@ -552,9 +533,6 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         onGrainChange: config.onGrainChange !== undefined ? some(config.onGrainChange) : none,
         ui:       config.ui !== undefined ? some(East.value(config.ui, PlanUiBindType)) : none,
         style:    styleValue,
-        recordSlice: recordOptions === undefined ? none : some(recordSliceChrome({ ...recordOptions,
-            affordances: recordOptions.affordances ?? ["fields", "presets", "summary", "brush"],
-        })),
     }, PlanRootType);
 }
 

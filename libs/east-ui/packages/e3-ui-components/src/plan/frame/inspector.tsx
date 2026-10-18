@@ -31,9 +31,15 @@
  * `planEvent`), its kind's drafts in place, tracked, so a commit to its record
  * reads it again, and an event no longer there is left out — a kind read a
  * window at a time (#1199) looking for it among the rows the canvas holds,
- * then reading it by its key. A paged resource kind's resource is named once
- * it is read by its key (`resources.ts`); its key stands in meanwhile, and the
- * bulk edit offers none of a paged kind's resources, which it does not list.
+ * then reading it by its key. The read runs in a component of its own
+ * ({@link PlanSelectionReader}), which hands the frame the events only when
+ * they move: a kind narrowed through its source of the slice lands its key
+ * searches one by one, and each would otherwise render the whole frame
+ * (#1344). A paged resource kind's resource is named once it is read by its
+ * key (`resources.ts`); its key stands in meanwhile, and the bulk edit offers
+ * none of a paged kind's resources, which it does not list. Of a resource
+ * kind the rail narrows, the bulk edit offers the resources its source shows,
+ * and those the selected events are on (#1344).
  *
  * Its edits (#1194, PB42, PB60) are steps of the Plan's one history, each one
  * transaction: a field of the kind's form, written through the kind's own
@@ -53,7 +59,7 @@
  */
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
-import { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -63,7 +69,7 @@ import {
 } from "@elaraai/east";
 import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
@@ -79,6 +85,7 @@ import { rowKeyOf } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "../quantity.js";
 import type { PlanChrome } from "../root/chrome.js";
+import type { PlanEventShownValue } from "../root/events.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
@@ -128,6 +135,7 @@ const STATE_CHOICE = VariantType(Object.fromEntries(STATES.map((state) => [state
 
 const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(BlobType);
+const itemEqual = equalFor(PlanEventItemType);
 const resourceEqual = equalFor(OptionType(ScheduleResourceRefType));
 const parseRef = parseFor(ScheduleEventRefType);
 const printRef = printFor(ScheduleEventRefType);
@@ -153,7 +161,7 @@ function writableFor(events: readonly InspectedEvent[], editing: PlanEventEditin
 }
 
 /** One selected event, read: its element's key, its kind, and the event as Plan draws it, with its row. */
-interface InspectedEvent {
+export interface PlanInspectedEvent {
     /** Its element's key: its event, as East prints a `Schedule.Types.EventRef`. */
     readonly key: string;
     /** Its kind. */
@@ -164,12 +172,21 @@ interface InspectedEvent {
     readonly row: Uint8Array;
 }
 
+/** One selected event, read. */
+type InspectedEvent = PlanInspectedEvent;
+
+/** No event selected: what the pane holds before the selection's first read. */
+export const NO_INSPECTED: readonly PlanInspectedEvent[] = NO_EVENTS;
+
 /** What is selected on the canvas: the row, the bucket a click on it named, and the events. */
-interface PlanSelection {
+export interface PlanInspectorSelection {
     readonly row: RowKey | null;
     readonly at: PlanInstantValue | null;
     readonly elements: readonly string[];
 }
+
+/** What is selected on the canvas. */
+type PlanSelection = PlanInspectorSelection;
 
 /** Nothing selected — the pane's selection while it shows none. */
 const NOTHING: PlanSelection = { row: null, at: null, elements: [] };
@@ -179,6 +196,17 @@ const selectNothing = (): PlanSelection => NOTHING;
 // The store keeps each part's identity while it holds.
 const sameSelection = (a: PlanSelection, b: PlanSelection): boolean =>
     Object.is(a.row, b.row) && Object.is(a.at, b.at) && Object.is(a.elements, b.elements);
+
+/**
+ * What is selected on the canvas, as the inspector shows it: the controller's
+ * selection while the Plan has its pane, nothing otherwise.
+ *
+ * @param shown - Whether the Plan is given its inspector pane
+ * @returns The selection — the same object while it holds
+ */
+export function usePlanInspectorSelection(shown: boolean): PlanInspectorSelection {
+    return usePlanSelector(shown ? selectSelection : selectNothing, sameSelection);
+}
 
 /** Props of {@link usePlanInspector}. */
 export interface PlanInspectorProps {
@@ -196,6 +224,12 @@ export interface PlanInspectorProps {
     keys: PlanKeys;
     /** The Plan's words. */
     words: PlanWords;
+    /** What is selected on the canvas ({@link usePlanInspectorSelection}). */
+    selection: PlanInspectorSelection;
+    /** The selected events, read ({@link PlanSelectionReader}). */
+    events: readonly PlanInspectedEvent[];
+    /** The resources the rail shows, by resource kind (#1344): what the bulk edit offers of a kind its source narrows. */
+    shownResources: PlanEventShownValue;
 }
 
 /**
@@ -235,21 +269,65 @@ function useSelectedEvents(
             console.error("[Plan] the selected events could not be read:", result.error);
             return held.current;
         }
+        // The same events as the last read — each read is a new array — hold the last: nothing the pane shows moved.
+        if (sameEvents(held.current, result.value)) return held.current;
         held.current = result.value;
         return result.value;
     }, [result]);
 }
 
+/** Whether two reads of the selected events read the same: each event's key, kind, drawing and row. */
+function sameEvents(a: readonly InspectedEvent[], b: readonly InspectedEvent[]): boolean {
+    return a.length === b.length && a.every((event, i) => {
+        const other = b[i]!;
+        return stringEqual(event.key, other.key) && Object.is(event.kind, other.kind) && itemEqual(event.item, other.item) && blobEqual(event.row, other.row);
+    });
+}
+
+/** Props of {@link PlanSelectionReader}. */
+export interface PlanSelectionReaderProps {
+    /** The event kinds: each selected event is read through its kind. */
+    kinds: PlanValue["events"];
+    /** The selected events, by their elements' keys. */
+    elements: readonly string[];
+    /** Every kind's drafts; none for a Plan whose kinds hold none. */
+    drafts: EventDrafts | undefined;
+    /** The kinds' editing, which reads an event where the canvas reads its rows; none without a window. */
+    editing: PlanEventEditing | undefined;
+    /** Where the events go: called only when they move. */
+    onRead: (events: readonly PlanInspectedEvent[]) => void;
+}
+
+/**
+ * The selected events, read in a component of its own (see the module docs):
+ * a read that lands re-runs it alone, and it hands the frame the events only
+ * when what it read moves.
+ *
+ * @param props - What is read, and where it goes
+ * @returns Nothing: it reads
+ */
+export function PlanSelectionReader({ kinds, elements, drafts, editing, onRead }: PlanSelectionReaderProps): null {
+    const events = useSelectedEvents(kinds, elements, drafts ?? NONE_DRAFTED, editing);
+    const reported = useRef<readonly InspectedEvent[]>(NO_EVENTS);
+    useLayoutEffect(() => {
+        // The same events, by identity: the read holds its last while what it read holds.
+        if (Object.is(reported.current, events)) return;
+        reported.current = events;
+        onRead(events);
+    });
+    return null;
+}
+
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys and the words
+ * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys, the words, what is selected, the selected events and the resources the rail shows
  * @returns The pane — 320px wide, its collapsed state kept per viewer, its rail saying what is selected — or `undefined`, no pane, when the Plan is given no inspector
  */
-export function usePlanInspector({ shown, kinds, resources, chrome, counts, keys, words }: PlanInspectorProps): BuilderFrameDock | undefined {
+export function usePlanInspector({
+    shown, kinds, resources, chrome, counts, keys, words, selection, events, shownResources,
+}: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
-    const selection = usePlanSelector(shown ? selectSelection : selectNothing, sameSelection);
-    const events = useSelectedEvents(kinds, selection.elements, chrome?.events?.drafts ?? NONE_DRAFTED, chrome?.events);
     // No `inspector`: no pane (#1197).
     if (!shown) return undefined;
     const row = selection.row !== null ? chrome?.inspect.row(selection.row) : undefined;
@@ -265,7 +343,7 @@ export function usePlanInspector({ shown, kinds, resources, chrome, counts, keys
         detail,
         body: (
             <PlanInspectorBody selection={selection} events={events} kinds={kinds} resources={resources} chrome={chrome}
-                counts={counts} keys={keys} words={words} />
+                counts={counts} keys={keys} words={words} shownResources={shownResources} />
         ),
     };
 }
@@ -280,6 +358,8 @@ interface BodyProps {
     counts: PlanEventCounts | undefined;
     keys: PlanKeys;
     words: PlanWords;
+    /** The resources the rail shows, by resource kind (#1344). */
+    shownResources: PlanEventShownValue;
 }
 
 /** The pane's body: one event, several, a row, or nothing. */
@@ -618,7 +698,7 @@ interface SeveralProps extends BodyProps {
 }
 
 /** Several events: how many, each kind's count, the list, and the bulk edit. */
-function SeveralEvents({ events, kinds, resources, words, styles, chrome, selection }: SeveralProps) {
+function SeveralEvents({ events, kinds, resources, words, styles, chrome, selection, shownResources }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     // Its edits (#1194): steps of the Plan's one history, on while every selected kind takes a gesture.
@@ -649,13 +729,23 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
         return out;
     }, [selectedKinds, m]);
     // The resources the selected kinds are placed on: each its kind's rows, by name — a paged kind lists none (#1199).
+    // Of a kind the rail narrows, the ones its source shows, and those the selected events are on (#1344).
     const options = useMemo(() => {
         const slots = selectedKinds.flatMap((kind) => kind.takes);
         const placed = resources.filter((r: PlanResourceKindValue) => slots.some((slot) => stringEqual(slot, r.key)));
+        const on = (kind: string, key: string): boolean => events.some((e) => {
+            const at = getSomeorUndefined(e.item.resource);
+            return at !== undefined && stringEqual(at.kind, kind) && stringEqual(at.key, key);
+        });
         return {
-            resource: placed.flatMap((r) => r.rows.map((row): FieldOption => ({ key: printResource({ kind: r.key, key: row.key }), label: row.label }))),
+            resource: placed.flatMap((r) => {
+                const keys = shownResources.get(r.key);
+                return r.rows
+                    .filter((row) => keys === undefined || keys.has(row.key) || on(r.key, row.key))
+                    .map((row): FieldOption => ({ key: printResource({ kind: r.key, key: row.key }), label: row.label }));
+            }),
         };
-    }, [selectedKinds, resources]);
+    }, [selectedKinds, resources, shownResources, events]);
     // The form's value: the state, and the resource, every selected event that has one shares — Not set where they differ.
     const shared = useMemo(() => {
         const states = events.filter((e) => e.kind.roles.state.type === "some").map((e) => stateWordOf(e.item.state));

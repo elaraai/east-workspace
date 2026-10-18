@@ -34,6 +34,12 @@
  * resource kind draws no rows; a hidden measure no row under each resource. A
  * resource's first row is its own, and stays while its kind shows.
  *
+ * What the rail shows of a resource kind narrows its rows (#1344): a kind its
+ * Plan's slice names a source after draws the resources whose keys that source
+ * shows, as the renderer hands them in, and the events on the others draw
+ * nowhere — never on the Unassigned row, for their kind has their resource.
+ * A kind no source narrows draws every resource.
+ *
  * A resource kind given its resources as a paged read (#1199, PB55) is PAGED,
  * as a paged canvas pages its blocks: its rows come a window of resources at a
  * time as the canvas scrolls, through the payload's `paged`
@@ -51,7 +57,7 @@
 
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, SetType, StringType,
-    StructType, none, some, variant,
+    StructType, isTypeEqual, none, some, variant,
     type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { IconType, PickStateType, SeekQueryType, SeekRangeType, StatusValueType } from "@elaraai/east-ui";
@@ -85,15 +91,26 @@ export const PlanEventDraftsType = DictType(StringType, ScheduleDraftsType);
 export type PlanEventDraftsType = typeof PlanEventDraftsType;
 
 /**
+ * The resources the rail shows (#1344): by a resource kind's slot, the keys of
+ * the resources its source shows. A kind it does not name draws every resource.
+ */
+export const PlanEventShownType = DictType(StringType, SetType(StringType));
+
+/** Type representing {@link PlanEventShownType}. */
+export type PlanEventShownType = typeof PlanEventShownType;
+
+/**
  * The resources' rows over a window, every event kind's drafts in place
  * (#1192): `(from, to, drafts by kind, then by entry id, the ids the viewer
- * hides)` → the canvas's blocks, `none` while a kind's read is in flight. The
- * hidden ids are the library's Series tab's (#1195): `resources.<slot>`,
- * `events.<slot>` and `measures.<key>` stay out, and the rest are not this
- * seam's. A paged resource kind's place (#1199) is an empty block that is not
- * fixed, which the payload's `paged` fills a window at a time.
+ * hides, the resources the rail shows)` → the canvas's blocks, `none` while a
+ * kind's read is in flight. The hidden ids are the library's Series tab's
+ * (#1195): `resources.<slot>`, `events.<slot>` and `measures.<key>` stay out,
+ * and the rest are not this seam's. A resource kind the shown resources name
+ * draws those alone (#1344). A paged resource kind's place (#1199) is an empty
+ * block that is not fixed, which the payload's `paged` fills a window at a
+ * time.
  */
-export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanBlocksType));
+export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventShownType], OptionType(PlanBlocksType));
 
 /** Type representing {@link PlanEventBlocksType}. */
 export type PlanEventBlocksType = typeof PlanEventBlocksType;
@@ -309,7 +326,7 @@ function resourceBlocks(
     const rowType = kind.rowType;
     const collection = DictType(keyType, rowType);
     // A resource's key as the text a placed event and a parent name it by.
-    const textOf = (keyType as { type: string }).type === "String"
+    const textOf = isTypeEqual(keyType, StringType)
         ? (key: ExprType<EastType>) => key as unknown as ExprType<StringType>
         : (key: ExprType<EastType>) => East.print(key);
     const resolve = $.const(kind.planRow);
@@ -530,9 +547,10 @@ function unassignedBlock(
 }
 
 /**
- * The `blocks` seam (see the module docs): `(from, to, drafts, hidden)` → the
- * resources' rows over `[from, to)`, every kind's drafts in place, what the
- * viewer hides left out.
+ * The `blocks` seam (see the module docs): `(from, to, drafts, hidden, shown)`
+ * → the resources' rows over `[from, to)`, every kind's drafts in place, what
+ * the viewer hides left out, and of a resource kind the rail narrows the
+ * resources it shows.
  *
  * @remarks
  * Made inside the function that assembles the payload, so `built` is the
@@ -550,7 +568,7 @@ export function createEventBlocks(
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
 ): ExprType<PlanEventBlocksType> {
-    return East.function([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanBlocksType), ($, from, to, drafts, hiding) => {
+    return East.function([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventShownType], OptionType(PlanBlocksType), ($, from, to, drafts, hiding, shown) => {
         const result = $.let(none, OptionType(PlanBlocksType));
         const noDrafts = $.const(new Map(), ScheduleDraftsType);
         const hidden = $.let(hiding.toSet(), SetType(StringType));
@@ -626,7 +644,22 @@ export function createEventBlocks(
                 }
                 // A hidden resource kind draws no rows; its events stay its own, off the Unassigned row.
                 $2.if(hidden.has(planHideId.resources(slot)).not(), ($3) => {
-                    $3(blocks.append(resourceBlocks($3 as unknown as Block, slot, kind, sources.get(slot)!, placed.get(slot)!, events, hidden)));
+                    // The resources the rail shows of it (#1344), by their keys — every one while the rail narrows
+                    // none. Its events were placed over every one: those on a resource it hides draw nowhere. A source
+                    // narrows a kind keyed by String alone, as its record is (the Plan refuses one over another).
+                    const all = sources.get(slot)!;
+                    let drawn: ExprType<DictType<EastType, EastType>> = all;
+                    if (isTypeEqual(kind.keyType, StringType)) {
+                        const keyed = all as unknown as ExprType<DictType<StringType, EastType>>;
+                        drawn = $3.let(shown.has(slot).ifElse(
+                            ($4) => {
+                                const keys = $4.let(shown.get(slot));
+                                return keyed.filter((_$5, _row, key) => keys.has(key));
+                            },
+                            () => keyed,
+                        )) as unknown as ExprType<DictType<EastType, EastType>>;
+                    }
+                    $3(blocks.append(resourceBlocks($3 as unknown as Block, slot, kind, drawn, placed.get(slot)!, events, hidden)));
                 });
             }
             $2(blocks.pushLast(unassignedBlock($2 as unknown as Block, events, lost)));

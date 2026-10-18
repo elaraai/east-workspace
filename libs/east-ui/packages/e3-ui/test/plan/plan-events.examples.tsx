@@ -11,6 +11,7 @@ import {
     East,
     FloatType,
     FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -33,8 +34,10 @@ import e3 from "@elaraai/e3";
 // presses in two halls and four crews; thirty print jobs over four weeks from
 // Monday 5 October 2026, eight of them waiting in the backlog; plate changes
 // and services; early and late shifts; each press's utilisation and the sheets
-// printed each day; templates for every kind; and the customers its library
-// lists (#1195). The smallest builder reads the presses and the customers
+// printed each day; templates for every kind, each a record of its own
+// (#1344); and the customers its library lists (#1195). Its one rail narrows
+// the jobs, the shifts, the presses, the customers and each templates record,
+// a source apiece. The smallest builder reads the presses and the customers
 // beside a jobs record of its own. A measure is stored as its readings from
 // the window's first day, which the series turn into cells and points, as the
 // Plan's other examples store theirs.
@@ -495,6 +498,85 @@ export const planPrintDeliveries = e3.record("plan_print_deliveries", DictType(S
 export const planPrintDeliveriesPatch = e3.mutation.patch(planPrintDeliveries);
 
 // ============================================================================
+// The print works' templates, each a record of its own (#1344)
+// ============================================================================
+
+/** A job template: its name and group, how long the job it creates runs, and that job's fields. */
+export const PrintJobTemplate = StructType({
+    name: StringType, group: StringType, hours: FloatType,
+    values: StructType({ title: StringType, state: EventStateType, sheets: FloatType, customer: StringType, stock: PrintJob.fields.stock, due: OptionType(DateTimeType) }),
+});
+
+/** A stop template: a stop is one instant, so it runs no time. */
+export const PrintStopTemplate = StructType({ name: StringType, group: StringType, values: StructType({ title: StringType, kind: PrintStop.fields.kind }) });
+
+/** A shift template: the hour a shift dropped on a day starts at, eight hours long. */
+export const PrintShiftTemplate = StructType({ name: StringType, group: StringType, hour: IntegerType, values: StructType({ title: StringType, state: EventStateType }) });
+
+/** A plates template: plates are made at one instant. */
+export const PrintPlatesTemplate = StructType({ name: StringType, group: StringType, values: StructType({ title: StringType }) });
+
+/** A bindery template: how long the bindery job it creates runs. */
+export const PrintBindingTemplate = StructType({ name: StringType, group: StringType, hours: FloatType, values: StructType({ title: StringType, state: EventStateType }) });
+
+/** A delivery template: the hour a delivery dropped on a day leaves at. */
+export const PrintDeliveryTemplate = StructType({
+    name: StringType, group: StringType, hour: IntegerType,
+    values: StructType({ title: StringType, lane: StringType, status: PrintDispatchStatus, pallets: FloatType }),
+});
+
+/** The job templates. A Plan never writes them: the library lists them, and a drop creates a job from one. */
+export const planPrintJobTemplates = e3.record("plan_print_job_templates", DictType(StringType, PrintJobTemplate), new Map([
+    ["board", { name: "Board run", group: "Jobs", hours: 8.0, values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "", stock: variant("board", null), due: none } }],
+    ["brochure", { name: "Brochure run", group: "Jobs", hours: 6.0, values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none } }],
+    ["catalogue", { name: "Catalogue run", group: "Jobs", hours: 12.0, values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0, customer: "", stock: variant("coated", null), due: none } }],
+    ["poster", { name: "Poster run", group: "Jobs", hours: 4.0, values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0, customer: "", stock: variant("uncoated", null), due: none } }],
+]));
+
+/** The stop templates. */
+export const planPrintStopTemplates = e3.record("plan_print_stop_templates", DictType(StringType, PrintStopTemplate), new Map([
+    ["plates", { name: "Plate change", group: "Stops", values: { title: "Plate change", kind: variant("plate_change", null) } }],
+    ["service", { name: "Service", group: "Stops", values: { title: "Service", kind: variant("service", null) } }],
+]));
+
+/** The shift templates: early, late and night. */
+export const planPrintShiftTemplates = e3.record("plan_print_shift_templates", DictType(StringType, PrintShiftTemplate), new Map([
+    ["early", { name: "Early shift", group: "Shifts", hour: 6n, values: { title: "Early", state: variant("confirmed", null) } }],
+    ["late", { name: "Late shift", group: "Shifts", hour: 14n, values: { title: "Late", state: variant("confirmed", null) } }],
+    ["night", { name: "Night shift", group: "Shifts", hour: 22n, values: { title: "Night", state: variant("proposed", variant("added", null)) } }],
+]));
+
+/** The plates templates. */
+export const planPrintPlatesTemplates = e3.record("plan_print_plates_templates", DictType(StringType, PrintPlatesTemplate), new Map([
+    ["plates", { name: "Job plates", group: "Plate room", values: { title: "Job plates" } }],
+]));
+
+/** The bindery templates. */
+export const planPrintBindingTemplates = e3.record("plan_print_binding_templates", DictType(StringType, PrintBindingTemplate), new Map([
+    ["fold", { name: "Fold sections", group: "Bindery", hours: 8.0, values: { title: "Fold sections", state: variant("confirmed", null) } }],
+]));
+
+/** The delivery templates. */
+export const planPrintDeliveryTemplates = e3.record("plan_print_delivery_templates", DictType(StringType, PrintDeliveryTemplate), new Map([
+    ["delivery", { name: "Morning delivery", group: "Dispatch", hour: 10n, values: { title: "Delivery", lane: "AM", status: variant("queued", null), pallets: 1.0 } }],
+]));
+
+// The rail narrows each record through its own indexes (#1344): the jobs and the shifts over their interval
+// indexes — on their own, and after a job's stock — so a narrowing keeps every event overlapping the window once;
+// the presses by hall, the customers by district, and each templates record by its group.
+export const planPrintJobsByTime = e3.recordIndex("plan_print_jobs_by_time", planPrintJobs, { interval: { from: "start", to: "end" } });
+export const planPrintJobsByStockTime = e3.recordIndex("plan_print_jobs_by_stock_time", planPrintJobs, { on: ["stock"], interval: { from: "start", to: "end" } });
+export const planPrintShiftsByTime = e3.recordIndex("plan_print_shifts_by_time", planPrintShifts, { interval: { from: "start", to: "end" } });
+export const planPrintPressesByHall = e3.recordIndex("plan_print_presses_by_hall", planPrintPresses, { on: ["hall"] });
+export const planPrintCustomersByDistrict = e3.recordIndex("plan_print_customers_by_district", planPrintCustomers, { on: ["district"] });
+export const planPrintJobTemplatesByGroup = e3.recordIndex("plan_print_job_templates_by_group", planPrintJobTemplates, { on: ["group"] });
+export const planPrintStopTemplatesByGroup = e3.recordIndex("plan_print_stop_templates_by_group", planPrintStopTemplates, { on: ["group"] });
+export const planPrintShiftTemplatesByGroup = e3.recordIndex("plan_print_shift_templates_by_group", planPrintShiftTemplates, { on: ["group"] });
+export const planPrintPlatesTemplatesByGroup = e3.recordIndex("plan_print_plates_templates_by_group", planPrintPlatesTemplates, { on: ["group"] });
+export const planPrintBindingTemplatesByGroup = e3.recordIndex("plan_print_binding_templates_by_group", planPrintBindingTemplates, { on: ["group"] });
+export const planPrintDeliveryTemplatesByGroup = e3.recordIndex("plan_print_delivery_templates_by_group", planPrintDeliveryTemplates, { on: ["group"] });
+
+// ============================================================================
 // planPrintWorks — the print works (§3.3)
 // ============================================================================
 
@@ -504,15 +586,22 @@ export const planPrintDeliveriesPatch = e3.mutation.patch(planPrintDeliveries);
  * draw as bars, stops and plates as marks
  * at their instants, shifts as chips — a utilisation heat row under each
  * press, and a pinned chart of the sheets printed each day. Each
- * kind declares its templates. Its library (#1195) lists every kind's
- * templates, the backlog, the series a viewer shows and hides, and the
+ * kind's templates are a record of its own. Its library (#1195) lists every
+ * kind's templates, the backlog, the series a viewer shows and hides, and the
  * customers, a card apiece that sets the customer of the job it is dropped
  * on. Its inspector (#1197) shows what is selected: a job through the form
  * its customer, stock and sheets are hinted for, and a stop through the
  * stop kind's own inspector, which chooses a plate change or a service on a
- * segment. The same Slice owns the range and resolution; links connect the
- * plates, printing, binding and dispatch. Delivery readiness holds Save for
- * an invalid pallet count, while the drop veto explains a press in service.
+ * segment. One rail narrows it (`Slice.bindRecords`, #1344): the jobs and the
+ * shifts each through their interval index, every event overlapping the
+ * window once, the jobs by their stock too, their backlog with them; the
+ * presses by hall, on the canvas and in the Choosers; the customers by
+ * district, in their tab; and each templates record, in the Events tab. Its
+ * summary counts each source in its own words. The window is the jobs' and
+ * the shifts' range together: the toolbar's dates, the resolution and the
+ * horizon brush write both. Links connect the plates,
+ * printing, binding and dispatch. Delivery readiness holds Save for an
+ * invalid pallet count, while the drop veto explains a press in service.
  */
 export const planPrintWorks = example({
     keywords: [
@@ -523,17 +612,55 @@ export const planPrintWorks = example({
         "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
         "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197", "#1200", "parent", "rollup", "collapsed", "meta", "value",
         "buckets", "lane", "status", "ready", "overlaps", "allow", "canDrop", "Schedule.Types.Candidate",
-        "variant resource", "bay", "van", "Slice", "range", "brush", "resolution", "Plan.eventRef", "Plan.over",
+        "variant resource", "bay", "van", "Slice", "Slice.bindRecords", "sources", "Data.bindPaged", "recordIndex", "interval",
+        "window", "range", "brush", "resolution", "Schedule.templates", "templates record", "Plan.eventRef", "Plan.over", "#1344",
     ],
-    description: "The print works from plates to dispatch — jobs, stops and shifts on grouped presses and crews, nested bindery resources, deliveries in AM/PM lanes on a bay or a van, status and readiness, links between event kinds, utilisation and paper stock, a Slice-owned range and resolution, and the shared library, inspector and Save session",
+    description: "The print works from plates to dispatch — jobs, stops and shifts on grouped presses and crews, nested bindery resources, deliveries in AM/PM lanes on a bay or a van, status and readiness, links between event kinds, utilisation and paper stock; one Slice.bindRecords rail — the jobs and the shifts through their interval indexes, their range the one window, the presses, the customers and each kind's templates record — and the shared library, inspector and Save session",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const presses = $.let(Record.bind(planPrintPresses, []));
+            // What the Plan reads whole binds with Data.bind, which keeps it loaded beside its pages; the event
+            // records it writes bind with Record.bind, and it reads the jobs' and the shifts' events through their
+            // pages alone.
+            const presses = $.let(Data.bind(planPrintPresses));
             const crews = $.let(Record.bind(planPrintCrews, []));
             const jobs = $.let(Record.bind(planPrintJobs, [planPrintJobsPatch]));
             const stops = $.let(Record.bind(planPrintStops, [planPrintStopsPatch]));
             const shifts = $.let(Record.bind(planPrintShifts, [planPrintShiftsPatch]));
-            const customers = $.let(Record.bind(planPrintCustomers, []));
+            const customers = $.let(Data.bind(planPrintCustomers));
+            const jobTemplates = $.let(Data.bind(planPrintJobTemplates));
+            const stopTemplates = $.let(Data.bind(planPrintStopTemplates));
+            const shiftTemplates = $.let(Data.bind(planPrintShiftTemplates));
+            const platesTemplates = $.let(Data.bind(planPrintPlatesTemplates));
+            const bindingTemplates = $.let(Data.bind(planPrintBindingTemplates));
+            const deliveryTemplates = $.let(Data.bind(planPrintDeliveryTemplates));
+            // One rail over the records, a source each (#1344): the jobs and the shifts through their interval
+            // indexes, their range the one window the toolbar's dates, the resolution and the brush write; the
+            // presses, the customers and each templates record by its fields.
+            const slice = $.let(Slice.bindRecords("ex.planPrintWorks", {
+                job: { source: Data.bindPaged(planPrintJobs, { indexes: [planPrintJobsByTime, planPrintJobsByStockTime] }), icon: { prefix: "fas", name: "file-lines" },
+                    fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start" },
+                shift: { source: Data.bindPaged(planPrintShifts, { indexes: [planPrintShiftsByTime] }), icon: { prefix: "fas", name: "user-clock" },
+                    fields: { start: { label: "Dates" } }, range: "start" },
+                presses: { source: Data.bindPaged(planPrintPresses, { indexes: [planPrintPressesByHall] }), icon: { prefix: "fas", name: "print" },
+                    fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } } },
+                customers: { source: Data.bindPaged(planPrintCustomers, { indexes: [planPrintCustomersByDistrict] }), icon: { prefix: "fas", name: "building" },
+                    fields: { district: { label: "District", hints: ["North Quay", "Old Town", "Riverside"] } } },
+                jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: [planPrintJobTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                    fields: { group: { label: "Job templates", hints: ["Jobs"] } } },
+                stopTemplates: { source: Data.bindPaged(planPrintStopTemplates, { indexes: [planPrintStopTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                    fields: { group: { label: "Stop templates", hints: ["Stops"] } } },
+                shiftTemplates: { source: Data.bindPaged(planPrintShiftTemplates, { indexes: [planPrintShiftTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                    fields: { group: { label: "Shift templates", hints: ["Shifts"] } } },
+                platesTemplates: { source: Data.bindPaged(planPrintPlatesTemplates, { indexes: [planPrintPlatesTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                    fields: { group: { label: "Plates templates", hints: ["Plate room"] } } },
+                bindingTemplates: { source: Data.bindPaged(planPrintBindingTemplates, { indexes: [planPrintBindingTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                    fields: { group: { label: "Bindery templates", hints: ["Bindery"] } } },
+                deliveryTemplates: { source: Data.bindPaged(planPrintDeliveryTemplates, { indexes: [planPrintDeliveryTemplatesByGroup] }), icon: { prefix: "fas", name: "layer-group" },
+                    fields: { group: { label: "Delivery templates", hints: ["Dispatch"] } } },
+            }));
+            // A kind narrowed through its source reads one event by its key through the record's own entries.
+            const jobEntries = $.let(Data.bindPaged(planPrintJobs));
+            const shiftEntries = $.let(Data.bindPaged(planPrintShifts));
             const setters = $.let(Record.bind(planLinkSetters, []));
             const lines = $.let(Record.bind(planLinkLines, []));
             const bindery = $.let(Record.bind(planPrintBindery, []));
@@ -550,17 +677,6 @@ export const planPrintWorks = example({
             const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
             const parentLine = $.const(some("bindery"), OptionType(StringType));
             const topLine = $.const(none, OptionType(StringType));
-            // The Slice's domain is the scheduled jobs. It owns the visible time window;
-            // Schedule reads every event kind over that window and keeps the backlog separate.
-            const scope = $.const(jobs.read().toArray((_$2, job) => job.start)
-                .filter((_$2, at) => at.hasTag("some"))
-                .map((_$2, at) => ({ at: at.unwrap("some") })));
-            const slice = $.let(Slice.bind("ex.planPrintWorks.time", scope, {
-                fields: { at: { label: "Job start", format: { date: "MMM DD" } } },
-                range: "at",
-                initial: { at: { from: first, to: new Date("2026-11-02T00:00:00Z") } },
-                view: { resolution: some(variant("day", null)) },
-            }));
             // A press's readings as heat cells, one a day.
             const daily = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), (_$2, readings) =>
                 East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$3, i) => ({
@@ -611,7 +727,7 @@ export const planPrintWorks = example({
                     axis={axis}
                     date={first}
                     canDrop={canDrop}
-                    slice={{ slice, affordances: ["range", "brush"] }}
+                    slice={{ slice }}
                     resources={{
                         presses: Schedule.resources(presses.read(), {
                             name: "Presses", icon: "print",
@@ -650,55 +766,40 @@ export const planPrintWorks = example({
                                 stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
                                 sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
                             },
-                            templates: [
-                                { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                                  values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                                            customer: "", stock: variant("coated", null), due: none } },
-                                { key: "catalogue", name: "Catalogue run", group: "Jobs", duration: variant("hours", 12.0),
-                                  values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0,
-                                            customer: "", stock: variant("coated", null), due: none } },
-                                { key: "poster", name: "Poster run", group: "Jobs", duration: variant("hours", 4.0),
-                                  values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0,
-                                            customer: "", stock: variant("uncoated", null), due: none } },
-                                { key: "board", name: "Board run", group: "Jobs", duration: variant("hours", 8.0),
-                                  values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0,
-                                            customer: "", stock: variant("board", null), due: none } },
-                            ],
+                            // Narrowed through its source of the slice (`job`): one job is read by its key here.
+                            entries: jobEntries,
+                            templates: Schedule.templates(jobTemplates.read(), {
+                                name: t => t.name, group: t => some(t.group), duration: t => variant("hours", t.hours), values: t => t.values, source: "jobTemplates",
+                            }),
                         }),
                         stop: Schedule.events(stops, {
                             name: "Stop", icon: "screwdriver-wrench", draw: "marks",
                             title: "title", at: "at",
                             resource: { field: "press", of: "presses" },
                             inspector: inspectStop,
-                            templates: [
-                                { key: "plates", name: "Plate change", group: "Stops",
-                                  values: { title: "Plate change", kind: variant("plate_change", null) } },
-                                { key: "service", name: "Service", group: "Stops",
-                                  values: { title: "Service", kind: variant("service", null) } },
-                            ],
+                            // A stop is one instant: its templates give no duration.
+                            templates: Schedule.templates(stopTemplates.read(), { name: t => t.name, group: t => some(t.group), values: t => t.values, source: "stopTemplates" }),
                         }),
                         shift: Schedule.events(shifts, {
                             name: "Crew shift", icon: "user-clock", draw: "cards",
                             title: "title", start: "start", end: "end",
                             resource: { field: "crew", of: "crews" }, state: "state",
-                            templates: [
-                                { key: "early", name: "Early shift", group: "Shifts", at: { hour: 6n, minute: 0n }, duration: variant("hours", 8.0),
-                                  values: { title: "Early", state: variant("confirmed", null) } },
-                                { key: "late", name: "Late shift", group: "Shifts", at: { hour: 14n, minute: 0n }, duration: variant("hours", 8.0),
-                                  values: { title: "Late", state: variant("confirmed", null) } },
-                                { key: "night", name: "Night shift", group: "Shifts", at: { hour: 22n, minute: 0n }, duration: variant("hours", 8.0),
-                                  values: { title: "Night", state: variant("proposed", variant("added", null)) } },
-                            ],
+                            entries: shiftEntries,
+                            templates: Schedule.templates(shiftTemplates.read(), {
+                                name: t => t.name, group: t => some(t.group), at: t => some({ hour: t.hour, minute: 0n }), duration: () => variant("hours", 8.0),
+                                values: t => t.values, source: "shiftTemplates",
+                            }),
                         }),
                         plate: Schedule.events(plates, {
                             name: "Plates", icon: "clone", title: "title", at: "at", resource: { field: "setter", of: "setters" },
-                            templates: [{ key: "plates", name: "Job plates", group: "Plate room", values: { title: "Job plates" } }],
+                            templates: Schedule.templates(platesTemplates.read(), { name: t => t.name, group: t => some(t.group), values: t => t.values, source: "platesTemplates" }),
                         }),
                         binding: Schedule.events(bindings, {
                             name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end",
                             resource: { field: "line", of: "lines" }, state: "state", overlaps: "allow",
-                            templates: [{ key: "fold", name: "Fold sections", group: "Bindery", duration: variant("hours", 8.0),
-                                values: { title: "Fold sections", state: variant("confirmed", null) } }],
+                            templates: Schedule.templates(bindingTemplates.read(), {
+                                name: t => t.name, group: t => some(t.group), duration: t => variant("hours", t.hours), values: t => t.values, source: "bindingTemplates",
+                            }),
                         }),
                         delivery: Schedule.events(deliveries, {
                             name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at",
@@ -712,8 +813,9 @@ export const planPrintWorks = example({
                                 () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
                                 () => variant("ready", null)),
                             fields: { pallets: Schedule.field.number({ label: "Pallets", min: 0.0, step: 1.0 }) },
-                            templates: [{ key: "delivery", name: "Morning delivery", group: "Dispatch", at: { hour: 10n, minute: 0n },
-                                values: { title: "Delivery", lane: "AM", status: variant("queued", null), pallets: 1.0 } }],
+                            templates: Schedule.templates(deliveryTemplates.read(), {
+                                name: t => t.name, group: t => some(t.group), at: t => some({ hour: t.hour, minute: 0n }), values: t => t.values, source: "deliveryTemplates",
+                            }),
                         }),
                     }}
                     rows={[
@@ -737,11 +839,12 @@ export const planPrintWorks = example({
                         Plan.library.events(),
                         Plan.library.backlog(),
                         Plan.library.series(),
-                        // The customers, by district: a card dropped on a job sets its customer.
+                        // The customers, by district: a card dropped on a job sets its customer. The tab follows the
+                        // rail's `customers` source, by its rows' keys.
                         Plan.library.tab(customers.read(), {
                             name: "Customers", icon: "building",
                             label: c => c.name, meta: c => some(c.trade), group: c => c.district,
-                            drop: c => Schedule.patch(PrintJob, { customer: c.name }),
+                            drop: c => Schedule.patch(PrintJob, { customer: c.name }), source: "customers",
                         }),
                     ]}
                     inspector

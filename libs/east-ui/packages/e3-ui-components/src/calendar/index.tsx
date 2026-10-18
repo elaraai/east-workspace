@@ -29,7 +29,8 @@ import { CalendarDataReader, initialCalendarData, resourceRows, type CalendarDat
 import { useCalendarDrag } from "./drag.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { templatesTab, useCalendarLibrary } from "./library.js";
-import { calendarNouns, calendarSaid, followedSources, useBacklogNarrowing } from "./sources.js";
+import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
+import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { CalendarViews } from "./views.js";

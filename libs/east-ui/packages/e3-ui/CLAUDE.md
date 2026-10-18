@@ -48,12 +48,12 @@ backlog remains part of the authoritative event record.
 
 A builder's tag checks its `slice` with `utils/record-sources.ts`'
 `recordSources`, a Library tab's `source` with `tabSource`, and a templates
-list's source with `templatesSource` (#1340): each builder that has moved onto
-them takes only `Slice.bindRecords`, its sources named after what they narrow —
-the Allocation, the Roster, the Calendar, the Sheet and the Flowchart so far,
-the others each in their own child of #1340. Templates are records: each list
-names its source of the one `Slice.bindRecords`, and a list written in the code
-is refused, naming the change to make.
+list's source with `templatesSource` (#1340): every builder takes only
+`Slice.bindRecords`, its sources named after what they narrow — the
+Allocation, the Roster, the Calendar, the Plan, the Sheet and the Flowchart.
+Templates are records: each list names its source of the one
+`Slice.bindRecords`, and a list written in the code is refused, naming the
+change to make.
 
 A function captures what it reads, so a builder binds what a function reads of
 a source before the function reads it: `recordSources` pages each source's keys
@@ -91,21 +91,29 @@ templates.read(), { …, source })` (or `transitions`) over a keyed record bound
 with `Data.bind`, each card keyed by the record's key, so a list takes no
 `key`; an app's tab that names a `source` follows it by the key its `key` gives.
 
-Until a builder has moved:
+The Plan (#1344) takes `slice={{ slice: Slice.bindRecords(key, { … }) }}`. Its
+`rows` source gives the canvas its rows, paged from it in its index's order —
+`data` is left out — edited through `editing.onApply` (`Record.onApply(record,
+{ keyed: true })`). A source named after an event kind's slot reads that kind's
+events and its backlog through its interval index, as the Calendar's sources
+do; one named after a resource kind's slot narrows that kind's rows and the
+bulk edit's Chooser, over resources read whole and keyed by String. Every
+source holding a `range` of the axis's arm holds the window with the others:
+the date navigator, the horizon brush, the keys and the resolution write each
+of them. Each templates list is `Schedule.templates(templates.read(), { …,
+source })` over a record bound with `Data.bind`, an instant kind's giving no
+`duration`, and each tab that names a `source` follows it.
 
-Choose the Slice arm from the source, not from the builder:
+A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
+own collections — a Table, a Library, a Deck, a Schematic — keep their own
+Slice (`Slice.bind(key, rows, { … })` over rows held whole, read through
+`Slice.rows(slice)`). An indexed record narrows a builder as a source of its
+one `Slice.bindRecords`: declare `e3.recordIndex(name, record, { on: [fields...]
+})` and bind `Data.bindPaged(record, { indexes })`. Never turn the loaded page
+into another local Slice or implement a browser predicate. Typed controls and
+supported combinations come from declared indexes.
 
-- Rows held whole: `Slice.bind(key, rows, { fields, range, search, initial,
-  presets })`, then `Slice.rows(slice)`. Keep `Slice.config` for pure
-  `Slice.apply` calls; do not use the removed positional binding form.
-- Indexed records: declare `e3.recordIndex(name, record, { on: [fields...] })`,
-  bind with `Data.bindPaged(record, { indexes })`, then
-  `Slice.bindRecord(key, binding, options)`. Pass `Slice.rows(slice)` as Plan
-  data, and the same handle to `slice` chrome.
-  Never turn the loaded page into another local Slice or implement a browser
-  predicate. Typed controls and supported combinations come from declared indexes.
-
-The Calendar has moved (#1343). Its `slice` is one `Slice.bindRecords`, a
+The Calendar's `slice` (#1343) is one `Slice.bindRecords`, a
 source named after each event kind's slot, each resource kind's slot, and each
 source a templates list or a tab names. An event kind's source reads its record
 through an interval index, for example `e3.recordIndex("by_status_time", events,
@@ -439,9 +447,10 @@ recentring. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
-year), preserves the visible bucket count and writes the same Slice range as
-the horizon brush. Its Range panel embeds the shared `SliceRangeContent` or
-`RecordSliceFieldEditor`; never create another input or filter implementation.
+year), preserves the visible bucket count and writes the window into every
+source holding it, as the horizon brush does (#1344). Its Range panel embeds
+the leading source's `RecordSliceFieldEditor`; never create another input or
+filter implementation.
 Date inputs reuse the existing React Aria compound date field. Retain UTC,
 sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
 Plan axes keep their own appropriate controls.

@@ -17,7 +17,7 @@ import { listTests } from "./responsive-shards.js";
 const componentSpecs = {
     calendar: ["calendar.spec.ts", "calendar-narrowing.spec.ts", "calendar-records.spec.ts"],
     flowchart: ["flowchart-builder.spec.ts", "flowchart-drop.spec.ts", "flowchart-flows.spec.ts", "flowchart-frame.spec.ts", "flowchart-records.spec.ts"],
-    plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
+    plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
     roster: ["roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts"],
     sheet: ["sheet-bound.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-narrowing.spec.ts"],

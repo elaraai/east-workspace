@@ -8,8 +8,9 @@
  * footer, the focus bar, the diagnostics, the paged window bands, and the
  * canvas-wide overlays (the cursor hairline and chip, the element overlay
  * body). The toolbar band is the Plan's `BuilderFrame`'s (#1193); its items
- * wear the shared parts' recipes, and the summary and the scope badge the
- * footer's item. The now line and its chip are the shared time part's
+ * wear the shared parts' recipes — the record rail's summary its own (#1344).
+ * The library's tabs over a source of the rail take the shared Library
+ * pane's body (`libraryPane`). The now line and its chip are the shared time part's
  * (`../time/now.ts`, #1148), merged into the recipe beside this one.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
@@ -20,6 +21,7 @@
 
 import { timeRulerBase, timeHeaderText } from "../time/axis.js";
 import { builderFooter, builderFooterItem } from "../builder-footer.js";
+import { schedulePaneBase } from "../schedule-pane.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
 
@@ -29,7 +31,7 @@ export const shellSlots = [
     "brushCaption", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry",
-    "cursorLine", "cursorChip", "elementOverlay",
+    "cursorLine", "cursorChip", "elementOverlay", "libraryPane",
 ] as const;
 
 /** Their base styles. */
@@ -362,4 +364,8 @@ export const shellBase = {
         maxWidth: "360px",
         fontSize: "13px",
     },
+    // A library tab's body over a source of the rail (#1344): it fills the
+    // tab, and takes no gesture while its source resolves — the shared
+    // Library pane's part, as the Calendar's and the Sheet's tabs take it.
+    libraryPane: schedulePaneBase.pane,
 } satisfies Record<(typeof shellSlots)[number], SystemStyleObject>;

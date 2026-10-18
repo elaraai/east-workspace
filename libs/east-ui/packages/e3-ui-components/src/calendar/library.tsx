@@ -21,7 +21,8 @@ import type { FollowedSources } from "../shared/schedule/follow-sources.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
 import { PlacementAction, type CalendarShownResources } from "./controls.js";
 import type { CalendarCommands, CalendarSource } from "./actions.js";
-import type { BacklogNarrowing } from "./sources.js";
+import type { BacklogNarrowing } from "../shared/schedule/backlog.js";
+import type { CalendarEventPart } from "./window.js";
 import { eventKey, type CalendarItem, type CalendarKind, type CalendarStyles, type CalendarTemplate, type CalendarValue } from "./model.js";
 
 /** Library ids also name the shared drag grammar's sources. */
@@ -63,7 +64,7 @@ interface LibraryArgs {
     /** The Templates tab, as the sources narrow it. */
     templates: CalendarTemplatesTab;
     /** What the rail hides of the backlog. */
-    backlogNarrowing: BacklogNarrowing;
+    backlogNarrowing: BacklogNarrowing<CalendarEventPart>;
     /** The sources the Calendar follows: an app's tab reads the one it names. */
     followed: FollowedSources;
     /** Each resource kind's rows the rail shows: what a placement's Chooser offers. */
