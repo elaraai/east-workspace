@@ -7,6 +7,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
+import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
 import { DateTimeType, IntegerType, FloatType, parseFor, printFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
@@ -26,6 +27,7 @@ import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabe
 
 type Bind = ValueTypeOf<RecordSliceBindType>;
 type Product = ValueTypeOf<RecordSlicesBindType>;
+type Part = Product["parts"][number];
 type Field = ValueTypeOf<RecordSliceFieldType>;
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 const scalarTypes = { datetime: DateTimeType, integer: IntegerType, float: FloatType };
@@ -53,16 +55,40 @@ export function RecordSliceSummary({ slice, noun = "rows" }: { slice: Bind; noun
         total={total.type === "some" ? total.value : undefined} noun={noun} />;
 }
 
+/** A source's icon on the rail (#1339): its Icon definition's, drawn from the registered solid set. */
+function sourceIcon(part: Part): IconProp | undefined {
+    return part.icon.type === "some" ? [part.icon.value.prefix as IconPrefix, part.icon.value.name as IconName] : undefined;
+}
+
+/** How the rail heads a source's fields (#1339): its label, else the host's noun for it, else its name. */
+function sourceHeading(part: Part, nouns: Readonly<Record<string, string>> | undefined): string {
+    return part.label.type === "some" ? part.label.value : nouns?.[part.source] ?? part.source;
+}
+
+/**
+ * The noun a source is counted in: the host's, else its label as running text
+ * writes it — in lower case unless it is written in capitals (`SKU`) — else
+ * its name.
+ */
+function sourceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefined, locale: string): string {
+    const noun = nouns?.[part.source];
+    if (noun !== undefined) return noun;
+    if (part.label.type === "none") return part.source;
+    const label = part.label.value;
+    return label === label.toLocaleUpperCase(locale) ? label : label.toLocaleLowerCase(locale);
+}
+
 /**
  * A narrowing over several records' counts on one line, each exact and each
  * pending on its own: `2 of 3 lanes · 21 of 33 resources`.
  */
 export function RecordSlicesSummary({ slices, nouns }: { slices: Product; nouns?: Readonly<Record<string, string>> | undefined }) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
+    const { locale } = useFormatters();
     return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="">
         {slices.parts.map((part, i) => <Fragment key={part.source}>
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
-            <span data-record-slice-source={part.source}><RecordSliceSummary slice={part.slice} noun={nouns?.[part.source] ?? part.source} /></span>
+            <span data-record-slice-source={part.source}><RecordSliceSummary slice={part.slice} noun={sourceNoun(part, nouns, locale)} /></span>
         </Fragment>)}
     </Box>;
 }
@@ -307,10 +333,13 @@ function productPreset(slices: Product): string | undefined {
 /**
  * Toolbar items for a narrowing over several records (`Slice.bindRecords`):
  * one rail, each source's field chips in source order, the presets over
- * them, one Clear all and one summary counting each source.
+ * them, one Clear all and one summary counting each source. A source's icon
+ * marks its fields' chips; folded, with fields from more than one source,
+ * the editor heads each source's fields with its name and icon, then the
+ * presets with `Presets` (#1339).
  *
  * @param slices - The product's handle; undefined mounts nothing
- * @param options - Persistence for every part, the noun counting each source (by its name), the affordances, and fields to leave out (as `source.field`)
+ * @param options - Persistence for every part, the noun counting and, without a label of its own, heading each source (by its name), the affordances, and fields to leave out (as `source.field`)
  * @returns Items for the host's one Toolbar
  */
 export function useRecordSlicesToolbarItems(slices: Product | undefined, options: {
@@ -330,6 +359,8 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
     const byKind = new Map(entries.map(entry => [entry.kind, entry]));
     const presets = affordances.includes("presets") && (slices?.presets.length ?? 0) > 0;
     const kinds = [...byKind.keys(), ...(presets ? ["presets"] : [])];
+    // Fields from more than one source are headed by their source; the presets, over them all, by their own.
+    const headed = new Set(entries.map(entry => entry.part.source)).size > 1;
     const summary = slices !== undefined && affordances.includes("summary") ? <RecordSlicesSummary slices={slices} nouns={options.nouns} /> : undefined;
     const items = useSliceRailItems(slices === undefined ? undefined : {
         version, activeCount: slices.parts.reduce((count, part) => count + part.slice.read().where.size, 0),
@@ -340,10 +371,14 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
             if (entry === undefined) {
                 const id = productPreset(slices);
                 const selected = id === undefined ? undefined : slices.presets.find(p => p.id === id);
-                return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
+                return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                    ...(headed ? { group: { key: "presets", label: "Presets" } } : {}) };
             }
-            return fieldDescriptor(entry.part.slice, entry.field, kind, words,
+            const field = fieldDescriptor(entry.part.slice, entry.field, kind, words,
                 { "data-record-slice-source": entry.part.source, "data-record-slice-field": entry.field.fieldId });
+            const icon = sourceIcon(entry.part);
+            return { ...field, ...(icon === undefined ? {} : { icon }),
+                ...(headed ? { group: { key: `source:${entry.part.source}`, label: sourceHeading(entry.part, options.nouns), icon } } : {}) };
         },
         renderEditor: kind => {
             const entry = byKind.get(kind);

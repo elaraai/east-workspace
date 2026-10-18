@@ -165,7 +165,7 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property events - Every event the day may book
  * @property resources - Every resource
  * @property initial - An event's starting values, by its key, as bytes at `V`
- * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the lanes and the resources that show
+ * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the lanes, the resources and the events that show
  * @property fit - The app's fit, by its `e3.function`'s name
  * @property check - The app's issues, from the check context as bytes at `CheckContext(V)`
  * @property columns - The app's values as columns and inspector rows
@@ -173,7 +173,7 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property quantity - The quantity's unit
  * @property library - The library's tabs, in order
  * @property inspector - The inspector's options; `none`, no inspector
- * @property slice - The narrowing's chrome: a Slice over the lanes' and the resources' records, one rail
+ * @property slice - The narrowing's chrome: a Slice over the lanes', the resources' and optionally the events' records, one rail
  * @property settings - The board's settings
  * @property id - Storage keys and drag-source ids
  * @property labels - The board's nouns
@@ -190,7 +190,10 @@ export const AllocationPayloadType = StructType({
     events: ArrayType(T.AllocationEventType),
     resources: ArrayType(T.AllocationResourceType),
     initial: FunctionType([StringType], BlobType),
-    narrowed: StructType({ lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))) }),
+    narrowed: StructType({
+        lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))),
+        events: OptionType(RowSourceType(ArrayType(StringType))),
+    }),
     fit: FuncBindingType,
     check: OptionType(FunctionType([BlobType], ArrayType(T.AllocationIssueType))),
     columns: ArrayType(AllocationColumnType),
@@ -271,8 +274,9 @@ export interface AllocationProps<V extends EastType> {
     /** The app's bin values as Table columns (after Quantity) and inspector rows. */
     columns?: readonly AllocationColumn<V>[];
     /**
-     * The narrowing: `Slice.bindRecords(key, { lanes, resources })` over the lanes' and the resources' records, one rail in both
-     * layouts. The board reads each source's narrowed keys itself; fits, checks and totals still read every lane and resource.
+     * The narrowing: `Slice.bindRecords(key, { lanes, resources, events? })` over the lanes', the resources' and optionally the
+     * events' records, one rail in both layouts. Each source narrows every place its rows appear, the Library's tabs included; the
+     * board reads each one's narrowed keys itself. Fits, checks and totals still read every lane, resource and event.
      */
     slice?: RecordSlicesChromeOptions;
     /** The unit everywhere a quantity shows. */
@@ -346,7 +350,7 @@ function valuesOf(daysType: EastType): EastType | undefined {
  * @typeParam V - The app's bin values
  * @param props - The board's props
  * @returns The payload
- * @throws {Error} When `days` is not a plans record, `fit` is bound over other bin values, `lanes` is empty, a library tab repeats, a column key repeats, a callback has another type, `slice` is not `Slice.bindRecords` over `lanes` and `resources`, a label is empty, or the Table's bands don't start at 0 and rise within the day
+ * @throws {Error} When `days` is not a plans record, `fit` is bound over other bin values, `lanes` is empty, a library tab repeats, a column key repeats, a callback has another type, `slice` is not `Slice.bindRecords` over `lanes`, `resources` and optionally `events`, a label is empty, or the Table's bands don't start at 0 and rise within the day
  * @internal
  */
 export function createAllocationPayload<V extends EastType>(props: AllocationProps<V>): ExprType<typeof AllocationPayloadType> {
@@ -446,17 +450,17 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
         }, AllocationWindowType);
     }
     // The narrowing names each source after what it narrows; the board reads each one's keys itself.
-    const narrowed: { lanes?: unknown; resources?: unknown } = {};
+    const narrowed: { lanes?: unknown; resources?: unknown; events?: unknown } = {};
     if (props.slice !== undefined) {
         if (!isRecordSlices(props.slice.slice)) {
-            throw new Error("Allocation: `slice` is Slice.bindRecords(key, { lanes, resources }) — name each source after what it narrows");
+            throw new Error("Allocation: `slice` is Slice.bindRecords(key, { lanes, resources, events }) — name each source after what it narrows");
         }
         const handle = East.value(props.slice.slice) as unknown as ExprType<StructType>;
         const sources = (Expr.type(handle as unknown as Expr) as StructType).fields["sources"];
         const names = sources?.type === "Struct" ? Object.keys(sources.fields) : [];
         for (const name of names) {
-            if (name !== "lanes" && name !== "resources") {
-                throw new Error(`Allocation: \`slice\` narrows its lanes and its resources — its source '${name}' is neither; name the sources \`lanes\` and \`resources\``);
+            if (name !== "lanes" && name !== "resources" && name !== "events") {
+                throw new Error(`Allocation: \`slice\` narrows its lanes, its resources and its events — its source '${name}' is none of them; name the sources \`lanes\`, \`resources\` and \`events\``);
             }
             const rows = ((handle as unknown as { sources: Record<string, { data: unknown }> }).sources)[name]!.data;
             const keys = keyVisibility(rows, `Allocation.slice's ${name}`);
@@ -476,7 +480,10 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
         valuesType: toEastTypeValue(values),
         lanes: props.lanes, every: props.every ?? variant("hours", 1.0),
         events: events.events, resources: props.resources, initial: events.initial,
-        narrowed: { lanes: narrowed.lanes === undefined ? none : some(narrowed.lanes as never), resources: narrowed.resources === undefined ? none : some(narrowed.resources as never) },
+        narrowed: {
+            lanes: narrowed.lanes === undefined ? none : some(narrowed.lanes as never), resources: narrowed.resources === undefined ? none : some(narrowed.resources as never),
+            events: narrowed.events === undefined ? none : some(narrowed.events as never),
+        },
         fit: (props.fit as unknown as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding,
         check: check === undefined ? none : some(check),
         columns, rules: { under: props.rules?.under ?? true },

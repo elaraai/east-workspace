@@ -4,27 +4,27 @@
  */
 
 /**
- * What the narrowing shows (#1336): the board reads each source of its
- * `Slice.bindRecords` itself — the lanes and the resources — through the
- * shared visibility scan, and a source with nothing chosen reads no page and
- * hides nothing. Fits, checks and totals never see it.
+ * What the narrowing shows (#1336, #1339): the board reads each source of its
+ * `Slice.bindRecords` itself — the lanes, the resources and the events —
+ * through the shared source visibility, and a source with nothing chosen
+ * reads no page and hides nothing. Fits, checks and totals never see it.
  *
  * @packageDocumentation
  */
 
 import { Box, Button } from "@chakra-ui/react";
-import { none, some, type ValueTypeOf } from "@elaraai/east";
+import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { EmptyStateView, useSliceReactivity } from "@elaraai/east-ui-components";
-import { useKeyVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
+import { EmptyStateView } from "@elaraai/east-ui-components";
+import { sourcePart, useSourceVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
 import type { AllocationStyles, AllocationValue } from "./model.js";
 import { one } from "./nouns.js";
 
 /** A narrowed source's name: what its rows are on the board. */
-export type NarrowedSource = "lanes" | "resources";
+export type NarrowedSource = "lanes" | "resources" | "events";
 
 /** The noun a source's rows are. */
-const NOUN = { lanes: "lane", resources: "resource" } as const;
+const NOUN = { lanes: "lane", resources: "resource", events: "event" } as const;
 
 /**
  * A source's part of the board's narrowing, if the slice has one.
@@ -34,7 +34,7 @@ const NOUN = { lanes: "lane", resources: "resource" } as const;
  * @returns Its record Slice's controls
  */
 export function narrowingPart(value: AllocationValue, source: NarrowedSource): ValueTypeOf<RecordSliceBindType> | undefined {
-    return value.slice.type === "some" ? value.slice.value.slice.parts.find(part => part.source === source)?.slice : undefined;
+    return sourcePart(value.slice.type === "some" ? value.slice.value : undefined, source);
 }
 
 /**
@@ -47,13 +47,8 @@ export function narrowingPart(value: AllocationValue, source: NarrowedSource): V
  * @returns The keys to show, and the narrowing's state
  */
 export function useNarrowed(value: AllocationValue, source: NarrowedSource, rows: readonly { key: string }[]): KeyVisibility {
-    const part = narrowingPart(value, source);
-    useSliceReactivity(part?.key);
-    const narrowing = part !== undefined && part.read().where.size > 0;
-    const keys = value.narrowed[source];
     const noun = value.labels[NOUN[source]];
-    return useKeyVisibility({ visibleSource: narrowing ? keys : none, visible: none, rows,
-        recordSlice: part === undefined ? none : some({ slice: part }) },
+    return useSourceVisibility(value.slice.type === "some" ? value.slice.value : undefined, source, value.narrowed[source], rows,
         { changed: `${noun.one} results changed; retry the narrowing.`, failed: `Could not load ${one(noun)} results` });
 }
 

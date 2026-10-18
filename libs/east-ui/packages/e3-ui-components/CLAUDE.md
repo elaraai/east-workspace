@@ -107,6 +107,12 @@ Authors bind either local rows or a declared indexed record. Use
 for the record carrier. Both use the shared rail, editors, choice/search/range
 parts and toolbar ladder in east-ui-components. Keep the old local wire intact;
 record chrome is a separate appended payload. Honor affordances and persistence.
+A builder bound to `Slice.bindRecords` reads each source's shown keys through
+`shared/schedule/visibility.ts`'s `useSourceVisibility`, and every place the
+source's rows appear — main, its Choosers and its Library's tabs — narrows by
+those keys; a tab counts what it shows (`narrowedCount`, `10 of 33`) and has no
+filter of its own (#1339). A source may name itself and carry an icon: folded,
+the rail heads its fields with them.
 Inside the folded editor, field editors expand inline, with one popup and
 normal keyboard focus return. Never copy another control family into a builder.
 

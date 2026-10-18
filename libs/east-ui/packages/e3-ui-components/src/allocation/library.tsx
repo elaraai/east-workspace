@@ -8,7 +8,9 @@
  * pane's two shared Library tabs, Events and Resources, each with its count and
  * its search. Events are grouped Overdue · Ready around now · Removed from plan
  * · Allocated; Resources by the day's states, Free · Loading · Busy today, the
- * shared Library's groups — every filter is the rail's (ruled 18 Oct). Each card is the shared compact card with the
+ * shared Library's groups. Each tab follows the rail (A98, A99, #1339): its
+ * source's narrowing shows its cards as it shows the board's rows, its count
+ * `10 of 33`; every filter is the rail's, and a tab has none of its own. Each card is the shared compact card with the
  * board's figure, its ready line, its look and its tooltip; under the cards the
  * foot's hint, and the picked card's action. A card drags as a board's grip
  * does (§10), and a click picks it (A9, A10). Collapsed, the rail: the open
@@ -21,17 +23,19 @@ import { useCallback, useEffect, useMemo, type KeyboardEvent, type PointerEvent 
 import { Box, Button } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faInbox } from "@fortawesome/free-solid-svg-icons";
-import { none, some, type SortedMap } from "@elaraai/east";
-import { EastChakraLibrary, type BuilderFrameDock, type LibraryCardExtras, type LibraryGroupMark, type LibraryItemValue } from "@elaraai/east-ui-components";
+import { none, some, type SortedMap, type option } from "@elaraai/east";
+import {
+    EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryCardExtras, type LibraryGroupMark, type LibraryItemValue, type LibraryNarrowing,
+} from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
+import { narrowedCount, scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import type { AllocationCommands } from "./actions.js";
 import { eventCardKey, libraryGripOf, type AllocationDrag, type LibraryGrip, type Target, type Verdict } from "./drag.js";
 import {
     allocationWords, compareDate, compareString, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Load, type ResourceLine,
     type Selection, type TimeStep,
 } from "./model.js";
-import { a, one, other, type Nouns } from "./nouns.js";
+import { a, one, other, type Noun, type Nouns } from "./nouns.js";
 
 /** A day, in milliseconds. */
 const DAY_MS = 86_400_000;
@@ -232,6 +236,18 @@ export function resourceCards(args: {
     return [...resources.filter(r => state(r) === "free"), ...loading, ...resources.filter(r => state(r) === "busy")].map(cardOf);
 }
 
+/** What one source of the rail shows of a tab (A98, A99). */
+export interface SourceShown {
+    /** The keys that show: `none` while the source narrows nothing. */
+    keys: option<Set<string>>;
+    /** A new membership resolving, or the last read failed: the tab takes no gesture, as main takes none. */
+    busy: boolean;
+    /** Whether a complete membership has resolved: until it has, an empty tab says nothing of the filters. */
+    ready: boolean;
+    /** Clears the source's choices, the rail's other sources keeping theirs; `undefined` with no such source. */
+    clear: (() => void) | undefined;
+}
+
 /** The Library's args. */
 export interface LibraryArgs {
     value: AllocationValue;
@@ -259,6 +275,8 @@ export interface LibraryArgs {
     /** The open tab, the host's: Find a fit opens Resources (A74). */
     tab: string;
     onTab: (tab: string) => void;
+    /** What the rail shows of each tab's source: the events' and the resources'. */
+    shown: { events: SourceShown; resources: SourceShown };
 }
 
 /** The picked card's action (A53, A87): its note, and its button. */
@@ -279,23 +297,29 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     }), [nouns, layout, value.lanes, board, unit]);
     const events = useMemo(() => eventCards({ context, day, plan, held, words }), [context, day, plan, held, words]);
     const resources = useMemo(() => resourceCards({ resources: value.resources, plan, loads, lines, words }), [value.resources, plan, loads, lines, words]);
+    // The cards the rail shows (A98, A99): an event's in every group while its source shows it, a resource's while its source does.
+    const { shown } = args;
+    const eventKeys = shown.events.keys, resourceKeys = shown.resources.keys;
+    const shownEvents = useMemo(() => eventKeys.type === "none" ? events : events.filter(card => eventKeys.value.has(card.event)), [events, eventKeys]);
+    const shownResources = useMemo(() => resourceKeys.type === "none" ? resources : resources.filter(card => resourceKeys.value.has(card.key)), [resources, resourceKeys]);
+    const format = useFormatters();
     const editable = commands.canEdit();
     const draggable = drag.enabled && !narrow;
     const selectedEvent = selection?.type === "bin" ? plan.bins.get(selection.id)?.event : undefined;
 
     // The cards: the shared face, with the board's figure, ready line, look, tooltip and × beside it.
-    const eventItems = useMemo(() => events.map((card): LibraryItemValue => {
+    const eventItems = useMemo(() => shownEvents.map((card): LibraryItemValue => {
         const placed = card.grip !== undefined
             ? pick !== undefined && pick.kind === card.grip.kind && eventCardKey(card.grip) === (pick.kind === "event" || pick.kind === "removed" ? eventCardKey(pick) : "")
             : (pick?.kind === "bins" && pick.event === card.event) || (selectedEvent?.type === "some" && selectedEvent.value === card.event);
         return scheduleLibraryCard({ key: card.key, label: card.label, sublabel: card.sub === "" ? none : some(card.sub), icon: none, status: none, trailing: none,
             draggable: draggable && card.grip !== undefined, filtered: false, placed, search: some(card.search), groups: new Map([["group", card.group]]) });
-    }), [events, pick, selectedEvent, draggable]);
-    const resourceItems = useMemo(() => resources.map((card): LibraryItemValue => scheduleLibraryCard({
+    }), [shownEvents, pick, selectedEvent, draggable]);
+    const resourceItems = useMemo(() => shownResources.map((card): LibraryItemValue => scheduleLibraryCard({
         key: card.key, label: card.label, sublabel: card.sub === "" ? none : some(card.sub), icon: none, status: none, trailing: none, draggable, filtered: false,
         placed: (selection?.type === "resource" && selection.key === card.key) || (pick?.kind === "resource" && pick.resource === card.key),
         search: some(card.search), groups: new Map([["group", card.group]]),
-    })), [resources, selection, pick, draggable]);
+    })), [shownResources, selection, pick, draggable]);
     const unbook = commands.unbook;
     const eventExtras = useMemo(() => {
         const byKey = new Map(events.map((card): [string, LibraryCardExtras] => [card.key, {
@@ -392,33 +416,43 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
             </Button>}
         </Box>}
     </>;
+    // While its source narrows, what a tab the narrowing empties says, and its Clear filters: that source's alone (A98).
+    const narrowingOf = (source: SourceShown, noun: Noun): LibraryNarrowing | undefined => source.keys.type === "none" || source.clear === undefined || !source.ready ? undefined
+        : { empty: { title: `No ${other(noun)} match the filters`, description: `Change or clear the filters to see more ${other(noun)}.` }, onClear: source.clear };
+    // An empty tab's own words, unless its narrowing has not resolved: then it says nothing (A96's banner speaks for it).
+    const emptyOf = (source: SourceShown, noun: Noun) => source.keys.type === "some" && !source.ready ? undefined : { title: `No ${other(noun)}` };
+    // While its source resolves, or failed, a tab takes no gesture, as main takes none (A96).
+    const paneOf = (source: SourceShown) => ({ "aria-busy": source.busy ? true : undefined, inert: source.busy ? true : undefined });
     const tabs = value.library.map(tab => {
         if (tab.type === "events") {
             const library = scheduleLibrary({ id: drag.libraries.events, items: eventItems, groupOptions: [{ key: "group", label: "Group" }],
                 noun: some({ singular: one(nouns.event), plural: other(nouns.event) }), onCardClick: some(eventClick) }, true);
-            return { key: "events", label: nouns.event.other, count: events.length, body: <Box css={styles.pane} data-allocation-library="events"
+            return { key: "events", label: nouns.event.other, count: narrowedCount(format, shownEvents.length, events.length, eventKeys.type === "some"),
+                body: <Box css={styles.pane} data-allocation-library="events" {...paneOf(shown.events)}
                 onPointerDownCapture={arm(drag.libraries.events)} onKeyDownCapture={arm(drag.libraries.events)}>
                 <EastChakraLibrary value={library} storageKey={drag.libraries.events} extras={eventExtras} groupMark={overdueMark}
-                    search={`Find ${a(nouns.event)} or site`} empty={{ title: `No ${other(nouns.event)}` }}
-                    noMatch={{ title: `No ${other(nouns.event)} match`, description: `Clear the search to see all ${events.length} ${other(nouns.event)}.` }} />
+                    search={`Find ${a(nouns.event)} or site`} empty={emptyOf(shown.events, nouns.event)} narrowing={narrowingOf(shown.events, nouns.event)}
+                    noMatch={{ title: `No ${other(nouns.event)} match`, description: `Clear the search to see all ${shownEvents.length} ${other(nouns.event)}.` }} />
                 {feet("events")}
             </Box> };
         }
         const library = scheduleLibrary({ id: drag.libraries.resources, items: resourceItems, groupOptions: [{ key: "group", label: "Group" }],
             noun: some({ singular: one(nouns.resource), plural: other(nouns.resource) }), onCardClick: some(resourceClick) }, true);
-        return { key: "resources", label: nouns.resource.other, count: resources.length, body: <Box css={styles.pane} data-allocation-library="resources"
+        return { key: "resources", label: nouns.resource.other, count: narrowedCount(format, shownResources.length, resources.length, resourceKeys.type === "some"),
+            body: <Box css={styles.pane} data-allocation-library="resources" {...paneOf(shown.resources)}
             onPointerDownCapture={arm(drag.libraries.resources)} onKeyDownCapture={arm(drag.libraries.resources)}>
             {/* Grouped by the day's states; every filter is the rail's (ruled 18 Oct): the tab has its search, and no filter of its own. */}
-            <EastChakraLibrary value={library} storageKey={drag.libraries.resources} extras={resourceExtras} search={`Find ${a(nouns.resource)} or group`} empty={{ title: `No ${other(nouns.resource)}` }}
-                noMatch={{ title: `No ${other(nouns.resource)} match`, description: `Clear the search to see all ${resources.length} ${other(nouns.resource)}.` }} />
+            <EastChakraLibrary value={library} storageKey={drag.libraries.resources} extras={resourceExtras} search={`Find ${a(nouns.resource)} or group`} empty={emptyOf(shown.resources, nouns.resource)}
+                narrowing={narrowingOf(shown.resources, nouns.resource)}
+                noMatch={{ title: `No ${other(nouns.resource)} match`, description: `Clear the search to see all ${shownResources.length} ${other(nouns.resource)}.` }} />
             {feet("resources")}
         </Box> };
     });
     const open = args.tab === "resources" && tabs.some(t => t.key === "resources") ? "resources" : tabs[0]!.key;
-    const late = events.some(card => card.group === "Overdue");
+    const late = shownEvents.some(card => card.group === "Overdue");
     return {
         label: "Library", icon: "layer-group", size: "264px", tabs, tab: open, onTabChange: args.onTab, persist: "local",
-        badge: open === "resources" ? resources.length : events.length,
+        badge: open === "resources" ? shownResources.length : shownEvents.length,
         ...(open === "events" && late ? { mark: { icon: "triangle-exclamation", label: `Overdue ${one(nouns.event)}`, tone: "warning" as const } } : {}),
     };
 }

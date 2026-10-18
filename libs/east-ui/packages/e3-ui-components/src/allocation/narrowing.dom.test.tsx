@@ -30,7 +30,7 @@ async function open(example: { fn: { toIR(): unknown } }) {
     return { c: r.container, store };
 }
 /** A source's narrowing written as the rail writes it: one field's values. */
-async function narrow(store: UIStore, example: string, source: "lanes" | "resources", field: string, values: readonly string[]) {
+async function narrow(store: UIStore, example: string, source: "lanes" | "resources" | "events", field: string, values: readonly string[]) {
     const key = `ex.${example}.${source}`;
     const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
     await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none,
@@ -63,19 +63,19 @@ const total = (bands: readonly { rows: number; bins: number; free: number }[]) =
 const summary = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent;
 const HALL_A = ["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"];
 const bayPages = () => h.paging.requests.filter(r => r.includes("yard_bays_by_area page"));
-const kilnPages = () => h.paging.requests.filter(r => r.includes("kilns_by_group page"));
+const kilnPages = () => h.paging.requests.filter(r => / index kilns_by_\w+ page /.test(r));
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe("one rail over the lanes and the resources", () => {
-    test("the rail stands in both layouts: Area, then Kiln group, then the presets, and one summary counting each source", async () => {
+describe("one rail over the lanes, the resources and the events", () => {
+    test("the rail stands in both layouts: each source's fields in source order — Area, Cover; Kiln group, Max m³, Name; Spec — then the presets, and one summary counting each source", async () => {
         const { c } = await open(ex.allocationKilnYard);
         const chips = () => [...slot(c, "toolbar").querySelectorAll<HTMLElement>("[data-record-slice-field]")].map(el => `${el.dataset.recordSliceSource}.${el.dataset.recordSliceField}`);
-        await waitFor(() => expect(summary(c)).toBe("3 of 3 lanes·33 of 33 resources"));
-        expect(chips()).toEqual(["lanes.area", "resources.group"]);
+        await waitFor(() => expect(summary(c)).toBe("3 of 3 lanes·33 of 33 resources·27 of 27 events"));
+        expect(chips()).toEqual(["lanes.area", "lanes.cover", "resources.group", "resources.max", "resources.name", "events.spec"]);
         expect(toolbar(c).getByRole("button", { name: "North bays, halls" })).not.toBeNull();
         await press(toolbar(c).getByRole("radio", { name: "Table" }));
-        expect(chips()).toEqual(["lanes.area", "resources.group"]);
-        expect(summary(c)).toBe("3 of 3 lanes·33 of 33 resources");
+        expect(chips()).toEqual(["lanes.area", "lanes.cover", "resources.group", "resources.max", "resources.name", "events.spec"]);
+        expect(summary(c)).toBe("3 of 3 lanes·33 of 33 resources·27 of 27 events");
     });
 
     test("an Area choice through the rail narrows the Timeline's lanes; until a choice, the board reads no bay's key", async () => {
@@ -97,7 +97,7 @@ describe("one rail over the lanes and the resources", () => {
         // The kilns are not narrowed: none of their keys is read, and every row stays.
         expect(kilnPages()).toEqual([]);
         expect(resourceCount(c)).toBe(33);
-        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·33 of 33 resources"));
+        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·33 of 33 resources·27 of 27 events"));
     });
 
     test("a preset over both sources narrows each in one gesture; selected again, it clears both", async () => {
@@ -151,7 +151,7 @@ describe("the Table, narrowed", () => {
         const { c, store } = await open(ex.allocationTable);
         await narrow(store, "allocationTable", "lanes", "area", ["North"]);
         await narrow(store, "allocationTable", "resources", "group", ["Hall A"]);
-        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·10 of 33 resources"));
+        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·10 of 33 resources·27 of 27 events"));
         // LD-2203 (B-1, K-109) shows; LD-2202 (B-3, K-102) is in a hidden lane; LD-2204 (B-1, K-501) on a hidden kiln.
         expect(tableRow(c, "bin:3103")).not.toBeNull();
         expect([tableRow(c, "bin:3102"), tableRow(c, "bin:3104")]).toEqual([null, null]);

@@ -7,7 +7,8 @@
  * `Slice.bindRecords` over two real records (#1336): its parts are ordinary
  * record Slices under their own keys, a choice in one never reaches another,
  * its presets and Clear all are East functions over its parts, and it reads
- * each record through its indexes only.
+ * each record through its indexes only; each part carries how the rail names
+ * its source (#1339).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -42,7 +43,7 @@ const kilnRows = new Map([
 ]);
 
 const yard = Slice.bindRecords("test.yard", {
-    lanes: { source: Data.bindPaged(bays, { indexes: [baysByArea] }), fields: { area: { label: "Area" } } },
+    lanes: { source: Data.bindPaged(bays, { indexes: [baysByArea] }), label: "Bays", icon: { prefix: "fas", name: "warehouse" }, fields: { area: { label: "Area" } } },
     resources: { source: Data.bindPaged(kilns, { indexes: [kilnsByGroup] }), fields: { group: { label: "Group", hints: ["A", "B", "C"] } } },
 }, {
     presets: [
@@ -99,6 +100,10 @@ test("its parts are record Slices under `${key}.${source}`, in source order, eac
     assert.deepEqual(slice.presets, [{ id: "north", name: "North, group A" }, { id: "a", name: "Group A" }]);
     assert.deepEqual(slice.parts.map(part => part.slice.config.fields.map(field => field.fieldId)), [["area"], ["group"]]);
     assert.deepEqual(slice.parts.map(part => part.slice.sourceId), [bays.name, kilns.name], "each part's editing identity is its own record");
+    // How the rail names each source: its label and its icon, or none.
+    assert.deepEqual(slice.parts.map(part => [part.label, part.icon]), [
+        [some("Bays"), some({ prefix: "fas", name: "warehouse", label: none, style: none })], [none, none],
+    ]);
     assert.deepEqual((await ready(() => slice.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"]);
     const rows = East.compile(resources, h.implementations)();
     assert.deepEqual((await ready(() => rows.page(0n, 10n))).map(row => row.key), ["K-1", "K-2", "K-3", "K-4"]);
@@ -187,6 +192,7 @@ test("the handle and its chrome survive serialization; the decoded product's fun
     assert.deepEqual(stored(h.store).preset, none, "the encoding host's store is not the decoder's");
     const projected = East.compile(chrome, other.implementations)();
     assert.deepEqual(projected.slice.parts.map(part => part.source), ["lanes", "resources"]);
+    assert.deepEqual(projected.slice.parts.map(part => part.label), [some("Bays"), none], "the chrome keeps each source's name");
     assert.deepEqual(projected.affordances, [variant("fields", null), variant("presets", null), variant("summary", null)]);
     assert.deepEqual(projected.persist, none);
     projected.slice.clearAll();
@@ -206,6 +212,9 @@ test("refusals name the fix", () => {
     assert.throws(() => Slice.bindRecords("bad", { lanes: { source, fields: { name: {} } as never } }), /needs an index on it/);
     assert.throws(() => Slice.bindRecords("bad", { lanes: { source } }, {
         presets: [{ id: "x", name: "X", where: { lanes: { area: [] } } }] }), /needs at least one value/);
+    assert.throws(() => Slice.bindRecords("bad", { lanes: { source, label: " " } }), /'lanes' has an empty label; give it a name or leave it out/);
+    assert.throws(() => Slice.bindRecords("bad", { lanes: { source, icon: { prefix: "far" as never, name: "warehouse" } } }),
+        /'lanes'.*`far warehouse` is not a Font Awesome solid icon/);
     assert.throws(() => Slice.rows(yard as never), /names its source: Slice.rows\(slice, "lanes"\)/);
     assert.throws(() => Slice.rows(yard, "kilns" as never), /'kilns' is not one of this Slice's sources \(lanes, resources\)/);
     const single = Slice.bindRecord("single", source);

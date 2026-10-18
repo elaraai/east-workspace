@@ -6,7 +6,8 @@
  * A host's words and card parts on the shared Library (#1330): its search's
  * words, what it says when a search hides every card, each compact card's
  * tooltip, figure, note, look and ×, and a group head's mark — and none of
- * them on a Library whose host gives none.
+ * them on a Library whose host gives none; and what it says, with its Clear
+ * filters, when its host's narrowing leaves it no item (#1339).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -73,5 +74,34 @@ describe("a host's words and card parts on the shared Library (#1330)", () => {
         expect(document.querySelector("[data-library-group-mark], [data-library-figure], [data-look]")).toBeNull();
         await act(async () => { fireEvent.change(search, { target: { value: "no such tree" } }); });
         expect(screen.getByText("No matches")).toBeTruthy();
+    });
+});
+
+describe("a host's narrowing on the shared Library (#1339)", () => {
+    test("left with no item by its host's narrowing, it says the host's words and offers Clear filters; with items, the narrowing says nothing", async () => {
+        const onClear = vi.fn();
+        const narrowing = { empty: { title: "No trees match the filters", description: "Change or clear the filters to see more trees." }, onClear };
+        const value = library();
+        const { rerender } = render(<ChakraProvider value={system}><EastChakraLibrary value={{ ...value, items: [] }} storageKey="narrowed"
+            empty={{ title: "No trees" }} narrowing={narrowing} /></ChakraProvider>);
+        const empty = document.querySelector<HTMLElement>("[data-library-empty]")!;
+        expect(empty.hasAttribute("data-narrowed")).toBe(true);
+        expect(within(empty).getByText("No trees match the filters")).toBeTruthy();
+        expect(within(empty).getByText("Change or clear the filters to see more trees.")).toBeTruthy();
+        await act(async () => { fireEvent.click(within(empty).getByRole("button", { name: "Clear filters" })); });
+        expect(onClear).toHaveBeenCalledTimes(1);
+        // With items, the narrowing's words never show; a search that hides them says the search's.
+        rerender(<ChakraProvider value={system}><EastChakraLibrary value={value} storageKey="narrowed" empty={{ title: "No trees" }} narrowing={narrowing} /></ChakraProvider>);
+        expect(document.querySelector("[data-library-empty]")).toBeNull();
+        await act(async () => { fireEvent.change(screen.getByRole("textbox"), { target: { value: "no such tree" } }); });
+        expect(screen.getByText("No matches")).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    });
+
+    test("with no narrowing in force, an empty Library says its own words and offers no Clear filters", () => {
+        render(<ChakraProvider value={system}><EastChakraLibrary value={{ ...library(), items: [] }} storageKey="plain" empty={{ title: "No trees" }} /></ChakraProvider>);
+        const empty = document.querySelector<HTMLElement>("[data-library-empty]")!;
+        expect([empty.hasAttribute("data-narrowed"), within(empty).getByText("No trees") !== null]).toEqual([false, true]);
+        expect(within(empty).queryByRole("button", { name: "Clear filters" })).toBeNull();
     });
 });

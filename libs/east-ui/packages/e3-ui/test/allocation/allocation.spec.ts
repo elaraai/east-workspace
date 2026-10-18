@@ -136,14 +136,16 @@ test("Allocation.lanes reads the app's keyed rows as lanes, in key order, each l
     assert.throws(() => Allocation.lanes(East.value([], ArrayType(Bay)) as never, { label: () => "" }), /a Dict keyed by String/);
 });
 
-test("with no slice the board narrows nothing; a slice is Slice.bindRecords over lanes and resources, refused otherwise", () => {
+test("with no slice the board narrows nothing; a slice is Slice.bindRecords over lanes, resources and events, refused otherwise", () => {
     const value = payloadWith();
     assert.equal(value.slice.type, "none");
-    assert.deepEqual([value.narrowed.lanes.type, value.narrowed.resources.type], ["none", "none"]);
+    assert.deepEqual([value.narrowed.lanes.type, value.narrowed.resources.type, value.narrowed.events.type], ["none", "none", "none"]);
     const bayIndex = Data.bindPaged(ex.yardBays, { indexes: [ex.yardBaysByArea] });
     const kilnIndex = Data.bindPaged(ex.kilns, { indexes: [ex.kilnsByGroup] });
-    // The narrowing builds over both sources, and over either alone.
-    for (const sources of [{ lanes: { source: bayIndex } }, { resources: { source: kilnIndex } }, { lanes: { source: bayIndex }, resources: { source: kilnIndex } }]) {
+    const loadIndex = Data.bindPaged(ex.arrivals, { indexes: [ex.arrivalsBySpec] });
+    // The narrowing builds over every source, and over any alone.
+    for (const sources of [{ lanes: { source: bayIndex } }, { resources: { source: kilnIndex } }, { events: { source: loadIndex } },
+        { lanes: { source: bayIndex }, resources: { source: kilnIndex }, events: { source: loadIndex } }]) {
         assert.doesNotThrow(() => East.function([], AllocationPayloadType, $ => {
             const days = $.let(Record.bind(ex.kilnPlans, [ex.kilnPlansPatch]));
             const fit = $.let(Func.bind(ex.yardFit));
@@ -154,8 +156,9 @@ test("with no slice the board narrows nothing; a slice is Slice.bindRecords over
         }));
     }
     const refused = (slice: unknown) => () => payloadWith({ slice: { slice: slice as never } });
-    assert.throws(refused(Slice.bindRecord("spec.single", kilnIndex)), /`slice` is Slice.bindRecords\(key, \{ lanes, resources \}\) — name each source after what it narrows/);
-    assert.throws(refused(Slice.bindRecords("spec.bays", { bays: { source: bayIndex } })), /its source 'bays' is neither; name the sources `lanes` and `resources`/);
+    assert.throws(refused(Slice.bindRecord("spec.single", kilnIndex)), /`slice` is Slice.bindRecords\(key, \{ lanes, resources, events \}\) — name each source after what it narrows/);
+    assert.throws(refused(Slice.bindRecords("spec.bays", { bays: { source: bayIndex } })),
+        /its source 'bays' is none of them; name the sources `lanes`, `resources` and `events`/);
     const Numbered = DictType(IntegerType, StructType({ group: StringType }));
     const numbered = e3.record("spec_numbered", Numbered, new Map());
     const byGroup = e3.recordIndex("spec_numbered_by_group", numbered, { on: ["group"] });

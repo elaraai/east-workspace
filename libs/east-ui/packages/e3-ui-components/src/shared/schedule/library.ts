@@ -20,3 +20,16 @@ export function scheduleLibrary(fields: Pick<LibraryValue, "id" | "items" | "gro
         variant: none, layout: none, toolbar: true,
     };
 }
+/**
+ * A Library tab's count while a narrowing may hide some of its cards (#1339):
+ * `10 of 33` while it narrows, else the count alone, which the pane formats.
+ *
+ * @param words - The app's number formatter
+ * @param shown - The cards the narrowing shows
+ * @param total - Every card the tab would list
+ * @param narrowing - Whether a narrowing is in force
+ * @returns The tab's count
+ */
+export function narrowedCount(words: { number: (value: number) => string }, shown: number, total: number, narrowing: boolean): string | number {
+    return narrowing ? `${words.number(shown)} of ${words.number(total)}` : total;
+}

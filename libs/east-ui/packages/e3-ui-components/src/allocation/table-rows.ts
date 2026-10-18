@@ -8,7 +8,8 @@
  * slot of the day, and one more per extra bin of a batch, in e3-ui's slot
  * order — time, then lane — in the app's time bands (four by default). A row is its slot's or its
  * bin's, so an allocation never moves it. The narrowing (#1336) hides a row
- * whose lane it hides, or whose every resource it hides; never reorders one.
+ * whose lane it hides, whose every resource it hides, or whose bin's event it
+ * hides (#1339); never reorders one.
  *
  * @packageDocumentation
  */
@@ -118,20 +119,26 @@ function bandOf(key: string, label: string, rows: readonly TableRow[], plan: Day
 }
 
 /**
- * The rows a narrowing shows (#1336): a row of a shown lane that holds no
- * resource — free, or not yet allocated — or has a part on a shown resource.
- * Monotone in both sets: showing more never hides a row.
+ * The rows a narrowing shows (#1336, #1339): a row of a shown lane, of a shown
+ * event or none — free, or a reservation — that holds no resource (free, or
+ * not yet allocated) or has a part on a shown resource. Monotone in each set:
+ * showing more never hides a row.
  *
  * @param rows - The rows, in order
  * @param plan - The day as drafted
  * @param lanes - The lanes the narrowing shows; `none`, every one
  * @param resources - The resources it shows; `none`, every one
+ * @param events - The events it shows; `none`, every one
  * @returns The rows it shows, in their order
  */
-export function narrowRows(rows: readonly TableRow[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>): TableRow[] {
+export function narrowRows(rows: readonly TableRow[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>,
+    events: option<ReadonlySet<string>> = none): TableRow[] {
     return rows.filter(row => {
         if (lanes.type === "some" && !lanes.value.has(row.lane)) return false;
-        const parts = resources.type === "none" || row.bin === undefined ? undefined : plan.bins.get(row.bin)?.parts;
+        const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
+        // A bin of an event the narrowing hides goes; a reservation, which has no event, stays.
+        if (events.type === "some" && bin?.event.type === "some" && !events.value.has(bin.event.value)) return false;
+        const parts = resources.type === "none" ? undefined : bin?.parts;
         if (parts === undefined || parts.size === 0) return true;
         for (const key of parts.keys()) if (resources.type === "some" && resources.value.has(key)) return true;
         return false;
@@ -146,12 +153,14 @@ export function narrowRows(rows: readonly TableRow[], plan: Day, lanes: option<R
  * @param plan - The day as drafted
  * @param lanes - The lanes the narrowing shows; `none`, every one
  * @param resources - The resources it shows; `none`, every one
+ * @param events - The events it shows; `none`, every one
  * @returns The bands, in order
  */
-export function narrowBands(bands: readonly TableBand[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>): TableBand[] {
-    if (lanes.type === "none" && resources.type === "none") return [...bands];
+export function narrowBands(bands: readonly TableBand[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>,
+    events: option<ReadonlySet<string>> = none): TableBand[] {
+    if (lanes.type === "none" && resources.type === "none" && events.type === "none") return [...bands];
     return bands.flatMap(band => {
-        const rows = narrowRows(band.rows, plan, lanes, resources);
+        const rows = narrowRows(band.rows, plan, lanes, resources, events);
         return rows.length === 0 && band.rows.length > 0 ? [] : [bandOf(band.key, band.label, rows, plan)];
     });
 }

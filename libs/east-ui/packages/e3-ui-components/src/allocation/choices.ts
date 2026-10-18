@@ -37,7 +37,9 @@ function judged(base: Omit<ChooserOption, "state" | "line">, verdict: Fit): Choo
  * An event cell's Chooser (A48): the row's own event (Current), the events
  * the plan has not booked — fitting the row's resource, or all of them where
  * the row has none — those that don't fit, and the events already on the
- * board, which cannot be chosen.
+ * board, which cannot be chosen; of the events the narrowing shows (#1339),
+ * as the rest of the board shows them. The current one is offered whatever
+ * it hides.
  *
  * @param args - The row and what the board knows
  * @returns The sections, in order
@@ -50,14 +52,17 @@ export function eventChoices(args: {
     resource: string | undefined;
     /** The fit's answer to `take` the resource, asked of the day without the row's bin. */
     answer: FitResult | undefined;
+    /** The events the narrowing shows; `none`, every one. */
+    shown?: option<ReadonlySet<string>> | undefined;
 }): ChooserSection[] {
     const { plan, context, day, words, bin, resource, answer } = args;
+    const shows = (key: string) => args.shown === undefined || args.shown.type === "none" || args.shown.value.has(key);
     const own = bin === undefined ? undefined : plan.bins.get(bin);
     const booked = new Set<string>();
     for (const [, b] of plan.bins) if (b.event.type === "some") booked.add(b.event.value);
     // The events still to book, overdue first, each in the events' key order.
     const overdue = (key: string) => { const due = context.events.get(key)?.due; return due?.type === "some" && compareDate(due.value, day) < 0; };
-    const free = [...context.events.keys()].filter(key => !booked.has(key)).sort((a, b) => Number(overdue(b)) - Number(overdue(a)));
+    const free = [...context.events.keys()].filter(key => !booked.has(key) && shows(key)).sort((a, b) => Number(overdue(b)) - Number(overdue(a)));
     const name = resource === undefined ? undefined : context.resources.get(resource)?.label ?? resource;
     const sections: ChooserSection[] = [];
     if (own !== undefined && own.event.type === "some") {
@@ -79,7 +84,7 @@ export function eventChoices(args: {
     // The events already on the board, where they are: not to be chosen.
     const where = new Map<string, { id: string; at: Date; lane: string; resource: string | undefined; quantity: number; more: number }>();
     for (const [id, b] of plan.bins) {
-        if (b.event.type !== "some" || id === bin) continue;
+        if (b.event.type !== "some" || id === bin || !shows(b.event.value)) continue;
         const was = where.get(b.event.value);
         if (was === undefined) where.set(b.event.value, { id, at: b.at, lane: b.lane, resource: partsOf(b)[0]?.key, quantity: b.quantity, more: 0 });
         else {
