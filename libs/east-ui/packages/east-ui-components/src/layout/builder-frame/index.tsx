@@ -55,7 +55,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { DockPane } from "../dock/index.js";
+import { DockPane, type DockRailMark } from "../dock/index.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useDragLayerOptional } from "../../dnd/drag-layer";
 import {
@@ -132,6 +132,8 @@ export interface BuilderFrameDock {
     icon?: string | undefined;
     /** A badge on the rail. Numeric counts use the shared compact formatter; their exact value remains accessible. */
     badge?: string | number | undefined;
+    /** A mark on the rail after its badge: what the collapsed pane holds that needs a look (`Overdue event`). */
+    mark?: DockRailMark | undefined;
     /** A line on the rail under its label. */
     detail?: string | undefined;
     /** Whether the rail's tile and badge are the brand's: what the pane shows is live. */
@@ -520,6 +522,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                         label={described.label}
                         icon={described.icon}
                         badge={described.badge}
+                        mark={described.mark}
                         detail={described.detail}
                         active={described.active}
                         tabs={described.tabs}

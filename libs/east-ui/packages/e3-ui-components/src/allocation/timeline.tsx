@@ -28,7 +28,7 @@ import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { gripCoord, gripOf, gripOfPayload, laneCoord, placeAsk, rowCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
+import { gripCoord, laneCoord, rowCoord, type AllocationDrag, type Target } from "./drag.js";
 import { familyOf, layoutLinks, type FamilyLink } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
@@ -76,6 +76,12 @@ export interface TimelineProps {
     selection: Selection | undefined;
     /** The focus (A13). */
     focus: string | undefined;
+    /** The event whose every bin the Library's Allocated card highlights (A10). */
+    highlight: string | undefined;
+    /** Whether a Library event is picked (A11): its free lane hours show, and a click there or on a ranked resource books it. */
+    picked: boolean;
+    /** Books the picked event where a click lands, as its drop would (A11). */
+    book: (target: Target) => void;
     /** Whether the day takes edits. */
     editable: boolean;
     select: (next: Selection | undefined) => void;
@@ -95,14 +101,13 @@ export interface TimelineProps {
 
 /** A drop cell's veto and caption for a target: the board's one verdict (§10). */
 function dropOptions(drag: AllocationDrag, target: Target, hover?: (allowed: boolean) => void) {
-    const gripOfEvent = (candidate: DragEventValue): Grip | undefined => candidate.type === "move" ? gripOf(candidate.value.from) : undefined;
     return {
-        veto: (candidate: DragEventValue) => { const grip = gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
+        veto: (candidate: DragEventValue) => { const grip = drag.gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
         options: {
-            accepts: (payload: DragPayload) => gripOfPayload(payload) !== undefined,
+            accepts: (payload: DragPayload) => drag.gripOfPayload(payload) !== undefined,
             caption: (_coord: unknown, payload: DragPayload, allowed: boolean) => {
                 hover?.(allowed);
-                const grip = gripOfPayload(payload);
+                const grip = drag.gripOfPayload(payload);
                 if (grip === undefined) return undefined;
                 const verdict = drag.verdict(grip, target);
                 return { text: verdict.caption, warn: verdict.warn };
@@ -176,7 +181,7 @@ function LaneCellView({ props, lane, at, free, style, onRest }: { props: Timelin
     const { veto, options } = dropOptions(drag, { kind: "lane", lane, at, card: undefined }, onRest);
     const ref = useDropCell(drag.enabled ? laneCoord(drag.surface, lane, at) : null, false, veto, undefined, options);
     return <Box ref={ref} css={styles.laneCell} data-allocation-cell={`${lane}|${at.getTime()}`} data-free={free ? "" : undefined} style={style}
-        onClick={() => props.select(undefined)}>
+        onClick={() => { if (props.picked && free && props.editable) props.book({ kind: "lane", lane, at, card: undefined }); else props.select(undefined); }}>
         {free && <Box as="span" css={styles.lanePlaceholder} data-allocation-placeholder="" />}
     </Box>;
 }
@@ -253,33 +258,39 @@ export function AllocationTimeline(props: TimelineProps) {
     // A drag near a pane's top or bottom scrolls it a row at a time, on the rows' grid (A25): the shared edge scroller's row step.
     useLayoutEffect(() => { rscPane.current?.setAttribute("data-edge-scroll-row", String(ROW_H)); });
 
-    // A drag (#1328): what is dragged, and for a connector's or a link's, every resource's verdict, the fit's (A27–A29).
+    // A drag (#1328, #1330): what is dragged; for a connector's, a link's, a Library event's or a removed bin's — or the pick's,
+    // with no drag under way (A11) — every resource's verdict, the fit's (A27–A29).
     const { drag } = props;
-    const grip = drag.grip;
-    const linkDrag = grip !== undefined && grip.kind !== "body";
-    const verdicts = linkDrag ? drag.answer?.resources : undefined;
-    const dragged = grip === undefined ? undefined : placeAsk(plan, grip);
+    const grip = drag.grip, subject = drag.subject;
+    const ranking = subject !== undefined && subject.kind !== "body" && subject.kind !== "resource";
+    const marking = ranking && grip !== undefined;
+    const verdicts = ranking ? drag.answer?.resources : undefined;
+    const dragged = ranking ? drag.asked : undefined;
+    // A resource card's drag (A32): the bins that refuse it, and whether a free lane hour would take a reservation of it.
+    const taking = grip?.kind === "resource" ? grip.resource : undefined;
+    const takes = taking === undefined ? undefined : drag.answer;
+    const reserveRefused = takes?.reserve.type === "some" && takes.reserve.value.type === "refused";
     // A ranked fit's preview: the load it leaves, for the hold (A28) — e3-ui's candidates, never the renderer's arithmetic.
     const answer = drag.answer;
     const previews = useMemo(() => {
         const out = new Map<string, { after: number; to: Date }>();
-        if (!linkDrag || dragged === undefined || answer === undefined) return out;
-        for (const c of props.candidates({ day, plan, ask: dragged.ask, context })) out.set(c.resource.key, { after: c.after, to: c.hold.to });
+        if (!ranking || dragged === undefined || answer === undefined) return out;
+        for (const c of props.candidates({ day, plan: dragged.of ?? plan, ask: dragged.ask, context })) out.set(c.resource.key, { after: c.after, to: c.hold.to });
         return out;
         // The answer stands for its question: a new question is a new answer.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [linkDrag, answer, plan, day, context]);
+    }, [ranking, answer, plan, day, context]);
     // Each run of contiguous rows refusing for one reason gathers under one label (A27).
     const runs = useMemo((): RefusalRun[] => verdicts === undefined ? [] : refusalRuns(rows.map(r => verdicts.get(r.key)), words, unit), [verdicts, rows, words, unit]);
 
     // The links (A65–A68): the focus's family, through the channel; none at rest and none on hover.
     const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus), [plan, held, props.focus]);
     const linking = family.length > 0;
-    const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking || linkDrag);
+    const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking || marking);
     // The fits out of view, marked at the pane's edge over the rows; a drop on it goes to the #1 (A31).
     const [rowsView, setRowsView] = useState(0);
-    useLayoutEffect(() => { if (linkDrag && rscPane.current !== null) setRowsView(rscPane.current.clientHeight - HEAD); }, [linkDrag]);
-    const marker = linkDrag ? fitsMarker(drag.ranks, rowIndex, rowsTop, rowsView, key => context.resources.get(key)?.label ?? key) : undefined;
+    useLayoutEffect(() => { if (marking && rscPane.current !== null) setRowsView(rscPane.current.clientHeight - HEAD); }, [marking]);
+    const marker = marking ? fitsMarker(drag.ranks, rowIndex, rowsTop, rowsView, key => context.resources.get(key)?.label ?? key) : undefined;
     // While a drag rests on a row, its bins outline for the verdict and its run's label steps aside (A27, A29) —
     // marked on the elements, so pointer motion repaints no card (A35).
     const hover = useCallback((resource: string | undefined, index: number | undefined, allowed: boolean) => {
@@ -365,7 +376,8 @@ export function AllocationTimeline(props: TimelineProps) {
     if (lanes.length === 0 || rows.length === 0) return <NarrowedEmpty styles={styles} clear={props.clearFilters} />;
     const vars = { "--allocation-lanes": lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
     const flags = props.issues.length === 0 ? NO_ISSUES : props.issues;
-    return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="" data-allocation-drag={grip?.kind}>
+    return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="" data-allocation-drag={grip?.kind}
+        data-allocation-pick={props.picked && grip === undefined ? "" : undefined} data-reserve={reserveRefused ? "refused" : undefined}>
         <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="" data-edge-scroll-row={ROW_H}>
             <Box css={styles.laneContent}>
                 <Box css={[styles.head, styles.laneHead]}>
@@ -389,7 +401,8 @@ export function AllocationTimeline(props: TimelineProps) {
                     </Box>)}
                     {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={lanes[cell.lane]!.key} at={cell.at} free={cell.free}
                         style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} onRest={() => hover(undefined, undefined, false)} />)}
-                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} onRest={() => hover(undefined, undefined, false)} />)}
+                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} onRest={() => hover(undefined, undefined, false)}
+                        refuses={taking !== undefined && !card.bin.parts.has(taking) && takes?.bins.get(card.id)?.type === "refused"} />)}
                 </Box>
             </Box>
         </Box>
@@ -418,7 +431,7 @@ export function AllocationTimeline(props: TimelineProps) {
                 const rank = drag.ranks.indexOf(resource.key);
                 return <ResourceRowView resource={resource} line={lines.get(resource.key)!} load={loads.get(resource.key)!} axis={axis} props={props}
                     focusHold={focusHold} draft={drafted.has(resource.key)} lit={litLink?.resource === resource.key}
-                    verdict={verdicts?.get(resource.key)} rank={linkDrag && rank >= 0 ? rank + 1 : undefined} preview={previews.get(resource.key)}
+                    verdict={verdicts?.get(resource.key)} rank={ranking && rank >= 0 ? rank + 1 : undefined} preview={previews.get(resource.key)}
                     quantity={dragged?.quantity} onRest={allowed => hover(resource.key, index, allowed)} />;
             }} />
         {view !== undefined && ribbons.length > 0 && <Box css={styles.links} data-allocation-links="" style={{ height: view.height }}>
@@ -441,7 +454,11 @@ export function AllocationTimeline(props: TimelineProps) {
     </Box>;
 }
 
-interface CardProps { card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[]; lit: boolean }
+interface CardProps {
+    card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[]; lit: boolean;
+    /** During a resource card's drag, whether the fit refuses this bin on it (A32). */
+    refuses: boolean;
+}
 type DragHandle = ReturnType<typeof useDragEventChip>;
 
 /**
@@ -471,7 +488,7 @@ function Card({ onRest, ...args }: CardProps & { onRest: () => void }) {
 }
 
 /** A card's body: what it says, from the drafts and the issues. */
-const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, port, attach }: CardProps & { body: DragHandle; port: DragHandle; attach: (el: HTMLElement | null) => void }) {
+const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuses, body, port, attach }: CardProps & { body: DragHandle; port: DragHandle; attach: (el: HTMLElement | null) => void }) {
     const { styles, context, value, drag } = props;
     const { id, bin } = card;
     const words = allocationWords();
@@ -485,7 +502,8 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, 
     const committed = props.held?.bins.get(id);
     const draft = committed === undefined || !props.sameBin(committed, bin);
     const linkDraft = draft && (committed === undefined || !sameParts(committed.parts, bin.parts));
-    const selected = props.selection?.type === "bin" && props.selection.id === id;
+    // Selected, or one of the bins the Library's Allocated card highlights (A10).
+    const selected = (props.selection?.type === "bin" && props.selection.id === id) || (props.highlight !== undefined && bin.event.type === "some" && bin.event.value === props.highlight);
     // Outside the focus, a card dims (A13): any but the selected one and the focus's own.
     const dimming = props.selection?.type === "bin" || props.selection?.type === "resource";
     const dim = dimming && !selected && (props.focus === undefined || !bin.parts.has(props.focus));
@@ -516,6 +534,7 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, 
     return <Box {...body} ref={attach} css={styles.card} role="button" tabIndex={0} title={tip} aria-label={tip} aria-pressed={selected}
         data-scope="allocation" data-allocation-card={id} data-resources={parts.map(p => p.key).join(" ")} data-reserved={reserved ? "" : undefined}
         data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
+        data-refuses={refuses ? "" : undefined}
         data-draggable={body !== undefined ? "" : undefined} style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
         onPointerDown={event => { drag.arm({ kind: "body", bin: id }); body?.onPointerDown?.(event); }}
         onClick={() => props.select({ type: "bin", id })}
@@ -560,7 +579,8 @@ const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, ax
     const { styles, context, day } = props;
     const words = allocationWords();
     const focus = props.focus === resource.key;
-    const select = () => props.select({ type: "resource", key: resource.key });
+    // With an event picked, a click on a ranked resource books it onto it (A11, A36).
+    const select = () => { if (props.picked && rank !== undefined && props.editable) props.book({ kind: "resource", resource: resource.key }); else props.select({ type: "resource", key: resource.key }); };
     const shades = useMemo(() => shadeBands({ min: axis.from, max: axis.to }, {}), [axis]);
     const mondays = useMemo(() => axis.days.filter((d, i) => i > 0 && d.getUTCDay() === 1), [axis]);
     const hold = load.hold.type === "some" ? load.hold.value : undefined;

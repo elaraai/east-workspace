@@ -13,7 +13,7 @@
  * `+n` menu's trigger (`tabMore`), drawn as a tab is; a lone open tab that
  * still doesn't fit (`data-squeezed`) shrinks, its name cut short with an
  * ellipsis. Collapsed, the rail: a bar holding the expand control, then the
- * icon tile, the count, the label and the detail, read down the rail — the
+ * icon tile, the count, any mark, the label and the detail, read down the rail — the
  * tile and the count in the brand while the pane is active, as the
  * inspector's are while a tile is selected. The recipe carries
  * the static chrome; the size along the collapse axis and the animated
@@ -37,7 +37,7 @@ const CAPS = {
 
 export const dockSlotRecipe = defineSlotRecipe({
     className: "elara-dock",
-    slots: ["root", "header", "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabMore", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
+    slots: ["root", "header", "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabMore", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railMark", "railLabel", "railDetail"],
     base: {
         root: {
             display: "flex",
@@ -256,6 +256,14 @@ export const dockSlotRecipe = defineSlotRecipe({
             fontVariantNumeric: "tabular-nums",
             color: "fg.muted",
             "[data-active] > &": { borderColor: "brand.solid", background: "bg.brand.subtle", color: "brand.fg" },
+        },
+        /* A mark after the badge — what the collapsed pane holds that needs a look — in its tone's ink. */
+        railMark: {
+            display: "inline-flex",
+            flexShrink: 0,
+            fontSize: "14px",
+            "&[data-tone=warning]": { color: "status.warn" },
+            "&[data-tone=danger]": { color: "status.neg" },
         },
         railLabel: {
             ...CAPS,

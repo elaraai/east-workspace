@@ -62,6 +62,12 @@ export interface AllocationCommands {
     fillWith(reservation: string, event: string): boolean;
     /** Reserves a lane slot on a resource (A49): a bin with no event, no quantity and no hold. */
     reserve(lane: string, at: Date, resource: string): boolean;
+    /** Books a committed bin the drafts removed again (A51), as the day holds it, into a lane slot: on a resource, or not linked yet. */
+    restore(id: string, lane: string, at: Date, resource: string | undefined): boolean;
+    /** Books a committed bin the drafts removed again into a reservation (A38): it takes the reservation's lane, time and resource, and the reservation goes. */
+    restoreInto(id: string, reservation: string): boolean;
+    /** Returns a draft booking's event to Events (A51): every bin of it the day does not hold yet goes. */
+    unbook(event: string): void;
     /** Publishes the day (A4): its status and its drafts, one patch. */
     publish(): void;
 }
@@ -185,6 +191,39 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
         unlink(id, resource) {
             if (plan.bins.get(id)?.parts.has(resource) !== true) return;
             if (write("Unlink", "remove", next => { next.bins.get(id)!.parts.delete(resource); })) select({ type: "bin", id });
+        },
+        restore(id, lane, at, resource) {
+            const held = editing.held;
+            if (held?.bins.has(id) !== true || plan.bins.has(id)) return false;
+            const done = write("Book", "drop", next => {
+                const bin = domain.copyDay(held).bins.get(id)!;
+                bin.lane = lane; bin.at = at;
+                bin.parts.clear();
+                if (resource !== undefined) bin.parts.set(resource, bin.quantity);
+                next.bins.set(id, bin);
+            });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        restoreInto(id, reservation) {
+            const held = editing.held, into = plan.bins.get(reservation);
+            if (held?.bins.has(id) !== true || plan.bins.has(id) || into === undefined || into.event.type !== "none") return false;
+            const resource = [...into.parts.keys()][0];
+            const done = write("Book into the reservation", "drop", next => {
+                const bin = domain.copyDay(held).bins.get(id)!;
+                bin.lane = into.lane; bin.at = into.at;
+                bin.parts.clear();
+                if (resource !== undefined) bin.parts.set(resource, bin.quantity);
+                next.bins.delete(reservation);
+                next.bins.set(id, bin);
+            });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        unbook(event) {
+            const ids = [...plan.bins].flatMap(([id, bin]) => bin.event.type === "some" && bin.event.value === event && editing.held?.bins.has(id) !== true ? [id] : []);
+            if (ids.length === 0) return;
+            if (write(`Return to ${value.labels.event.other}`, "remove", next => { for (const id of ids) next.bins.delete(id); })) select(undefined);
         },
         publish() {
             if (canEdit() && editing.record({ ...domain.copyDay(plan), status: variant("published", { at: new Date() }) } as Day, "typed", "Publish day")) editing.history.act("apply");

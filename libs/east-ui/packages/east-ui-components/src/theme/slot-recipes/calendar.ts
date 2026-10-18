@@ -11,6 +11,7 @@ import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSel
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
+import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { rowsBase } from "./plan/rows.js";
 import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
@@ -26,13 +27,14 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", ...scheduleGroupSlots, "title", "detail",
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
         "timelineRow", "rowHead", "rowPlot", "agenda", "agendaDay", "agendaHead", "card", "cardHead", "cardTitle",
-        "actions", "pane", "paneFoot", "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
+        "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
         "form", "error", "empty", ...nowSlots,
     ],
     base: {
         ...moveGhostBase,
         ...nowBase,
         ...scheduleGroupBase,
+        ...schedulePaneBase,
         root: { ...shellBase.root, height: "100%", minHeight: 0 },
         main: { position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
         scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column", "--calendar-month-min-width": "calc(var(--calendar-month-columns) * 104px)" } },
@@ -115,8 +117,6 @@ export const calendarSlotRecipe = defineSlotRecipe({
         cardHead: { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" },
         cardTitle: { textStyle: "title.row", overflowWrap: "anywhere", minWidth: 0 },
         actions: { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" },
-        pane: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0, minWidth: 0 },
-        paneFoot: { flexShrink: 0, padding: "12px", borderTopWidth: "1px", borderColor: "border.subtle" },
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
         footer: builderFooter,

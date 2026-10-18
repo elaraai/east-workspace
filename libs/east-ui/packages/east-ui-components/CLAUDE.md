@@ -191,7 +191,13 @@ component, nothing in east-ui.
   `Dock` pane, which draws itself). A pane tab that lists cards is a
   `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
   `empty` words say what an empty tab shows; a search or a filter that
-  hides every card says `No matches` itself, in the shared empty state.
+  hides every card says `No matches` itself, in the shared empty state. A
+  host may give its own words for the search (`search`) and for a search that
+  hides every card (`noMatch`), draw beside each compact card's shared face
+  what its domain shows (`extras`: a tooltip, a figure on the name's line, a
+  note line in a tone, a dashed or sunken look, an × of its own), and mark a
+  group's head (`groupMark`) — the Allocation's Library (#1330). A collapsed
+  pane's rail may carry a `mark` after its badge (`Overdue event`).
 - **Rail counts.** Pass a numeric `badge` for a count, keeping it numeric until
   `DockPane` formats it with the shared locale formatter's `compact()`.
   Its exact value remains available on hover and to assistive technology.

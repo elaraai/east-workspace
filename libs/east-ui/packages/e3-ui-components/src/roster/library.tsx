@@ -104,7 +104,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             {tab.type === "people" && <Box css={styles.paneFoot}><Seg label="People filter" scope="roster" name="people-filter" items={[{ key: "all", label: "All" }, { key: "leads", label: "Leads" }, { key: "trainers", label: "Trainers" }, { key: "off", label: `Off ${format.weekday(new Date(start.getTime() + day * DAY))}` }]}
                 active={active} onPick={next => setFilters(next === "all" ? {} : { role: [next === "leads" ? "Lead" : next === "trainers" ? "Trainer" : "Off"] })} /></Box>}
             <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} facetFilter={tab.type === "people" ? facetFilter : undefined} />
-            <Box css={[styles.paneFoot, styles.detail]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
+            <Box css={[styles.paneFoot, styles.paneHint]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
                 : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift"}</Box>
             {commands.editing.available && chosenKey !== undefined && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} slot={defaultSlot} value={value} start={start} commands={commands} styles={styles} />}

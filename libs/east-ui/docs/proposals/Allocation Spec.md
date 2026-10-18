@@ -96,7 +96,12 @@ These are settled.
    the Table alike, from one rail: `Slice.bindRecords` over the lanes' and the
    resources' records, each source named after what it narrows. The board reads
    the narrowing from the slice it is given; no prop repeats it (§9.15). *(Ruled
-   17 Oct, superseding "the Table is never narrowed".)*
+   17 Oct, superseding "the Table is never narrowed".)* Each source narrows
+   every place its rows appear, the Library's tabs included, and an app may add
+   an `events` source; a Library tab keeps its search and its groups and has no
+   filter of its own: every filter is the rail's (A98, A99). *(Ruled 18 Oct,
+   superseding the mock's "the library always lists everything"; the same rule
+   holds for every BuilderFrame component.)*
 9. **Split loads.** A bin's quantity may be split across resources, each part
    with its quantity. *(Ruled 17 Oct.)*
 10. **Find a fit** runs the app's fit for a bin's unallocated quantity and
@@ -370,7 +375,7 @@ The lanes are the rows in key order, each keyed by its row's key: a
 | `fit` | `Func.bind(e3.function)` over `[Allocation.Types.FitRequest(V)] → Allocation.Types.FitResult` | The fit (§12). Required: the board has no fit of its own. |
 | `check` | `Fn(Allocation.Types.CheckContext(V)) → Array<Issue>` | The app's issues, wherever issues show. |
 | `columns` | `Array<{ key, label, text: Fn(V) → String, tone?: Fn(V) → Option<StatusToken>, table?: boolean }>` | The bin values as Table columns (after Quantity) and inspector rows (the Bin section); `table: false` shows a value in the inspector only. |
-| `slice` | `{ slice: Slice.bindRecords(key, { lanes, resources }), affordances?, persist? }` | The narrowing: one rail over the lanes' and the resources' records, in both layouts. The board reads each source's narrowed keys itself (§9.15); its sources are named `lanes` and `resources`, and a bare `Slice.bindRecord` or a local Slice is refused at build. |
+| `slice` | `{ slice: Slice.bindRecords(key, { lanes, resources }), affordances?, persist? }` | The narrowing: one rail over the lanes' and the resources' records, in both layouts. The board reads each source's narrowed keys itself (§9.15); its sources are named `lanes` and `resources`, and optionally `events` (A99); each narrows every place its rows appear, the Library's tabs included (A98); a bare `Slice.bindRecord` or a local Slice is refused at build. |
 | `quantity` | `{ unit?: string }` | The unit everywhere a quantity shows. |
 | `rules` | `{ under?: Boolean }` | Whether `Allocation.fit` and `Allocation.check` warn under min (true). |
 | `library` | `[Allocation.library.events(), Allocation.library.resources()]` | Tabs, in order; omitted, no start pane. |
@@ -529,7 +534,7 @@ neutral owner and its existing consumer moves onto it in the same change.
 | Session | `useEditHistory` keyed per day, `EditSession`, `historyToolbarItem`, `historyShortcut`, `typedInto`, `SessionBanners`, `BannerView` | `east-ui-components/src/editing/` |
 | Record door | `Record.onApply(days, { keyed: true })`; the keyed day read (new shared day reader) | `e3-ui/src/bind/record.ts`; `roster/data.ts` → `shared/schedule/` |
 | Fit call | `useFuncCall` and the shared `Func` runtime | `e3-ui-components/src/experiment/run-runtime.ts` → `shared/func/` |
-| Library | `EastChakraLibrary` via `scheduleLibrary` / `scheduleLibraryCard`, groups, facets, DockPane tabs, counts, badge | `shared/schedule/library.ts` |
+| Library | `EastChakraLibrary` via `scheduleLibrary` / `scheduleLibraryCard`, groups, DockPane tabs, counts, badge; the host's card parts (`extras`: a tooltip, a figure, a note line, a look, an ×), its search and no-match words, a group's mark, the rail's `mark`; the pane's foot (`schedule-pane`) | `shared/schedule/library.ts`; `east-ui-components` Library and DockPane |
 | Inspector | `ScheduleInspectorHead`, `planInspector` recipe, `FieldForm` + `Fields.specs`, `SliceEditPopover` | `shared/schedule/inspector-head.tsx` |
 | Drag | `useDragTarget`, `useDropCell` (caption, onHover), `useDragEventChip`, `MoveGhost` and the `time/move-ghost` recipe | `east-ui-components` dnd; `shared/schedule/move-ghost.tsx` |
 | Rows | `VirtualRows`; `GroupHeading`, `useGroupCollapse`, the `schedule-group` recipe (the Table's time bands) | `./internal`; `shared/schedule/group-heading.tsx` |
@@ -539,7 +544,11 @@ neutral owner and its existing consumer moves onto it in the same change.
 | Breakpoints | `useContainerBelow`, `NARROW_WIDTH` 480 | `shared/schedule/window.ts` |
 | The app's callbacks | `useTrackedEvaluation` for `check` and the columns | `east-ui-components` |
 
-**New, in neutral owners:** `shared/links/` (Plan's link parts, plus a selected
+**New, in neutral owners:** the shared Library's host props (a search's and a
+no-match's words, a card's `extras`, a group's `groupMark`) and DockPane's rail
+`mark` in east-ui-components; the Library pane's foot (`schedule-pane.ts`: the
+pane, its foot, the foot's hint and the picked card's action), the Roster and
+the Calendar onto it; `shared/links/` (Plan's link parts, plus a selected
 link's × and the link-drag preview; Plan moves onto it unchanged); the
 **Chooser** (east-ui-components `./internal`, `pick/chooser/`: a single-choice
 list in sections with search, disabled options carrying their reason, ↑↓ Enter
@@ -935,7 +944,8 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
   grip, code, quantity, its meta and hold (`RDG · R2 · spec MC12 · 8 d`), its ready
   line (`was due Sun 9 · overdue`, `due Wed 12 · window Tue–Fri`).
 - **A52.** Resources, grouped Free today · Loading today · Busy today (the day's
-  states, as facets of the shared Library): name, range, group, and its line
+  states, the shared Library's groups; the tab has no filter of its own, ruled
+  18 Oct): name, range, group, and its line
   (`31 m³ today · to Tue 18`, `· 4 m³ over`, `· 1 d into next job`, `busy until
   Fri 14`, `free · next job Wed 19`, `free · no next job`); over neg-text,
   overlapping warn-text.
@@ -1164,12 +1174,28 @@ controls) are the shared part's.
   presets over both, one Clear all, and one summary counting each source (`2 of 3
   lanes · 21 of 33 resources`), each exact and pending on its own. A preset over
   both sources narrows each in one gesture; a later choice in either deactivates
-  it.
+  it. Each source may name itself and carry an icon (`label`, `icon` in east-ui's
+  `Icon` definition): folded, the rail's one popover heads each source's fields
+  with its name in the small mono caps and its icon (the board's noun for the
+  source by default: `LANES`, `RESOURCES`; `BAYS`, `KILNS` with `labels`), then
+  `PRESETS`; wide, each field's chip carries its source's icon. *(Ruled 18 Oct.)*
 - **A96.** While a narrowing resolves, the last complete membership shows, main
   busy and taking no gesture; a failed read shows `Lane results unavailable` or
   `Resource results unavailable` with Retry, which asks that source again at once.
   When the narrowing leaves nothing: `No rows match the filters`, with Clear
   filters.
+- **A98.** The Library follows the rail: the Resources tab lists the resources the
+  `resources` source shows, its count `10 of 33`; with an `events` source, the
+  Events tab lists the events it shows (`6 of 27`). A tab the narrowing empties
+  says `No resources match the filters`, with Clear filters. A tab's search finds
+  among what the rail shows; the tab has no filter of its own. Find a fit's result
+  (A74) is the tab's, not a filter: it leaves the rail and the board as they are.
+  *Ruled 18 Oct.*
+- **A99.** An optional `events` source over the events' record narrows every place
+  an event shows: the Events tab, and on the board the bins of the events it hides
+  (the Timeline's cards, the Table's rows; a reservation, which has no event,
+  stays); the event Chooser offers the shown events and Current. Fits, loads,
+  checks and totals read every event. *Ruled 18 Oct.*
 
 ### 9.16 The board's nouns (owner: nouns, #1338) — *ruled*
 
@@ -1350,9 +1376,11 @@ const staffFit = $.let(Func.bind(rosterStaffFit));      // e3.function("roster_s
   facet filters `find` sets today.
 - **R2.** Without `fit`, no find fix is offered: `Roster.check` still reports the
   issue, and the renderer drops the Find button.
-- **R3.** Unchanged: the People tab's All · Leads · Trainers · Off segment filters
-  on each person's own fields, and a chip's `5/6` counts held skills. Neither is a
-  fit.
+- **R3.** The People tab's All · Leads · Trainers · Off segment and its Role and
+  Skill Filter move into the rail, as indexed fields of the staff source: every
+  BuilderFrame component follows A98, and a tab has no filter of its own. A chip's
+  `5/6` still counts held skills. Neither is a fit. *(Ruled 18 Oct, superseding
+  "unchanged".)*
 - **R4.** While pending, the fix's button reads `Finding…`; a failure is a warning
   banner with Retry.
 - **R5.** Examples: `rosterWarehouse` and `rosterRecordIndexes` pass
@@ -1379,6 +1407,8 @@ Only the rulings of §2 change the mock's behaviour.
 | Its own toolbar row, popover and history buttons, drawn to look like e3's | The shared Toolbar, Slice rail, history item and BuilderFrame | The shared parts. Nothing is lost. |
 | No narrow form | Explicit-action cards below 480px of main (A78) | Every builder has one. |
 | Spec booked / measured: `S1`…, grades `A3`…; the hold from a grade code | The app's values; the hold an event accessor | The board names no domain. |
+| The library always lists everything | The Library follows the rail: each source narrows its tab as it narrows the board (A98, A99); a tab has its search and groups, no filter of its own | *Ruled 18 Oct.* A filter that narrows some places and not others confuses. |
+| The Library's own cards, search band and rail: the code mono 13 / 600, the rail's label the open tab's name | The shared Library's compact card, search and DockPane rail — their type, a Group menu over the day's states and no Filter menu (A98), the rail's label `Library`; the board adds each card's figure, ready line, look, tooltip and ×, the search's and the empty search's words, the Overdue mark (#1330) | The shared parts (§6): a mock is evidence for layout and workflow, not for a shared part's type. Every part of the mock's card stays. |
 
 ## 15. Wires
 

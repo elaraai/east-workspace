@@ -76,6 +76,15 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
     );
 }, (prev, next) => dockEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
+/** A mark on a collapsed pane's rail: a Font Awesome solid icon in a tone, and what it says (`Overdue event`). */
+export interface DockRailMark {
+    /** A Font Awesome solid icon name. */
+    icon: string;
+    /** What it says, for assistive technology and the tooltip. */
+    label: string;
+    tone: "warning" | "danger";
+}
+
 /** Props of {@link DockPane}. */
 export interface DockPaneProps {
     /** Where the pane keeps its open tab, and its collapsed state when persisted. */
@@ -114,6 +123,8 @@ export interface DockPaneProps {
     label?: string | undefined;
     /** A badge on the rail. Numeric counts use the shared compact formatter; their exact value remains accessible. */
     badge?: string | number | undefined;
+    /** A mark on the rail after its badge: what the collapsed pane holds that needs a look (#1330) — an icon in a tone, and what it says. */
+    mark?: DockRailMark | undefined;
     /** Whether the rail's tile and badge are the brand's — what the pane shows is live. */
     active?: boolean | undefined;
     /** A line on the rail under its label. */
@@ -140,9 +151,9 @@ export interface DockPaneProps {
  * control. The row measures its tabs drawn whole, before it paints, again as
  * its room or its tabs change or fonts arrive ({@link fitTabs}); meanwhile the
  * `+n` menu keeps its fold, so a measure never closes it (#1235). Collapsed,
- * the rail holds the expand control, then the icon tile, the badge, the label
- * and the detail; while the pane is active the tile and the badge are the
- * brand's.
+ * the rail holds the expand control, then the icon tile, the badge, any mark,
+ * the label and the detail; while the pane is active the tile and the badge
+ * are the brand's.
  *
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
@@ -168,7 +179,7 @@ export function DockPane(props: DockPaneProps) {
     const surface = props.surface ?? "card";
     const expandedSize = props.expandedSize ?? "280px";
     const railSize = props.railSize ?? "44px";
-    const { icon, label, badge, detail } = props;
+    const { icon, label, badge, detail, mark } = props;
     const badgeText = badge === undefined ? undefined : countText(badge);
     const badgeCompact = typeof badge === "number" ? words.compact(badge) : badge;
     const active = props.active ?? false;
@@ -407,6 +418,9 @@ export function DockPane(props: DockPaneProps) {
                             <chakra.span aria-hidden>{badgeCompact}</chakra.span>
                             <VisuallyHidden>{badgeText}</VisuallyHidden>
                         </> : badgeText}
+                    </ChakraBox>}
+                    {mark !== undefined && <ChakraBox as="span" css={styles.railMark} role="img" aria-label={mark.label} title={mark.label} data-tone={mark.tone} data-dock-mark="">
+                        <FontAwesomeIcon icon={mark.icon as IconName} />
                     </ChakraBox>}
                     {label !== undefined && <ChakraBox as="span" css={styles.railLabel}>{label}</ChakraBox>}
                     {detail !== undefined && <ChakraBox as="span" css={styles.railDetail} data-dock-detail="">{detail}</ChakraBox>}

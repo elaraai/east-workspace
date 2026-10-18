@@ -42,7 +42,11 @@
  *   `tableRow`, its `tableTime`, `tableLane`, `tableCell` (a placeholder spanning the event's columns `tableSpan`, or
  *   the resource's and its load's `tableResourceSpan`), `tableUnits`, `tableValue`, `tableLoad`, `tableStatus` and its
  *   `tableStatusDot`; a chip, `tableChip`, `tableChipIcon`, `tableChipCode`, `tableChipMeta`, `tableChipButton`; and a
- *   dashed placeholder, `tablePlaceholder`, `tablePlaceholderText`.
+ *   dashed placeholder, `tablePlaceholder`, `tablePlaceholderText`; during a drag or a pick a cell says what a drop does
+ *   (`data-verdict`: `fits`, `refused`, `pick`, A45), a resource card's drag on its resource cells too (A32).
+ * - The Library (A50–A54, #1330): the shared pane part's `pane`, `paneFoot`, `paneHint` and `paneAction`; its cards are the
+ *   shared Library's. A picked event marks the Timeline's free lane hours (`data-allocation-pick`, A11); a resource card's drag
+ *   marks the bins that refuse it (`data-refuses`) and, when it would not take a reservation, the free lane hours (A32).
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -54,6 +58,7 @@ import { planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
+import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeRulerBase } from "./time/axis.js";
 
 /** A head's caption (`LANE`, `HOUR`, `WEEK`, `RESOURCE`, a week): mono 10 / 600, tracked 0.16em, uppercase, `--ink-4`. */
@@ -96,7 +101,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "rulerRow", "rulerTick", "rulerLabel", "resourceRow", "resourceLabel", "resourceText", "resourceName", "resourceLine",
         "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", ...nowSlots,
         "lanePlaceholder", "rank", "reason", "runLabel", "runMeta", "fitsMarker", ...moveGhostSlots,
-        ...scheduleGroupSlots, "bandCount", "table", "tablePane", "tableHead", "tableRow", "tableTime", "tableLane", "tableCell", "tableSpan",
+        ...scheduleGroupSlots, ...schedulePaneSlots, "bandCount", "table", "tablePane", "tableHead", "tableRow", "tableTime", "tableLane", "tableCell", "tableSpan",
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
         "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText",
     ],
@@ -104,6 +109,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         ...nowBase,
         ...moveGhostBase,
         ...scheduleGroupBase,
+        ...schedulePaneBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
@@ -192,11 +198,14 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             height: "calc(var(--cell-span) * 36px)", boxSizing: "border-box", borderLeftWidth: "1px", borderColor: "border.subtle",
             ...ownStages, "&[data-drag-cell][data-drop-active]": { background: "transparent" },
         },
-        // During a body's drag every free lane hour is a dashed target, 4px in; the one under the pointer brand-tint (A24).
+        // During a body's, a Library card's or a resource card's drag every free lane hour is a dashed target, 4px in; the one under the
+        // pointer brand-tint (A24, A32); a picked event's in the brand (A11); a resource that would not take a reservation's in warn (A32).
         lanePlaceholder: {
             display: "none", position: "absolute", inset: "4px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "dashed",
             borderColor: "border.strong", borderRadius: "sm", pointerEvents: "none",
-            "[data-allocation-drag=body] &": { display: "block" },
+            "[data-allocation-drag=body] &, [data-allocation-drag=event] &, [data-allocation-drag=removed] &, [data-allocation-drag=resource] &": { display: "block" },
+            "[data-allocation-pick] &": { display: "block", borderColor: "brand.solid" },
+            "[data-allocation-drag=resource][data-reserve=refused] &": { borderColor: "status.warn", background: warnWash },
             "[data-drop-active] > &": { borderColor: "brand.solid", background: "brandTint" },
         },
         // A bin's card, 88 × 28 at its lane and grid row (A16).
@@ -230,6 +239,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-drop-target=refused]": { borderStyle: "solid", borderColor: "status.warn", background: warnWash },
             "&[data-dim][data-drop-target=fits]": { borderColor: "fg.muted" },
             "&[data-dim][data-drop-target=refused]": { borderColor: "status.warn", background: warnWash },
+            // A resource card's drag: every bin that refuses it in warn on the warn wash (A32); the one under the pointer as a drop's.
+            "&[data-refuses]": { borderStyle: "solid", borderColor: "status.warn", background: warnWash },
+            "&[data-dim][data-refuses]": { borderColor: "status.warn", background: warnWash },
         },
         cardTop: { display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0, lineHeight: "12px" },
         cardCode: {
@@ -509,13 +521,17 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-draggable]": { cursor: "grab", touchAction: "none" },
             "&[data-draft]": { borderStyle: "dashed", borderColor: "brand.solid", background: "brandTint" },
             "&[data-dragging]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent" },
+            // A resource card's drag over a row's resource (A32): dashed in the brand when it takes it, warn when it refuses it.
+            "&[data-verdict=fits]": { borderStyle: "dashed", borderColor: "brand.solid" },
+            "&[data-verdict=refused]": { borderColor: "status.warn", background: warnWash },
+            "[data-drop-active] > &": { borderStyle: "dashed", borderColor: "brand.solid", background: "brandTint" },
             ...planElementFocus,
         },
         tableChipIcon: {
             ...fontAwesomeSize("9.5px"), flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "fg.subtle",
             "&[data-icon-role=chevron]": { ...fontAwesomeSize("10px"), width: "20px", color: "fg.muted" },
             "[data-allocation-placeholder] > &": { ...fontAwesomeSize("10px"), "&[data-icon-role=refused]": { display: "none" } },
-            "[data-allocation-cell-side=event][data-drop-invalid] > [data-allocation-placeholder] > &": {
+            "[data-allocation-cell-side][data-drop-invalid] > [data-allocation-placeholder] > &, [data-allocation-placeholder][data-verdict=refused] > &": {
                 "&[data-icon-role=idle]": { display: "none" }, "&[data-icon-role=refused]": { display: "inline-flex", color: "fg.warning" },
             },
         },
@@ -539,16 +555,24 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&:is(button)": { cursor: "pointer" },
             "&[data-open]": { borderColor: "brand.solid" },
             ...planElementFocus,
-            "[data-allocation-cell-side=event][data-drop-valid] > &": { borderColor: "brand.solid" },
-            "[data-allocation-cell-side=event][data-drop-active] > &": { background: "brandTint", color: "brandPressed", fontStyle: "normal" },
-            "[data-allocation-cell-side=event][data-drop-invalid] > &": { borderColor: "status.warn", background: warnWash, color: "fg.warning", fontStyle: "normal" },
+            // During a drag or a pick (A45): the brand where a drop or a click takes it, warn where it refuses; under the pointer, its words.
+            "&[data-verdict=fits], &[data-verdict=pick]": { borderColor: "brand.solid" },
+            "&[data-verdict=pick]": { color: "brandPressed", fontStyle: "normal" },
+            "&[data-verdict=refused]": { borderColor: "status.warn", background: warnWash, color: "fg.warning", fontStyle: "normal" },
+            "[data-allocation-cell-side][data-drop-valid] > &": { borderColor: "brand.solid" },
+            "[data-allocation-cell-side][data-drop-active] > &": { background: "brandTint", color: "brandPressed", fontStyle: "normal" },
+            "[data-allocation-cell-side][data-drop-invalid] > &": { borderColor: "status.warn", background: warnWash, color: "fg.warning", fontStyle: "normal" },
         },
+        // Its words: idle; during a drag or a pick what a drop does, `doesn't fit`, or a pick's `click to book … here`; under the pointer
+        // a drop's words, or a refusal's reason itself (A45).
         tablePlaceholderText: {
             flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-            "&[data-say=drop]": { display: "none" },
-            "&[data-say=refused]": { display: "none" },
-            "[data-allocation-cell-side=event][data-drop-active] > * > &": { "&[data-say=idle]": { display: "none" }, "&[data-say=drop]": { display: "block" } },
-            "[data-allocation-cell-side=event][data-drop-invalid] > * > &": { "&[data-say=idle]": { display: "none" }, "&[data-say=refused]": { display: "block" } },
+            "&[data-say=drop], &[data-say=refused], &[data-say=reason], &[data-say=pick]": { display: "none" },
+            "[data-verdict=refused] > &": { "&[data-say=idle]": { display: "none" }, "&[data-say=refused]": { display: "block" } },
+            "[data-verdict=pick] > &": { "&[data-say=idle]": { display: "none" }, "&[data-say=pick]": { display: "block" } },
+            "[data-allocation-cell-side][data-drop-active] > * > &": { "&[data-say=idle], &[data-say=pick]": { display: "none" }, "&[data-say=drop]": { display: "block" } },
+            "[data-allocation-cell-side][data-drop-invalid] > * > &": { "&[data-say=idle], &[data-say=pick]": { display: "none" }, "&[data-say=refused]": { display: "block" } },
+            "[data-allocation-cell-side][data-drop-invalid] > *:has([data-say=reason]) > &": { "&[data-say=refused]": { display: "none" }, "&[data-say=reason]": { display: "block" } },
         },
         // The focus chip's ×, a 16px target (A81).
         focusClear: {

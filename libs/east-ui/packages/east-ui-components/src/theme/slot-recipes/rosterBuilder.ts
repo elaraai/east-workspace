@@ -10,6 +10,7 @@ import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
+import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeHeaderText } from "./time/axis.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 
@@ -18,11 +19,12 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
-        "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "actions", "pane", "paneFoot", "section", "status",
+        "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "actions", ...schedulePaneSlots, "section", "status",
         "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
+        ...schedulePaneBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", "&[data-roster-grid=people]": { "--roster-columns": "8", "--roster-people-width": "1100px" } },
         scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
@@ -89,8 +91,6 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         card: { padding: "12px", display: "flex", flexDirection: "column", gap: "8px", border: "1px solid", borderColor: "border.subtle", borderRadius: "sm", background: "bg.surface", minWidth: 0, ...planElementDrafted, ...planElementSelected, ...planElementFocus },
         cardHead: { textStyle: "title.row", textAlign: "left", minWidth: 0, overflowWrap: "anywhere" },
         actions: { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" },
-        pane: { display: "flex", flexDirection: "column", minHeight: 0, height: "100%", minWidth: 0 },
-        paneFoot: { flexShrink: 0, padding: "12px", borderTopWidth: "1px", borderColor: "border.subtle" },
         section: { ...INSPECTOR_SECTION, gap: "12px" },
         status: INSPECTOR_STATUS,
         footer: builderFooter, footerItem: builderFooterItem,
