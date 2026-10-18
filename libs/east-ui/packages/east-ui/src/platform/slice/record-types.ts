@@ -188,6 +188,53 @@ export function RecordSliceHandleType<C extends EastType | string>(collection: C
     });
 }
 
+/**
+ * One source of a Slice over several records: its name and its controls.
+ * @property source - The source's name (`lanes`), what `Slice.rows(slice, source)` names.
+ * @property slice - Its record Slice's controls, a part like any other.
+ */
+export const RecordSlicePartType = StructType({ source: StringType, slice: RecordSliceBindType });
+export type RecordSlicePartType = typeof RecordSlicePartType;
+
+/**
+ * A named narrowing over several sources, selected as one.
+ * @property id - Stable preset identity, shared by each part's preset.
+ * @property name - Display name.
+ */
+export const RecordSlicesPresetType = StructType({ id: StringType, name: StringType });
+export type RecordSlicesPresetType = typeof RecordSlicesPresetType;
+
+/**
+ * A Slice over several records' non-generic handle: the product of one record
+ * Slice per source, safe to embed in component IR.
+ * @remarks No index relates two records, so a choice in one part never changes
+ * another's result or counts. The product keeps no state of its own: its state
+ * is each part's.
+ * @property key - Store identity; each part's is `${key}.${source}`.
+ * @property parts - Each source's controls, in source order.
+ * @property presets - Narrowings over several sources; a part holds each as a preset of the same id.
+ * @property clearAll - Clear every part.
+ * @property togglePreset - Select a preset in every part, or clear every part when each already has it.
+ */
+export const RecordSlicesBindType = StructType({
+    key: StringType,
+    parts: ArrayType(RecordSlicePartType),
+    presets: ArrayType(RecordSlicesPresetType),
+    clearAll: FunctionType([], NullType),
+    togglePreset: FunctionType([StringType], NullType),
+});
+export type RecordSlicesBindType = typeof RecordSlicesBindType;
+
+/**
+ * Typed authoring handle over several records; `sources` keeps each part's typed handle through $.let.
+ * @typeParam S - Each source's typed record Slice handle type, by name.
+ * @param sources - The handle types.
+ * @returns The typed handle type.
+ */
+export function RecordSlicesHandleType<S extends Record<string, EastType>>(sources: S) {
+    return StructType({ ...RecordSlicesBindType.fields, sources: StructType(sources) });
+}
+
 /** New record-arm bind; local slice_bind remains byte-for-byte unchanged. @internal */
 export const recordSliceBindPlatform = East.genericPlatform("slice_bind_record", ["S", "C"],
     [StringType, "S", RecordSliceConfigType, RecordSliceStateType], RecordSliceHandleType("C"), { optional: true });

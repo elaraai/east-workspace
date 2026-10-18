@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { getStore } from "../platform/state-runtime.js";
 
 /**
@@ -27,4 +27,23 @@ export function useSliceReactivity(key: string | undefined): number {
         () => (key ? store.getKeyVersion(key) : 0),
         () => (key ? store.getKeyVersion(key) : 0),
     );
+}
+
+/**
+ * {@link useSliceReactivity} over several slices at once — a narrowing over
+ * several records, each source its own store key.
+ *
+ * @param keys - The slices' store keys, in a stable order
+ * @returns The sum of the keys' versions: it moves whenever any of them is written
+ */
+export function useSlicesReactivity(keys: readonly string[]): number {
+    const store = getStore();
+    // The keys' identity is their text: a host rebuilding the same list keeps one subscription.
+    const joined = JSON.stringify(keys);
+    const subscribe = useCallback((cb: () => void) => {
+        const stops = (JSON.parse(joined) as string[]).map(key => store.subscribe(key, cb));
+        return () => { for (const stop of stops) stop(); };
+    }, [store, joined]);
+    const version = useCallback(() => (JSON.parse(joined) as string[]).reduce((sum, key) => sum + store.getKeyVersion(key), 0), [store, joined]);
+    return useSyncExternalStore(subscribe, version, version);
 }

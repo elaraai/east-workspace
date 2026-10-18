@@ -561,7 +561,7 @@ export {
 } from "./collections/deck";
 export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow, type ValueTreeControls } from "./collections/value-tree";
 export { LoadingIcon, type LoadingIconProps } from "./LoadingIcon.js";
-export { useSliceReactivity } from "./slice/use-slice-reactivity";
+export { useSliceReactivity, useSlicesReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
 // surface's population filter (its population is an Array<SlicePredicate>).
 export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";

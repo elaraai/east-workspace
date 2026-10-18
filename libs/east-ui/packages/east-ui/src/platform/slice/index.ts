@@ -88,6 +88,7 @@ import {
 } from "@elaraai/east";
 
 import { bindRecord } from "./record.js";
+import { bindRecords } from "./record-sources.js";
 import { bindLocal } from "./local.js";
 import { ChartXType } from "../../charts/spec/types.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
@@ -1210,9 +1211,20 @@ export const slice_rows = East.genericPlatform("slice_rows", ["T"],
 function rows<T extends EastType>(slice: ExprType<StructType<{ data: FunctionType<[], T> }>>): ExprType<T>;
 /** Read the narrowed data retained by a typed record Slice handle. */
 function rows<T extends EastType>(slice: ExprType<StructType<{ data: T }>>): ExprType<T>;
-function rows(input: unknown): ExprType<EastType> {
+/** Read one source's narrowed data from a `Slice.bindRecords` handle. */
+function rows<S extends Record<string, StructType<{ data: EastType }>>, N extends Extract<keyof S, string>>(
+    slice: ExprType<StructType<{ sources: StructType<S> }>>, source: N): ExprType<S[N]["fields"]["data"]>;
+function rows(input: unknown, source?: string): ExprType<EastType> {
     const handle = East.value(input as SubtypeExprOrValue<StructType>);
     const type = Expr.type(handle as Expr);
+    const sources = type.type === "Struct" ? type.fields.sources : undefined;
+    if (sources?.type === "Struct") {
+        const names = Object.keys(sources.fields);
+        if (source === undefined) throw new Error(`Slice.rows of a Slice.bindRecords handle names its source: Slice.rows(slice, "${names[0]}")`);
+        if (sources.fields[source] === undefined) throw new Error(`Slice.rows: '${source}' is not one of this Slice's sources (${names.join(", ")})`);
+        return ((handle as ExprType<StructType>).sources as unknown as Record<string, ExprType<StructType>>)[source]!.data!;
+    }
+    if (source !== undefined) throw new Error("Slice.rows(slice, source) needs a Slice.bindRecords handle");
     if (type.type !== "Struct" || type.fields.data === undefined) throw new Error("Slice.rows needs a typed Slice.bind or Slice.bindRecord handle");
     const data = (handle as ExprType<StructType>).data!;
     return type.fields.data.type === "Function" ? (data as ExprType<FunctionType<[], EastType>>)() : data;
@@ -1370,6 +1382,21 @@ export const Slice = {
 
     /** Narrow a record through the fields its bound indexes order on. */
     bindRecord,
+
+    /**
+     * Narrow several records together from one rail: one record Slice per
+     * named source, read with `Slice.rows(slice, source)`. A choice in one
+     * source never changes another's rows or counts; a preset is every
+     * source's narrowing at once.
+     *
+     * ```ts
+     * const slice = $.let(Slice.bindRecords("view.yard", {
+     *     lanes:     { source: Data.bindPaged(bays, { indexes: [baysByArea] }), fields: { area: { label: "Area" } } },
+     *     resources: { source: Data.bindPaged(kilns, { indexes: [kilnsByGroup] }), fields: { group: { label: "Kiln group" } } },
+     * }, { presets: [{ id: "north", name: "North", where: { lanes: { area: ["North"] } } }] }));
+     * ```
+     */
+    bindRecords,
 
     /**
      * The FULL bound rows, each tagged `{ value, matched }` — the "keep the
