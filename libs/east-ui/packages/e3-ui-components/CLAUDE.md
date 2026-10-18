@@ -134,13 +134,14 @@ the stored events their choices hide, and its Clear filters keeps each window.
 Inside the folded editor, field editors expand inline, with one popup and
 normal keyboard focus return. Never copy another control family into a builder.
 
-Trace every choice to the source. Plan reads the ordered Slice source and the
-Sheet pages its `rows` source (its lens is off until #1349), Calendar event
-kinds read its interval queries, and Roster reads the selected staff
-identities for visibility only. No filtering over resident record rows,
-private Slice, full scan for options or user-facing index picker. The shared
-summary is authoritative N of M original records; do not add a competing local
-count. Search Records remains primary-key navigation, not Slice field search.
+Trace every choice to the source. Plan reads the ordered Slice source, the
+Sheet pages its `rows` source (its lens is off until #1349) and the Flowchart
+its `flows` source (#1346), Calendar event kinds read its interval queries, and
+Roster reads the selected staff identities for visibility only. No filtering
+over resident record rows, private Slice, full scan for options or user-facing
+index picker. The shared summary is authoritative N of M original records; do
+not add a competing local count. Search Records remains primary-key
+navigation, not Slice field search.
 
 Calendar preserves overlap `[from, to)`, including carry-in events, whole-window
 spans, overnight/multi-day events and instants at the lower boundary, once by
@@ -192,13 +193,19 @@ record across all index lists and must back the shared editing identity.
 ### Flowchart records and indexed Flows lists
 
 One flow is one complete record entry. Bind the mutation door with
-`Record.bind`, and bind its browse source with `Data.bindPaged(record,
-{ indexes })` and `Slice.bindRecord`. Pass `window={Slice.rows(slice)}` and
-`slice={{ slice }}` to Flowchart. The Flows tab pages that ordered query through
-shared `PagedLibrary`/`VirtualRows`; never fetch every flow to render or search
-its cards. Record Slice owns indexed field choices, prefix search and counts.
-`Find state` searches the complete open graph by state key and label; it does
-not search all flow records. Keep those purposes clear in labels and examples.
+`Record.bind`, and narrow the flows through the `flows` source of the one
+`Slice.bindRecords`: `Data.bindPaged(record, { indexes })` over the same record,
+passed as `slice={{ slice }}` (#1346). The Flows tab pages that source through
+shared `PagedLibrary`/`VirtualRows` and counts what it shows (`Flows 683 of
+2,048`), the count read in a component of its own (`FlowsCountReader`); never
+fetch every flow to render or search its cards. Record Slice owns indexed field
+choices, prefix search and counts; the Flows tab's own search (`PagedLibrary`'s
+`search`) pages the narrowing and the search's prefix through the source's
+`pageWhere`, never writing the rail (#1340, ruling 11). Each templates list and
+each tab that names a source follows it through `FollowSources`, as `sourceTab`
+draws it. `Find state` searches the complete open graph by state key and label;
+it does not search all flow records. Keep those purposes clear in labels and
+examples.
 
 Computed filters use the index's own key type, including values derived from
 nested graph data. Scalar keys use the index name; Struct keys expose their

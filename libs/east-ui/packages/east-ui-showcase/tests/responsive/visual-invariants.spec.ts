@@ -739,11 +739,12 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * fold no less than they did wider, its history last. The SnapGrid editor and Studio's
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
- * (#1229). The Flowchart's frame (#1245) folds its slice's rail first, then
- * its freshness chip goes, LR · TD folds into its chip and find state into its
- * icon. A builder over one `Slice.bindRecords` rail — the Calendar's (#1343),
- * the Sheet's (#1345) — folds every step of the rail first, then the rail's
- * summary, then its own steps (ruled 18 Oct, #1340).
+ * (#1229). The Flowchart's frame (#1245) lets its freshness chip go, LR · TD
+ * fold into its chip and find state into its icon — over the host's tables,
+ * which no rail narrows (#1346), with nothing before them. A builder over one
+ * `Slice.bindRecords` rail — the Calendar's (#1343), the Sheet's (#1345), the
+ * Flowchart's over a record of flows (#1346) — folds every step of the rail
+ * first, then the rail's summary, then its own steps (ruled 18 Oct, #1340).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; box?: number; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
@@ -757,7 +758,8 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
-    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["rail"], ladder: () => FLOWCHART_LADDER },
+    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => FLOWCHART_LADDER },
+    { name: "Flowchart (records)", route: "e3/flowchart/flowchart/flowchartRecordIndexes", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices", "record-summary"], ladder: () => FLOWCHART_LADDER },
     { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },

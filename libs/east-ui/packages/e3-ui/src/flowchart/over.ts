@@ -8,9 +8,10 @@
  * §4.3): one flow built from an app's own tables — its states, its
  * transitions, its lanes and its decisions — through the row mappers the
  * flowchart took its tables with before it held flows. A flow computed from
- * the app's data — transitions mined from scans, narrowed by a slice — is
- * shown this way, as `<Flowchart data={Flowchart.over(…)}>`, as `Plan.over`
- * lays rows out over a dataset.
+ * the app's data — transitions mined from scans — is shown this way, as
+ * `<Flowchart data={Flowchart.over(…)}>`, as `Plan.over` lays rows out over a
+ * dataset. The flowchart narrows no table of the host's (#1346): a task
+ * narrows the rows it builds a flow from.
  *
  * @packageDocumentation
  */
@@ -184,8 +185,9 @@ function kindOption(
  * @remarks
  * The flow has no `description`. Show it with
  * `<Flowchart data={Flowchart.over(…)}>`, read only, or with the host's
- * `onApply`; narrow it with a slice by feeding the transitions through
- * `Slice.rows`, and give the flowchart that `slice`.
+ * `onApply`. The flowchart never narrows it (#1346): its `slice` narrows only
+ * the templates lists and the tabs that name a source, so a task narrows the
+ * rows a flow is built from, before `Flowchart.over` reads them.
  *
  * @typeParam S - The states-table input
  * @typeParam L - The links-table input
@@ -201,7 +203,7 @@ function kindOption(
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
- * import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Flowchart } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
@@ -246,20 +248,12 @@ function kindOption(
  *         const states = $.let(Data.bind(depotStates));
  *         const scans = $.let(Data.bind(scanTransitions));
  *         const decisions = $.let(Data.bind(depotDecisions));
- *         const slice = $.let(Slice.bind("flowchart-depot", scans.read(), {
- *             fields: {
- *                 service: { label: "Service" },
- *                 src: { label: "From" },
- *                 dst: { label: "To" },
- *             },
- *             search: ["src", "dst"],
- *         }));
  *         return (
  *             <Box height="600px">
  *                 <Flowchart
  *                     data={Flowchart.over(states.read(), {
  *                         state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
- *                         links: Slice.rows(slice),
+ *                         links: scans.read(),
  *                         link: l => ({
  *                             key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
  *                             evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
@@ -272,7 +266,6 @@ function kindOption(
  *                         triggers: decisions.read(),
  *                         trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
  *                     })}
- *                     slice={slice} affordances={["filter", "search"]}
  *                     freshness={{ label: "evidence-2026.06", date: new Date("2026-06-30T00:00:00Z") }}
  *                     name="scans"
  *                 />

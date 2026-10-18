@@ -25,16 +25,30 @@
  * Every icon is Font Awesome's solid set; every style is the `flowchart`
  * recipe's or the shared parts'.
  *
+ * Over a record its slice's `flows` source pages (#1346), the tab is the
+ * shared paged Library (`PagedFlowsTab`): the flows the rail narrows the
+ * record to, a window at a time, each card the flow as its drafts stand; while
+ * the rail leaves it none, the shared empty state says so with the rail's
+ * Clear filters for the `flows` source alone; and its search box finds a flow
+ * within the narrowing, by the fields the source lists in `search`, the tab's
+ * own — never the rail's, nor any count's. New flows not yet saved sit above
+ * the list, whatever the narrowing. Its count is the frame's
+ * ({@link FlowsCountReader}).
+ *
  * @packageDocumentation
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
-import { StringType, equalFor, none, some, variant } from "@elaraai/east";
-import { EastChakraLibrary, EmptyStateView, getSomeorUndefined, type LibraryItemValue, type LibraryValue } from "@elaraai/east-ui-components";
-import { LibraryCard, PagedLibrary } from "@elaraai/east-ui-components/internal";
+import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceBindType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import {
+    EastChakraLibrary, EmptyStateView, getSomeorUndefined, useSliceReactivity, useTrackedEvaluation,
+    type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type LibraryValue,
+} from "@elaraai/east-ui-components";
+import { LibraryCard, PagedLibrary, type PagedLibrarySearch } from "@elaraai/east-ui-components/internal";
 import type { FlowchartPagedRecord } from "./window.js";
 import { draftedEntry, type FlowSessions } from "./session.js";
 import { NamePopover } from "../shared/name-popover.js";
@@ -230,21 +244,50 @@ export function FlowsTab({ cards, open, onOpen, newFlow, id, storageKey, styles,
     );
 }
 
-/** The record's filtered, paged flow list; draft overlays use original record IDs. */
-export function PagedFlowsTab({ source, sessions, fresh, ...props }: Omit<FlowsTabProps, "cards"> & {
+/** The slice's `flows` source's part, decoded: what narrows the Flows tab (#1346). */
+type FlowsPart = ValueTypeOf<RecordSliceBindType>;
+
+/** A row of the paged Flows tab: a flow, by its name — the record's key. */
+type FlowRowValue = { readonly name: string; readonly flow: FlowchartFlowValue };
+
+/**
+ * The record's paged flow list, as the rail narrows it (#1346): drafts
+ * overlaid by the flows' original names; the rail's empty state and Clear
+ * filters while it narrows; the tab's own search within it.
+ *
+ * @param props - The paged record, the `flows` source's part, the sessions, the new flows not yet saved, and the tab's props
+ * @returns The tab's body
+ */
+export function PagedFlowsTab({ source, part, sessions, fresh, ...props }: Omit<FlowsTabProps, "cards"> & {
     source: FlowchartPagedRecord;
+    /** The slice's `flows` source's part: its narrowing, its Clear filters, and the search's reads within it. */
+    part: FlowsPart | undefined;
     sessions: FlowSessions;
     fresh: readonly FlowCard[];
 }) {
     const { id, styles, words, open, onOpen, newFlow } = props;
+    const m = words.m;
     const libraryStyles = useSlotRecipe({ key: "library" })() as Styles;
+    // While the rail narrows the flows: what the tab says when that leaves it none, and the `flows` source's own Clear filters.
+    useSliceReactivity(part?.key);
+    const narrows = part !== undefined && part.read().where.size > 0;
+    const narrowing = useMemo((): LibraryNarrowing | undefined => (part === undefined || !narrows ? undefined : {
+        empty: { title: m.flowsFiltered({ part: "title" }), description: m.flowsFiltered({ part: "hint" }) },
+        onClear: () => { part.clearAll(); },
+    }), [part, narrows, m]);
+    // The tab's own search (#1340, ruling 11): the part's choices, and a page of the flows a narrowing of the tab's own holds.
+    const search = useMemo((): PagedLibrarySearch<FlowRowValue> | undefined => (part === undefined ? undefined : {
+        part, page: (where: ValueTypeOf<RecordSliceWhereType>, offset: bigint, limit: bigint) => source.search(where, offset, limit),
+    }), [part, source]);
+    const empty = useMemo((): LibraryEmpty => ({ title: m.flowsEmpty(), description: m.flowsEmptyHint({ canAdd: false }) }), [m]);
+    const noun = useMemo(() => ({ singular: m.flowNoun({ n: 1 }), plural: m.flowNoun({ n: 2 }) }), [m]);
     return <Box css={styles.flowsTab} data-flowchart-flows="">
         {fresh.length > 0 && <Box css={styles.flowsDrafts}>
             {fresh.map(card => <LibraryCard key={card.name} libraryId={id} item={flowItem(card, card.name === open, words)}
                 dimOrder={[]} activeDims={[]} filtered={false} styles={libraryStyles} onCardClick={onOpen} onCardEnter={undefined} />)}
         </Box>}
         <Box css={styles.flowsList}>
-            <PagedLibrary source={source.window} id={id} onOpen={onOpen} item={row => {
+            <PagedLibrary source={source.window} id={id} onOpen={onOpen} empty={empty} narrowing={narrowing} search={search} noun={noun} item={row => {
                 const session = sessions.get(row.name);
                 const pending = (session?.pending ?? 0) > 0;
                 const draft = pending && session !== undefined ? draftedEntry(session, row.name) : undefined;
@@ -254,4 +297,43 @@ export function PagedFlowsTab({ source, sessions, fresh, ...props }: Omit<FlowsT
         </Box>
         {newFlow !== undefined && <Box css={styles.flowsFoot}><NewFlow {...newFlow} styles={styles} words={words} /></Box>}
     </Box>;
+}
+
+/** What the paged Flows tab counts (#1346): the flows the rail shows, every flow the record holds, and whether the rail narrows them. */
+export interface FlowsCount {
+    /** The flows the rail shows. */
+    readonly shown: number;
+    /** Every flow the record holds. */
+    readonly total: number;
+    /** Whether a choice of the rail narrows them. */
+    readonly narrowing: boolean;
+}
+
+/**
+ * The paged Flows tab's count (#1346), read where it renders nothing: the
+ * `flows` source's exact narrowed count and the record's total, handed to the
+ * frame only when they move — a tracked read in the frame would draw the
+ * whole frame again at every settle. `undefined` while a count it needs is read.
+ *
+ * @param props - The `flows` source's part, and where the count goes
+ * @returns Nothing: the count is handed on
+ */
+export function FlowsCountReader({ part, onCount }: { part: FlowsPart; onCount: (count: FlowsCount | undefined) => void }) {
+    useSliceReactivity(part.key);
+    const read = useCallback((): FlowsCount | undefined => {
+        const total = part.total();
+        if (total.type === "none") return undefined;
+        const narrowing = part.read().where.size > 0;
+        if (!narrowing) return { shown: Number(total.value), total: Number(total.value), narrowing };
+        const count = part.count();
+        return count.type === "none" ? undefined : { shown: Number(count.value), total: Number(total.value), narrowing };
+    }, [part]);
+    const { result } = useTrackedEvaluation(read);
+    const count = result.ok ? result.value : undefined;
+    // Handed on by what it counts, so a read that settles the same count draws nothing again.
+    const shown = count?.shown, total = count?.total, narrowing = count?.narrowing;
+    useEffect(() => {
+        onCount(shown === undefined || total === undefined || narrowing === undefined ? undefined : { shown, total, narrowing });
+    }, [shown, total, narrowing, onCount]);
+    return null;
 }

@@ -201,3 +201,20 @@ Each wire changed under this rule, with the kind it is.
   (`Array<Sheet.Types.View>` in a dataset a `Data.bind` shares) changes type
   with it; rewriting those views as `Sheet.Types.RecordView` is that record's
   own migration, as with any record whose type an application changes.
+- **e3-ui's `Flowchart` narrows through `Slice.bindRecords` alone, its
+  templates records (#1340, #1346)** — package-borne. The `Flowchart`
+  extension's payload gains `slice`, the chrome of a Slice over several
+  records — the `flows` source a record's Flows tab pages, and a source per
+  templates list or tab that names one — and `narrowed`, each source's keys by
+  its name; its `canvas` loses the local `slice` the host's tables were
+  narrowed by. The paged arm of its `source` loses `chrome`, the one record's
+  rail, and gains `search`, a page of the narrowing the Flows tab's own search
+  finds. A library tab on the wire (`FlowchartLibraryTabType`) gains the
+  `source` it follows: a templates list's, always; an app's tab's, when it
+  names one. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. A Flowchart's templates written in
+  the code, or held in an input, become a templates record of the
+  application's own, keyed by each template's key, as with any record an
+  application declares.

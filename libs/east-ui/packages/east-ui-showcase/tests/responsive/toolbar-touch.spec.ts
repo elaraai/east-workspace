@@ -32,12 +32,14 @@
  * as a desktop does, and a Tab from there closes it. And in the rail's
  * sectioned editor the cohort's chip and the breakdown's are each one 44px
  * target (#1253), every chip there keeping its own width. And the
- * Flowchart's frame (#1245): on the phone its rail, LR · TD and find state
- * folded into their chips — LR · TD's menu turning the canvas, find state's
- * popover picking a state — and on the wide screen its row unfolded, a query
- * in find state stepped through its matches and cleared, then the frame
- * narrowed until LR · TD and find state fold; and over a record of flows
- * (#1246) its row ending with the history item.
+ * Flowchart's frame (#1245): over the host's tables, which no rail narrows
+ * (#1346), on the phone LR · TD and find state folded into their chips — LR ·
+ * TD's menu turning the canvas, find state's popover picking a state — and on
+ * the wide screen its row unfolded, a query in find state stepped through its
+ * matches and cleared, then the frame narrowed until LR · TD and find state
+ * fold; over a record of flows (#1246) its row ending with the history item;
+ * and over a record its `flows` source narrows (#1346), the rail and its
+ * summary in the row.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -229,6 +231,9 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
     { name: "sheetBatches", hash: "e3/sheet/sheet/sheetBatches" },
     // Over a record of flows, the history item ends the Flowchart's row (#1246).
     { name: "flowchartFlows", hash: "e3/flowchart/flowchart/flowchartFlows" },
+    // Over a record its `flows` source narrows, the rail and its summary fold first, and on the phone LR · TD and find
+    // state bundle into the key search's popover (#1346).
+    { name: "flowchartRecordIndexes", hash: "e3/flowchart/flowchart/flowchartRecordIndexes" },
 ];
 
 /** Open an example's page at rest and return its entry. */
@@ -571,27 +576,43 @@ const findStepped: Gesture = {
     },
 };
 
-/** The frame narrowed until find state folds to its icon (#1245): past the phone's width the row still holds its box, so the frame narrows below it. */
-const findToIcon: Gesture = {
-    what: "the frame narrowed until find state folds to its icon",
-    run: async (entry, page) => {
-        const icon = inRow(entry, "[data-toolbar-item='seek'] [data-key-search='icon']");
-        for (let width = 420; width >= 260 && !(await icon.isVisible()); width -= 10) {
-            await sizeFrame(entry, width);
-            await settled(page);
-        }
-        await expect(icon).toBeVisible();
-    },
-};
+/**
+ * The frame narrowed, 10px at a time from 420px, until what `selector` names
+ * draws in the row (#1245): past the phone's width the row still holds LR ·
+ * TD's segment and find state's box — over the host's tables, which no rail
+ * narrows (#1346), down to some 300px — so the frame narrows below it.
+ */
+function narrowedUntil(what: string, selector: string): Gesture {
+    return {
+        what,
+        run: async (entry, page) => {
+            const target = inRow(entry, selector);
+            for (let width = 420; width >= 240 && !(await target.isVisible()); width -= 10) {
+                await sizeFrame(entry, width);
+                await settled(page);
+            }
+            await expect(target).toBeVisible();
+        },
+    };
+}
+
+/** The frame narrowed until LR · TD folds into its chip (#1245). */
+const orientationToChip = narrowedUntil("the frame narrowed until LR · TD folds into its chip", "[data-flowchart-segmenu]");
+
+/** The frame narrowed until find state folds to its icon (#1245), LR · TD folded into its chip before it. */
+const findToIcon = narrowedUntil("the frame narrowed until find state folds to its icon", "[data-toolbar-item='seek'] [data-key-search='icon']");
 
 /**
  * The builders whose rows fold into chips (#1229), each with the chips its
  * row draws at the phone's width — Studio's View chip and ⋯ chip, the SnapGrid
- * editor's View chip, the query builder's ⋯ chip, the Flowchart's LR · TD chip
- * and find state's icon (#1245) — and the gestures that use them by touch
- * there; on the wide touch screen, where the rows unfold, the frame narrowed
- * until the design widths fold to their icons, which the edge check reaches,
- * and then until the chips draw.
+ * editor's View chip, the query builder's ⋯ chip — and the gestures that use
+ * them by touch there; on the wide touch screen, where the rows unfold, the
+ * frame narrowed until the design widths fold to their icons, which the edge
+ * check reaches, and then until the chips draw. The Flowchart's LR · TD chip
+ * and find state's icon (#1245) draw in a frame narrower than the phone's:
+ * over the host's tables, which no rail narrows (#1346), the phone's row holds
+ * LR · TD's segment and find state's box, so there the frame narrows until
+ * both fold, and the gestures use them by touch.
  */
 const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[]; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
     {
@@ -619,14 +640,12 @@ const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[
         wide: [{ what: "the frame narrowed until the ⋯ chip draws", run: (entry, page) => narrowUntil(entry, page, "[data-query-more]") }],
     },
     {
+        // Over the host's tables, which no rail narrows (#1346), the phone's row folds no chip: the frame narrows until
+        // LR · TD's chip and find state's icon draw.
         name: "flowchartDepot", hash: "e3/flowchart/flowchart/flowchartDepot",
-        chips: ["[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']", "[data-toolbar-item='rail'] [data-slot='railTrigger']"],
-        phone: [orientationByTouch, findByTouch],
-        wide: [
-            findStepped,
-            { what: "the frame narrowed until LR · TD folds into its chip", run: (entry, page) => narrowUntil(entry, page, "[data-flowchart-segmenu]") },
-            findToIcon,
-        ],
+        chips: [],
+        phone: [findToIcon, orientationByTouch, findByTouch],
+        wide: [findStepped, orientationToChip, findToIcon],
     },
 ];
 

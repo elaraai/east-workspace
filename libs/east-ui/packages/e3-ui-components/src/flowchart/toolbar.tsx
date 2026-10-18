@@ -7,33 +7,34 @@
  * The Flowchart's toolbar items (#1245, `Flowchart Builder Spec.md` §7.1,
  * FB8, FB9) — every control the flowchart has, as items of its frame's one
  * toolbar, in this order: find state, LR · TD and the freshness chip at the
- * row's start; the slice's rail over `data` at its end, and last the history
- * item over the open flow's session, where the flowchart edits (#1246). The
- * canvas draws no eyebrow of its own.
+ * row's start; the rail over the flowchart's `Slice.bindRecords` (#1346) at
+ * its end — each source's fields in source order, the presets, and one
+ * summary counting each source — and last the history item over the open
+ * flow's session, where the flowchart edits (#1246). The canvas draws no
+ * eyebrow of its own.
  *
  * They fold on one ladder: the rail first, in its own order (#952) — its
- * affordances into their summary chips, then one chip, then its icon — then
- * the freshness chip goes, LR · TD folds into one chip naming the
- * orientation, whose menu holds both, and find state's box folds to its icon,
- * which opens the box in the edit popover. The history item's step
- * (`DEFAULT_RANK`) comes after all of them. Nothing wraps, scrolls or goes
- * to a second row, and on a coarse pointer every control is a 44px target by
- * its box or by its halo, the row's height its own.
+ * fields into their summary chips, then one chip, then its icon, and its
+ * summary after every step of the rail (`SUMMARY_RANK`) — then the freshness
+ * chip goes, LR · TD folds into one chip naming the orientation, whose menu
+ * holds both, and find state's box folds to its icon, which opens the box in
+ * the edit popover; with a rail, LR · TD then folds into find state's popover,
+ * one move, so a phone's row keeps the rail and Save. The history item's step
+ * (`DEFAULT_RANK`) comes after all of them. Nothing wraps, scrolls or goes to
+ * a second row, and on a coarse pointer every control is a 44px target by its
+ * box or by its halo, the row's height its own.
  *
  * @packageDocumentation
  */
 
 import { Box, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { Slice, RecordSliceChromeType } from "@elaraai/east-ui/internal";
-import { HOST_RANK, useSliceToolbarItems, useRecordSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { useKeySearchToolbarItem, type Formatters, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
 
 type Styles = Record<string, SystemStyleObject>;
-
-/** The bound slice handle, decoded. */
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 /** The canvas's orientation: left to right, or top down. */
 export type FlowchartOrientation = "LR" | "TD";
@@ -76,16 +77,14 @@ export interface FlowchartToolbarProps {
     readonly onOrientation: (orientation: FlowchartOrientation) => void;
     /** The freshness chip — `undefined` when the flowchart has none. */
     readonly freshness: FlowchartFreshness | undefined;
-    /** The slice over the transitions the host builds its flow from — over `data` alone. */
-    readonly slice: SliceBindValue | undefined;
-    /** The rail's affordances, in order. */
-    readonly affordances: readonly string[];
     /** The formatters the chip's date prints with, in the app's locale. */
     readonly words: Formatters;
     /** The history item over the open flow's session (`historyToolbarItem`) — where the flowchart edits; `undefined` where it does not. */
     readonly history?: ToolbarItem | undefined;
-    /** Shared record-index controls for the Flows list. */
-    readonly recordChrome?: ValueTypeOf<RecordSliceChromeType> | undefined;
+    /** The rail (#1346): one over the flowchart's `Slice.bindRecords`, its affordances and its persistence; `undefined` with no slice. */
+    readonly chrome?: ValueTypeOf<RecordSlicesChromeType> | undefined;
+    /** What the rail's summary counts each source in, by its name — `flows`, `state templates`, `owners`. */
+    readonly nouns?: Readonly<Record<string, string>> | undefined;
 }
 
 /**
@@ -95,9 +94,10 @@ export interface FlowchartToolbarProps {
  * @param props - What the items show and drive
  * @returns The items, a falsy entry for each the flowchart has no use for
  */
-export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, slice, affordances, words, history, recordChrome }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
-    // Find state: its box, or its icon, which opens the box, on a row short of room.
-    const combine = recordChrome !== undefined && find !== undefined;
+export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, words, history, chrome, nouns }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+    // Find state: its box, or its icon, which opens the box, on a row short of room — and, beside a rail, last its
+    // popover holding LR · TD over its box, the orientation's chip gone in the same move.
+    const combine = chrome !== undefined && find !== undefined;
     const seek = useKeySearchToolbarItem(find, {
         rank: FLOWCHART_RANK.seek, label: "Find state",
         compact: combine ? {
@@ -106,11 +106,11 @@ export function useFlowchartToolbarItems({ styles, find, orientation, onOrientat
                 items={ORIENTATIONS} active={orientation} onPick={onOrientation} fullWidth /></Box>,
         } : undefined,
     });
-    // The slice's rail, at the row's end.
-    const rail = useSliceToolbarItems(slice, [{ key: "rail", kinds: affordances, side: "end" }])[0];
-    const recordRail = useRecordSliceToolbarItems(recordChrome?.slice, recordChrome === undefined ? {} : {
-        noun: "flows", affordances: recordChrome.affordances.map(a => a.type),
-        ...(recordChrome.persist.type === "some" ? { persist: recordChrome.persist.value.type } : {}),
+    // The rail (#1346): one over every source of the flowchart's slice, each counted in its own noun.
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, {
+        ...(nouns === undefined ? {} : { nouns }),
+        ...(chrome === undefined ? {} : { affordances: chrome.affordances.map((a) => a.type) }),
+        ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     // The freshness chip: the shared chip, its dot first and its date muted after its label.
     const chipRecipe = useRecipe({ key: "chip" });
@@ -135,8 +135,7 @@ export function useFlowchartToolbarItems({ styles, find, orientation, onOrientat
             ],
         },
         chip !== undefined && { key: "freshness", rank: FLOWCHART_RANK.freshness, forms: [chip, null] },
-        rail,
-        ...recordRail,
+        ...rail,
         history,
     ];
 }

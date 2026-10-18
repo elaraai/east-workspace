@@ -131,13 +131,15 @@ async function createFlow(container: HTMLElement, name: string) {
 function payload(source: FlowchartValue["source"], options: Partial<Pick<FlowchartValue, "library" | "readOnly" | "name" | "open">> = {}): FlowchartValue {
     return {
         canvas: {
-            orientation: none, freshness: none, minimap: none, legend: some(false), slice: none,
+            orientation: none, freshness: none, minimap: none, legend: some(false),
             onSelectState: none, onSelectLink: none, onSelectTrigger: none,
             onTracePath: none, canConnect: none,
         },
         source,
         open: options.open ?? none,
         library: options.library ?? [variant("flows", null)],
+        slice: none,
+        narrowed: new SortedMap([], compareFor(StringType)),
         inspector: none,
         readOnly: options.readOnly ?? false,
         name: options.name ?? none,
