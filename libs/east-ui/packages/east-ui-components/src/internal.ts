@@ -81,8 +81,9 @@ export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";
 
-// Paged builder palettes reuse the Library face and the shared bounded window plan.
+// Paged builder palettes reuse the Library face, its search box — finding within the tab alone, through its
+// source's part of the rail (#1340, ruling 11) — and the shared bounded window plan.
 export { LibraryCard } from "./collections/library/index.js";
-export { PagedLibrary, type LibraryPageSource } from "./collections/library/paged.js";
+export { PagedLibrary, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
 // A tab's count while a builder's rail narrows it: over resident cards, and over a paged record (#1339, #1341).
 export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
