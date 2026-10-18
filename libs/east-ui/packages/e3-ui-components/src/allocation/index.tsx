@@ -32,13 +32,12 @@ import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
-import { useKeyVisibility } from "../shared/schedule/visibility.js";
+import { useNarrowed } from "./narrowed.js";
 export type { AllocationValue } from "./model.js";
 
 /** Props of the record-backed Allocation extension. */
 export interface EastChakraAllocationProps { value: AllocationValue; storageKey: string }
 const NO_DATES: readonly Date[] = [];
-const VISIBILITY_WORDS = { changed: "Resource results changed; retry the narrowing.", failed: "Could not load resource results" };
 
 function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "allocation"}`;
@@ -62,8 +61,12 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const [error, setError] = useState<string>();
     // A refused drop's reason (A40): it adds no banner; the inspector (#1331) shows it at its top until the next action.
     const [_refusal, setRefusal] = useState<Refusal>();
-    // The narrowing chooses which rows the Timeline shows; fits, checks and totals read every resource.
-    const visibility = useKeyVisibility({ visibleSource: value.visibleSource, visible: value.visibleResources, rows: value.resources, recordSlice: value.recordSlice }, VISIBILITY_WORDS);
+    // The narrowing chooses which lanes and resources show, read from the slice itself (#1336); fits, checks and totals read every one.
+    const lanesShown = useNarrowed(value, "lanes", value.lanes);
+    const resourcesShown = useNarrowed(value, "resources", value.resources);
+    const narrowing = [lanesShown, resourcesShown];
+    const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
+    const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
@@ -128,12 +131,12 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const onIssues = () => revealPane("Inspector");
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
-        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: visibility.keys.type === "some" && !visibility.keys.value.has(focus) },
+        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
         onClearFocus: () => { setSelection(undefined); setLink(undefined); } });
     const published = editing.held?.status.type === "published";
     const notStarted = !data.loading && data.error === undefined && editing.held === undefined && plan.bins.size === 0;
     return <Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={(data.loading && data.error === undefined) || (!visibility.ready && visibility.loading)} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={(data.loading && data.error === undefined) || narrowing.some(n => !n.ready && n.loading)} toolbar={toolbar} onKeyDown={event => {
             // The keys, never while typing (A6).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
@@ -148,22 +151,25 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             {published && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
             {notStarted && <BannerView status="info" title="Day not started" description="Book an event or reserve a slot to start this day's plan." />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The plan's additional checks could not run. Built-in checks are still shown." />}
-            {visibility.error !== undefined && <BannerView status="error" title="Resource results unavailable" description={visibility.error} actions={<Button size="xs" variant="outline" onClick={visibility.retry}>Retry</Button>} />}
+            {lanesShown.error !== undefined && <BannerView status="error" title="Lane results unavailable" description={lanesShown.error} actions={<Button size="xs" variant="outline" onClick={lanesShown.retry}>Retry</Button>} />}
+            {resourcesShown.error !== undefined && <BannerView status="error" title="Resource results unavailable" description={resourcesShown.error} actions={<Button size="xs" variant="outline" onClick={resourcesShown.retry}>Retry</Button>} />}
             {/* A fit that failed (F3): its message, and Retry; a drop meanwhile is refused with `fits unavailable`. */}
             {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} narrow={narrow} />}>
             <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
-                aria-busy={(data.loading && data.error === undefined) || visibility.loading} inert={visibility.loading || visibility.error !== undefined ? true : undefined}
+                aria-busy={(data.loading && data.error === undefined) || narrowingLoading} inert={narrowingLoading || narrowingFailed ? true : undefined}
                 data-allocation-narrow={narrow ? "" : undefined}>
                 {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
-                        held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={visibility.keys} selection={selection} focus={focus}
+                        held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
+                        clearFilters={clearFilters} selection={selection} focus={focus}
                         editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={window.day} plan={plan} held={editing.held}
                         sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={select} follow={follow}
-                        drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} />}
+                        drag={drag} commands={commands} fit={fit} without={without} reserving={reserving}
+                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} clearFilters={clearFilters} />}
             </Box>
         </BuilderFrame>
     </Box>;

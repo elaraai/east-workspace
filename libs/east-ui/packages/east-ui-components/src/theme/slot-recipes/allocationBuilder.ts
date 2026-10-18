@@ -22,7 +22,8 @@
  * - `controls` — the controls the narrowest toolbar folds into one popover.
  * - `footer`, `footerItem` — the shared rail and its items.
  * - `legendItem`, `legendSwatch` — a legend entry and its swatch (`data-kind`).
- * - `error`, `empty` — a refused action's words, and an empty main.
+ * - `error`, `empty` — a refused action's words, and an empty main; `narrowedEmpty` — the shared empty state where the
+ *   narrowing leaves nothing to show (#1336).
  * - The Timeline (A14–A21): `timeline`; the panes' one head row, `head`, `headCaption`; the lane pane, `lanePane`,
  *   `laneContent`, `laneHead`, `laneHeadCell`, `laneName`, `laneOffset`, `laneMeta`, `laneGrid`, `laneBand`, `laneHour`,
  *   `laneCell`; a bin's card, `card`, `cardTop`, `cardCode`, `cardQty`, `cardLine`, `cardTo`, `cardMark`, and its
@@ -88,7 +89,7 @@ const tableText = { fontFamily: "mono", fontVariantNumeric: "tabular-nums", whit
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
     slots: [
-        "root", "main", "status", "pickerDot", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty",
+        "root", "main", "status", "pickerDot", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
         "timeline", "head", "headCaption", "lanePane", "laneContent", "laneHead", "laneHeadCell", "laneName", "laneOffset", "laneMeta",
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
@@ -137,6 +138,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         },
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { padding: "16px", textStyle: "body.sm", color: "fg.muted" },
+        // The narrowing left nothing to show: the shared empty state, at the top of the area it empties.
+        narrowedEmpty: { flex: 1, minHeight: 0, minWidth: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", overflow: "auto", paddingTop: "24px", background: "bg.surface" },
 
         // ── The Timeline ── three panes side by side: the lane grid, the link channel, the resources.
         timeline: { position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden", isolation: "isolate", background: "bg.surface" },

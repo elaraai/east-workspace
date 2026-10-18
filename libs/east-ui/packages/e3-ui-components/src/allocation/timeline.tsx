@@ -30,6 +30,7 @@ import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { gripCoord, gripOf, gripOfPayload, laneCoord, placeAsk, rowCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import { familyOf, layoutLinks, type FamilyLink } from "./links.js";
+import { NarrowedEmpty } from "./narrowed.js";
 import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
 import {
     allocationWords, compareDate, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Fit,
@@ -67,6 +68,10 @@ export interface TimelineProps {
     issues: readonly Issue[];
     /** The resources the narrowing shows, by key; `none` for every one. */
     visible: option<Set<string>>;
+    /** The lanes the narrowing shows, by key; `none` for every one (#1336). */
+    visibleLanes: option<Set<string>>;
+    /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
+    clearFilters: (() => void) | undefined;
     selection: Selection | undefined;
     /** The focus (A13). */
     focus: string | undefined;
@@ -214,7 +219,9 @@ export function AllocationTimeline(props: TimelineProps) {
     const { value, context, styles, plan, day, loads, slots } = props;
     const words = allocationWords();
     const unit = context.unit;
-    const grid = useMemo(() => laneGrid(value.lanes.map(lane => lane.key), slots, plan), [value.lanes, slots, plan]);
+    // The lanes the narrowing shows, in their order: a hidden lane's column goes, with its cards and its slots (#1336).
+    const lanes = useMemo(() => value.lanes.filter(lane => props.visibleLanes.type === "none" || props.visibleLanes.value.has(lane.key)), [value.lanes, props.visibleLanes]);
+    const grid = useMemo(() => laneGrid(lanes.map(lane => lane.key), slots, plan), [lanes, slots, plan]);
     const axis = useMemo(() => resourceAxis(day, Number(words.ms(value.settings.horizon.before)), Number(words.ms(value.settings.horizon.after))),
         [day, value.settings.horizon, words]);
     const lines = useMemo(() => new Map(value.resources.map(r => [r.key, words.line(day, r, loads.get(r.key)!, unit)] as const)), [value.resources, loads, day, unit, words]);
@@ -352,14 +359,16 @@ export function AllocationTimeline(props: TimelineProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.follow.nonce]);
 
-    const vars = { "--allocation-lanes": value.lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
+    // A narrowing that leaves no lane or no resource leaves nothing to plan on.
+    if (lanes.length === 0 || rows.length === 0) return <NarrowedEmpty styles={styles} clear={props.clearFilters} />;
+    const vars = { "--allocation-lanes": lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
     const flags = props.issues.length === 0 ? NO_ISSUES : props.issues;
     return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="" data-allocation-drag={grip?.kind}>
         <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="" data-edge-scroll-row={ROW_H}>
             <Box css={styles.laneContent}>
                 <Box css={[styles.head, styles.laneHead]}>
                     <Box data-head-caption="" css={styles.headCaption}><span>Lane</span><span>Hour</span></Box>
-                    {value.lanes.map((lane, i) => {
+                    {lanes.map((lane, i) => {
                         const head = grid.heads[i]!;
                         const minute = head.first === undefined ? "" : formatDatePattern("mm", head.first);
                         return <Box key={lane.key} css={styles.laneHeadCell} data-allocation-lane={lane.key}>
@@ -376,7 +385,7 @@ export function AllocationTimeline(props: TimelineProps) {
                     {grid.bands.map(band => <Box key={band.slot} css={styles.laneBand} style={{ "--band-row": band.row, "--band-span": band.span } as CSSProperties} data-allocation-band={band.slot}>
                         <Box as="span" css={styles.laneHour}>{formatDatePattern(value.every.type === "hours" ? "HH" : "HH:mm", band.at)}</Box>
                     </Box>)}
-                    {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={value.lanes[cell.lane]!.key} at={cell.at} free={cell.free}
+                    {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={lanes[cell.lane]!.key} at={cell.at} free={cell.free}
                         style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} onRest={() => hover(undefined, undefined, false)} />)}
                     {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} onRest={() => hover(undefined, undefined, false)} />)}
                 </Box>

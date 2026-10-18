@@ -5,7 +5,7 @@
 
 /**
  * The Allocation's adapters (`Allocation Spec.md` §4.1): an app's keyed rows
- * read as events and resources through accessors, `(row, key) => …`, each
+ * read as events, lanes and resources through accessors, `(row, key) => …`, each
  * reified once into one East function, as `Roster.people` does. The board
  * never writes the rows.
  *
@@ -17,7 +17,7 @@ import {
     type DateTimeType, type DictType, type EastType, type ExprType, type FloatType, type OptionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import type { TimeStepType } from "@elaraai/east-ui";
-import { AllocationDetailType, AllocationEventType, AllocationIntervalType, AllocationJobType, AllocationResourceType } from "./types.js";
+import { AllocationDetailType, AllocationEventType, AllocationIntervalType, AllocationJobType, AllocationLaneType, AllocationResourceType } from "./types.js";
 
 /** Brands an events declaration, so the tag knows one from any other object. @internal */
 export const ALLOCATION_EVENTS: unique symbol = Symbol("Allocation.events");
@@ -121,6 +121,46 @@ export function resolveAllocationEvents(events: AllocationEvents, values: EastTy
 }
 
 /**
+ * Accessors reading an app's rows as lanes.
+ *
+ * @typeParam R - The app's row type
+ */
+export interface AllocationLanesConfig<R extends EastType> {
+    /** Its name (`B-1`). */
+    label: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
+    /** How far past each slot's start its bins are booked (`variant("minutes", 15)`); none by default. */
+    offset?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof TimeStepType>;
+}
+
+/**
+ * Reads the app's keyed rows as lanes, every one of them.
+ *
+ * @typeParam R - The app's row type
+ * @param rows - Every lane's row, by key — usually a record's `read()`
+ * @param config - The accessors
+ * @returns Every lane, in the rows' key order; a lane's key is its row's
+ * @throws {Error} When the rows are not a Dict keyed by String
+ *
+ * @remarks
+ * The rows' keys are the lanes' keys: a `Slice.bindRecords` source named
+ * `lanes` over the same record narrows the board by them. The accessors are
+ * reified once into one East function, called per row.
+ */
+export function allocationLanes<R extends EastType>(
+    rows: ExprType<DictType<StringType, R>>, config: AllocationLanesConfig<R>,
+): ExprType<ArrayType<typeof AllocationLaneType>> {
+    const type = Expr.type(rows);
+    if (type.type !== "Dict" || type.key.type !== "String") throw new Error("Allocation.lanes: the lanes must be a Dict keyed by String");
+    const resolve = East.function([type.value, StringType], AllocationLaneType, (_$, row, key) => ({
+        key, label: config.label(row, key), offset: config.offset?.(row, key) ?? variant("minutes", 0.0),
+    }));
+    return rows.toArray(($, row, key) => {
+        const adapt = $.const(resolve);
+        return adapt(row as unknown as SubtypeExprOrValue<R>, key);
+    });
+}
+
+/**
  * Accessors reading an app's rows as resources.
  *
  * @typeParam R - The app's row type
@@ -155,7 +195,7 @@ export interface AllocationResourcesConfig<R extends EastType> {
  *
  * @remarks
  * Pass every resource: fits, checks and totals read all of them, whatever
- * `visibleResources` shows. The accessors are reified once into one East
+ * the narrowing shows. The accessors are reified once into one East
  * function, called per row.
  */
 export function allocationResources<R extends EastType>(

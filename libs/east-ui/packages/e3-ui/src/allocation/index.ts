@@ -21,20 +21,19 @@
 
 import {
     ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, East, EastTypeType, Expr, FunctionType, IntegerType, NullType,
-    OptionType, SetType, StringType, StructType, VariantType, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    OptionType, StringType, StructType, VariantType, isTypeEqual, none, printType, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { EastUI, Editing, StatusTokenType, TimeStepType, UIComponentType, type RowSourceInput, type UIElement } from "@elaraai/east-ui";
+import { EastUI, Editing, StatusTokenType, TimeStepType, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import {
-    RecordSliceChromeType, RowSourceType, SliceAffordanceType, SliceBindType, SliceChromeType, isRecordSlice, localSliceHandle,
-    recordSliceChrome, type RecordSliceChromeOptions, type SliceAffordanceLiteral,
+    RecordSlicesChromeType, RowSourceType, isRecordSlices, recordSlicesChrome, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType, type PagedValue } from "../bind/data.js";
 import { FuncBindingType, type BoundFunc } from "../bind/func.js";
 import { Record, type RecordBindingType } from "../bind/record.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { keyVisibility } from "../utils/key-visibility.js";
-import { ALLOCATION_EVENTS, allocationEvents, allocationResources, resolveAllocationEvents, type AllocationEvents } from "./adapters.js";
+import { ALLOCATION_EVENTS, allocationEvents, allocationLanes, allocationResources, resolveAllocationEvents, type AllocationEvents } from "./adapters.js";
 import {
     allocationAnswer, allocationCandidates, allocationCheck, allocationFit, allocationLoads, allocationLookahead, allocationSlots,
 } from "./functions.js";
@@ -120,8 +119,7 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property events - Every event the day may book
  * @property resources - Every resource
  * @property initial - An event's starting values, by its key, as bytes at `V`
- * @property visibleResources - The resources the Timeline shows, by key
- * @property visibleSource - The same, paged through a record Slice
+ * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the lanes and the resources that show
  * @property fit - The app's fit, by its `e3.function`'s name
  * @property check - The app's issues, from the check context as bytes at `CheckContext(V)`
  * @property columns - The app's values as columns and inspector rows
@@ -129,8 +127,7 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property quantity - The quantity's unit
  * @property library - The library's tabs, in order
  * @property inspector - The inspector's options; `none`, no inspector
- * @property slice - Local Slice chrome
- * @property recordSlice - Record Slice chrome
+ * @property slice - The narrowing's chrome: a Slice over the lanes' and the resources' records, one rail
  * @property settings - The board's settings
  * @property id - Storage keys and drag-source ids
  */
@@ -145,8 +142,7 @@ export const AllocationPayloadType = StructType({
     events: ArrayType(T.AllocationEventType),
     resources: ArrayType(T.AllocationResourceType),
     initial: FunctionType([StringType], BlobType),
-    visibleResources: OptionType(SetType(StringType)),
-    visibleSource: OptionType(RowSourceType(ArrayType(StringType))),
+    narrowed: StructType({ lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))) }),
     fit: FuncBindingType,
     check: OptionType(FunctionType([BlobType], ArrayType(T.AllocationIssueType))),
     columns: ArrayType(AllocationColumnType),
@@ -154,8 +150,7 @@ export const AllocationPayloadType = StructType({
     quantity: StructType({ unit: OptionType(StringType) }),
     library: ArrayType(AllocationLibraryTabType),
     inspector: OptionType(AllocationInspectorType),
-    slice: OptionType(SliceChromeType),
-    recordSlice: OptionType(RecordSliceChromeType),
+    slice: OptionType(RecordSlicesChromeType),
     settings: AllocationSettingsType,
     id: OptionType(StringType),
 });
@@ -204,7 +199,7 @@ export interface AllocationProps<V extends EastType> {
     days: AllocationDaysHandle<V>;
     /** `Data.bindPaged(plans)` on the same record, no index: the board reads a day at a time, for a long history. */
     window?: PagedValue<T.AllocationDaysType<V>>;
-    /** The lanes, in order; at least one. */
+    /** The lanes, in order; at least one: `Allocation.lanes(rows, { … })` over the app's record, or the lanes themselves. */
     lanes: SubtypeExprOrValue<ArrayType<typeof T.AllocationLaneType>>;
     /** The slot spacing for every lane; an hour by default. */
     every?: SubtypeExprOrValue<typeof TimeStepType>;
@@ -218,10 +213,11 @@ export interface AllocationProps<V extends EastType> {
     check?: SubtypeExprOrValue<FunctionType<[T.AllocationCheckContextType<V>], ArrayType<typeof T.AllocationIssueType>>>;
     /** The app's bin values as Table columns (after Quantity) and inspector rows. */
     columns?: readonly AllocationColumn<V>[];
-    /** The resources the Timeline shows: a Set of keys, or `Slice.rows(recordSlice)`; required with record Slice chrome. */
-    visibleResources?: RowSourceInput<SetType<StringType>>;
-    /** The Timeline's narrowing: local Slice chrome, or a record Slice. */
-    slice?: { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | RecordSliceChromeOptions;
+    /**
+     * The narrowing: `Slice.bindRecords(key, { lanes, resources })` over the lanes' and the resources' records, one rail in both
+     * layouts. The board reads each source's narrowed keys itself; fits, checks and totals still read every lane and resource.
+     */
+    slice?: RecordSlicesChromeOptions;
     /** The unit everywhere a quantity shows. */
     quantity?: { unit?: string };
     /** The built-in rules: whether `Allocation.fit` and `Allocation.check` warn under min (true). */
@@ -262,7 +258,7 @@ function valuesOf(daysType: EastType): EastType | undefined {
  * @typeParam V - The app's bin values
  * @param props - The board's props
  * @returns The payload
- * @throws {Error} When `days` is not a plans record, `fit` is bound over other bin values, `lanes` is empty, a library tab repeats, a column key repeats, or a callback has another type
+ * @throws {Error} When `days` is not a plans record, `fit` is bound over other bin values, `lanes` is empty, a library tab repeats, a column key repeats, a callback has another type, or `slice` is not `Slice.bindRecords` over `lanes` and `resources`
  * @internal
  */
 export function createAllocationPayload<V extends EastType>(props: AllocationProps<V>): ExprType<typeof AllocationPayloadType> {
@@ -361,10 +357,25 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
             total: handleOf.total, seek: handleOf.seek, revision: handleOf.revision, refresh: handleOf.refresh,
         }, AllocationWindowType);
     }
-    const record = props.slice !== undefined && isRecordSlice(props.slice.slice);
-    const visibility = props.visibleResources === undefined ? undefined : keyVisibility(props.visibleResources, "Allocation.visibleResources");
-    if (record && visibility?.source === undefined) throw new Error("Allocation: pass Slice.rows(recordSlice) as visibleResources alongside record Slice controls");
-    const local = props.slice as { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | undefined;
+    // The narrowing names each source after what it narrows; the board reads each one's keys itself.
+    const narrowed: { lanes?: unknown; resources?: unknown } = {};
+    if (props.slice !== undefined) {
+        if (!isRecordSlices(props.slice.slice)) {
+            throw new Error("Allocation: `slice` is Slice.bindRecords(key, { lanes, resources }) — name each source after what it narrows");
+        }
+        const handle = East.value(props.slice.slice) as unknown as ExprType<StructType>;
+        const sources = (Expr.type(handle as unknown as Expr) as StructType).fields["sources"];
+        const names = sources?.type === "Struct" ? Object.keys(sources.fields) : [];
+        for (const name of names) {
+            if (name !== "lanes" && name !== "resources") {
+                throw new Error(`Allocation: \`slice\` narrows its lanes and its resources — its source '${name}' is neither; name the sources \`lanes\` and \`resources\``);
+            }
+            const rows = ((handle as unknown as { sources: Record<string, { data: unknown }> }).sources)[name]!.data;
+            const keys = keyVisibility(rows, `Allocation.slice's ${name}`);
+            if (keys.source === undefined) throw new Error(`Allocation: \`slice\`'s ${name} is a record Slice with String primary keys`);
+            narrowed[name] = keys.source;
+        }
+    }
     const form = typeof props.inspector === "object" ? props.inspector.bin : undefined;
     return East.value({
         sourceId: handle.binding.name,
@@ -377,8 +388,7 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
         valuesType: toEastTypeValue(values),
         lanes: props.lanes, every: props.every ?? variant("hours", 1.0),
         events: events.events, resources: props.resources, initial: events.initial,
-        visibleResources: visibility?.inline === undefined ? none : some(visibility.inline),
-        visibleSource: visibility?.source === undefined ? none : some(visibility.source),
+        narrowed: { lanes: narrowed.lanes === undefined ? none : some(narrowed.lanes as never), resources: narrowed.resources === undefined ? none : some(narrowed.resources as never) },
         fit: (props.fit as unknown as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding,
         check: check === undefined ? none : some(check),
         columns, rules: { under: props.rules?.under ?? true },
@@ -388,9 +398,7 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
             bin: form === undefined ? none : some(rowInspector(form, T.AllocationBinTypeFor(values) as unknown as StructType,
                 `Allocation: \`inspector.bin\` is an East function of the bin, Allocation.Types.Bin(${printType(values)}), and a writer of the edited bin, returning UIComponentType`)),
         }),
-        slice: record || local === undefined ? none : some({ slice: localSliceHandle(local.slice),
-            affordances: East.value((local.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)) }),
-        recordSlice: record ? some(recordSliceChrome(props.slice as RecordSliceChromeOptions)) : none,
+        slice: props.slice === undefined ? none : some(recordSlicesChrome(props.slice)),
         settings: {
             layout: variant(props.view?.layout ?? "timeline", null), date: props.view?.date === undefined ? none : some(props.view.date),
             horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },
@@ -415,6 +423,8 @@ export interface AllocationNamespace {
     <V extends EastType>(props: AllocationProps<V>): UIElement;
     /** Declares the events the day may book, from the app's keyed rows. */
     events: typeof allocationEvents;
+    /** Reads every lane from the app's keyed rows. */
+    lanes: typeof allocationLanes;
     /** Reads every resource from the app's keyed rows. */
     resources: typeof allocationResources;
     /** The built-in rules, one verdict per candidate. */
@@ -459,7 +469,7 @@ export interface AllocationNamespace {
 export const Allocation: AllocationNamespace = Object.assign(
     <V extends EastType>(props: AllocationProps<V>): UIElement => AllocationComponent.Root(createAllocationPayload(props)),
     {
-        events: allocationEvents, resources: allocationResources, fit: allocationFit, loads: allocationLoads,
+        events: allocationEvents, lanes: allocationLanes, resources: allocationResources, fit: allocationFit, loads: allocationLoads,
         candidates: allocationCandidates, answer: allocationAnswer, lookahead: allocationLookahead, check: allocationCheck, slots: allocationSlots,
         library: { events: allocationEventsTab, resources: allocationResourcesTab },
         Types: {

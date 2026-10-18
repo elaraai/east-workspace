@@ -153,12 +153,12 @@ describe("the resource rows", () => {
         await press(card(c, "3101")!);
         const chip = () => toolbar(c).getByTitle("The focus: its links are drawn · Esc returns to all").textContent;
         expect(chip()).toBe("K-2091 bin · 35 m³");
-        const key = "ex.allocationKilnYard.kilns";
+        const key = "ex.allocationKilnYard.resources";
         const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
         await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, where: new Map([["group", variant("values", [printFor(StringType)("Hall A")])]]), preset: none })); });
         await waitFor(() => expect(order()).toEqual(["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"]));
         expect(chip()).toBe("K-2091 bin · 35 m³ · hidden by Filters");
-        // The lane grid is never narrowed: every bin still has its card.
+        // A resource narrowing hides no lane: every bin still has its card.
         expect(c.querySelectorAll("[data-allocation-card]")).toHaveLength(26);
     });
 

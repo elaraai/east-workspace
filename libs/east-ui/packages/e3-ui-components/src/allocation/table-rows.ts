@@ -7,11 +7,13 @@
  * The Table's rows (`Allocation Spec.md` §8, A41–A43), pure: one row per lane
  * slot of the day, and one more per extra bin of a batch, in e3-ui's slot
  * order — time, then lane — in four time bands. A row is its slot's or its
- * bin's, so an allocation never moves it; the Table is never narrowed.
+ * bin's, so an allocation never moves it. The narrowing (#1336) hides a row
+ * whose lane it hides, or whose every resource it hides; never reorders one.
  *
  * @packageDocumentation
  */
 
+import type { option } from "@elaraai/east";
 import { dayKey, type Day, type Slot } from "./model.js";
 
 /** What a row holds: nothing, a bin with an event, or a reservation. */
@@ -78,14 +80,56 @@ export function tableRows(slots: readonly Slot[], plan: Day): TableRow[] {
  * @returns The bands, each with its counts
  */
 export function tableBands(rows: readonly TableRow[], plan: Day, day: Date): TableBand[] {
-    return BANDS.map(([from, to]) => {
-        const in_ = rows.filter(r => { const h = Math.floor((r.slotAt.getTime() - day.getTime()) / HOUR_MS); return h >= from && h < to; });
-        const bins = in_.filter(r => r.kind === "bin");
-        return {
-            key: `${hour(from)}–${hour(to)}`, label: `${hour(from)}–${hour(to)}`, rows: in_,
-            bins: bins.length, reserved: in_.filter(r => r.kind === "reserved").length, free: in_.filter(r => r.kind === "free").length,
-            quantity: bins.reduce((sum, r) => sum + (plan.bins.get(r.bin!)?.quantity ?? 0), 0),
-        };
+    return BANDS.map(([from, to]) => bandOf(`${hour(from)}–${hour(to)}`,
+        rows.filter(r => { const h = Math.floor((r.slotAt.getTime() - day.getTime()) / HOUR_MS); return h >= from && h < to; }), plan));
+}
+
+/** A band of rows, with what they hold. */
+function bandOf(label: string, rows: readonly TableRow[], plan: Day): TableBand {
+    const bins = rows.filter(r => r.kind === "bin");
+    return {
+        key: label, label, rows: [...rows],
+        bins: bins.length, reserved: rows.filter(r => r.kind === "reserved").length, free: rows.filter(r => r.kind === "free").length,
+        quantity: bins.reduce((sum, r) => sum + (plan.bins.get(r.bin!)?.quantity ?? 0), 0),
+    };
+}
+
+/**
+ * The rows a narrowing shows (#1336): a row of a shown lane that holds no
+ * resource — free, or not yet allocated — or has a part on a shown resource.
+ * Monotone in both sets: showing more never hides a row.
+ *
+ * @param rows - The rows, in order
+ * @param plan - The day as drafted
+ * @param lanes - The lanes the narrowing shows; `none`, every one
+ * @param resources - The resources it shows; `none`, every one
+ * @returns The rows it shows, in their order
+ */
+export function narrowRows(rows: readonly TableRow[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>): TableRow[] {
+    return rows.filter(row => {
+        if (lanes.type === "some" && !lanes.value.has(row.lane)) return false;
+        const parts = resources.type === "none" || row.bin === undefined ? undefined : plan.bins.get(row.bin)?.parts;
+        if (parts === undefined || parts.size === 0) return true;
+        for (const key of parts.keys()) if (resources.type === "some" && resources.value.has(key)) return true;
+        return false;
+    });
+}
+
+/**
+ * The bands as a narrowing shows them: each with its shown rows and what they
+ * hold; a band the narrowing empties has no heading.
+ *
+ * @param bands - The day's bands
+ * @param plan - The day as drafted
+ * @param lanes - The lanes the narrowing shows; `none`, every one
+ * @param resources - The resources it shows; `none`, every one
+ * @returns The bands, in order
+ */
+export function narrowBands(bands: readonly TableBand[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>): TableBand[] {
+    if (lanes.type === "none" && resources.type === "none") return [...bands];
+    return bands.flatMap(band => {
+        const rows = narrowRows(band.rows, plan, lanes, resources);
+        return rows.length === 0 && band.rows.length > 0 ? [] : [bandOf(band.label, rows, plan)];
     });
 }
 

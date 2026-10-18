@@ -28,7 +28,7 @@ measures the mock in a headless browser, through its DOM; nobody reads a
 screenshot.
 
 **The yard.** Three unloading bays (B-1 at :15, B-2 at :35, B-3 at :55 past each
-hour); 33 kilns in six groups (Hall A K-101…K-110, Hall B K-201…K-209, Compact
+hour; B-1 and B-2 in the North area, B-3 in the South); 33 kilns in six groups (Hall A K-101…K-110, Hall B K-201…K-209, Compact
 K-301…K-305, Standard K-401…K-403, Large K-501…K-504, Bulk K-601…K-602); 26
 bins in 18 slots (80 Table rows: 26 bins and 54 free slots); six loads still to
 book (LD-2231…LD-2236); quantities in m³; holds (drying days) 6, 8 or 9 by grade
@@ -92,8 +92,11 @@ These are settled.
    a draft; everything else is a warning with its fix. *(Ruled 17 Oct.)*
 7. **Publish** sets the day's status, as the Roster's Publish sets a week's; a
    published day is read-only. `publish={false}` removes the step. *(Ruled 17 Oct.)*
-8. **The Table is never narrowed.** The Filters chip narrows resources in the
-   Timeline only. *(Ruled 17 Oct.)*
+8. **One record Slice narrows the lanes and the resources**, in the Timeline and
+   the Table alike, from one rail: `Slice.bindRecords` over the lanes' and the
+   resources' records, each source named after what it narrows. The board reads
+   the narrowing from the slice it is given; no prop repeats it (§9.15). *(Ruled
+   17 Oct, superseding "the Table is never narrowed".)*
 9. **Split loads.** A bin's quantity may be split across resources, each part
    with its quantity. *(Ruled 17 Oct.)*
 10. **Find a fit** runs the app's fit for a bin's unallocated quantity and
@@ -127,10 +130,10 @@ renderer.
 // kiln-yard.tsx — module-level e3 units, types and seeds; every UI definition stays inline in its example.
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Box, Reactive, Slice, TimeStepType, UIComponentType } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
-import { yardArrivals, yardKilns, yardPlans } from "./kiln-yard-data.js";
+import { yardArrivals, yardBayRows, yardKilns, yardPlans } from "./kiln-yard-data.js";
 
 /** What each bin carries of the yard's own: the moisture target and grade booked, and as measured on arrival. */
 export const BinValues = StructType({
@@ -156,17 +159,16 @@ export const TimberLoad = StructType({
 // The plans the board edits: one per UTC day, each patched as a whole.
 export const kilnPlans = e3.record("kiln_plans", Allocation.Types.Days(BinValues), yardPlans);
 export const kilnPlansPatch = e3.mutation.patch(kilnPlans);
-// The kilns, indexed for the toolbar's narrowing.
+// The kilns, indexed by group for the narrowing.
 export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
 export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
 // Every load the day may book: booked or not, the board tells them apart by the plan.
 export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
-// The unloading bays: each takes one bin an hour, at its minute past the hour.
-export const yardBays = e3.record("yard_bays", ArrayType(Allocation.Types.Lane), [
-    { key: "B-1", label: "B-1", offset: variant("minutes", 15.0) },
-    { key: "B-2", label: "B-2", offset: variant("minutes", 35.0) },
-    { key: "B-3", label: "B-3", offset: variant("minutes", 55.0) },
-]);
+/** An unloading bay: its name, the yard area it stands in, and how far past each hour it takes its bin. */
+export const Bay = StructType({ name: StringType, area: StringType, offset: TimeStepType });
+// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area for the narrowing.
+export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), yardBayRows);
+export const yardBaysByArea = e3.recordIndex("yard_bays_by_area", yardBays, { on: ["area"] });
 
 // The yard's fit, on e3: the built-in rules (busy, gap too short, over max; under min warns),
 // then a greedy look-ahead — a fit that leaves more of the day's unbooked loads with nowhere to go ranks lower.
@@ -205,7 +207,8 @@ export const allocationMinimal = example({
         const yard = $.let(Data.bind(kilns));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
-        return <Box width="100%" height="760px"><Allocation id="allocationMinimal" days={days} lanes={bays.read()} fit={fit}
+        return <Box width="100%" height="760px"><Allocation id="allocationMinimal" days={days} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })}
             events={Allocation.events(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }) })}
             resources={Allocation.resources(yard.read(), { label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges })}
@@ -224,27 +227,31 @@ connector links, every gesture is one undo step, and Save patches the open day.
 
 ### 3.3 The kiln yard
 
-The mock's surface: the library and the inspector, the kilns narrowed by group
-through their index, the bin values shown as the Table's Spec and Grade columns
+The mock's surface: the library and the inspector, the bays narrowed by area and
+the kilns by group from one rail over both records, the bin values shown as the Table's Spec and Grade columns
 and the inspector's rows, and the yard's check flagging a booked ≠ measured
 mismatch, as the mock's Spec mismatch group does.
 
 ```tsx
 export const allocationKilnYard = example({
-    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, kilns narrowed by group through their index, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
-    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecord", "Slice.rows", "Func.bind", "fit", "links", "Publish"], inputs: [],
+    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area and the kilns by group from one rail over both records, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
+    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
         const history = $.let(Data.bindPaged(kilnPlans));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationKilnYard.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
@@ -266,7 +273,7 @@ export const allocationKilnYard = example({
             return issues;
         }));
         return <Box width="100%" height="900px"><Allocation id="allocationKilnYard" title="Kiln loading" days={days} window={history}
-            lanes={bays.read()} fit={fit} check={check}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit} check={check}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -284,7 +291,7 @@ export const allocationKilnYard = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }}
+            slice={{ slice }}
             quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]} inspector
             view={{ layout: "timeline", date: new Date("2027-05-11T00:00:00Z") }} />
@@ -313,7 +320,7 @@ records, and each is paired with its behavioural tests.
 
 ## 4. The options
 
-### 4.1 `Allocation.events(rows, config)` and `Allocation.resources(rows, config)`
+### 4.1 `Allocation.events(rows, config)`, `Allocation.lanes(rows, config)` and `Allocation.resources(rows, config)`
 
 Any `Dict<String, R>` of the app's, usually a record's `read()`, with accessors
 that take the row and its key, `(row, key) => …`, reified once into one East
@@ -331,6 +338,14 @@ function, as `Roster.people` does.
 | `window` | `Option<{ from, to }>` | Its ready window, on its card (`due Wed 12 · window Tue–Fri`). |
 | `details` | `Array<{ label, value }>` | Read-only lines in a bin's inspector (Settings). |
 
+| `lanes` accessor | Returns | What it gives the board |
+|---|---|---|
+| `label` | `String` | Its name in its head and every line that names it (`B-1`). Required. |
+| `offset` | `Duration`, none by default | How far past each slot's start its bins are booked (`variant("minutes", 15)`). |
+
+The lanes are the rows in key order, each keyed by its row's key: a
+`Slice.bindRecords` source named `lanes` over the same record narrows them.
+
 | `resources` accessor | Returns | What it gives the board |
 |---|---|---|
 | `label` | `String` | Its name (`K-203`). Required. |
@@ -347,15 +362,14 @@ function, as `Roster.people` does.
 |---|---|---|
 | `days` | `Record.bind(plans, [plansPatch])` | What the board reads and saves through, a day an entry. |
 | `window` | `Data.bindPaged(plans)` | Reads a day at a time by key seek, for a long history; it must page the same record with no index. |
-| `lanes` | `Array<Allocation.Types.Lane>` | The lanes, in order; nonempty, refused at build otherwise. |
+| `lanes` | `Allocation.lanes(…)`, or `Array<Allocation.Types.Lane>` | The lanes, in order; nonempty, refused at build otherwise. |
 | `every` | `Duration`, default `hours 1` | Slot spacing for every lane. |
 | `events` | `Allocation.events(…)` | Every event the day may book. |
 | `resources` | `Allocation.resources(…)` | Complete. |
 | `fit` | `Func.bind(e3.function)` over `[Allocation.Types.FitRequest(V)] → Allocation.Types.FitResult` | The fit (§12). Required: the board has no fit of its own. |
 | `check` | `Fn(Allocation.Types.CheckContext(V)) → Array<Issue>` | The app's issues, wherever issues show. |
 | `columns` | `Array<{ key, label, text: Fn(V) → String, tone?: Fn(V) → Option<StatusToken>, table?: boolean }>` | The bin values as Table columns (after Quantity) and inspector rows (the Bin section); `table: false` shows a value in the inspector only. |
-| `visibleResources` | `Set<String>` or `Slice.rows(recordSlice)` | The rows the Timeline shows; required with record Slice chrome. |
-| `slice` | `{ slice, affordances? }` or record Slice chrome | The Timeline's narrowing. |
+| `slice` | `{ slice: Slice.bindRecords(key, { lanes, resources }), affordances?, persist? }` | The narrowing: one rail over the lanes' and the resources' records, in both layouts. The board reads each source's narrowed keys itself (§9.15); its sources are named `lanes` and `resources`, and a bare `Slice.bindRecord` or a local Slice is refused at build. |
 | `quantity` | `{ unit?: string }` | The unit everywhere a quantity shows. |
 | `rules` | `{ under?: Boolean }` | Whether `Allocation.fit` and `Allocation.check` warn under min (true). |
 | `library` | `[Allocation.library.events(), Allocation.library.resources()]` | Tabs, in order; omitted, no start pane. |
@@ -471,13 +485,13 @@ AllocationPayloadType = StructType({
     apply: AsyncFunctionType([BlobType], Editing.Types.ApplyResult),               // a day's ChangeSet(Day(V), DateTime), as bytes
     window: OptionType(DataPagedHandleType(BlobType)), valuesType: EastTypeType,   // Data.bindPaged(plans), its windows as bytes at Days(V)
     lanes: ArrayType(Lane), every: TimeStepType, events: ArrayType(Event), resources: ArrayType(Resource), initial: FunctionType([StringType], BlobType),
-    visibleResources: OptionType(SetType(StringType)), visibleSource: OptionType(RowSourceType(ArrayType(StringType))),
+    narrowed: StructType({ lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))) }),   // each source's keys, from slice
     fit: FuncBindingType, check: OptionType(FunctionType([BlobType], ArrayType(Issue))),
     columns: ArrayType(StructType({ key: StringType, label: StringType, text: FunctionType([BlobType], StringType),
                                     tone: OptionType(FunctionType([BlobType], OptionType(StatusTokenType))), table: BooleanType })),
     rules: Rules, quantity: StructType({ unit: OptionType(StringType) }),
     library: ArrayType(AllocationLibraryTabType), inspector: OptionType(AllocationInspectorType),
-    slice: OptionType(SliceChromeType), recordSlice: OptionType(RecordSliceChromeType),
+    slice: OptionType(RecordSlicesChromeType),                                       // Slice.bindRecords' chrome: one rail over every source
     settings: StructType({ layout: Layout, date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
                            title: StringType, publish: BooleanType, readOnly: BooleanType }),
     id: OptionType(StringType),
@@ -506,7 +520,7 @@ neutral owner and its existing consumer moves onto it in the same change.
 | Toolbar | Toolbar items ranked around `HOST_RANK`, `ChipMenu`, `coarseHitArea` | `east-ui-components` toolbar, `./internal` |
 | Date | `TimeNavigator` (`period="day"`, `initialPanel="day"`, `onWeeks`), plus a new `dayMarker` | `e3-ui-components/src/shared/time/navigation.tsx` |
 | Segments | `Seg`, `Seg fullWidth` | `shared/schedule/segments.tsx` |
-| Narrowing | `useRecordSliceToolbarItems` / `useSliceToolbarItems`; visibility through `PagedScan`, as `roster/visibility.ts` | `east-ui-components/src/slice/` |
+| Narrowing | `Slice.bindRecords` and `useRecordSlicesToolbarItems` (one rail over several records, each part the record Slice's own controls); each source's visibility through `useKeyVisibility`'s `PagedScan`, as the Roster's | `east-ui/src/platform/slice/`, `east-ui-components/src/slice/record/`, `shared/schedule/visibility.ts` |
 | Session | `useEditHistory` keyed per day, `EditSession`, `historyToolbarItem`, `historyShortcut`, `typedInto`, `SessionBanners`, `BannerView` | `east-ui-components/src/editing/` |
 | Record door | `Record.onApply(days, { keyed: true })`; the keyed day read (new shared day reader) | `e3-ui/src/bind/record.ts`; `roster/data.ts` → `shared/schedule/` |
 | Fit call | `useFuncCall` and the shared `Func` runtime | `e3-ui-components/src/experiment/run-runtime.ts` → `shared/func/` |
@@ -534,7 +548,7 @@ loading from confirmed absent; Roster moves onto it); **`shared/func/`**
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ ‹ Tue 11 May › · Timeline | Table · Draft · ⛓ K-203 ×  · Kiln group ▾  … 21 of 33 kilns · 3 issues │ ↶ ↷ ✕ ✓ · Publish │
+│ ‹ Tue 11 May › · Timeline | Table · Draft · ⛓ K-203 × · Area ▾ Kiln group ▾ … 3 of 3 lanes · 21 of 33 resources · 3 issues │ ↶ ↷ ✕ ✓ · Publish │
 ├──────────────────────────────────────────────────────────────────────────────────────┤
 │ banners: session problems; published or not-started day; checks unavailable; fits unavailable; narrowing failed; nothing left to book │
 ├────────────┬───────────────────────────────────────────────────────────┬─────────────┤
@@ -552,8 +566,8 @@ loading from confirmed absent; Roster moves onto it); **`shared/func/`**
 | `allocation.layout` | start | `HOST_RANK + 1` | Seg Table · Timeline (icons `table`, `chart-gantt`) · inside View | Order as the mock: Table, then Timeline |
 | `allocation.status` | start | `HOST_RANK` | Not started · Draft · Publishing · Published · hidden | The day's stored status; absent with `publish={false}` |
 | `allocation.focus` | start | `HOST_RANK + 2` | the focus chip · its icon | Timeline only, while a focus is set |
-| the rail | start | the rail's own, folding first | a chip per indexed field · Filters › Narrowing | Timeline only |
-| the rail's count | end | the rail's | `21 of 33 kilns` | The one count; Timeline only |
+| the rail | start | the rail's own, folding first | a chip per source's field, in source order, then the presets · Filters › Narrowing | Both layouts (§9.15) |
+| the rail's count | end | the rail's | `3 of 3 lanes · 21 of 33 resources` | One count per source; both layouts |
 | `allocation.issues` | end | `HOST_RANK + 3` | warn chip `3 issues` · inside View | Opens Inspector › Issues |
 | history | end | last | Undo · Redo · Discard · Save | `historyToolbarItem` |
 | `allocation.publish` | end | `HOST_RANK + 5` | solid Publish · inside View | As the Roster's |
@@ -869,7 +883,7 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 - **A41.** One 36px row per slot (lane × hour) and one per extra bin of a batch,
   ordered by time then lane, in four foldable bands 00–06 · 06–12 · 12–18 · 18–24
   (`GroupHeading`, fold state persisted); a row never moves when an allocation
-  changes. The Table is never narrowed. *Ruled.*
+  changes. The narrowing hides rows (A93), never reorders them. *Ruled.*
 - **A42.** The band's head: `00:00–06:00`, its row count, `N bins · N reserved ·
   N free · Q m³`, and `· collapsed` when folded.
 - **A43.** A row: Time (ink when it holds a bin), Lane, the event chip or its
@@ -1123,6 +1137,33 @@ controls) are the shared part's.
   next job`; ● `Over max`; ↓ `Under minimum`; a check `Current` and a ×
   `Doesn't fit` in the Chooser.
 
+### 9.15 The narrowing (owner: narrowing, #1336) — *ruled*
+
+- **A91.** `slice` is one `Slice.bindRecords` whose sources are named after what
+  they narrow, `lanes` and `resources`, each a record bound through its indexes.
+  The board reads each source's narrowed keys itself, by the lane's and the
+  resource's key; a source with nothing chosen hides nothing and reads no key.
+- **A92.** The Timeline: a lane narrowing hides lane columns, with their cards and
+  lane hours, a card standing in its lane's column among those shown; a resource
+  narrowing hides resource rows (A18). A link to a hidden card or row is not
+  drawn; the focus stays.
+- **A93.** The Table: a row shows when its lane shows and it holds no resource (a
+  free slot, a bin not yet allocated) or has a part on a shown resource. Each band
+  counts the rows it shows (A42); a band the narrowing empties has no head.
+- **A94.** The resource Chooser offers the shown resources and Current; a drop
+  lands only on what shows. Fits, loads, checks, issues and totals read every lane
+  and resource.
+- **A95.** One rail in both layouts: each source's field chips in source order, the
+  presets over both, one Clear all, and one summary counting each source (`2 of 3
+  lanes · 21 of 33 resources`), each exact and pending on its own. A preset over
+  both sources narrows each in one gesture; a later choice in either deactivates
+  it.
+- **A96.** While a narrowing resolves, the last complete membership shows, main
+  busy and taking no gesture; a failed read shows `Lane results unavailable` or
+  `Resource results unavailable` with Retry, which asks that source again at once.
+  When the narrowing leaves nothing: `No rows match the filters`, with Clear
+  filters.
+
 ## 10. Drag and drop, as a table
 
 | Drag | Onto | Does | Refused or warned |
@@ -1308,7 +1349,7 @@ Only the rulings of §2 change the mock's behaviour.
 | One plan day loaded; the date arrows disabled | Days navigate (A2); each is a record entry | The record holds every day. |
 | The status chip reads Draft or Committed from pending edits | The day's stored status, Not started · Draft · Published, and Publish (A3, A4) | *Ruled.* Pending edits are the history item's. |
 | Not linked, overlaps and over max block Save | Nothing blocks Save or Publish (A64) | *Ruled.* |
-| The Table narrowed by committed status and lane | The Table is never narrowed (A41) | *Ruled.* |
+| The Table narrowed by committed status and lane, apart from the Timeline's Filters | One rail narrows the lanes and the resources, in the Timeline and the Table alike (A91–A96) | *Ruled 17 Oct.* |
 | One resource per bin | Split loads (A70–A73) | *Ruled.* |
 | The ranking and the rules inside the board | The app's `fit` on e3; `Allocation.fit` its building block (§12) | *Ruled.* |
 | No Find fix | Find a fit (A74) | *Ruled.* |
@@ -1346,10 +1387,12 @@ Only the rulings of §2 change the mock's behaviour.
 9. Fits and drops: the fit calls, ranks, refusals, captions, drop list (A22–A40,
    F1–F4).
 10. The Table and the Chooser in it (A41–A49).
-11. The Library (A50–A54).
-12. The Inspector and Issues (A55–A64).
-13. Split loads and Find a fit (A70–A74).
-14. The narrow layout (A78).
-15. The Roster's fit (R1–R5).
-16. The kiln yard in the showcase on e3-web, its responsive specs, the e3-ui skill
+11. One record Slice over the lanes and the resources (A91–A96): `Slice.bindRecords`,
+    its rail, `Allocation.lanes`.
+12. The Library (A50–A54).
+13. The Inspector and Issues (A55–A64).
+14. Split loads and Find a fit (A70–A74).
+15. The narrow layout (A78).
+16. The Roster's fit (R1–R5).
+17. The kiln yard in the showcase on e3-web, its responsive specs, the e3-ui skill
     and the plugin indexes.
