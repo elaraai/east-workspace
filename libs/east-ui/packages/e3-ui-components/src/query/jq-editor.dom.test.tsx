@@ -132,7 +132,7 @@ describe("the jq view (#937) — J1 highlighting", () => {
         expect(tokensOf(lines[2]!).filter(([kind]) => kind === "number" || kind === "keyword")).toEqual([["number", "100"], ["keyword", "and"], ["number", "2026"]]);
         expect(gutter()).toEqual(["1", "2", "3", "4", "5", "6", "7"].map((n) => [n, null]));
         expect([checkWord(), problemRows()]).toEqual(["Checks clean", []]);
-    }, 30_000);
+    });
 
     test("a problem on line 3: its dot in the gutter, its range marked wavy, and the jq step around it dotted", async () => {
         await mountBuilder(offlineCall().call);
@@ -145,7 +145,7 @@ describe("the jq view (#937) — J1 highlighting", () => {
         await type(".orders\n");
         expect(gutter().map(([n]) => n)).toEqual(["1", "2"]);
         expect(highlightLines().map((l) => l.textContent)).toEqual([".orders", ""]);
-    }, 30_000);
+    });
 });
 
 // ─── J2 ──────────────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ describe("the jq view (#937) — J2 completions", () => {
         expect(offered().map(([glyph, label]) => [glyph, label])).toEqual([[".f", "type"], [".f", "value"]]);
         await type(".orders | map(select(.status.type == \"");
         expect(offered().map(([glyph, label]) => [glyph, label])).toEqual([["cs", "cancelled"], ["cs", "pending"], ["cs", "shipped"]]);
-    }, 30_000);
+    });
 
     test("a word lists the builtins, and takes `select(`; inside quotes a case does not double its closing quote", async () => {
         await mountBuilder(offlineCall().call);
@@ -190,7 +190,7 @@ describe("the jq view (#937) — J2 completions", () => {
         await settle();
         expect(area().value).toBe(".orders | map(select(.status.type == \"shipped\"))");
         expect(area().selectionStart).toBe(".orders | map(select(.status.type == \"shipped\"".length);
-    }, 30_000);
+    });
 
     test("↓ ↑ wrap, Esc closes, and a click takes one", async () => {
         await mountBuilder(offlineCall().call);
@@ -208,7 +208,7 @@ describe("the jq view (#937) — J2 completions", () => {
         await act(async () => { fireEvent.click(completions()!.querySelector("[role=option]")!); });
         await settle();
         expect(area().value).toBe(".orders[0].status");
-    }, 30_000);
+    });
 });
 
 /** The jq editor alone, its text its own, over the root and a builder's summaries. */
@@ -245,7 +245,7 @@ describe("the jq view (#937) — J2 the data's values", () => {
         expect(fetched).toEqual([".orders"]);
         await key("Enter");
         expect(area().value).toBe(".orders\n| map(select(.customer_id == \"C01\"");
-    }, 30_000);
+    });
 });
 
 // ─── J3 ──────────────────────────────────────────────────────────────────────
@@ -264,7 +264,7 @@ describe("the jq view (#937) — J3 the problems panel", () => {
         await act(async () => { fireEvent.click(rowOf("unknown_field").querySelector("button")!); });
         expect([area().selectionStart, area().selectionEnd]).toEqual([text.indexOf(".totl"), text.indexOf(".totl") + 5]);
         expect([...document.querySelectorAll("[data-query-jq-highlight] [data-active]")].map((t) => t.textContent)).toEqual([".totl"]);
-    }, 30_000);
+    });
 
     test("each fix makes a program that checks clean, the caret after it: Use .total, Narrow first, Use any(.lines[]; …)", async () => {
         await mountBuilder(offlineCall().call);
@@ -282,7 +282,7 @@ describe("the jq view (#937) — J3 the problems panel", () => {
             const edited = [...after].findIndex((c, i) => c !== before[i]);
             expect(area().selectionStart).toBeGreaterThan(edited);
         }
-    }, 30_000);
+    });
 
     test("a fix is a gesture of its own: Undo returns the jq as it was typed", async () => {
         await mountBuilder(offlineCall().call);
@@ -294,7 +294,7 @@ describe("the jq view (#937) — J3 the problems panel", () => {
         expect(area().value).toBe(".orders\n| sort_by(-.total)\n| map(.totl)");
         await press("Undo");
         expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
-    }, 30_000);
+    });
 });
 
 // ─── J4 ──────────────────────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
         expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
         await press("Redo");
         expect(area().value).toBe(".orders\n| map(select(.total >= 2000))");
-    }, 30_000);
+    });
 
     test("⌘⏎ runs the jq as typed, left first; Tab inserts two spaces", async () => {
         const offline = offlineCall();
@@ -327,7 +327,7 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
         await key("Tab");
         await settle();
         expect([area().value, area().selectionStart]).toEqual(["  .orders\n| map(select(.total >= 1000))", 2]);
-    }, 30_000);
+    });
 
     test("the completions close when the caret moves, and on blur", async () => {
         await mountBuilder(offlineCall().call);
@@ -345,7 +345,7 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
         expect(completions()).not.toBeNull();
         await leave();
         expect(completions()).toBeNull();
-    }, 30_000);
+    });
 });
 
 // ─── Another query opened while it shows one ─────────────────────────────────
@@ -384,7 +384,7 @@ describe("the jq view (#937) — another query opened while it shows one (#1132)
         expect(equalFor(ArrayType(StringType))(answered(one.answers[1]!) as never, names as never)).toBe(true);
         // Nothing drafted on the query opened: nothing to undo, and saved as it was.
         expect([enabled("Undo"), saveState()]).toEqual([false, "saved"]);
-    }, 30_000);
+    });
 
     test("a query of steps opened while the jq view shows another: the visual view, its own program run as it opens, and no draft left on it", async () => {
         const one = fixtureCall();
@@ -397,5 +397,5 @@ describe("the jq view (#937) — another query opened while it shows one (#1132)
         expect(one.requests).toHaveLength(2);
         expect(resultFields()).toBe("· order, customer, region, total, shipped");
         expect([enabled("Undo"), saveState()]).toEqual([false, "saved"]);
-    }, 30_000);
+    });
 });

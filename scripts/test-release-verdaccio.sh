@@ -2,8 +2,9 @@
 # Release dry-run against a local verdaccio registry.
 #
 # Publishes EVERY @elaraai/* npm package (the workspace JS packages via the same
-# scripts/publish-npm.mjs the real release uses, plus the east-c-cli launcher +
-# the host-platform per-platform package, and on Windows e3-core's job launcher
+# scripts/publish-npm.mjs the real release uses, the assembled agent plugins via
+# scripts/publish-plugins.mjs, plus the east-c-cli launcher + the host-platform
+# per-platform package, and on Windows e3-core's job launcher
 # @elaraai/e3-job-win32-x64), installs them into a throwaway consumer exactly
 # as a user would, and smoke-tests the result — all without touching the real
 # npm registry or needing trusted-publishing / OIDC.
@@ -74,7 +75,8 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   pnpm --filter @elaraai/east-py-datascience run build
   NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
   make -C libs/east-diagnostics build
-  make -C libs/east-plugin build
+  log "Building east-plugin and assembling the agent plugins"
+  make -C libs/east-plugin package >/dev/null
   make -C libs/eslint-plugin-east build
   make -C libs/tsserver-plugin-east build
   pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
@@ -173,6 +175,8 @@ cp "$E3_CORE_MANIFEST" "$WORK/e3-core.package.json"
 node scripts/inject-e3-job-dep.mjs --version "$VERSION" >/dev/null
 log "Publishing @elaraai/* JS packages to verdaccio"
 node scripts/publish-npm.mjs beta --registry "$URL/"
+log "Publishing the agent plugins to verdaccio"
+node scripts/publish-plugins.mjs beta --registry "$URL/"
 
 # ── 5. Publish east-c-cli launcher + host-platform package ──────────────────
 log "Publishing east-c-cli (launcher + ${TARGET})"
@@ -248,6 +252,20 @@ if (entries.length === 0) {
 console.log('ok');
 SMOKE
 echo -n "  @elaraai/east-plugin searches the East index it ships: "; ( cd "$PROJ" && node east-plugin-smoke.mjs )
+# The agent plugins as a marketplace fetches them (#1309): the tarball npm
+# serves holds the host's manifest directory, the bundles, the skills as real
+# files and the index — the dotfiles a plain `files` list is easy to lose.
+for plugin in east-claude-plugin:.claude-plugin east-codex-plugin:.codex-plugin; do
+  name="${plugin%%:*}"; manifest="${plugin##*:}"
+  echo -n "  @elaraai/${name} ships as a plugin: "
+  ( cd "$PROJ" && npm pack "@elaraai/${name}@${VERSION}" --pack-destination . >/dev/null 2>&1 )
+  listing="$(tar tzf "$PROJ/elaraai-${name}-${VERSION}.tgz")"
+  for entry in "package/${manifest}/plugin.json" package/.build/mcp/server.js package/hooks/hooks.json package/.mcp.json package/skills/east/SKILL.md package/index.json package/package.json; do
+    echo "$listing" | grep -qx "$entry" || { echo "missing $entry"; echo "$listing" | head -40; exit 1; }
+  done
+  echo "$listing" | grep -q '^package/skills/east-contribute/SKILL.md$' || { echo "missing the plugin-native skills"; exit 1; }
+  echo ok
+done
 # Exercise the installed rack package, including the entries consumed by cloud.
 # Source-tree imports cannot catch a missing packaged file or workspace:* rewrite.
 # hub-main starts a daemon, so it is deliberately not imported as a library.

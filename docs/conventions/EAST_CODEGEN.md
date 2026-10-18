@@ -21,7 +21,9 @@ language, and how the round trips are checked.
 ## 1. The contract
 
 For every well-formed IR value whose root is a `Function` / `AsyncFunction`
-(or the `Block[Let…, Function]` a python build with hoisted constants emits):
+(or the `Block[Let…, Function]` root an earlier python build wrote for its
+hoisted constants — a form no builder emits since #1312, which the printers and
+linkers still read):
 
 ```
 build(print(IR)) ≡ IR        under east-c's normalizer

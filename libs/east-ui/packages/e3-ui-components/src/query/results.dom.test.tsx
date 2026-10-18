@@ -136,7 +136,7 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
         await waitFor(() => expect(localStorage.getItem("query.builder.recent") ?? "").toContain("Top shipped orders, 2026"));
         await press("Keep the first", document.querySelector<HTMLElement>("[data-query-foot]")!);
         expect(fixture.requests).toHaveLength(1);
-    }, 30_000);
+    });
 
     test("the visual view sends the counting program; the jq view the jq, canonically", async () => {
         const fixture = fixtureCall();
@@ -149,7 +149,7 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
         expect(isTypeEqual(answers(fixture.requests[1]!.bodyIr), IntegerType)).toBe(true);
         // One value is counted in its shape's words.
         expect(footer().count).toBe("One whole number");
-    }, 30_000);
+    });
 
     test("a new run abandons the one before: only the last one's answer shows, however late the others answer", async () => {
         const fixture = fixtureCall({ hold: true });
@@ -161,7 +161,7 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
         // The last run answers first; the two it abandoned answer after it, and change nothing.
         await fixture.release({ newestFirst: true });
         expect(footer().run).toMatch(/^run #3 · /);
-    }, 30_000);
+    });
 });
 
 // ─── R2, R3, R8 ──────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ describe("<Query.Builder> — counted shape lines and staleness (#938 R2, R3, R8
             "16 orders",
             "10 orders",
         ]);
-    }, 30_000);
+    });
 
     test("R3: an edit makes the result stale — the banner with Run again, the body dashed, the shape lines plain — and Run again freshens it", async () => {
         await mountBuilder(fixtureCall().call);
@@ -192,7 +192,7 @@ describe("<Query.Builder> — counted shape lines and staleness (#938 R2, R3, R8
         await press("Run again⌘⏎");
         expect([banners(), results().querySelector("[data-stale]")]).toEqual([[], null]);
         expect(shapes()).toEqual(["40 orders", "20 orders", "10 orders"]);
-    }, 30_000);
+    });
 });
 
 // ─── R4 ──────────────────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ describe("<Query.Builder> — a run that gives no result (#938 R4)", () => {
         await typeJq(".orders | length | . % 0");
         await run();
         expect(banners()).toEqual([expect.stringMatching(/^Not run.*Division by zero/)]);
-    }, 30_000);
+    });
 
     test("the time limit, the size limit and a platform function the server lacks", async () => {
         const cases: readonly (readonly [ExecuteResult["outcome"], string])[] = [
@@ -237,7 +237,7 @@ describe("<Query.Builder> — a run that gives no result (#938 R4)", () => {
         await mountBuilder(answering(variant("failed", { exitCode: 3n })));
         await openQuery(variant("saved", COUNT.name));
         expect(banners()).toEqual([expect.stringMatching(/^Not run.*exit code 3/)]);
-    }, 30_000);
+    });
 
     test("a call that never reached the server, and one the server refused", async () => {
         await mountBuilder(offlineCall().call);
@@ -247,7 +247,7 @@ describe("<Query.Builder> — a run that gives no result (#938 R4)", () => {
         await mountBuilder(async () => { throw new ApiError("permission_denied"); });
         await openQuery(variant("saved", COUNT.name));
         expect(banners()).toEqual(["Not runAPI error: permission_denied"]);
-    }, 30_000);
+    });
 });
 
 // ─── R5 ──────────────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ describe("<Query.Builder> — the footer (#938 R5)", () => {
         expect([f.count, f.fields]).toEqual(["10 orders", "· order, customer, region, total, shipped"]);
         expect(f.run).toMatch(/^run #1 · \d{2}:\d{2} · \d+ ms$/);
         expect(f.reads).toBe("reads customers #9b07e3a4 · orders #4f2a1c8d");
-    }, 30_000);
+    });
 
     test("a jq run cut at the call's most outputs says there are more", async () => {
         await mountBuilder(fixtureCall().call);
@@ -268,7 +268,7 @@ describe("<Query.Builder> — the footer (#938 R5)", () => {
         await typeJq("range(0; 2000)");
         await run();
         expect(footer().count).toBe("1,000+ rows");
-    }, 30_000);
+    });
 });
 
 // ─── R6 ──────────────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
             Reflect.deleteProperty(URL, "createObjectURL");
             Reflect.deleteProperty(URL, "revokeObjectURL");
         }
-    }, 30_000);
+    });
 });
 
 // ─── R7 ──────────────────────────────────────────────────────────────────────
@@ -342,10 +342,10 @@ describe("<Query.Builder> — the Table and the Value tree (#938 R7)", () => {
         expect(shownAs()).toBe("table");
         await openQuery(variant("saved", COUNT.name));
         await waitFor(() => expect(shownAs()).toBe("tree"));
-    }, 30_000);
+    });
 
     test("without a result the switch and Download are off", async () => {
         await mountBuilder(offlineCall().call);
         expect([resultButton("Table").hasAttribute("disabled"), (document.querySelector("[data-query-download]") as HTMLButtonElement).disabled]).toEqual([true, true]);
-    }, 30_000);
+    });
 });

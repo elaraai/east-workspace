@@ -217,7 +217,7 @@ runtime; this package is the Python type system plus a Cython bridge to it.
   - `type_of_type.py` - Homoiconic type encoding (types are East values)
 
 - `east/namespace.py` - The `East` object: the `East.<Type>` builtin namespaces (Float/Integer/String/DateTime/Boolean/Blob + Array/Set/Dict/Vector/Matrix constructors, compare/equal/less), the standard library attached to them, and the authoring entry points (`East.function`/`platform`/`compile`, `East.str`/`min`/`max`/`clamp`)
-- `east/expression/` - The strict expression builder: `expr/` — one `Expression` class per East type mirroring `libs/east/src/expr/*.ts` (the TypeScript method names, snake_cased), `libs/` — the standard library ported from `expr/libs/*.ts`, `statements.py` — the block (`b`, the `$` twin), `function.py` — `East.function`, `finalize.py` — trace-time CSE and the homoiconic IR
+- `east/expression/` - The strict expression builder: `expr/` — one `Expression` class per East type mirroring `libs/east/src/expr/*.ts` (the TypeScript method names, snake_cased), `libs/` — the standard library ported from `expr/libs/*.ts`, `statements.py` — the block (`b`, the `$` twin), `function.py` — `East.function`, `finalize.py` — the homoiconic IR, exactly what the body spells
 - `east/codegen/` - IR → python: the printer and the builtin spelling table the eager compliance replay shares
 - `east/datetime_format.py` - Format-string tokenizer for the DateTime print/parse builtins
 

@@ -329,11 +329,13 @@ jobs:
       - name: Build east-diagnostics
         working-directory: libs/east-diagnostics
         run: make build
-      - name: Build east-plugin
-        # The agent plugin runtime a plugin that builds on East's depends on;
-        # its index.json is committed, its dist built here.
+      - name: Build east-plugin and assemble the agent plugins
+        # The agent plugin runtime a plugin that builds on East's depends on
+        # (its index.json is committed, its dist built here), then both hosts'
+        # bundles and the plugin directories a marketplace installs (#1309),
+        # under libs/east-plugin/marketplace/, published below.
         working-directory: libs/east-plugin
-        run: make build
+        run: make package
       - name: Build eslint-plugin-east
         working-directory: libs/eslint-plugin-east
         run: make build
@@ -376,6 +378,15 @@ jobs:
       - name: Publish (skip already-published)
         run: |
           node scripts/publish-npm.mjs \
+            "${{ needs.prepare.outputs.npm_tag }}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+      # The assembled plugins, @elaraai/east-claude-plugin and
+      # @elaraai/east-codex-plugin, which the catalog (elaraai/plugins) lists
+      # as npm sources. Trusted publishing must be configured for each name
+      # before the first real run — see scripts/bootstrap-plugins-npm.mjs.
+      - name: Publish the agent plugins (skip already-published)
+        run: |
+          node scripts/publish-plugins.mjs \
             "${{ needs.prepare.outputs.npm_tag }}" \
             ${{ inputs.dry_run && '--dry-run' || '' }}
 
@@ -887,3 +898,27 @@ jobs:
               $PRE_FLAG \
               release-assets/*
           fi
+
+      # The plugin catalog (elaraai/plugins) pins each plugin's npm package at
+      # its released version; it re-renders from the registry on a schedule,
+      # and at once when asked. Best-effort: the app may not be installed on
+      # that repository, and the schedule covers it either way.
+      - name: Ask the plugin catalog to re-render
+        id: catalog-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: elaraai
+          repositories: plugins
+      - name: Dispatch the catalog render
+        if: ${{ steps.catalog-token.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.catalog-token.outputs.token }}
+        run: |
+          gh api repos/elaraai/plugins/dispatches \
+            -f event_type=release \
+            -f "client_payload[version]=${{ needs.prepare.outputs.version }}" \
+            -f "client_payload[tag]=${{ needs.prepare.outputs.npm_tag }}"

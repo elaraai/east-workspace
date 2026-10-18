@@ -471,7 +471,7 @@ describe("the jobs read by their day index (PB54)", () => {
         expect(bar(container, "W-0014", "P-1001")).not.toBeNull();
         expect(counted(container)).toBe("10 events");
         expect(service.of("days").filter((r) => r.startsWith("page"))).toEqual(["page 0+256"]);
-    }, 30_000);
+    });
 
     test("an event filed under several days draws once: the three-day run, and the night run into the next day", async () => {
         const { container } = mount(windowsPlan);
@@ -479,7 +479,7 @@ describe("the jobs read by their day index (PB54)", () => {
         expect(bars(container, "W-0004")).toHaveLength(1);
         expect(bars(container, "W-0002")).toHaveLength(1);
         expect(bar(container, "W-0002", "P-1001")).not.toBeNull();
-    }, 30_000);
+    });
 
     test("the drafts draw over the window: two jobs shifted out of the days it reads, then into them from a day it never read", async () => {
         const { container } = mount(windowsPlan);
@@ -501,7 +501,7 @@ describe("the jobs read by their day index (PB54)", () => {
         expect(bar(container, "W-0014", "P-1001")).not.toBeNull();
         expect(readJobs().get("W-0014")!.start).toEqual(some(at("2026-10-22T06:00:00Z")));
         expect(readJobs().get("W-0001")!.start).toEqual(some(at("2026-10-05T06:00:00Z")));
-    }, 30_000);
+    });
 
     test("while the day index is read again the rows drawn before stand: a commit moves the window, and its rows draw once its page lands", async () => {
         const { container } = mount(windowsPlan);
@@ -521,7 +521,7 @@ describe("the jobs read by their day index (PB54)", () => {
         await settle();
         await waitFor(() => expect(guide()!.textContent).toContain("Museum guide, second edition"));
         expect(guide()).toBe(element);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -542,7 +542,7 @@ describe("the backlog read by its index (PB54)", () => {
             .map((card) => [...card.children].find((part) => part.tagName === "DIV" && part.querySelector(":scope > svg") === null)!.children[0]!.textContent);
         expect(names).toEqual(["Order forms", "Winter brochure", "Prospectus", "Proof sheets"]);
         expect(service.of("backlog")).toEqual(["page 0+256", "page 4+252"]);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -613,7 +613,7 @@ describe("the presses paged (PB55)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    });
 
     test("the key search seeks a press by its key: the window holding it read and its row drawn, the windows between never", async () => {
         const restore = emulateWindowScroll();
@@ -634,7 +634,7 @@ describe("the presses paged (PB55)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    });
 });
 
 describe("a window of presses that cannot be read (PB55)", () => {
@@ -655,7 +655,7 @@ describe("a window of presses that cannot be read (PB55)", () => {
         expect(failed).toContain("[Plan] paged source page 0 failed:");
         expect(failed.every((line) => line.includes("page 0") || line.includes(`${pathText(PRESSES_PATH)}@`))).toBe(true);
         errors.mockClear();
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -690,7 +690,7 @@ describe("the Plan's own rows after a paged kind's (PB55)", () => {
         expect(board()!.textContent).toContain("77");
         // The presses' window read again from the runtime, not the service.
         expect(service.of("presses").length).toBe(reads);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -866,7 +866,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(bar(c, "W-0001", "P-1002")).not.toBeNull();
         expect(pending(c)).toBe("2 pending");
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 
     test("a backlog job scheduled and a job unscheduled on the Backlog tab: each one step, read where the backlog and the days hold it", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -892,7 +892,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await waitFor(() => expect(cardOf(c, elementKey("job", "W-0002"))!.textContent).toContain("Press 1001"));
         expect(pending(c)).toBe("2 pending");
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 
     test("an author's card dropped on a job sets its customer, one step — the job read where the canvas draws it", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -909,7 +909,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await select(bar(c, "W-0004", "P-1003")!);
         expect(customerOf(c)).toBe("Harbour Arts Society");
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 
     test("the inspector's job — its press named by its key — its form, its Duplicate and Delete, and the bulk edit: each one step", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -940,7 +940,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(named(bar(c, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 6, 2026, 07:00 – Oct 6, 2026, 13:00/);
         expect(pending(c)).toBe("2 pending");
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 
     test("a press's row in the inspector: its name and its hall read by its key, its jobs in the window counted — neither the presses nor the jobs read whole", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -956,7 +956,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(factOf(c, "hours")).toBe("6");
         expect(wholeReads).not.toContain(JOBS);
         expect(wholeReads).not.toContain(pathText(PRESSES_PATH));
-    }, 60_000);
+    });
 
     test("Save commits through the patch door, each job read back by its key at the revision it committed", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -972,7 +972,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(customerOf(c)).toBe("Alder & Finch Ltd");
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(false);
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 
     test("a Save's conflict names the job another planner moved — read by its key at the record's new revision — and who changed the record last; the other job is not named", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -997,7 +997,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         // Nothing of the job's draft was written; the other planner's stands.
         expect(readJobs().get("W-0001")!.customer).toBe("Alder & Finch Group");
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 
     test("a write with no answer: Retry resends it under its request id, and it is read back by its key", async () => {
         const { container: c } = mount(editedPlan, DRAG);
@@ -1022,7 +1022,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(readJobs().get("W-0001")!.customer).toBe("Alder & Finch Ltd");
         expect(bannerTexts(c)).toEqual([]);
         expect(wholeReads).not.toContain(JOBS);
-    }, 60_000);
+    });
 });
 
 // ============================================================================
@@ -1049,7 +1049,7 @@ describe("the key search standing (#1199)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    });
 
     test("a new snapshot of the presses asks a standing search again there — its text kept, its matches the new snapshot's", async () => {
         const restore = emulateWindowScroll();
@@ -1075,7 +1075,7 @@ describe("the key search standing (#1199)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -1133,5 +1133,5 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
         } finally {
             restore();
         }
-    }, 60_000);
+    });
 });

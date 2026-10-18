@@ -192,15 +192,18 @@ def _stock_providers() -> Providers:
     return providers
 
 
+# The plugins' example index, the one committed artifact (libs/east-plugin/index.json, #1309).
+INDEX_PATH = Path(__file__).resolve().parents[5] / "east-plugin" / "index.json"
+
+
 def _index_programs() -> list[tuple[str, str]]:
-    """``(id, ir json)`` of every program entry of the plugin's example index —
+    """``(id, ir json)`` of every program entry of the plugins' example index —
     the corpus the index renders through the providers (east-node-std,
     east-node-io and east-py-datascience examples included, which the
     exported examples directory does not hold). Empty outside the monorepo."""
-    index = Path(__file__).resolve().parents[5] / "east-claude-plugin" / "index.json"
-    if not index.exists():
+    if not INDEX_PATH.exists():
         return []
-    with open(index, encoding="utf-8") as f:
+    with open(INDEX_PATH, encoding="utf-8") as f:
         entries = json.load(f)["entries"]
     return [(e["id"], e["ir"]) for e in entries if e.get("ir")]
 
@@ -208,8 +211,13 @@ def _index_programs() -> list[tuple[str, str]]:
 INDEX_PROGRAMS = _index_programs()
 STOCK_PROVIDERS = _stock_providers() if INDEX_PROGRAMS or EXAMPLES else None
 
+if REQUIRED and not INDEX_PROGRAMS:
+    raise RuntimeError(
+        f"EAST_CONFORMANCE_REQUIRED=1 but no program entry in the plugins' example index {INDEX_PATH} "
+        "(`make -C libs/east-plugin index`)")
 
-@pytest.mark.skipif(not INDEX_PROGRAMS, reason="no plugin example index beside this checkout")
+
+@pytest.mark.skipif(not INDEX_PROGRAMS, reason=f"no plugins' example index at {INDEX_PATH}")
 @pytest.mark.parametrize("entry", INDEX_PROGRAMS, ids=[e[0] for e in INDEX_PROGRAMS])
 def test_index_example_round_trips_through_the_stock_providers(entry):
     label, encoded = entry

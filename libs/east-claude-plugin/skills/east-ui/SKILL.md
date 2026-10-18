@@ -1,1 +1,0 @@
-../../../east-ui/packages/east-ui/SKILL.md

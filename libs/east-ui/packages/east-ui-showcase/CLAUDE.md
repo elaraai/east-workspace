@@ -22,7 +22,9 @@ its cause, in the example's place (`data-e3-start="failed"`), with a Retry
 that starts e3 again. What loaded before renders at once, so a row the doc
 list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
-`DocList` starts at a deep link before mounting the first window. Its
+`DocList` starts at a deep link before mounting the first window, and keeps
+the linked entry mounted wherever the list scrolls: what a link opened is
+never dropped while the link stands. Its
 virtualizer is keyed by category so navigation cannot reuse another
 category's measurements or pending scroll corrections. Overscan
 rows keep their headings and source disclosures, while `PatternEntry`
@@ -30,7 +32,10 @@ defers IR compilation and e3 subscriptions until a preview intersects the
 document viewport. Previously activated examples render immediately on
 remount to preserve scroll anchoring. Responsive checks must bring a
 preview into view and wait for `settled`; offscreen deferred previews do
-not block readiness. Query changes can keep the old Calendar window
+not block readiness. `settled` gives what a page starts (East compiling,
+e3 starting, builders loading) a budget of its own, apart from the
+layout's: a cold e3 deploys a fresh workspace in the page, some 20 s on a
+hosted runner. Query changes can keep the old Calendar window
 painted while `data-calendar-main` is `aria-busy`; wait for that state to
 clear before asserting the new rows. Remount checks must explicitly
 unmount and revisit a representative example per category, rather than
@@ -155,11 +160,11 @@ and establish a stable hit target; a previous drop or tab change can scroll it.
   `virtual:e3-showcase-package`, either way.
   `tests/e3-package/` imports it into an in-memory e3 (`pnpm run test`).
 - `scripts/example-renderings.ts` — joins every Code Reference example
-  with the Claude plugin's example index (`libs/east-claude-plugin/index.json`)
+  with the plugins' example index (`libs/east-plugin/index.json`)
   by id, for its python rendering (#655): the index stores each program
   example as IR with the TypeScript and python printed from it. A Code
   Reference example missing from the index fails the build naming it —
-  regenerate with `cd libs/east-claude-plugin && make index`. The
+  regenerate with `make -C libs/east-plugin index`. The
   TypeScript / Python selector on each Code Reference entry is that
   example's own choice (`code-language.ts`, session-persisted so a row
   keeps it across virtualizer remounts; `?lang=python` opens every example

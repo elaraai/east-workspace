@@ -65,7 +65,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.stored().get("p2")!.jobs).toEqual([]);
             expect(samePresses(canvas.stored(), SEED)).toBe(true);
             expect(historyButton(canvas, "Save").disabled).toBe(false);
-        }, 30_000);
+        });
 
         test("Undo and Redo walk the gestures — through the history bar and the keys", async () => {
             const canvas = await mountCanvas({ arm });
@@ -96,7 +96,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(origins(canvas)).toEqual(["drop", "drop", "undo", "undo", "redo", "redo", "undo", "redo", "undo", "redo"]);
             expect(canvas.applies).toHaveLength(0);
             expect(samePresses(canvas.stored(), SEED)).toBe(true);
-        }, 30_000);
+        });
 
         test("canDrop refuses before a draft — the refused press shows ⊘, and nothing is drafted", async () => {
             const canvas = await mountCanvas({ arm, onlyPress1: true });
@@ -111,7 +111,7 @@ for (const arm of ["inline", "paged"] as const) {
             await dropJob(canvas, "job-1", "p1");
             expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
             expect(labels(canvas)).toEqual(["Drop job-1 on Press 1"]);
-        }, 30_000);
+        });
 
         test("Discard drops every draft at once, and the history with them", async () => {
             const canvas = await mountCanvas({ arm });
@@ -125,7 +125,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(historyButton(canvas, "Undo").disabled).toBe(true);
             expect(historyButton(canvas, "Save").disabled).toBe(true);
             expect(canvas.applies).toHaveLength(0);
-        }, 30_000);
+        });
 
         test("Save sends ONE checked batch — and its drafts retire only once the source reads back what it committed", async () => {
             const canvas = await mountCanvas({ arm });
@@ -149,7 +149,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(jobs(c)).toEqual([["job-1"], ["job-2"], []]);
             expect(historyButton(canvas, "Save").disabled).toBe(true);
             expect(canvas.applies).toHaveLength(1);
-        }, 30_000);
+        });
 
         test("a source that moves under pending drafts refuses them — until they are discarded, from the out-of-date banner", async () => {
             const canvas = await mountCanvas({ arm });
@@ -174,7 +174,7 @@ for (const arm of ["inline", "paged"] as const) {
             await dropJob(canvas, "job-1", "p1");
             expect(marks(c)).toEqual({ p1: "pending" });
             expect(canvas.applies).toHaveLength(0);
-        }, 30_000);
+        });
 
         test("an acknowledgement lost after the write freezes the session — and Retry sends the SAME request, written once", async () => {
             const canvas = await mountCanvas({ arm });
@@ -198,7 +198,7 @@ for (const arm of ["inline", "paged"] as const) {
             await canvas.confirm();
             expect(marks(c)).toEqual({});
             expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
-        }, 30_000);
+        });
 
         test("the author's check marks the press it refuses — and Save waits for it", async () => {
             const canvas = await mountCanvas({ arm, ready: true });
@@ -216,7 +216,7 @@ for (const arm of ["inline", "paged"] as const) {
             await history(canvas, "Undo");
             expect(marks(c)).toEqual({ p1: "pending" });
             expect(historyButton(canvas, "Save").disabled).toBe(false);
-        }, 30_000);
+        });
     });
 }
 
@@ -269,6 +269,6 @@ describe("the narrow layout (#880)", () => {
             expect(marks(c)).toEqual({ p1: "pending" });
             await history(canvas, "Undo");
             expect(marks(c)).toEqual({});
-        }, 30_000);
+        });
     }
 });

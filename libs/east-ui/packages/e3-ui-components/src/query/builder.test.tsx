@@ -86,7 +86,7 @@ describe("<Query.Builder> — the shell (#935)", () => {
             region("body").querySelector(':scope > [data-frame-slot="main"]')!.firstElementChild!.hasAttribute("data-query-results"),
             region("footer").firstElementChild!.hasAttribute("data-query-status"),
         ]).toEqual([true, true, true]);
-    }, 30_000);
+    });
 
     test("it draws no border around itself: its recipe's root has none, so a host frames it or places it bare", () => {
         const recipe = system.getSlotRecipe("queryBuilder") as { base: { root: Record<string, unknown> } };
@@ -105,14 +105,14 @@ describe("<Query.Builder> — the shell (#935)", () => {
         await openQuery(variant("saved", "Big orders"));
         expect(builder().getAttribute("data-query-open")).toBe(`query.saved:"Big orders"`);
         expect(rail()).toBe("1Query");
-    }, 30_000);
+    });
 
     test("a saved query the record no longer holds says so, and a record that fails to read is a banner", async () => {
         const { container } = await mountBuilder();
         await openQuery(variant("saved", "Gone"));
         expect(screen.getByText("“Gone” isn't saved here")).toBeTruthy();
         expect(container.querySelector("[data-query-builder]")).toBeNull();
-    }, 30_000);
+    });
 });
 
 // ─── The editing session, through the history item ──────────────────────────
@@ -185,7 +185,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(state().session.pending).toBe(0);
         expect(enabled("Undo")).toBe(false);
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["filter"]);
-    }, 30_000);
+    });
 
     test("E3: Apply — the builder's Save — is one patch of the open query's entry, and its session takes the save as its own", async () => {
         const { state } = await mountSession();
@@ -201,7 +201,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         // The session acknowledged its own request: nothing pending, nothing stale, the steps as saved.
         expect([state().session.status, state().session.pending, state().session.stale]).toEqual(["idle", 0, false]);
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["filter", "limit"]);
-    }, 30_000);
+    });
 
     test("E4: readiness is the check's — an unfinished step keeps Save off, and says so; a finished one lets it go", async () => {
         const { state } = await mountSession();
@@ -212,7 +212,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(screen.getByRole("button", { name: "1 issue" })).toBeTruthy();
         await press("Undo");
         expect(state().session.readiness.type).toBe("ready");
-    }, 30_000);
+    });
 
     test("E5: a save another landed first is a conflict, and the other save stands", async () => {
         const { state, container } = await mountSession();
@@ -240,7 +240,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         ]);
         expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
         expect(enabled("Save")).toBe(false);
-    }, 30_000);
+    });
 
     test("E6: a query never saved is named on its first Apply, rather than saved", async () => {
         const { state, container } = await mountSession();
@@ -250,7 +250,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         await press("Save");
         expect(container.querySelector("[data-naming]")).not.toBeNull();
         expect(await commits()).toEqual(["$init"]);
-    }, 30_000);
+    });
 
     test("E6: a new query saved under its name opens as that saved query, once its session has taken the save", async () => {
         const { state, container } = await mountSession();
@@ -264,7 +264,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(container.querySelector("[data-open]")!.getAttribute("data-open")).toBe(`query.saved:"Orders counted"`);
         expect([state().session.status, state().session.pending]).toEqual(["idle", 0]);
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["count"]);
-    }, 30_000);
+    });
 
     test("E7: opening another query and back keeps the first one's drafts", async () => {
         const { state } = await mountSession();
@@ -276,7 +276,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         await openQuery(variant("saved", "Big orders"));
         expect(state().session.pending).toBe(1);
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["filter", "limit"]);
-    }, 30_000);
+    });
 });
 
 // ─── Saved queries offered ───────────────────────────────────────────────────

@@ -2,12 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 import { buildSearchIndex, codeOf, formatResults, getEntry, loadIndex, normalizePackage, searchExamples, speaks, MIN_SCORE, type IndexEntry } from "../lib/search.js";
 
-// The committed index (#654): every program example stored as its IR with the
+// The shipped index (#654): every program example stored as its IR with the
 // TypeScript and python printed from it, UI examples as authored tsx, and the
 // search rendering both as summaries and in full.
-const INDEX = join(process.cwd(), "index.json");
+const INDEX = join(PLUGIN_ROOT, "index.json");
 /** The raw index: the IR itself is not a stored search field, so it is read from the file. */
 const RAW = new Map((JSON.parse(readFileSync(INDEX, "utf-8")) as { entries: IndexEntry[] }).entries.map((e) => [e.id, e]));
 

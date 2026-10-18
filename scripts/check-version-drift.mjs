@@ -146,10 +146,22 @@ if (codexPluginVersion !== canonical) {
   errors.push(`${codexPluginPath}: ${codexPluginVersion} ≠ ${canonical}`);
 }
 
+// The monorepo's two marketplace entries pin the npm packages the assembled
+// plugins publish as (#1309); the pin is the version an install added as
+// elaraai/east-workspace fetches, so it moves with the release too.
 const marketplace = JSON.parse(fs.readFileSync(path.join(repoRoot, MARKETPLACE_JSON), 'utf8'));
 const marketEntry = marketplace.plugins?.find((p) => p.name === 'east') ?? marketplace.plugins?.[0];
 if (marketEntry && marketEntry.version !== canonical) {
   errors.push(`${MARKETPLACE_JSON} (east): ${marketEntry.version} ≠ ${canonical}`);
+}
+if (marketEntry?.source?.source === 'npm' && marketEntry.source.version !== canonical) {
+  errors.push(`${MARKETPLACE_JSON} (east, npm pin): ${marketEntry.source.version} ≠ ${canonical}`);
+}
+const CODEX_MARKETPLACE_JSON = '.agents/plugins/marketplace.json';
+const codexMarketplace = JSON.parse(fs.readFileSync(path.join(repoRoot, CODEX_MARKETPLACE_JSON), 'utf8'));
+const codexEntry = codexMarketplace.plugins?.find((p) => p.name === 'east-codex-plugin') ?? codexMarketplace.plugins?.[0];
+if (codexEntry?.source?.source === 'npm' && codexEntry.source.version !== canonical) {
+  errors.push(`${CODEX_MARKETPLACE_JSON} (east-codex-plugin, npm pin): ${codexEntry.source.version} ≠ ${canonical}`);
 }
 
 if (errors.length > 0) {

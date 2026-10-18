@@ -100,7 +100,7 @@ def test_a_wide_literal_its_type_and_an_argument_list_break_one_entry_per_line()
     (``StructType([``), and every line keeps to the width."""
     src = to_python_source(wide)
     expected = "\n".join([
-        "@East.function([], IntegerType, cse=False)",
+        "@East.function([], IntegerType)",
         "def main(b):",
         "    mathOps = b.const(",
         "        {",
@@ -166,8 +166,8 @@ def test_a_long_chain_breaks_one_call_per_line_and_an_operator_run_before_each_o
 Wide = VariantType([("a", IntegerType), ("b", StringType)])
 
 
-@East.function([ArrayType(IntegerType), OptionType(IntegerType), Wide], ArrayType(IntegerType), cse=False)
-def slots(b, xs, o, w):   # cse=False: the shapes as written (the pass would hoist the `none` constant out of its callback)
+@East.function([ArrayType(IntegerType), OptionType(IntegerType), Wide], ArrayType(IntegerType))
+def slots(b, xs, o, w):   # the shapes as written
     rows = b.const(xs.map(lambda b, x: {"x": x, "y": x}))                             # a struct lifts on its own: bare
     opts = b.const(xs.map(lambda b, x: East.value(none, OptionType(IntegerType))))     # `none` needs its type
     lists = b.const(xs.map(lambda b, x: East.value([x], ArrayType(IntegerType))))      # a python list has no element type: the constructor

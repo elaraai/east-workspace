@@ -263,7 +263,7 @@ describe("one message table (#820)", () => {
             // The history bar speaks through its buttons' names.
             const names = [...container.querySelectorAll("[data-slot='history'] button")].map((b) => b.getAttribute("aria-label") ?? "");
             expect(names).toEqual(["⟦0 issues", "⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]);
-        }, 30_000);
+        });
     }
 
     test("the empty state — a canvas with no window", () => {

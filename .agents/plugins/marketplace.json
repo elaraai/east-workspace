@@ -7,8 +7,9 @@
     {
       "name": "east-codex-plugin",
       "source": {
-        "source": "local",
-        "path": "./libs/east-codex-plugin"
+        "source": "npm",
+        "package": "@elaraai/east-codex-plugin",
+        "version": "1.0.93"
       },
       "policy": {
         "installation": "AVAILABLE",

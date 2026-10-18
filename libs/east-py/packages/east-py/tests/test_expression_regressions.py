@@ -151,8 +151,8 @@ class TestStructConstructor:
     """``struct({...}, T)`` is the documented way to build a row, and it must
     mean the same thing inside a captured callback as outside one. Building an
     EAGER struct around expression proxies is the failure it replaces: the
-    result would lift as a build-time "constant" referencing the callback's own
-    parameters."""
+    eager constructor would validate the proxies as data, and the callback's
+    own parameters would never reach the IR."""
 
     def test_struct_builds_the_row_inside_a_captured_callback(self):
         from east import struct
@@ -189,9 +189,10 @@ class TestStructConstructor:
     def test_traced_parts_below_the_top_level_still_build_ir(self):
         # The proxy may sit BELOW the top level — inside a nested dict
         # literal or a some(...) — and the constructor must still build IR.
-        # An eager struct built around one registered as a build-time
+        # An eager struct built around one once registered as a build-time
         # constant referencing the callback's own parameter, unbound where
-        # the constant is evaluated: `RuntimeError: Undefined variable: __k0`.
+        # the constant was evaluated (`RuntimeError: Undefined variable:
+        # __k0`); the constructors build IR from traced parts at any depth.
         from east import struct
 
         Nested = StructType([("name", StringType),
@@ -294,11 +295,11 @@ class TestCallbackSlotArguments:
 
 
 class TestConditionalHoist:
-    """A shared Let hoisted above an ``if_else`` evaluates on the miss path
-    too: the guarded `if_else(d.has(k), some(build(d[k])), none)` spelling
-    raised `Dict does not contain key` whenever `build` read the hit through
-    one shared variable. An occurrence on an unconditional path keeps the
-    hoist."""
+    """The guarded `if_else(d.has(k), some(build(d[k])), none)` spelling must
+    never evaluate the partial read on the miss path. A trace-time pass once
+    hoisted a shared python variable above the conditional and raised `Dict
+    does not contain key` there; the builder now emits what the body spells
+    (#1312), so the read sits inside its arm, where it is written."""
 
     def test_guarded_lookup_shared_by_a_build_survives_the_miss_path(self):
         # The repro: the hit is read through ONE shared variable (three field
@@ -319,10 +320,9 @@ class TestConditionalHoist:
         assert out[0].type == "some" and out[0].value["x"] == 1.0
         assert out[1].type == "none"
 
-    def test_an_unconditional_occurrence_keeps_the_hoist(self):
+    def test_an_unconditional_occurrence_still_computes(self):
         # The same shared expression used in the PREDICATE and the branch is
-        # evaluated on every path, so hoisting it stays legal — and the
-        # result must be unchanged.
+        # evaluated on every path it is written on, and the result is unchanged.
         k = East.function([KEY_ROW, TABLE_T], FloatType,
                    lambda _b, r, d: if_else(d.get_or_default(r["k"], 0.0) > 1.0,
                                         d.get_or_default(r["k"], 0.0), 0.0))
@@ -342,13 +342,11 @@ class TestConditionalHoist:
 
 
 class TestGuardedHoist:
-    """``try_parse`` lowers to ``TryCatch(some(Parse(s)), none)``. The CSE
-    hoisted that ``Parse`` to a ``Let`` above the ``TryCatch`` — the body
-    always evaluates, so the conditional filter did not apply — and the parse
-    failure then escaped the very handler written to answer for it. The
-    non-raising parse raised, but only with a BOUND receiver inside a
-    collection callback: a solo occurrence hoists only inside a callback, and
-    the receiver has to be reachable from the hoist site."""
+    """``try_parse`` lowers to ``TryCatch(some(Parse(s)), none)``. A trace-time
+    pass once hoisted that ``Parse`` to a ``Let`` above the ``TryCatch``, and
+    the parse failure escaped the very handler written to answer for it (#668).
+    The builder now emits what the body spells (#1312): the parse stays under
+    its guard, bound receiver or not, inside a callback or not."""
 
     XS = ["24", "", "abc"]
 
@@ -504,8 +502,8 @@ class TestSplicedBodyStaysInItsArm:
 
 def _shadowing(ir) -> list[str]:
     """The binders in ``ir`` that bind a name already in scope where they
-    bind — what a build never makes (``east.expression.naming``), and what
-    its CSE leans on."""
+    bind — what a build never makes (``east.expression.naming``), so a
+    printed program reads as authored."""
     from east.expression.finalize import _node_children
 
     found: list[str] = []
@@ -559,13 +557,14 @@ def _shadowing(ir) -> list[str]:
 class TestEmbeddedFunctionVariablesAreItsOwn:
     """Since #1271 a function called inside another body embeds the Function
     node its own build made, names and all. A build keeps a name unique only
-    within its scope chain, and its CSE hoists a nested function's node whose
-    free names are all the build's parameters: so a callee's ``kind * 10``,
-    reading its own ``kind``, hoisted above the call, where ``kind`` is the
-    caller's parameter — 1 * 10 where 102 * 10 was meant, and no error. Where
-    the two names' types differed, the hoisted read failed the analysis at
-    the callee's line instead. An embedded function's variables are renamed
-    apart from the names in scope at the call."""
+    within its scope chain, and the trace-time pass of the day hoisted a
+    nested function's node whose free names were all the build's parameters:
+    a callee's ``kind * 10``, reading its own ``kind``, was hoisted above the
+    call, where ``kind`` was the caller's parameter — 1 * 10 where 102 * 10
+    was meant, and no error. The pass is gone (#1312); the rename stays: an
+    embedded function's variables are renamed apart from the names in scope
+    at the call, so no binder shadows a name in scope and a printed program
+    reads as authored."""
 
     @staticmethod
     def _tenfold():
@@ -577,23 +576,19 @@ class TestEmbeddedFunctionVariablesAreItsOwn:
         return tenfold
 
     @staticmethod
-    def _caller(tenfold, *, cse=True):
+    def _caller(tenfold):
         def caller(b, kind):
             kind = b.const(kind, IntegerType)
             return tenfold(kind + 100)
 
-        return East.function([IntegerType], IntegerType, caller, cse=cse)
+        return East.function([IntegerType], IntegerType, caller)
 
     def test_a_callee_reads_its_own_local_not_the_callers_parameter(self):
-        tenfold = self._tenfold()
-        assert self._caller(tenfold)(1) == 1020
-        assert self._caller(tenfold, cse=False)(1) == 1020
+        assert self._caller(self._tenfold())(1) == 1020
 
     def test_the_callee_keeps_its_names_and_suffixes_those_in_scope(self):
         # The caller binds `kind` and `kind_2`; the callee's `kind` takes the
         # next suffix, as a body built in place would, and `e` keeps its name.
-        # (The caller's CSE may bind a fresh `__n` name inside the callee, in
-        # the callee's own scope: the author's names are the ones pinned.)
         from east.expression.finalize import _node_children
 
         caller = self._caller(self._tenfold())
@@ -630,6 +625,88 @@ class TestEmbeddedFunctionVariablesAreItsOwn:
                                  lambda b, kind: total(kind) + kind.size())
         assert composed(EastArray(IntegerType, [1, 2, 3])) == 21
         assert _shadowing(composed._east_ir) == []
+
+
+# ── a callback's statements run before its value, called or not (#1312) ────
+
+
+class TestCallbackStatementsRunBeforeItsValue:
+    """The issue's program: a callback that appends a key to `order` and
+    returns `order.size() - 1` answered -1. The trace-time CSE had hoisted the
+    read to the head of the function, where `order` is a parameter and nothing
+    asked whether the function mutates it. Called on its own the function was
+    wrong on every release; a caller was right until #1271, which embeds the
+    callee's own IR where 1.0.85 re-ran its body in the caller. The pass is
+    gone (#1312): the builder emits what the body spells, so the read sits
+    after the push, as written. The TypeScript twin is the cross-language
+    stem's `crosslangCallbackStatements`."""
+
+    KEYS = ["A", "B", "A", "C"]
+
+    @staticmethod
+    def _slot():
+        @East.function([DictType(StringType, IntegerType), ArrayType(StringType), StringType],
+                       IntegerType)
+        def slot(b, index, order, key):
+            def fresh(b, _k):
+                b.do(order.push_last(key))
+                return order.size() - 1
+
+            return index.get_or_insert(key, fresh)
+
+        return slot
+
+    def test_called_on_its_own(self):
+        slot = self._slot()
+        index, order = EastDict(StringType, IntegerType), EastArray(StringType)
+        assert [slot(index, order, k) for k in self.KEYS] == [0, 1, 0, 2]
+
+    def test_called_inside_another_function(self):
+        slot = self._slot()
+
+        @East.function([ArrayType(StringType)], ArrayType(IntegerType))
+        def called(b, keys):
+            index = b.const(East.new_dict(StringType, IntegerType))
+            order = b.const(East.new_array(StringType))
+            return keys.map(lambda b, k: slot(index, order, k))
+
+        assert list(called(self.KEYS)) == [0, 1, 0, 2]
+        assert _shadowing(called._east_ir) == []
+
+    def test_written_inline_in_the_caller(self):
+        @East.function([ArrayType(StringType)], ArrayType(IntegerType))
+        def inline(b, keys):
+            index = b.const(East.new_dict(StringType, IntegerType))
+            order = b.const(East.new_array(StringType))
+
+            def one(b, k):
+                def fresh(b, _k):
+                    b.do(order.push_last(k))
+                    return order.size() - 1
+
+                return index.get_or_insert(k, fresh)
+
+            return keys.map(one)
+
+        assert list(inline(self.KEYS)) == [0, 1, 0, 2]
+
+    def test_the_caller_reads_what_the_callee_appended(self):
+        # the callee's push is of its parameter; through the call it is a
+        # push of the caller's `order`, which the caller reads after the call
+        slot = self._slot()
+
+        @East.function([ArrayType(StringType)], ArrayType(IntegerType))
+        def sizes(b, keys):
+            index = b.const(East.new_dict(StringType, IntegerType))
+            order = b.const(East.new_array(StringType))
+
+            def one(b, k):
+                b.do(slot(index, order, k))
+                return order.size()
+
+            return keys.map(one)
+
+        assert list(sizes(self.KEYS)) == [1, 2, 2, 3]
 
 
 # ── a coerced value lifts under the type it was coerced TO (#671) ───────────
@@ -670,10 +747,10 @@ class TestCoercedValueLifts:
         assert built(0) == 1
 
     def test_one_object_under_two_declared_types_is_two_constants(self):
-        # The hoisted-constant registry deduped by object identity alone. Now
-        # that a struct's IR type comes from the SLOT it lands in, one object
-        # lifted under two types must bind twice or the second use would read
-        # the first's type.
+        # A struct's IR type comes from the SLOT it lands in, so one object
+        # lifted under two declared types is two literals, each of its slot's
+        # type (the hoisted-constant registry that once deduped by object
+        # identity alone, and had to learn the type, is gone — #1312).
         Narrow = StructType([("v", VariantType([("a", IntegerType)]))])
         Wide = StructType([("v", VariantType([("a", IntegerType), ("b", StringType)]))])
         row = coerce_to({"v": {"type": "a", "value": 1}}, Narrow)

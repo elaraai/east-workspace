@@ -1,10 +1,7 @@
-# Plugin runtime artifacts: committed (the marketplace copies them as-is, no
-# install-time build) but generated — keep them out of diffs and language stats.
-libs/east-claude-plugin/.build/**     linguist-generated=true -diff
-libs/east-claude-plugin/index.json    linguist-generated=true -diff
-libs/east-codex-plugin/.build/**     linguist-generated=true -diff
-libs/east-codex-plugin/index.json    linguist-generated=true -diff
-libs/east-codex-plugin/skills/**     linguist-generated=true
+# The plugins' example index: committed (the showcase reads it, and each
+# assembled plugin ships a copy) but generated — keep it out of diffs and
+# language stats. The plugins themselves are assembled at build time and
+# never committed (#1309).
 libs/east-plugin/index.json          linguist-generated=true -diff
 
 # Third-party source archives: CMake checks each against its SHA-256, so git

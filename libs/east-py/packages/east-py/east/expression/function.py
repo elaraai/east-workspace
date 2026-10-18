@@ -48,8 +48,8 @@ from east.expression.location import (
     capture_frames,
     source_map_scope,
 )
-from east.expression.nodes import _builtin, _var
-from east.types.types import EastType, is_subtype, is_type_equal
+from east.expression.nodes import _builtin, _builtin_slots, _fits, _type_words, _var
+from east.types.types import EastType, is_type_equal
 
 #: Whether the build currently on the stack is an ``East.asyncFunction`` —
 #: what lets a platform declaration handle reject an async call spelled
@@ -76,14 +76,19 @@ def trace_builtin_call(
 
     Callback arguments (``EastFunction``) are traced recursively against
     their declared signature; captured East collections/structs inline as
-    constructor IR via ``_lift``.
+    constructor IR via ``_lift``, each under its declared input's type, so a
+    python literal fills its slot as the eager call marshals it (``1`` in a
+    Float slot is ``1.0``) and the node holds what east-c reads (#1316).
     """
     if not any(isinstance(a, Expression) for a in args):
         return None
     from east.types.values.structural import EastFunction
 
+    slots = _builtin_slots(name, list(type_params))
+    if slots is None or len(slots) != len(args):
+        slots = [None] * len(args)
     ir_args: list[dict] = []
-    for a in args:
+    for a, slot_t in zip(args, slots, strict=True):
         if isinstance(a, EastFunction):
             node, out_t = _trace_inner_fn(a.fn, list(a.input_types),
                                           out_hint=a.output_type)
@@ -94,13 +99,13 @@ def trace_builtin_call(
                 )
             ir_args.append(node)
         else:
-            ir_args.append(_lift(a).ir)
+            ir_args.append(_lift(a, hint=slot_t).ir)
     return Expression(_builtin(name, output_type, list(type_params), ir_args), output_type)
 
 
 def trace(fn: Any, param_types: list[EastType],
           out_hint: EastType | None = None,
-          is_async: bool = False, *, cse: bool = True) -> tuple[Any, EastType, list]:
+          is_async: bool = False) -> tuple[Any, EastType, list]:
     """Trace ``fn`` over expression proxies; return
     ``(IR value, output type, called-function binds)``.
 
@@ -158,7 +163,7 @@ def trace(fn: Any, param_types: list[EastType],
         result = assemble(frame, result, "function", out_hint)
         popped = True
         _pop_effects(result.ir)
-        consts, fn_consts = _registry_entries() if outer else ([], [])
+        fn_consts = _registry_entries() if outer else []
     finally:
         if not popped:
             _effect_frames.pop()
@@ -168,8 +173,7 @@ def trace(fn: Any, param_types: list[EastType],
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     all_types = list(param_types) + [t for _name, _hold, t in fn_consts]
     all_params = params + [_var(name, t) for name, _hold, t in fn_consts]
-    ir = _function_ir(all_types, all_params, result, consts, is_async=is_async,
-                      out=out_hint, cse=cse)
+    ir = _function_ir(all_types, all_params, result, is_async=is_async, out=out_hint)
     return ir, result.east_type, [hold for _name, hold, _t in fn_consts]
 
 
@@ -190,15 +194,14 @@ def detached_build():
 
     global _async_build
     saved = {
-        "const": lift._const_registry, "fn": lift._fn_registry,
-        "hoisting": lift._hoisting, "effects": list(lift._effect_frames),
+        "fn": lift._fn_registry, "captured": dict(lift._captured_nodes),
+        "effects": list(lift._effect_frames),
         "loops": list(lift._loop_frames), "frames": list(statements._frames),
         "scopes": list(naming._scopes), "pending": set(naming._pending),
         "async": _async_build, "map": location._current,
     }
-    lift._const_registry = None
     lift._fn_registry = None
-    lift._hoisting = True
+    lift._captured_nodes.clear()
     lift._effect_frames.clear()
     lift._loop_frames.clear()
     statements._frames.clear()
@@ -209,9 +212,9 @@ def detached_build():
     try:
         yield
     finally:
-        lift._const_registry = saved["const"]
         lift._fn_registry = saved["fn"]
-        lift._hoisting = saved["hoisting"]
+        lift._captured_nodes.clear()
+        lift._captured_nodes.update(saved["captured"])
         lift._effect_frames[:] = saved["effects"]
         lift._loop_frames[:] = saved["loops"]
         statements._frames[:] = saved["frames"]
@@ -360,11 +363,11 @@ class _PlatformFunction:
     def __call__(self, *args: Any) -> Any:
         from east.expression.statements import _drop_block
 
-        args = _drop_block(args)  # a value, not a body: no block
-        if any(isinstance(a, Expression) for a in args):
+        values = _drop_block(args)  # a value, not a body: no block
+        if any(isinstance(a, Expression) for a in values):
             # Composition: splice this function's expression into the
-            # surrounding build by re-running its (pure) body.
-            return _splice(self, self._fn, args)
+            # surrounding build. A block handed first is a slot's call.
+            return _splice(self, self._fn, values, slot=len(values) < len(args))
         from east.runtime.errors import EastError
 
         entry = "East.compileAsync" if self._east_is_async else "East.compile"
@@ -398,27 +401,88 @@ def _effectful(artifact: Any) -> bool:
     return hit
 
 
-def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
+def _call_arguments(artifact: Any, body: Any, args: tuple,
+                    declared: tuple) -> tuple[tuple, bool]:
+    """A call's arguments held to the callee's declared parameters, as a
+    call of a function value is (``FunctionExpression``) and as the
+    TypeScript builder holds one: an argument of a parameter's type, or of
+    a subtype widened to it, and any other refused at build, naming the
+    function and the parameter (#1316). A body re-run on an argument of
+    another type is a function of other types than the callee's: its result
+    is not of the declared output, and a write in it hands the runtime a key
+    or value of a type its builtin does not read.
+
+    Two arguments the callee's Function node does not take are let through,
+    its body re-run on them instead: a row of the projected decode open
+    around the call, narrower than the parameter (``project.narrowing_of``),
+    which a callback run on a masked decode hands the functions it calls
+    (#467); and a compiled function value with no IR to embed (a ``.bind``
+    result) in a Function-typed slot, which the re-run body's call of it
+    lowers to a ``Call`` of (#561). Returns the arguments and whether the
+    body must re-run on them."""
+    from east.expression.lift import _coerce
+    from east.expression.project import narrowing_of
+
+    name = getattr(artifact, "__name__", "")
+    callee = f"{name}()" if name.isidentifier() else "East.function"
+    if len(args) != len(declared):
+        raise ExpressionError(
+            f"{callee} takes {len(declared)} argument(s), called with {len(args)}")
+    checked = []
+    rerun = False
+    for i, (a, t) in enumerate(zip(args, declared, strict=True)):
+        try:
+            e = _lift(a, hint=t)
+        except ExpressionError:
+            if t.type in ("Function", "AsyncFunction") and callable(a):
+                checked.append(a)
+                rerun = True
+                continue
+            raise
+        if e.east_type == t:
+            checked.append(e)
+        elif _fits(e.east_type, t):
+            checked.append(_coerce(e, t))
+        elif narrowing_of(e.east_type, t):
+            checked.append(e)
+            rerun = True
+        else:
+            from east.expression.naming import hint_at, parameter_names
+
+            hint = hint_at(parameter_names(body), i + 1)  # the block is the body's first parameter
+            parameter = f"parameter {hint!r}" if hint is not None else f"parameter {i + 1}"
+            want, got = _type_words(t, e.east_type)
+            raise ExpressionError(f"{callee}: {parameter} takes {want}, got {got}")
+    return tuple(checked), rerun
+
+
+def _splice(artifact: Any, fn: Any, args: tuple, *, slot: bool = False) -> Any:
     """An artifact called with expression proxies INSIDE another body: it
     embeds as its inline Function node and the call lowers to a ``Call`` —
     the TypeScript shape (#1271). The body runs in a frame of its own, so a
     ``b.return_`` returns from it, a profile lists it as an entry of its own,
     placed by its definition and by the call, and an error inside it names
     both. Its variables are renamed apart from the caller's, so a local it
-    shares a name with is still its own (#1279).
+    shares a name with is still its own (#1279). Every argument is held to
+    its declared parameter first (#1316), so the call's result is of the
+    declared output.
 
-    An artifact that cannot embed — one whose build hoisted constants above
-    its Function node (their ``Let``s belong to its own build), one that
-    calls compiled function values through hidden trailing parameters, or
-    one called with arguments its declared parameters do not take (a column
-    projection re-runs it against the narrow struct it decodes) — re-runs
-    its source body in its OWN statement frame instead, and the expression
-    that frame assembles splices into the surrounding build (#470). The
-    frame is the whole point there (#670): a statement the body
-    appends — ``b.let``, ``b.const``, ``b.if_`` — belongs to the spliced
-    expression, not to the caller's block, or a body used as an
-    ``East.if_else`` arm would evaluate even when the arm was not taken."""
-    from east.expression.lift import _lift_artifact
+    ``slot`` is a callback slot's call, made body-style (``fn(b, *values)``):
+    it hands a function value every argument of the builtin's callback
+    signature (ArrayMap: element, index), and a value declaring fewer takes
+    the prefix — the traced twin of the eager arity adapter (#409). Any
+    other call passes the arguments the function declares, no more.
+
+    An artifact that cannot embed — one that calls compiled function values
+    through hidden trailing parameters, or one handed an argument its
+    Function node does not take (``_call_arguments``) — re-runs its source
+    body in its OWN statement frame instead, and the expression that frame
+    assembles splices into the surrounding build (#470). The frame is the
+    whole point there (#670): a statement the body appends — ``b.let``,
+    ``b.const``, ``b.if_`` — belongs to the spliced expression, not to the
+    caller's block, or a body used as an ``East.if_else`` arm would evaluate
+    even when the arm was not taken."""
+    from east.expression.lift import _coerce, _lift_artifact
     from east.expression.statements import (
         _call_function_body,
         _close_frame,
@@ -427,17 +491,11 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
         assemble,
     )
 
-    # A callback slot hands a function value every argument of the
-    # builtin's callback signature (ArrayMap: element, index); a value
-    # declaring fewer takes the prefix — the traced twin of the eager
-    # arity adapter (#409).
-    declared = getattr(artifact, "_east_param_types", None)
-    if declared is not None and len(args) > len(declared):
+    declared = artifact._east_param_types
+    if slot and len(args) > len(declared):
         args = tuple(args[: len(declared)])
-    fits = declared is not None and len(args) == len(declared) and all(
-        not isinstance(a, Expression) or is_subtype(a.east_type, t)
-        for a, t in zip(args, declared, strict=True))
-    if fits and not getattr(artifact, "_east_fn_binds", ()):
+    args, rerun = _call_arguments(artifact, fn, args, declared)
+    if not rerun and not artifact._east_fn_binds:
         embedded = _lift_artifact(artifact)
         if embedded is not None:
             call = embedded(*args)
@@ -454,13 +512,20 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
         result = _call_function_body(fn, frame, list(args), "East.function")
     finally:
         _close_frame(frame)
+    out_t = artifact._east_out_type
     if not frame.statements:
-        return result          # a pure body: the expression it built, as before
+        # A pure body: the expression it built, a python value it returns (a
+        # dict, a bare `none`) lifted under the declared output. Re-run on
+        # its declared parameter types it builds what it built at
+        # definition; on a narrowed row it reads only whole fields of it,
+        # each of its declared type, so what it builds is of the declared
+        # output too.
+        lifted = _lift(result, hint=out_t)
+        return _coerce(lifted, out_t) if _fits(lifted.east_type, out_t) else lifted
     # The EFFECTS frame stays the CALLER's: a body whose assembled value the
     # caller then throws away is a discarded expression, and the caller's
     # check names it — pushing one here would swallow the mutation instead.
-    return assemble(frame, result, "function",
-                    getattr(artifact, "_east_out_type", None))
+    return assemble(frame, result, "function", out_t)
 
 
 def _assemble(fn: Any, ir_value: Any, out_type: EastType,
@@ -489,16 +554,15 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     def function_callable(*args):
         # A compiled function is a value, not a body: a slot's body-style
         # call (``fn(b, *values)``) drops the block.
-        args = _drop_block(args)
+        values = _drop_block(args)
         # Dual-mode (#470): called with expression proxies — i.e. from inside
         # another trace, e.g. a composing wrapper like
-        # ``lambda b, el: {"k": key(el), "v": value(el)}`` — re-run the
-        # (pure) source body on the proxies so this function's expression
-        # splices inline into the surrounding trace. On plain values,
-        # execute natively.
-        if any(isinstance(a, Expression) for a in args):
-            return _splice(function_callable, fn, args)
-        return compiled(*args)
+        # ``lambda b, el: {"k": key(el), "v": value(el)}`` — this function's
+        # expression splices into the surrounding trace (a block handed
+        # first is a slot's call). On plain values, execute natively.
+        if any(isinstance(a, Expression) for a in values):
+            return _splice(function_callable, fn, values, slot=len(values) < len(args))
+        return compiled(*values)
 
     # The wrapper carries the compiled callable's whole public surface, so
     # every existing consumer (the native pass-through via _eastc_handle,
@@ -550,8 +614,7 @@ def _check_signature(param_types: Any, out: Any, entry: str) -> list[EastType]:
     return types
 
 
-def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
-           cse: bool = True) -> Any:
+def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
     """The shared strict-builder core behind ``East.function``/``asyncFunction``.
 
     Under a check (:func:`collect_build_errors`) a failure is recorded and a
@@ -559,16 +622,15 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
     broken function in the module.
     """
     if _current_collector() is None:
-        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry)
     call_site = capture_frames()
     try:
-        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry)
     except Exception as error:  # noqa: BLE001 - the checker reports whatever the build raised
         return _record_build_error(error, body, entry, call_site)
 
 
-def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
-                  cse: bool = True) -> Any:
+def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
     """The build itself — raises on any failure."""
     types = _check_signature(param_types, out, entry)
     if not callable(body):
@@ -586,8 +648,7 @@ def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entr
         # The build's source map: fresh, or the enclosing build's when this
         # function is being built inside another body (#626).
         with source_map_scope() as source_map:
-            ir_value, out_type, fn_binds = trace(body, types, out_hint=out,
-                                                 is_async=is_async, cse=cse)
+            ir_value, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async)
     finally:
         _async_build = previous
     if not _output_matches(out_type, out):
@@ -718,8 +779,7 @@ def _record_build_error(error: BaseException, body: Any, entry: str,
     return _FailedArtifact(name, str(error))
 
 
-def function(param_types: list[EastType], out: EastType, body: Any = None, *,
-             cse: bool = True) -> Any:
+def function(param_types: list[EastType], out: EastType, body: Any = None) -> Any:
     """Build an East function from a python body — the strict expression
     builder, mirroring the TypeScript ``East.function`` (#625).
 
@@ -737,10 +797,13 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
         East.function([IntegerType], IntegerType, lambda b, x: x + 1)
 
     The statements it appends and the expression it returns are the
-    function's whole behavior. Anything East cannot express raises
-    immediately — there is no purity gate and no per-element python
-    fallback. The built IR is analyzed (``east.ir.analyze``) exactly as the
-    TypeScript compiler analyzes it before it compiles.
+    function's whole behavior — exactly what the body spells, as the
+    TypeScript builder emits it: a python variable holding an expression is
+    re-emitted (and re-evaluated) at every read, and work is shared by
+    binding it with ``b.const`` / ``b.let`` (#1312). Anything East cannot
+    express raises immediately — there is no purity gate and no per-element
+    python fallback. The built IR is analyzed (``east.ir.analyze``) exactly
+    as the TypeScript compiler analyzes it before it compiles.
 
     With ``body`` omitted the call returns a DECORATOR (the two spellings
     build the same artifact; the decorated ``def`` keeps its name). Spelled
@@ -758,12 +821,6 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
             or an ``if_else`` over variant arms (#541).
         body: The python callable to capture — ``fn(b, *params)``; omit it
             to use the result as a decorator.
-        cse: Keep the trace-time common-subexpression pass (a python
-            expression object referenced twice binds to one ``Let``; a
-            callback invariant hoists out of the callback). ``cse=False``
-            builds exactly the IR the body spells — the form the IR→python
-            printer emits, so a printed program rebuilds structurally
-            identical IR.
 
     Returns:
         A python callable. A PURE body compiles immediately: the result runs
@@ -789,13 +846,11 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
     """
     if body is None:
         _check_signature(param_types, out, "East.function")
-        return lambda fn: _build(param_types, out, fn, is_async=False,
-                                 entry="East.function", cse=cse)
-    return _build(param_types, out, body, is_async=False, entry="East.function", cse=cse)
+        return lambda fn: _build(param_types, out, fn, is_async=False, entry="East.function")
+    return _build(param_types, out, body, is_async=False, entry="East.function")
 
 
-def async_function(param_types: list[EastType], out: EastType, body: Any = None, *,
-                   cse: bool = True) -> Any:
+def async_function(param_types: list[EastType], out: EastType, body: Any = None) -> Any:
     """Build an East ASYNC function — the ``East.asyncFunction`` twin of
     :func:`function`, for bodies that call ``East.asyncPlatform`` declarations.
 
@@ -811,7 +866,6 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None,
         body: The python callable to capture (``fn(b, *params)``; omit it
             for the decorator form) — it still runs once, synchronously, at
             build time; only the COMPILED artifact is async.
-        cse: As for :func:`function`.
 
     Returns:
         The built artifact: uncompiled when platform declarations are
@@ -826,9 +880,8 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None,
     """
     if body is None:
         _check_signature(param_types, out, "East.asyncFunction")
-        return lambda fn: _build(param_types, out, fn, is_async=True,
-                                 entry="East.asyncFunction", cse=cse)
-    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction", cse=cse)
+        return lambda fn: _build(param_types, out, fn, is_async=True, entry="East.asyncFunction")
+    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction")
 
 
 def _artifact_ir(fn: Any, entry: str) -> tuple[Any, bool, tuple, SourceMap | None]:

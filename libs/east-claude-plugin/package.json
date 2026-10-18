@@ -6,9 +6,10 @@
   "type": "module",
   "scripts": {
     "build": "pnpm --filter @elaraai/east-plugin run build && tsc",
-    "bundle": "esbuild hooks/session-start.ts hooks/subagent-start.ts hooks/pre-write.ts hooks/pre-read.ts hooks/diagnose.ts hooks/diagnose-bash.ts daemon/server.ts daemon/lsp.ts daemon/east-py-lsp.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript && node ../east-plugin/scripts/sync-assets.mjs",
+    "bundle": "esbuild hooks/session-start.ts hooks/subagent-start.ts hooks/pre-write.ts hooks/pre-read.ts hooks/diagnose.ts hooks/diagnose-bash.ts daemon/server.ts daemon/lsp.ts daemon/east-py-lsp.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript",
     "generate-index": "pnpm --filter @elaraai/east-plugin run generate-index",
-    "test": "npm run build && npm run bundle && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
+    "test": "npm run build && npm run bundle && npm run package && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
+    "package": "pnpm --filter @elaraai/east-plugin run package -- --host claude"
   },
   "engines": {
     "node": ">=22.0.0"

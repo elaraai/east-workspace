@@ -5,12 +5,17 @@
     "email": "support@elara.ai",
     "url": "https://elaraai.com"
   },
+  "description": "East's agent plugins. The published catalog is elaraai/plugins; this marketplace keeps an install added as elaraai/east-workspace updating from the same npm packages.",
   "plugins": [
     {
       "name": "east",
-      "source": "./libs/east-claude-plugin",
+      "source": {
+        "source": "npm",
+        "package": "@elaraai/east-claude-plugin",
+        "version": "1.0.93"
+      },
       "description": "East programming language ecosystem - types, expressions, Node.js/Python runtimes, UI components, and durable execution",
-      "version": "1.0.89",
+      "version": "1.0.93",
       "author": {
         "name": "Elara AI",
         "email": "support@elara.ai"

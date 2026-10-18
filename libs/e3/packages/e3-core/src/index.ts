@@ -268,8 +268,8 @@ export {
   type DeltaArmSummary,
 } from './record-apply.js';
 
-// Taking an existing file into a workspace as a dataset value (#765), and a
-// delivery the store holds
+// Taking an existing file into a workspace as a dataset value (#765), a
+// delivery the store holds, or a value it holds as it is
 export {
   datasetAdoptFile,
   objectAdoptFile,
@@ -278,6 +278,7 @@ export {
 export {
   datasetAdoptObject,
   datasetAdoptKnown,
+  datasetSetStored,
   adoptProgressToIntakeFile,
   type DatasetAdoptObjectOptions,
   type DatasetAdoptProgress,

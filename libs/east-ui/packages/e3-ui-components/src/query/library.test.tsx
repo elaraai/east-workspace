@@ -206,7 +206,7 @@ describe("<Query.Library> — its toolbar and its pane (#1063 L1, L2)", () => {
         expect(library().querySelector("[data-library] [data-toolbar]")).toBeNull();
         const recipe = system.getSlotRecipe("queryLibrary") as { base: Record<string, Record<string, unknown>> };
         expect(Object.keys(recipe.base["root"]!).filter((k) => /^border/i.test(k) || /^(outline|boxShadow)$/.test(k))).toEqual([]);
-    }, 30_000);
+    });
 
     test("L2: All queries and each bound data source with the count of saved queries that start from it, Recent at the foot with its count; a click shows a data source's queries — New query starting on it — or the recent runs", async () => {
         remember(CANCELLED, BIG_RUN);
@@ -229,7 +229,7 @@ describe("<Query.Library> — its toolbar and its pane (#1063 L1, L2)", () => {
         expect(screen.getByRole("button", { name: "New query on orders" })).toBeTruthy();
         await show("all");
         expect(names()).toHaveLength(5);
-    }, 30_000);
+    });
 });
 
 // ─── L3 ──────────────────────────────────────────────────────────────────────
@@ -249,7 +249,7 @@ describe("<Query.Library> — its gallery (#1063 L3)", () => {
         expect(bylineOf(card(COUNT.name))).toBe("customers · 1 step · one whole number · saved Sep 12");
         expect([actionOf(card(TOP.name)), actionOf(card(BIG.name))]).toEqual(["Open in builder →", "Open in builder →"]);
         expect([glyphOf(card(TOP.name)), glyphOf(card(BIG.name))]).toEqual([null, null]);
-    }, 30_000);
+    });
 
     test("L3: a query with problems here draws their count, dashed, and why; one whose data sources aren't bound here carries the reason in the warning tone, has no action, and its click says why in a notice instead of opening", async () => {
         await mountLibrary();
@@ -266,7 +266,7 @@ describe("<Query.Library> — its gallery (#1063 L3)", () => {
         // Another view clears it.
         await show("source:orders");
         expect(library().querySelector("[data-query-library-notice]")).toBeNull();
-    }, 30_000);
+    });
 });
 
 // ─── L4 ──────────────────────────────────────────────────────────────────────
@@ -295,7 +295,7 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
         await click(screen.getByRole("radio", { name: "List view" }));
         expect(library().querySelector("[data-library] [data-layout]")!.getAttribute("data-layout")).toBe("list");
         expect(screen.getByRole("radio", { name: "List view" }).getAttribute("aria-checked")).toBe("true");
-    }, 30_000);
+    });
 
     test("L4: nothing matching the search says so, with what to try — every query's search, or a filter's; no recent runs; no queries yet", async () => {
         await mountLibrary();
@@ -311,7 +311,7 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
         await mountLibrary();
         expect(emptyState()).toEqual(["fas box-open", "No queries yet", ["Save a query in the builder"]]);
         expect(screen.getByRole("textbox", { name: "Search queries" }).getAttribute("placeholder")).toBe("Search 0 queries…");
-    }, 30_000);
+    });
 });
 
 // ─── L5–L6 ───────────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
         expect(opened()).toEqual(variant("saved", "Big orders"));
         expect(screen.getByText(/^told /).textContent).toBe("told Big orders");
         expect(cards().filter((c) => c.hasAttribute("data-placed")).map(nameOf)).toEqual(["Big orders"]);
-    }, 30_000);
+    });
 
     test("L6: New query on the data source the pane shows opens a new query on it, and tells the host its name", async () => {
         await mountLibrary();
@@ -333,7 +333,7 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
         if (open?.type !== "new") throw new Error("expected a new query");
         expect([open.value.source, open.value.from]).toEqual(["customers", none]);
         expect(screen.getByText(/^told /).textContent).toBe("told Untitled customers query");
-    }, 30_000);
+    });
 
     test("L5: a recent run of a saved query opens the saved query; one never saved opens as a new query begun as it — each byline saying when it ran, the open one placed", async () => {
         remember(CANCELLED, BIG_RUN);
@@ -352,7 +352,7 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
         expect(fromEqual(open.value.from, some(CANCELLED))).toBe(true);
         expect(screen.getByText(/^told /).textContent).toBe("told Cancelled orders");
         expect(cards().filter((c) => c.hasAttribute("data-placed")).map((c) => c.getAttribute("data-library-card"))).toEqual(["recent:0"]);
-    }, 30_000);
+    });
 
     test("L6: a builder sharing the library's id opens the query the library opens — with “Opened … from the query library.” — and runs it", async () => {
         const fixture = fixtureCall();
@@ -366,7 +366,7 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
         await click(screen.getByRole("button", { name: "New query on orders" }));
         expect(builder.getAttribute("data-query-open")).toMatch(/^query\.new:/);
         expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Started a new query on orders."]);
-    }, 30_000);
+    });
 });
 
 // ─── L7 ──────────────────────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", ()
         } finally {
             clearPagedApi(paging);
         }
-    }, 30_000);
+    });
 
     test("L7: under a drag layer a saved query's card drags, from the library's id — its builder's — and a recent run's does not", async () => {
         remember(CANCELLED);
@@ -407,5 +407,5 @@ describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", ()
         harness = recordHarness(savedRecord([BIG]));
         await mountLibrary({ id: "top", drag: true });
         expect(library().querySelector("[data-library]")!.getAttribute("data-library")).toBe("query.library.top");
-    }, 30_000);
+    });
 });

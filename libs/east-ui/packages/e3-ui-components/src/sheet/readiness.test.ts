@@ -318,5 +318,5 @@ describe("the session's readiness", () => {
         const fromSchema = schema.readiness;
         expect(fromSchema.type).toBe("incomplete");
         if (fromSchema.type !== "ready") expect(fromSchema.value).toHaveLength(250_000);
-    }, 60_000);
+    });
 });

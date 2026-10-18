@@ -8,8 +8,10 @@
  * `@elaraai/e3-api-server` over a repository seeded at test time, driven
  * through the same harness the frame specs use (no PTY): the workspaces
  * list → a dashboard → a task's output, logs and runs; a 20,000-entry
- * paged Dict input (page latency, retained pages, heap growth — design
- * §17); a real `/run`; an input edited and applied, then read back
+ * paged Dict input (the pages a goto reads, retained pages, heap growth —
+ * design §17; its latency budget only with `E3_UI_PERF=1`, as perf.spec's
+ * timing budgets: a shared runner does not measure time reliably); a real
+ * `/run`; an input edited and applied, then read back
  * through the API; a wide-row Array read across its v2 segments by the
  * value tree's loader and at the Sheet's and the preview's windows.
  */
@@ -33,6 +35,8 @@ import { KEY, mountApp, type Mounted } from './testing/harness.js';
 import { seedFixtureRepo, type SeededRepo } from './testing/seed.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
+/** Whether the §17 latency budget is held (`E3_UI_PERF=1`); its measure is printed regardless. */
+const timing = process.env['E3_UI_PERF'] === '1';
 /** Turns of the harness's `waitFor` for a dataflow run (≈ 5 ms each). */
 const RUN_TURNS = 12_000;
 
@@ -91,7 +95,7 @@ describe('integration (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
         if (seeded.ran) await m.waitFor(() => /1 execution$/.test(m.lines()[35] ?? ''), 600);
     });
 
-    test('a 20,000-entry Dict input pages: latency, retention, find, goto, heap (§17)', async () => {
+    test('a 20,000-entry Dict input pages: the pages a goto reads, retention, find, goto, heap (§17)', async (t) => {
         const m = mounted!;
         m.controller.openWorkspace('table');
         await m.waitFor(() => /lookup/.test(m.frame()), 600);
@@ -102,12 +106,33 @@ describe('integration (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
         assert.match(m.lines()[35]!, /^ paged inputs are read-only here/);
         m.dropFrames();
         const heap0 = heapUsed();
+        // A goto reads the pages around its row, never the rows before them:
+        // what keeps a page 10,000 rows in prompt on any machine. The time it
+        // took is printed, and held to §17's 2 s only with E3_UI_PERF=1.
+        const read: (number | null)[] = [];
+        const getPage = session.api.datasetGetPage;
+        session.api.datasetGetPage = (ws, path, window) => {
+            read.push('offset' in window ? window.offset : null);
+            return getPage(ws, path, window);
+        };
         const t0 = Date.now();
-        await m.type('/goto 10000');
-        await m.press(KEY.enter);
-        await m.waitFor(() => /^▌· k009999\s+69993\b/.test(m.lines()[7] ?? ''), 1_200);
+        try {
+            await m.type('/goto 10000');
+            await m.press(KEY.enter);
+            await m.waitFor(() => /^▌· k009999\s+69993\b/.test(m.lines()[7] ?? ''), 1_200);
+        } finally {
+            session.api.datasetGetPage = getPage;
+        }
         const latency = Date.now() - t0;
-        assert.ok(latency < 2_000, `a page 10,000 rows in arrived in ${latency} ms`);
+        t.diagnostic(`a page 10,000 rows in arrived in ${latency} ms, read from ${read.join(', ')}`);
+        const paged = m.store.getState().data.dataset['table']?.['.inputs.lookup']?.mode;
+        assert.equal(paged?.kind, 'paged');
+        // The window it shows starts at most a page above its row's page
+        const from = 9_999 - 2 * (paged?.kind === 'paged' ? paged.pageSize : 0);
+        assert.ok(read.length > 0, 'the goto read its rows');
+        assert.ok(read.every(offset => offset !== null && offset >= from),
+            `a goto to row 10,000 read ${read.map(offset => offset === null ? 'a segment' : `from ${offset}`).join(', ')}`);
+        if (timing) assert.ok(latency < 2_000, `a page 10,000 rows in arrived in ${latency} ms`);
         await m.press('G');
         await m.waitFor(() => /k019999/.test(m.frame()), 1_200);
         await m.type('/find k01234');

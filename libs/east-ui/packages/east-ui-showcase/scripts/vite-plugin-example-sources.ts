@@ -19,7 +19,7 @@
  *   `description` / `returns`. These packages can't run in the browser, so
  *   they're read statically and shown as code blocks in "Code Reference".
  *   Each one also carries the `python` printed from its IR, joined by id from
- *   the Claude plugin's example index (`example-renderings.ts`, #655) — a
+ *   the plugins' example index (`example-renderings.ts`, #655) — a
  *   Code Reference example missing from that index fails the build, naming it.
  *
  * @remarks
@@ -56,8 +56,8 @@ export interface ExampleSourcesOptions {
     /** Absolute path to the showcase package root. `CODE_EXAMPLE_ROOTS`
      *  `dir` values are resolved against this, exactly like `testDir`. */
     rootDir: string;
-    /** The Claude plugin's example index, the source of each Code Reference
-     *  example's python rendering. Default: `libs/east-claude-plugin/index.json`. */
+    /** The plugins' example index, the source of each Code Reference
+     *  example's python rendering. Default: `libs/east-plugin/index.json`. */
     indexPath?: string;
 }
 

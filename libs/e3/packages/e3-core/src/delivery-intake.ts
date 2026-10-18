@@ -40,12 +40,10 @@
  */
 
 import {
-  Beast2ElementWriter,
   compareFor,
   printFor,
   readBeast2ExtentsRanged,
   segmentKeyTypeOf,
-  segmentRuleFor,
   spliceBeast2Tail,
   type Beast2RangedExtents,
   type EastTypeValue,
@@ -58,7 +56,7 @@ import { pieceSizes } from './execution/pieces.js';
 import { touchReachable } from './gc-graph.js';
 import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
 import { computeHash } from './objects.js';
-import { storeCollection } from './store-collection.js';
+import { manifestCutElsewhere, storeCollection } from './store-collection.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /**
@@ -292,8 +290,7 @@ export async function rememberedManifest(
   }
   if (manifest === null) return null;
   // Another e3 cut it: none of its segments is what the Writer writes now.
-  const header = new Beast2ElementWriter(manifest.type, { segment: () => {} }).header;
-  if (manifest.rule !== segmentRuleFor(manifest.type) || manifest.header !== computeHash(header)) return null;
+  if (manifestCutElsewhere(manifest) !== null) return null;
   // The memo is not a root: a collection gc took is a miss, whichever of its
   // objects went first. One found whole is re-referenced whole.
   if (!await touchReachable(storage, repo, [hash])) return null;

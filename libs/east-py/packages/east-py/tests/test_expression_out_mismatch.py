@@ -171,12 +171,14 @@ def test_plain_lambda_capturing_a_mislabelled_array_is_refused(rows):
 def test_wrong_input_function_does_not_run_native(rows):
     """Output matches, inputs do not: running native would read elements as
     the wrong type. The failure is loud and EARLY now — the signature check
-    refuses the native value, the re-trace against the real element type
-    names the missing field, and the capture's loud contract raises it
-    (previously the wrong function silently fell back to a runtime error)."""
+    refuses the native value, and the re-trace's call of the function on the
+    real element type is refused at its parameter, naming both types (#1316;
+    the body used to re-run against the element, and its missing field was
+    what failed). Previously the wrong function silently fell back to a
+    runtime error."""
     other = StructType([("zz", StringType)])
     k = East.function([other], StringType, lambda _b, r: r["zz"])
-    with pytest.raises(ExpressionError, match="no field 'zz'"):
+    with pytest.raises(ExpressionError, match=r"parameter 'r' takes \.Struct \[\(name=\"zz\""):
         rows.map(k, out=StringType)
 
 

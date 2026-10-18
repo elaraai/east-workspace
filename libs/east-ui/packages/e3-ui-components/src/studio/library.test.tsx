@@ -226,7 +226,7 @@ describe("<Studio.Library> (#997)", () => {
         // The galleries draw no toolbar of their own.
         expect(gallery(container, "templates").querySelector("[data-toolbar]")).toBeNull();
         expect(gallery(container, "pages").querySelector("[data-toolbar]")).toBeNull();
-    }, 30_000);
+    });
 
     test("D2: the pane — the projects, the shown one in the brand; the project's pages with their status dots and count, the open one marked; the legend", async () => {
         const { container } = await mountLibrary();
@@ -244,7 +244,7 @@ describe("<Studio.Library> (#997)", () => {
         // The builder opens the project's first page to begin with.
         expect(row("a-detail").getAttribute("aria-current")).toBe("page");
         expect(container.querySelector("[data-page-library-legend]")!.textContent).toBe("LiveDraft");
-    }, 30_000);
+    });
 
     test("D2: a project's click shows its pages; a page's click opens it in the builder and tells the host", async () => {
         const { container } = await mountLibrary();
@@ -261,7 +261,7 @@ describe("<Studio.Library> (#997)", () => {
         expect(screen.getByRole("button", { name: "New page in retail" })).toBeTruthy();
         // The builder's page is another project's: none of these is marked.
         expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
-    }, 30_000);
+    });
 
     test("D3: Templates, clone to start a page — Blank grid first, then the project's templates; each with its wireframe, its title and what it places", async () => {
         const { container } = await mountLibrary();
@@ -274,7 +274,7 @@ describe("<Studio.Library> (#997)", () => {
         expect(card("t-summary").querySelectorAll("[data-library-media] [data-snap-grid-variant=wireframe] [data-snap-grid-cell]")).toHaveLength(3);
         expect(templates.querySelector("[data-library-add]")).toBeNull();
         expect(container.querySelector('[data-section="templates"]')!.firstElementChild!.textContent).toBe("Templatesclone to start a page");
-    }, 30_000);
+    });
 
     test("D4: Pages, N in the project — each with its wireframe, its title and status, how many components it places and Open in builder →; the dashed card last", async () => {
         const { container } = await mountLibrary();
@@ -295,7 +295,7 @@ describe("<Studio.Library> (#997)", () => {
         await settle();
         expect(builderPage()).toEqual({ project: "ops", page: "c-weekly" });
         expect(screen.getByText("told ops/c-weekly")).toBeTruthy();
-    }, 30_000);
+    });
 
     test("D6: the search narrows both rows by title; Sort Z–A reverses them; Grid · List lays the pages out", async () => {
         const { container } = await mountLibrary();
@@ -319,7 +319,7 @@ describe("<Studio.Library> (#997)", () => {
         await settle();
         expect(grid().getAttribute("data-layout")).toBe("list");
         expect(screen.getByRole("radio", { name: "List view" }).getAttribute("aria-checked")).toBe("true");
-    }, 30_000);
+    });
 });
 
 describe("<Studio.Library> — a new page (#997)", () => {
@@ -350,7 +350,7 @@ describe("<Studio.Library> — a new page (#997)", () => {
             variant("page", { draft: { title: "Q3 review", cells: [] }, live: none }),
         );
         expect(paneRows(container)).toContain("Q3 review");
-    }, 30_000);
+    });
 
     test("D5: a template's card opens it under the New page button, starting from that template; the page's draft is the template's placements", async () => {
         const { container } = await mountLibrary();
@@ -365,7 +365,7 @@ describe("<Studio.Library> — a new page (#997)", () => {
         if (page.type !== "page") throw new Error("expected a page");
         expect(page.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi-1", "c-kpi-2", "c-trend"]);
         expect(page.value.live).toEqual(none);
-    }, 30_000);
+    });
 
     test("D5: the dashed card opens it from Blank grid; a name the project holds is the field's error, and nothing is written", async () => {
         const { container } = await mountLibrary();
@@ -382,7 +382,7 @@ describe("<Studio.Library> — a new page (#997)", () => {
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["$init"]);
-    }, 30_000);
+    });
 
     test("D5: the template picker offers Blank grid and the project's templates; its chevron and the picked one's check are Font Awesome's (#1263)", async () => {
         await mountLibrary();
@@ -396,5 +396,5 @@ describe("<Studio.Library> — a new page (#997)", () => {
         expect(checks.map((check) => [markOf(check), check.hidden])).toEqual([["fas check", false], ["fas check", true], ["fas check", true]]);
         // No icon of Chakra's own is left in the picker.
         expect([...foreignIcons(control), ...foreignIcons(screen.getByRole("listbox"))]).toEqual([]);
-    }, 30_000);
+    });
 });

@@ -738,7 +738,7 @@ def analyze_ir(ir: Any, platforms: Any = None, *, source_map: Any = None) -> Non
 
     Args:
         ir: The IR value (an ``IRType`` variant — a Function node, or the
-            ``Block[Let…, Function]`` a build with hoisted constants emits).
+            ``Block[Let…, Function]`` root an earlier python build wrote).
         platforms: The platform implementations the program will compile
             against (``PlatformFunction`` entries); when given, every
             ``Platform`` node is checked against its implementation's

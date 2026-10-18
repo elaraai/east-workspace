@@ -579,7 +579,7 @@ describe("the paged arm (§3.13)", () => {
         expect(band).toBeTruthy();
         expect(band!.getAttribute("data-elements")).toBe("400");
         expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(0);
-    }, 30_000);
+    });
 
     test("an exhausted immutable source shows its rows but has no editing capability", async () => {
         const { container, key, input, scrollFrame } = mount(buildPaged(450));
@@ -592,7 +592,7 @@ describe("the paged arm (§3.13)", () => {
         key("4");
         expect(input()).toBeNull();
         expect(container.querySelector('[data-slot="history"]')).toBeNull();
-    }, 30_000);
+    });
 });
 
 describe("a sheet reads only what it shows (#1188)", () => {
@@ -713,7 +713,7 @@ describe("the frame mounts a screenful (#856)", () => {
         const small = mount(buildSheet({ rows: MANY.slice(0, 390) }));
         expect(small.container.querySelector('[data-virtual-rows="bounded"]')).toBeTruthy();
         expect(small.rows().length).toBeLessThanOrEqual(Math.ceil(FRAME_PX / rowPx) + 4 + 1);
-    }, 30_000);
+    });
 
     test("the ring walked past the frame's edge scrolls the frame to it, and an edit there commits as anywhere", async () => {
         const { value, draft } = withSpies(pastSheet());
@@ -734,7 +734,7 @@ describe("the frame mounts a screenful (#856)", () => {
         editorKey("Enter");
         await flush();
         expect(draft("m30", Sheet.Types.Draft(JobType)).task).toEqual(variant("value", "Moved"));
-    }, 30_000);
+    });
 
     test("an insertion seam's chips go when the frame scrolls the rows from under them", () => {
         const { container, rows, scrollFrame } = mount(withSpies(pastSheet()).value);
@@ -742,7 +742,7 @@ describe("the frame mounts a screenful (#856)", () => {
         expect(container.querySelector('[data-slot="insertLayer"]')).toBeTruthy();
         scrollFrame(100);
         expect(container.querySelector('[data-slot="insertLayer"]')).toBeNull();
-    }, 30_000);
+    });
 });
 
 // ── Failure is local (#853) ─────────────────────────────────────────────────

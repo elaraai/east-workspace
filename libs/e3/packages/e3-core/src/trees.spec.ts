@@ -14,7 +14,7 @@ import { variant, StringType, IntegerType, StructType, ArrayType, DictType, East
 import e3 from '@elaraai/e3';
 import type { DataRef, Structure } from '@elaraai/e3-types';
 import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetHash, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
-import { datasetAdoptKnown } from './dataset-adopt.js';
+import { datasetAdoptKnown, datasetSetStored } from './dataset-adopt.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
@@ -961,6 +961,7 @@ describe('trees', () => {
         await assert.rejects(workspaceGetTree(noStores, testRepo, name, []), refused('workspaceGetTree'));
         await assert.rejects(workspaceSetDataset(noStores, testRepo, name, path, 'x', StringType), refused('workspaceSetDataset'));
         await assert.rejects(datasetAdoptKnown(noStores, testRepo, name, path, '0'.repeat(64)), refused('datasetAdoptKnown'));
+        await assert.rejects(datasetSetStored(noStores, testRepo, name, path, '0'.repeat(64)), refused('datasetSetStored'));
       });
     }
   });

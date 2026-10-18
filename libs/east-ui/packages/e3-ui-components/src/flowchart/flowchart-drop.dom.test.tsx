@@ -317,7 +317,7 @@ describe("a state template dropped on a lane (FB30, FB31)", () => {
         expect(stateKeys(container)).toEqual(["ARV", "HLD", "SCN", "CH*"]);
         await press(SAVE);
         expect(flowEqual(readRecord(harness).get("Sort")!, edits.insertState(SORT, 1, held("HLD", "intake")))).toBe(true);
-    }, 30_000);
+    });
 
     test("its key is the card's, made unique where the flow holds it — HLD-2 — or minted where the card gives none; in a lane holding no state, it lands in its first row", async () => {
         const { container, harness } = await mountDepot();
@@ -340,7 +340,7 @@ describe("a state template dropped on a lane (FB30, FB31)", () => {
         await press(SAVE);
         const saved = readRecord(harness).get("Sort")!;
         expect(saved.states.map((s) => [s.key, s.lane])).toEqual([["ARV", "intake"], ["SCN", "intake"], ["state-6", "sort"], ["CH*", "sort"], ["HLD", "hold"], ["HLD-2", "hold"]]);
-    }, 30_000);
+    });
 
     test("a read-only flowchart refuses every drop — a step's card on a lane, a transition's on a transition — the ghost saying why, and dropping changes nothing; ⏎ on a card is refused, the footer saying why", async () => {
         const { container } = await mountReadOnly();
@@ -363,7 +363,7 @@ describe("a state template dropped on a lane (FB30, FB31)", () => {
         await release(routeOf("ARV→SCN#0").mid);
         expect(announced()).toBe("Observed was not dropped.");
         expect(container.querySelector('[data-flowchart-link="ARV→SCN#0"]')!.previousElementSibling!.hasAttribute("stroke-dasharray")).toBe(false);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -395,7 +395,7 @@ describe("a card carried over the canvas (FB30)", () => {
         expect(chutes()).toBe("0.45");
         // No hover card ever: the inspector shows what is selected (#1250).
         expect(container.querySelector("[data-flowchart-hovercard]")).toBeNull();
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -424,7 +424,7 @@ describe("a transition template dropped on a transition (FB32)", () => {
         await press(REDO);
         await press(SAVE);
         expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!] })).toBe(true);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -476,7 +476,7 @@ describe("an author's card lands where its drop's type says (FB33)", () => {
             states: [SORT.states[0]!, SORT.states[1]!, { ...SORT.states[2]!, notes: some("Checked at the bay") }],
             triggers: [{ ...SORT.triggers[0]!, owner: some("customs-desk") }],
         })).toBe(true);
-    }, 30_000);
+    });
 });
 
 // ============================================================================
@@ -520,7 +520,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
             links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!],
             triggers: [{ ...SORT.triggers[0]!, owner: some("customs-desk") }],
         })).toBe(true);
-    }, 30_000);
+    });
 
     test("a lane's card lands on the lane a click on its header selected (#1250): with a state selected it is refused, the footer saying why; with the lane, it names the lane, one transaction", async () => {
         const { container, harness } = await mountDepot();
@@ -539,7 +539,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         expect([footerMessage(container), pending(container)]).toEqual(["", ` · ${m.footerPending({ n: 1, count: "1" })}`]);
         await press(SAVE);
         expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, lanes: [SORT.lanes[0]!, { ...SORT.lanes[1]!, label: some("Sortation") }, SORT.lanes[2]!] })).toBe(true);
-    }, 30_000);
+    });
 
     test("with a lane selected, a state template lands at the end of that lane (#1250)", async () => {
         const { container } = await mountDepot();
@@ -551,7 +551,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         // The hold lane, the third, 166px wide from 332px: its first row, 56px down.
         expect([node(container, "HLD").style.left, node(container, "HLD").style.top]).toEqual([`${332 + 83 - NODE_W / 2}px`, "56px"]);
         expect(node(container, "HLD").hasAttribute("data-selected")).toBe(true);
-    }, 30_000);
+    });
 
     test("the footer's line says why a ⏎ was refused until another flow opens", async () => {
         const { container } = await mountDepot();
@@ -563,7 +563,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         await act(async () => { fireEvent.click(cardOf(container, "Returns")); });
         await settle();
         expect([stateKeys(container), footerMessage(container)]).toEqual([["RCV"], ""]);
-    }, 30_000);
+    });
 
     test("with nothing selected, a state template lands at the end of the first lane; after a state between two others, between them", async () => {
         const { container } = await mountDepot();
@@ -578,7 +578,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         await enter(cardOf(container, "Held"));
         expect(stateKeys(container)).toEqual(["ARV", "HLD-2", "SCN", "CH*", "HLD"]);
         expect([drawnUnder(container, "HLD-2", "ARV"), drawnUnder(container, "SCN", "HLD-2")]).toEqual([true, true]);
-    }, 30_000);
+    });
 
     test("⏎ scrolls the state it adds to the middle of the canvas's view; a state dropped where the pointer is leaves the view where it stands", async () => {
         const { container } = await mountDepot();
@@ -595,7 +595,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         await enter(cardOf(container, "Held"));
         expect(node(container, "HLD-2").hasAttribute("data-selected")).toBe(true);
         expect([scroll.scrollLeft, scroll.scrollTop]).toEqual(middle("HLD-2"));
-    }, 30_000);
+    });
 
     test("on a touch screen a tap on the selected card does what ⏎ does, and leaves it selected — a tap on another card only moves the selection; on a fine pointer a second click lets it go, and drops nothing", async () => {
         const restore = touchScreen();
@@ -630,5 +630,5 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
             await settle();
         }
         expect([cardOf(fine.container, "Held").hasAttribute("data-placed"), stateKeys(fine.container)]).toEqual([false, ["ARV", "SCN", "CH*"]]);
-    }, 30_000);
+    });
 });

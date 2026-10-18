@@ -326,10 +326,12 @@ export {
   type DeltaArmSummary,
 } from './record-apply.js';
 
-// A delivery the store holds, taken into a workspace as a dataset value
+// A delivery the store holds, or a value it holds as it is, taken into a
+// workspace as a dataset value
 export {
   datasetAdoptObject,
   datasetAdoptKnown,
+  datasetSetStored,
   adoptProgressToIntakeFile,
   type DatasetAdoptObjectOptions,
   type DatasetAdoptProgress,

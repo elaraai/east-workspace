@@ -63,4 +63,4 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     expect(committed.get(START)!.assignments.has("s37")).toBe(false);
     expect(committed.get(START)!.assignments.size).toBe(315);
     expect(reads.paths.filter(path => path === "records.indexed_roster_weeks")).toEqual([]);
-}, 30_000);
+});

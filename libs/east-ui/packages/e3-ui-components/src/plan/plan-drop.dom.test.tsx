@@ -123,22 +123,22 @@ describe("Plan drop target (#880)", () => {
         expect(dropRows(container).sort()).toEqual(["buckets", "cards", "events", "span"]);
         // A row that cannot take a job has nothing that could ever light up.
         expect(container.querySelectorAll("[data-plan-drop-preview]")).toHaveLength(4);
-    }, 30_000);
+    });
 
     test("a chart, heat or table row flagged as taking a drop still registers nothing — the kind decides first", () => {
         const { container } = renderEveryKind(everyKind(true));
         expect(dropRows(container).sort()).toEqual(["buckets", "cards", "events", "span"]);
-    }, 30_000);
+    });
 
     test("without an editing session no row is a destination — a drop with nowhere to go would lose work", async () => {
         const { container } = await mountCanvas({ arm: "inline", editing: false });
         expect(container.querySelectorAll("[data-drag-cell]")).toHaveLength(0);
-    }, 30_000);
+    });
 
     test("without an `id` no row is a destination — an unnamed surface cannot be addressed", async () => {
         const { container } = await mountCanvas({ arm: "inline", target: false });
         expect(container.querySelectorAll("[data-drag-cell]")).toHaveLength(0);
-    }, 30_000);
+    });
 
     test("a library the canvas does not declare is not a source for it — its card never lights a row, and drafts nothing", async () => {
         const canvas = await mountCanvas({ arm: "inline", sources: ["other-library"] });
@@ -157,7 +157,7 @@ describe("Plan drop target (#880)", () => {
         await dropJob(canvas, "job-1", "p1");
         expect(canvas.patches).toEqual([]);
         expect(marks(canvas.container)).toEqual({});
-    }, 30_000);
+    });
 
     for (const [axis, at] of [
         ["time", variant("time", W27)],
@@ -172,7 +172,7 @@ describe("Plan drop target (#880)", () => {
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             // jsdom's zero-width rect puts the pointer in the FIRST bucket.
             expect(sameInstant(jobs[0]!.at, at)).toBe(true);
-        }, 30_000);
+        });
     }
 });
 
@@ -236,7 +236,7 @@ describe("Plan drop target — a drop its write refuses (#825)", () => {
         await drop("job-2");
         expect(announced()).toBe("job-2 was dropped on Press 1, Week of Jun 29, 2026.");
         expect(row().hasAttribute("data-draft")).toBe(true);
-    }, 30_000);
+    });
 });
 
 describe("Plan drop target by keyboard (#608)", () => {
@@ -296,6 +296,6 @@ describe("Plan drop target by keyboard (#608)", () => {
             const jobs = canvas.stored().get("p2")!.jobs;
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             expect(sameInstant(jobs[0]!.at, variant("time", W28))).toBe(true);
-        }, 30_000);
+        });
     }
 });

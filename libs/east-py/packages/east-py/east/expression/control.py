@@ -56,8 +56,6 @@ from east.expression.lift import (
     _lift,
     _pop_loop_frame,
     _push_loop_frame,
-    _resume_hoisting,
-    _suspend_hoisting,
     _tracing,
 )
 from east.expression.location import location_id as _loc_id
@@ -429,7 +427,7 @@ def while_(state: Any, cond: Any, body: Any = None, *, label: Any = None) -> Any
     if not _tracing():
         return _while_eager(state, cond, body, name)
 
-    init = _lift_initial(state)
+    init = _lift(state)
     state_t = init.east_type
     cell, ref_t, read, commit = _state_cell(state_t)
 
@@ -472,23 +470,6 @@ def _call_eager(fn: Any, args: tuple) -> Any:
     from east.expression.statements import EagerBlock, _call_trimmed
 
     return _call_trimmed(fn, (EagerBlock(), *args))
-
-
-def _lift_initial(state: Any) -> Expression:
-    """Lift a loop's initial state, building captured constants INLINE.
-
-    The state is the loop's mutable working set. A captured East collection
-    normally hoists to a build-time constant the compiled function closes over
-    — one value shared by every call — so seeding an accumulator with a
-    captured ``EastArray(T)`` would have every call append to the same array.
-    Inline, it is rebuilt per call. Constants the body or condition READ still
-    hoist; only the seed is exempt.
-    """
-    previous = _suspend_hoisting()
-    try:
-        return _lift(state)
-    finally:
-        _resume_hoisting(previous)
 
 
 def _state_cell(state_t: EastType):
@@ -585,7 +566,7 @@ def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) ->
     if tag not in ("Array", "Set", "Dict"):
         raise ExpressionError(f"for_ over {tag} — needs an Array, Set or Dict")
 
-    init = _lift_initial(state)
+    init = _lift(state)
     state_t = init.east_type
     cell, ref_t, read, commit = _state_cell(state_t)
 
@@ -703,11 +684,10 @@ def let(value: Any, fn: Any = None) -> Any:
     STATEMENT, TS ``$.let``, is ``b.let(value[, type])`` on the block the
     body received; ``b.const`` is its non-reassignable twin.)
 
-    The tracer already binds a python-shared subexpression whose inputs are
-    the function's own parameters; this is the explicit form, for a value that
-    depends on a loop or lambda binding — where the automatic pass cannot
-    hoist and the expression would otherwise be re-emitted, and re-executed,
-    at every use site.
+    The builder emits what the body spells, so a python variable holding an
+    expression is re-emitted — and re-executed — at every read; this binds
+    the value once inside an expression body, where ``b.const`` is not to
+    hand.
 
     Args:
         value: The expression to bind.
@@ -769,10 +749,11 @@ def ref(value: Any) -> Any:
 def new_array(element_type: EastType, values: Any = ()) -> Any:
     """A FRESH Array, built each time the expression evaluates.
 
-    This is the loop accumulator's constructor. A captured ``EastArray`` is a
-    build-time snapshot the compiled function closes over — one value shared by
-    every call — so appending to it would leak between calls; this builds a
-    new one per evaluation instead.
+    This is the loop accumulator's constructor: an empty (or seeded) Array of
+    a declared element type. A captured ``EastArray`` is a snapshot of its
+    contents, rebuilt wherever the body reads it — a fresh copy per evaluation
+    too — so it seeds a loop as well, but the build refuses to mutate it
+    anywhere else, where the change would land on a copy nothing reads.
 
     Args:
         element_type: The East element type.
@@ -792,7 +773,7 @@ def new_array(element_type: EastType, values: Any = ()) -> Any:
 
 def new_set(element_type: EastType, values: Any = ()) -> Any:
     """A FRESH Set, built each time the expression evaluates (see
-    :func:`new_array` for why a captured one will not do).
+    :func:`new_array`).
 
     Args:
         element_type: The East element type.
@@ -812,7 +793,7 @@ def new_set(element_type: EastType, values: Any = ()) -> Any:
 
 def new_dict(key_type: EastType, value_type: EastType, entries: Any = ()) -> Any:
     """A FRESH Dict, built each time the expression evaluates (see
-    :func:`new_array` for why a captured one will not do).
+    :func:`new_array`).
 
     Args:
         key_type: The East key type.

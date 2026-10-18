@@ -11,8 +11,8 @@ body receives, python's ``$``) and the builtin table's
 (``east.codegen.spellings``):
 
 - a Function/AsyncFunction is a decorated ``def`` taking the block first —
-  ``@East.function([types], out) def _fN(b, params)`` (the root carries
-  ``cse=False``); a nested function is an expression of the enclosing body,
+  ``@East.function([types], out) def _fN(b, params)``; a nested function is
+  an expression of the enclosing body,
   as in TypeScript — ``East.function([types], out, lambda b, …: expr)`` when
   its body is one expression, else a decorated ``def _fN`` defined just
   before the statement that uses it;
@@ -610,10 +610,11 @@ class _Printer:
         return py
 
     def function_def(self, node: Any, scope: _Scope, name: str, *,
-                     consts: list | None = None, root: bool = False) -> Doc:
+                     consts: list | None = None) -> Doc:
         """The decorated ``def name(b, params)`` of a Function /
-        AsyncFunction node; ``consts`` are hoisted Lets printed first as the
-        body's own bindings (a python artifact's captured constants)."""
+        AsyncFunction node; ``consts`` are the Lets above the function in the
+        ``Block[Let…, Function]`` root an earlier python build wrote for its
+        captured constants, printed first as the body's own bindings."""
         p = node.value
         fn_t = p["type"]
         inner = _Scope(scope)
@@ -628,7 +629,7 @@ class _Printer:
         ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
         inputs = bracket("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
         out = self.type_ref(fn_t.value["output"])
-        decorator: Doc = ["@", ctor, call_args([inputs, out, *(["cse=False"] if root else [])])]
+        decorator: Doc = ["@", ctor, call_args([inputs, out])]
         return _def(name, [_BLOCK, *params], body, decorator)
 
     def function_expr(self, node: Any, scope: _Scope, pre: list[Doc]) -> Doc:
@@ -1322,8 +1323,8 @@ class _Printer:
             raise Unprintable(f"the root must be a Function or AsyncFunction, got {root.type}")
         self.var_counter = _next_v_index(ir)
         self.prepare(ir)
-        # A python artifact's hoisted constants become the body's consts.
-        fn_doc = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
+        # An earlier python build's hoisted constants become the body's consts.
+        fn_doc = self.function_def(root, _Scope(None), self.root_name, consts=consts)
         # exactly the names the module uses, in one fixed order
         names = [n for n in ("East", "variant", "some", "none", "east_null", "recursive_type", *TYPE_IMPORTS)
                  if n in self.used]
@@ -1390,8 +1391,8 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = L
     Args:
         fn_or_ir: A built ``East.function`` / ``East.asyncFunction`` artifact,
             or a homoiconic IR value (a Function/AsyncFunction node, or the
-            ``Block[Let…, Function]`` a build with hoisted constants emits —
-            its constants become the body's first ``b.const``s).
+            ``Block[Let…, Function]`` root an earlier python build wrote for
+            its hoisted constants — they become the body's first ``b.const``s).
         name: The module-level name bound to the rebuilt function
             (default ``"main"``).
         width: The line width the layout keeps to (default
@@ -1405,8 +1406,9 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = L
 
     Returns:
         The module source. Importing it (or ``exec``-ing it) binds ``name``
-        to a ``@East.function(..., cse=False)``-decorated def, whose IR
-        normalizes equal to the input's (``east-c ir normalize``).
+        to a ``@East.function(...)``-decorated def, whose IR normalizes
+        equal to the input's (``east-c ir normalize``) — the builder emits
+        exactly what the module spells.
 
     Raises:
         Unprintable: For a shape the python surface cannot spell — a

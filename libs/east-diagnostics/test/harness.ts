@@ -50,6 +50,35 @@ function run(
   return runEastRules(ts, program, sourceFile, program.getTypeChecker(), options, rules);
 }
 
+/** The checked program of a `.ts` fixture — for a spec that asks the checker about `@elaraai/east`'s
+ * own declarations rather than about diagnostics. */
+export function programFor(source: string): { program: ts.Program; sourceFile: ts.SourceFile; checker: ts.TypeChecker } {
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    strict: true,
+    skipLibCheck: true,
+    noEmit: true,
+    types: [],
+    lib: ["lib.esnext.d.ts"],
+  };
+  const host = ts.createCompilerHost(compilerOptions);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, languageVersion, onError, shouldCreate) => {
+    if (name === FIXTURE_TS) return ts.createSourceFile(name, source, languageVersion, true);
+    return getSourceFile(name, languageVersion, onError, shouldCreate);
+  };
+  const fileExists = host.fileExists.bind(host);
+  host.fileExists = (name) => name === FIXTURE_TS || fileExists(name);
+  const readFile = host.readFile.bind(host);
+  host.readFile = (name) => (name === FIXTURE_TS ? source : readFile(name));
+  const program = ts.createProgram([FIXTURE_TS], compilerOptions, host);
+  const sourceFile = program.getSourceFile(FIXTURE_TS);
+  if (sourceFile === undefined) throw new Error("fixture source file not found");
+  return { program, sourceFile, checker: program.getTypeChecker() };
+}
+
 /** Analyze a `.ts` fixture. */
 export function analyze(
   source: string,

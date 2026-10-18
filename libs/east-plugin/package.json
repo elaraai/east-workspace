@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-plugin",
-  "version": "1.0.89",
+  "version": "1.0.93",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "East's agent plugin runtime — the example index generator, the example search and its MCP tools, the search-first hooks and the Codex skill adapter — for a Claude Code or Codex plugin that builds on East's.",
@@ -35,8 +35,9 @@
   "author": "Elara AI Pty Ltd",
   "scripts": {
     "build": "tsc",
-    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json && node scripts/sync-assets.mjs",
-    "test": "npm run build && node --enable-source-maps --test dist/test/*.spec.js"
+    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json",
+    "test": "npm run build && node --enable-source-maps --test dist/test/*.spec.js",
+    "package": "node dist/scripts/package.js"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -194,7 +194,7 @@ def _coerce(expr: Expression, target: EastType, _visited: set | None = None) -> 
             fields.append(EastStruct({"name": name, "value": value}))
         rebuilt: Any = EastVariant("Struct", EastStruct({
             "type": t, "loc_id": node.value["loc_id"], "fields": fields}))
-        return _widened(rebuilt, target)
+        return _still_captured(expr, _widened(rebuilt, target))
     if node.type == "Variant" and s.type == "Variant" and t.type == "Variant":
         case = node.value["case"]
         s_c = next((c["type"] for c in s.value if c["name"] == case), None)
@@ -204,7 +204,7 @@ def _coerce(expr: Expression, target: EastType, _visited: set | None = None) -> 
             inner = _coerce(Expression(inner, s_c), t_c, visited).ir
         rebuilt = EastVariant("Variant", EastStruct({
             "type": t, "loc_id": node.value["loc_id"], "case": case, "value": inner}))
-        return _widened(rebuilt, target)
+        return _still_captured(expr, _widened(rebuilt, target))
     return Expression(ir_as(target, expr.ir, _loc_id()), target)
 
 
@@ -233,12 +233,12 @@ def _lift_python_dict(value: dict, hint: EastType) -> Expression:
 def _lift_artifact(value: Any) -> Expression | None:
     """A built ``East.function`` referenced as a VALUE inside another body
     embeds as its Function node — a Function-typed expression that can be
-    bound, stored, passed as a callback, or called (``Call`` IR). Only a
-    plain Function/AsyncFunction artifact embeds (one with hoisted captured
-    constants is a Block, and its constants belong to its own build); its
-    locations are re-interned under the open build's map, and its variables
-    renamed apart from the names in scope here (#1279), as a body built in
-    place names its own."""
+    bound, stored, passed as a callback, or called (``Call`` IR). A plain
+    Function/AsyncFunction artifact embeds (an IR value read from a file may
+    still be the ``Block[Let…, Function]`` an earlier python build wrote, whose
+    Lets belong to that build); its locations are re-interned under the open
+    build's map, and its variables renamed apart from the names in scope here
+    (#1279), as a body built in place names its own."""
     ir = getattr(value, "_east_ir", None)
     if ir is None or not isinstance(ir, EastVariant):
         return None
@@ -307,9 +307,14 @@ def builtin(name: str, type_parameters: list, arguments: list, out: EastType) ->
 
     Returns:
         The Builtin expression, typed ``out``.
+
+    Raises:
+        ExpressionError: If an argument is not of its declared input's type
+            or a subtype of it (#1316) — a python literal is lifted under
+            that type, so ``1`` fills a Float slot as ``1.0``.
     """
     from east.expression.expr import Expression
-    from east.expression.nodes import _k_builtin
+    from east.expression.nodes import _builtin_slots, _k_builtin
 
     if not isinstance(name, str) or not name:
         raise ExpressionError("East.builtin() takes the builtin's name first")
@@ -319,7 +324,11 @@ def builtin(name: str, type_parameters: list, arguments: list, out: EastType) ->
     for t in tps:
         if not isinstance(t, EastType):
             raise ExpressionError("East.builtin() type parameters must be East types")
-    args = [_lift(a).ir for a in arguments]
+    arguments = list(arguments)
+    slots = _builtin_slots(name, tps)
+    if slots is None or len(slots) != len(arguments):
+        slots = [None] * len(arguments)
+    args = [_lift(a, hint=t).ir for a, t in zip(arguments, slots, strict=True)]
     return Expression(_k_builtin(name, out, tps, args), out)
 
 
@@ -381,9 +390,9 @@ def _holds_traced(value: Any) -> bool:
     containers a body writes by hand (dicts, lists, tuples) and the frozen
     East values a constructor may already have wrapped (a ``some(…)``
     payload, a struct's fields), because an eager value built AROUND a proxy
-    is exactly the failure every dual-mode form exists to prevent: lifted
-    later, it would register as a build-time constant referencing the body's
-    own parameters, which are unbound where that constant is evaluated.
+    is exactly the failure every dual-mode form exists to prevent: the eager
+    constructor would validate and copy the proxy as data, and the body's
+    parameter it stands for would never reach the IR.
     """
     from east.expression.expr import Expression
     from east.types.values import is_east_struct
@@ -401,75 +410,47 @@ def _holds_traced(value: Any) -> bool:
     return False
 
 
-class _ConstRegistry:
-    """Per-trace registry of captured constants, hoisted to the function build.
-
-    A captured East collection/struct is SNAPSHOT once: its constructor IR
-    becomes a ``Let`` evaluated when the function compiles, and every use site
-    (including inside nested lambdas) references the bound variable. Without
-    hoisting the constructor would sit inline at the use site and re-build
-    the constant on every evaluation — per row, or per ELEMENT inside a
-    ``.map`` lambda, which is pathological for lookup tables. Entries are
-    deduped by python object identity AND lifted type, so one table
-    referenced at N sites binds once — but an object lifted under two
-    different declared types is two constants, because a struct's IR type
-    comes from the slot it lands in (#671). Dependency order is construction
-    order (inner constants of a nested constant register first).
-    """
-
-    __slots__ = ("by_id", "entries")
-
-    def __init__(self) -> None:
-        self.by_id: dict[int, list[tuple[str, EastType]]] = {}
-        self.entries: list[tuple[str, Any, EastType]] = []
-
-    def register(self, value: Any, node: Any, t: EastType) -> Expression:
-        from east.expression.expr import Expression
-
-        bound = self.by_id.setdefault(id(value), [])
-        for name, bound_t in bound:
-            if is_type_equal(bound_t, t):
-                return Expression(_var(name, bound_t), bound_t)
-        name = _fresh_name()
-        bound.append((name, t))
-        self.entries.append((name, node, t))
-        return Expression(_var(name, t), t)
+# The constructor nodes the open trace lifted captured East values to, by id,
+# the node kept alive beside it so a dead object's reused id never marks
+# another (see ``_rehome_ir``). A captured collection lifts as a literal of its
+# contents at the site that reads it, as a TypeScript literal does, and every
+# evaluation builds a fresh copy: the traced mutators refuse to mutate one,
+# since the change would land on a copy nothing else sees. Nothing is hoisted
+# — the registry that once bound each captured constant to a ``Let`` above the
+# function went with the CSE (#1312): it shared one value across every call,
+# and a mutation through an alias its name check could not see leaked between
+# them.
+_captured_nodes: dict[int, Any] = {}
 
 
-# The active (outermost) trace's constant registry; inner-lambda traces share
-# it so constants hoist to the function scope. None outside any trace — then
-# constants inline at the use site (correct, just unhoisted).
-_const_registry: _ConstRegistry | None = None
+def _mark_captured(expr: Expression) -> Expression:
+    """Record ``expr``'s node as the constructor of a captured constant."""
+    _captured_nodes[id(expr.ir)] = expr.ir
+    return expr
 
 
-# Hoisting is suspended while a loop's INITIAL STATE is lifted. That state is
-# the loop's mutable working set, and a hoisted constant is built ONCE when
-# the function compiles and shared by every call — so seeding an accumulator
-# with a captured `EastArray(T)` (the spelling #578 itself uses) would have
-# every call append to the same array. Inlined, it is rebuilt per call, which
-# is what a working set means. Constants read from the loop's body or
-# condition still hoist: those uses are read-only.
-_hoisting = True
+def _still_captured(source: Expression, rebuilt: Expression) -> Expression:
+    """``rebuilt`` marked as a captured constant when ``source`` was one: a
+    literal re-typed by the slot it lands in is the same captured value."""
+    return _mark_captured(rebuilt) if id(source.ir) in _captured_nodes else rebuilt
 
 
-def _suspend_hoisting() -> bool:
-    """Build captured constants inline until hoisting is resumed."""
-    global _hoisting
-    was = _hoisting
-    _hoisting = False
-    return was
-
-
-def _resume_hoisting(previous: bool) -> None:
-    """Restore what :func:`_suspend_hoisting` replaced."""
-    global _hoisting
-    _hoisting = previous
-
-
-def _register_const(value: Any, expr: Expression) -> Expression:
-    if _const_registry is None or not _hoisting:
-        return expr
-    return _const_registry.register(value, expr.ir, expr.east_type)
+def _is_captured_constant(node: Any) -> bool:
+    """Whether ``node`` reads a captured constant: the constructor a captured
+    East value lifted to, or a field read, a widening or a recursive wrap or
+    unwrap of one — the accessors that do not change WHICH value is
+    addressed. A ``Let`` of it is a binding of the open build
+    (``b.const(table)``), whose per-call copy a body may mutate, so a
+    Variable never is one."""
+    while True:
+        kind = getattr(node, "type", None)
+        if kind == "GetField":
+            node = node.value["struct"]
+            continue
+        if kind in ("As", "WrapRecursive", "UnwrapRecursive"):
+            node = node.value["value"]
+            continue
+        return id(node) in _captured_nodes
 
 
 class _FnConstRegistry:
@@ -501,39 +482,40 @@ class _FnConstRegistry:
         return name
 
 
-# The active trace's called-function registry, managed in lockstep with
-# ``_const_registry`` by ``trace()``. None outside any trace — then a call on
-# a compiled function value simply runs natively on the plain values it was
-# handed; only a proxy-argument call needs lowering (#561).
+# The active (outermost) trace's called-function registry, installed by
+# ``trace()`` through ``_push_registries`` and shared by inner-lambda traces;
+# whether it is set is whether a trace is open (``_tracing``). None outside
+# any trace — then a call on a compiled function value simply runs natively
+# on the plain values it was handed; only a proxy-argument call needs
+# lowering (#561).
 _fn_registry: _FnConstRegistry | None = None
 
 
 def _push_registries() -> bool:
-    """Install fresh registries for an OUTER trace.
+    """Install a fresh registry for an OUTER trace.
 
     Returns whether this call opened one: an inner-lambda trace shares the
-    outer trace's registries, so its constants hoist to the function scope.
+    outer trace's registry, so a callee called at any depth binds once, as a
+    hidden trailing parameter of the function.
     """
-    global _const_registry, _fn_registry
-    if _const_registry is not None:
+    global _fn_registry
+    if _fn_registry is not None:
         return False
-    _const_registry = _ConstRegistry()
     _fn_registry = _FnConstRegistry()
     return True
 
 
-def _registry_entries() -> tuple[list, list]:
-    """The open trace's hoisted constants and called-function binds."""
-    assert _const_registry is not None and _fn_registry is not None
-    return _const_registry.entries, _fn_registry.entries
+def _registry_entries() -> list:
+    """The open trace's called-function binds."""
+    assert _fn_registry is not None
+    return _fn_registry.entries
 
 
 def _clear_registries() -> None:
-    """Close the outer trace's registries."""
-    global _const_registry, _fn_registry, _hoisting
-    _const_registry = None
+    """Close the outer trace's registry and the state kept beside it."""
+    global _fn_registry
     _fn_registry = None
-    _hoisting = True
+    _captured_nodes.clear()
     _loop_frames.clear()
     _effect_frames.clear()
 
@@ -606,21 +588,7 @@ def _tracing() -> bool:
     which mode they are in with this, because their operands are LAMBDAS —
     unlike ``if_else``, which can look at its conditions and see a proxy.
     """
-    return _const_registry is not None
-
-
-def _hoisted_const_names() -> frozenset[str]:
-    """The names the open trace bound to build-time constants.
-
-    A captured East collection hoists to a ``Let`` evaluated ONCE when the
-    function compiles (see :class:`_ConstRegistry`), so the compiled function
-    closes over one shared value. Mutating it would leak between calls, which
-    is what the traced mutators check for.
-    """
-    if _const_registry is None:
-        return frozenset()
-    return frozenset(name for bound in _const_registry.by_id.values()
-                     for name, _t in bound)
+    return _fn_registry is not None
 
 
 def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
@@ -676,12 +644,15 @@ def _lift_collection(value: Any, hint: EastType | None = None) -> Expression | N
     """Lift a captured East collection/struct constant (#393).
 
     The value snapshots into constructor IR (NewArray/NewSet/NewDict/Struct,
-    each element lifted recursively) and — inside a trace — hoists to a
-    function-build-time ``Let`` (see ``_ConstRegistry``), so a TRANS-style
-    side-table is built once per compiled function, not per evaluation.
-    Very large tables should bind by reference instead (no snapshot at
-    all): declare a trailing parameter and use
-    ``East.function(...).bind(table)`` (#399).
+    each element lifted recursively) at the site that reads it — a literal of
+    its contents, as the TypeScript builder lifts a captured array — so every
+    evaluation builds a fresh copy: per call at a function's top level, per
+    element inside a callback. ``b.const(table)`` binds the literal once per
+    call; a table too large to copy binds by reference instead (no snapshot
+    at all): declare a trailing parameter and use
+    ``East.function(...).bind(table)`` (#399). The node is recorded
+    (:func:`_mark_captured`) so a traced mutator can refuse it: a mutation of
+    a fresh copy persists nowhere.
     """
     from east.expression.expr import Expression
     from east.types.types import ArrayType as _ArrayType
@@ -695,53 +666,41 @@ def _lift_collection(value: Any, hint: EastType | None = None) -> Expression | N
         elem_t = value.element_type
         arr_t = _ArrayType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
-        return _register_const(
-            value, Expression(_k_new_array(arr_t, nodes), arr_t)
-        )
+        return _mark_captured(Expression(_k_new_array(arr_t, nodes), arr_t))
     if isinstance(value, EastVector):
         elem_t = value.element_type
         vec_t = _VectorType(elem_t)
         nodes = [_lift(x, hint=elem_t).ir for x in value.to_numpy().tolist()]
-        return _register_const(
-            value, Expression(_k_new_vector(vec_t, nodes), vec_t)
-        )
+        return _mark_captured(Expression(_k_new_vector(vec_t, nodes), vec_t))
     if isinstance(value, EastMatrix):
         elem_t = value.element_type
         mat_t = _MatrixType(elem_t)
         flat = value.to_numpy().reshape(-1).tolist()
         nodes = [_lift(x, hint=elem_t).ir for x in flat]
-        return _register_const(
-            value,
-            Expression(_k_new_matrix(mat_t, value._rows, value._cols, nodes), mat_t),
-        )
+        return _mark_captured(
+            Expression(_k_new_matrix(mat_t, value._rows, value._cols, nodes), mat_t))
     if isinstance(value, EastSet):
         elem_t = value.element_type
         set_t = _SetType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
-        return _register_const(
-            value, Expression(_k_new_set(set_t, nodes), set_t)
-        )
+        return _mark_captured(Expression(_k_new_set(set_t, nodes), set_t))
     if isinstance(value, EastDict):
         k_t, v_t = value.key_type, value.value_type
         dict_t = _DictType(k_t, v_t)
         entries = [
             (_lift(k, hint=k_t).ir, _lift(v, hint=v_t).ir) for k, v in value.items()
         ]
-        return _register_const(
-            value,
-            Expression(_k_new_dict(dict_t, entries), dict_t),
-        )
+        return _mark_captured(Expression(_k_new_dict(dict_t, entries), dict_t))
     if is_east_struct(value):
         # A captured struct constant (e.g. a config row) lifts field by field,
         # under the DECLARED struct type when there is one: an EastStruct
         # carries no type of its own, so without the hint each field is typed
         # from its own value and a `none` field has nothing to type it (#671).
         # One holding a traced part is no constant — it was built around a
-        # proxy — so it lifts inline rather than as a hoisted Let, which would
-        # be evaluated outside the function where the proxy's variable is
-        # unbound.
+        # proxy — so it is not marked as one: a field read through it may be
+        # the parameter the proxy stands for, which a body may mutate.
         lifted = _lift_struct({name: value[name] for name in value}, hint)
-        return lifted if _holds_traced(value) else _register_const(value, lifted)
+        return lifted if _holds_traced(value) else _mark_captured(lifted)
     return None
 
 

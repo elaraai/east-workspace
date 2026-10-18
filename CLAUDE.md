@@ -66,13 +66,14 @@ libs/
 ├── east-py/             # Python runtime + datascience + I/O (uv workspace)
 ├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-rack (rack protocol, shared hub and rack task runner), e3-api-tests, e3-web (e3 in a browser)
 ├── east-ui/             # UI components — east-ui, east-ui-components, e3-ui, e3-ui-components, e3-ui-cli, showcases, east-ui-extension (VS Code extension)
-└── east-claude-plugin/  # Claude Code plugin — skills (symlinked from libs), hooks, MCP search server, project scaffold + install scripts
+├── east-plugin/         # Shared agent plugin runtime — the skill catalog (symlinked from libs), the example index, hooks, MCP search server, the assembler; east-claude-plugin/ and east-codex-plugin/ are the two hosts' plugin sources
+└── east-claude-plugin/  # Claude Code plugin source — manifest, hook/MCP entry points, install scripts (east-codex-plugin/ is Codex's)
 ```
 
 Top-level (non-`libs/`):
 - `docker/` — `images/` (published `ghcr.io/elaraai/{e3,east-node}` runtime images), `services/` (test-backend compose), `tests/` (image validation)
 - `scripts/` — monorepo release tooling (`publish-npm.mjs`, `set-*-version.mjs`, …)
-- `.claude-plugin/marketplace.json` — marketplace root; lists the `east` plugin with `source: ./libs/east-claude-plugin`
+- `.claude-plugin/marketplace.json` — marketplace root; lists the `east` plugin as its npm package (`@elaraai/east-claude-plugin`) so an install added as `elaraai/east-workspace` keeps updating; the published catalog is `elaraai/plugins`
 
 Root config:
 - `pnpm-workspace.yaml` — workspace package globs
@@ -114,11 +115,14 @@ The following `SKILL.md` files back Claude Code plugin skills
 `east:e3-ui-cli`, `east:east-node-std`, `east:east-node-io`, `east:east-py`,
 `east:east-py-std`, `east:east-py-io`, `east:east-py-datascience`).
 Editing them changes plugin behaviour — coordinate before touching. The
-plugin (`libs/east-claude-plugin/skills/<name>/SKILL.md`) holds **symlinks**
-to these files, so the lib copy is the single source of truth; the search
-index (`libs/east-claude-plugin/index.json`) is regenerated from each lib's
-`*.examples.ts` and must be re-run when these change (see the
-`plugin-artifacts` workflow). `east:east-py`, `east:east-py-std`, and
+skill catalog (`libs/east-plugin/skills/<name>/SKILL.md`) holds **symlinks**
+to these files, so the lib copy is the single source of truth; both plugins
+are assembled from it at build time (`make -C libs/east-plugin package`, into
+`libs/east-plugin/marketplace/`, never committed — the release publishes them
+to npm as `@elaraai/east-claude-plugin` and `@elaraai/east-codex-plugin`, and
+the `elaraai/plugins` catalog lists them); the search index
+(`libs/east-plugin/index.json`) is regenerated from each lib's `*.examples.ts`
+and must be re-run when these change (see the `plugin-artifacts` workflow). `east:east-py`, `east:east-py-std`, and
 `east:east-py-io` are **skill-file-only** for now — no `*.examples.py` are
 indexed. `east:e3-ui-cli` and `east:e3-create` are indexed via hand-written
 `index.static.json` stubs (the `e3` precedent) — their CLI surface is not
@@ -138,7 +142,7 @@ East-expression code, so they have no `*.examples.ts`.
 - `libs/east-py/packages/east-py-datascience/SKILL.md`
 
 Further skills are **plugin-native** (not a lib API), with `SKILL.md`
-files living in the plugin under `libs/east-claude-plugin/skills/`:
+files living in the skill catalog under `libs/east-plugin/skills/`:
 
 - `east:east-project` (`skills/east-project/SKILL.md`) — project scaffolding
   + lifecycle, via the published initializers `npm create @elaraai/e3` /

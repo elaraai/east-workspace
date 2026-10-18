@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PLUGIN_ROOT } from "./plugin.js";
 
 // The SHIPPED PostToolUse pipeline for a python file (#648): the bundled
 // diagnose hook finds the project's own `east-py` (the nearest `.venv` above
@@ -11,7 +12,7 @@ import { join } from "node:path";
 // the <east-code-review> block. The `east-py` here is a stand-in that prints
 // what the real one prints for one finding and exits 1 as it does — so the
 // test pins the hook's resolution and rendering without a python toolchain.
-const hook = join(process.cwd(), ".build", "hooks", "diagnose.js");
+const hook = join(PLUGIN_ROOT, ".build", "hooks", "diagnose.js");
 
 function project(): string {
   const dir = mkdtempSync(join(tmpdir(), "east-py-hook-"));
