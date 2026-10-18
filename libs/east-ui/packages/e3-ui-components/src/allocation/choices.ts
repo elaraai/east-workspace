@@ -15,6 +15,7 @@
 
 import type { ChooserOption, ChooserSection } from "@elaraai/east-ui-components/internal";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
+import type { option } from "@elaraai/east";
 import { compareDate, compareFloat, compareString, partsOf, type Context, type Day, type Fit, type FitResult } from "./model.js";
 
 /** The words a Chooser's lines are written with: a quantity with its unit and without, and a lane's name. */
@@ -98,7 +99,8 @@ export function eventChoices(args: {
 /**
  * A resource cell's Chooser (A48): the row's resource (Current), the
  * resources that fit — `Gaps that fit` a bin, `Can be reserved` for a free row
- * or a reservation — best first, and those that don't.
+ * or a reservation — best first, and those that don't; of the resources the
+ * narrowing shows, as a drop lands only on a shown row (#1336).
  *
  * @param args - The row and what the board knows
  * @returns The sections, in order
@@ -111,14 +113,16 @@ export function resourceChoices(args: {
     current: string | undefined;
     /** The fit's answer to placing the row's bin, or a reservation in its slot. */
     answer: FitResult | undefined;
+    /** The resources the narrowing shows; `none`, every one. The current one is offered whatever it hides. */
+    shown: option<ReadonlySet<string>>;
 }): ChooserSection[] {
-    const { context, words, binRow, current, answer } = args;
+    const { context, words, binRow, current, answer, shown } = args;
     const range = (key: string) => { const r = context.resources.get(key)!; return `${words.number(r.min)}–${words.quantity(r.max)}`; };
     const sections: ChooserSection[] = [];
     if (current !== undefined && context.resources.has(current)) {
         sections.push({ label: "Current", options: [{ key: current, label: context.resources.get(current)!.label, line: "current", range: range(current), state: "current" }] });
     }
-    const others = [...context.resources.keys()].filter(key => key !== current);
+    const others = [...context.resources.keys()].filter(key => key !== current && (shown.type === "none" || shown.value.has(key)));
     const heading = binRow ? "Gaps that fit" : "Can be reserved";
     if (answer === undefined) {
         sections.push({ label: heading, options: others.map(key => ({ key, label: context.resources.get(key)!.label, line: CHECKING, range: range(key), state: "disabled" })) });

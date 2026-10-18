@@ -5,15 +5,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, StringType, StructType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, isTypeEqual, none, some, variant, type EastTypeValue,
+    ArrayType, DictType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, isTypeEqual, none, some, variant, type EastTypeValue,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
+import { Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Allocation, type AllocationProps } from "@elaraai/e3-ui";
-import { AllocationPayloadType, Func, Record, createAllocationPayload, funcBindPlatformFn } from "@elaraai/e3-ui/internal";
+import { AllocationPayloadType, Data, Func, Record, createAllocationPayload, funcBindPlatformFn } from "@elaraai/e3-ui/internal";
 import { memoryRecords } from "../schedule/memory-records.js";
-import { BinValues, TimberLoad, yardArrivals, yardKilns, yardLanes, yardPlans } from "./kiln-yard.js";
+import { Bay, BinValues, TimberLoad, yardArrivals, yardBayRows, yardKilns, yardLanes, yardPlans } from "./kiln-yard.js";
 import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
@@ -120,4 +121,44 @@ test("the tag takes its library, inspector and settings as given", () => {
     assert.equal(value.rules.under, false);
     assert.ok(value.quantity.unit.type === "some" && value.quantity.unit.value === "m³");
     assert.ok(value.id.type === "some" && value.id.value === "yard");
+});
+
+test("Allocation.lanes reads the app's keyed rows as lanes, in key order, each lane keyed by its row", () => {
+    const lanes = East.compile(East.function([], ArrayType(Allocation.Types.Lane), $ => {
+        const bays = $.const(yardBayRows, DictType(StringType, Bay));
+        return Allocation.lanes(bays, { label: b => East.str`Bay ${b.name}`, offset: b => b.offset });
+    }), [])();
+    assert.deepEqual(lanes.map(lane => [lane.key, lane.label]), [["B-1", "Bay B-1"], ["B-2", "Bay B-2"], ["B-3", "Bay B-3"]]);
+    assert.deepEqual(lanes.map(lane => lane.offset), [variant("minutes", 15), variant("minutes", 35), variant("minutes", 55)]);
+    const bare = East.compile(East.function([], ArrayType(Allocation.Types.Lane), $ =>
+        Allocation.lanes($.const(yardBayRows, DictType(StringType, Bay)), { label: b => b.name })), [])();
+    assert.deepEqual(bare.map(lane => lane.offset), [variant("minutes", 0), variant("minutes", 0), variant("minutes", 0)], "no offset: on the slot");
+    assert.throws(() => Allocation.lanes(East.value([], ArrayType(Bay)) as never, { label: () => "" }), /a Dict keyed by String/);
+});
+
+test("with no slice the board narrows nothing; a slice is Slice.bindRecords over lanes and resources, refused otherwise", () => {
+    const value = payloadWith();
+    assert.equal(value.slice.type, "none");
+    assert.deepEqual([value.narrowed.lanes.type, value.narrowed.resources.type], ["none", "none"]);
+    const bayIndex = Data.bindPaged(ex.yardBays, { indexes: [ex.yardBaysByArea] });
+    const kilnIndex = Data.bindPaged(ex.kilns, { indexes: [ex.kilnsByGroup] });
+    // The narrowing builds over both sources, and over either alone.
+    for (const sources of [{ lanes: { source: bayIndex } }, { resources: { source: kilnIndex } }, { lanes: { source: bayIndex }, resources: { source: kilnIndex } }]) {
+        assert.doesNotThrow(() => East.function([], AllocationPayloadType, $ => {
+            const days = $.let(Record.bind(ex.kilnPlans, [ex.kilnPlansPatch]));
+            const fit = $.let(Func.bind(ex.yardFit));
+            const slice = $.let(Slice.bindRecords("spec.yard", sources as never));
+            return createAllocationPayload({ days, fit, lanes: yardLanes, resources: [], slice: { slice },
+                events: Allocation.events($.const(yardArrivals, DictType(StringType, TimberLoad)), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
+                    values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade, gradeMeasured: l.grade, instruction: none }) }) });
+        }));
+    }
+    const refused = (slice: unknown) => () => payloadWith({ slice: { slice: slice as never } });
+    assert.throws(refused(Slice.bindRecord("spec.single", kilnIndex)), /`slice` is Slice.bindRecords\(key, \{ lanes, resources \}\) — name each source after what it narrows/);
+    assert.throws(refused(Slice.bindRecords("spec.bays", { bays: { source: bayIndex } })), /its source 'bays' is neither; name the sources `lanes` and `resources`/);
+    const Numbered = DictType(IntegerType, StructType({ group: StringType }));
+    const numbered = e3.record("spec_numbered", Numbered, new Map());
+    const byGroup = e3.recordIndex("spec_numbered_by_group", numbered, { on: ["group"] });
+    assert.throws(refused(Slice.bindRecords("spec.numbered", { resources: { source: Data.bindPaged(numbered, { indexes: [byGroup] }) } })),
+        /String primary keys/);
 });

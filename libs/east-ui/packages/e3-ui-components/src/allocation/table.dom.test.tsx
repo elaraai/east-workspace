@@ -5,15 +5,13 @@
  *
  * The Table (#1329) over the kiln yard's records and the yard's fit served by
  * name: its four time bands, its rows and their cells, the chips' ×, every
- * cell's Chooser — each section the fit's answer — and what a choice does, a
- * chip's drag onto a free row, and that it is never narrowed. Every word and
- * figure is the mock's, as it draws the same yard.
+ * cell's Chooser — each section the fit's answer — and what a choice does, and
+ * a chip's drag onto a free row; its narrowing is `narrowing.dom.test.tsx`'s.
+ * Every word and figure is the mock's, as it draws the same yard.
  */
 import { describe, expect, test } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
-import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
-import { RecordSliceStateType } from "@elaraai/east-ui/internal";
-import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
+import { fireEvent, within } from "@testing-library/react";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { act, allocationHarness, mount, settle, slot, TUE } from "./harness.test-utils.js";
@@ -139,19 +137,6 @@ describe("the bands and the rows", () => {
         // LD-2220 is B-2's 22:35 bin: the 72nd line under its band heads, far below the first view.
         expect(pane.scrollTop).toBeGreaterThan(36 * 40);
         expect(pane.scrollTop % 36).toBe(0);
-    });
-
-    test("A41 — the Table is never narrowed: a kiln group's narrowing leaves every row", async () => {
-        const store = new UIStore(); StateRuntime.initializeStore(store);
-        const c = await open(ex.allocationKilnYard);
-        await waitFor(() => expect(c.querySelector("[data-allocation-resource]")).not.toBeNull());
-        const key = "ex.allocationKilnYard.kilns";
-        const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
-        await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, where: new Map([["group", variant("values", [printFor(StringType)("Hall A")])]]), preset: none })); });
-        await waitFor(() => expect(c.querySelector('[data-allocation-resource="K-209"]')).toBeNull());
-        await press(toolbar(c).getByRole("radio", { name: "Table" }));
-        // LD-2201 is on K-209, in Hall B, which the narrowing hides from the Timeline.
-        expect(binRow(c, "3101")).not.toBeNull();
     });
 });
 

@@ -287,4 +287,4 @@ export type { RosterPatchOptions, RosterLibraryTabConfig, RosterLibraryTab } fro
 export {
     Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationDaysHandle, type AllocationLibraryDeclaration,
 } from "./allocation/index.js";
-export type { AllocationEvents, AllocationEventsConfig, AllocationResourcesConfig } from "./allocation/adapters.js";
+export type { AllocationEvents, AllocationEventsConfig, AllocationLanesConfig, AllocationResourcesConfig } from "./allocation/adapters.js";

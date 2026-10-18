@@ -6,7 +6,8 @@
 /**
  * The Table (`Allocation Spec.md` §8, A41–A49, A84, #1329): one row per lane
  * slot of the day and one per extra bin of a batch, in four foldable time
- * bands, never narrowed and never reordered by an allocation. Each row's event
+ * bands, narrowed by the lanes and the resources the slice shows (#1336) and
+ * never reordered by an allocation. Each row's event
  * and resource are a chip or a dashed placeholder; a chip's × removes or
  * unlinks, and a cell's chevron opens the shared Chooser, every section of it
  * the app's fit's answer. A bin's chip drags onto a free row's event cell
@@ -20,7 +21,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowDown, faChevronDown, faChevronUp, faCircleExclamation, faGripVertical, faInbox, faLink, faLinkSlash, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { variant, type SortedMap } from "@elaraai/east";
+import { variant, type SortedMap, type option } from "@elaraai/east";
 import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { Chooser, VirtualRows, formatDatePattern, type ChooserSection } from "@elaraai/east-ui-components/internal";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
@@ -29,7 +30,8 @@ import { linkedQuantity, type AllocationCommands } from "./actions.js";
 import { eventChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { gripCoord, gripOf, gripOfPayload, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
-import { bandLine, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { bandLine, narrowBands, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { NarrowedEmpty } from "./narrowed.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
     allocationWords, partsOf, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitAsk, type Load,
@@ -65,6 +67,11 @@ export interface TableProps {
     /** The day without a bin, and with a probe reservation in a free slot: what a cell's Chooser asks the fit of. */
     without: (bin: string) => Day;
     reserving: (lane: string, at: Date) => Day;
+    /** The lanes and the resources the narrowing shows, by key; `none` for every one (#1336). */
+    visibleLanes: option<Set<string>>;
+    visibleResources: option<Set<string>>;
+    /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
+    clearFilters: (() => void) | undefined;
 }
 
 /** A row's cell a Chooser is open on. */
@@ -100,8 +107,11 @@ export function AllocationTable(props: TableProps) {
     const { value, domain, plan, slots, day, context, styles, drag } = props;
     const words = allocationWords();
     const unit = context.unit;
-    const rows = useMemo(() => tableRows(slots, plan), [slots, plan]);
-    const bands = useMemo(() => tableBands(rows, plan, day), [rows, plan, day]);
+    // A row a hidden lane holds, or whose every resource is hidden, goes; a band the narrowing empties goes with it.
+    const { visibleLanes, visibleResources } = props;
+    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day), plan, visibleLanes, visibleResources),
+        [slots, plan, day, visibleLanes, visibleResources]);
+    const rows = useMemo(() => bands.flatMap(band => band.rows), [bands]);
     const { collapsed, toggle } = useGroupCollapse(`${drag.surface}.table`);
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
         ...(collapsed.includes(band.key) ? [] : band.rows.map(row => ({ kind: "row" as const, band, row })))]), [bands, collapsed]);
@@ -152,20 +162,20 @@ export function AllocationTable(props: TableProps) {
         {shown.map(c => <span key={c.key}>{c.label}</span>)}<span>Resource</span><span>Load</span><span>Status</span>
     </Box>;
     return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind}>
-        <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
+        {lines.length === 0 ? <>{head}<NarrowedEmpty styles={styles} clear={props.clearFilters} /></> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
             headerZIndex={4} header={head} count={lines.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
             renderRow={index => {
                 const line = lines[index]!;
                 if (line.kind === "band") {
                     const folded = collapsed.includes(line.band.key);
                     return <GroupHeading scope="allocation" group={{ key: line.band.key, label: line.band.label }} styles={styles} collapsed={folded} toggle={toggle}>
-                        <Box as="span" css={styles.bandCount}>{line.band.rows.length}</Box>
+                        <Box as="span" css={styles.bandCount} data-allocation-band-count="">{line.band.rows.length}</Box>
                         <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
                     </GroupHeading>;
                 }
                 return <Row props={props} row={line.row} columns={cells?.get(line.row.bin ?? "")} shown={shown.length} lines={resourceLines}
                     open={open?.row === line.row.key ? open.side : undefined} setOpen={setOpen} words={choiceWords} />;
-            }} />
+            }} />}
     </Box>;
 }
 
@@ -346,7 +356,7 @@ function ChoiceCell({ props, row, side, open, setOpen, words, trigger }: {
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
     const sections: ChooserSection[] = !open ? [] : side === "event"
         ? eventChoices({ plan, context, day, words, bin: row.bin, resource: current, answer })
-        : resourceChoices({ context, words, binRow: row.kind === "bin", current, answer });
+        : resourceChoices({ context, words, binRow: row.kind === "bin", current, answer, shown: props.visibleResources });
     const close = () => setOpen(undefined);
     const choose = (key: string) => {
         close();

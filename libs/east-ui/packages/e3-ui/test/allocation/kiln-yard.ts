@@ -4,10 +4,11 @@
  */
 /**
  * The kiln yard, transcribed from docs/proposals/Allocation Spec.html: three
- * unloading bays, 33 drying kilns in six groups, the day's loads and Tue 11
+ * unloading bays in two areas, 33 drying kilns in six groups, the day's loads and Tue 11
  * May 2027's plan. Every name, code and figure is generated.
  */
 import { ArrayType, DateTimeType, FloatType, OptionType, SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { TimeStepType } from "@elaraai/east-ui";
 import { Allocation } from "@elaraai/e3-ui";
 
 /** What each bin carries of the yard's own: the moisture target and grade booked, and as measured on arrival, and its loading instruction. */
@@ -21,6 +22,8 @@ export const Kiln = StructType({
     name: StringType, group: StringType, min: FloatType, max: FloatType, days: FloatType, note: OptionType(StringType),
     charges: ArrayType(Allocation.Types.Job),
 });
+/** An unloading bay: its name, the yard area it stands in, and how far past each hour it takes its bin. */
+export const Bay = StructType({ name: StringType, area: StringType, offset: TimeStepType });
 /** A load of sawn timber on its way from a mill. */
 export const TimberLoad = StructType({
     code: StringType, mill: StringType, spec: StringType, grade: StringType,
@@ -40,7 +43,13 @@ const day = (n: number): Date => new Date(Date.UTC(2027, 4, 7 + n));
 const at = (n: number, minutes: number): Date => new Date(Date.UTC(2027, 4, 7 + n, 0, minutes));
 /** The plan day the mock opens on: Tue 11 May 2027. */
 export const yardDay: Date = day(4);
-/** The unloading bays: each takes one bin an hour, at its minute past the hour. */
+/** The unloading bays, by key: two in the north yard, one in the south; each takes one bin an hour, at its offset past the hour. */
+export const yardBayRows: SortedMap<string, ValueTypeOf<typeof Bay>> = new SortedMap<string, ValueTypeOf<typeof Bay>>([
+    ["B-1", { name: "B-1", area: "North", offset: variant("minutes", 15) }],
+    ["B-2", { name: "B-2", area: "North", offset: variant("minutes", 35) }],
+    ["B-3", { name: "B-3", area: "South", offset: variant("minutes", 55) }],
+], byString);
+/** The same bays as the board's lanes, for the tests that hand it lanes directly. */
 export const yardLanes: ValueTypeOf<typeof Allocation.Types.Lane>[] = [
     { key: "B-1", label: "B-1", offset: variant("minutes", 15) },
     { key: "B-2", label: "B-2", offset: variant("minutes", 35) },

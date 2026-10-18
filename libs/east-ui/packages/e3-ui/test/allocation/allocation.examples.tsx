@@ -7,7 +7,7 @@ import { ArrayType, DictType, East, FunctionType, NullType, StringType, example,
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record } from "@elaraai/e3-ui";
-import { BinValues, Kiln, TimberLoad, yardArrivals, yardDay, yardHistory, yardKilns, yardLanes, yardPlans } from "./kiln-yard.js";
+import { Bay, BinValues, Kiln, TimberLoad, yardArrivals, yardBayRows, yardDay, yardHistory, yardKilns, yardPlans } from "./kiln-yard.js";
 
 // The plans the board edits: one per UTC day, each patched as a whole.
 export const kilnPlans = e3.record("kiln_plans", Allocation.Types.Days(BinValues), yardPlans);
@@ -15,13 +15,14 @@ export const kilnPlansPatch = e3.mutation.patch(kilnPlans);
 // Two years of plans, for the board read a day at a time.
 export const kilnHistory = e3.record("kiln_plan_history", Allocation.Types.Days(BinValues), yardHistory);
 export const kilnHistoryPatch = e3.mutation.patch(kilnHistory);
-// The kilns, indexed for the toolbar's narrowing.
+// The kilns, indexed by group for the narrowing.
 export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
 export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
 // Every load the day may book: booked or not, the board tells them apart by the plan.
 export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
-// The unloading bays: each takes one bin an hour, at its minute past the hour.
-export const yardBays = e3.record("yard_bays", ArrayType(Allocation.Types.Lane), yardLanes);
+// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area for the narrowing.
+export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), yardBayRows);
+export const yardBaysByArea = e3.recordIndex("yard_bays_by_area", yardBays, { on: ["area"] });
 
 /** The yard's fit's body: the built-in rules, then a greedy look-ahead over the day's other loads. */
 export const yardFitBody = East.function([Allocation.Types.FitRequest(BinValues)], Allocation.Types.FitResult, ($, req) => {
@@ -56,7 +57,7 @@ export const allocationMinimal = example({
         const yard = $.let(Data.bind(kilns));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
-        return <Box width="100%" height="760px"><Allocation id="allocationMinimal" days={days} lanes={bays.read()} fit={fit}
+        return <Box width="100%" height="760px"><Allocation id="allocationMinimal" days={days} lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }) })}
             resources={Allocation.resources(yard.read(), { label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges })}
@@ -66,19 +67,23 @@ export const allocationMinimal = example({
 });
 
 export const allocationKilnYard = example({
-    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, kilns narrowed by group through their index, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
-    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecord", "Slice.rows", "Func.bind", "fit", "links", "Publish"], inputs: [],
+    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area and the kilns by group from one rail over both records, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
+    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationKilnYard.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
@@ -100,7 +105,7 @@ export const allocationKilnYard = example({
             return issues;
         }));
         return <Box width="100%" height="900px"><Allocation id="allocationKilnYard" title="Kiln loading" days={days}
-            lanes={bays.read()} fit={fit} check={check}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit} check={check}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -118,7 +123,7 @@ export const allocationKilnYard = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }}
+            slice={{ slice }}
             quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]} inspector
             view={{ layout: "timeline", date: yardDay }} />
@@ -127,26 +132,30 @@ export const allocationKilnYard = example({
 });
 
 export const allocationTable = example({
-    description: "The kiln yard as a Table: one row per bay slot and one per extra bin of a batch, in four foldable time bands, never narrowed; the same drafts, library and inspector as the Timeline.",
+    description: "The kiln yard as a Table: one row per bay slot and one per extra bin of a batch, in four foldable time bands, narrowed by the bays' area and the kilns' group; the same drafts, library and inspector as the Timeline.",
     keywords: ["Allocation", "Table", "Record.bind", "Func.bind", "columns", "Chooser"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationTable.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationTable", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
         return <Box width="100%" height="900px"><Allocation id="allocationTable" title="Kiln loading" days={days} inspector
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -164,7 +173,7 @@ export const allocationTable = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "table", date: yardDay }} />
         </Box>;
@@ -176,22 +185,26 @@ export const allocationPublished = example({
     keywords: ["Allocation", "Publish", "published", "readOnly", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationPublished.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationPublished", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
         return <Box width="100%" height="900px"><Allocation id="allocationPublished" title="Kiln loading" days={days} inspector
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -209,7 +222,7 @@ export const allocationPublished = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: new Date("2027-05-04T00:00:00Z") }} />
         </Box>;
@@ -221,22 +234,26 @@ export const allocationNoPublish = example({
     keywords: ["Allocation", "publish", "Save", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationNoPublish.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationNoPublish", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
         return <Box width="100%" height="900px"><Allocation id="allocationNoPublish" title="Kiln loading" days={days} inspector publish={false}
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -254,7 +271,7 @@ export const allocationNoPublish = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: yardDay }} />
         </Box>;
@@ -266,22 +283,26 @@ export const allocationSplit = example({
     keywords: ["Allocation", "split", "parts", "unallocated", "Find a fit", "links"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationSplit.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationSplit", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
         return <Box width="100%" height="900px"><Allocation id="allocationSplit" title="Kiln loading" days={days} inspector
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -299,7 +320,7 @@ export const allocationSplit = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: new Date("2027-05-12T00:00:00Z") }} />
         </Box>;
@@ -311,15 +332,19 @@ export const allocationWindowed = example({
     keywords: ["Allocation", "Data.bindPaged", "window", "history", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnHistory, [kilnHistoryPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationWindowed.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationWindowed", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
@@ -327,7 +352,7 @@ export const allocationWindowed = example({
         const fit = $.let(Func.bind(yardFit));
         const history = $.let(Data.bindPaged(kilnHistory));
         return <Box width="100%" height="900px"><Allocation id="allocationWindowed" title="Kiln loading" days={days} window={history} inspector
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -345,7 +370,7 @@ export const allocationWindowed = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: yardDay }} />
         </Box>;
@@ -357,22 +382,26 @@ export const allocationMobile = example({
     keywords: ["Allocation", "mobile", "narrow", "cards", "Record.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationMobile.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationMobile", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(yardFit));
         return <Box width="100%" maxWidth="390px" height="760px"><Allocation id="allocationMobile" title="Kiln loading" days={days} inspector
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -390,7 +419,7 @@ export const allocationMobile = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: yardDay }} />
         </Box>;
@@ -402,15 +431,19 @@ export const allocationCustomBin = example({
     keywords: ["Allocation", "inspector", "bin", "Field", "typed form"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationCustomBin.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationCustomBin", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
@@ -426,7 +459,7 @@ export const allocationCustomBin = example({
                     instruction: East.equal(text, "").ifElse(() => none, () => some(text)) } })} />
             </VStack>));
         return <Box width="100%" height="900px"><Allocation id="allocationCustomBin" title="Kiln loading" days={days} inspector={{ bin }}
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -444,7 +477,7 @@ export const allocationCustomBin = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: yardDay }} />
         </Box>;
@@ -456,22 +489,26 @@ export const allocationFitRule = example({
     keywords: ["Allocation", "fit", "e3.function", "Func.bind", "Allocation.fit", "Allocation.answer", "rule"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every kiln is the calculation scope; the narrowing only chooses which rows show.
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const indexed = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
-        const slice = $.let(Slice.bindRecord("ex.allocationFitRule.kilns", indexed, {
-            fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } },
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationFitRule", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
             presets: [
-                { id: "halls", name: "Halls", where: { group: ["Hall A", "Hall B"] } },
-                { id: "small", name: "Compact and standard", where: { group: ["Compact", "Standard"] } },
-                { id: "large", name: "Large and bulk", where: { group: ["Large", "Bulk"] } },
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
         const fit = $.let(Func.bind(bulkFit));
         return <Box width="100%" height="900px"><Allocation id="allocationFitRule" title="Kiln loading" days={days} inspector
-            lanes={bays.read()} fit={fit}
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
                 quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
@@ -489,7 +526,7 @@ export const allocationFitRule = example({
                 { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
                 { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
             ]}
-            visibleResources={Slice.rows(slice)} slice={{ slice }} quantity={{ unit: "m³" }}
+            slice={{ slice }} quantity={{ unit: "m³" }}
             library={[Allocation.library.events(), Allocation.library.resources()]}
             view={{ layout: "timeline", date: yardDay }} />
         </Box>;

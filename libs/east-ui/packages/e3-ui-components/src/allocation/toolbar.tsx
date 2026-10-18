@@ -5,7 +5,8 @@
 
 /**
  * The board's one toolbar (§7, A1): the date, the layout, the day's status,
- * the narrowing's rail and its count (the Timeline's), the issues chip, the
+ * the narrowing's one rail over its lanes and its resources, and each one's
+ * count, in both layouts (#1336), the issues chip, the
  * shared history and Publish — each folding by its rank, history last, and in
  * the narrowest frame the date, the layout, Save and Publish reachable through
  * the combined View fold.
@@ -13,12 +14,11 @@
  * @packageDocumentation
  */
 
-import { useMemo } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { ChipMenu, historyToolbarItem, useSliceReactivity, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, railAffordanceKinds, useRecordSliceToolbarItems, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
+import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
@@ -32,6 +32,9 @@ const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeli
 export function statusWord(held: Day | undefined, plan: Day): "Not started" | "Draft" | "Publishing" | "Published" {
     return held?.status.type === "published" ? "Published" : plan.status.type === "published" ? "Publishing" : held === undefined ? "Not started" : "Draft";
 }
+
+/** What the narrowing's summary counts each source in. */
+const NOUNS = { lanes: "lanes", resources: "resources" } as const;
 
 /** `1 issue`, `3 issues`. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -81,18 +84,11 @@ interface ToolbarArgs extends AllocationWindow {
 export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
     const { value, view, setView, styles, commands, words, issues } = args;
     const timeline = view.layout === "timeline";
-    // The narrowing is the Timeline's: the Table is never narrowed (A41).
-    const slice = value.slice.type === "some" ? value.slice.value.slice : undefined;
-    const version = useSliceReactivity(slice?.key);
-    const kinds = useMemo(() => slice === undefined ? [] : railAffordanceKinds(value.slice.type === "some" ? value.slice.value.affordances.map(a => a.type) : [], slice.read())
-        .filter(kind => kind !== "brush" && kind !== "legend" && kind !== "resolution" && kind !== "range"),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [slice, value.slice, version]);
-    const rail = useSliceToolbarItems(timeline ? slice : undefined, [{ key: "allocation.slice", kinds }]);
-    const record = value.recordSlice.type === "some" && timeline ? value.recordSlice.value : undefined;
-    const recordRail = useRecordSliceToolbarItems(record?.slice, { noun: "resources",
-        ...(record === undefined ? {} : { affordances: record.affordances.map(a => a.type) }),
-        ...(record?.persist.type === "some" ? { persist: record.persist.value.type } : {}),
+    // The narrowing: one rail over the lanes and the resources, in both layouts, each source counted (#1336).
+    const chrome = value.slice.type === "some" ? value.slice.value : undefined;
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: NOUNS,
+        ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
+        ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
     const summary = issueSummary(issues);
@@ -136,7 +132,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         dayMarker={date => <Box as="span" css={styles.pickerDot} data-state={args.days.get(date)?.status.type ?? "empty"} />}
         controls={combined ? controls : undefined} />;
     return [
-        ...rail, ...recordRail,
+        ...rail,
         { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
         { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
         { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "allocation.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
