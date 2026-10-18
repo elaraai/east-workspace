@@ -25,8 +25,9 @@
  *   - rank 7 — the icon alone, its tooltip naming the contents.
  * A one-affordance cluster's floor is its summary chip: it has nothing to
  * merge, and an icon would say less than the chip. The toolbar merges these
- * steps with its other items', so the rail folds first and a host's own items
- * ({@link HOST_RANK} and up) after it.
+ * steps with its other items', so the rail folds first, a record rail's
+ * summary next ({@link SUMMARY_RANK}, kept in the Filters editor), and a
+ * host's own items ({@link HOST_RANK} and up) after it.
  *
  * Every folded chip, the terminal chip and the icon open the sectioned
  * `Slice.Edit` popover (every affordance of the cluster flat, in `editor`
@@ -66,6 +67,7 @@ import { EastChakraSliceLegend } from "../legend";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useSliceRailItems, type SliceRailClusterSpec } from "./toolbar.js";
 export type { SliceRailClusterSpec } from "./toolbar.js";
+export { HOST_RANK, SUMMARY_RANK } from "./ranks.js";
 
 /** The bound slice handle, decoded. */
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -79,9 +81,6 @@ const AFFORDANCE_META: Record<string, { icon: IconDefinition; label: string }> =
     search:    { icon: faMagnifyingGlass, label: "Search" },
     range:     { icon: faCalendar,        label: "Range" },
 };
-
-/** The first rank a host's own toolbar items fold at — after every step of the rail's. */
-export const HOST_RANK = 10;
 
 /** A folded affordance's summary chip: `active` when the family is narrowing
  *  (`3 filters`, `"EU"`), else its idle capability (`Filter`, `2 cohorts`). */

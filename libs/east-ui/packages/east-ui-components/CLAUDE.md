@@ -261,7 +261,10 @@ component, nothing in east-ui.
   the key search over a keyed source's `seek`
   (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
   edit popover, and keeps its form while a query is typed; `focusKeySearch`
-  brings a host's key for it, the Sheet's ⌘F, to it in either form). Controls
+  brings a host's key for it, the Sheet's ⌘F, to it in either form). A record
+  rail's summary (`12 of 69 people`) folds after every step of the rail, whose
+  Filters editor keeps the counts, and before a host's own items
+  (`SUMMARY_RANK`, ruled 18 Oct 2026, #1340). Controls
   that fold into one chip (#1229) fold into the shared `ChipMenu`, whose menu
   does what they do: their steps and the chip's share a `bundle`, so the chip
   draws in the step that hides them, and a popover one of them opens hangs
