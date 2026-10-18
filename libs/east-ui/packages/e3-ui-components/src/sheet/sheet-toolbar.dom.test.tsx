@@ -386,9 +386,11 @@ describe("the strip folded into the key search's popover (#1345)", () => {
         await act(async () => { fireEvent.click(button(views, "New tab from this view")!); });
         await closed();
         expect(creates).toBe(1);
-        // The box below the views is the key search: a key typed is a find.
+        // The box below the views is the key search: a key typed is a find — typed once the open popover has put the
+        // focus in it, where a key lands, as the shared key search's tests type.
         await open();
         const box = document.querySelector<HTMLInputElement>('[data-key-search="popover"] input')!;
+        await waitFor(() => expect(document.activeElement).toBe(box));
         await act(async () => { fireEvent.change(box, { target: { value: "J-0" } }); });
         await waitFor(() => expect(finds).toBeGreaterThan(0));
     });

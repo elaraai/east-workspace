@@ -11,16 +11,17 @@
  * counting what it shows and saying so when its sources empty it, with their
  * Clear filters; a saved view holding every source's narrowing and restoring
  * it; a draft the narrowing hides kept and saved by its original key; the
- * folds a view keeps (#857), over a record's rows; and the lens switched off
- * until #1349. Over the workshop's records in memory and their paging service
- * (`harness.test-utils.tsx`), the sheet in a Reactive root as a ui task draws
- * it, the rail written as its chips write it.
+ * folds a view keeps (#857), over a record's rows; the lens switched off
+ * until #1349; and the rows' functions holding their own source alone, never
+ * the whole slice (#1343). Over the workshop's records in memory and their
+ * paging service (`harness.test-utils.tsx`), the sheet in a Reactive root as
+ * a ui task draws it, the rail written as its chips write it.
  */
 
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, East, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
+import { ArrayType, East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Reactive, RecordSlicesChromeType, Slice, State, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
@@ -252,4 +253,41 @@ test("folds left on a view come back when the sheet opens on it again (#857)", a
     ui = mount(sheet({ views: [planned], activeView: "planned" }));
     await waitFor(() => expect(view()).toBe("planned"));
     await waitFor(() => expect(band(ui.container, "WO-2202")?.hasAttribute("data-folded")).toBe(true));
+});
+
+/**
+ * The workshop's orders as a payload over `rows` and the operation templates,
+ * the templates' second group hint `hint`: two such payloads are one program,
+ * the same code, and differ only in that hint, as data.
+ */
+const payloadHinting = (hint: string) => East.compile(East.function([], SheetPayloadType, ($) => {
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+    const operations = $.let(Data.bind(ex.sheetWorkshopOperationTemplates));
+    const { rows, rowTemplates } = sources();
+    const slice = $.let(Slice.bindRecords(`${KEY}.own`, { rows, rowTemplates: { ...rowTemplates, fields: { group: { label: "Group", hints: ["Operations", hint] } } } }));
+    return Sheet.Payload({
+        slice: { slice }, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
+        columns: { activity: Sheet.column.text(ex.WorkshopOperation, { header: "Activity" }) },
+        templates: Sheet.templates(operations.read(), { name: (t) => t.name,
+            values: (t) => Sheet.patch(ex.WorkshopOperation, { activity: t.activity }), source: "rowTemplates" }),
+        onApply: Record.onApply(orders, { keyed: true }),
+    });
+}), getRegisteredPlatformImplementations())();
+
+test("the rows' functions hold their own source alone, never the whole slice: the sheet's rows and its session encode alike however much another source holds (#1343, #1345)", () => {
+    // A function captures what it reads, and a payload encodes, and its decode compiles, each capture once for each
+    // function holding it: rows paged through the slice would carry every other source's methods and config in each
+    // of theirs.
+    const root = SheetPayloadType.fields.sheet.fields;
+    const encodeSlice = encodeBeast2For(root.slice);
+    const encodeRows = encodeBeast2For(root.rows);
+    const encodeEditing = encodeBeast2For(root.editing);
+    // Built from one call site: East's source map holds where a program was built, and two lines would differ there.
+    const built = ["Dispatch", Array.from({ length: 400 }, (_x, i) => `dispatch bay ${i}`).join(", ")].map((hint) => payloadHinting(hint));
+    const short = built[0]!, long = built[1]!;
+    // The rail holds the hint, some two thousand bytes of it as beast2 packs it.
+    expect(encodeSlice(long.sheet.slice).length - encodeSlice(short.sheet.slice).length).toBeGreaterThan(1_000);
+    // The rows and their session hold none of it.
+    expect(encodeRows(long.sheet.rows)).toEqual(encodeRows(short.sheet.rows));
+    expect(encodeEditing(long.sheet.editing)).toEqual(encodeEditing(short.sheet.editing));
 });

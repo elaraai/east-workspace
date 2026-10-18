@@ -20,7 +20,8 @@
  * the controls a gesture brings: a key typed into the paged sheet's key search
  * (its steps and its clear); on the workshop's sheet a customer searched
  * through its rail (#1345), then two view tabs of its own, named from the
- * search — the second folding the first into `+n`, which picks it again — and
+ * search — the frame narrowed until the second folds the first into `+n`,
+ * which picks it again — and
  * on the stress sheet another of its views picked, the active tab's × shown
  * and the others' hidden. On the phone the workshop's two views fold with the
  * key search into its popover (#1345), and the row still fits. And a search's
@@ -167,12 +168,14 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
                 },
             },
             {
-                // In the page's column the frame is under 1000px, where the rail, the key search's box and the history
-                // leave the strip room for one view (#1345): a second folds the first into `+1`.
-                what: "a second, folding the first into +1, and the first picked again from there",
+                // A second, then the frame narrowed until the strip has room for one view and folds the first into
+                // `+1` (#1345): that room is what the rail, the key search's box and the history leave it, so the
+                // frame is narrowed to find it, never a width assumed.
+                what: "a second, the frame narrowed until it folds the first into +1, and the first picked again from there",
                 run: async (entry, page) => {
                     await newViewTab(entry, page, "Quill");
                     const more = entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMore']");
+                    await narrowUntil(entry, page, "[data-slot='tabMore']");
                     await expect(more).toBeVisible();
                     await expect(viewTabs(entry)).toHaveCount(1);
                     await expect.poll(() => touchFaults(entry), { message: "with +1" }).toEqual([]);
