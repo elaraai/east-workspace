@@ -63,6 +63,16 @@ test("a source over a record whose keys are not Strings is refused", () => {
     assert.throws(() => recordSources({ slice }, spec), /Roster: `slice`'s people narrows a record whose keys are not Strings — each source is a record with String primary keys/);
 });
 
+test("a String field with neither hints nor search is refused, naming its source: it would offer nothing to choose", () => {
+    const people = () => Data.bindPaged(staff, { indexes: [staffByTeam] });
+    assert.throws(() => Slice.bindRecords("spec.fields", { people: { source: people(), search: [], fields: { team: { label: "Group" } } } }),
+        /Slice.bindRecords: the 'people' source — Slice.bindRecord: 'Group' offers nothing to choose — give it hints, or list 'team' in search/);
+    // Hints offer choices, a search finds them, and with no search named every String field is searched.
+    assert.doesNotThrow(() => Slice.bindRecords("spec.hinted", { people: { source: people(), search: [], fields: { team: { label: "Group", hints: ["pick"] } } } }));
+    assert.doesNotThrow(() => Slice.bindRecords("spec.searched", { people: { source: people(), search: ["team"], fields: { team: { label: "Group" } } } }));
+    assert.doesNotThrow(() => Slice.bindRecords("spec.default", { people: { source: people(), fields: { team: { label: "Group" } } } }));
+});
+
 test("a tab's source: none when it names none; one of the slice's; refused otherwise, naming the slice's sources", () => {
     assert.equal(tabSource("Roster", "Positions", undefined, ["people"]).type, "none");
     assert.deepEqual(tabSource("Roster", "Positions", "people", ["people", "activities"]), some("people"));

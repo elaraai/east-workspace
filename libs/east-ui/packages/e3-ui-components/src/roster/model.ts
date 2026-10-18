@@ -59,21 +59,21 @@ export function rosterContext(value: RosterPayload): Context {
         activities: value.activities, shifts: value.shifts, positions: value.positions, agencies: value.agencies, rules: value.rules, costs: value.costs };
 }
 /** A group's skills: the activities of that group, in the activities' order. */
-export function groupSkills(value: RosterPayload, group: string): Activity[] {
+export function groupSkills(value: Pick<RosterPayload, "activities">, group: string): Activity[] {
     return value.activities.filter(activity => activity.group.type === "some" && activity.group.value === group);
 }
 /** The duties: the activities of no group, which every group may assign. */
-export function duties(value: RosterPayload): Activity[] {
+export function duties(value: Pick<RosterPayload, "activities">): Activity[] {
     return value.activities.filter(activity => activity.group.type === "none");
 }
 /**
  * What a group's assignment may hold: its skills, then the duties — those the
- * slice's `activities` source shows (#1342), and `keep`, the assignment's own,
- * always.
+ * slice's `activities` source shows (#1342), and `keep` always: the
+ * assignment's own, as stored and as an edit has it.
  */
-export function activityChoices(value: RosterValue, group: string, keep?: string): Activity[] {
+export function activityChoices(value: Pick<RosterValue, "activities" | "visibleActivities">, group: string, keep: readonly string[] = []): Activity[] {
     const shown = value.visibleActivities;
-    return [...groupSkills(value, group), ...duties(value)].filter(activity => shown.type === "none" || shown.value.has(activity.key) || activity.key === keep);
+    return [...groupSkills(value, group), ...duties(value)].filter(activity => shown.type === "none" || shown.value.has(activity.key) || keep.includes(activity.key));
 }
 /** An activity by its key. */
 export function activityOf(value: RosterPayload, key: string): Activity | undefined {

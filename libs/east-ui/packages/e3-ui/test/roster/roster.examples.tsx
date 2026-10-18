@@ -7,7 +7,7 @@ import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, String
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Roster } from "@elaraai/e3-ui";
-import { WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
+import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
 
 export const rosterWeeks = e3.record("roster_weeks", Roster.Types.Weeks, warehouseWeeks);
 export const rosterWeeksPatch = e3.mutation.patch(rosterWeeks);
@@ -16,7 +16,7 @@ export const rosterConfiguration = e3.record("roster_configuration", WarehouseCo
 export const rosterForecast = e3.record("roster_forecast", DictType(DateTimeType, Roster.Types.Requirements), warehouseForecast);
 export const rosterProposals = e3.record("roster_proposals", ArrayType(Roster.Types.Proposal), warehouseProposals);
 /** Every activity by its key: each group's skills, and the duty of none (#1342). */
-export const rosterActivities = e3.record("roster_activities", DictType(StringType, Roster.Types.Activity), warehouseActivities);
+export const rosterActivities = e3.record("roster_activities", DictType(StringType, WarehouseActivity), warehouseActivities);
 
 // The rail's fields, each on an index of its own: the staff by group then name, position, trainer, agency, skill and name, the activities by group.
 export const rosterStaffByTeamName = e3.recordIndex("roster_staff_by_team_name", rosterStaff, { on: ["team", "name"] });
@@ -42,7 +42,7 @@ export const rosterWarehouse = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterWarehouse", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -51,7 +51,7 @@ export const rosterWarehouse = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -76,7 +76,7 @@ export const rosterMobile = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterMobile", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -85,7 +85,7 @@ export const rosterMobile = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -110,7 +110,7 @@ export const rosterPeople = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterPeople", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -119,7 +119,7 @@ export const rosterPeople = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -144,7 +144,7 @@ export const rosterWeek = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterWeek", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -153,7 +153,7 @@ export const rosterWeek = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -179,7 +179,7 @@ export const rosterWindowed = example({
         return <Box width="100%" height="760px"><Roster id="rosterWindowed" weeks={weeks} window={history}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-12T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -204,7 +204,7 @@ export const rosterMinimal = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterMinimal", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -213,7 +213,7 @@ export const rosterMinimal = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-12T00:00:00Z") }}
  />
@@ -236,7 +236,7 @@ export const rosterPublished = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterPublished", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -245,7 +245,7 @@ export const rosterPublished = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-02T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {
@@ -270,7 +270,7 @@ export const rosterCustomInspector = example({
         const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
         const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
         const slice = $.let(Slice.bindRecords("ex.rosterCustomInspector", {
-            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name"],
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
@@ -283,7 +283,7 @@ export const rosterCustomInspector = example({
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {

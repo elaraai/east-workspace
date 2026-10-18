@@ -53,7 +53,7 @@ export interface SourceTab<C> {
     cards: readonly C[];
     /** The tab's count: `12 of 69` while its source narrows, else the count alone. */
     count: string | number;
-    /** While its source narrows: what the tab says when that leaves it no card, and its Clear filters. */
+    /** While its source narrows: what the tab says when that leaves it no card of the source's — above any the source does not touch (#1342) — and its Clear filters. */
     narrowing: LibraryNarrowing | undefined;
     /** An empty tab's own words; none while its narrowing has not resolved (the rail's banner speaks for it). */
     empty: LibraryEmpty | undefined;
@@ -74,7 +74,7 @@ export function sourceTab<C>(args: {
     const keys = shown.keys;
     const shownCards = keys.type === "none" ? cards : cards.filter(card => keys.value.has(keyOf(card)));
     const narrowing = keys.type === "none" || shown.clear === undefined || !shown.ready ? undefined
-        : { empty: { title: `No ${noun} match the filters`, description: `Change or clear the filters to see more ${noun}.` }, onClear: shown.clear };
+        : { empty: { title: `No ${noun} match the filters`, description: `Change or clear the filters to see more ${noun}.` }, onClear: shown.clear, emptied: shownCards.length === 0 };
     return {
         cards: shownCards,
         count: narrowedCount(words, shownCards.length, cards.length, keys.type === "some"),

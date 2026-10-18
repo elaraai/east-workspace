@@ -17,7 +17,8 @@ const activities: RosterValue["activities"] = [
     { key: "unload", label: "Unloading", code: "UL", group: some("inbound") },
 ];
 const shown = (...keys: string[]): option<Set<string>> => some(new SortedSet(keys, compareFor(StringType)));
-const value = (visibleActivities: option<Set<string>>) => ({ activities, visibleActivities }) as unknown as RosterValue;
+/** What the activity helpers read of the renderer's value: every activity, and which the slice shows. */
+const value = (visibleActivities: option<Set<string>>): Pick<RosterValue, "activities" | "visibleActivities"> => ({ activities, visibleActivities });
 const keys = (rows: readonly { key: string }[]) => rows.map(row => row.key);
 
 describe("a group's activities", () => {
@@ -29,7 +30,12 @@ describe("a group's activities", () => {
     test("an assignment's choices: the group's skills, then the duties, those the source shows, and its own always", () => {
         expect(keys(activityChoices(value(none), "inbound"))).toEqual(["putaway", "unload", "general"]);
         expect(keys(activityChoices(value(shown("unload", "pick")), "inbound"))).toEqual(["unload"]);
-        expect(keys(activityChoices(value(shown("unload")), "inbound", "putaway"))).toEqual(["putaway", "unload"]);
-        expect(keys(activityChoices(value(shown()), "picking", "general"))).toEqual(["general"]);
+        expect(keys(activityChoices(value(shown("unload")), "inbound", ["putaway"]))).toEqual(["putaway", "unload"]);
+        expect(keys(activityChoices(value(shown()), "picking", ["general"]))).toEqual(["general"]);
+    });
+
+    test("an edit keeps both its own activity and the stored one, so a stored activity the rail hides can be picked again", () => {
+        // Stored Put-away, hidden by the rail; the edit has picked Unloading.
+        expect(keys(activityChoices(value(shown("unload")), "inbound", ["unload", "putaway"]))).toEqual(["putaway", "unload"]);
     });
 });

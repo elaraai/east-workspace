@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DateTimeType, DictType, East, SortedMap, StringType, StructType, compareFor, none, some } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, none, some } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui";
@@ -92,4 +92,16 @@ test("Roster.activities reads a keyed record in its order: each skill with its g
     assert.deepEqual(labelsOnly(new SortedMap([["pick", { label: "Order picking", code: "OP", group: some("picking") }]], compareFor(StringType))), [{ key: "pick", label: "Order picking", code: "", group: none }]);
     assert.throws(() => East.function([DictType(DateTimeType, Roster.Types.Activity)], Skills, (_$, rows) => Roster.activities(rows as never, { label: () => "" })),
         /Roster.activities: activities must be a Dict keyed by String/);
+});
+
+test("Roster.activities in an app's order: lowest first, and activities of one order in the record's key order", () => {
+    const Ordered = StructType({ label: StringType, order: IntegerType });
+    const read = East.compile(East.function([DictType(StringType, Ordered)], ArrayType(Roster.Types.Skill), (_$, rows) =>
+        Roster.activities(rows, { label: a => a.label, order: a => a.order })), []);
+    const rows = new SortedMap([["yard", { label: "Yard", order: 2n }], ["unload", { label: "Unloading", order: 1n }], ["putaway", { label: "Put-away", order: 2n }]], compareFor(StringType));
+    assert.deepEqual(read(rows), [
+        { key: "unload", label: "Unloading", code: "", group: none },
+        { key: "putaway", label: "Put-away", code: "", group: none },
+        { key: "yard", label: "Yard", code: "", group: none },
+    ]);
 });

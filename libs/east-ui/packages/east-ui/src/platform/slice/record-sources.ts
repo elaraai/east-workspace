@@ -75,7 +75,7 @@ export type RecordSlicesHandle<S> = ExprType<ReturnType<typeof RecordSlicesHandl
  * @param parts - Each source by name: an indexed binding (`Data.bindPaged(record, { indexes })`), how the rail names it (`label`, `icon`), and its fields, range, search and initial narrowing.
  * @param options - Presets over the sources.
  * @returns A serializable handle with each source's typed narrowed data.
- * @throws {Error} When there is no source, a preset repeats, a preset names a source the Slice lacks, a part declares its own presets, a label is empty or an icon is not a Font Awesome solid one; and as `Slice.bindRecord` refuses each part
+ * @throws {Error} When there is no source, a preset repeats, a preset names a source the Slice lacks, a part declares its own presets, a label is empty or an icon is not a Font Awesome solid one; and as `Slice.bindRecord` refuses a part, naming its source
  */
 export function bindRecords<S extends Record<string, unknown>>(
     key: SubtypeExprOrValue<StringType>,
@@ -108,8 +108,13 @@ export function bindRecords<S extends Record<string, unknown>>(
         if (controls.presets !== undefined) throw new Error(`Slice.bindRecords: '${name}' declares presets; declare them once, in the options, over any sources`);
         const where = (preset: (typeof presets)[number]) => (preset.where as Record<string, unknown>)[name] ?? {};
         const partKey = isValueOf(key, StringType) ? `${key}.${name}` : East.value(key, StringType).concat(`.${name}`);
-        return bindRecord(partKey, source, { ...controls,
-            presets: presets.map(preset => ({ id: preset.id, name: preset.name, where: where(preset) as never })) } as never);
+        try {
+            return bindRecord(partKey, source, { ...controls,
+                presets: presets.map(preset => ({ id: preset.id, name: preset.name, where: where(preset) as never })) } as never);
+        } catch (error) {
+            // A part's refusal names its source: several sources may hold fields of one name.
+            throw new Error(`Slice.bindRecords: the '${name}' source — ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        }
     });
     const sources = Object.fromEntries(names.map((name, i) => [name, Expr.type(handles[i]!)]));
     const type = RecordSlicesHandleType(sources);

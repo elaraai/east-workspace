@@ -50,7 +50,7 @@ export interface RosterPeopleConfig<P extends EastType> {
  * @param rows - Staff by String key, commonly Data.bind(record).read()
  * @param config - Name/group and optional role, skill and hours accessors
  * @returns Resolved people carrying their original record keys
- * @remarks The accessor adapter is one reified East function, called per row. It contains no layout or editing program. Pass complete staff here and Slice's visible keys separately when filtering the view.
+ * @remarks The accessor adapter is one reified East function, called per row. It contains no layout or editing program. Pass complete staff here: coverage, costs and checks read every person, and the Roster narrows what shows through its slice's `people` source (#1342).
  * @throws {Error} When the source is not a Dict keyed by String
  */
 export function rosterPeople<P extends EastType>(

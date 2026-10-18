@@ -89,8 +89,15 @@ export interface EastChakraLibraryProps {
 export interface LibraryNarrowing {
     /** Its words, as the shared empty state's. */
     empty: LibraryEmpty;
-    /** Clear the narrowing: the empty state's Clear filters. */
-    onClear: () => void;
+    /** Clear the narrowing: the empty state's Clear filters. None where the narrowing clears elsewhere — a Find's own chip (#1342). */
+    onClear?: (() => void) | undefined;
+    /**
+     * Whether the narrowing has left none of the items it narrows while the
+     * Library lists others it does not touch — the Roster's agency requests
+     * beside its people (#1342): its words then show above them. A Library
+     * with no item says them whatever this is.
+     */
+    emptied?: boolean | undefined;
 }
 
 /** What an empty Library says: the empty state's title, and the line under it. */
@@ -863,11 +870,13 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         () => value.items.filter(hides).length,
         [value.items, hides],
     );
-    // Nothing to show: no item at all, in the host's words — its narrowing's while one is in force; or a search or a filter that hides every card, in its words or the Library's.
-    const nothing: LibraryEmpty | undefined = value.items.length === 0 ? narrowing?.empty ?? empty
+    // Nothing to show: its host's narrowing left none of what it narrows, in the host's words — above any item the narrowing does not
+    // touch; no item at all, in the host's words; or a search or a filter that hides every card, in its words or the Library's.
+    const narrowedOut = narrowing !== undefined && (value.items.length === 0 || narrowing.emptied === true) ? narrowing : undefined;
+    const nothing: LibraryEmpty | undefined = narrowedOut !== undefined ? narrowedOut.empty : value.items.length === 0 ? empty
         : hiddenCount < value.items.length ? undefined
             : noMatch ?? { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
-    const clearNarrowing = value.items.length === 0 ? narrowing?.onClear : undefined;
+    const clearNarrowing = narrowedOut?.onClear;
     const noun = getSomeorUndefined(value.noun);
 
     const hint = getSomeorUndefined(value.hint);
@@ -1290,4 +1299,4 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
     && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
     && prev.extras === next.extras && prev.groupMark === next.groupMark
     && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
-    && prev.narrowing?.onClear === next.narrowing?.onClear);
+    && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied);
