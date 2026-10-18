@@ -86,7 +86,7 @@ What do you need?
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `e3 rack enroll --listen <host:port> [--label <label>] [--no-wait]` | Starts the user-wide hub and prints the source origin, matching release and single-use token for the companion's hidden prompts. Waits for a new registration, not activation; use a reachable VPN address or HTTPS terminator. | `e3 rack enroll --listen 100.64.0.10:7331 --label workshop` |
+| `e3 rack enroll --listen <host:port> [--allow <ip,...>] [--advertise-url <origin>] [--label <label>] [--no-wait]` | Starts the user-wide hub and prints the source origin, the hub's certificate SHA-256, the matching release and a single-use token for the companion's hidden prompts. Waits for a new registration, not activation. Behind an SSH reverse tunnel, listen on the loopback and advertise the relay's origin. | `e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 --advertise-url https://relay.example:7401` |
 | `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards. Size: serverless, small, medium, large, xlarge. | `e3 rack policy . set 'train_*' rack --size large` |
 | `e3 rack policy [repo] enable\|disable\|mode <opt-in\|auto>` | Enable/disable saved opt-in; `mode auto` selects eligible unmatched tasks. Defaults: disabled, opt-in. | `e3 rack policy . enable` |
 | `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
@@ -94,7 +94,7 @@ What do you need?
 | `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
 | `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity. ❗ Rack flags require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
 | `e3 rack status\|list\|remove <id-or-label>\|stop` | Inspect fleet, revoke a rack or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
-| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>]` | Configure the shared listener (off by default); zero idle-exit disables automatic shutdown. | `e3 rack config --listen 100.64.0.10:7331` |
+| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown. ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
 
 The local process owns graph planning, repository and cache. After a cache
 miss, eligible plain task, map and merge bodies can execute on the rack; input
@@ -106,14 +106,27 @@ configurations qualify; commands, custom environments/platforms and unscannable
 IR stay local. Host file/environment/network access stays local unless a rule
 deliberately grants `--allow-host-access` and its resources exist on the rack.
 
+The listener serves HTTPS with the hub's own self-signed certificate, made on
+first use and kept in `hub-tls.beast2`; a rack pins it by its SHA-256, which
+enrollment prints, so TLS runs end to end through any relay or tunnel. The
+usual path is an SSH reverse tunnel from the developer machine to a relay the
+rack reaches, with the hub on the loopback (`--allow 127.0.0.1`) and the relay's
+origin advertised. Removing the certificate file, with the hub stopped, makes a
+new one, which every worker must then pin again. `--no-tls` is for a TLS
+terminator in front of the hub; the hub refuses plain HTTP on a wildcard or
+public address, or without `--allow`. A listener on every address needs
+`--advertise-url` to enroll.
+
 The handoff targets a prepared independent worker VM with the matching verified
 `e3-rack` release. Its `configure --allocation <host-provisioned-path>` prompts
-for the source origin, worker label and settings; `enroll --allocation <path>`
-prompts for the one-time token. Origins and credentials are encrypted together.
-HTTP needs `--allow-vpn-http` on both commands, an authenticated VPN and host
-authorization for that exact endpoint; HTTPS does not need that opt-in. Never
-put a source address or token in worker command arguments or plaintext files.
-The local mint intentionally displays its token; do not log that output.
+for the source origin, the certificate SHA-256 for an HTTPS origin the hub
+serves, the worker label and settings; `enroll --allocation <path>` prompts for
+the one-time token. Origins, pins and credentials are encrypted together. A
+plain-HTTP origin needs `--allow-vpn-http` on both commands and host
+authorization for that exact endpoint, and belongs only on a path encrypted end
+to end, such as an SSH tunnel, never across a VPN hub that decrypts traffic.
+Never put a source address or token in worker command arguments or plaintext
+files. The local mint intentionally displays its token; do not log that output.
 
 Enrollment does not start services or authorize task claims. The local CLI
 observes a new registration (optionally filtered by label); compare it with the
@@ -129,12 +142,14 @@ local enrollment flags. The companion accepts up to 32 mutually trusted sources
 in one worker. After draining and stopping its services and sockets, use
 `configure --allocation <path> --add-source`, confirm the shared trust boundary,
 and enter the additional origin privately. It prints the new source UUID for
-`enroll --allocation <path> --source <UUID>`; add `--allow-vpn-http` to both when
-needed. All sources must be enrolled before startup. Each has its own identity,
+`enroll --allocation <path> --source <UUID>`; add `--allow-vpn-http` to both for a
+plain-HTTP origin. All sources must be enrolled before startup. Each has its own identity,
 client, cache and completion journal; actual execution shares one worker-wide
 task/GPU limit. Per-source capacity reports are not additive reservations.
-Separate clients require separate worker VMs: a shared agent process can access
-all its sources' credentials. Worker-local `source list --allocation <path>`
+A worker is the trust boundary: a shared agent process can access all its
+sources' credentials, so separate clients, and a cloud deployment and developer
+hubs, need separate worker VMs. The hub keeps no task data; what a worker keeps
+between tasks is its own policy, and an agent that keeps nothing works unchanged. Worker-local `source list --allocation <path>`
 prints UUIDs/enrollment status; `--show-origins` adds origins only on a terminal.
 After drain/stop and source-side revocation, `source remove` or `source reset`
 with `--allocation <path> --source <UUID> --acknowledge-revocation` asks for UUID
@@ -178,7 +193,11 @@ companion cloud #253 work. This and durable completion retry are implemented in
 companion PR #254, separately from the original main protocol pin.
 
 Policy is `<repo>/rack/policy.beast2`; hub state is `~/.e3/rack` (or
-`E3_RACK_HOME`). The control schema currently requires protocol 1 exactly.
+`E3_RACK_HOME`). A hub `dataflow run` starts exits after 15 idle minutes, and a
+run waits only 10 seconds for a rack: run `e3 rack hub` as a service, or set
+`--idle-exit 0`, for a hub racks can always reach. A data URL lasts 15 minutes,
+which a transfer may use whole; an object is at most 5 GiB. The control schema
+currently requires protocol 1 exactly.
 Agents must report bundled e3 at least the project's release. Infrastructure
 failure falls back locally with a separate execution attempt; cancellation
 and timeout never do. One cancelled subscriber does not stop work shared by

@@ -11,7 +11,7 @@ Delegate expensive stock-runtime task bodies from a local repository, preserve
 ordinary e3 cache/results/history, and share one rack fleet across local
 projects. Keep planning, repository ownership and local fallback on the
 developer machine. Defer custom environments, remote function calls, automatic
-reattachment after hub restart, built-in TLS and embedded UI integration.
+reattachment after hub restart and embedded UI integration.
 
 ## Topology
 
@@ -20,18 +20,22 @@ flowchart LR
   CLI[CLI or local API server] --> Session[Repository session]
   Session --> Repo[Local repository]
   Session <-->|private socket| Hub[One hub per OS user]
-  Agent[Rack agent in an independent worker VM] -->|outbound HTTPS or HTTP over VPN| Hub
+  Agent[Rack agent in an independent worker VM] -->|outbound HTTPS, the hub's certificate pinned| Hub
   Agent --> VM[Task or unit microVM]
 ```
 
 The rack initiates every request. The developer machine must remain reachable
-for lease polling, object transfer, logs and completion. No cloud account or
+for lease polling, object transfer, logs and completion, usually through an SSH
+reverse tunnel to a relay: the hub listens on the loopback, and nothing
+connects into the developer machine directly. No cloud account or
 cloud control plane participates in a local lease. Separate agents occupy
 independent worker VMs, with separate identities, encrypted source configuration
 and host-enforced resource allocations. Their number and whole-GPU assignments
 are mutable through the host lifecycle. There is no cross-agent task scheduler.
 The companion managed runtime supports up to 32 mutually trusted sources per
-agent. Untrusted clients require separate worker VMs.
+agent. A worker is the trust boundary: sources that do not trust each other,
+such as two clients' environments, or a cloud deployment and developer hubs,
+need separate worker VMs.
 
 ## Package layout
 
@@ -67,8 +71,20 @@ and re-references the complete output graph before writing a terminal record.
 The hub owns a private home, control socket/Windows pipe, ownership lock,
 configuration, fleet and in-memory queue. Lock publication and stale-owner
 recovery elect one process, including simultaneous startup. Default binding is
-off; the operator configures a reachable private listener. Idle exit can be
-disabled with zero minutes.
+off; the operator configures a listener, which serves TLS unless configured
+otherwise. Idle exit can be disabled with zero minutes.
+
+The listener's certificate is the hub's own: a self-signed ECDSA P-256
+certificate made the first time it serves TLS, kept in the hub's private home
+and replaced only when an operator removes it. A rack trusts it by its SHA-256
+fingerprint, which enrollment prints, not by a name or an authority: the rack
+reaches the hub at a relay's or tunnel's address, never the hub's own, so TLS
+runs end to end through whatever carries it. The advertised origin
+(`--advertise-url`), when set, is the origin of every rack and data URL the hub
+hands out; without it, the origin each rack request named. Plain HTTP is served
+only on the loopback or a private address, to the addresses `--allow` names, as
+for a TLS terminator in front of the hub: a listener that breaks these rules is
+refused when saved, and a saved one is kept down with the reason.
 
 Control routes cover handshake, sessions, lease subscription/cancellation,
 ordered events, capacity/status, config, enrollment, removal, boot approval,
@@ -89,8 +105,9 @@ claimant cannot reclaim the same lease and ambiguously complete a new attempt.
 
 The storage bridge proxies streams through a live session. Capabilities are
 bound to the repository alias, lease and attempt, restricted to the admitted
-closure or declared outputs, expire, and are revoked on lease termination or
-reclaim. Uploads use distinct temporary files per PUT: an old request's cleanup
+closure or declared outputs, expire after fifteen minutes, and are revoked on
+lease termination or reclaim. A transfer may take the rest of its capability's
+lifetime. Uploads use distinct temporary files per PUT: an old request's cleanup
 cannot remove a successor's acknowledged upload. Acknowledged metadata survives
 session takeover; lease cleanup removes staging without removing committed
 objects. Staging GC collects orphaned files after crashes.
@@ -146,9 +163,8 @@ success/failure/cancellation or failed start, and leave calls/mutations local.
 
 ## Versions and persisted forms
 
-The cloud pin is `43d9ac9d9a423b69450320f6a802a8191ffefd53`; protocol golden
-fixtures were generated from that checkout. Agents advertise `+e3.<release>`;
-bundled e3 must meet the project's floor. Local control protocol is initially
+The protocol golden fixtures were generated from e3-cloud's rack protocol.
+Agents advertise `+e3.<release>`; bundled e3 must meet the project's floor. Local control protocol is initially
 1 exactly; no numeric greater-than compatibility assumption is made for
 positional BEAST2 structs.
 
@@ -156,23 +172,34 @@ Task/package/repository object and execution schemas do not change. The new
 policy is repository state, and future incompatible changes need a repository
 upgrade. Hub files are outside repositories: a stable envelope stores release,
 format (initially 1) and encoded payload. Unknown formats fail explicitly; a
-future change must migrate or refuse them before decoding. Session upload
-metadata and locks are transient host state, not portable package objects.
+future change must migrate or refuse them before decoding. The hub's TLS
+certificate and key are such a file (`hub-tls.beast2`), private like its
+identity. Session upload metadata and locks are transient host state, not
+portable package objects.
 
 ## Security
 
 Private home/socket permissions isolate local controls by OS user. Enrollment
 tokens are single-use and expire; machine credentials are hashed at rest,
 rotate with overlap and are revoked by removing the registration. An optional
-IP allowlist narrows the HTTP listener. A rack sees only its lease's input
-closure and declared output targets, not arbitrary repository objects or local
-paths. HTTP requires a trusted private network or an external TLS terminator.
+IP allowlist narrows the listener, and is required for plain HTTP. A rack sees
+only its lease's input closure and declared output targets, not arbitrary
+repository objects or local paths. Anything on a plain-HTTP path reads every
+token, data URL and object on it, and a VPN whose hub decrypts and re-encrypts
+traffic is such a path: plain HTTP is for a terminator in front of the hub, or a
+path encrypted end to end, such as an SSH tunnel.
 
-The local `enroll` command prints the source origin, matching release and
-short-lived token separately. The companion's worker-local `configure` and
-`enroll` take source information and secrets through hidden terminal prompts,
-then persist them encrypted. HTTP is an explicit authenticated-VPN opt-in,
-subject to host endpoint policy. No printed worker command contains a token or
+The hub keeps no task data: leases and capabilities live in memory, and objects
+stream through it from the owning session. What a worker keeps between tasks is
+the worker's policy; the hub works unchanged with an agent that fetches every
+object for each task and keeps nothing after it.
+
+The local `enroll` command prints the source origin, the certificate
+fingerprint, the matching release and a short-lived token separately. The
+companion's worker-local `configure` and `enroll` take source information,
+pins and secrets through hidden terminal prompts, then persist them encrypted.
+A plain-HTTP source is an explicit worker opt-in, subject to host endpoint
+policy. No printed worker command contains a token or
 source address. A new registration is observable before the worker starts;
 enrollment, service activation and capacity admission are distinct stages.
 Worker provisioning and the final source/lifecycle CLI remain companion work.

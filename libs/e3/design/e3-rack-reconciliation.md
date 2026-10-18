@@ -28,6 +28,11 @@ routing, local planning, and local fallback for infrastructure failures.
 Custom environments, local function delegation, reconnect after hub restart,
 TLS, and embedded UI server integration remain deferred.
 
+*Since this review:* the hub serves TLS with its own certificate, which racks
+pin by its SHA-256, and racks may reach it through SSH tunnels or relays as
+well as directly; data URLs are built on the advertised origin. The
+[design of record](e3-rack-delegation.md) describes both.
+
 ## Changes required in each child
 
 | Issue | Required correction |

@@ -6,44 +6,80 @@ One hub per operating-system user coordinates the rack fleet across projects.
 
 ## Connect a rack
 
-The rack must reach this machine over an authenticated VPN, or HTTPS through a
-TLS terminator. Use the machine's reachable address, and keep it available while
-work runs:
+A rack reaches this machine's hub over HTTPS. The hub serves its rack listener
+with its own certificate, made the first time the listener serves TLS, and every
+rack pins that certificate by its SHA-256 fingerprint. No certificate authority
+or DNS name is involved, so the rack can reach the hub through any relay, and a
+relay or tunnel in between forwards bytes it cannot read.
+
+The usual path is an SSH reverse tunnel. The hub listens on the loopback only;
+this machine keeps a tunnel open to a relay that the rack can reach, for
+example `ssh -N -R 7401:127.0.0.1:7331 relay`, and nothing connects into this
+machine directly:
 
 ```sh
-e3 rack enroll --listen 100.64.0.10:7331 --label workshop
+e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 \
+  --advertise-url https://relay.example:7401 --label workshop
 ```
 
-This starts the hub and prints the **source origin**, matching e3-rack release,
-and a short-lived single-use enrollment token. The source origin is this
-machine's rack listener, for example `http://100.64.0.10:7331`, not a repository
-URL or the rack server's address. `localhost` on the rack would point back at
-the worker itself.
+On a private network the rack can connect to the hub directly instead:
+
+```sh
+e3 rack enroll --listen 10.0.0.5:7331 --label workshop
+```
+
+This starts the hub and prints the **source origin**, the hub's **certificate
+SHA-256**, the matching e3-rack release and a short-lived single-use enrollment
+token. The source origin is how the rack reaches this machine: the
+`--advertise-url`, or the listener's own address when none is set. It is not a
+repository URL or the rack server's address; `localhost` on the rack would point
+back at the worker itself. Keep the hub and any tunnel available while work runs.
+
+`--advertise-url` names the origin racks reach the hub at: a relay's, a
+tunnel's or a TLS terminator's. The hub builds every rack and data URL on it.
+Without it, data URLs use the origin each rack request named, which is right
+only when the rack connects to the listener directly. A listener on every
+address (`0.0.0.0` or `::`) has no address to hand out, so enrollment needs
+`--advertise-url` there.
+
+The certificate is kept in the hub's private state (`hub-tls.beast2`, beside
+its other state) until it is removed. With the hub stopped, removing that file
+makes a new certificate on the next start, which every worker must then pin again.
+
+Plain HTTP (`--no-tls`) is for a TLS terminator in front of the hub, as in
+`e3 rack config --no-tls --listen 127.0.0.1:7331 --allow 127.0.0.1 --advertise-url https://terminator.example`.
+The hub refuses a plain-HTTP listener on a wildcard or public address, or
+without `--allow`: anything on the path of plain HTTP reads every rack token,
+data URL, input, output and log. A VPN whose hub decrypts and re-encrypts
+traffic is not encrypted end to end. `--allow <ip,...>` admits only the named
+addresses (through a local tunnel or terminator, `127.0.0.1`); it does not
+encrypt anything.
 
 Use the matching, verified companion release from e3-cloud **inside an already
-prepared worker VM**. Replace the public allocation path below with the one the
-host provisioner supplies; do not write allocation JSON yourself:
+prepared worker VM**, at the release `e3 rack enroll` printed. Replace the public
+allocation path below with the one the host provisioner supplies; do not write
+allocation JSON yourself:
 
 ```sh
-sudo /opt/e3-rack/releases/1.0.86/e3-rack configure \
-  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --allow-vpn-http
-sudo /opt/e3-rack/releases/1.0.86/e3-rack enroll \
-  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --allow-vpn-http
+sudo /opt/e3-rack/releases/<release>/e3-rack configure \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json'
+sudo /opt/e3-rack/releases/<release>/e3-rack enroll \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json'
 ```
 
-`configure` asks for the source origin, worker label (`workshop` here), runtime
+`configure` asks for the source origin and, for an HTTPS origin, the
+certificate SHA-256 the hub printed (none for a publicly trusted certificate,
+such as a cloud deployment's), then the worker label (`workshop` here), runtime
 settings and optional private-registry access. `enroll` asks for the one-time
-token. Both use hidden terminal prompts. The worker stores origins, identities,
-settings and registry credentials together in encrypted storage; no token or
-source address is included in the printed shell commands. The enrollment token
-is intentionally displayed by this local minting command: do not copy its
-output into logs or a plaintext file.
+token. Both use hidden terminal prompts. The worker stores origins, pins,
+identities, settings and registry credentials together in encrypted storage; no
+token or source address is included in the printed shell commands. The
+enrollment token is intentionally displayed by this local minting command: do
+not copy its output into logs or a plaintext file.
 
-`--allow-vpn-http` is needed on both worker commands only for an endpoint carried
-over an authenticated VPN. The host's endpoint policy must also authorize that
-exact destination. For HTTPS, configure `e3 rack config --advertise-url https://…`
-and omit the HTTP opt-in. `--allow <rack-ip,...>` restricts the local listener's
-clients; it does not provide transport encryption.
+A plain-HTTP source origin needs `--allow-vpn-http` on both worker commands, and
+the worker's host must authorize that exact destination. Use it only on a path
+encrypted end to end, such as an SSH tunnel.
 
 The local command waits for a **new registration**, including one with no boot,
 tiers or capacity yet; `--no-wait` returns after printing the handoff. A label
@@ -66,10 +102,10 @@ One worker can connect to up to 32 mutually trusted e3 sources. To add another,
 first drain the worker and stop its services and socket activation. Inside it:
 
 ```sh
-sudo /opt/e3-rack/releases/1.0.86/e3-rack configure \
-  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --add-source --allow-vpn-http
-sudo /opt/e3-rack/releases/1.0.86/e3-rack enroll \
-  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --source '<new-source-uuid>' --allow-vpn-http
+sudo /opt/e3-rack/releases/<release>/e3-rack configure \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --add-source
+sudo /opt/e3-rack/releases/<release>/e3-rack enroll \
+  --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json' --source '<new-source-uuid>'
 ```
 
 `configure --add-source` asks you to confirm that these sources may share the
@@ -84,8 +120,17 @@ Connections have separate clients, credentials, caches and completion journals.
 One worker-wide task/GPU limit bounds actual execution across them; per-source
 capacity reports must not be added together as physical reservations. All
 connections share the worker's lifecycle. They also share its process and
-credential trust boundary, so separate clients and developer environments need
-separate worker VMs. Independent agents have no shared e3 task scheduler.
+credential trust boundary: a worker is the trust boundary. Put sources on one
+worker only when they trust each other, such as one team's developer hubs.
+Each client environment needs a worker of its own, and a cloud deployment and
+developer hubs belong on separate workers. Independent agents have no shared
+e3 task scheduler.
+
+The hub keeps no task data: leases and data URLs live in its memory, and every
+object passes through it from the repository's session. What a worker keeps is
+the worker's own policy. The hub checks each object a rack reads against its
+lease's closure only, so an agent that fetches every object again for each task
+and keeps nothing once the task ends works with it unchanged.
 
 The companion now provides `e3-rack source list --allocation <path>` inside the
 worker. It lists source UUIDs and enrollment state; `--show-origins` displays
@@ -102,10 +147,10 @@ host endpoint policy before activation; the next boot remains fenced.
 Private registry access has its own worker-local commands:
 
 ```sh
-sudo /opt/e3-rack/releases/1.0.86/e3-rack registry status \
+sudo /opt/e3-rack/releases/<release>/e3-rack registry status \
   --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json'
 # After a verified drain and stopping the worker services/sockets:
-sudo /opt/e3-rack/releases/1.0.86/e3-rack registry configure \
+sudo /opt/e3-rack/releases/<release>/e3-rack registry configure \
   --allocation '/var/lib/e3-rack/<agent-uuid>/allocation.json'
 ```
 
@@ -190,8 +235,9 @@ Only stock runner configurations can delegate. Custom commands, environments,
 platform extensions and unscannable programs stay local. Programs that access
 host files, environment variables or network resources also stay local by
 default: their dependencies may exist only on this machine. A task rule's
-`--allow-host-access` deliberately overrides that guard; provide any required
-resources on the rack yourself.
+`--allow-host-access` deliberately overrides that guard, for a rack that
+provides those resources itself. The companion agent's task VMs have no network
+device, host files or injected environment, so such a task fails there.
 
 ## Execution and recovery
 
@@ -263,6 +309,16 @@ control schemas (currently protocol 1 exactly); incompatible clients receive
 an explicit diagnostic. Agents must report a bundled e3 version at least as
 new as the project's. Stop and restart the hub after an incompatible upgrade.
 
+A hub that `e3 dataflow run` starts exits after 15 idle minutes, while a run
+waits only 10 seconds for a rack and fixes its parallelism as it starts; an
+agent reconnecting after the hub exits backs off for up to 30 seconds. For a
+hub racks can always reach, run `e3 rack hub` as a service, or set
+`e3 rack config --idle-exit 0`.
+
+A rack reads and writes each object through a data URL that lasts 15 minutes,
+and a transfer may take all of it; an object is at most 5 GiB. Over a slow
+link, a large object can outlast its URL, and the work then falls back locally.
+
 ## Local API server
 
 Install matching `@elaraai/e3-api-server` and `@elaraai/e3-rack`, then opt in:
@@ -291,9 +347,10 @@ accept a runner factory; they do not import Node-only hub code.
 
 ## Compatibility and verification boundaries
 
-If `rack status` reports a listener error, confirm the configured VPN/LAN
-address is present on this machine and the port is free. Prefer a stable VPN
-address. A changed source address needs a deliberate managed source transition;
+If `rack status` reports a listener error, confirm the configured address is
+present on this machine and the port is free; a listener the hub refuses to
+serve says why. Prefer a stable source origin, such as a relay's address. A
+changed source origin needs a deliberate managed source transition;
 re-running worker `configure` preserves an enrolled source's origin and identity.
 If a rack is incompatible, its executable's bundled e3 must be upgraded along
 with its runtime images. Managed `configure` deliberately refuses a release
@@ -332,21 +389,14 @@ are reserved first, and every started operation settles before the lease fence
 is released, including after a failure. Commits stay sequential for distributed
 backends whose transactions condition on the same lease row.
 
-This implementation targets e3-cloud main at
-`43d9ac9d9a423b69450320f6a802a8191ffefd53`, with v2 task/unit leases and
-per-object uploads. Existing protocol golden fixtures come from that pinned source;
-the additive cancellation-watch fixtures match companion PR #254.
-the test rack agent executes real e3 runners and exercises the transfer path.
-Those tests do not establish KVM/hardware acceptance for the deployed agent.
-The pinned cloud source bundles e3 1.0.85. Rebuild/release the companion agent
-at the workspace's lockstep version before delegating from this release;
-an older bundle falls back locally. The compatibility preview checks the
-upcoming package set against the prepared cloud migration before publication.
-The companion [PR #254](https://github.com/elaraai/e3-cloud/pull/254) implements
-request deadlines, prompt cancellation, durable completion retry, lockstep releases and encrypted
-worker configuration, alongside the ongoing managed lifecycle work. Those
-changes are separate from the main protocol pin above and remain subject to
-their own CI, service and hardware acceptance.
+This implementation speaks e3-cloud's v2 task/unit leases with per-object
+uploads. The protocol golden fixtures come from e3-cloud's rack protocol, and
+the cancellation-watch fixtures match the companion agent
+([e3-cloud #254](https://github.com/elaraai/e3-cloud/pull/254)). The test rack
+agent executes real e3 runners and exercises the transfer path, over TLS with a
+pinned certificate; those tests do not establish KVM or hardware acceptance for
+the deployed agent. A companion agent must bundle e3 at least as new as this
+release, and pin the hub's certificate; an older bundle falls back locally.
 
 See [the epic reconciliation](../../design/e3-rack-reconciliation.md) for the
 changes required by current cloud and workspace APIs, wire migration rules,

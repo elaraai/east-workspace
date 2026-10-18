@@ -725,15 +725,19 @@ Outputs:
 
 ### Rack Delegation
 
-Keep a local repository and delegate selected task bodies to a rack reachable
-over an authenticated VPN or HTTPS. First enroll a prepared worker VM, then
-choose which task names may run there once its service and capacity are active:
+Keep a local repository and delegate selected task bodies to a rack. The rack
+reaches this machine's hub over HTTPS and pins the hub's own certificate by its
+SHA-256, usually through an SSH reverse tunnel to a relay, with the hub on the
+loopback. First enroll a prepared worker VM, then choose which task names may
+run there once its service and capacity are active:
 
 ```sh
-e3 rack enroll --listen <vpn-ip>:7331 --label workshop
+e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 \
+  --advertise-url https://relay.example:7401 --label workshop
 # Inside the prepared worker VM, run the printed configure/enroll commands.
-# Enter the source origin and token at their hidden prompts; no secret arguments.
-# Enrollment observes registration, not service activation or task readiness.
+# Enter the source origin, certificate SHA-256 and token at their hidden
+# prompts; no secret arguments. Enrollment observes registration, not service
+# activation or task readiness.
 e3 rack policy . set 'train_*' rack --size large
 e3 dataflow run . dev --rack
 e3 watch src/index.ts . dev --start --rack
@@ -761,11 +765,15 @@ opt into retrying task failures. Rack flags are refused for remote URLs; on a
 local API server use `e3-api-server --repos ./repos --rack` with the optional
 matching `@elaraai/e3-rack` package installed.
 
-Use `e3 rack list`, `e3 rack remove <id-or-label>` and `e3 rack stop` to manage
-the shared hub. See the [rack setup guide](packages/e3-rack/README.md) for
-worker prerequisites, encrypted connection configuration, independent VM
-allocations, policy commands, version compatibility and the remaining managed
-host/source lifecycle and capacity-activation work.
+Plain HTTP (`e3 rack config --no-tls`) is for a TLS terminator in front of the
+hub, and is served only on the loopback or a private address, to the addresses
+`--allow` names. Use `e3 rack list`, `e3 rack remove <id-or-label>` and
+`e3 rack stop` to manage the shared hub. See the
+[rack setup guide](packages/e3-rack/README.md) for tunnels and certificates,
+worker prerequisites, encrypted connection configuration, which sources may
+share a worker, independent VM allocations, policy commands, version
+compatibility and the remaining managed host/source lifecycle and
+capacity-activation work.
 
 ### Ad-hoc Run
 
