@@ -9,7 +9,9 @@
  * rail empties it, with Clear filters for that source alone, and its pane's
  * busy state while the source resolves. Every builder's tab that lists a
  * record's rows reads its source through this, so a filter narrows a tab as it
- * narrows the board.
+ * narrows the board. A tab over several sources — the Sheet's Rows tab over
+ * its templates lists, the Calendar's templates — reads each card's own
+ * (`sourcesTab`, #1345).
  *
  * @packageDocumentation
  */
@@ -62,7 +64,8 @@ export interface SourceTab<C> {
 }
 
 /**
- * A tab over a source (see the module docs).
+ * A tab over a source (see the module docs) — {@link sourcesTab} over its one
+ * source, every card of the tab that source's.
  *
  * @param args - The tab's cards, each one's key in the source's record, what the source shows, the tab's plural noun as running text writes it, and the app's number formatter
  * @returns The cards it shows, its count, its narrowed and its own empty states, and its pane's attributes
@@ -71,15 +74,46 @@ export function sourceTab<C>(args: {
     cards: readonly C[]; keyOf: (card: C) => string; shown: SourceShown; noun: string; words: CountWords;
 }): SourceTab<C> {
     const { cards, keyOf, shown, noun, words } = args;
-    const keys = shown.keys;
-    const shownCards = keys.type === "none" ? cards : cards.filter(card => keys.value.has(keyOf(card)));
-    const narrowing = keys.type === "none" || shown.clear === undefined || !shown.ready ? undefined
-        : { empty: { title: `No ${noun} match the filters`, description: `Change or clear the filters to see more ${noun}.` }, onClear: shown.clear, emptied: shownCards.length === 0 };
+    return sourcesTab({ cards, keyOf, sources: [shown], sourceOf: () => shown, noun, words });
+}
+
+/**
+ * A tab over several sources (#1345): each card follows its own source — the
+ * Sheet's Rows tab, its templates lists each a record of their own, and the
+ * Calendar's templates. It shows each card its source shows, and every card
+ * of a source that narrows nothing or of none; counts what it shows of every
+ * card (`3 of 11`) while any source narrows; and is emptied when no card of a
+ * narrowing source shows, while the cards of sources that narrow nothing
+ * still show — its words then said above them. Its Clear filters clears each
+ * narrowing source, the rail's other sources keeping theirs. Until every
+ * narrowing source has resolved, an empty tab says nothing of its own, and
+ * while any resolves or failed its pane is busy.
+ *
+ * @param args - The tab's cards, each one's key in its source's record, the sources, the source each card follows (`undefined`: none), the tab's plural noun as running text writes it, and the app's number formatter
+ * @returns The cards it shows, its count, its narrowed and its own empty states, and its pane's attributes
+ */
+export function sourcesTab<C>(args: {
+    cards: readonly C[]; keyOf: (card: C) => string; sources: readonly SourceShown[]; sourceOf: (card: C) => SourceShown | undefined; noun: string; words: CountWords;
+}): SourceTab<C> {
+    const { cards, keyOf, sources, sourceOf, noun, words } = args;
+    const shows = (card: C): boolean => {
+        const keys = sourceOf(card)?.keys;
+        return keys === undefined || keys.type === "none" || keys.value.has(keyOf(card));
+    };
+    const shownCards = cards.filter(shows);
+    // The sources that narrow, once resolved: what the tab's narrowing is, and what it clears.
+    const narrowed = sources.filter(source => source.keys.type === "some" && source.ready);
+    const clears = narrowed.flatMap(source => (source.clear === undefined ? [] : [source.clear]));
+    const emptied = !cards.some(card => { const source = sourceOf(card); return source !== undefined && narrowed.includes(source) && shows(card); });
+    // One source's Clear filters is its own, held still while the source stands: the Library's memo compares it.
+    const onClear = clears.length === 1 ? clears[0]! : () => { for (const clear of clears) clear(); };
+    const narrowing = clears.length === 0 ? undefined
+        : { empty: { title: `No ${noun} match the filters`, description: `Change or clear the filters to see more ${noun}.` }, onClear, emptied };
     return {
         cards: shownCards,
-        count: narrowedCount(words, shownCards.length, cards.length, keys.type === "some"),
+        count: narrowedCount(words, shownCards.length, cards.length, sources.some(source => source.keys.type === "some")),
         narrowing,
-        empty: keys.type === "some" && !shown.ready ? undefined : { title: `No ${noun}` },
-        pane: shown.busy ? { "aria-busy": true, inert: true } : {},
+        empty: sources.some(source => source.keys.type === "some" && !source.ready) ? undefined : { title: `No ${noun}` },
+        pane: sources.some(source => source.busy) ? { "aria-busy": true, inert: true } : {},
     };
 }

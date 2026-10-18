@@ -7,8 +7,8 @@
  * A builder's narrowing (#1340): its `slice` is one `Slice.bindRecords`, each
  * source named after what it narrows, and each source filters every place its
  * records appear — the main area, the Choosers and the Library tab that lists
- * that record. The one check every builder's tag makes of its `slice`, and the
- * one check of a tab's `source`.
+ * that record. The one check every builder's tag makes of its `slice`, the
+ * one check of a tab's `source`, and the one of a templates list's.
  *
  * @packageDocumentation
  */
@@ -103,4 +103,24 @@ export function tabSource(builder: string, tab: string, source: string | undefin
         throw new Error(`${builder}: the ${tab} tab's source '${source}' is not one of the slice's sources (${names.length === 0 ? "it has no slice" : names.join(", ")})`);
     }
     return some(source);
+}
+
+/**
+ * A templates list's source (#1340, #1345): every builder's templates are a
+ * record of their own, each list a source of the builder's one
+ * `Slice.bindRecords`, its cards that record's rows by key. A list written in
+ * the code names no source, and is refused as one naming a source the slice
+ * lacks is, both with the change to make.
+ *
+ * @param builder - The builder, as its message names it (`Sheet`)
+ * @param what - The builder's templates declaration, as the refusal writes it (`Sheet.templates(rows, { …, source: "rowTemplates" })`)
+ * @param source - The source the list names; `undefined` for a list written in the code, or one that names none
+ * @param names - The slice's sources
+ * @returns The source's name
+ * @throws {Error} When the list names no source, or one the slice lacks, listing the slice's sources
+ */
+export function templatesSource(builder: string, what: string, source: string | undefined, names: readonly string[]): string {
+    if (source !== undefined && names.includes(source)) return source;
+    const missing = source === undefined ? "" : ` — '${source}' is not one of them`;
+    throw new Error(`${builder}: templates are records now — bind them in Slice.bindRecords and name the source, ${what} (${names.length === 0 ? "it has no slice" : `the slice's sources: ${names.join(", ")}`}${missing})`);
 }
