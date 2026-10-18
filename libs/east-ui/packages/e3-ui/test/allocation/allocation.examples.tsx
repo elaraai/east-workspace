@@ -180,6 +180,57 @@ export const allocationTable = example({
     }}</Reactive>),
 });
 
+export const allocationLabels = example({
+    description: "The kiln yard in its own words: labels={{ lane: \"Bay\", event: { one: \"Delivery\", other: \"Deliveries\" }, resource: \"Kiln\", quantity: \"Vol\" }} names the board's lanes, events, resources and quantity everywhere it writes them — the Table's heads, the Chooser, the placeholders, the drag captions, the banners and the narrowing's summary — and table={{ bands }} sets the Table's time bands to the yard's shifts.",
+    keywords: ["Allocation", "labels", "nouns", "Table", "bands", "Record.bind", "Func.bind"], inputs: [],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
+        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        const yard = $.let(Data.bind(kilns));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.allocationLabels", {
+            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
+            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+        }, {
+            presets: [
+                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
+            ],
+        }));
+        const loads = $.let(Data.bind(arrivals));
+        const bays = $.let(Data.bind(yardBays));
+        const fit = $.let(Func.bind(yardFit));
+        return <Box width="100%" height="900px"><Allocation id="allocationLabels" title="Kiln loading" days={days} inspector
+            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit}
+            events={Allocation.events(loads.read(), {
+                label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
+                quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+                due: l => some(l.due), window: l => some({ from: l.from, to: l.to }),
+                details: l => [{ label: "Settings", value: l.schedule }],
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
+            })}
+            resources={Allocation.resources(yard.read(), {
+                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
+                min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
+            })}
+            columns={[
+                { key: "spec", label: "Spec", text: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => v.specMeasured, () => East.str`booked ${v.specBooked} · measured ${v.specMeasured}`),
+                    tone: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
+                { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
+                { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
+            ]}
+            slice={{ slice }} quantity={{ unit: "m³" }}
+            library={[Allocation.library.events(), Allocation.library.resources()]}
+            labels={{ lane: "Bay", event: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol" }}
+            table={{ bands: [{ from: 0, label: "Night" }, { from: 6, label: "Day shift" }, { from: 18, label: "Evening" }] }}
+            view={{ layout: "table", date: yardDay }} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const allocationPublished = example({
     description: "A published day, Tue 4 May: read-only under its banner; navigation, the narrowing, the focus, links and the inspector still work.",
     keywords: ["Allocation", "Publish", "published", "readOnly", "Record.bind"], inputs: [],

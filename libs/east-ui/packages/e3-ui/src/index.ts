@@ -285,6 +285,6 @@ export type { RosterPatchOptions, RosterLibraryTabConfig, RosterLibraryTab } fro
 // The Allocation: a day's events booked into lane slots and allocated to
 // resources, over one plans record, with the app's fit on e3.
 export {
-    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationDaysHandle, type AllocationLibraryDeclaration,
+    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationDaysHandle, type AllocationLibraryDeclaration, type AllocationNoun,
 } from "./allocation/index.js";
 export type { AllocationEvents, AllocationEventsConfig, AllocationLanesConfig, AllocationResourcesConfig } from "./allocation/adapters.js";

@@ -460,7 +460,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         tableHead: {
             ...tableColumns, alignItems: "center", height: "36px", boxSizing: "border-box", borderBottomWidth: "1px", borderColor: "border.subtle", background: "bg.surface",
             fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", color: "fg.subtle",
-            "& > span": { padding: "0 12px", whiteSpace: "nowrap", overflow: "hidden" },
+            // A heading longer than its column — the app's own words (#1338) — ends in an ellipsis, its title the whole.
+            "& > span": { padding: "0 12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
             "& > span:first-of-type": { paddingLeft: "20px" },
             "& > span:last-of-type": { paddingRight: "20px" },
             "& > [data-align=end]": { textAlign: "right" },

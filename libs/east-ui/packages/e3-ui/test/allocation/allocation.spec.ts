@@ -19,7 +19,7 @@ import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
     Assert.examples(test, {
-        allocationMinimal: ex.allocationMinimal, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable,
+        allocationMinimal: ex.allocationMinimal, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels,
         allocationPublished: ex.allocationPublished, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
         allocationWindowed: ex.allocationWindowed, allocationMobile: ex.allocationMobile, allocationCustomBin: ex.allocationCustomBin,
         allocationFitRule: ex.allocationFitRule,
@@ -161,4 +161,29 @@ test("with no slice the board narrows nothing; a slice is Slice.bindRecords over
     const byGroup = e3.recordIndex("spec_numbered_by_group", numbered, { on: ["group"] });
     assert.throws(refused(Slice.bindRecords("spec.numbered", { resources: { source: Data.bindPaged(numbered, { indexes: [byGroup] }) } })),
         /String primary keys/);
+});
+
+test("labels: the board's nouns, resolved — regular plurals and articles by default, given ones kept, the quantity QTY", () => {
+    const defaults = payloadWith().labels;
+    assert.deepEqual(defaults, {
+        lane: { one: "Lane", other: "Lanes", article: "a" }, event: { one: "Event", other: "Events", article: "an" },
+        resource: { one: "Resource", other: "Resources", article: "a" }, quantity: "QTY",
+    });
+    const yard = payloadWith({ labels: { lane: "Bay", event: "Order", resource: { one: "Bus", other: "Buses" }, quantity: "Volume" } }).labels;
+    assert.deepEqual(yard, {
+        lane: { one: "Bay", other: "Bays", article: "a" }, event: { one: "Order", other: "Orders", article: "an" },
+        resource: { one: "Bus", other: "Buses", article: "a" }, quantity: "Volume",
+    });
+    assert.deepEqual(payloadWith({ labels: { lane: { one: "Unit", article: "a" } } }).labels.lane, { one: "Unit", other: "Units", article: "a" });
+    assert.throws(() => payloadWith({ labels: { event: " " } }), /`labels.event` must not be empty/);
+});
+
+test("table.bands: four by default; the app's own, from 0 and rising within the day, labelled or not; refused otherwise", () => {
+    assert.deepEqual(payloadWith().table.bands, [0, 6, 12, 18].map(from => ({ from, label: none })));
+    assert.deepEqual(payloadWith({ table: { bands: [{ from: 0, label: "Night" }, { from: 7.5 }, { from: 18, label: "Evening" }] } }).table.bands,
+        [{ from: 0, label: some("Night") }, { from: 7.5, label: none }, { from: 18, label: some("Evening") }]);
+    assert.throws(() => payloadWith({ table: { bands: [] } }), /needs at least one band, from 0/);
+    assert.throws(() => payloadWith({ table: { bands: [{ from: 6 }] } }), /first band starts at 0/);
+    assert.throws(() => payloadWith({ table: { bands: [{ from: 0 }, { from: 12 }, { from: 12 }] } }), /band 3 starts at 12, not after 12/);
+    assert.throws(() => payloadWith({ table: { bands: [{ from: 0 }, { from: 24 }] } }), /band 2 starts at 24: a band starts within the day/);
 });

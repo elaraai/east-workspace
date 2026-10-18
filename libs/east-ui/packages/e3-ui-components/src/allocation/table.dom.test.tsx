@@ -73,7 +73,7 @@ describe("the bands and the rows", () => {
 
     test("A43 — the column heads; a bin's row: time, lane, its chip, quantity, the app's column, its resource, its load, Committed; a free row's placeholders", async () => {
         const c = await open();
-        expect([...c.querySelector("[data-allocation-table-head]")!.children].map(e => e.textContent)).toEqual(["Time", "Lane", "Event", "Quantity", "Spec", "Resource", "Load", "Status"]);
+        expect([...c.querySelector("[data-allocation-table-head]")!.children].map(e => e.textContent)).toEqual(["Time", "Lane", "Event", "QTY", "Spec", "Resource", "Load", "Status"]);
         expect(cells(binRow(c, "3101"))).toEqual(["01:55", "B-3", "LD-2201BRK · R1 · spec MC14", "35 m³", "MC14", "K-209", "35 m³ · takes 20–40", "Committed"]);
         expect(binRow(c, "3101").querySelector("[data-holds]")).not.toBeNull();
         const free = freeRow(c, "B-1", at(0, 15));

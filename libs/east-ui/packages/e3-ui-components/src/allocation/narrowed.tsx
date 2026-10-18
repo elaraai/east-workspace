@@ -18,15 +18,13 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { EmptyStateView, useSliceReactivity } from "@elaraai/east-ui-components";
 import { useKeyVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
 import type { AllocationStyles, AllocationValue } from "./model.js";
+import { one } from "./nouns.js";
 
 /** A narrowed source's name: what its rows are on the board. */
 export type NarrowedSource = "lanes" | "resources";
 
-/** The words a source's failed narrowing says. */
-const WORDS = {
-    lanes: { changed: "Lane results changed; retry the narrowing.", failed: "Could not load lane results" },
-    resources: { changed: "Resource results changed; retry the narrowing.", failed: "Could not load resource results" },
-} as const;
+/** The noun a source's rows are. */
+const NOUN = { lanes: "lane", resources: "resource" } as const;
 
 /**
  * A source's part of the board's narrowing, if the slice has one.
@@ -53,8 +51,10 @@ export function useNarrowed(value: AllocationValue, source: NarrowedSource, rows
     useSliceReactivity(part?.key);
     const narrowing = part !== undefined && part.read().where.size > 0;
     const keys = value.narrowed[source];
+    const noun = value.labels[NOUN[source]];
     return useKeyVisibility({ visibleSource: narrowing ? keys : none, visible: none, rows,
-        recordSlice: part === undefined ? none : some({ slice: part }) }, WORDS[source]);
+        recordSlice: part === undefined ? none : some({ slice: part }) },
+        { changed: `${noun.one} results changed; retry the narrowing.`, failed: `Could not load ${one(noun)} results` });
 }
 
 /**

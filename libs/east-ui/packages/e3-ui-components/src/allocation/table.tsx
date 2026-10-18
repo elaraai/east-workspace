@@ -5,8 +5,8 @@
 
 /**
  * The Table (`Allocation Spec.md` §8, A41–A49, A84, #1329): one row per lane
- * slot of the day and one per extra bin of a batch, in four foldable time
- * bands, narrowed by the lanes and the resources the slice shows (#1336) and
+ * slot of the day and one per extra bin of a batch, in foldable time bands
+ * (the app's, four by default), narrowed by the lanes and the resources the slice shows (#1336) and
  * never reordered by an allocation. Each row's event
  * and resource are a chip or a dashed placeholder; a chip's × removes or
  * unlinks, and a cell's chevron opens the shared Chooser, every section of it
@@ -32,6 +32,7 @@ import { gripCoord, gripOf, gripOfPayload, laneCoord, resourceCellCoord, type Al
 import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty } from "./narrowed.js";
+import { a, one, useNouns } from "./nouns.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
     allocationWords, partsOf, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitAsk, type Load,
@@ -106,11 +107,12 @@ function dropOptions(drag: AllocationDrag, target: Target) {
 export function AllocationTable(props: TableProps) {
     const { value, domain, plan, slots, day, context, styles, drag } = props;
     const words = allocationWords();
+    const nouns = useNouns();
     const unit = context.unit;
     // A row a hidden lane holds, or whose every resource is hidden, goes; a band the narrowing empties goes with it.
     const { visibleLanes, visibleResources } = props;
-    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day), plan, visibleLanes, visibleResources),
-        [slots, plan, day, visibleLanes, visibleResources]);
+    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day, value.table.bands), plan, visibleLanes, visibleResources),
+        [slots, plan, day, value.table.bands, visibleLanes, visibleResources]);
     const rows = useMemo(() => bands.flatMap(band => band.rows), [bands]);
     const { collapsed, toggle } = useGroupCollapse(`${drag.surface}.table`);
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
@@ -158,8 +160,9 @@ export function AllocationTable(props: TableProps) {
         quantity: v => words.quantity(v, unit), number: v => words.quantity(v, ""), lane: key => value.lanes.find(l => l.key === key)?.label ?? key,
     }), [words, unit, value.lanes]);
     const head = <Box css={styles.tableHead} data-columns={shown.length === 0 ? "none" : undefined} data-allocation-table-head="">
-        <span>Time</span><span>Lane</span><span>Event</span><Box as="span" data-align="end">Quantity</Box>
-        {shown.map(c => <span key={c.key}>{c.label}</span>)}<span>Resource</span><span>Load</span><span>Status</span>
+        <span>Time</span><span title={nouns.lane.one}>{nouns.lane.one}</span><span title={nouns.event.one}>{nouns.event.one}</span>
+        <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
+        {shown.map(c => <span key={c.key} title={c.label}>{c.label}</span>)}<span title={nouns.resource.one}>{nouns.resource.one}</span><span>Load</span><span>Status</span>
     </Box>;
     return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind}>
         {lines.length === 0 ? <>{head}<NarrowedEmpty styles={styles} clear={props.clearFilters} /></> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
@@ -224,6 +227,7 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
 }) {
     const { styles, context, plan, held, commands, drag, editable } = props;
     const board = allocationWords();
+    const nouns = useNouns();
     const unit = context.unit;
     const parts = bin === undefined ? [] : partsOf(bin);
     const resource = parts[0] === undefined ? undefined : context.resources.get(parts[0].key);
@@ -248,8 +252,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const placeholder = (side: "event" | "resource") => (isOpen: boolean) => <Placeholder props={props} side={side} reserved={row.kind === "reserved"} open={isOpen} button />;
     const chooser = (side: "event" | "resource", trigger: (isOpen: boolean) => ReactElement) => editable
         ? <ChoiceCell props={props} row={row} side={side} open={open === side} setOpen={setOpen} words={words} trigger={trigger} /> : null;
-    const eventLabel = row.kind === "bin" ? `Replace ${code} with another event` : "Choose an event";
-    const resourceLabel = resource !== undefined ? "Change the resource" : row.kind === "bin" ? "Choose a resource" : "Reserve a resource";
+    const eventLabel = row.kind === "bin" ? `Replace ${code} with another ${one(nouns.event)}` : `Choose ${a(nouns.event)}`;
+    const resourceLabel = resource !== undefined ? `Change the ${one(nouns.resource)}` : row.kind === "bin" ? `Choose ${a(nouns.resource)}` : `Reserve ${a(nouns.resource)}`;
     return <Box css={styles.tableRow} role="row" data-allocation-row={row.key} data-kind={row.kind} data-columns={shown === 0 ? "none" : undefined}
         data-selected={marked !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
@@ -264,8 +268,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
                     {meta?.type === "some" && <Box as="span" css={styles.tableChipMeta}>{meta.value}</Box>}
                     {chooser("event", chevron(eventLabel))}
                     {editable && <chakra.button type="button" css={styles.tableChipButton} data-allocation-chip-remove=""
-                        aria-label={committed !== undefined ? `Remove ${code} from the plan · it moves to Events` : `Return ${code} to Events`}
-                        title={committed !== undefined ? `Remove ${code} from the plan · it moves to Events` : `Return ${code} to Events`}
+                        aria-label={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.event.other}` : `Return ${code} to ${nouns.event.other}`}
+                        title={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.event.other}` : `Return ${code} to ${nouns.event.other}`}
                         onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (row.bin !== undefined) commands.remove(row.bin); }}>
                         <FontAwesomeIcon icon={faXmark} />
                     </chakra.button>}
@@ -312,8 +316,9 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
  */
 function Placeholder({ props, side, reserved, open, button, ...trigger }: { props: TableProps; side: "event" | "resource"; reserved: boolean; open: boolean; button: boolean }) {
     const { styles } = props;
-    const idle = side === "event" ? reserved ? "no event · reserved" : "no event" : "no resource";
-    const title = side === "event" ? "Choose an event, or drag one here from Events" : "Choose a resource, or drag one here from Resources";
+    const nouns = useNouns();
+    const idle = side === "event" ? `no ${one(nouns.event)}${reserved ? " · reserved" : ""}` : `no ${one(nouns.resource)}`;
+    const title = side === "event" ? `Choose ${a(nouns.event)}, or drag one here from ${nouns.event.other}` : `Choose ${a(nouns.resource)}, or drag one here from ${nouns.resource.other}`;
     const inside = <>
         <Box as="span" css={styles.tableChipIcon} data-icon-role="idle"><FontAwesomeIcon icon={side === "event" ? faInbox : faLinkSlash} /></Box>
         <Box as="span" css={styles.tableChipIcon} data-icon-role="refused"><FontAwesomeIcon icon={faXmark} /></Box>
@@ -336,6 +341,7 @@ function ChoiceCell({ props, row, side, open, setOpen, words, trigger }: {
     trigger: (open: boolean) => ReactElement;
 }) {
     const { plan, context, day, fit, commands } = props;
+    const nouns = useNouns();
     const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     const current = bin === undefined ? undefined : partsOf(bin)[0]?.key;
     // The question (F1): an event cell takes its row's resource, of the day without its bin; a resource cell places its bin,
@@ -372,10 +378,10 @@ function ChoiceCell({ props, row, side, open, setOpen, words, trigger }: {
         else commands.reserve(row.lane, row.slotAt, key);
     };
     return <SliceEditPopover trigger={trigger(open)} open={open} onOpenChange={next => setOpen(next ? { row: row.key, side } : undefined)} flush
-        label={`${side === "event" ? "Event" : "Resource"} · ${words.lane(row.lane)} ${formatDatePattern("HH:mm", row.at)}`}
+        label={`${side === "event" ? nouns.event.one : nouns.resource.one} · ${words.lane(row.lane)} ${formatDatePattern("HH:mm", row.at)}`}
         initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-choices="${row.key}|${side}"] input`)}>
         <Box data-allocation-choices={`${row.key}|${side}`}>
-            {open && <Chooser sections={sections} placeholder={side === "event" ? "Find an event" : "Find a resource"} onChoose={choose} />}
+            {open && <Chooser sections={sections} placeholder={`Find ${a(side === "event" ? nouns.event : nouns.resource)}`} onChoose={choose} />}
         </Box>
     </SliceEditPopover>;
 }

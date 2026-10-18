@@ -33,6 +33,7 @@ import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./ti
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
 import { useNarrowed } from "./narrowed.js";
+import { NounsContext, a } from "./nouns.js";
 export type { AllocationValue } from "./model.js";
 
 /** Props of the record-backed Allocation extension. */
@@ -116,7 +117,8 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         }
         return derived;
     };
-    const scene: DropScene = { plan, context, slots, fit, commands, without, laneLabel: lane => value.lanes.find(l => l.key === lane)?.label ?? lane };
+    const nouns = value.labels;
+    const scene: DropScene = { plan, context, slots, fit, commands, without, laneLabel: lane => value.lanes.find(l => l.key === lane)?.label ?? lane, nouns };
     const drag = useAllocationDrag(key, commands.canEdit() && !narrow, scene, setRefusal);
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();
@@ -132,10 +134,10 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
-        onClearFocus: () => { setSelection(undefined); setLink(undefined); } });
+        onClearFocus: () => { setSelection(undefined); setLink(undefined); }, nouns });
     const published = editing.held?.status.type === "published";
     const notStarted = !data.loading && data.error === undefined && editing.held === undefined && plan.bins.size === 0;
-    return <Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
+    return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
         <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={(data.loading && data.error === undefined) || narrowing.some(n => !n.ready && n.loading)} toolbar={toolbar} onKeyDown={event => {
             // The keys, never while typing (A6).
             if (event.defaultPrevented || typedInto(event.target)) return;
@@ -149,10 +151,10 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         }} banners={<>
             {editing.session !== undefined && <SessionBanners session={editing.session} words={words} onAction={action => editing.history.actOn(editing.key, action)} />}
             {published && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
-            {notStarted && <BannerView status="info" title="Day not started" description="Book an event or reserve a slot to start this day's plan." />}
+            {notStarted && <BannerView status="info" title="Day not started" description={`Book ${a(nouns.event)} or reserve a slot to start this day's plan.`} />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The plan's additional checks could not run. Built-in checks are still shown." />}
-            {lanesShown.error !== undefined && <BannerView status="error" title="Lane results unavailable" description={lanesShown.error} actions={<Button size="xs" variant="outline" onClick={lanesShown.retry}>Retry</Button>} />}
-            {resourcesShown.error !== undefined && <BannerView status="error" title="Resource results unavailable" description={resourcesShown.error} actions={<Button size="xs" variant="outline" onClick={resourcesShown.retry}>Retry</Button>} />}
+            {lanesShown.error !== undefined && <BannerView status="error" title={`${nouns.lane.one} results unavailable`} description={lanesShown.error} actions={<Button size="xs" variant="outline" onClick={lanesShown.retry}>Retry</Button>} />}
+            {resourcesShown.error !== undefined && <BannerView status="error" title={`${nouns.resource.one} results unavailable`} description={resourcesShown.error} actions={<Button size="xs" variant="outline" onClick={resourcesShown.retry}>Retry</Button>} />}
             {/* A fit that failed (F3): its message, and Retry; a drop meanwhile is refused with `fits unavailable`. */}
             {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
@@ -172,7 +174,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                         visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} clearFilters={clearFilters} />}
             </Box>
         </BuilderFrame>
-    </Box>;
+    </Box></NounsContext.Provider>;
 }
 
 /** The e3 renderer owns the frame; callers author only the Allocation tag and its bound data. */
