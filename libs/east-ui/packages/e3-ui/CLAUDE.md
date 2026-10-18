@@ -214,8 +214,8 @@ Switching weeks, filtering or resizing must not discard another week's draft.
 
 Keep **visibility separate from calculation scope** when the domain requires
 it. Roster takes complete `people` and `activities` (`Roster.activities` over a
-keyed activities record) for coverage, costs, rest and skill/lead/trainer
-checks. `slice={{ slice }}` takes `Slice.bindRecords(key, { people, activities
+keyed activities record, its optional `order` setting the order they show in)
+for coverage, costs, rest and skill/lead/trainer checks. `slice={{ slice }}` takes `Slice.bindRecords(key, { people, activities
 })` alone, and the Roster reads each source's keys itself (#1342); it refuses
 `visiblePeople`, `duties` and groups that carry their skills, naming the change.
 Indexed visibility pages only the chosen result,

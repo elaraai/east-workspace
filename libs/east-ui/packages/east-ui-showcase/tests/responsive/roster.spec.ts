@@ -29,6 +29,25 @@ async function closeInspector(frame: Locator) {
     const collapse = frame.getByRole('button', { name: 'Collapse Inspector' });
     if (await collapse.isVisible()) await collapse.click();
 }
+/** The toolbar's record rail. */
+const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
+/** The warehouse rail's fields, as `source.field`, in source order. */
+const ROSTER_FIELDS = ['people.team', 'people.position', 'people.trainer', 'people.agency', 'people.skills', 'people.name', 'activities.group'];
+/** A frame wide enough for every chip of the rail live, its presets and its summary; and a page wide enough for it. */
+const WIDE = 2400;
+const WIDE_PAGE = 2800;
+/**
+ * Every source's field as the rail shows it at its width: a live chip, a
+ * folded summary chip (`field:source.field`), or past those its one trigger,
+ * named for every field it holds.
+ */
+const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate(rail => {
+    const live = [...rail.querySelectorAll('[data-record-slice-source][data-record-slice-field]')].filter(el => el.getBoundingClientRect().width > 0)
+        .map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`);
+    const folded = [...rail.querySelectorAll("[data-slice-fold^='field:']")].map(el => el.getAttribute('data-slice-fold')!.slice(6));
+    const trigger = rail.querySelector("button[aria-label^='Filters:']")?.getAttribute('aria-label') ?? '';
+    return { fields: [...live, ...folded].sort(), named: ['Group', 'Position', 'Trainer', 'Agency', 'Skill', 'Name'].every(label => trigger.includes(label)) };
+});
 async function remount(page: Page, name: string) {
     await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
     await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
@@ -445,5 +464,105 @@ for (const theme of ['light', 'dark'] as const) {
         await planEntry.scrollIntoViewIfNeeded(); await settled(page);
         const plan = planEntry.locator('[data-plan-frame] [data-slot="footer"]').first(); await expect(plan).toBeVisible({ timeout: 30_000 });
         expect(await railStyle(plan)).toEqual(actual);
+    });
+    test(`the one rail over people and activities stands at every width, nothing leaving the toolbar (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        for (const width of [1920, 1440, 1024, 768, 390, 360, 294]) {
+            await size(page, entry, width);
+            expect(await toolbarFaults(frame), `${width}px`).toEqual([]);
+            // The rail is in the row, every source's field in it: live, folded to its chip, or in its one trigger's name.
+            await expect(frame.locator(RAIL).first(), `${width}px`).toBeVisible();
+            const shown = await railFields(frame);
+            expect(shown.named || shown.fields.join() === ROSTER_FIELDS.slice().sort().join(), `${width}px: ${JSON.stringify(shown)}`).toBe(true);
+        }
+    });
+    test(`wide, the rail's chips are live in source order, each after its source's icon (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: WIDE_PAGE, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, WIDE);
+        // Each live chip stands in its affordance, after the icon of the source it narrows; the chip itself draws only its caret.
+        const chips = await frame.locator(RAIL).evaluateAll(clusters => clusters.flatMap(cluster => [...cluster.children].flatMap(affordance => {
+            const chip = affordance.querySelector('[data-record-slice-source][data-record-slice-field]');
+            return chip === null || chip.getBoundingClientRect().width === 0 ? [] : [{
+                field: `${chip.getAttribute('data-record-slice-source')}.${chip.getAttribute('data-record-slice-field')}`,
+                icon: affordance.querySelector(':scope > span svg')?.getAttribute('data-icon') ?? null,
+            }];
+        })));
+        expect(chips.map(chip => chip.field)).toEqual(ROSTER_FIELDS);
+        expect(chips.map(chip => chip.icon)).toEqual([...Array(6).fill('user'), 'list-check']);
+    });
+    test(`a Skill chosen through the rail's search narrows the People tab, and the summary counts each source (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: WIDE_PAGE, height: 1200 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, WIDE);
+        const summary = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first();
+        const start = frame.locator('[data-frame-slot="start"]');
+        await expect(summary).toHaveText('69 of 69 people·17 of 17 activities');
+        // Skill offers its search: typing finds the skill among the staff's, and choosing it narrows the people.
+        await frame.locator(`${RAIL} [data-record-slice-source="people"][data-record-slice-field="skills"]`).first().click();
+        const search = page.locator('[data-record-slice-editor="skills"]:visible').getByRole('combobox');
+        await search.fill('unl');
+        await page.getByRole('option', { name: /^unload/ }).click();
+        await page.keyboard.press('Escape');
+        await settled(page);
+        // 22 of the staff hold Unloading.
+        await expect(summary).toHaveText('22 of 69 people·17 of 17 activities');
+        // The People tab counts what the rail leaves it. The 272px pane folds its third tab, Positions, into the row's menu, which keeps its count.
+        await expect(start.locator('[role="tab"]')).toHaveText(['People 22 of 69', 'Activities 17']);
+        await start.getByRole('button', { name: '1 more tab', exact: true }).click();
+        await expect(page.getByRole('menuitem')).toHaveText(['Positions 4']);
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('menu')).toHaveCount(0);
+        // One 44px row, every tab on it inside its pane.
+        const row = await start.evaluate(el => {
+            const pane = el.getBoundingClientRect();
+            return { height: Math.round(el.querySelector('[data-dock-tabs]')!.parentElement!.getBoundingClientRect().height),
+                inside: [...el.querySelectorAll('[role="tab"]')].every(tab => { const t = tab.getBoundingClientRect(); return t.left >= pane.left - 0.5 && t.right <= pane.right + 0.5; }) };
+        });
+        expect(row).toEqual({ height: 44, inside: true });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    });
+    test(`a People tab the rail empties says so above the agency requests, which stay; its Clear filters clears the people (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: WIDE_PAGE, height: 1200 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, WIDE);
+        // No one's name starts so: a prefix through the rail's Name search.
+        await frame.locator(`${RAIL} [data-record-slice-source="people"][data-record-slice-field="name"]`).first().click();
+        const search = page.locator('[data-record-slice-editor="name"]:visible').getByRole('combobox');
+        await search.fill('Zz'); await search.press('Enter');
+        await page.keyboard.press('Escape');
+        await settled(page);
+        const people = frame.locator('[data-roster-library="people"]');
+        await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 0 of 69');
+        const empty = people.locator('[data-library-empty][data-narrowed]');
+        await expect(empty).toContainText('No people match the filters');
+        const request = people.locator('[data-library-item]').filter({ hasText: 'Northside Staffing' });
+        await expect(request).toHaveCount(1);
+        // The words sit above the request card, inside the pane.
+        const [words, card, pane] = [(await empty.boundingBox())!, (await request.boundingBox())!, (await people.boundingBox())!];
+        expect(words.y + words.height).toBeLessThanOrEqual(card.y + 0.5);
+        expect([words.x >= pane.x - 0.5, words.x + words.width <= pane.x + pane.width + 0.5]).toEqual([true, true]);
+        await empty.getByRole('button', { name: 'Clear filters' }).click();
+        await settled(page);
+        await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 69');
+        await expect(people.locator('[data-library-empty]')).toHaveCount(0);
+    });
+    test(`folded on a phone, the rail's editor heads each source's fields with its noun and icon, then the presets (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
+        await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
+        const editor = page.getByRole('dialog');
+        expect(await editor.locator('[data-slice-section] [data-record-slice-source]').evaluateAll(els => els.map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`)))
+            .toEqual(ROSTER_FIELDS);
+        const heads = await editor.evaluate(root => [...root.querySelectorAll<HTMLElement>('[data-slice-group]')].map(head => ({
+            key: head.dataset.sliceGroup, text: head.lastElementChild!.textContent, icon: head.querySelector('svg')?.getAttribute('data-icon') ?? null,
+            heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection })));
+        expect(heads.map(h => [h.key, h.text, h.icon, h.heads])).toEqual([
+            ['source:people', 'people', 'user', 'field:people.team'], ['source:activities', 'activities', 'list-check', 'field:activities.group'], ['presets', 'Presets', null, 'presets']]);
+        const box = (await editor.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(390);
+        await page.keyboard.press('Escape');
     });
 }

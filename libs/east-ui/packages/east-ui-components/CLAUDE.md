@@ -199,7 +199,12 @@ component, nothing in east-ui.
   group's head (`groupMark`) — the Allocation's Library (#1330). While a
   host's narrowing — a builder's rail — leaves it no item, `narrowing` gives
   its empty state the host's words and a Clear filters (#1339); the Library
-  still lists only what its host feeds it. The paged Library (`PagedLibrary`,
+  still lists only what its host feeds it. A tab that also lists cards the
+  narrowing does not touch — the Roster's agency requests beside its people —
+  says so above them while the narrowing has left none of its own
+  (`emptied`), and a narrowing that clears elsewhere (a Find's chip) offers no
+  Clear filters (#1342). A tab's search box finds within that tab alone, never
+  the rail's search: the Library is a palette (#1340, ruling 11). The paged Library (`PagedLibrary`,
   `./internal`) takes the same `empty` and `narrowing` (#1341). A tab's count
   while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
   or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed

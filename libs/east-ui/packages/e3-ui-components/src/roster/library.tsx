@@ -10,12 +10,13 @@
  * so when its source leaves it none, with Clear filters for that source, and
  * has no filter of its own — its search and its groups only. A Find fix's
  * leads, trainers or skill holders are a result in the People tab, with a chip
- * that clears it.
+ * that clears it. The People tab's agency requests are actions, not people:
+ * they always show, and what the tab says of its people shows above them.
  */
 import { useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
-import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryItemValue } from "@elaraai/east-ui-components";
+import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryItemValue, type LibraryNarrowing } from "@elaraai/east-ui-components";
 import { SliceFieldChip, narrowedCount } from "@elaraai/east-ui-components/internal";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { sourceTab, type SourceShown } from "../shared/schedule/source-tab.js";
@@ -37,6 +38,8 @@ interface LibraryArgs {
 }
 /** A tab that names no source lists its rows whole. */
 const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
+/** What the People tab says while a Find finds no one; its chip clears it. */
+const NO_ONE_FOUND = { title: "No one found", description: "Clear the find to see the people the rail shows." };
 
 /** Whether a Find fix found the person: a lead on the day, a trainer, or a holder of the skill. */
 function finds(focus: NonNullable<PeopleFocus>, person: Person, lead: boolean): boolean {
@@ -59,8 +62,9 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         key, label, sublabel: some(meta), groups: new Map([["group", group]]), icon: icon === undefined ? none : some(icon),
         status: none, trailing: none, draggable, filtered: false, placed: false, search: some(`${label} ${meta} ${group}`),
     });
-    const findLabel = focus === undefined ? undefined : focus.type === "skill" ? `Find · ${activityOf(value, focus.key)?.label ?? focus.key}`
-        : focus.type === "leads" ? "Find · Leads" : "Find · Trainers";
+    // What a Find fix finds: a skill's holders, the leads on the day, or the trainers.
+    const findWhat = focus === undefined ? undefined : focus.type === "skill" ? activityOf(value, focus.key)?.label ?? focus.key
+        : focus.type === "leads" ? "Leads" : "Trainers";
     // The people the rail shows, off that day: the collapsed rail's badge.
     const shownPeople = shown.people.keys;
     const off = value.people.filter(p => (shownPeople.type === "none" || shownPeople.value.has(p.key)) && !rostered.has(p.key)).length;
@@ -70,6 +74,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         let cards: LibraryItemValue[];
         let follows: ReturnType<typeof sourceTab<unknown>>;
         let count: string | number;
+        let narrowing: LibraryNarrowing | undefined;
         if (tab.type === "people") {
             const entries = value.people.map(person => {
                 const assigned = [...week.assignments.values()].filter(a => a.slot.day === BigInt(day) && a.who.type === "person" && a.who.value === person.key);
@@ -89,6 +94,9 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             // A Find fix's result, among what the rail shows.
             const found = focus === undefined ? follows.cards as typeof entries : (follows.cards as typeof entries).filter(entry => finds(focus, entry.person, entry.lead));
             count = focus === undefined ? follows.count : narrowedCount(format, found.length, entries.length, true);
+            // With no person to show, the tab says why above the agency requests, which stay: the rail's narrowing, with its
+            // Clear filters, when it hid everyone; else a Find that found no one, which its chip clears.
+            narrowing = focus === undefined || follows.narrowing?.emptied === true ? follows.narrowing : { empty: NO_ONE_FOUND, emptied: found.length === 0 };
             // Agency requests are actions, not staff: every one shows, whatever the rail narrows.
             cards = [...value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultSlot.shift)?.hours ?? 0)} h`, "Agency staff", "building"),
                 status: some({ label: "REQ", tone: variant("neutral", null), ring: false }) })), ...found.map(entry => entry.card)];
@@ -100,6 +108,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             const activities = [...value.activities].sort((a, b) => rank(a.group.type === "some" ? a.group.value : undefined) - rank(b.group.type === "some" ? b.group.value : undefined));
             follows = sourceTab({ cards: activities, keyOf: activity => activity.key, shown: shown.activities, noun: "activities", words: format });
             count = follows.count;
+            narrowing = follows.narrowing;
             cards = (follows.cards as typeof activities).map(skill => {
                 const group = skill.group.type === "some" ? value.groups.find(g => skill.group.type === "some" && g.key === skill.group.value)?.label ?? skill.group.value : "Any group";
                 const lines = [...coverage].filter(([slot]) => slot.day === BigInt(day)).flatMap(([, c]) => c.lines.filter(line => line.skill === skill.key));
@@ -112,6 +121,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             const followed = source.type === "none" ? WHOLE : source.value === "people" ? shown.people : source.value === "activities" ? shown.activities : WHOLE;
             follows = sourceTab({ cards: tab.value.cards, keyOf: card => card.key, shown: followed, noun: tab.value.name.toLowerCase(), words: format });
             count = follows.count;
+            narrowing = follows.narrowing;
             cards = (follows.cards as typeof tab.value.cards).map(card => ({ ...make(card.key, card.label, card.meta.type === "some" ? card.meta.value : "", card.group.type === "some" ? card.group.value : "", tab.value.icon.type === "some" ? tab.value.icon.value : undefined), draggable: draggable && card.patch.type === "some", placed: chosen[name] === card.key }));
         }
         const choose = (key: string): null => {
@@ -133,14 +143,13 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const source: RosterSource | undefined = parsed?.success ? { type: parsed.value.type, key: parsed.value.value } : undefined;
         const target = selection?.type === "assignment" ? selection.key : undefined;
         const custom = tab.type === "tab" ? tab.value.cards.find(card => card.key === chosenKey) : undefined;
-        const finding = tab.type === "people" && findLabel !== undefined;
+        const finding = tab.type === "people" && findWhat !== undefined;
         return { key: name, label, count, body: <Box css={styles.pane} data-roster-library={name} {...follows.pane}>
             {finding && <Box css={styles.paneFoot} data-roster-find="">
-                <SliceFieldChip label={findLabel} active removeLabel="Clear find" onRemove={args.onClearFocus} onClick={args.onClearFocus} />
+                {/* Pressed, the chip clears the find: its name says so, its face what the find found. */}
+                <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFocus} onClick={args.onClearFocus} />
             </Box>}
-            <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)}
-                empty={finding ? { title: "No one found", description: "Clear the find to see the people the rail shows." } : follows.empty}
-                narrowing={finding ? undefined : follows.narrowing} />
+            <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
                 : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift"}</Box>
             {commands.editing.available && chosenKey !== undefined && <Box css={styles.paneFoot}>

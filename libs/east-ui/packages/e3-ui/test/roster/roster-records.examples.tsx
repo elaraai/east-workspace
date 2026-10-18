@@ -70,7 +70,7 @@ export const rosterRecordIndexes = example({
                 skills: p => p.skills, contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer,
                 trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities()]} inspector />
@@ -105,7 +105,7 @@ export const rosterRecordIndexesMobile = example({
                 skills: p => p.skills, contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer,
                 trainee: p => p.trainee, usual: p => p.usual })}
             slice={{ slice }}
-            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
+            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             library={[Roster.library.people(), Roster.library.activities()]} inspector />

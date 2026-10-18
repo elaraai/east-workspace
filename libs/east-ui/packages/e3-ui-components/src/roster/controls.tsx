@@ -65,8 +65,10 @@ export function PlaceAction({ label, source, slot: initial, value, start, comman
 export function AssignmentFields({ assignment, baseline, value, onChange, readOnly = false }: {
     assignment: Assignment; baseline?: Assignment; value: RosterValue; onChange: (next: Assignment) => void; readOnly?: boolean;
 }) {
-    // The group's skills and the duties the slice shows, and the assignment's own (#1342).
-    const activities = activityChoices(value, assignment.slot.group, assignment.activity.type === "some" ? assignment.activity.value : undefined);
+    // The group's skills and the duties the slice shows, and the assignment's own — as stored and as the edit has it — so a
+    // stored activity the rail hides can be picked again after choosing another (#1342).
+    const own = [assignment.activity, baseline?.activity].flatMap(activity => activity?.type === "some" ? [activity.value] : []);
+    const activities = activityChoices(value, assignment.slot.group, own);
     return <FieldForm specs={ASSIGNMENT_FIELDS.filter(field => (assignment.who.type === "person" || field.path[0] === "position") && (field.path[0] !== "agreed" || assignment.offset !== 0 || assignment.overtime !== 0))} value={assignment} baseline={baseline}
         readOnly={readOnly} options={{ positions: value.positions.map(p => ({ key: p.key, label: p.label })), activities: activities.map(a => ({ key: a.key, label: a.label })) }}
         onChange={(path, next) => onChange({ ...assignment, [path[0]!]: next })} />;

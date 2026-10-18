@@ -29,15 +29,15 @@ describe("a source's tab (#1341)", () => {
     test("a source that narrows: the cards it shows in their order, `2 of 3`, and its narrowing's words with that source's Clear filters", () => {
         const clear = vi.fn();
         const t = tab(shown({ keys: keys("c", "a"), clear }));
-        expect([t.cards.map(card => card.id), t.count]).toEqual([["a", "c"], "2 of 3"]);
+        expect([t.cards.map(card => card.id), t.count, t.narrowing?.emptied]).toEqual([["a", "c"], "2 of 3", false]);
         expect(t.narrowing?.empty).toEqual({ title: "No trees match the filters", description: "Change or clear the filters to see more trees." });
-        t.narrowing!.onClear();
+        t.narrowing?.onClear?.();
         expect(clear).toHaveBeenCalledTimes(1);
     });
 
-    test("a source that empties it: no card, `0 of 3`, its narrowing's words", () => {
+    test("a source that empties it: no card, `0 of 3`, its narrowing's words, emptied — said above any card the source does not touch (#1342)", () => {
         const t = tab(shown({ keys: keys(), clear: () => {} }));
-        expect([t.cards, t.count, t.narrowing?.empty.title]).toEqual([[], "0 of 3", "No trees match the filters"]);
+        expect([t.cards, t.count, t.narrowing?.empty.title, t.narrowing?.emptied]).toEqual([[], "0 of 3", "No trees match the filters", true]);
     });
 
     test("a narrowing not yet resolved: neither its own words nor the narrowing's — the rail's banner speaks for it", () => {

@@ -158,12 +158,15 @@ Each wire changed under this rule, with the kind it is.
   #1342)** — package-borne. The `Roster` extension's payload loses
   `visiblePeople`, `visibleSource`, `recordSlice` and `duties`. Its `slice` is
   the chrome of a Slice over several records, each source's keys in a new
-  `narrowed`, and its new `activities` lists every activity. `Roster.Types.Group`
+  `narrowed`, and its new `activities` lists every activity; an app's library
+  tab (`RosterAuthorTabType`) gains the `source` it follows. `Roster.Types.Group`
   loses `skills`, `Roster.Types.Skill` gains `group`, and `Roster.Types.Context`
   trades `duties` for `activities`. A UI value encoded under either type does
   not decode under the other: packages are re-exported, and the dataflow
   computes each UI task's output again under the new type. A UI task's output is
   not stored state, so no repository upgrade step ships with it. An
-  application's own record that holds `Roster.Types.Group` values changes type
-  with it; moving its skills into an activities record is that record's own
-  migration, as with any record whose type an application changes.
+  application's own record that holds `Roster.Types.Group` or
+  `Roster.Types.Skill` values — a configuration's groups, or its duties —
+  changes type with it; moving its skills and duties into an activities record
+  is that record's own migration, as with any record whose type an application
+  changes.

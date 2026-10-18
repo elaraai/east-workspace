@@ -3,10 +3,12 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** Warehouse fixture transcribed from docs/proposals/Roster Spec.html. */
-import { ArrayType, BooleanType, DictType, FloatType, OptionType, SetType, StringType, StructType, SortedMap, SortedSet, DateTimeType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, BooleanType, DictType, FloatType, IntegerType, OptionType, SetType, StringType, StructType, SortedMap, SortedSet, DateTimeType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Roster } from "@elaraai/e3-ui";
 export const WarehousePerson = StructType({ name: StringType, team: StringType, position: StringType, skills: SetType(StringType), contract: FloatType, agency: BooleanType, trainer: BooleanType, trainee: BooleanType, usual: OptionType(StringType) });
 export const WarehouseConfig = StructType({ groups: ArrayType(Roster.Types.Group), shifts: ArrayType(Roster.Types.Shift), positions: DictType(StringType, Roster.Types.Position), agencies: ArrayType(Roster.Types.Agency), rules: Roster.Types.Rules, costs: Roster.Types.Costs });
+/** A warehouse activity: Roster.Types.Activity's label, code and group, and where it shows among the activities. */
+export const WarehouseActivity = StructType({ label: StringType, code: StringType, group: OptionType(StringType), order: IntegerType });
 export const warehouseStart = new Date("2028-03-05T00:00:00Z");
 const stringOrder = compareFor(StringType);
 export const warehouseConfig: ValueTypeOf<typeof WarehouseConfig> = {
@@ -26,25 +28,25 @@ export const warehouseConfig: ValueTypeOf<typeof WarehouseConfig> = {
     rules: { rest: 10, lead: true, trainer: true, skill: true, agree: true },
     costs: { currency: "AUD", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: some(24800) },
 };
-/** Every activity by its key: each group's skills, and the one duty of none, General duties (#1342). */
-export const warehouseActivities: SortedMap<string, ValueTypeOf<typeof Roster.Types.Activity>> = new SortedMap<string, ValueTypeOf<typeof Roster.Types.Activity>>([
-    ["unload", { label: "Unloading", code: "UL", group: some("inbound") }],
-    ["putaway", { label: "Put-away", code: "PA", group: some("inbound") }],
-    ["reach", { label: "Reach truck", code: "RT", group: some("inbound") }],
-    ["xdock", { label: "Cross-dock", code: "XD", group: some("inbound") }],
-    ["rcvqa", { label: "Receiving QA", code: "QA", group: some("inbound") }],
-    ["yard", { label: "Yard", code: "YD", group: some("inbound") }],
-    ["pick", { label: "Order picking", code: "OP", group: some("picking") }],
-    ["voice", { label: "Voice picking", code: "VP", group: some("picking") }],
-    ["replen", { label: "Replenishment", code: "RP", group: some("picking") }],
-    ["cold", { label: "Cold store · licence", code: "CS", group: some("picking") }],
-    ["pack", { label: "Packing", code: "PK", group: some("dispatch") }],
-    ["load", { label: "Loading", code: "LD", group: some("dispatch") }],
-    ["label", { label: "Labelling", code: "LB", group: some("dispatch") }],
-    ["returns", { label: "Returns", code: "RN", group: some("dispatch") }],
-    ["admin", { label: "Dispatch admin", code: "DA", group: some("dispatch") }],
-    ["hazmat", { label: "Hazmat · licence", code: "HZ", group: some("dispatch") }],
-    ["general", { label: "General duties", code: "GD", group: none }],
+/** Every activity by its key: each group's skills, and the one duty of none, General duties, each in the mock's order (#1342). */
+export const warehouseActivities: SortedMap<string, ValueTypeOf<typeof WarehouseActivity>> = new SortedMap<string, ValueTypeOf<typeof WarehouseActivity>>([
+    ["unload", { label: "Unloading", code: "UL", group: some("inbound"), order: 1n }],
+    ["putaway", { label: "Put-away", code: "PA", group: some("inbound"), order: 2n }],
+    ["reach", { label: "Reach truck", code: "RT", group: some("inbound"), order: 3n }],
+    ["xdock", { label: "Cross-dock", code: "XD", group: some("inbound"), order: 4n }],
+    ["rcvqa", { label: "Receiving QA", code: "QA", group: some("inbound"), order: 5n }],
+    ["yard", { label: "Yard", code: "YD", group: some("inbound"), order: 6n }],
+    ["pick", { label: "Order picking", code: "OP", group: some("picking"), order: 7n }],
+    ["voice", { label: "Voice picking", code: "VP", group: some("picking"), order: 8n }],
+    ["replen", { label: "Replenishment", code: "RP", group: some("picking"), order: 9n }],
+    ["cold", { label: "Cold store · licence", code: "CS", group: some("picking"), order: 10n }],
+    ["pack", { label: "Packing", code: "PK", group: some("dispatch"), order: 11n }],
+    ["load", { label: "Loading", code: "LD", group: some("dispatch"), order: 12n }],
+    ["label", { label: "Labelling", code: "LB", group: some("dispatch"), order: 13n }],
+    ["returns", { label: "Returns", code: "RN", group: some("dispatch"), order: 14n }],
+    ["admin", { label: "Dispatch admin", code: "DA", group: some("dispatch"), order: 15n }],
+    ["hazmat", { label: "Hazmat · licence", code: "HZ", group: some("dispatch"), order: 16n }],
+    ["general", { label: "General duties", code: "GD", group: none, order: 17n }],
 ], stringOrder);
 export const warehousePeople: SortedMap<string, ValueTypeOf<typeof WarehousePerson>> = new SortedMap<string, ValueTypeOf<typeof WarehousePerson>>([
     ["aalder", { name: "A. Alder", team: "inbound", position: "lead", skills: new SortedSet(["unload","reach","xdock","rcvqa","yard"], stringOrder), contract: 38, agency: false, trainer: false, trainee: false, usual: some("early") }],
