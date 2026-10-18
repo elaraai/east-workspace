@@ -14,7 +14,7 @@ import { runHub } from '@elaraai/e3-rack/hub-main';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
 
 type Status = Awaited<ReturnType<HubClient['status']>>;
-interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string }
+interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean }
 interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 function sizeOf(text: string): RackComputeSize {
@@ -43,11 +43,19 @@ async function configured(client: HubClient, flags: ConfigFlags): Promise<HubCon
   else if (typeof flags.allow === 'string') config.allow = flags.allow.split(',').map((ip) => ip.trim()).filter(Boolean);
   if (flags.idleExit !== undefined) config.idleExitMinutes = BigInt(integer(flags.idleExit, '--idle-exit', 0, 35000));
   if (flags.advertiseUrl !== undefined) config.advertiseUrl = some(flags.advertiseUrl);
+  if (flags.tls !== undefined) config.tls = flags.tls;
   return Object.values(flags).some((value) => value !== undefined) ? client.setConfig(config) : config;
 }
 
+function listenerLine(listener: Status['rackListener']): string {
+  if (listener.type === 'disabled') return 'off — run e3 rack config --listen <address>:7331';
+  if (listener.type === 'down') return `down ${listener.value.reason}`;
+  const pin = listener.value.certificateSha256;
+  return `up ${listener.value.origin}${pin.type === 'some' ? ` (certificate SHA-256 ${pin.value})` : ''}`;
+}
+
 function printFleet(status: Status): void {
-  if (status.racks.length === 0) { console.log('No enrolled racks. Run: e3 rack enroll --listen <vpn-ip>:7331'); return; }
+  if (status.racks.length === 0) { console.log('No enrolled racks. Run: e3 rack enroll --listen <address>:7331'); return; }
   console.log('LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  STATE');
   for (const rack of status.racks) {
     const capacity = status.capacity.racks.find((entry) => entry.rackId === rack.rackId);
@@ -83,7 +91,7 @@ export function createRackCommand(): Command {
     }
     const lock = await readHubLock(); const config = await client.getConfig();
     console.log(`Hub: pid ${Number(status.hello.pid)}, e3 ${status.hello.version}, protocol ${Number(status.hello.protocol)}, uptime ${lock === null ? '?' : Math.round((Date.now() - lock.startedAt.getTime()) / 1000)}s, idle-exit ${Number(config.idleExitMinutes)} min`);
-    console.log(`Listener: ${status.rackListener.type === 'up' ? `up ${status.rackListener.value.origin}` : status.rackListener.type === 'down' ? `down ${status.rackListener.value.reason}` : 'off — run e3 rack config --listen <vpn-ip>:7331'}`);
+    console.log(`Listener: ${listenerLine(status.rackListener)}`);
     printFleet(status);
     console.log(`Sessions: ${status.sessions.length}`);
     for (const session of status.sessions) console.log(`  ${session.label}  ${session.repoAlias}  ${session.workspace}  ${Number(session.pending)} pending / ${Number(session.claimed)} claimed  e3 ${session.e3Version}`);
@@ -117,29 +125,36 @@ export function createRackCommand(): Command {
   rack.command('hub').description('Run the shared hub in the foreground').option('--idle-exit <min>', 'Exit after this many idle minutes; 0 disables idle exit')
     .action(guarded((flags: ConfigFlags) => runHub(['--foreground', ...(flags.idleExit === undefined ? [] : ['--idle-exit', flags.idleExit])])));
   rack.command('config').description('Show or update the shared hub configuration')
-    .option('--listen <host:port>', 'Bind the rack listener on a VPN/LAN address').option('--no-listen', 'Disable the rack listener')
-    .option('--allow <ip,...>', 'Restrict rack requests to these IP addresses').option('--no-allow', 'Remove the IP restriction')
-    .option('--idle-exit <min>', 'Idle lifetime; 0 disables idle exit').option('--advertise-url <url>', 'Reachable HTTP(S) origin for storage URLs')
+    .option('--listen <host:port>', 'Bind the rack listener: the loopback behind a tunnel, or a private address').option('--no-listen', 'Disable the rack listener')
+    .option('--allow <ip,...>', 'Admit rack requests only from these IP addresses; required for plain HTTP').option('--no-allow', 'Remove the IP restriction')
+    .option('--idle-exit <min>', 'Idle lifetime; 0 disables idle exit')
+    .option('--advertise-url <url>', 'The origin racks reach the hub at (a relay, tunnel or TLS terminator); every rack and data URL is built on it')
+    .option('--tls', 'Serve the listener over HTTPS with the hub\'s own certificate, which racks pin (the default)')
+    .option('--no-tls', 'Serve plain HTTP, for a TLS terminator in front of the hub; loopback or private addresses with --allow only')
     .action(guarded(async (flags: ConfigFlags) => {
-      const config = await configured(await connectHub(), flags);
+      const client = await connectHub();
+      const config = await configured(client, flags);
       console.log(`Listen: ${config.listen.type === 'some' ? `${config.listen.value.host}:${Number(config.listen.value.port)}` : 'off'}`);
-      console.log(`Allow: ${config.allow.join(', ') || 'all'}\nIdle-exit: ${Number(config.idleExitMinutes)} min\nAdvertise URL: ${config.advertiseUrl.type === 'some' ? config.advertiseUrl.value : 'listener origin'}`);
+      console.log(`TLS: ${config.tls ? 'on' : 'off'}\nAllow: ${config.allow.join(', ') || 'all'}\nIdle-exit: ${Number(config.idleExitMinutes)} min\nAdvertise URL: ${config.advertiseUrl.type === 'some' ? config.advertiseUrl.value : 'listener origin'}`);
+      console.log(`Listener: ${listenerLine((await client.status()).rackListener)}`);
     }));
   rack.command('enroll').description('Print a single-use token for interactive enrollment inside a prepared rack worker VM')
-    .option('--label <label>', 'Wait for a new registration with this worker label').option('--listen <host:port>', 'VPN listener address')
-    .option('--allow <ip,...>', 'Allowed rack IP addresses').option('--ttl <min>', 'Single-use enrollment lifetime', '15')
+    .option('--label <label>', 'Wait for a new registration with this worker label').option('--listen <host:port>', 'Listener address, as for e3 rack config')
+    .option('--allow <ip,...>', 'Allowed rack IP addresses').option('--advertise-url <url>', 'The origin racks reach the hub at, as for e3 rack config')
+    .option('--ttl <min>', 'Single-use enrollment lifetime', '15')
     .option('--no-wait', 'Print the enrollment handoff and return')
     .addHelpText('after', '\nConfigure worker resources, runtime tiers and GPU allocation on the rack host. Enrollment does not start an agent or authorize task execution.')
     .action(guarded(async (flags: ConfigFlags & { label?: string; ttl: string; wait: boolean }) => {
       const client = await connectHub({ log: console.log });
       const config = await configured(client, flags);
-      if (config.listen.type === 'none') throw new Error('Configure a reachable address: e3 rack enroll --listen <vpn-ip>:7331');
+      if (config.listen.type === 'none') throw new Error('Configure a reachable address: e3 rack enroll --listen <address>:7331');
       const before = new Set((await client.status()).racks.map((rack) => rack.rackId));
       const mint = await client.enroll({ label: flags.label === undefined ? none : some(flags.label), ttlMinutes: some(BigInt(integer(flags.ttl, '--ttl', 1, 1440))) });
       const executable = shellArg(`/opt/e3-rack/releases/${mint.e3Version}/e3-rack`);
       const allocation = "'/var/lib/e3-rack/<agent-uuid>/allocation.json'";
       const vpnHttp = mint.apiUrl.startsWith('http:') ? ' --allow-vpn-http' : '';
-      console.log(`Single-use enrollment (expires ${printFor(DateTimeType)(mint.expiresAt)} UTC).\nSource origin: ${mint.apiUrl}\nMatching e3-rack release: ${mint.e3Version}\nEnrollment token: ${mint.enrollmentToken}\n\nInside the prepared worker VM, using the verified matching release:\n  sudo ${executable} configure --allocation ${allocation}${vpnHttp}\n  sudo ${executable} enroll --allocation ${allocation}${vpnHttp}\n\nFor an additional mutually trusted source on an existing worker: drain and stop its services and sockets, add --add-source to configure, then add --source '<printed-source-uuid>' to enroll. Separate client/developer trust domains require separate worker VMs.\n\nUse the host-provisioned allocation path. Enter the source origin during configure and the token at enroll's hidden prompt; do not put them in shell arguments or plaintext files.${flags.label === undefined ? '' : '\nUse the same worker label in configure as supplied to --label.'}${vpnHttp ? '\nHTTP requires an authenticated VPN and host authorization for this exact endpoint.' : ''}\nEnrollment does not start the agent or enable task claims. Worker provisioning, service activation and capacity admission are separate steps.\n`);
+      const pin = mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined;
+      console.log(`Single-use enrollment (expires ${printFor(DateTimeType)(mint.expiresAt)} UTC).\nSource origin: ${mint.apiUrl}${pin === undefined ? '' : `\nCertificate SHA-256: ${pin}`}\nMatching e3-rack release: ${mint.e3Version}\nEnrollment token: ${mint.enrollmentToken}\n\nInside the prepared worker VM, using the verified matching release:\n  sudo ${executable} configure --allocation ${allocation}${vpnHttp}\n  sudo ${executable} enroll --allocation ${allocation}${vpnHttp}\n\nFor an additional mutually trusted source on an existing worker: drain and stop its services and sockets, add --add-source to configure, then add --source '<printed-source-uuid>' to enroll. Separate client/developer trust domains require separate worker VMs.\n\nUse the host-provisioned allocation path. Enter the source origin${pin === undefined ? '' : ' and certificate SHA-256'} during configure and the token at enroll's hidden prompt; do not put them in shell arguments or plaintext files.${pin === undefined ? '' : ' The worker trusts this hub by that certificate alone; if the hub\'s certificate is ever replaced, pin the new one on every worker.'}${flags.label === undefined ? '' : '\nUse the same worker label in configure as supplied to --label.'}${vpnHttp ? '\nPlain HTTP exposes the rack token and task data to anything on the path: use it only through an SSH tunnel or another path encrypted end to end, never across a VPN hub that decrypts traffic.' : ''}\nEnrollment does not start the agent or enable task claims. Worker provisioning, service activation and capacity admission are separate steps.\n`);
       if (!flags.wait) return;
       while (Date.now() < mint.expiresAt.getTime()) {
         const status = await client.status();

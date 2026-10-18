@@ -14,7 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { BooleanType, IntegerType, StringType, encodeBeast2For, variant } from '@elaraai/east';
 import { LocalStorage, inputsHash, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { startSessionDataServer } from './session-data-server.js';
-import { socketRequest, socketStream } from './local-http.js';
+import { RackHubError, socketRequest, socketStream } from './local-http.js';
 import { LeaseOutcomeType, LeaseRunningType, SessionLogsType, SessionUploadType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import { makeLeaseId, type RackLeaseRecord } from '../lease/lease-store.js';
 
@@ -113,7 +113,7 @@ it('recovers an acknowledged upload in a successor session and refuses inline an
   assert.equal(await storage.objects.exists(repo, info.hash), true);
   await assert.rejects(socketRequest(successor.socketPath, 'POST', '/v1/objects', {
     ...auth, rawBody: new Uint8Array(4097), responseType: StringType,
-  }), /413/);
+  }), (error: unknown) => error instanceof RackHubError && error.code === 'http_413' && /exceeds 4096 bytes/.test(error.message));
   const bad = await socketStream(successor.socketPath, 'PUT', uploadUrl(randomUUID(), { ...info, size: 1n << 100n }), { ...auth, rawBody: new Uint8Array() });
   bad.resume(); assert.equal(bad.statusCode, 400);
   const oversized = await socketStream(successor.socketPath, 'PUT', uploadUrl(randomUUID(), { ...info, size: 1n }), { ...auth, rawBody: bytes });

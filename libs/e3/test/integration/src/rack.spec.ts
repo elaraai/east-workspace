@@ -43,20 +43,23 @@ async function enrolled() {
   const f = await fixture();
   ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0'));
   const status = ok(await f.cli('rack', 'status'));
-  const origin = /Listener: up (http:\/\/\S+)/.exec(status)?.[1]; assert(origin, status);
+  const listener = /Listener: up (https:\/\/\S+) \(certificate SHA-256 ((?:[0-9A-F]{2}:){31}[0-9A-F]{2})\)/.exec(status); assert(listener, status);
+  const [, origin, pin] = listener as unknown as [string, string, string];
   const handoff = ok(await f.cli('rack', 'enroll', '--label', 't', '--no-wait'));
   assert(handoff.includes(`Matching e3-rack release: ${E3_RACK_VERSION}`));
-  assert.match(handoff, /configure --allocation '[^']+' --allow-vpn-http/);
-  assert.match(handoff, /enroll --allocation '[^']+' --allow-vpn-http/);
+  assert(handoff.includes(`\nCertificate SHA-256: ${pin}\n`), handoff);
+  assert.match(handoff, /configure --allocation '[^']+'\n/);
+  assert.match(handoff, /enroll --allocation '[^']+'\n/);
+  assert.doesNotMatch(handoff, /--allow-vpn-http/);
   const token = /^Enrollment token: (e3rk_enroll_\S+)$/m.exec(handoff)?.[1]; assert(token, handoff);
   assert(handoff.includes(`Source origin: ${origin}`));
   for (const command of handoff.split('\n').filter((line) => line.startsWith('  sudo '))) {
-    assert(!command.includes(token)); assert(!command.includes(origin));
+    assert(!command.includes(token)); assert(!command.includes(origin)); assert(!command.includes(pin));
     assert.doesNotMatch(command, /--token|--api-url| install /);
   }
-  const agent = await TestRackAgent.enroll(origin, token, { label: 't' }); cleanup.push(() => agent.close());
+  const agent = await TestRackAgent.enroll(origin, token, { label: 't', certificateSha256: pin }); cleanup.push(() => agent.close());
   assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
-  return { ...f, agent, client: new HubClient(f.home) };
+  return { ...f, agent, pin, client: new HubClient(f.home) };
 }
 
 it('observes a new enrollment before the managed worker starts or advertises capacity', async () => {
@@ -67,7 +70,7 @@ it('observes a new enrollment before the managed worker starts or advertises cap
   cleanup.push(async () => { enrolling.kill('SIGKILL'); await enrolling.result; });
   await waitFor(() => enrolling.getStdout().includes('Enrollment token: '));
   const token = /^Enrollment token: (e3rk_enroll_\S+)$/m.exec(enrolling.getStdout())?.[1]; assert(token);
-  const peer = new TestRackAgent({ apiUrl: initial.rackListener.value.origin, workDir: join(f.home, 'enrollment-peer') });
+  const peer = new TestRackAgent({ apiUrl: initial.rackListener.value.origin, workDir: join(f.home, 'enrollment-peer'), certificateSha256: f.pin });
   cleanup.push(() => peer.close());
   const registration = await peer.post('enroll', RackEnrollRequestType, { enrollmentToken: token,
     hostInfo: { label: 't', tiers: [], capacity: 0n, agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}` } }, RackEnrollResponseType);
@@ -83,15 +86,35 @@ it('observes a new enrollment before the managed worker starts or advertises cap
   assert((await f.client.status()).racks.some((rack) => rack.rackId === registration.rackId && rack.lastBootId.type === 'none'));
 });
 
-it('prints the advertised HTTPS source without the VPN HTTP opt-in', async () => {
+it('prints the advertised HTTPS source and its certificate without the plain-HTTP opt-in', async () => {
   const f = await fixture();
   ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0', '--advertise-url', 'https://rack-source.example.invalid'));
   const output = ok(await f.cli('rack', 'enroll', '--no-wait'));
   assert.match(output, /^Source origin: https:\/\/rack-source.example.invalid$/m);
+  assert.match(output, /^Certificate SHA-256: (?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/m);
   assert.doesNotMatch(output, /--allow-vpn-http|--token|--api-url| install /);
   const help = ok(await f.cli('rack', 'enroll', '--help'));
   assert.doesNotMatch(help, /--instance|--tiers|--max-vms|--gpus/);
   assert.match(help, /prepared\s+rack\s+worker\s+VM/);
+});
+
+it('serves plain HTTP only on a loopback or private address it names in --allow, and prints the HTTP opt-in', async () => {
+  const f = await fixture();
+  const refused = async (args: string[], reason: RegExp) => {
+    const result = await f.cli('rack', 'config', ...args);
+    assert.notEqual(result.exitCode, 0, result.stdout); assert.match(result.stderr, reason);
+  };
+  await refused(['--no-tls', '--listen', '127.0.0.1:0'], /must name the addresses it admits/);
+  await refused(['--no-tls', '--listen', '0.0.0.0:0', '--allow', '127.0.0.1'], /every address/);
+  await refused(['--no-tls', '--listen', '8.8.8.8:7331', '--allow', '127.0.0.1'], /loopback or a private address, not 8\.8\.8\.8/);
+  await refused(['--listen', '127.0.0.1:0', '--advertise-url', 'http://relay.example.invalid'], /must advertise an https:\/\/ origin/);
+  const config = ok(await f.cli('rack', 'config', '--no-tls', '--listen', '127.0.0.1:0', '--allow', '127.0.0.1'));
+  assert.match(config, /^TLS: off$/m); assert.match(config, /^Listener: up http:\/\/127\.0\.0\.1:\d+$/m);
+  const handoff = ok(await f.cli('rack', 'enroll', '--no-wait'));
+  assert.match(handoff, /^Source origin: http:\/\/127\.0\.0\.1:\d+$/m);
+  assert.doesNotMatch(handoff, /Certificate SHA-256/);
+  assert.match(handoff, /configure --allocation '[^']+' --allow-vpn-http/);
+  assert.match(handoff, /never across a VPN hub that decrypts traffic/);
 });
 
 it('shows a fenced worker as unavailable and a resumed worker as ready', async () => {

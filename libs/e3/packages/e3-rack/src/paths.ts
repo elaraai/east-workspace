@@ -14,6 +14,8 @@ export const IDENTITY_FILE = 'identity.beast2';
 export const RACKS_FILE = 'racks.beast2';
 /** The hub's listening address and advertised origin. */
 export const HUB_CONFIG_FILE = 'hub-config.beast2';
+/** The hub's TLS certificate and private key, created when its listener first serves TLS. */
+export const HUB_TLS_FILE = 'hub-tls.beast2';
 /** The single hub's ownership record. */
 export const HUB_LOCK_FILE = 'hub.lock';
 /** The hub process's diagnostic log. */

@@ -5,6 +5,7 @@
 
 import { chmod, unlink } from 'node:fs/promises';
 import { request, Server, type IncomingMessage } from 'node:http';
+import type { Server as HttpsServer } from 'node:https';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createAdaptorServer } from '@hono/node-server';
@@ -63,7 +64,7 @@ export async function serveOnSocket(app: Hono, path: string): Promise<Server> {
  * @param socket - Owned socket to remove after closing
  * @returns Completion of shutdown
  */
-export async function closeSocketServer(server: Server, socket?: string): Promise<void> {
+export async function closeSocketServer(server: Server | HttpsServer, socket?: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => server.closeAllConnections(), 5000);
     timer.unref();
@@ -133,7 +134,11 @@ export async function socketRequest<Req extends EastType, Res extends EastType>(
     if (size > 16 * 1024 * 1024) { response.destroy(); throw new RackHubError('too_large', 'Rack control response exceeds 16 MiB'); }
     chunks.push(bytes);
   }
-  if ((response.statusCode ?? 500) >= 300) throw new RackHubError(`http_${response.statusCode}`, `Rack request ${path}: HTTP ${response.statusCode}`);
+  if ((response.statusCode ?? 500) >= 300) {
+    // The hub answers a refusal in plain text: the reason is the message.
+    const text = String(response.headers['content-type']).startsWith('text/plain') ? Buffer.concat(chunks).toString('utf8').trim() : '';
+    throw new RackHubError(`http_${response.statusCode}`, text !== '' && text.length <= 2000 ? text : `Rack request ${path}: HTTP ${response.statusCode}`);
+  }
   const envelope = decodeBeast2For(ResponseType(options.responseType))(Buffer.concat(chunks));
   if (envelope.type === 'error') throw new RackHubError(envelope.value.type, printFor(ErrorType)(envelope.value));
   return envelope.value;

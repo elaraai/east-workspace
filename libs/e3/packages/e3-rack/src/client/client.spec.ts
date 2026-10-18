@@ -41,7 +41,7 @@ async function fixture() {
   const client = await connectHub({ home: path });
   await client.setConfig({ ...await client.getConfig(), listen: some({ host: '127.0.0.1', port: 0n }) });
   const mint = await client.enroll();
-  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken);
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
   cleanup.push(() => agent.close());
   const repo = join(path, 'repo'); assert(repoInit(repo).success);
   const storage = new LocalStorage();

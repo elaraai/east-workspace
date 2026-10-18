@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { StringType, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
 import { decodeBody, sendError, sendSuccess } from '@elaraai/e3-api-server/beast2';
 import { acquireHubLock, HubLockType, readHubLock } from './lock.js';
-import { defaultHubConfig, loadHubConfig, saveHubConfig } from './config.js';
+import { defaultHubConfig, listenerProblem, loadHubConfig, saveHubConfig, validateHubConfig, wildcardHost } from './config.js';
 import { FairLeaseStore } from './fair-lease-store.js';
 import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import { makeLeaseId, type RackLeaseRecord } from '../lease/lease-store.js';
@@ -40,6 +40,25 @@ it('persists hub configuration atomically and refuses invalid or corrupt state',
   assert.deepEqual(await loadHubConfig(path), config);
   await writeFile(join(path, HUB_CONFIG_FILE), new Uint8Array([1, 2, 3]));
   await assert.rejects(loadHubConfig(path));
+});
+
+it('serves plain HTTP only on the loopback or a private address it names, and TLS on any address', () => {
+  const listen = (host: string) => some({ host, port: 7331n });
+  const plain = (host: string, allow = ['127.0.0.1']) => ({ ...defaultHubConfig(), listen: listen(host), allow, tls: false });
+  assert.equal(defaultHubConfig().tls, true);
+  assert.equal(listenerProblem(defaultHubConfig()), undefined);
+  for (const host of ['127.0.0.1', '::1', 'localhost', '10.1.2.3', '172.16.0.9', '192.168.1.2', '100.64.0.10', '169.254.3.4', 'fd00::5', 'fe80::1']) {
+    assert.equal(listenerProblem(plain(host)), undefined, host);
+  }
+  assert.match(listenerProblem(plain('127.0.0.1', []))!, /must name the addresses it admits/);
+  for (const host of ['0.0.0.0', '::']) assert.match(listenerProblem(plain(host))!, /every address/);
+  for (const host of ['8.8.8.8', '172.32.0.1', '2001:db8::1', 'hub.example.com']) assert.match(listenerProblem(plain(host))!, /loopback or a private address/, host);
+  for (const host of ['0.0.0.0', '8.8.8.8', 'hub.example.com']) assert.equal(listenerProblem({ ...defaultHubConfig(), listen: listen(host) }), undefined, host);
+  assert.match(listenerProblem({ ...defaultHubConfig(), listen: listen('127.0.0.1'), advertiseUrl: some('http://relay.example') })!, /https:\/\//);
+  assert.equal(listenerProblem({ ...plain('127.0.0.1'), advertiseUrl: some('https://terminator.example') }), undefined);
+  assert.throws(() => validateHubConfig(plain('127.0.0.1', [])), /must name the addresses/);
+  assert.throws(() => validateHubConfig({ ...defaultHubConfig(), allow: ['not-an-ip'] }), /not an IP address/);
+  assert.deepEqual(['0.0.0.0', '::', '0:0:0:0:0:0:0:0', '127.0.0.1', 'localhost'].map(wildcardHost), [true, true, true, false, false]);
 });
 
 it('publishes one whole hub lock and recovers a stale owner under simultaneous contenders', async () => {

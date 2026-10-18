@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 import { Server } from 'node:http';
+import { Server as HttpsServer, createServer as createHttpsServer } from 'node:https';
 import { hostname } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { Hono } from 'hono';
@@ -30,8 +31,9 @@ import { ApproveRackType, CancelLeaseResultType, CreateLeaseResultType, CreateLe
 import { closeSocketServer, RackHubError, serveOnSocket } from '../client/local-http.js';
 import { rackHome, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
+import { certificateSha256 } from '../tls/tls.js';
 import { MutationQueue } from '../state-file.js';
-import { loadHubConfig, saveHubConfig, type HubConfig } from './config.js';
+import { listenerProblem, loadHubCertificate, loadHubConfig, saveHubConfig, wildcardHost, type HubConfig } from './config.js';
 import { acquireHubLock, type HeldHubLock } from './lock.js';
 import { FairLeaseStore } from './fair-lease-store.js';
 import { SessionLeaseCoordinator, SessionProxyStorageBridge, type SessionEndpoint } from './session-bridge.js';
@@ -110,7 +112,7 @@ export class RackHub {
   private bridge!: SessionProxyStorageBridge;
   private dispatch!: StoreRackDispatch;
   private control?: Server;
-  private rack?: Server;
+  private rack?: Server | HttpsServer;
   private listener: ValueTypeOf<typeof HubStatusType>['rackListener'] = variant('disabled', null);
   private retry?: NodeJS.Timeout;
   private sweeper?: NodeJS.Timeout;
@@ -374,19 +376,26 @@ export class RackHub {
         await saveHubConfig(config, this.home);
         const changed = !equalFor(HubConfigType)({ ...this.config, allow: config.allow, advertiseUrl: config.advertiseUrl, idleExitMinutes: config.idleExitMinutes }, config);
         this.config = config;
-        if (changed) { await this.closeRack(); await this.bindRack(); }
+        // A listener that is not up binds again on any change: an --allow it
+        // lacked, or a port that has since come free.
+        if (changed || this.listener.type !== 'up') { await this.closeRack(); await this.bindRack(); }
         return sendSuccess(HubConfigType, this.config);
       });
     });
     app.post('/v1/enroll', async (c) => {
       const request = await decodeBody(c, HubEnrollType);
-      if (this.listener.type !== 'up') throw new Error('Configure a reachable rack listener before enrollment');
+      if (this.listener.type !== 'up' || this.config.listen.type === 'none') throw new Error('Configure a reachable rack listener before enrollment');
+      // A wildcard bind's origin names no address a rack could reach.
+      if (this.config.advertiseUrl.type === 'none' && wildcardHost(this.config.listen.value.host)) {
+        throw new Error('The rack listener binds every address; set --advertise-url to the origin the rack reaches');
+      }
       const ttl = request.ttlMinutes.type === 'some' ? Number(request.ttlMinutes.value) : 15;
       if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > 1440) throw new Error('Enrollment TTL must be 1–1440 minutes');
       const { token, tokenHash } = generateEnrollmentToken();
       const expiresAt = new Date(this.now() + ttl * 60000);
       await this.identity.putEnrollmentToken(tokenHash, expiresAt);
-      return sendSuccess(HubEnrollResultType, { enrollmentToken: token, apiUrl: this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : this.listener.value.origin, expiresAt, e3Version: E3_RACK_VERSION });
+      return sendSuccess(HubEnrollResultType, { enrollmentToken: token, apiUrl: this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : this.listener.value.origin,
+        expiresAt, e3Version: E3_RACK_VERSION, certificateSha256: this.listener.value.certificateSha256 });
     });
     app.delete('/v1/racks/:id', (c) => this.mutations.run(async () => {
       const id = c.req.param('id');
@@ -421,6 +430,14 @@ export class RackHub {
   private async bindRack(): Promise<void> {
     if (this.stopping !== undefined || this.config.listen.type === 'none') { this.listener = variant('disabled', null); return; }
     const listen = this.config.listen.value;
+    // A saved listener that may no longer be served stays down, with its
+    // reason in the status, until e3 rack config changes it.
+    const refused = listenerProblem(this.config);
+    if (refused !== undefined) {
+      this.listener = variant('down', { reason: refused });
+      this.options.log?.(`rack listener refused: ${refused}`);
+      return;
+    }
     const app = new Hono();
     app.use('/api/rack/*', async (c, next) => {
       const address = normalizedAddress(getConnInfo(c).remote.address ?? '');
@@ -442,20 +459,28 @@ export class RackHub {
         return bundled !== null && agentVersionAtLeast(bundled, sub.version);
       },
     }));
-    const server = createAdaptorServer({ fetch: app.fetch });
-    if (!(server instanceof Server)) throw new Error('Rack listener requires HTTP/1');
+    let server: Server | HttpsServer | undefined;
     try {
+      let pin: string | undefined;
+      let created: unknown;
+      if (this.config.tls) {
+        const tls = await loadHubCertificate(this.home);
+        pin = certificateSha256(tls.certificatePem);
+        created = createAdaptorServer({ fetch: app.fetch, createServer: createHttpsServer, serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem } });
+      } else created = createAdaptorServer({ fetch: app.fetch });
+      if (!(created instanceof Server) && !(created instanceof HttpsServer)) throw new Error('Rack listener requires HTTP/1');
+      const listening = server = created;
       await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(Number(listen.port), listen.host, () => { server.off('error', reject); resolve(); });
+        listening.once('error', reject);
+        listening.listen(Number(listen.port), listen.host, () => { listening.off('error', reject); resolve(); });
       });
-      this.rack = server;
-      const address = server.address();
+      this.rack = listening;
+      const address = listening.address();
       if (address === null || typeof address === 'string') throw new Error('Rack listener has no network address');
       const host = listen.host.includes(':') ? `[${listen.host}]` : listen.host;
-      this.listener = variant('up', { origin: `http://${host}:${address.port}` });
+      this.listener = variant('up', { origin: `${pin === undefined ? 'http' : 'https'}://${host}:${address.port}`, certificateSha256: pin === undefined ? none : some(pin) });
     } catch (err) {
-      server.close();
+      server?.close();
       this.listener = variant('down', { reason: messageOf(err) });
       this.options.log?.(`rack listener unavailable: ${messageOf(err)}`);
       this.retry = setTimeout(() => { this.retry = undefined; void this.mutations.run(() => this.bindRack()).catch((error: unknown) => this.options.log?.(messageOf(error))); }, this.options.listenerRetryMs ?? 10000);

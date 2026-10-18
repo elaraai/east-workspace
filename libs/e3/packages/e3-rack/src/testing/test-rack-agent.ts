@@ -14,6 +14,7 @@ import { LocalStorage, gcObjectReaders, markReachable, repoInit, taskExecute, ta
 import { closureHashes } from '../lease/closure.js';
 import { decodeRunnerEvent, splitUnitFromWire } from '../runner-event.js';
 import { E3_RACK_VERSION } from '../version.js';
+import { pinnedFetch } from '../tls/tls.js';
 import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestType, RackEnrollResponseType,
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
@@ -40,6 +41,8 @@ export interface TestRackAgentOptions {
   apiUrl: string;
   /** Transports control requests and object transfers. */
   fetch?: typeof fetch;
+  /** Pins a TLS hub's certificate by its SHA-256, as a worker does; ignored when fetch is given. */
+  certificateSha256?: string;
   /** Advertises supported runner tiers. */
   tiers?: string[];
   /** Limits concurrent executions. */
@@ -93,7 +96,7 @@ export class TestRackAgent {
    */
   constructor(private readonly options: TestRackAgentOptions) {
     this.repo = join(options.workDir, 'repo');
-    this.transport = options.fetch ?? fetch;
+    this.transport = options.fetch ?? (options.certificateSha256 === undefined ? fetch : pinnedFetch(options.certificateSha256));
     this.tiers = options.tiers ?? ['node'];
     this.version = options.agentVersion ?? `0.5.0+e3.${E3_RACK_VERSION}`;
     this.capacity = options.capacity ?? 1;

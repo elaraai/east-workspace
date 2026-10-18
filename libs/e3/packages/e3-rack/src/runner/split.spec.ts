@@ -37,7 +37,7 @@ async function fixture(background = false) {
     const hub = new RackHub({ foreground: true, home }); assert(await hub.start()); cleanup.push(() => hub.stop());
   }
   const mint = await client.enroll();
-  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { tiers: ['node', 'py'] });
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { tiers: ['node', 'py'], certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
   cleanup.push(() => agent.close());
   const repo = join(home, 'repo'); assert(repoInit(repo).success);
   const storage = new LocalStorage();

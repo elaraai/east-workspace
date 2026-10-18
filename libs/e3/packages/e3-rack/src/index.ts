@@ -4,6 +4,7 @@
  */
 
 export * from './protocol/index.js';
+export * from './tls/tls.js';
 export * from './lease/lease-store.js';
 export * from './lease/rack-dispatch.js';
 export * from './identity/machine-identity.js';

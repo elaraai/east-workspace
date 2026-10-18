@@ -8,10 +8,15 @@ import { RackRegistrationType } from './registration.js';
 
 /** An empty control message. */
 export const EmptyType = StructType({});
-/** Configures the user-wide listener and idle lifetime, inside rack state format 1. */
+/**
+ * Configures the user-wide listener and idle lifetime, inside rack state format 1.
+ * `tls` serves the listener over HTTPS with the hub's own certificate, which a
+ * rack pins by its SHA-256; without it the listener is plain HTTP, for a TLS
+ * terminator in front of the hub.
+ */
 export const HubConfigType = StructType({
   listen: OptionType(StructType({ host: StringType, port: IntegerType })), allow: ArrayType(StringType),
-  idleExitMinutes: IntegerType, advertiseUrl: OptionType(StringType),
+  idleExitMinutes: IntegerType, advertiseUrl: OptionType(StringType), tls: BooleanType,
 });
 /** The user-wide hub configuration, derived from the control wire. */
 export type HubConfig = ValueTypeOf<typeof HubConfigType>;
@@ -49,8 +54,8 @@ export const CapacitySnapshotType = StructType({
 export const SessionPollType = StructType({ after: IntegerType, waitMs: IntegerType });
 /** Returns ordered events and a fresh capacity snapshot. */
 export const SessionPollResultType = StructType({ events: ArrayType(SessionEventType), capacity: CapacitySnapshotType });
-/** Reports listener readiness without hiding a failed VPN/LAN bind. */
-export const RackListenerType = VariantType({ disabled: NullType, up: StructType({ origin: StringType }), down: StructType({ reason: StringType }) });
+/** Reports listener readiness without hiding a failed bind, and the certificate a rack pins when it serves TLS. */
+export const RackListenerType = VariantType({ disabled: NullType, up: StructType({ origin: StringType, certificateSha256: OptionType(StringType) }), down: StructType({ reason: StringType }) });
 /** Reports the hub, attached sessions, fleet and queue. */
 export const HubStatusType = StructType({
   hello: HubHelloType, rackListener: RackListenerType, racks: ArrayType(RackRegistrationType),
@@ -60,8 +65,8 @@ export const HubStatusType = StructType({
 });
 /** Requests a short-lived enrollment credential. */
 export const HubEnrollType = StructType({ label: OptionType(StringType), ttlMinutes: OptionType(IntegerType) });
-/** Returns the one-time enrollment secret and exact control-plane origin. */
-export const HubEnrollResultType = StructType({ enrollmentToken: StringType, apiUrl: StringType, expiresAt: DateTimeType, e3Version: StringType });
+/** Returns the one-time enrollment secret, the exact control-plane origin and, when the hub serves TLS, the certificate fingerprint a rack pins. */
+export const HubEnrollResultType = StructType({ enrollmentToken: StringType, apiUrl: StringType, expiresAt: DateTimeType, e3Version: StringType, certificateSha256: OptionType(StringType) });
 /** Approves exactly the boot the operator saw. */
 export const ApproveRackType = StructType({ bootId: StringType });
 /** Reports whether a registry entry was removed. */

@@ -17,6 +17,7 @@ import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
+import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import type { RackPlacementEvent } from './rack-body.js';
@@ -52,7 +53,7 @@ async function fixture(options: RackHubOptions = {}) {
   };
   const agent = async () => {
     const mint = await client.enroll();
-    const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken);
+    const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
     cleanup.push(() => peer.close()); return peer;
   };
   return { home, hub, client, repo, storage, hash, inputs, budget, placements, policy, open, agent };
@@ -177,10 +178,12 @@ it('falls back after a lost lease and keeps the interrupted attempt in history',
 
 it('automatically polls with an injected transport and drains concurrent real executions', async () => {
   const f = await fixture(); const enrollment = await f.client.enroll();
+  assert(enrollment.certificateSha256.type === 'some');
+  const pinned = pinnedFetch(enrollment.certificateSha256.value);
   let requests = 0;
   const agent = new TestRackAgent({ apiUrl: enrollment.apiUrl, workDir: join(f.home, 'peer'), capacity: 2,
     timings: { heartbeatMs: 20, extendMs: 20 }, faults: { claimDelayMs: 5 },
-    fetch: (input, init) => { requests++; return fetch(input, init); } });
+    fetch: (input, init) => { requests++; return pinned(input, init); } });
   cleanup.push(() => agent.close()); await agent.enroll(enrollment.enrollmentToken);
   const rack = await f.open(); assert.equal(rack.rackSlots, 2);
   agent.start();
@@ -197,7 +200,8 @@ for (const fault of ['infraFailNext', 'taskFailNext', 'hangNext', 'dropCompletio
     let time = Date.now();
     const f = await fixture({ now: () => time, visibilityMs: 100 });
     const enrollment = await f.client.enroll();
-    const agent = await TestRackAgent.enroll(enrollment.apiUrl, enrollment.enrollmentToken, { faults: { [fault]: 1 } });
+    const agent = await TestRackAgent.enroll(enrollment.apiUrl, enrollment.enrollmentToken, { faults: { [fault]: 1 },
+      certificateSha256: enrollment.certificateSha256.type === 'some' ? enrollment.certificateSha256.value : undefined });
     cleanup.push(() => agent.close()); const rack = await f.open();
     let finished = false;
     const running = rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' }).then((result) => { finished = true; return result; });

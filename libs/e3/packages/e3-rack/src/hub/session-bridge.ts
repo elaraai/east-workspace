@@ -77,7 +77,11 @@ export interface SessionBridgeOptions {
   subscribers?: (repo: string, leaseId: string) => SessionEndpoint[];
   /** Resolves the hub's process identity for execution liveness. */
   owner: ExecutionOwner;
-  /** Provides an origin outside a rack request, when configured. */
+  /**
+   * The origin racks reach the hub at, when configured: a relay's, a tunnel's
+   * or a TLS terminator's. Every data URL is built on it; without it, on the
+   * origin the rack's own request named.
+   */
   advertiseOrigin: () => string | undefined;
   /** Controls capability expiration in tests. */
   now?: () => number;
@@ -93,7 +97,7 @@ export interface SessionBridgeOptions {
  * app.route('/', bridge.dataRoutes());
  */
 export class SessionProxyStorageBridge implements RackStorageBridge {
-  /** Carries the external request origin into generated data URLs. */
+  /** Carries the rack request's own origin, for data URLs when no origin is advertised. */
   readonly origin = new AsyncLocalStorage<string>();
   /** Forwards execution records and buffered logs to the repository session. */
   readonly attempts: RackAttemptStore;
@@ -199,7 +203,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   }
 
   private url(cap: Capability): string {
-    const origin = this.origin.getStore() ?? this.options.advertiseOrigin();
+    // Behind a relay or a TLS terminator the request's origin is the hub's
+    // own side of it, which the rack cannot reach (or reaches in clear).
+    const origin = this.options.advertiseOrigin() ?? this.origin.getStore();
     if (origin === undefined) throw new Error('Rack listener has no reachable origin');
     return `${origin}/api/rack/data/${cap.id}`;
   }
@@ -307,7 +313,11 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     return lease?.status === 'claimed' && lease.attempt?.executionId === cap.executionId;
   }
 
-  /** Streams data URLs with backpressure, bounded deadlines and no rack bearer header. */
+  /**
+   * Streams data URLs with backpressure and no rack bearer header. A transfer
+   * may take the rest of its capability's fifteen minutes, so a large object
+   * over a slow link is not cut short of the time its URL grants.
+   */
   dataRoutes(): Hono {
     const app = new Hono();
     app.on(['GET', 'PUT'], '/api/rack/data/:cap', async (c) => {
@@ -316,13 +326,14 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
       if (cap === undefined || !await this.valid(cap) || (cap.upload === undefined ? 'GET' : 'PUT') !== c.req.method) return c.notFound();
       let session: SessionEndpoint;
       try { session = this.options.session(cap.repo, cap.leaseId); } catch { return c.text('No live repository session', 410); }
-      const signal = AbortSignal.any([cap.abort.signal, c.req.raw.signal, AbortSignal.timeout(Math.max(1, Math.min(600_000, cap.expires - this.now())))]);
+      const remaining = Math.max(1, cap.expires - this.now());
+      const signal = AbortSignal.any([cap.abort.signal, c.req.raw.signal, AbortSignal.timeout(remaining)]);
       const upload = cap.upload;
       const path = upload === undefined ? `/v1/objects/${cap.hash}` : `/v1/uploads/${cap.id}?${new URLSearchParams({
         lease: cap.leaseId, hash: cap.hash, size: `${upload.size}`, receipt: upload.receipt,
       })}`;
       const response = await socketStream(session.dataSocket, c.req.method, path, {
-        bearer: session.dataToken, signal, timeoutMs: 600_000,
+        bearer: session.dataToken, signal, timeoutMs: remaining,
         ...(upload === undefined ? {} : { rawBody: c.req.raw.body === null ? new Uint8Array() : Readable.fromWeb(c.req.raw.body) }),
       });
       const headers = new Headers({ 'content-type': 'application/octet-stream' });

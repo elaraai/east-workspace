@@ -80,7 +80,7 @@ it('delegates an API run under explicit server opt-in and closes its hub session
   await saveHubConfig({ ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: 0n }) }, home);
   const hub = new RackHub({ home, foreground: true }); assert(await hub.start()); cleanup.push(() => hub.stop());
   const client = new HubClient(home); const mint = await client.enroll();
-  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken); cleanup.push(() => agent.close());
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined }); cleanup.push(() => agent.close());
   // enabled remains false: the server operator explicitly opted in.
   await savePolicy(f.repo, setMode(DEFAULT_RACK_POLICY, 'auto'));
   const url = await f.start(createDataflowRunnerFactory({ home, waitForRackMs: 0 }));

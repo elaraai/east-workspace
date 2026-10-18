@@ -17,28 +17,33 @@ import e3 from '@elaraai/e3';
 import { decodeTaskObject } from '@elaraai/e3-types';
 import { LocalStorage, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from './hub.js';
-import { defaultHubConfig, saveHubConfig } from './config.js';
+import { defaultHubConfig, loadHubCertificate, saveHubConfig, type HubConfig } from './config.js';
 import { readHubLock } from './lock.js';
 import { socketRequest } from '../client/local-http.js';
 import { startSessionDataServer } from '../client/session-data-server.js';
-import { hubSocketPath } from '../paths.js';
+import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
+import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
+import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: RackHubOptions = {}, port = 0) {
+async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partial<HubConfig> = {}) {
   const home = await mkdtemp(join(tmpdir(), 'e3h-'));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
-  const config = { ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: BigInt(port) }) };
+  const config = { ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: BigInt(port) }), ...overrides };
   await saveHubConfig(config, home);
   const hub = new RackHub({ foreground: true, ...options, home });
   assert(await hub.start());
   cleanup.push(() => hub.stop());
+  // A TLS listener made its certificate as it bound, whether or not the bind succeeded.
+  const pin = config.tls ? certificateSha256((await loadHubCertificate(home)).certificatePem) : undefined;
+  const fetch = pin === undefined ? globalThis.fetch : pinnedFetch(pin);
   const socket = hubSocketPath(home);
   const status = () => socketRequest(socket, 'GET', '/v1/status', { responseType: HubStatusType });
   const storage = new LocalStorage();
@@ -71,11 +76,12 @@ async function fixture(options: RackHubOptions = {}, port = 0) {
   const agent = async () => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
-    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken);
+    assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
+    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin });
     cleanup.push(() => agent.close());
     return agent;
   };
-  return { home, hub, socket, repo, storage, status, session, agent, config };
+  return { home, hub, socket, repo, storage, status, session, agent, config, pin, fetch };
 }
 function event(input: string[] = []): RackLeaseEvent {
   return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input },
@@ -137,9 +143,9 @@ it('takes over acknowledged uploads and cancels a shared lease only after its la
   const size = BigInt(bytes.length);
   const response = await agent.storageRequest(grant, { outputs: [{ hash, size }] });
   const target = response.targets[0]!.target; assert(target.type === 'put');
-  const bad = await fetch(target.value.url, { method: 'PUT', body: new Uint8Array(bytes.length) });
+  const bad = await f.fetch(target.value.url, { method: 'PUT', body: new Uint8Array(bytes.length) });
   assert.equal(bad.status, 400); await bad.arrayBuffer();
-  const put = await fetch(target.value.url, { method: 'PUT', body: bytes });
+  const put = await f.fetch(target.value.url, { method: 'PUT', body: bytes });
   assert.equal(put.status, 200); await put.arrayBuffer();
   const version = put.headers.get('x-amz-version-id')!;
   await first.close();
@@ -147,7 +153,7 @@ it('takes over acknowledged uploads and cancels a shared lease only after its la
   assert.equal((await agent.storageRequest(grant, { commits: [{ hash, size, version }] })).committed[0]!.committed, true);
   assert.equal((await second.cancel(created.leaseId)).status, 'cancelled');
   assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
-  assert.equal((await fetch(target.value.url, { method: 'PUT', body: bytes })).status, 404);
+  assert.equal((await f.fetch(target.value.url, { method: 'PUT', body: bytes })).status, 404);
   assert.equal((await agent.complete(grant, { taskName: 'task', status: 'success', outputHash: hash })).disposition.type, 'discarded');
   assert.equal(await f.storage.objects.exists(f.repo, hash), true);
 });
@@ -194,7 +200,7 @@ it('enforces the rack allowlist, retries an occupied listener and exits only onc
   const status = await f.status(); assert(status.rackListener.type === 'up');
   const config = { ...f.config, allow: ['192.0.2.1'] };
   await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType, body: config, responseType: HubConfigType });
-  assert.equal((await fetch(`${status.rackListener.value.origin}/api/rack/enroll`, { method: 'POST' })).status, 403);
+  assert.equal((await f.fetch(`${status.rackListener.value.origin}/api/rack/enroll`, { method: 'POST' })).status, 403);
   await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType, body: { ...config, allow: ['::ffff:127.0.0.1'] }, responseType: HubConfigType });
   await f.agent();
   const session = await f.session();
@@ -202,4 +208,75 @@ it('enforces the rack allowlist, retries an occupied listener and exits only onc
   assert.equal((await f.status()).sessions.length, 1);
   await session.close(); time += 60001; await f.hub.sweep(); await f.hub.closed;
   assert.equal(await readHubLock(f.home), null);
+});
+
+it('serves its rack listener over TLS with a certificate it keeps across restarts, and a rack pinning another is refused', async () => {
+  const f = await fixture();
+  const status = await f.status();
+  assert(status.rackListener.type === 'up');
+  assert.match(status.rackListener.value.origin, /^https:\/\/127\.0\.0\.1:\d+$/);
+  assert.deepEqual(status.rackListener.value.certificateSha256, some(f.pin));
+  const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  assert.deepEqual(mint.certificateSha256, some(f.pin));
+  const other = certificateSha256(createHubCertificate().certificatePem);
+  await assert.rejects(TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: other }), /not the pinned/);
+  await assert.rejects(TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken), 'an unpinned rack refuses the self-signed certificate');
+  await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: f.pin }).then((agent) => agent.close());
+  await f.hub.stop();
+  const again = new RackHub({ foreground: true, home: f.home });
+  assert(await again.start());
+  cleanup.push(() => again.stop());
+  const restarted = await f.status();
+  assert(restarted.rackListener.type === 'up');
+  assert.deepEqual(restarted.rackListener.value.certificateSha256, some(f.pin), 'the certificate every rack pinned is kept');
+});
+
+it('builds every data URL on the advertised origin, not the origin the rack request named', async () => {
+  const f = await fixture();
+  // Enrolled at the listener itself; the relay's name resolves nowhere here.
+  const agent = await f.agent();
+  const advertised = 'https://rack-relay.example.invalid:7401';
+  await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType, body: { ...f.config, advertiseUrl: some(advertised) }, responseType: HubConfigType });
+  const session = await f.session(); await session.create(event());
+  const grant = await agent.claim(); assert(grant);
+  const bytes = encodeBeast2For(IntegerType)(7n);
+  const response = await agent.storageRequest(grant, { outputs: [{ hash: createHash('sha256').update(bytes).digest('hex'), size: BigInt(bytes.length) }] });
+  const target = response.targets[0]!.target; assert(target.type === 'put');
+  assert(target.value.url.startsWith(`${advertised}/api/rack/data/`), target.value.url);
+  const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  assert.equal(mint.apiUrl, advertised);
+});
+
+it('keeps a saved listener it must not serve down, with the reason, until its configuration changes', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'e3h-'));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  // A configuration a newer rule refuses, written as an older release would have.
+  const unsafe = { ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: 0n }), tls: false };
+  await writeStateFile(join(home, HUB_CONFIG_FILE), encodeBeast2For(HubConfigType)(unsafe));
+  const hub = new RackHub({ foreground: true, home });
+  assert(await hub.start());
+  cleanup.push(() => hub.stop());
+  const socket = hubSocketPath(home);
+  const down = await socketRequest(socket, 'GET', '/v1/status', { responseType: HubStatusType });
+  assert(down.rackListener.type === 'down');
+  assert.match(down.rackListener.value.reason, /must name the addresses it admits/);
+  await assert.rejects(socketRequest(socket, 'POST', '/v1/config', { requestType: HubConfigType, body: unsafe, responseType: HubConfigType }), /must name the addresses/);
+  await socketRequest(socket, 'POST', '/v1/config', { requestType: HubConfigType, body: { ...unsafe, allow: ['127.0.0.1'] }, responseType: HubConfigType });
+  const up = await socketRequest(socket, 'GET', '/v1/status', { responseType: HubStatusType });
+  assert(up.rackListener.type === 'up');
+  assert.match(up.rackListener.value.origin, /^http:\/\//);
+  assert.deepEqual(up.rackListener.value.certificateSha256, none);
+  const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  assert.deepEqual(mint.certificateSha256, none);
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken);
+  await agent.close();
+});
+
+it('enrolls through a listener on every address only once an origin is advertised', async () => {
+  const f = await fixture({}, 0, { listen: some({ host: '0.0.0.0', port: 0n }) });
+  const enroll = () => socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  await assert.rejects(enroll(), /binds every address; set --advertise-url/);
+  await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType,
+    body: { ...f.config, advertiseUrl: some('https://rack-source.example.invalid') }, responseType: HubConfigType });
+  assert.equal((await enroll()).apiUrl, 'https://rack-source.example.invalid');
 });
