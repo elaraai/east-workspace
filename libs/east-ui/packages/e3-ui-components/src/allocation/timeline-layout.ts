@@ -78,22 +78,27 @@ export interface LaneGrid {
 /**
  * The lane grid from the day's slots (A14): a band per slot index, its rows
  * its largest batch's; a cell per lane slot; a card per bin at its lane, its
- * slot's band, and its place in the batch.
+ * slot's band, and its place in the batch. A bin the narrowing hides (#1339)
+ * takes no card and no row of its batch, and its slot is still booked; each
+ * lane's head counts every bin, hidden or not.
  *
  * @param lanes - The lanes' keys, in order
  * @param slots - The day's slots (`Allocation.slots`), in time then lane order
  * @param plan - The day's plan
+ * @param shows - Whether a bin shows; every one by default
  * @returns The grid
  */
-export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan: Day): LaneGrid {
+export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan: Day, shows: (bin: Bin) => boolean = () => true): LaneGrid {
     const index = new Map(lanes.map((key, i) => [key, i] as const));
     const byLane = lanes.map(() => [] as Slot[]);
     for (const slot of slots) { const i = index.get(slot.lane); if (i !== undefined) byLane[i]!.push(slot); }
     const count = Math.max(0, ...byLane.map(list => list.length));
     const bands: LaneBand[] = [];
     let row = 0;
+    // The bins of a slot that show, in its batch's order.
+    const shown = (slot: Slot | undefined) => slot === undefined ? [] : slot.bins.filter(id => { const bin = plan.bins.get(id); return bin !== undefined && shows(bin); });
     for (let k = 0; k < count; k++) {
-        const span = Math.max(1, ...byLane.map(list => list[k]?.bins.length ?? 0));
+        const span = Math.max(1, ...byLane.map(list => shown(list[k]).length));
         const at = byLane.find(list => list[k] !== undefined)![k]!.at;
         bands.push({ slot: k, row, span, at });
         row += span;
@@ -104,12 +109,11 @@ export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan:
         heads[lane]!.first = list[0]?.at;
         list.forEach((slot, k) => {
             cells.push({ lane, slot: k, at: slot.at, free: slot.bins.length === 0 });
-            slot.bins.forEach((id, place) => {
+            shown(slot).forEach((id, place) => cards.push({ id, bin: plan.bins.get(id)!, lane, slot: k, slotAt: slot.at, row: bands[k]!.row + place }));
+            for (const id of slot.bins) {
                 const bin = plan.bins.get(id);
-                if (bin === undefined) return;
-                cards.push({ id, bin, lane, slot: k, slotAt: slot.at, row: bands[k]!.row + place });
-                if (bin.event.type === "some") { heads[lane]!.bins += 1; heads[lane]!.quantity += bin.quantity; }
-            });
+                if (bin?.event.type === "some") { heads[lane]!.bins += 1; heads[lane]!.quantity += bin.quantity; }
+            }
         });
     });
     return { bands, cells, cards, rows: row, heads };

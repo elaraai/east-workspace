@@ -15,14 +15,18 @@ export const kilnPlansPatch = e3.mutation.patch(kilnPlans);
 // Two years of plans, for the board read a day at a time.
 export const kilnHistory = e3.record("kiln_plan_history", Allocation.Types.Days(BinValues), yardHistory);
 export const kilnHistoryPatch = e3.mutation.patch(kilnHistory);
-// The kilns, indexed by group for the narrowing.
+// The kilns, indexed by group for the narrowing; and by group then max, so a group and a range of max combine, and by name, for a search.
 export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
 export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
-// Every load the day may book: booked or not, the board tells them apart by the plan.
+export const kilnsByGroupMax = e3.recordIndex("kilns_by_group_max", kilns, { on: ["group", "max"] });
+export const kilnsByName = e3.recordIndex("kilns_by_name", kilns, { on: ["name"] });
+// Every load the day may book: booked or not, the board tells them apart by the plan; indexed by spec for the narrowing.
 export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
-// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area for the narrowing.
+export const arrivalsBySpec = e3.recordIndex("arrivals_by_spec", arrivals, { on: ["spec"] });
+// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area, and by cover, for the narrowing.
 export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), yardBayRows);
 export const yardBaysByArea = e3.recordIndex("yard_bays_by_area", yardBays, { on: ["area"] });
+export const yardBaysByCover = e3.recordIndex("yard_bays_by_cover", yardBays, { on: ["cover"] });
 
 /** The yard's fit's body: the built-in rules, then a greedy look-ahead over the day's other loads. */
 export const yardFitBody = East.function([Allocation.Types.FitRequest(BinValues)], Allocation.Types.FitResult, ($, req) => {
@@ -67,17 +71,22 @@ export const allocationMinimal = example({
 });
 
 export const allocationKilnYard = example({
-    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area and the kilns by group from one rail over both records, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
-    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish"], inputs: [],
+    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area or cover, the kilns by group, a range of max within a group or a name's start, and the loads by spec, from one rail over the three records — each source with its icon, headed by the board's noun, and each narrowing every place its rows appear, the Library's tabs included — the bin values as columns, a yard check, and the yard's greedy fit on e3.",
+    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish", "Library", "narrowing"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
+        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
         const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
-            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
-            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+            lanes: { source: bayIndex, icon: { prefix: "fas", name: "warehouse" },
+                fields: { area: { label: "Area", hints: ["North", "South"] }, cover: { label: "Cover", hints: ["Covered", "Open"] } } },
+            // A max narrows within a group (one index on group, then max); a name is searched by its start.
+            resources: { source: kilnIndex, icon: { prefix: "fas", name: "fire" },
+                fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] }, max: { label: "Max m³" }, name: { label: "Name" } } },
+            events: { source: loadIndex, icon: { prefix: "fas", name: "truck" }, fields: { spec: { label: "Spec", hints: ["MC08", "MC10", "MC12", "MC14", "MC16", "MC18", "MC20", "MC22"] } } },
         }, {
             presets: [
                 { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
@@ -132,17 +141,22 @@ export const allocationKilnYard = example({
 });
 
 export const allocationTable = example({
-    description: "The kiln yard as a Table: one row per bay slot and one per extra bin of a batch, in four foldable time bands, narrowed by the bays' area and the kilns' group; the same drafts, library and inspector as the Timeline.",
-    keywords: ["Allocation", "Table", "Record.bind", "Func.bind", "columns", "Chooser"], inputs: [],
+    description: "The kiln yard as a Table: one row per bay slot and one per extra bin of a batch, in four foldable time bands, narrowed by the bays' area or cover, the kilns' group, max or name, and the loads' spec; the same drafts, library and inspector as the Timeline.",
+    keywords: ["Allocation", "Table", "Record.bind", "Func.bind", "columns", "Chooser", "Slice.bindRecords"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
+        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
         const slice = $.let(Slice.bindRecords("ex.allocationTable", {
-            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
-            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+            lanes: { source: bayIndex, icon: { prefix: "fas", name: "warehouse" },
+                fields: { area: { label: "Area", hints: ["North", "South"] }, cover: { label: "Cover", hints: ["Covered", "Open"] } } },
+            // A max narrows within a group (one index on group, then max); a name is searched by its start.
+            resources: { source: kilnIndex, icon: { prefix: "fas", name: "fire" },
+                fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] }, max: { label: "Max m³" }, name: { label: "Name" } } },
+            events: { source: loadIndex, icon: { prefix: "fas", name: "truck" }, fields: { spec: { label: "Spec", hints: ["MC08", "MC10", "MC12", "MC14", "MC16", "MC18", "MC20", "MC22"] } } },
         }, {
             presets: [
                 { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },

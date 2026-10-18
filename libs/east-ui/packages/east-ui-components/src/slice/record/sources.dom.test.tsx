@@ -7,7 +7,8 @@
 /**
  * The rail over several records (#1336): one rail, each source's chips in
  * source order, one summary counting each source, one Clear all, presets over
- * every source — over decoded wire values and the shared store. The product's
+ * every source — over decoded wire values and the shared store; and how it
+ * names its sources (#1339): each source's heading and icon. The product's
  * own algebra runs on real indexes in e3-ui-components' `record-sources.spec.ts`.
  */
 import { afterEach, expect, test, vi } from "vitest";
@@ -81,15 +82,22 @@ function part(key: string, fields: Field[], presets: { id: string; name: string;
     return slice;
 }
 
+/** How a source names itself in the fixture: its label and its icon's name. */
+type Named = Partial<Record<"lanes" | "resources", { label?: string; icon?: string; cover?: boolean }>>;
+
 /** The yard: lanes by area, resources by group, and one preset over both — the product's functions as the East ones run. */
-function fixture(store = new UIStore()) {
+function fixture(store = new UIStore(), named: Named = {}) {
     initializeStore(store);
     const north = { id: "north", name: "North, halls" };
-    const lanes = part("yard.lanes", [field("area", "Area", ["North", "South"])],
+    const lanes = part("yard.lanes", [field("area", "Area", ["North", "South"]), ...(named.lanes?.cover === true ? [field("cover", "Cover", ["Covered", "Open"])] : [])],
         [{ ...north, where: new Map([["area", variant("values", ['"North"'])]]) }]);
     const kilns = part("yard.resources", [field("group", "Kiln group", ["Hall A", "Hall B", "Bulk"])],
         [{ ...north, where: new Map([["group", variant("values", ['"Hall A"', '"Hall B"'])]]) }]);
-    const parts = [{ source: "lanes", slice: lanes }, { source: "resources", slice: kilns }];
+    const naming = (source: keyof Named) => ({
+        label: named[source]?.label === undefined ? none : some(named[source].label),
+        icon: named[source]?.icon === undefined ? none : some({ prefix: "fas", name: named[source].icon, label: none, style: none }),
+    });
+    const parts = [{ source: "lanes", ...naming("lanes"), slice: lanes }, { source: "resources", ...naming("resources"), slice: kilns }];
     const product: Product = { key: "yard", parts, presets: [north],
         clearAll: vi.fn(() => { for (const p of parts) p.slice.clearAll(); return null; }),
         togglePreset: vi.fn((id: string) => {
@@ -105,12 +113,18 @@ function fixture(store = new UIStore()) {
     return { lanes, kilns, product };
 }
 
+/** The yard's nouns, the host's. */
+const NOUNS = { lanes: "lanes", resources: "kilns" };
+
 /** The rail in one Toolbar, at its widest or its most folded form. */
-function Rail({ product, folded = false, persist }: { product: Product; folded?: boolean; persist?: "session" }) {
-    const items = useRecordSlicesToolbarItems(product, { nouns: { lanes: "lanes", resources: "kilns" }, ...(persist === undefined ? {} : { persist }) });
+function Rail({ product, folded = false, persist, nouns = NOUNS, excludeFields }: {
+    product: Product; folded?: boolean; persist?: "session"; nouns?: Readonly<Record<string, string>> | null; excludeFields?: readonly string[];
+}) {
+    const items = useRecordSlicesToolbarItems(product, { ...(nouns === null ? {} : { nouns }), ...(persist === undefined ? {} : { persist }),
+        ...(excludeFields === undefined ? {} : { excludeFields }) });
     return folded ? <>{items[0]!.forms.at(-1)}</> : <Toolbar items={items} />;
 }
-const show = (product: Product, props: { folded?: boolean; persist?: "session" } = {}) =>
+const show = (product: Product, props: { folded?: boolean; persist?: "session"; nouns?: Readonly<Record<string, string>> | null; excludeFields?: readonly string[] } = {}) =>
     render(<ChakraProvider value={system}><Rail product={product} {...props} /></ChakraProvider>);
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); resetSlicePersistence(); window.sessionStorage.clear(); });
@@ -218,4 +232,62 @@ test("a failed count offers Retry, which retries that source alone", async () =>
     expect(f.kilns.retry).toHaveBeenCalledTimes(1);
     expect(f.lanes.retry).not.toHaveBeenCalled();
     await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 lanes·20 of 20 kilns"));
+});
+
+test("folded, the editor heads each source's fields with its name and its icon, then the presets with Presets; the keys move between the fields alone", async () => {
+    const f = fixture(new UIStore(), { lanes: { label: "Bays", icon: "warehouse" }, resources: { icon: "fire" } });
+    show(f.product, { folded: true });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Filters:/ }));
+    const dialog = await screen.findByRole("dialog");
+    const heads = [...dialog.querySelectorAll<HTMLElement>("[data-slice-group]")];
+    // A source's label names it; without one, the host's noun does.
+    expect(heads.map(head => [head.dataset.sliceGroup, head.textContent])).toEqual([["source:lanes", "Bays"], ["source:resources", "kilns"], ["presets", "Presets"]]);
+    expect(heads.map(head => head.querySelector("svg")?.getAttribute("data-icon") ?? null)).toEqual(["warehouse", "fire", null]);
+    // Each heads its own fields: the next section after it is its source's.
+    expect(heads.map(head => (head.nextElementSibling as HTMLElement).dataset.sliceSection)).toEqual(["field:lanes.area", "field:resources.group", "presets"]);
+    // A heading is a caption: Arrow Down from one field's trigger lands on the next field's.
+    const area = within(dialog).getByRole("button", { name: "Area" });
+    area.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Kiln group" }));
+});
+
+test("wide, each field carries its source's icon; a source with none keeps the rail's own", () => {
+    const f = fixture(new UIStore(), { lanes: { icon: "warehouse" } });
+    show(f.product);
+    const icon = (label: string) => document.querySelector(`[data-slice-rail] [title="${label}"] svg`)?.getAttribute("data-icon");
+    expect(icon("Area")).toBe("warehouse");
+    expect(icon("Kiln group")).toBe("filter");
+});
+
+test("fields from one source are not headed", async () => {
+    const f = fixture(new UIStore(), { lanes: { label: "Bays", icon: "warehouse" }, resources: { label: "Kilns" } });
+    show(f.product, { folded: true, excludeFields: ["resources.group"] });
+    await userEvent.setup().click(screen.getByRole("button", { name: /^Filters:/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect([...dialog.querySelectorAll("[data-slice-section]")].map(section => (section as HTMLElement).dataset.sliceSection)).toEqual(["field:lanes.area", "presets"]);
+    expect(dialog.querySelectorAll("[data-slice-group]")).toHaveLength(0);
+});
+
+test("the summary counts a source in the host's noun, else its label as running text writes it, else its name", () => {
+    const f = fixture(new UIStore(), { lanes: { label: "Bays" }, resources: { label: "SKU" } });
+    show(f.product, { nouns: null });
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 bays·20 of 20 SKU");
+    cleanup();
+    show(fixture().product, { nouns: null });
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 lanes·20 of 20 resources");
+    cleanup();
+    show(fixture(new UIStore(), { lanes: { label: "Bays" } }).product);
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 lanes·20 of 20 kilns");
+});
+
+test("a source with several fields is headed once, over its first; its fields stay in order under it", async () => {
+    const f = fixture(new UIStore(), { lanes: { label: "Bays", icon: "warehouse", cover: true }, resources: { icon: "fire" } });
+    show(f.product, { folded: true });
+    await userEvent.setup().click(screen.getByRole("button", { name: /^Filters:/ }));
+    const dialog = await screen.findByRole("dialog");
+    const order = [...dialog.querySelectorAll<HTMLElement>("[data-slice-group], [data-slice-section]")]
+        .map(el => el.dataset.sliceGroup !== undefined ? `head:${el.dataset.sliceGroup}` : el.dataset.sliceSection);
+    expect(order).toEqual(["head:source:lanes", "field:lanes.area", "field:lanes.cover", "head:source:resources", "field:resources.group", "head:presets", "presets"]);
 });

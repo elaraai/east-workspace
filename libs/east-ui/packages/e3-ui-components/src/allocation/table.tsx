@@ -6,7 +6,7 @@
 /**
  * The Table (`Allocation Spec.md` §8, A41–A49, A84, #1329): one row per lane
  * slot of the day and one per extra bin of a batch, in foldable time bands
- * (the app's, four by default), narrowed by the lanes and the resources the slice shows (#1336) and
+ * (the app's, four by default), narrowed by the lanes, the resources and the events the slice shows (#1336, #1339) and
  * never reordered by an allocation. Each row's event
  * and resource are a chip or a dashed placeholder; a chip's × removes or
  * unlinks, and a cell's chevron opens the shared Chooser, every section of it
@@ -68,9 +68,10 @@ export interface TableProps {
     /** The day without a bin, and with a probe reservation in a free slot: what a cell's Chooser asks the fit of. */
     without: (bin: string) => Day;
     reserving: (lane: string, at: Date) => Day;
-    /** The lanes and the resources the narrowing shows, by key; `none` for every one (#1336). */
+    /** The lanes, the resources and the events the narrowing shows, by key; `none` for every one (#1336, #1339). */
     visibleLanes: option<Set<string>>;
     visibleResources: option<Set<string>>;
+    visibleEvents: option<Set<string>>;
     /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
     clearFilters: (() => void) | undefined;
     /** The event whose every bin the Library's Allocated card highlights (A10). */
@@ -112,10 +113,10 @@ export function AllocationTable(props: TableProps) {
     const words = allocationWords();
     const nouns = useNouns();
     const unit = context.unit;
-    // A row a hidden lane holds, or whose every resource is hidden, goes; a band the narrowing empties goes with it.
-    const { visibleLanes, visibleResources } = props;
-    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day, value.table.bands), plan, visibleLanes, visibleResources),
-        [slots, plan, day, value.table.bands, visibleLanes, visibleResources]);
+    // A row a hidden lane holds, whose every resource is hidden, or whose event is, goes; a band the narrowing empties goes with it.
+    const { visibleLanes, visibleResources, visibleEvents } = props;
+    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day, value.table.bands), plan, visibleLanes, visibleResources, visibleEvents),
+        [slots, plan, day, value.table.bands, visibleLanes, visibleResources, visibleEvents]);
     const rows = useMemo(() => bands.flatMap(band => band.rows), [bands]);
     const { collapsed, toggle } = useGroupCollapse(`${drag.surface}.table`);
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
@@ -439,7 +440,7 @@ function ChoiceCell({ props, row, side, open, setOpen, words, trigger }: {
     useEffect(() => { if (open && question !== undefined) ask(question.ask, question.of); }, [open, question, ask]);
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
     const sections: ChooserSection[] = !open ? [] : side === "event"
-        ? eventChoices({ plan, context, day, words, bin: row.bin, resource: current, answer })
+        ? eventChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, shown: props.visibleEvents })
         : resourceChoices({ context, words, binRow: row.kind === "bin", current, answer, shown: props.visibleResources });
     const close = () => setOpen(undefined);
     const choose = (key: string) => {

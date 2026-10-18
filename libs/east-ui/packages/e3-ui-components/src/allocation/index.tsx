@@ -36,7 +36,8 @@ import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow } from "./window.js";
-import { useNarrowed } from "./narrowed.js";
+import { narrowingPart, useNarrowed, type NarrowedSource } from "./narrowed.js";
+import type { KeyVisibility } from "../shared/schedule/visibility.js";
 import { NounsContext, a } from "./nouns.js";
 export type { AllocationValue } from "./model.js";
 
@@ -72,10 +73,16 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const [error, setError] = useState<string>();
     // A refused drop's reason (A40): it adds no banner; the inspector (#1331) shows it at its top until the next action.
     const [_refusal, setRefusal] = useState<Refusal>();
-    // The narrowing chooses which lanes and resources show, read from the slice itself (#1336); fits, checks and totals read every one.
+    // The narrowing chooses which lanes, resources and events show, read from the slice itself (#1336, #1339); fits, checks and totals read every one.
     const lanesShown = useNarrowed(value, "lanes", value.lanes);
     const resourcesShown = useNarrowed(value, "resources", value.resources);
-    const narrowing = [lanesShown, resourcesShown];
+    const eventsShown = useNarrowed(value, "events", value.events);
+    const narrowing = [lanesShown, resourcesShown, eventsShown];
+    // What the rail shows of a Library tab's source, and how that source alone clears (A98).
+    const sourceShown = (shown: KeyVisibility, source: NarrowedSource) => {
+        const part = narrowingPart(value, source);
+        return { keys: shown.keys, busy: shown.loading || shown.error !== undefined, ready: shown.ready, clear: part === undefined ? undefined : () => { part.clearAll(); } };
+    };
     const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
     const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
@@ -173,6 +180,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const start = useAllocationLibrary({
         value, context, day: window.day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
         tab: libraryTab.tab, onTab: tab => setLibraryTab({ tab }), onVerdict: runVerdict,
+        shown: { events: sourceShown(eventsShown, "events"), resources: sourceShown(resourcesShown, "resources") },
         // A9: an event card picks it, again unpicks it; a selected free slot or reservation stays selected.
         onEvent: grip => {
             const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "event" ? pick.kind === "event" && pick.event === grip.event : pick.kind === "removed" && pick.bin === grip.bin);
@@ -232,6 +240,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The plan's additional checks could not run. Built-in checks are still shown." />}
             {lanesShown.error !== undefined && <BannerView status="error" title={`${nouns.lane.one} results unavailable`} description={lanesShown.error} actions={<Button size="xs" variant="outline" onClick={lanesShown.retry}>Retry</Button>} />}
             {resourcesShown.error !== undefined && <BannerView status="error" title={`${nouns.resource.one} results unavailable`} description={resourcesShown.error} actions={<Button size="xs" variant="outline" onClick={resourcesShown.retry}>Retry</Button>} />}
+            {eventsShown.error !== undefined && <BannerView status="error" title={`${nouns.event.one} results unavailable`} description={eventsShown.error} actions={<Button size="xs" variant="outline" onClick={eventsShown.retry}>Retry</Button>} />}
             {/* A fit that failed (F3): its message, and Retry; a drop meanwhile is refused with `fits unavailable`. */}
             {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
@@ -242,13 +251,14 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                 {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
                         held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
+                        visibleEvents={eventsShown.keys}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={window.day} plan={plan} held={editing.held}
                         sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={select} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked}
-                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} clearFilters={clearFilters} />}
+                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleEvents={eventsShown.keys} clearFilters={clearFilters} />}
             </Box>
         </BuilderFrame>
     </Box></NounsContext.Provider>;

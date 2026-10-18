@@ -1387,11 +1387,13 @@ export const Slice = {
      * Narrow several records together from one rail: one record Slice per
      * named source, read with `Slice.rows(slice, source)`. A choice in one
      * source never changes another's rows or counts; a preset is every
-     * source's narrowing at once.
+     * source's narrowing at once. A source may name itself and carry an icon,
+     * which head its fields in the folded rail and mark its chips.
      *
      * ```ts
      * const slice = $.let(Slice.bindRecords("view.yard", {
-     *     lanes:     { source: Data.bindPaged(bays, { indexes: [baysByArea] }), fields: { area: { label: "Area" } } },
+     *     lanes:     { source: Data.bindPaged(bays, { indexes: [baysByArea] }), label: "Bays", icon: { prefix: "fas", name: "warehouse" },
+     *                  fields: { area: { label: "Area" } } },
      *     resources: { source: Data.bindPaged(kilns, { indexes: [kilnsByGroup] }), fields: { group: { label: "Kiln group" } } },
      * }, { presets: [{ id: "north", name: "North", where: { lanes: { area: ["North"] } } }] }));
      * ```

@@ -9,6 +9,7 @@ import {
     OptionType, SetType, StringType, StructType, VariantType, type EastType,
 } from "@elaraai/east";
 import { ValueFormatType } from "../../contracts/format.js";
+import { IconType } from "../../display/icon/types.js";
 import { TimeResolutionType } from "../../contracts/time.js";
 import { PinnedSourceType, SeekQueryType, SeekRangeType } from "../../contracts/source.js";
 
@@ -189,11 +190,13 @@ export function RecordSliceHandleType<C extends EastType | string>(collection: C
 }
 
 /**
- * One source of a Slice over several records: its name and its controls.
+ * One source of a Slice over several records: its name, how the rail names it, and its controls.
  * @property source - The source's name (`lanes`), what `Slice.rows(slice, source)` names.
+ * @property label - How the rail names it (`Bays`); none, the host's noun for it.
+ * @property icon - Its icon on the rail, a Font Awesome solid icon; none, the rail's own.
  * @property slice - Its record Slice's controls, a part like any other.
  */
-export const RecordSlicePartType = StructType({ source: StringType, slice: RecordSliceBindType });
+export const RecordSlicePartType = StructType({ source: StringType, label: OptionType(StringType), icon: OptionType(IconType), slice: RecordSliceBindType });
 export type RecordSlicePartType = typeof RecordSlicePartType;
 
 /**

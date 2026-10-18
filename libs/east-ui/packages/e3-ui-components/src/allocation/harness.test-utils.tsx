@@ -21,8 +21,9 @@ export const THU = new Date("2027-05-13T00:00:00Z");
 /**
  * The kiln yard's records under the shared builder harness, read a window at a
  * time through the stand-in paging service as e3 serves them: the plans, the
- * windowed example's history, the kilns with their group index and the bays
- * with their area index, which the record Slice narrows by; `paging.failing`
+ * windowed example's history, the kilns with their group, group-then-max and
+ * name indexes, the bays with their area and cover indexes and the loads with
+ * their spec index, which the record Slice narrows by; `paging.failing`
  * names the records whose reads fail. The yard's fits are served by name through the
  * shared `Func` runtime, each its `e3.function`'s own East body, as e3 runs it:
  * `calls` counts what the board asks of each, `answers` keeps each one's
@@ -56,13 +57,18 @@ export function allocationHarness() {
     beforeEach(() => {
         paging.reads = countWholeReads(h.cache);
         initializeRecordApi(paging.reads.serve(h.memory), h.cache, WORKSPACE);
-        const byGroup = East.compile(ex.kilnsByGroup.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
-        const byArea = East.compile(ex.yardBaysByArea.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
+        // Each index served as e3 serves it: its own key function, over each entry.
+        type Index = typeof ex.kilnsByGroup | typeof ex.kilnsByGroupMax | typeof ex.kilnsByName | typeof ex.yardBaysByArea | typeof ex.yardBaysByCover | typeof ex.arrivalsBySpec;
+        const spec = (index: Index) => {
+            const keys = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
+            return { name: index.name, keyType: index.keyType, keys: (key: unknown, row: unknown) => [keys(key, row)] };
+        };
         const service = recordPaging(h.cache, paging.reads.raw, [
             { path: ex.kilnPlans.path, type: ex.kilnPlans.type },
             { path: ex.kilnHistory.path, type: ex.kilnHistory.type },
-            { path: ex.kilns.path, type: ex.kilns.type, indexes: [{ name: ex.kilnsByGroup.name, keyType: ex.kilnsByGroup.keyType, keys: (key, row) => [byGroup(key, row)] }] },
-            { path: ex.yardBays.path, type: ex.yardBays.type, indexes: [{ name: ex.yardBaysByArea.name, keyType: ex.yardBaysByArea.keyType, keys: (key, row) => [byArea(key, row)] }] },
+            { path: ex.kilns.path, type: ex.kilns.type, indexes: [spec(ex.kilnsByGroup), spec(ex.kilnsByGroupMax), spec(ex.kilnsByName)] },
+            { path: ex.yardBays.path, type: ex.yardBays.type, indexes: [spec(ex.yardBaysByArea), spec(ex.yardBaysByCover)] },
+            { path: ex.arrivals.path, type: ex.arrivals.type, indexes: [spec(ex.arrivalsBySpec)] },
         ]);
         paging.requests = service.requests;
         paging.failing.clear();

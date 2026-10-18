@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
-    Avatar as ChakraAvatar, Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
+    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -76,6 +76,21 @@ export interface EastChakraLibraryProps {
     extras?: ((item: LibraryItemValue) => LibraryCardExtras | undefined) | undefined;
     /** A group head's mark, by the group's label: a group that warns. */
     groupMark?: ((label: string) => LibraryGroupMark | undefined) | undefined;
+    /**
+     * While its host's narrowing — a builder's rail — hides some of what the
+     * Library would list (#1339): what it says when that leaves it no item
+     * (`No resources match the filters`), and the Clear filters it offers.
+     * The Library still lists what its host feeds it.
+     */
+    narrowing?: LibraryNarrowing | undefined;
+}
+
+/** What a Library says while its host's narrowing leaves it no item, and how that narrowing clears. */
+export interface LibraryNarrowing {
+    /** Its words, as the shared empty state's. */
+    empty: LibraryEmpty;
+    /** Clear the narrowing: the empty state's Clear filters. */
+    onClear: () => void;
 }
 
 /** What an empty Library says: the empty state's title, and the line under it. */
@@ -727,7 +742,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -830,10 +845,11 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         () => value.items.filter(hides).length,
         [value.items, hides],
     );
-    // Nothing to show: no item at all, in the host's words; or a search or a filter that hides every card, in its words or the Library's.
-    const nothing: LibraryEmpty | undefined = value.items.length === 0 ? empty
+    // Nothing to show: no item at all, in the host's words — its narrowing's while one is in force; or a search or a filter that hides every card, in its words or the Library's.
+    const nothing: LibraryEmpty | undefined = value.items.length === 0 ? narrowing?.empty ?? empty
         : hiddenCount < value.items.length ? undefined
             : noMatch ?? { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
+    const clearNarrowing = value.items.length === 0 ? narrowing?.onClear : undefined;
     const noun = getSomeorUndefined(value.noun);
 
     const hint = getSomeorUndefined(value.hint);
@@ -1182,8 +1198,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                 onScroll={handleScrollPersist}
             >
                 {nothing !== undefined && (
-                    <Box data-library-empty="">
-                        <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description} />
+                    <Box data-library-empty="" {...(clearNarrowing !== undefined ? { "data-narrowed": "" } : {})}>
+                        <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description}
+                            actions={clearNarrowing === undefined ? undefined : <Button size="xs" variant="outline" onClick={clearNarrowing}>Clear filters</Button>} />
                     </Box>
                 )}
                 {bodyContent}
@@ -1258,4 +1275,6 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
     && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter
     && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
-    && prev.extras === next.extras && prev.groupMark === next.groupMark);
+    && prev.extras === next.extras && prev.groupMark === next.groupMark
+    && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
+    && prev.narrowing?.onClear === next.narrowing?.onClear);

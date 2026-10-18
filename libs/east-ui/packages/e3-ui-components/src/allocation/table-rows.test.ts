@@ -2,12 +2,13 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * The Table's narrowing (#1336), pure: over 500 seeded random days — lanes,
- * free slots, batches, reservations, bins not yet allocated, split bins — the
- * rows a narrowing shows agree with an oracle built another way (an inverted
- * index of resources to rows, and set algebra), keep their order, grow with
- * what is shown, never hide a free or unallocated row for a resource, and the
- * bands count exactly what they show.
+ * The Table's narrowing (#1336, #1339), pure: over 500 seeded random days —
+ * lanes, free slots, batches, reservations, bins not yet allocated, split
+ * bins — the rows a narrowing shows agree with an oracle built another way (an
+ * inverted index of resources to rows, and set algebra), keep their order,
+ * grow with what is shown, never hide a free or unallocated row for a
+ * resource, never hide a free row or a reservation for an event, and the bands
+ * count exactly what they show.
  */
 import { describe, expect, test } from "vitest";
 import { SortedMap, SortedSet, StringType, compareFor, none, some, variant, type option } from "@elaraai/east";
@@ -147,6 +148,57 @@ describe("narrowRows (#1336)", () => {
         for (const resource of bin.parts.keys()) expect(narrowRows([row], plan, none, some(set([resource])))).toEqual([row]);
         const others = RESOURCES.filter(resource => !bin.parts.has(resource));
         expect(narrowRows([row], plan, none, some(set(others)))).toEqual([]);
+    });
+});
+
+describe("narrowRows by events (#1339)", () => {
+    /** The day's events: each bin's own. */
+    const eventsOf = (plan: Day) => [...plan.bins.values()].flatMap(bin => bin.event.type === "some" ? [bin.event.value] : []);
+
+    test("hides exactly the rows of the bins of the events it hides; a free row and a reservation stay", () => {
+        for (let seed = 1; seed <= 500; seed++) {
+            const { slots, plan } = randomDay(seed);
+            const rows = tableRows(slots, plan);
+            const r = random(seed * 6700417);
+            const events = some(set(r.subset(eventsOf(plan))));
+            const kept = new Set(narrowRows(rows, plan, none, none, events).map(row => row.key));
+            // The oracle: a row is hidden iff its bin carries an event outside the set.
+            const hidden = new Set(rows.filter(row => {
+                const event = row.bin === undefined ? undefined : plan.bins.get(row.bin)!.event;
+                return event?.type === "some" && !events.value.has(event.value);
+            }).map(row => row.key));
+            expect(kept, `seed ${seed}`).toEqual(new Set(rows.map(row => row.key).filter(key => !hidden.has(key))));
+            for (const row of rows) if (row.kind !== "bin") expect(kept.has(row.key), `seed ${seed} ${row.key}`).toBe(true);
+        }
+    });
+
+    test("with the lanes and the resources, it is their intersection; showing more events never hides a row", () => {
+        for (let seed = 1; seed <= 500; seed++) {
+            const { slots, plan } = randomDay(seed);
+            const rows = tableRows(slots, plan);
+            const r = random(seed * 3010349);
+            const lanes = shown(r, LANES), resources = shown(r, RESOURCES), all = eventsOf(plan), events = r.subset(all);
+            const keys = (e: readonly string[]) => new Set(narrowRows(rows, plan, lanes, resources, some(set(e))).map(row => row.key));
+            const byEvents = new Set(narrowRows(rows, plan, none, none, some(set(events))).map(row => row.key));
+            const both = new Set(narrowRows(rows, plan, lanes, resources).map(row => row.key).filter(key => byEvents.has(key)));
+            expect(keys(events), `seed ${seed}`).toEqual(both);
+            const more = [...new Set([...events, ...r.subset(all)])];
+            for (const key of keys(events)) expect(keys(more).has(key), `seed ${seed}`).toBe(true);
+            expect(narrowRows(rows, plan, none, none, some(set(all)))).toEqual(rows);
+        }
+    });
+
+    test("narrowBands by events counts what it shows; a band it empties goes", () => {
+        for (let seed = 1; seed <= 300; seed++) {
+            const { slots, plan } = randomDay(seed);
+            const bands = tableBands(tableRows(slots, plan), plan, DAY);
+            const events = some(set(random(seed * 92821).subset(eventsOf(plan))));
+            const narrowed = narrowBands(bands, plan, none, none, events);
+            const expected = bands.map(band => ({ band, rows: narrowRows(band.rows, plan, none, none, events) }))
+                .filter(({ band, rows }) => rows.length > 0 || band.rows.length === 0);
+            expect(narrowed.map(band => band.key), `seed ${seed}`).toEqual(expected.map(({ band }) => band.key));
+            narrowed.forEach((band, i) => expect(band.rows).toEqual(expected[i]!.rows));
+        }
     });
 });
 

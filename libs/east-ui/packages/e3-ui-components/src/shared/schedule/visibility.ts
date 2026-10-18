@@ -8,7 +8,10 @@
  * (the Roster's people, the Allocation's resources): a Set of keys, or a
  * record Slice's narrowed rows read through their paged source. It keeps the
  * previous complete membership while a new narrowing resolves, and never
- * touches an editing session.
+ * touches an editing session. A builder bound to `Slice.bindRecords` reads
+ * each source through {@link useSourceVisibility}, so each source narrows
+ * every place its rows appear — the board, its Choosers and its Library's
+ * tabs alike (#1339).
  *
  * @packageDocumentation
  */
@@ -16,7 +19,8 @@
 import { useCallback, useMemo, useRef } from "react";
 import { SortedSet, StringType, compareFor, none, some, type ArrayType, type option, type ValueTypeOf } from "@elaraai/east";
 import type { RowSourceType } from "@elaraai/east-ui";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { PagedScan } from "@elaraai/east-ui-components/internal";
 
 const compareString = compareFor(StringType);
@@ -99,4 +103,41 @@ export function useKeyVisibility(value: KeyVisibilityInput, words: KeyVisibility
         else if (source?.type === "pinned") source.value.refresh(none);
     };
     return { keys: source === undefined ? value.visible : keys, ready: last.current.type === "some", loading, error, retry };
+}
+
+/** A Slice over several records' chrome, as a builder's payload carries it: each source's part. */
+export interface SourcesChrome {
+    slice: { parts: readonly { source: string; slice: ValueTypeOf<RecordSliceBindType> }[] };
+}
+
+/**
+ * One source's part of a Slice over several records (#1339).
+ *
+ * @param chrome - The payload's chrome; `undefined` with no slice
+ * @param source - The source's name (`resources`)
+ * @returns Its record Slice's controls, if the slice has the source
+ */
+export function sourcePart(chrome: SourcesChrome | undefined, source: string): ValueTypeOf<RecordSliceBindType> | undefined {
+    return chrome?.slice.parts.find(part => part.source === source)?.slice;
+}
+
+/**
+ * Which of a source's rows show (#1339): the keys its part of a Slice over
+ * several records narrows to while a choice narrows it, every row — and no
+ * read — while none does. Every place a builder shows the source's rows reads
+ * these keys, so one choice narrows them all.
+ *
+ * @param chrome - The payload's chrome; `undefined` with no slice
+ * @param source - The source's name (`resources`)
+ * @param keys - The source's narrowed keys, paged through its part, as the payload carries them
+ * @param rows - Every row of the source, in order
+ * @param words - What a failed narrowing says
+ * @returns The keys to show, and the narrowing's state
+ */
+export function useSourceVisibility(chrome: SourcesChrome | undefined, source: string, keys: option<ValueTypeOf<RowSourceType<ArrayType<StringType>>>>,
+    rows: readonly { key: string }[], words: KeyVisibilityWords): KeyVisibility {
+    const part = sourcePart(chrome, source);
+    useSliceReactivity(part?.key);
+    const narrowing = part !== undefined && part.read().where.size > 0;
+    return useKeyVisibility({ visibleSource: narrowing ? keys : none, visible: none, rows, recordSlice: part === undefined ? none : some({ slice: part }) }, words);
 }

@@ -164,16 +164,20 @@ export const TimberLoad = StructType({
 // The plans the board edits: one per UTC day, each patched as a whole.
 export const kilnPlans = e3.record("kiln_plans", Allocation.Types.Days(BinValues), yardPlans);
 export const kilnPlansPatch = e3.mutation.patch(kilnPlans);
-// The kilns, indexed by group for the narrowing.
+// The kilns, indexed by group for the narrowing; and by group then max, so a group and a range of max combine, and by name, for a search.
 export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
 export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
-// Every load the day may book: booked or not, the board tells them apart by the plan.
+export const kilnsByGroupMax = e3.recordIndex("kilns_by_group_max", kilns, { on: ["group", "max"] });
+export const kilnsByName = e3.recordIndex("kilns_by_name", kilns, { on: ["name"] });
+// Every load the day may book: booked or not, the board tells them apart by the plan; indexed by spec for the narrowing.
 export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
-/** An unloading bay: its name, the yard area it stands in, and how far past each hour it takes its bin. */
-export const Bay = StructType({ name: StringType, area: StringType, offset: TimeStepType });
-// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area for the narrowing.
+export const arrivalsBySpec = e3.recordIndex("arrivals_by_spec", arrivals, { on: ["spec"] });
+/** An unloading bay: its name, the yard area it stands in, whether it is covered or open, and how far past each hour it takes its bin. */
+export const Bay = StructType({ name: StringType, area: StringType, cover: StringType, offset: TimeStepType });
+// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area, and by cover, for the narrowing.
 export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), yardBayRows);
 export const yardBaysByArea = e3.recordIndex("yard_bays_by_area", yardBays, { on: ["area"] });
+export const yardBaysByCover = e3.recordIndex("yard_bays_by_cover", yardBays, { on: ["cover"] });
 
 // The yard's fit, on e3: the built-in rules (busy, gap too short, over max; under min warns),
 // then a greedy look-ahead — a fit that leaves more of the day's unbooked loads with nowhere to go ranks lower.
@@ -232,25 +236,33 @@ connector links, every gesture is one undo step, and Save patches the open day.
 
 ### 3.3 The kiln yard
 
-The mock's surface: the library and the inspector, the bays narrowed by area and
-the kilns by group from one rail over both records, the bin values shown as the Table's Spec and Grade columns
+The mock's surface: the library and the inspector, the bays narrowed by area or
+cover, the kilns by group, a range of max within a group or a name's start, and the
+loads by spec, from one rail over the three records, each source with its icon (A95,
+A99) — a choice in a field another index serves replaces the one before, as the
+shared Slice says — the bin values shown as the Table's Spec and Grade columns
 and the inspector's rows, and the yard's check flagging a booked ≠ measured
 mismatch, as the mock's Spec mismatch group does.
 
 ```tsx
 export const allocationKilnYard = example({
-    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area and the kilns by group from one rail over both records, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
-    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish"], inputs: [],
+    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area, the kilns by group and the loads by spec from one rail over the three records, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
+    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish", "Library", "narrowing"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
         const history = $.let(Data.bindPaged(kilnPlans));
-        // Every bay and kiln is the calculation scope; the narrowing only chooses which show.
+        // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
+        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
+        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
+        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
         const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
-            lanes: { source: bayIndex, fields: { area: { label: "Area", hints: ["North", "South"] } } },
-            resources: { source: kilnIndex, fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] } } },
+            lanes: { source: bayIndex, icon: { prefix: "fas", name: "warehouse" },
+                fields: { area: { label: "Area", hints: ["North", "South"] }, cover: { label: "Cover", hints: ["Covered", "Open"] } } },
+            // A max narrows within a group (one index on group, then max); a name is searched by its start.
+            resources: { source: kilnIndex, icon: { prefix: "fas", name: "fire" },
+                fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] }, max: { label: "Max m³" }, name: { label: "Name" } } },
+            events: { source: loadIndex, icon: { prefix: "fas", name: "truck" }, fields: { spec: { label: "Spec", hints: ["MC08", "MC10", "MC12", "MC14", "MC16", "MC18", "MC20", "MC22"] } } },
         }, {
             presets: [
                 { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
@@ -493,7 +505,8 @@ AllocationPayloadType = StructType({
     apply: AsyncFunctionType([BlobType], Editing.Types.ApplyResult),               // a day's ChangeSet(Day(V), DateTime), as bytes
     window: OptionType(DataPagedHandleType(BlobType)), valuesType: EastTypeType,   // Data.bindPaged(plans), its windows as bytes at Days(V)
     lanes: ArrayType(Lane), every: TimeStepType, events: ArrayType(Event), resources: ArrayType(Resource), initial: FunctionType([StringType], BlobType),
-    narrowed: StructType({ lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))) }),   // each source's keys, from slice
+    narrowed: StructType({ lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))),
+                           events: OptionType(RowSourceType(ArrayType(StringType))) }),   // each source's keys, from slice
     fit: FuncBindingType, check: OptionType(FunctionType([BlobType], ArrayType(Issue))),
     columns: ArrayType(StructType({ key: StringType, label: StringType, text: FunctionType([BlobType], StringType),
                                     tone: OptionType(FunctionType([BlobType], OptionType(StatusTokenType))), table: BooleanType })),
@@ -530,11 +543,11 @@ neutral owner and its existing consumer moves onto it in the same change.
 | Toolbar | Toolbar items ranked around `HOST_RANK`, `ChipMenu`, `coarseHitArea` | `east-ui-components` toolbar, `./internal` |
 | Date | `TimeNavigator` (`period="day"`, `initialPanel="day"`, `onWeeks`), plus a new `dayMarker` | `e3-ui-components/src/shared/time/navigation.tsx` |
 | Segments | `Seg`, `Seg fullWidth` | `shared/schedule/segments.tsx` |
-| Narrowing | `Slice.bindRecords` and `useRecordSlicesToolbarItems` (one rail over several records, each part the record Slice's own controls); each source's visibility through `useKeyVisibility`'s `PagedScan`, as the Roster's | `east-ui/src/platform/slice/`, `east-ui-components/src/slice/record/`, `shared/schedule/visibility.ts` |
+| Narrowing | `Slice.bindRecords` and `useRecordSlicesToolbarItems` (one rail over several records, each part the record Slice's own controls, each source headed by its name and icon, A95); each source's visibility through `useSourceVisibility`, over `useKeyVisibility`'s `PagedScan`, as the Roster's | `east-ui/src/platform/slice/`, `east-ui-components/src/slice/record/`, `shared/schedule/visibility.ts` |
 | Session | `useEditHistory` keyed per day, `EditSession`, `historyToolbarItem`, `historyShortcut`, `typedInto`, `SessionBanners`, `BannerView` | `east-ui-components/src/editing/` |
 | Record door | `Record.onApply(days, { keyed: true })`; the keyed day read (new shared day reader) | `e3-ui/src/bind/record.ts`; `roster/data.ts` → `shared/schedule/` |
 | Fit call | `useFuncCall` and the shared `Func` runtime | `e3-ui-components/src/experiment/run-runtime.ts` → `shared/func/` |
-| Library | `EastChakraLibrary` via `scheduleLibrary` / `scheduleLibraryCard`, groups, DockPane tabs, counts, badge; the host's card parts (`extras`: a tooltip, a figure, a note line, a look, an ×), its search and no-match words, a group's mark, the rail's `mark`; the pane's foot (`schedule-pane`) | `shared/schedule/library.ts`; `east-ui-components` Library and DockPane |
+| Library | `EastChakraLibrary` via `scheduleLibrary` / `scheduleLibraryCard`, groups, DockPane tabs, counts (`narrowedCount`, `10 of 33`), badge; the host's card parts (`extras`: a tooltip, a figure, a note line, a look, an ×), its search and no-match words, a group's mark, the rail's `mark`, its narrowing's empty state (`narrowing`); the pane's foot (`schedule-pane`) | `shared/schedule/library.ts`; `east-ui-components` Library and DockPane |
 | Inspector | `ScheduleInspectorHead`, `planInspector` recipe, `FieldForm` + `Fields.specs`, `SliceEditPopover` | `shared/schedule/inspector-head.tsx` |
 | Drag | `useDragTarget`, `useDropCell` (caption, onHover), `useDragEventChip`, `MoveGhost` and the `time/move-ghost` recipe | `east-ui-components` dnd; `shared/schedule/move-ghost.tsx` |
 | Rows | `VirtualRows`; `GroupHeading`, `useGroupCollapse`, the `schedule-group` recipe (the Table's time bands) | `./internal`; `shared/schedule/group-heading.tsx` |
@@ -545,8 +558,12 @@ neutral owner and its existing consumer moves onto it in the same change.
 | The app's callbacks | `useTrackedEvaluation` for `check` and the columns | `east-ui-components` |
 
 **New, in neutral owners:** the shared Library's host props (a search's and a
-no-match's words, a card's `extras`, a group's `groupMark`) and DockPane's rail
-`mark` in east-ui-components; the Library pane's foot (`schedule-pane.ts`: the
+no-match's words, a card's `extras`, a group's `groupMark`, a narrowing's
+`narrowing`) and DockPane's rail `mark` in east-ui-components; a
+`Slice.bindRecords` source's `label` and `icon` (east-ui) and the rail's
+headings over each source's fields (a rail descriptor's `group`);
+`useSourceVisibility` and `narrowedCount` in `shared/schedule/`, each builder's
+way to a source's shown keys and a tab's count; the Library pane's foot (`schedule-pane.ts`: the
 pane, its foot, the foot's hint and the picked card's action), the Roster and
 the Calendar onto it; `shared/links/` (Plan's link parts, plus a selected
 link's × and the link-drag preview; Plan moves onto it unchanged); the
@@ -1164,7 +1181,8 @@ controls) are the shared part's.
   lane hours, a card standing in its lane's column among those shown; a resource
   narrowing hides resource rows (A18). A link to a hidden card or row is not
   drawn; the focus stays.
-- **A93.** The Table: a row shows when its lane shows and it holds no resource (a
+- **A93.** The Table: a row shows when its lane shows, its event shows (A99; a free
+  slot and a reservation have none), and it holds no resource (a
   free slot, a bin not yet allocated) or has a part on a shown resource. Each band
   counts the rows it shows (A42); a band the narrowing empties has no head.
 - **A94.** The resource Chooser offers the shown resources and Current; a drop

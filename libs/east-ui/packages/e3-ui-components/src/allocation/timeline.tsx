@@ -71,6 +71,8 @@ export interface TimelineProps {
     visible: option<Set<string>>;
     /** The lanes the narrowing shows, by key; `none` for every one (#1336). */
     visibleLanes: option<Set<string>>;
+    /** The events the narrowing shows, by key; `none` for every one: a bin of a hidden event has no card (#1339). */
+    visibleEvents: option<Set<string>>;
     /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
     clearFilters: (() => void) | undefined;
     selection: Selection | undefined;
@@ -228,7 +230,10 @@ export function AllocationTimeline(props: TimelineProps) {
     const unit = context.unit;
     // The lanes the narrowing shows, in their order: a hidden lane's column goes, with its cards and its slots (#1336).
     const lanes = useMemo(() => value.lanes.filter(lane => props.visibleLanes.type === "none" || props.visibleLanes.value.has(lane.key)), [value.lanes, props.visibleLanes]);
-    const grid = useMemo(() => laneGrid(lanes.map(lane => lane.key), slots, plan), [lanes, slots, plan]);
+    // A bin of an event the narrowing hides has no card; a reservation, which has no event, stays (#1339).
+    const { visibleEvents } = props;
+    const grid = useMemo(() => laneGrid(lanes.map(lane => lane.key), slots, plan,
+        bin => visibleEvents.type === "none" || bin.event.type === "none" || visibleEvents.value.has(bin.event.value)), [lanes, slots, plan, visibleEvents]);
     const axis = useMemo(() => resourceAxis(day, Number(words.ms(value.settings.horizon.before)), Number(words.ms(value.settings.horizon.after))),
         [day, value.settings.horizon, words]);
     const lines = useMemo(() => new Map(value.resources.map(r => [r.key, words.line(day, r, loads.get(r.key)!, unit)] as const)), [value.resources, loads, day, unit, words]);

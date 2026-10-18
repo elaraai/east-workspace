@@ -4,10 +4,11 @@
  */
 
 /** Shared Slice rail presentation: local and record adapters use one ladder. */
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Accordion, Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFilter, faChevronDown, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
+import { faFilter, faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import type { IconProp } from "@fortawesome/fontawesome-svg-core";
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceEditPopover } from "../edit/index.js";
@@ -16,7 +17,8 @@ import { SliceClearButton } from "../choice.js";
 /** One affordance's display, independent of its query engine. */
 export interface SliceRailDescriptor {
     kind: string;
-    icon: IconDefinition;
+    /** Its icon: the family's, or the source's when its source has one. */
+    icon: IconProp;
     label: string;
     text: string;
     active: boolean;
@@ -24,6 +26,18 @@ export interface SliceRailDescriptor {
     rank?: number;
     /** Data attributes naming what its section edits; a record field's by default. */
     attributes?: Readonly<Record<string, string>>;
+    /** The group it is headed under in the editor: a source of a Slice over several records, or the presets over them. */
+    group?: SliceRailGroup;
+}
+
+/** A heading in the rail's editor over the affordances of one group: its name, and its icon when it has one. */
+export interface SliceRailGroup {
+    /** Its identity: consecutive affordances of one key share one heading. */
+    key: string;
+    /** Its name, in the small mono caps (`Bays`, `Presets`). */
+    label: string;
+    /** Its icon, before its name. */
+    icon?: IconProp | undefined;
 }
 
 /** Presentation callbacks supplied by a local or record Slice adapter. */
@@ -42,29 +56,41 @@ export interface SliceRailModel {
     status?: ReactNode;
 }
 
-/** One field heading, one open editor; Chakra owns keyboard and disclosure semantics. */
+/**
+ * One field heading, one open editor; Chakra owns keyboard and disclosure
+ * semantics. A group's caption heads its first affordance: a caption, not a
+ * control, so the keys move between the fields as they would without it.
+ */
 function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly string[] }) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
     const chip = useRecipe({ key: "chip" });
     const [expanded, setExpanded] = useState<string[]>([]);
     return <Accordion.Root css={styles.railAccordion} collapsible value={expanded}
         onValueChange={details => setExpanded(details.value)} lazyMount unmountOnExit>
-        {kinds.map(kind => {
+        {kinds.map((kind, i) => {
             const field = model.describe(kind);
             const label = field.active ? field.text : field.label;
-            return <Accordion.Item key={kind} value={kind} data-slice-section={kind}>
-                <Accordion.ItemTrigger css={styles.railAccordionTrigger} title={label}
-                    {...(field.attributes ?? (kind.startsWith("field:") ? { "data-record-slice-field": kind.slice(6) } : {}))}>
-                    <Accordion.ItemIndicator><FontAwesomeIcon icon={faChevronDown} /></Accordion.ItemIndicator>
-                    <Box as="span" css={styles.railAccordionLabel} data-active={field.active ? "" : undefined}>{label}</Box>
-                    {field.active && <Box as="span" css={[chip({ tone: "brand", caps: true, size: "sm" }), styles.railAccordionState]}>
-                        {kind === "presets" ? "Selected" : "Applied"}
-                    </Box>}
-                </Accordion.ItemTrigger>
-                <Accordion.ItemContent css={styles.railAccordionContent}>
-                    {model.renderEditor?.(kind)}
-                </Accordion.ItemContent>
-            </Accordion.Item>;
+            const group = field.group;
+            const headed = group !== undefined && (i === 0 || model.describe(kinds[i - 1]!).group?.key !== group.key);
+            return <Fragment key={kind}>
+                {headed && <Box css={styles.railGroupHead} data-slice-group={group.key}>
+                    {group.icon !== undefined && <Box as="span" css={styles.railGroupIcon} aria-hidden="true"><FontAwesomeIcon icon={group.icon} /></Box>}
+                    <Box as="span" css={styles.railGroupLabel}>{group.label}</Box>
+                </Box>}
+                <Accordion.Item value={kind} data-slice-section={kind}>
+                    <Accordion.ItemTrigger css={styles.railAccordionTrigger} title={label}
+                        {...(field.attributes ?? (kind.startsWith("field:") ? { "data-record-slice-field": kind.slice(6) } : {}))}>
+                        <Accordion.ItemIndicator><FontAwesomeIcon icon={faChevronDown} /></Accordion.ItemIndicator>
+                        <Box as="span" css={styles.railAccordionLabel} data-active={field.active ? "" : undefined}>{label}</Box>
+                        {field.active && <Box as="span" css={[chip({ tone: "brand", caps: true, size: "sm" }), styles.railAccordionState]}>
+                            {kind === "presets" ? "Selected" : "Applied"}
+                        </Box>}
+                    </Accordion.ItemTrigger>
+                    <Accordion.ItemContent css={styles.railAccordionContent}>
+                        {model.renderEditor?.(kind)}
+                    </Accordion.ItemContent>
+                </Accordion.Item>
+            </Fragment>;
         })}
     </Accordion.Root>;
 }

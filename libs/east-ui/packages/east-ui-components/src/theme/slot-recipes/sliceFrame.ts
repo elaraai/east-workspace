@@ -19,7 +19,9 @@
  *     #952) — one form of a cluster as the shared toolbar renders it: the live
  *     affordances, then the folded ones' trigger — and the sectioned editor
  *     that trigger opens (`railSections` / `railSection` /
- *     `railSectionCaption` / `railSectionBody`, its head's `railActiveCount`).
+ *     `railSectionCaption` / `railSectionBody`, its head's `railActiveCount`),
+ *     a group's caption over its fields (`railGroupHead` / `railGroupIcon` /
+ *     `railGroupLabel`, #1339).
  *     The standalone `Slice.Rail` stacks its row (`railRow`) over its brush
  *     strip (`brushStack`) and legend in `railStack`.
  *
@@ -28,6 +30,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { fontAwesomeSize } from "../icon-size.js";
 
 export const sliceFrameSlotRecipe = defineSlotRecipe({
     className: "elara-slice-frame",
@@ -37,6 +40,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameAffordanceIcon",
         "railCluster", "railAffordance", "railTrigger",
         "railAccordion", "railAccordionTrigger", "railAccordionLabel", "railAccordionState", "railAccordionContent",
+        "railGroupHead", "railGroupIcon", "railGroupLabel",
         "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
         "railStack", "railRow", "brushStack",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
@@ -189,6 +193,13 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         // Applied/Selected shares the chip recipe; this slot only places it.
         railAccordionState: { marginLeft: "auto", flexShrink: "0" },
         railAccordionContent: { paddingX: "{spacing.1}", paddingTop: "{spacing.1}", paddingBottom: "{spacing.3}", minWidth: "0", animation: "none" },
+        // A group's caption over its fields (#1339): a source of a Slice over
+        // several records, then the presets over them — the small mono caps
+        // under the fields' own, its icon before it.
+        railGroupHead: { display: "flex", alignItems: "center", gap: "{spacing.1.5}", paddingX: "{spacing.1}", paddingTop: "{spacing.3}", paddingBottom: "{spacing.1}",
+            color: "fg.subtle", minWidth: "0", "&:first-child": { paddingTop: "{spacing.1}" } },
+        railGroupIcon: { ...fontAwesomeSize("10px"), display: "inline-flex", flexShrink: "0" },
+        railGroupLabel: { textStyle: "nav.eyebrow", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         railSections: {
             display: "flex",
             flexDirection: "column",

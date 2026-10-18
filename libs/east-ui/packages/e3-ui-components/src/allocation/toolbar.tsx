@@ -5,8 +5,8 @@
 
 /**
  * The board's one toolbar (§7, A1): the date, the layout, the day's status,
- * the narrowing's one rail over its lanes and its resources, and each one's
- * count, in both layouts (#1336), the issues chip, the
+ * the narrowing's one rail over its lanes, its resources and its events, and
+ * each one's count, in both layouts (#1336, #1339), the issues chip, the
  * shared history and Publish — each folding by its rank, history last, and in
  * the narrowest frame the date, the layout, Save and Publish reachable through
  * the combined View fold.
@@ -76,7 +76,7 @@ interface ToolbarArgs extends AllocationWindow {
     /** The focus (A13): its resource, its load, and whether the narrowing hides its row. */
     focus: { resource: ResourceRow; load: Load; hidden: boolean } | undefined;
     onClearFocus: () => void;
-    /** The board's nouns: what the narrowing's summary counts each source in. */
+    /** The board's nouns: what the narrowing's summary counts each source in, and what heads each source's fields, folded. */
     nouns: Nouns;
 }
 
@@ -84,9 +84,9 @@ interface ToolbarArgs extends AllocationWindow {
 export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
     const { value, view, setView, styles, commands, words, issues } = args;
     const timeline = view.layout === "timeline";
-    // The narrowing: one rail over the lanes and the resources, in both layouts, each source counted (#1336).
+    // The narrowing: one rail over the lanes, the resources and the events, in both layouts, each source counted in the board's noun (#1336, #1339).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { lanes: other(args.nouns.lane), resources: other(args.nouns.resource) },
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { lanes: other(args.nouns.lane), resources: other(args.nouns.resource), events: other(args.nouns.event) },
         ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });

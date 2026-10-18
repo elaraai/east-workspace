@@ -11,10 +11,11 @@
  * functions over its parts, and keeps no state of its own.
  */
 import {
-    ArrayType, East, Expr, NullType, OptionType, StringType, StructType, isValueOf, some,
+    ArrayType, East, Expr, NullType, OptionType, StringType, StructType, isValueOf, none, some,
     type EastType, type ExprType, type SubtypeExprOrValue, type TypeOf, type VariantType,
 } from "@elaraai/east";
 import type { IndexedSource } from "../../contracts/indexed-source.js";
+import { refuseNonSolid, type IconName, type SolidIconPrefix } from "../../display/icon/types.js";
 import { bindRecord, type RecordSliceOptions, type RecordSliceWhere } from "./record.js";
 import { RecordSliceBindType, RecordSlicePartType, RecordSlicesHandleType } from "./record-types.js";
 
@@ -25,11 +26,19 @@ type RowOf<S> = Parameters_<S> extends { R: infer R extends StructType } ? R : n
 type MetaOf<S> = Parameters_<S> extends { M: infer M extends StructType } ? M : never;
 
 /**
- * One source of `Slice.bindRecords`: an indexed binding and its controls, typed
- * against its own row and indexes. Presets belong to the product.
+ * One source of `Slice.bindRecords`: an indexed binding, how the rail names it,
+ * and its controls, typed against its own row and indexes. Presets belong to
+ * the product.
  * @typeParam S - The indexed binding's expression type.
  */
-export type RecordSlicesPart<S> = { source: S } & Omit<RecordSliceOptions<RowOf<S>, MetaOf<S>>, "presets">;
+export type RecordSlicesPart<S> = {
+    /** The indexed binding: `Data.bindPaged(record, { indexes })`. */
+    source: S;
+    /** How the rail names the source (`Bays`): the heading over its fields in the folded rail. With none, the host's noun for it. */
+    label?: string;
+    /** Its icon on the rail, a Font Awesome solid icon (`{ prefix: "fas", name: "warehouse" }`): on its heading and its fields' chips. With none, the rail's own. */
+    icon?: { prefix: SolidIconPrefix; name: IconName };
+} & Omit<RecordSliceOptions<RowOf<S>, MetaOf<S>>, "presets">;
 
 /**
  * Each source's narrowing in a preset: a source it does not name is cleared.
@@ -63,10 +72,10 @@ export type RecordSlicesHandle<S> = ExprType<ReturnType<typeof RecordSlicesHandl
  * every source's narrowing at once; a source it does not name is cleared.
  *
  * @param key - Stable UI state key.
- * @param parts - Each source by name: an indexed binding (`Data.bindPaged(record, { indexes })`) and its fields, range, search and initial narrowing.
+ * @param parts - Each source by name: an indexed binding (`Data.bindPaged(record, { indexes })`), how the rail names it (`label`, `icon`), and its fields, range, search and initial narrowing.
  * @param options - Presets over the sources.
  * @returns A serializable handle with each source's typed narrowed data.
- * @throws {Error} When there is no source, a preset repeats, a preset names a source the Slice lacks, or a part declares its own presets; and as `Slice.bindRecord` refuses each part
+ * @throws {Error} When there is no source, a preset repeats, a preset names a source the Slice lacks, a part declares its own presets, a label is empty or an icon is not a Font Awesome solid one; and as `Slice.bindRecord` refuses each part
  */
 export function bindRecords<S extends Record<string, unknown>>(
     key: SubtypeExprOrValue<StringType>,
@@ -84,8 +93,18 @@ export function bindRecords<S extends Record<string, unknown>>(
             if (!names.includes(source)) throw new Error(`Slice.bindRecords: preset '${preset.id}' narrows '${source}', which is not one of its sources (${names.join(", ")})`);
         }
     }
+    // How the rail names each source: its label and its icon, as the Icon definition holds one.
+    const named = names.map(name => {
+        const { label, icon } = parts[name] as RecordSlicesPart<unknown>;
+        if (label !== undefined && label.trim() === "") throw new Error(`Slice.bindRecords: '${name}' has an empty label; give it a name or leave it out`);
+        refuseNonSolid(`Slice.bindRecords: '${name}'`, icon);
+        return {
+            label: label === undefined ? none : some(label),
+            icon: icon === undefined ? none : some({ prefix: icon.prefix, name: icon.name, label: none, style: none }),
+        };
+    });
     const handles = names.map(name => {
-        const { source, ...controls } = parts[name] as RecordSlicesPart<IndexedSource<EastType, StructType, EastType, StructType, VariantType>> & { presets?: unknown };
+        const { source, label: _label, icon: _icon, ...controls } = parts[name] as RecordSlicesPart<IndexedSource<EastType, StructType, EastType, StructType, VariantType>> & { presets?: unknown };
         if (controls.presets !== undefined) throw new Error(`Slice.bindRecords: '${name}' declares presets; declare them once, in the options, over any sources`);
         const where = (preset: (typeof presets)[number]) => (preset.where as Record<string, unknown>)[name] ?? {};
         const partKey = isValueOf(key, StringType) ? `${key}.${name}` : East.value(key, StringType).concat(`.${name}`);
@@ -99,7 +118,7 @@ export function bindRecords<S extends Record<string, unknown>>(
         const bound = handles.map(handle => $.const(handle));
         const controls = (handle: ExprType<StructType>) => Object.fromEntries(Object.keys(RecordSliceBindType.fields)
             .map(field => [field, (handle as unknown as Record<string, unknown>)[field]]));
-        const all = $.const(names.map((name, i) => ({ source: name, slice: controls(bound[i] as never) })) as never, ArrayType(RecordSlicePartType));
+        const all = $.const(names.map((name, i) => ({ source: name, ...named[i]!, slice: controls(bound[i] as never) })) as never, ArrayType(RecordSlicePartType));
         return {
             key, parts: all, presets: presets.map(preset => ({ id: preset.id, name: preset.name })),
             clearAll: East.function([], NullType, $2 => {
