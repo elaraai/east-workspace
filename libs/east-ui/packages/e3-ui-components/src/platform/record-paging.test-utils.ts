@@ -19,7 +19,7 @@
  */
 
 import { DatasetHashMismatchError, type DatasetFindQuery, type DatasetFindResult, type DatasetPage } from "@elaraai/e3-api-client";
-import { NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, parseFor, some, none, variant, type DictType, type EastType } from "@elaraai/east";
+import { East, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, parseFor, some, none, variant, type DictType, type EastType } from "@elaraai/east";
 import { indexWindowType, type TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey, type PagedApi, type ReactiveDatasetCache, type RecordApi } from "./index.js";
 
@@ -31,6 +31,26 @@ export interface PagedRecord {
     readonly type: DictType<EastType, EastType>;
     /** Optional day/backlog indexes, evaluated on the stand-in server with the declared East key function. */
     readonly indexes?: readonly { name: string; keyType: EastType; keys: (key: unknown, row: unknown) => Iterable<unknown> }[];
+}
+
+/** A record index as e3 declares it (`e3.recordIndex`): its name, its key's type, its key function, and whether that fans out. */
+export interface DeclaredIndex {
+    readonly name: string;
+    readonly keyType: EastType;
+    readonly keyFn: unknown;
+    readonly multi: boolean;
+}
+
+/**
+ * An index served as e3 serves it: its own key function over each entry, a
+ * multi-valued one — an interval index, a Set field's — one entry per key.
+ *
+ * @param index - The index, as e3 declares it
+ * @returns The index as the stand-in service holds it
+ */
+export function servedIndex(index: DeclaredIndex): NonNullable<PagedRecord["indexes"]>[number] {
+    const keys = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
+    return { name: index.name, keyType: index.keyType, keys: (key, row) => index.multi ? keys(key, row) as Iterable<unknown> : [keys(key, row)] };
 }
 
 /** The whole reads of datasets a test counts, and how it reads past the count. */

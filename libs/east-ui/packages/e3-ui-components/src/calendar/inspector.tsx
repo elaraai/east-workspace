@@ -4,25 +4,58 @@
  */
 
 /** Optional Calendar inspector: shared fields over the same Schedule drafts. */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { decodeBeast2For, fromEastTypeValue, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
-import { Fields } from "@elaraai/east-ui";
-import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock } from "@elaraai/east-ui-components";
+import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
+import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
+import { Schedule } from "@elaraai/e3-ui/internal";
+import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock, type TrackedResult } from "@elaraai/east-ui-components";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../shared/schedule/editing.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
-import { EventActions, PlacementFields } from "./controls.js";
+import { EventActions, PlacementFields, type CalendarShownResources } from "./controls.js";
 import { type CalendarCommands } from "./actions.js";
-import { eventKey, parseResourceKey, resourceKey, type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarValue } from "./model.js";
+import { eventKey, parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarResource, type CalendarStyles, type CalendarValue } from "./model.js";
 
 export type Inspected = { kind: CalendarKind; item: CalendarItem; row: Uint8Array };
 interface InspectorArgs {
     value: CalendarValue; refs: readonly CalendarRef[]; range: CalendarRange; commands: CalendarCommands | undefined;
     styles: CalendarStyles; storageKey: string; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
+    /** Each resource kind's rows the rail shows: what the inspector's Choosers offer, with the event's own (#1343). */
+    shown: CalendarShownResources;
 }
+
+/** The resources an event's reference fields name (`technician`): what their Choosers keep whatever the rail hides. */
+function referenced(specs: readonly FieldSpecValue[], row: unknown): CalendarResource[] {
+    return specs.flatMap(spec => {
+        if (spec.editor.type !== "reference") return [];
+        const at = spec.path.reduce<unknown>((value, name) => (value as Readonly<Record<string, unknown>> | undefined)?.[name], row);
+        let key: string | undefined;
+        if (spec.optional && isValueOf(at, OptionType(StringType))) {
+            const option = at as ValueTypeOf<OptionType<StringType>>;
+            if (option.type === "some") key = option.value;
+        } else if (isValueOf(at, StringType)) key = at as string;
+        return key === undefined ? [] : [{ kind: spec.editor.value.of, key }];
+    });
+}
+/** The selection as the inspector shows it: each selected event read, or why the read failed. */
+export type CalendarSelection = TrackedResult<Inspected[]>;
+/** No selection read yet. */
+export const NO_SELECTION: CalendarSelection = { ok: true, value: [] };
+const itemEqual = equalFor(Schedule.Types.Item);
+const rowEqual = equalFor(BlobType);
+
+/** Whether two selections show alike: the same events, each read to the same row. */
+function sameSelection(a: CalendarSelection, b: CalendarSelection): boolean {
+    if (!a.ok || !b.ok) return !a.ok && !b.ok && Object.is(a.error, b.error);
+    return a.value.length === b.value.length && a.value.every((event, i) => {
+        const other = b.value[i]!;
+        return Object.is(event.kind, other.kind) && itemEqual(event.item, other.item) && rowEqual(event.row, other.row);
+    });
+}
+
 /** Selected rows are read through the shared by-key seam, including paged records. */
-export function useCalendarSelection(args: Pick<InspectorArgs, "value" | "refs" | "range" | "commands">) {
+export function useCalendarSelection(args: Pick<InspectorArgs, "value" | "refs" | "range" | "commands">): CalendarSelection {
     const { value, refs, range, commands } = args;
     const read = useCallback((): Inspected[] => {
         return refs.flatMap(ref => {
@@ -34,8 +67,29 @@ export function useCalendarSelection(args: Pick<InspectorArgs, "value" | "refs" 
     const { result } = useTrackedEvaluation(read);
     return result;
 }
+
+/**
+ * The selection's read, in a component of its own (#1343): a selected event is read over the window, so each search
+ * of a window read through an interval index re-runs it, and it hands the frame the selection only when what the
+ * inspector shows moves.
+ *
+ * @param props - What the selection reads, and where it goes
+ * @returns Nothing: it reads
+ */
+export function CalendarSelectionReader(props: Pick<InspectorArgs, "value" | "refs" | "range" | "commands"> & { onSelection: (selection: CalendarSelection) => void }): null {
+    const selection = useCalendarSelection(props);
+    const reported = useRef<CalendarSelection | undefined>(undefined);
+    const { onSelection } = props;
+    useLayoutEffect(() => {
+        const was = reported.current;
+        if (was !== undefined && sameSelection(was, selection)) return;
+        reported.current = selection;
+        onSelection(selection);
+    });
+    return null;
+}
 /** The optional end pane displays the same by-key selection that commands edit. */
-export function useCalendarInspector(args: InspectorArgs & { selection: ReturnType<typeof useCalendarSelection> }): BuilderFrameDock | undefined {
+export function useCalendarInspector(args: InspectorArgs & { selection: CalendarSelection }): BuilderFrameDock | undefined {
     const { value, refs, selection: result } = args;
     const recipe = useSlotRecipe({ key: "planInspector" });
     const styles = { ...args.styles, ...recipe({}) } as unknown as CalendarStyles;
@@ -50,13 +104,15 @@ export function useCalendarInspector(args: InspectorArgs & { selection: ReturnTy
         </Box>,
     };
 }
-function OneEvent({ event, value, styles, commands, storageKey, range, overlaps, select }: InspectorArgs & { event: Inspected }) {
+function OneEvent({ event, value, shown, styles, commands, storageKey, range, overlaps, select }: InspectorArgs & { event: Inspected }) {
     const { kind, item } = event;
     const format = useFormatters();
     const [error, setError] = useState<string>();
     const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);
     const row = useMemo(() => decodeBeast2For(rowType)(event.row), [rowType, event.row]);
-    const options = useMemo(() => Object.fromEntries(value.resources.map(kind => [kind.key, kind.rows.map(row => ({ key: row.key, label: row.label }))])), [value.resources]);
+    // Each reference field's Chooser offers the rows the rail shows, and the event's own whatever it hides.
+    const options = useMemo(() => Object.fromEntries(resourceChoices(value.resources, shown, referenced(kind.fields, row))
+        .map(kind => [kind.key, kind.rows.map(row => ({ key: row.key, label: row.label }))])), [value.resources, shown, kind.fields, row]);
     const roleNames = useMemo(() => [kind.schedule.title, ...(kind.schedule.status.type === "some" ? [kind.schedule.status.value] : [])], [kind.schedule]);
     const roleSpecs = useMemo(() => Fields.specs(rowType, {}, Object.keys(rowType.fields).filter(field => !roleNames.includes(field))), [rowType, roleNames]);
     const drafted = commands?.editing.draftsOf(kind.key).has(item.key) === true;
@@ -82,7 +138,7 @@ function OneEvent({ event, value, styles, commands, storageKey, range, overlaps,
         {issues.length > 0 && <BannerView status="warning" title={item.title} description={issues.map(issue => `${issue.field.type === "some" ? `${issue.field.value}: ` : ""}${issue.message}`).join("; ")} />}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
         <FieldForm specs={roleSpecs} value={row} baseline={baseline} options={options} onChange={onField} readOnly={commands === undefined || !commands.editing.available(kind.key)} />
-        {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} readOnly={!commands.editing.available(kind.key)}
+        {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
             placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => setError(commands.place({ kind, item }, at))} />}
         {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : "Unscheduled"}</Box>}
         </Box>
@@ -92,16 +148,16 @@ function OneEvent({ event, value, styles, commands, storageKey, range, overlaps,
         </Box>
         {own?.error !== undefined && <Box role="alert" css={styles.error}>{own.error}</Box>}
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
-        {commands !== undefined && <EventActions item={item} value={value} commands={commands} day={range.from} styles={styles} />}
+        {commands !== undefined && <EventActions item={item} value={value} shown={shown} commands={commands} day={range.from} styles={styles} />}
     </>;
 }
-function ManyEvents({ events, commands, styles, select, value }: InspectorArgs & { events: Inspected[] }) {
+function ManyEvents({ events, commands, styles, select, value, shown }: InspectorArgs & { events: Inspected[] }) {
     const [error, setError] = useState<string>();
     const items = events.map(event => event.item);
     return <>
         <Box css={styles.head}><Box css={styles.summary}>{events.length} events</Box></Box>
         {events.map(event => <Button key={eventKey(event.item)} size="xs" variant="ghost" onClick={() => select(events.filter(other => other !== event).map(other => ({ kind: other.item.kind, key: other.item.key })))}>{event.item.title} · Remove from selection</Button>)}
-        {commands !== undefined && <Box css={styles.bulk}><Box css={styles.sectionHead}>Bulk edit</Box><BulkFields events={events} value={value} commands={commands} onError={setError} /></Box>}
+        {commands !== undefined && <Box css={styles.bulk}><Box css={styles.sectionHead}>Bulk edit</Box><BulkFields events={events} value={value} shown={shown} commands={commands} onError={setError} /></Box>}
         {commands !== undefined && <Box css={styles.actions}>
             {[-24, -1, 1, 24].map(hours => <Button key={hours} size="xs" variant="outline" disabled={events.some(event => !commands.editing.available(event.kind.key))} onClick={() => setError(commands.move(items, hours * 3_600_000))}>{hours > 0 ? "+" : ""}{hours} h</Button>)}
             <Button size="xs" variant="outline" disabled={events.some(event => !commands.editing.available(event.kind.key))} onClick={() => setError(commands.duplicate(items))}>Duplicate selected</Button>
@@ -113,11 +169,11 @@ function ManyEvents({ events, commands, styles, select, value }: InspectorArgs &
 
 const BulkType = StructType({ resource: OptionType(StringType), status: OptionType(StringType) });
 const BULK_SPECS = Fields.specs(BulkType, { resource: Fields.reference({ of: "resources" }), status: Fields.reference({ of: "statuses" }) });
-/** Bulk edits retain each event's type and pass through the same checked commands. */
-function BulkFields({ events, value, commands, onError }: { events: Inspected[]; value: CalendarValue; commands: CalendarCommands; onError: (error: string | undefined) => void }) {
+/** Bulk edits retain each event's type and pass through the same checked commands; their resource Chooser offers the rows the rail shows. */
+function BulkFields({ events, value, shown, commands, onError }: { events: Inspected[]; value: CalendarValue; shown: CalendarShownResources; commands: CalendarCommands; onError: (error: string | undefined) => void }) {
     const items = events.map(event => event.item);
     const statuses = events[0]!.kind.status.filter(status => events.every(event => event.kind.status.some(other => other.case === status.case)));
-    const resources = value.resources.filter(kind => events.every(event => event.kind.takes.includes(kind.key)));
+    const resources = resourceChoices(value.resources, shown, []).filter(kind => events.every(event => event.kind.takes.includes(kind.key)));
     const options = { statuses: statuses.map(status => ({ key: status.case, label: status.status.label })),
         resources: resources.flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: row.label }))) };
     const form: ValueTypeOf<typeof BulkType> = { resource: none, status: none };

@@ -346,6 +346,8 @@ function kindOf(declare: ($: BlockBuilder<EastType>) => { buildPlan(slot: string
 const at = (text: string): Date => new Date(text);
 const draftsOf = (entries: [string, Uint8Array][]) => new SortedMap(entries, compareString);
 const NO_DRAFTS = draftsOf([]);
+/** The window a backlog read is beside: a kind no builder's slice narrows reads its backlog whole, whatever the window (#1343). */
+const BESIDE = [at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z")] as const;
 const jobDraft = encodeBeast2For(Editing.Types.DraftField(PrintJob));
 const itemsEqual = equalFor(ArrayType(Schedule.Types.PlanItem));
 
@@ -471,7 +473,7 @@ describe("an event kind read by its day index (PB54)", () => {
         fresh();
         const jobs = kindOf(windowedJobs);
         wholeReads.clear();
-        const read = jobs.planUnscheduled(NO_DRAFTS);
+        const read = jobs.planUnscheduled(...BESIDE, NO_DRAFTS);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value.map((i) => i.key), ["W-0017", "W-0018", "W-0019", "W-0020"]);
         assert.deepEqual(askedBacklog.pages, [[0n, 256n], [4n, 252n]], "the index read to its end: a page, then the empty one past it");
@@ -479,12 +481,12 @@ describe("an event kind read by its day index (PB54)", () => {
         // A job scheduled by a draft leaves the backlog, and one sent back to it joins.
         const scheduled = { ...JOBS.get("W-0017")!, start: some(at("2026-10-08T06:00:00Z")), end: some(at("2026-10-08T10:00:00Z")), press: some("P-1002") };
         const unscheduled = { ...JOBS.get("W-0005")!, start: none, end: none, press: none };
-        const drafted = jobs.planUnscheduled(draftsOf([["W-0017", jobDraft(variant("value", scheduled))], ["W-0005", jobDraft(variant("value", unscheduled))]]));
+        const drafted = jobs.planUnscheduled(...BESIDE, draftsOf([["W-0017", jobDraft(variant("value", scheduled))], ["W-0005", jobDraft(variant("value", unscheduled))]]));
         if (drafted.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(drafted.value.map((i) => i.key), ["W-0018", "W-0019", "W-0020", "W-0005"]);
         // In flight, `none`.
         holding.backlog = (what) => what === 0n;
-        assert.equal(jobs.planUnscheduled(NO_DRAFTS).type, "none");
+        assert.equal(jobs.planUnscheduled(...BESIDE, NO_DRAFTS).type, "none");
     });
 });
 
@@ -763,8 +765,9 @@ describe("the windows' types and their refusals", () => {
         const backlog = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($) })),
             /^Schedule\.events: "Print job": an indexed kind reads only the window — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it, Data\.bindPaged\(record\), the record's own entries$/);
-        assert.match(refusal(($) => kindWith($, { entries: entries($) })),
-            /^Schedule\.events: "Print job": `entries` reads one event by its key beside `window` or record `slice` — give one of those with it$/);
+        // Without a window, `entries` needs the kind's source of its builder's slice: refused as the kind is built without one (#1343).
+        assert.match(refusal(($) => (kindWith($, { entries: entries($) }) as { build(slot: string): unknown }).build("job")),
+            /^Schedule\.events: "Print job": `entries` reads one event by its key beside `window`, or beside the kind's source of its builder's Slice\.bindRecords \(one named "job"\) — give one of those with it$/);
         // An index's window, the entries whole, and another record's entries.
         assert.match(refusal(($) => kindWith($, { window: days($), backlogWindow: backlog($), entries: days($) })),
             /^Schedule\.events: "Print job": `entries` reads the record's own entries by key — Data\.bindPaged\(record\), a window at a time of \.Dict.* — and this one serves an index's window, /);

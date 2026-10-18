@@ -3,25 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { afterEach, beforeEach } from "vitest";
-import { East, decodeBeast2For, encodeBeast2For, none, type ValueTypeOf } from "@elaraai/east";
+import { decodeBeast2For, encodeBeast2For, none, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { clearPagedApi, initializePagedApi, initializeRecordApi, type PagedApi } from "../platform/index.js";
-import { countWholeReads, pathText, recordPaging, type WholeReads } from "../platform/record-paging.test-utils.js";
+import { countWholeReads, pathText, recordPaging, servedIndex, type WholeReads } from "../platform/record-paging.test-utils.js";
 import { act, builderHarness, mount, settle } from "../shared/builder-harness.test-utils.js";
 import "./index.js";
 export { act, mount, programOf, settle, slot, width } from "../shared/builder-harness.test-utils.js";
 export const WORKSPACE = "roster-test";
 export const START = new Date("2028-03-05T00:00:00Z");
 export const NEXT = new Date("2028-03-12T00:00:00Z");
-
-/** Each index served as e3 serves it: its own key function over each entry, a Set field fanning out. */
-type Index = { name: string; keyType: Parameters<typeof recordPaging>[2][number]["indexes"] extends readonly (infer I)[] | undefined ? I extends { keyType: infer K } ? K : never : never; keyFn: unknown; multi: boolean };
-const served = (index: Index) => {
-    const keys = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
-    return { name: index.name, keyType: index.keyType, keys: (key: unknown, row: unknown) => index.multi ? keys(key, row) as Iterable<unknown> : [keys(key, row)] };
-};
 
 /**
  * The warehouse's records under the shared builder harness, the staff and the
@@ -40,8 +33,8 @@ export function rosterHarness() {
         const service = recordPaging(h.cache, paging.reads.raw, [
             { path: ex.rosterWeeks.path, type: ex.rosterWeeks.type },
             { path: ex.rosterStaff.path, type: ex.rosterStaff.type, indexes: [ex.rosterStaffByTeamName, ex.rosterStaffByPosition, ex.rosterStaffByTrainer,
-                ex.rosterStaffByAgency, ex.rosterStaffBySkill, ex.rosterStaffByName].map(index => served(index as Index)) },
-            { path: ex.rosterActivities.path, type: ex.rosterActivities.type, indexes: [served(ex.rosterActivitiesByGroup as Index)] },
+                ex.rosterStaffByAgency, ex.rosterStaffBySkill, ex.rosterStaffByName].map(servedIndex) },
+            { path: ex.rosterActivities.path, type: ex.rosterActivities.type, indexes: [servedIndex(ex.rosterActivitiesByGroup)] },
         ]);
         paging.requests = service.requests;
         paging.failing.clear();

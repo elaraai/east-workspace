@@ -114,7 +114,17 @@ those keys. A tab over a source is `shared/schedule/source-tab.ts`' `sourceTab`,
 its source read through `useSourceShown`: the cards it shows, its count (`10 of
 33`), its narrowed empty state with that source's Clear filters, and its busy
 pane; it has no filter of its own (#1339, #1341). A source may name itself and carry an icon: folded,
-the rail heads its fields with them.
+the rail heads its fields with them. A builder whose tabs follow several sources
+reads each through `shared/schedule/follow-sources.tsx`' `FollowSources`, one
+component a source so each one's hooks keep their order, and a tab over several
+sources is `sourcesTab` (#1343, #1345). The Calendar reads one date window
+across its event sources (#1343): the first event source holding a range leads,
+its range editor the time navigator's Range panel and every event source's
+range out of the rail; navigation writes the window into each, and a range
+written to one is written to the others. A narrowed kind reads its window and
+its backlog as one, so a draft moves an event between them by its times alone.
+Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside the
+stored events their choices hide, and its Clear filters keeps each window.
 Inside the folded editor, field editors expand inline, with one popup and
 normal keyboard focus return. Never copy another control family into a builder.
 

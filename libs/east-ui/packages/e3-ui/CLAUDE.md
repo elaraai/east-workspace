@@ -49,8 +49,18 @@ backlog remains part of the authoritative event record.
 A builder's tag checks its `slice` with `utils/record-sources.ts`'
 `recordSources`, and a Library tab's `source` with `tabSource` (#1340): each
 builder that has moved onto them takes only `Slice.bindRecords`, its sources
-named after what they narrow — the Allocation and the Roster so far, the others
-each in their own child of #1340. Until a builder has moved:
+named after what they narrow — the Allocation, the Roster and the Calendar so
+far, the others each in their own child of #1340.
+
+A function captures what it reads, so a builder binds what a function reads of
+a source before the function reads it: `recordSources` pages each source's keys
+through that source's own data, and `bindScheduleKindPart` binds what an event
+kind's reads call. A function that read through the slice would capture every
+source's methods, each of which holds its source, and the payload would encode
+them, and its decode compile them, once for each such function (#1343: so an
+eight-source Calendar once held 350 MB a mount).
+
+Until a builder has moved:
 
 Choose the Slice arm from the source, not from the builder:
 
@@ -63,13 +73,21 @@ Choose the Slice arm from the source, not from the builder:
   Sheet data, and the same handle to `slice` chrome.
   Never turn the loaded page into another local Slice or implement a browser
   predicate. Typed controls and supported combinations come from declared indexes.
-- Calendar event records: declare an interval index, for example
-  `e3.recordIndex("by_status_time", events, { on: ["status"],
-  interval: { from: "start", to: "end" } })`. Bind it through record Slice
-  with `range: "start"`, pass that handle as the event kind's `slice`, and
-  pass `Data.bindPaged(events)` as its `entries`. The same Slice owns the
-  toolbar and navigation. Do not combine this with `filter`, `window` or
-  `backlogWindow`. Existing day-index consumers remain supported separately.
+
+The Calendar has moved (#1343). Its `slice` is one `Slice.bindRecords`, a
+source named after each event kind's slot, each resource kind's slot, and each
+source a templates list or a tab names. An event kind's source reads its record
+through an interval index, for example `e3.recordIndex("by_status_time", events,
+{ on: ["status"], interval: { from: "start", to: "end" } })`, with `range:
+"start"`, and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
+takes no `slice`, `filter`, `window` or `backlogWindow` beside its source. The
+Calendar's navigation writes its window into every event source's range, and
+the leading source's range is the time navigator's Range panel, never a chip of
+the rail. A resource kind's source narrows its columns, rows and Choosers; a
+templates list (`Calendar.templates(rows, { …, source })`) and an app's tab
+(`source`) each follow the source they name. Templates are records: a list
+written in the code is refused. Overlaps, checks and commands read every event.
+Existing day-index consumers remain supported separately.
 
 Calendar means overlap with `[from, to)`: preserve carry-in, whole-window,
 overnight and multi-day events once by original primary key. An instant at

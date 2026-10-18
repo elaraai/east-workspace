@@ -20,6 +20,8 @@ export interface ScheduleTemplates<V extends StructType> {
     readonly valuesType: V;
     /** The templates, with each initial value encoded at its own type. */
     readonly items: ExprType<ArrayType<ScheduleTemplateType>>;
+    /** The builder's Slice source whose shown keys filter these templates, by their record keys; `undefined`, every one shows (#1343). */
+    readonly source: string | undefined;
 }
 
 /** Accessors describing one template record row. Each receives the row and its key. */
@@ -34,6 +36,11 @@ export interface ScheduleTemplatesConfig<K extends EastType, R extends EastType,
     duration: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<ScheduleDurationType>;
     /** Every initial event field except its start, end and resource. */
     values: (row: ExprType<R>, key: ExprType<K>) => ExprType<V>;
+    /**
+     * The builder's `Slice.bindRecords` source over these templates' record (`jobTemplates`): its shown keys filter
+     * the Templates tab's cards, each template's key its record key. Omitted, every template shows (#1343).
+     */
+    source?: string;
 }
 
 /**
@@ -78,7 +85,7 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
         const describeRow = $.const(describe);
         return describeRow(row as never, key as never);
     });
-    return { [SCHEDULE_TEMPLATES]: true, valuesType, items };
+    return { [SCHEDULE_TEMPLATES]: true, valuesType, items, source: config.source };
 }
 
 /** Checks a bound template's initial values against the fields its kind requires. */

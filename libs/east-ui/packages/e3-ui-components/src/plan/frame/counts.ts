@@ -96,7 +96,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             events += items.value.length;
             for (const item of items.value) minutes += Number(item.minutes);
             if (kind.backlog) {
-                const unscheduled = kind.planUnscheduled(drafted);
+                const unscheduled = kind.planUnscheduled(new Date(from), new Date(to), drafted);
                 if (unscheduled.type === "none") return READING;
                 backlog = (backlog ?? 0) + unscheduled.value.length;
             }

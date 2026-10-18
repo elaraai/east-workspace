@@ -19,7 +19,8 @@ import "./index.js";
 const WORKSPACE = "calendar-record-slice";
 const h = builderHarness(WORKSPACE, [ex.indexedCalendarEvents, ex.indexedCalendarMachines], "data-calendar-main");
 afterEach(() => clearPagedApi());
-const scope = "ex.calendarRecordIndexes.scope";
+// The job kind's source of the rail's one Slice.bindRecords (#1343).
+const scope = "ex.calendarRecordIndexes.job";
 const event = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-calendar-event=${JSON.stringify(eventKey({ kind: "job", key }))}]`);
 const card = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-calendar-card=${JSON.stringify(eventKey({ kind: "job", key }))}]`);
 
