@@ -138,30 +138,29 @@ for (const theme of ["light", "dark"] as const) {
         const columns = () => said(frame.locator("[data-calendar-resource-title]"));
         // The week of 1 Oct: six of the ten production events, every template, machine and person.
         await expectSummary(page, frame, ["6 of 10 production events", "2 of 2 production templates", "4 of 4 machines", "3 of 3 people"]);
-        expect(await tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
         // The machines' Area: the machine columns the Resources layout draws, and no tab.
         await layout("Resources");
-        expect(await columns()).toEqual(expect.arrayContaining(["Press 1", "Press 2", "Lathe 1", "Lathe 2", "A. Ash", "B. Birch", "C. Cedar"]));
+        await expect.poll(columns).toEqual(expect.arrayContaining(["Press 1", "Press 2", "Lathe 1", "Lathe 2", "A. Ash", "B. Birch", "C. Cedar"]));
         await choose("machines", "area", /^Press shop/);
         await expectSummary(page, frame, ["2 of 4 machines"]);
-        const presses = await columns();
-        expect(presses).toEqual(expect.arrayContaining(["Press 1", "Press 2", "A. Ash", "B. Birch", "C. Cedar"]));
-        expect(presses.filter((title) => title.startsWith("Lathe"))).toEqual([]);
-        expect(await tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
+        await expect.poll(async () => (await columns()).filter((title) => title.startsWith("Lathe"))).toEqual([]);
+        await expect.poll(columns).toEqual(expect.arrayContaining(["Press 1", "Press 2", "A. Ash", "B. Birch", "C. Cedar"]));
+        await expect.poll(() => tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
         // The people's Team: the Technicians tab, which names the people's source, and the people's columns.
         await choose("people", "team", /^Maintenance/);
         await expectSummary(page, frame, ["2 of 3 people"]);
-        expect((await columns()).filter((title) => title === "B. Birch")).toEqual([]);
+        await expect.poll(async () => (await columns()).filter((title) => title === "B. Birch")).toEqual([]);
         await layout("Calendar");
-        expect(await tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 2 of 3"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 2 of 3"]);
         // The job templates' group: the Templates tab alone.
         await choose("jobTemplates", "group", /^Fabrication/);
         await expectSummary(page, frame, ["1 of 2 production templates", "6 of 10 production events"]);
-        expect(await tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 4", "Technicians 2 of 3"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 4", "Technicians 2 of 3"]);
         // A production status: the production events in the window, and the Backlog — emptied, it says so.
         await choose("job", "status", /^active/i);
         await expectSummary(page, frame, ["1 of 10 production events"]);
-        expect(await tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 0 of 4", "Technicians 2 of 3"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 0 of 4", "Technicians 2 of 3"]);
         await start.locator('[role="tab"]', { hasText: /^Backlog/ }).click();
         await settled(page);
         const emptied = start.locator("[data-library-empty][data-narrowed]");
@@ -170,7 +169,7 @@ for (const theme of ["light", "dark"] as const) {
         await emptied.getByRole("button", { name: "Clear filters" }).click();
         await settled(page);
         await expectSummary(page, frame, ["6 of 10 production events", "1 of 2 production templates", "2 of 4 machines", "2 of 3 people"]);
-        expect(await tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 4", "Technicians 2 of 3"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 4", "Technicians 2 of 3"]);
         await start.locator('[role="tab"]', { hasText: /^Templates/ }).click();
         await settled(page);
         // At every width the Templates tab says what it shows — or, the pane on its rail, its badge counts the backlog — the row whole.
