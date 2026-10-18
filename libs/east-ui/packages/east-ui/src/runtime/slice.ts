@@ -73,6 +73,7 @@ type SliceTags = {
     config: typeof SliceFactory.config;
     bind: typeof SliceFactory.bind;
     bindRecord: typeof SliceFactory.bindRecord;
+    bindRecords: typeof SliceFactory.bindRecords;
     rows: typeof SliceFactory.rows;
     partition: typeof SliceFactory.partition;
     partitionRowType: typeof SliceFactory.partitionRowType;
@@ -387,7 +388,9 @@ export const Slice: SliceTags = {
     bind: SliceFactory.bind,
     /** Narrow a paged record through its declared field indexes. */
     bindRecord: SliceFactory.bindRecord,
-    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows(slice)`). */
+    /** Narrow several paged records together, one source each, from one rail; `Slice.rows(slice, source)` reads one. */
+    bindRecords: SliceFactory.bindRecords,
+    /** Narrowed rows for a bound slice — the typed data feed (`Slice.rows(slice)`, or `Slice.rows(slice, source)` over several records). */
     rows: SliceFactory.rows,
     /** Full bound rows tagged `{ value, matched }` — the "keep the excluded" feed. */
     partition: SliceFactory.partition,

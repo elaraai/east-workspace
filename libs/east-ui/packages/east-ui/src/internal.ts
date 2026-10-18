@@ -129,6 +129,7 @@ export * from "./platform/slice/record-chrome.js";
 export { RecordSliceRailComponent } from "./slice/record/index.js";
 export * from "./platform/slice/record-plan.js";
 export * from "./platform/slice/record.js";
+export * from "./platform/slice/record-sources.js";
 export * from "./runtime/record-slice-source.js";
 export * from "./runtime/record-slice.js";
 export { IndexedEntryType, IndexedSourceType, type IndexedSource } from "./contracts/indexed-source.js";

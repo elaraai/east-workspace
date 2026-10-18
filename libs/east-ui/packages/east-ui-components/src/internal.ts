@@ -59,7 +59,7 @@ export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
 export { SliceRangeContent } from "./slice/range/index.js";
-export { RecordSliceFieldEditor, RecordSliceSummary, useRecordSliceToolbarItems } from "./slice/record/index.js";
+export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
 export { recordSliceWindow, recordSliceDomain, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.

@@ -22,6 +22,8 @@ export interface SliceRailDescriptor {
     active: boolean;
     /** Optional position in the shared ladder; host items still fold after it. */
     rank?: number;
+    /** Data attributes naming what its section edits; a record field's by default. */
+    attributes?: Readonly<Record<string, string>>;
 }
 
 /** Presentation callbacks supplied by a local or record Slice adapter. */
@@ -52,7 +54,7 @@ function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly
             const label = field.active ? field.text : field.label;
             return <Accordion.Item key={kind} value={kind} data-slice-section={kind}>
                 <Accordion.ItemTrigger css={styles.railAccordionTrigger} title={label}
-                    {...(kind.startsWith("field:") ? { "data-record-slice-field": kind.slice(6) } : {})}>
+                    {...(field.attributes ?? (kind.startsWith("field:") ? { "data-record-slice-field": kind.slice(6) } : {}))}>
                     <Accordion.ItemIndicator><FontAwesomeIcon icon={faChevronDown} /></Accordion.ItemIndicator>
                     <Box as="span" css={styles.railAccordionLabel} data-active={field.active ? "" : undefined}>{label}</Box>
                     {field.active && <Box as="span" css={[chip({ tone: "brand", caps: true, size: "sm" }), styles.railAccordionState]}>
