@@ -15,7 +15,7 @@ import { listTests } from "./responsive-shards.js";
 // Only these reviewed suites belong exclusively to one component. New or
 // cross-component specs remain shared and run with every component change.
 const componentSpecs = {
-    calendar: ["calendar.spec.ts", "calendar-records.spec.ts"],
+    calendar: ["calendar.spec.ts", "calendar-narrowing.spec.ts", "calendar-records.spec.ts"],
     flowchart: ["flowchart-builder.spec.ts", "flowchart-drop.spec.ts", "flowchart-flows.spec.ts", "flowchart-frame.spec.ts", "flowchart-records.spec.ts"],
     plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
