@@ -14,7 +14,6 @@
 import type { ReactNode } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Plan } from "@elaraai/e3-ui/internal";
-import type { Slice, RecordSliceChromeType } from "@elaraai/east-ui/internal";
 import type { EditIssue, EditSession, HistoryAction, HistoryBarProps } from "@elaraai/east-ui-components";
 import type { PlanScale } from "../scale.js";
 import type { PlanGrain, RowKey } from "../plan-state.js";
@@ -25,9 +24,10 @@ import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanTransport } from "../shell/transport.js";
 import type { PlanCanvasInspect } from "./inspect.js";
+import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
+import type { PlanWindowPart } from "./window.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 /** One decoded footer item of the author's. */
 export type PlanFooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
 
@@ -55,11 +55,21 @@ export interface PlanChrome {
     storageKey: string;
     /** The scale every row positions against: the window the counts are read over, and the active resolution. */
     scale: PlanScale;
-    /** The bound slice handle, when there is one. */
-    slice: SliceBindValue | undefined;
-    /** Record-backed narrowing in the same toolbar. */
-    recordChrome?: ValueTypeOf<RecordSliceChromeType> | undefined;
-    /** The declared affordance kinds (decoded `SliceChromeType`). */
+    /** The rail's chrome — the Plan's one `Slice.bindRecords` (#1344); `undefined` with no slice. */
+    slices: PlanSlicesChrome | undefined;
+    /** The sources of the slice holding the window, in the slice's order. */
+    windowParts: readonly PlanWindowPart[];
+    /** The leading one: its range editor is the time navigator's Range panel. */
+    lead: PlanWindowPart | undefined;
+    /** The `rows` source's part, when the slice gives the canvas its rows. */
+    rowsPart: PlanSourcePart | undefined;
+    /** Each event kind narrowed through its source: what its Save notice counts in. */
+    eventParts: readonly PlanEventPart[];
+    /** What the rail counts each source in, and heads it with folded, where the source has no label of its own. */
+    nouns: Readonly<Record<string, string>>;
+    /** Why the window could not be written into a source. */
+    windowError: string | undefined;
+    /** The rail's affordance kinds. */
     affordances: readonly string[];
     /** The resolutions the resolution segment offers — `[]`, no segment. */
     resolutions: readonly string[];

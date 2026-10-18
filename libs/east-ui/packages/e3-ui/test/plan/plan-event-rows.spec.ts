@@ -10,20 +10,21 @@
  * way its kinds draw, then its measures; resources nest by parent and sit
  * under group strips; a row's id is its series' key and its path; an event no
  * resource holds draws on its kind's Unassigned row; every kind's drafts are
- * in place, each event wearing its own lifecycle; and what the viewer hides in
- * the library's Series tab stays out (PB29, #1195).
+ * in place, each event wearing its own lifecycle; what the viewer hides in
+ * the library's Series tab stays out (PB29, #1195); and a resource kind the
+ * rail narrows draws the resources it shows (#1344).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, VariantType,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, SortedSet, StringType, StructType, VariantType,
     compareFor, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import {
-    Data, Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanPayloadType, Record, Schedule,
+    Data, Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanEventShownType, PlanPayloadType, Record, Schedule,
     ScheduleDraftsType, createEventBlocks,
 } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
@@ -104,6 +105,7 @@ type Blocks = ValueTypeOf<typeof Plan.Types.Blocks>;
 type Row = Blocks[number]["rows"][number];
 type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
 type Drafts = ValueTypeOf<typeof PlanEventDraftsType>;
+type Shown = ValueTypeOf<typeof PlanEventShownType>;
 
 /** Build a payload in East and read it back. */
 function payloadOf(build: ($: BlockBuilder<typeof PlanPayloadType>) => ExprType<typeof PlanPayloadType>, platform = PLATFORM): Payload {
@@ -129,6 +131,8 @@ const WINDOW = { min: FIRST, max: LAST };
 
 const byString = compareFor(StringType);
 const NO_DRAFTS: Drafts = new SortedMap([], byString);
+/** The rail narrows no resource kind: each draws every resource. */
+const ALL_SHOWN: Shown = new SortedMap([], byString);
 const printId = printFor(Plan.Types.RowId);
 const printRef = printFor(Schedule.Types.EventRef);
 const sameIds = equalFor(ArrayType(Plan.Types.RowId));
@@ -143,10 +147,10 @@ const entry = (series: string, ...path: string[]): RowId => variant("entry", { s
 /** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
 const elementKey = (kind: string, key: string) => printRef({ kind, key });
 
-/** The blocks over `[from, to)`, every kind's drafts in place, what the viewer hides left out. */
-function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS, hidden: readonly string[] = []): Blocks {
+/** The blocks over `[from, to)`, every kind's drafts in place, what the viewer hides left out, of a resource kind the rail narrows the resources it shows. */
+function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS, hidden: readonly string[] = [], shown: Shown = ALL_SHOWN): Blocks {
     if (payload.blocks.type !== "some") assert.fail("expected the event kinds' blocks");
-    const read = payload.blocks.value(from, to, drafts, [...hidden]);
+    const read = payload.blocks.value(from, to, drafts, [...hidden], shown);
     if (read.type !== "some") assert.fail("expected every kind's events read");
     return read.value;
 }
@@ -239,7 +243,7 @@ const pressRows = (...series: readonly string[]): RowId[] => PRESSES.flatMap(([h
 ]);
 
 /** A Plan of one kind whose read is in flight: its blocks seam, compiled. */
-function inFlightBlocks(): (from: Date, to: Date, drafts: Drafts, hidden: string[]) => ValueTypeOf<typeof PlanEventBlocksType.output> {
+function inFlightBlocks(): (from: Date, to: Date, drafts: Drafts, hidden: string[], shown: Shown) => ValueTypeOf<typeof PlanEventBlocksType.output> {
     return East.compile(East.function([], PlanEventBlocksType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
         const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
@@ -599,7 +603,7 @@ describe("drafts in place (PB17)", () => {
     });
 
     test("while a kind's read is in flight, the rows are to come", () => {
-        assert.equal(inFlightBlocks()(FIRST, WEEK2, NO_DRAFTS, []).type, "none");
+        assert.equal(inFlightBlocks()(FIRST, WEEK2, NO_DRAFTS, [], ALL_SHOWN).type, "none");
     });
 });
 
@@ -656,7 +660,7 @@ describe("what the viewer hides (PB29, #1195)", () => {
     });
 
     test("a hidden kind is not read, so a read in flight holds the rows back no longer", () => {
-        const rows = inFlightBlocks()(FIRST, WEEK2, NO_DRAFTS, ["events.job"]);
+        const rows = inFlightBlocks()(FIRST, WEEK2, NO_DRAFTS, ["events.job"], ALL_SHOWN);
         if (rows.type !== "some") assert.fail("expected the rows, the kind unread");
         assert.ok(sameIds(rows.value[0]!.rows.map((r) => r.id), ["a1", "a2", "a3", "b1", "b2", "b3"].map((k) => entry("presses.span", k))));
         assert.deepEqual(rowsOf(rows.value).flatMap(keysOn), []);
@@ -685,6 +689,46 @@ describe("what the viewer hides (PB29, #1195)", () => {
         // A duplicate is one id.
         const twice = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["measures.util", "measures.util"]);
         assert.ok(sameIds(twice[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks")));
+    });
+});
+
+// ============================================================================
+// What the rail shows of a resource kind (#1344)
+// ============================================================================
+
+describe("what the rail shows of a resource kind (#1344)", () => {
+    const payload = payloadOf(($) => printWorks($));
+    const shown = (keys: readonly string[]): Shown => new SortedMap([["presses", new SortedSet(keys, byString)]], byString);
+
+    test("a resource kind the rail narrows draws the resources it shows, under their strips, and its events on the others draw nowhere — never on the Unassigned row", () => {
+        // J-1006 is on Press A2, which the rail hides: it draws on no row, and no Unassigned row holds it.
+        const narrowed = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, [], shown(["a1", "b2"]));
+        assert.ok(sameIds(narrowed[0]!.rows.map((r) => r.id), [
+            entry("presses.group", "Hall A"), entry("presses.span", "Hall A", "a1"), entry("presses.marks", "Hall A", "a1"), entry("util", "Hall A", "a1"),
+            entry("presses.group", "Hall B"), entry("presses.span", "Hall B", "b2"), entry("presses.marks", "Hall B", "b2"), entry("util", "Hall B", "b2"),
+        ]), narrowed[0]!.rows.map((r) => printId(r.id)).join("\n"));
+        assert.deepEqual(keysOn(rowAt(narrowed, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
+        assert.equal(rowsOf(narrowed).flatMap(keysOn).some((key) => key === elementKey("job", "J-1006")), false);
+        assert.equal(narrowed[2]!.rows.length, 0);
+        // The crews, whose kind the rail does not narrow, draw every crew.
+        assert.ok(sameIds(narrowed[1]!.rows.map((r) => r.id), blocksOf(payload, FIRST, WEEK2)[1]!.rows.map((r) => r.id)));
+    });
+
+    test("a hall the rail leaves no press of has no strip; the rail showing none of a kind's resources leaves it no rows", () => {
+        const hallB = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, [], shown(["b1", "b3"]));
+        assert.deepEqual(hallB[0]!.rows.filter((r) => r.kind.type === "group").map((r) => printId(r.id)), [printId(entry("presses.group", "Hall B"))]);
+        const none = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, [], shown([]));
+        assert.equal(none[0]!.rows.length, 0);
+        assert.equal(none[2]!.rows.length, 0);
+    });
+
+    test("a draft moving an event onto a resource the rail hides takes it off the rows, and one moving it back draws it", () => {
+        const drafts = jobDrafts([["J-1001", draftOf(variant("value", { ...job("J-1001"), press: some("b3") }))]]);
+        const narrowed = blocksOf(payload, FIRST, WEEK2, drafts, [], shown(["a1"]));
+        assert.deepEqual(keysOn(rowAt(narrowed, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1002")]);
+        assert.equal(narrowed[2]!.rows.length, 0);
+        const back = blocksOf(payload, FIRST, WEEK2, jobDrafts([["J-1006", draftOf(variant("value", { ...job("J-1006"), press: some("a1") }))]]), [], shown(["a1"]));
+        assert.deepEqual(keysOn(rowAt(back, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002"), elementKey("job", "J-1006")]);
     });
 });
 

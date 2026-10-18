@@ -15,14 +15,14 @@
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { none, some, variant } from "@elaraai/east";
-import { buildSliceHandle, UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
+import { initializeStore, recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
 import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 import { createPlanController, reconciledUi, type PlanController, type PlanUiBindValue, type PlanUiStateValue } from "./index.js";
 import { blocksSource, oneBlock, rowId, rowIdEqual, rowItem, rowKey } from "../plan.test-utils.js";
+import { recordPart, recordSlices, type RecordPart } from "../record-slices.test-utils.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -70,33 +70,21 @@ const without = (key: string) => ROWS.filter((r) => !rowIdEqual(r.id, rowId(key)
 /** A row's test key from its id. */
 const nameOf = (id: PlanRowId) => id.value.path.join("/");
 
-type SliceState = { range: { type: string; value?: { type: string; value: { from: Date; to: Date } } }; resolution: { type: string; value?: { type: string } } };
-
-/** A bound slice (WEEK over the 12-week window) that counts its writes. */
+/** The rows' source of a Plan's slice (WEEK over the 12-week window), counting its writes (#1344). */
 function countingSlice(key: string) {
-    const cfg = sliceConfig({
-        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-    }, { rangeFieldId: some("at") });
-    const initial = {
-        range: some(variant("datetime", { from: W27, to: W39 })),
-        compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
-        resolution: some(variant("week", null)),
+    const part = recordPart({ key: `${key}.rows`, range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime()] },
+        window: [W27.getTime(), W39.getTime()], resolution: "week" });
+    const calls = { write: 0, setResolution: 0 };
+    const slice: RecordPart = {
+        ...part,
+        write: (state) => { calls.write += 1; return part.write(state); },
+        setResolution: (resolution) => { calls.setResolution += 1; return part.setResolution(resolution); },
     };
-    const handle = buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none) as Record<string, (...a: unknown[]) => unknown>;
-    const calls = { write: 0, setRange: 0, setResolution: 0 };
-    const slice = {
-        ...handle,
-        write: (s: unknown) => { calls.write += 1; return handle.write!(s); },
-        setRange: (r: unknown) => { calls.setRange += 1; return handle.setRange!(r); },
-        setResolution: (r: unknown) => { calls.setResolution += 1; return handle.setResolution!(r); },
-    };
-    const state = () => handle.read!() as SliceState;
     const window = (): [number, number] => {
-        const r = state().range.value!.value;
-        return [r.from.getTime(), r.to.getTime()];
+        const held = recordSliceWindow(slice)!;
+        return [held.min, held.max];
     };
-    return { chrome: some({ slice, affordances: [] }), calls, state, window };
+    return { chrome: some(recordSlices(key, [{ source: "rows", slice }], [])), calls, state: () => slice.read(), window };
 }
 
 /** A controller already showing `value`, with a count of its notifications. */
@@ -122,7 +110,7 @@ describe("actions run their own effects (#815)", () => {
         c.dispatch({ t: "key", key: "]" });
         c.dispatch({ t: "key", key: "]" });
         expect(s.window()[0] - from).toBe(2 * WEEK);
-        expect(s.calls.setRange).toBe(2);
+        expect(s.calls.write).toBe(2);
     });
 
     test("two different effects in one handler both reach the author — a select, then a grain cycle", async () => {
@@ -139,18 +127,16 @@ describe("actions run their own effects (#815)", () => {
         expect(calls).toEqual(["select r1", "grain group"]);
     });
 
-    test("a resolution change is ONE slice write — the resolution and its window together", () => {
+    test("a resolution change is ONE slice write — the resolution alone; a record's window stands, re-bucketed (#1344)", () => {
         const s = countingSlice("c815-res");
         const { c, notified } = show(root(ROWS, { slice: s.chrome }));
         const store = c.getSnapshot().store;
         c.dispatch({ t: "resolution.set", resolution: "day" });
-        // Two writes rendered once in between at DAY over the 12-week window.
-        expect(s.calls).toEqual({ write: 1, setRange: 0, setResolution: 0 });
-        expect(s.state().resolution.value!.type).toBe("day");
-        // Zoomed keeping the column count: twelve days from the window's start,
-        // written closed as every window is — the millisecond before the
-        // thirteenth day (#949).
-        expect(s.window()).toEqual([W27.getTime(), W27.getTime() + 12 * DAY - 1]);
+        // One write, of the resolution: a record's resolution is presentation, and fetches nothing.
+        expect(s.calls).toEqual({ write: 0, setResolution: 1 });
+        expect(s.state().resolution).toEqual(some(variant("day", null)));
+        // The window the source holds stands: the twelve weeks, now by the day.
+        expect(s.window()).toEqual([W27.getTime(), W39.getTime()]);
         // The machine's state did not move — the slice is the window's truth.
         // The one notification is the live region's (#819).
         expect(c.getSnapshot().store).toBe(store);

@@ -622,7 +622,7 @@ describe("a resource kind paged on the canvas (PB55)", () => {
         assert.deepEqual(payload.resources.map((k) => [k.key, k.rows.length]), [["presses", 0]]);
         // The event kinds' blocks: the presses' place, an empty paged block, then the Unassigned rows'.
         if (payload.blocks.type !== "some") assert.fail("expected the blocks seam");
-        const blocks = payload.blocks.value(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), []);
+        const blocks = payload.blocks.value(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], new SortedMap([], compareString));
         if (blocks.type !== "some") assert.fail("expected the blocks");
         assert.deepEqual(blocks.value.map((b) => [b.fixed, b.rows.length]), [[false, 0], [true, 0]]);
         // A key search seeks a press among the presses, by its key.

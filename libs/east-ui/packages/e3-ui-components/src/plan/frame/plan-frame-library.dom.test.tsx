@@ -153,11 +153,12 @@ describe("Plan library integration", () => {
             ["Print job · Jobs", "4"], ["Stop · Stops", "2"], ["Crew shift · Shifts", "3"],
             ["Plates · Plate room", "1"], ["Bindery job · Bindery", "1"], ["Delivery · Dispatch", "1"],
         ]);
+        // Each kind's templates in its record's key order (#1344): board, brochure, catalogue, poster.
         expect(cards(container)).toEqual([
+            ["Board run", "Print job · 8 h · presses"],
             ["Brochure run", "Print job · 6 h · presses"],
             ["Catalogue run", "Print job · 12 h · presses"],
             ["Poster run", "Print job · 4 h · presses"],
-            ["Board run", "Print job · 8 h · presses"],
             // A stop is an instant: it runs for no time.
             ["Plate change", "Stop · presses"],
             ["Service", "Stop · presses"],

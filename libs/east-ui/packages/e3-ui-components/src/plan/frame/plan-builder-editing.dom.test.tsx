@@ -27,9 +27,9 @@ import userEvent from "@testing-library/user-event";
 import {
     DateTimeType, East, PatchType, decodeBeast2For, diffFor, encodeBeast2For, none, printFor, some, variant, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, fieldFormMessages, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
-import { Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { initializeRecordApi, type RecordApi } from "../../platform/index.js";
 import { usePlanEventEditing, type PlanEventChange } from "../edit/events.js";
@@ -174,16 +174,24 @@ const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
 
-/** The print works' three kinds alone — its jobs, stops and shifts — as the payload carries them. */
+/**
+ * The print works' three kinds alone — its jobs, stops and shifts — as the
+ * payload carries them, the stops' templates a record of their own following
+ * their source of the Plan's one rail (#1344).
+ */
 const printKinds = East.compile(East.function([], PlanPayloadType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
     const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
+    const stopTemplates = $.let(Data.bind(ex.planPrintStopTemplates));
+    const slice = $.let(Slice.bindRecords("plan.editing.kinds", {
+        stopTemplates: { source: Data.bindPaged(ex.planPrintStopTemplates, { indexes: [ex.planPrintStopTemplatesByGroup] }) },
+    }));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan.Payload({
-        axis,
+        axis, slice: { slice },
         resources: {
             presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }),
             crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name }),
@@ -196,7 +204,8 @@ const printKinds = East.compile(East.function([], PlanPayloadType, ($) => {
             }),
             stop: Schedule.events(stops, {
                 name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" },
-                templates: [{ key: "plates", name: "Plate change", values: { title: "Plate change", kind: variant("plate_change", null) } }],
+                // A stop is one instant: its templates give no duration.
+                templates: Schedule.templates(stopTemplates.read(), { name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "stopTemplates" }),
             }),
             shift: Schedule.events(shifts, {
                 name: "Crew shift", icon: "user-clock", draw: "cards", title: "title", start: "start", end: "end",

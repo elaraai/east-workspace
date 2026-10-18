@@ -7,11 +7,15 @@
  * The Plan's DOM test harness over the print works' examples (#1192, #1193,
  * #1195, #1197): the record runtime a surface installs, over every record of
  * the examples' held in memory — each patch door applying its patch with
- * East's own checks — and their inputs' declared values; what jsdom lacks; and
- * the selectors a test finds the frame's regions, the canvas's rows and the
- * events' elements by. A test file calls {@link planHarness} once, at its top,
- * and mounts Plans as a surface does: through the dispatcher, under the page's
- * drag layer when its cards drag.
+ * East's own checks, each state it commits named by its content's hash, as e3
+ * names it, so a Save's revision is the one the paged reads move to — and
+ * their inputs' declared values, every whole read of a dataset counted; the paging service
+ * over the records the print works' `Slice.bindRecords` pages through their
+ * indexes (#1344), each index evaluated by its own East key function, as e3
+ * serves it; what jsdom lacks; and the selectors a test finds the frame's
+ * regions, the canvas's rows and the events' elements by. A test file calls
+ * {@link planHarness} once, at its top, and mounts Plans as a surface does:
+ * through the dispatcher, under the page's drag layer when its cards drag.
  *
  * Each test runs alone (#1280, `test-runs.test-utils.ts`): once a test ends,
  * the work it left in flight settles before the next begins, and a body its
@@ -31,9 +35,11 @@ import { DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegis
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type RecordApi,
+    ReactiveDatasetCache, clearPagedApi, createInMemoryRecordApi, datasetCacheKey, defaultPagedRuntime, initializePagedApi, initializeReactiveDatasetCache,
+    initializeRecordApi,
+    type DatasetApi, type PagedApi, type RecordApi,
 } from "../../platform/index.js";
+import { countWholeReads, recordPaging, servedIndex, type WholeReads } from "../../platform/record-paging.test-utils.js";
 import { act, isolateRuns } from "../../test-runs.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 // The canvas is an extension: its renderer registers as it loads.
@@ -62,12 +68,20 @@ interface CommittedRecord {
     type: Parameters<typeof encodeBeast2For>[0];
 }
 
-/** What a test reads and writes through: the records in memory, and the cache over them. */
+/** What a test reads and writes through: the records in memory, the cache over them, and the paging service. */
 export interface PlanHarness {
     /** The records' API: their patch doors and their history. */
     memory: RecordApi;
     /** The datasets the records are read through. */
     cache: ReactiveDatasetCache;
+    /** The paging service over the records the rail pages: its API, and each request it was sent, as `<path> <op> <where>`. */
+    paging: { api: PagedApi; requests: string[] };
+    /** Each dataset read whole, by its path's text, in order — but the record server's own, as it applies a patch, and the paging service's. */
+    wholeReads: string[];
+    /** The cache's own read, uncounted: what the paging service reads a record by. */
+    raw: WholeReads["raw"];
+    /** A records' API as e3's server answers: its writes' own reads uncounted, each state it commits named by its content's hash. */
+    serve: WholeReads["serve"];
     /**
      * Commits a record's state, as another writer would: its dataset's new
      * bytes; then lets the reads and the renders settle.
@@ -86,6 +100,25 @@ function patchable<T extends { name: string; type: Parameters<typeof applyFor>[0
         mutations: [{ name: "patch", argTypes: [PatchType(record.type)], reduce: (state: unknown, patch: unknown) => applyPatch(state as never, patch as never) }],
     };
 }
+
+/** A record of the examples' a Plan only reads — a templates list, read whole and through the rail's indexes: its declared state, no mutation. */
+function readOnly<T extends { name: string; type: Parameters<typeof applyFor>[0]; default?: unknown }>(record: T) {
+    return { name: record.name, stateType: record.type, initial: record.default!, mutations: [] };
+}
+
+/** Each record the print works' rail pages, with every index it reads it through (#1344). */
+const PAGED = [
+    { record: ex.planPrintJobs, indexes: [ex.planPrintJobsByTime, ex.planPrintJobsByStockTime] },
+    { record: ex.planPrintShifts, indexes: [ex.planPrintShiftsByTime] },
+    { record: ex.planPrintPresses, indexes: [ex.planPrintPressesByHall] },
+    { record: ex.planPrintCustomers, indexes: [ex.planPrintCustomersByDistrict] },
+    { record: ex.planPrintJobTemplates, indexes: [ex.planPrintJobTemplatesByGroup] },
+    { record: ex.planPrintStopTemplates, indexes: [ex.planPrintStopTemplatesByGroup] },
+    { record: ex.planPrintShiftTemplates, indexes: [ex.planPrintShiftTemplatesByGroup] },
+    { record: ex.planPrintPlatesTemplates, indexes: [ex.planPrintPlatesTemplatesByGroup] },
+    { record: ex.planPrintBindingTemplates, indexes: [ex.planPrintBindingTemplatesByGroup] },
+    { record: ex.planPrintDeliveryTemplates, indexes: [ex.planPrintDeliveryTemplatesByGroup] },
+] as const;
 
 /** An input of the examples', its declared value in the cache. */
 function seed(cache: ReactiveDatasetCache, input: { path: Parameters<ReactiveDatasetCache["write"]>[1]; type: Parameters<typeof encodeBeast2For>[0]; source?: { type: string; value?: unknown } }) {
@@ -131,21 +164,35 @@ export function planHarness(): PlanHarness {
         harness.cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
         harness.cache.setScheduler((notify) => queueMicrotask(notify));
         initializeReactiveDatasetCache(harness.cache);
-        harness.memory = createInMemoryRecordApi(harness.cache, WORKSPACE, [
+        // The record server as e3's answers: each state it commits named by its content's hash — the revision the paged
+        // reads move to, so a Save confirms at the revision its reads reach (#1344) — and every whole read counted.
+        const reads = countWholeReads(harness.cache);
+        harness.wholeReads = reads.paths;
+        harness.raw = reads.raw;
+        harness.serve = reads.serve;
+        harness.memory = reads.serve(createInMemoryRecordApi(harness.cache, WORKSPACE, [
             patchable(ex.planPrintPresses), patchable(ex.planPrintCrews), patchable(ex.planPrintJobs), patchable(ex.planPrintStops),
             patchable(ex.planPrintShifts), patchable(ex.planPrintCustomers), patchable(ex.planEventJobs), patchable(ex.planLinkJobs),
             patchable(ex.planLinkSetters), patchable(ex.planLinkLines), patchable(ex.planLinkBays), patchable(ex.planLinkPlates),
             patchable(ex.planLinkCaseJobs), patchable(ex.planLinkBindings), patchable(ex.planLinkDeliveries),
             patchable(ex.planPrintBindery), patchable(ex.planPrintVans), patchable(ex.planPrintPlates),
             patchable(ex.planPrintBindings), patchable(ex.planPrintDeliveries),
-        ]);
+            readOnly(ex.planPrintJobTemplates), readOnly(ex.planPrintStopTemplates), readOnly(ex.planPrintShiftTemplates),
+            readOnly(ex.planPrintPlatesTemplates), readOnly(ex.planPrintBindingTemplates), readOnly(ex.planPrintDeliveryTemplates),
+        ]));
         initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
+        // The rail's sources (#1344): each record paged through its indexes, as e3 serves them.
+        harness.paging = recordPaging(harness.cache, reads.raw,
+            PAGED.map(({ record, indexes }) => ({ path: record.path, type: record.type, indexes: indexes.map(servedIndex) })));
+        initializePagedApi(harness.paging.api, WORKSPACE);
         seed(harness.cache, ex.planPrintUtilisation);
         seed(harness.cache, ex.planPrintOutput);
         seed(harness.cache, ex.planLinkStock);
     });
     afterEach(() => {
         cleanup();
+        clearPagedApi();
+        defaultPagedRuntime.clear();
         localStorage.clear();
     });
     return harness;

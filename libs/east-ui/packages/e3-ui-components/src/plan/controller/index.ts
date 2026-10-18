@@ -78,6 +78,8 @@ import {
 import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
 import { currentScale, runPlanEffects } from "./effects.js";
+import { planPart, planSlices, ROWS_SOURCE } from "../root/sources.js";
+import type { PlanWindowHold } from "../root/window.js";
 import { announcementOf, landedText } from "../a11y.js";
 import { PLAN_WORDS, type PlanWords } from "../words.js";
 
@@ -205,6 +207,9 @@ export interface PlanControllerOptions {
      *  listen to, so every write is looked at, and one that did not move the
      *  canvas's state does nothing. */
     subscribeUi?: ((listener: () => void) => () => void) | undefined;
+    /** The canvas's window hold (#1344): the window last shown while no source of its slice holds one — what a
+     *  pan or the now rung moves, as the reader sees it. */
+    windowHold?: PlanWindowHold | undefined;
 }
 
 /** The canvas controller's handle. */
@@ -309,6 +314,8 @@ function groupKeysOf(rows: readonly PlanRowValue[]): readonly RowKey[] {
     return keys;
 }
 const refEqual = equalFor(Plan.Types.ElementRef);
+/** Whether two record Slices narrow one record: its editing identity. */
+const sameSource = equalFor(StringType);
 const uiStateEqual = equalFor(Plan.Types.UiState);
 /** A String key's `.east` literal — how an exact key search names it. */
 const printString = printFor(StringType);
@@ -662,7 +669,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         const next = planStoreReducer(store, { t: "event", e });
         store = next.store;
         writeBound();
-        if (value !== undefined && next.effects.length > 0) runPlanEffects(next.effects, value);
+        if (value !== undefined && next.effects.length > 0) runPlanEffects(next.effects, value, options.windowHold);
     }
 
     // ── The bound `ui` state (#824) ────────────────────────────────────────
@@ -919,8 +926,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 bound = getSomeorUndefined(next.ui);
                 const src = windowedSourceOf(next.rows);
                 seek.setSource(src);
-                const keep = prev?.recordSlice?.type === "some" && next.recordSlice?.type === "some"
-                    && prev.recordSlice.value.slice.sourceId === next.recordSlice.value.slice.sourceId;
+                // The rows of one record narrowed anew (#1344): the same record, so the rows standing are kept until
+                // the new narrowing's windows land.
+                const before = prev === undefined ? undefined : planPart(planSlices(prev), ROWS_SOURCE);
+                const after = planPart(planSlices(next), ROWS_SOURCE);
+                const keep = before !== undefined && after !== undefined && sameSource(before.sourceId, after.sourceId);
                 paging.setSource(src, keep);
                 // Which rows draw as diagnostics is the axis kind's to say:
                 // the windows take their skeletons again.
@@ -957,7 +967,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const before = store.ui;
                 // A resolution lives in the slice: what it was, to say what it became.
                 const resolutionBefore = e.t === "resolution.set" && value !== undefined
-                    ? currentScale(value)?.resolution : undefined;
+                    ? currentScale(value, options.windowHold)?.resolution : undefined;
                 // Bound, what the user did is the host's to hold (#824) —
                 // written back by the step, ahead of the callbacks it fires.
                 step(e);
@@ -970,7 +980,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 // that moves the same state says nothing.
                 say(announcementOf(e, before, store.ui, labelOf, words));
                 if (e.t === "resolution.set" && value !== undefined) {
-                    const after = currentScale(value)?.resolution;
+                    const after = currentScale(value, options.windowHold)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
                 }
             });

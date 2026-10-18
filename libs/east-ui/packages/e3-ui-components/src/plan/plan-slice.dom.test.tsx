@@ -4,25 +4,29 @@
  *
  * @vitest-environment jsdom
  *
- * Plan slice chrome DOM tests — the resolution zoom (§3), the horizon
- * brush's per-step live application (§7 / #620), chrome that tracks the
- * slice store (#611), sizing (#320 / #567 D1), and the series library, which
- * is the library pane's Series tab, not a toolbar button (#590, #1193).
+ * Plan slice chrome DOM tests — a record's resolution, which re-buckets the
+ * window and fetches nothing (§3, #1344), the horizon brush, which moves a
+ * record's window once a gesture (§7, #620, #1344), chrome that tracks the
+ * slice store (#611), sizing
+ * (#320 / #567 D1), and the series library, which is the library pane's
+ * Series tab, not a toolbar button (#590, #1193). The narrowing is the Plan's
+ * one `Slice.bindRecords` (#1344): its parts here hold their rows in the test
+ * (`record-slices.test-utils.ts`), the window each part's half-open range.
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { system, UIStore } from "@elaraai/east-ui-components";
+import { initializeStore, recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId } from "./plan.test-utils.js";
+import { recordPart, recordSlices, type RecordPart } from "./record-slices.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -129,106 +133,94 @@ function renderPlan(value: PlanRootValue, key = "plan") {
     );
 }
 
-describe("Plan resolution zoom (§3)", () => {
-    test("switching resolution zooms the window to preserve the column count", () => {
+describe("a record's resolution re-buckets the window (§3, #1344)", () => {
+    test("switching WEEK → DAY writes the resolution and keeps the window: the twelve weeks the sources hold, in days, and nothing fetched", () => {
         initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),           // 12 week columns
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        const handle = buildSliceHandle("plan.zoom", cfg, initial as never, [{ at: W27 }] as never, none) as never as {
-            read(): { resolution: { value: { type: string } }; range: { value: { value: { from: Date; to: Date } } } };
-        };
-        renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [variant("resolution", null)] }),
+        // The rows' window, twelve weeks from W27 — the part holds it, and it alone.
+        const part = recordPart({
+            key: "plan.zoom.rows", range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime()] },
+            window: [W27.getTime(), W39.getTime()], resolution: "week",
+        });
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some(recordSlices("plan.zoom", [{ source: "rows", slice: part }], ["resolution"])),
             resolutions: [variant("week", null), variant("day", null)],
         }));
+        expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(12);
         fireEvent.click(screen.getByText("DAY"));
-        const st = handle.read();
-        expect(st.resolution.value.type).toBe("day");
-        const r = st.range.value.value;
-        expect(r.from.getTime()).toBe(W27.getTime());
-        // 12 columns preserved: the window zoomed from 12 weeks to 12 days —
-        // written closed, as every window is, so it ends the millisecond
-        // before the thirteenth day (#949).
-        expect(r.to.getTime() - r.from.getTime()).toBe(12 * 86_400_000 - 1);
+        expect(part.read().resolution).toEqual(some(variant("day", null)));
+        // The window stands — a record's resolution is presentation, so zooming fetches no row — and the
+        // canvas draws it by the day: eighty-four columns.
+        expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W39.getTime() });
+        expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(84);
     });
 });
 
 /** A slice-bound canvas whose brush strip spans a mocked 1300px track — the
  *  horizon's thirteen whole weeks at 100px each (#949) — its applied window
- *  W29..W33 at 200..600px. */
+ *  W29..W33 at 200..600px: the rows' part holds the window, its rows dated W27
+ *  and W39, the horizon their whole weeks. */
 const brushFixture = (key: string, axis?: unknown) => {
     initializeStore(new UIStore());
-    const cfg = sliceConfig({
-        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-    }, { rangeFieldId: some("at") });
-    const initial = {
-        // Applied window W29..W33 (4 weeks) inside the wider horizon.
-        range: some(variant("datetime", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") })),
-        compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
-        resolution: some(variant("week", null)),
-    };
-    // Data spans W27..W39, and the horizon is its WHOLE weeks: W27 to the
-    // end of W39, thirteen of them — the last row's week counts once.
-    const handle = buildSliceHandle(key, cfg, initial as never,
-        [{ at: W27 }, { at: W39 }] as never, none) as never as {
-            read(): { range: { type: string; value: { value: { from: Date; to: Date } } } };
-        };
+    // Applied window W29..W33 (4 weeks) inside the wider horizon. Data spans W27..W39, and the horizon is its
+    // WHOLE weeks: W27 to the end of W39, thirteen of them — the last row's week counts once.
+    const held = recordPart({
+        key: `${key}.rows`, range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime(), W39.getTime()] },
+        window: [new Date("2026-07-13T00:00:00Z").getTime(), new Date("2026-08-10T00:00:00Z").getTime()], resolution: "week",
+    });
+    // Every write to the source — a window, a resolution: what a gesture asks of the record.
+    const writes = { n: 0 };
+    const part: RecordPart = { ...held, write: (state) => { writes.n += 1; return held.write(state); } };
     const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-        slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+        slice: some(recordSlices(key, [{ source: "rows", slice: part }], ["brush"])),
         ...(axis !== undefined ? { axis } : {}),
     }), key);
     const track = container.querySelector("[data-brush-track]") as HTMLElement;
     Object.defineProperty(track, "getBoundingClientRect", {
         value: () => ({ left: 0, top: 0, right: 1300, bottom: 32, width: 1300, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
     });
-    return { container, track, range: () => handle.read().range.value.value, ranged: () => handle.read().range.type === "some" };
+    const window = () => recordSliceWindow(part);
+    return {
+        container, track, part, writes,
+        range: () => ({ from: new Date(window()!.min), to: new Date(window()!.max) }),
+        ranged: () => window() !== undefined,
+        ticks: () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent),
+    };
 };
 
-describe("Plan horizon brush — per-step live application (§7 / #620)", () => {
-    test("a SLIDE applies each snapped step to the slice — the canvas re-renders honestly mid-gesture", async () => {
-        const { track, range } = brushFixture("plan-620-slide");
-        // Grab the window body (200px..600px on the mocked track) and
-        // slide +110px ≈ +1.1 weeks — the snapped draft steps one period,
-        // and that step is APPLIED (rAF-coalesced): the mid-gesture canvas
-        // IS the draft window, so grid / ruler / geometry stay truthful
-        // (the reverted transform preview slid stale DOM instead — #620).
-        // The window `[W30, W34)` is written closed: it ends the millisecond
-        // before W34 (#949).
+describe("Plan horizon brush — a record's window moves once a gesture (§7, #620, #1344)", () => {
+    test("a SLIDE draws its snapped steps on the strip alone, and writes the window into the source once, on release", async () => {
+        const { track, range, writes, ticks } = brushFixture("plan-620-slide");
+        // Grab the window body (200px..600px on the mocked track) and slide +110px ≈ +1.1 weeks: the snapped
+        // draft steps one period on the strip, and the source — whose every write is a new query of the record's
+        // indexes — keeps the window, as the canvas does (#1344).
         fireEvent.pointerDown(track, { clientX: 400, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 510, pointerId: 1, buttons: 1 });
-        await waitFor(() => expect(range().from.toISOString()).toBe("2026-07-20T00:00:00.000Z"));
-        expect(range().to.toISOString()).toBe("2026-08-16T23:59:59.999Z");
-
-        // Slide on to ≈ +2 weeks total and release — the commit lands the
-        // same window the last step already applied.
         fireEvent.pointerMove(track, { clientX: 610, pointerId: 1, buttons: 1 });
+        expect(writes.n).toBe(0);
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(ticks()[0]).toBe("W29");
+        // Released ≈ +2 weeks on: one write, the window half-open as a record's range is — `[W31, W35)`.
         fireEvent.pointerUp(track, { pointerId: 1 });
-        expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-08-23T23:59:59.999Z");
+        await waitFor(() => expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z"));
+        expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
+        expect(writes.n).toBe(1);
+        expect(ticks()[0]).toBe("W31");
     });
 
-    test("an edge RESIZE applies its snapped steps too — a live zoom, no transform anywhere", async () => {
-        const { track, range } = brushFixture("plan-620-resize");
-        // Grab the HI handle (winTo = 600px on the mocked track) and drag it
-        // left one snapped week: the draft narrows W29..W33 → W29..W32 and
-        // the step applies — the canvas re-lays at the narrower window, a
-        // REAL zoom (columns re-derive; no scaled text, no hidden chrome).
+    test("an edge RESIZE draws its snapped steps on the strip alone, and zooms the canvas once, on release", async () => {
+        const { track, range, writes, ticks } = brushFixture("plan-620-resize");
+        // Grab the HI handle (winTo = 600px on the mocked track) and drag it left one snapped week: the draft
+        // narrows W29..W33 → W29..W32 on the strip; the source and the canvas keep the four weeks.
         fireEvent.pointerDown(track, { clientX: 600, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 510, pointerId: 1, buttons: 1 });
-        await waitFor(() => expect(range().to.toISOString()).toBe("2026-08-02T23:59:59.999Z"));
-        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-
+        expect(writes.n).toBe(0);
+        expect(ticks()).toHaveLength(4);
+        // Released: the narrower window, written once — a real zoom, the columns re-derived.
         fireEvent.pointerUp(track, { pointerId: 1 });
+        await waitFor(() => expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z"));
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-08-02T23:59:59.999Z");
+        expect(writes.n).toBe(1);
+        expect(ticks()).toEqual(["W29", "W30", "W31"]);
     });
 });
 
@@ -242,11 +234,12 @@ describe("the window is stated, or the slice's — never the rows' (#822)", () =
         fireEvent.pointerUp(track, { clientX: 901, pointerId: 1 });
     };
 
-    test("the brush's clear falls back to a stated window", () => {
-        const { container, track, ranged } = brushFixture("plan-822-clear-stated");
+    test("the brush's clear falls back to a stated window, written into the sources as every window is (#1344)", () => {
+        const { container, track, range } = brushFixture("plan-822-clear-stated");
         clickEmptyTrack(track);
-        expect(ranged()).toBe(false);
-        // The declared W27..W39: twelve weeks from W27.
+        // The declared W27..W39 — the one window every source holds — twelve weeks from W27.
+        expect(range().from.toISOString()).toBe(W27.toISOString());
+        expect(range().to.toISOString()).toBe(W39.toISOString());
         const ticks = [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
         expect(ticks[0]).toBe("W27");
         expect(ticks).toHaveLength(12);
@@ -282,34 +275,27 @@ describe("the window is stated, or the slice's — never the rows' (#822)", () =
 });
 
 describe("Plan chrome tracks the slice store (#611)", () => {
-    // The trap under test: `useSliceReactivity` re-renders the canvas when
+    // The trap under test: the slice's reactivity re-renders the canvas when
     // the store moves, but a re-render does not bust a memo whose deps did
-    // not move. On a CHROME-ONLY bound slice (rows not routed through it) a
-    // state write changes no value identity, so store-read memos must key on
-    // the store's own version.
+    // not move. A state write changes no value identity, so the store-read
+    // counts must follow the store itself.
     test("the toolbar summary re-derives on a store write that changes NO rows", () => {
         initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        // Two datable rows live in the SLICE; the canvas's own row is inline
-        // and never narrows.
-        const handle = buildSliceHandle("plan.summary.chrome", cfg, initial as never,
-            [{ at: W27 }, { at: W39 }] as never, none) as never as { setRange(r: unknown): void };
-        renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [variant("summary", null)] }),
+        // Two dated rows live in the source, both in the axis's window — W27 and W36; the canvas's own row is
+        // inline and never narrows.
+        const W36 = new Date("2026-08-31T00:00:00Z");
+        const part = recordPart({ key: "plan.summary.chrome.rows", range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime(), W36.getTime()] } });
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some(recordSlices("plan.summary.chrome", [{ source: "rows", slice: part }], ["summary"])),
         }), "plan-611-summary");
-        expect(screen.getByText(/^2 of 2/)).toBeTruthy();
+        const summary = () => container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent;
+        expect(summary()).toBe("2 of 2 rows");
 
+        // The window to now, W27 – 12 August: the W36 row leaves it.
         act(() => {
-            handle.setRange(some(variant("datetime", { from: W27, to: NOW })));
+            setRecordSliceWindow(part, W27.getTime(), NOW.getTime());
         });
-        expect(screen.getByText(/^1 of 2/)).toBeTruthy();
+        expect(summary()).toBe("1 of 2 rows");
     });
 });
 

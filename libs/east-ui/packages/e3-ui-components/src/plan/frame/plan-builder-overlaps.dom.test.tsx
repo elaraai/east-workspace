@@ -8,7 +8,8 @@
  * two events of a kind that warns of them, on one resource at once, are a
  * pair, and both wear the warn ring; the toolbar's chip counts the pairs, and
  * a click selects the first, earliest first, and brings it into view — on a
- * phone too; the inspector's banner lists what the selected event overlaps,
+ * phone too, where a Plan with a date navigator holds it in the navigator's
+ * View (#1344); the inspector's banner lists what the selected event overlaps,
  * and a row's view its pairs, a click on one selecting it. Overlaps never
  * block Save: they raise no issue and no banner of the sessions', and a draft
  * beside them saves (#1194). The print works' jobs overlap once, on Press B2
@@ -16,7 +17,7 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { East, some, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
@@ -215,13 +216,19 @@ describe("the overlaps chip (#1198, PB52)", () => {
         expect(pane(container).querySelector("[data-inspector-several]")!.textContent).toBe("2 events");
     });
 
-    test("on a phone, a click opens the pair's hall in the Rows tab and scrolls its press's card into view", async () => {
+    test("on a phone, the chip in the date navigator's View opens the pair's hall in the Rows tab and scrolls its press's card into view", async () => {
         const { scrolled, restore } = onAPhone();
         try {
             const { container } = mount(programOf(ex.planPrintWorks));
             await settle();
             expect(container.querySelector("[data-plan-narrow]")).not.toBeNull();
-            fireEvent.click(chip(container)!);
+            // The phone's row holds the rail's icon, the View and the history item: the chip is in the View (#1344).
+            expect(chip(container)).toBeNull();
+            await userEvent.setup().click(slot(container, "toolbar")!.querySelector<HTMLElement>("[data-time-navigation=plan] [data-time-trigger]")!);
+            const view = await screen.findByRole("dialog");
+            const inView = view.querySelector<HTMLElement>("[data-plan-overlaps]")!;
+            expect(inView.textContent).toBe("1 overlap");
+            fireEvent.click(inView);
             await settle();
             const card = container.querySelector(`[data-plan-card=${JSON.stringify(rowKeyOf(B2))}]`);
             expect(card).not.toBeNull();
@@ -229,6 +236,10 @@ describe("the overlaps chip (#1198, PB52)", () => {
             expect(container.querySelector("[data-slot='narrowScope']")!.textContent).toContain("Hall B");
             expect(scrolled).toEqual([card]);
             expect(card!.hasAttribute("data-selected")).toBe(true);
+            // The View closes before the phone goes, and its anchor's watch with it.
+            await userEvent.setup().keyboard("{Escape}");
+            await settle();
+            expect(document.querySelector("[role='dialog'][data-state='open']")).toBeNull();
         } finally {
             restore();
         }
@@ -259,20 +270,30 @@ describe("the overlaps chip (#1198, PB52)", () => {
     });
 });
 
-/** A phone: every box 360px wide, and each `scrollIntoView` heard — undone by `restore`. */
+/**
+ * A phone: every box 360px wide, and each `scrollIntoView` heard — undone by
+ * `restore`. Its boxes have a size, so a popover opened on it watches its
+ * anchor move with an `IntersectionObserver`, as it would in a browser; jsdom
+ * has none, so one that never reports stands in.
+ */
 function onAPhone(): { scrolled: Element[]; restore: () => void } {
     const realRect = Element.prototype.getBoundingClientRect;
     const realScroll = Element.prototype.scrollIntoView;
+    const scope = globalThis as { IntersectionObserver?: unknown };
+    const realObserver = scope.IntersectionObserver;
     const scrolled: Element[] = [];
     Element.prototype.getBoundingClientRect = function () {
         return { x: 0, y: 0, left: 0, top: 0, width: 360, height: 640, right: 360, bottom: 640, toJSON() { return {}; } } as DOMRect;
     };
     Element.prototype.scrollIntoView = vi.fn(function (this: Element) { scrolled.push(this); });
+    scope.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } };
     return {
         scrolled,
         restore: () => {
             Element.prototype.getBoundingClientRect = realRect;
             Element.prototype.scrollIntoView = realScroll;
+            if (realObserver === undefined) delete scope.IntersectionObserver;
+            else scope.IntersectionObserver = realObserver;
         },
     };
 }

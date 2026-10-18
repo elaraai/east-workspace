@@ -17,8 +17,9 @@
  * the inspector open from their rails over main, and the Series tab's search
  * is a 44px field. An event in an overlap pair wears a 1.5px warn ring, a
  * confirmed one keeping its own inside it; the toolbar's overlaps chip is the
- * warn chip, a 44px target on a phone by its halo, and its click brings the
- * pair's row into the canvas's view (#1198). Over event kinds the history
+ * warn chip, a 44px target on a touch screen by its halo — on a phone's row the
+ * date navigator's View holds it, beside the fold toggle and the resolution
+ * (#1344) — and its click brings the pair's row into the canvas's view (#1198). Over event kinds the history
  * item (#1194) ends the row — Undo, Redo, Discard and Save, named by the
  * shared item's words — and is its ladder's last step at every width; the
  * banners under the row take no room while they have nothing to say; and a
@@ -446,7 +447,9 @@ test.describe("the Plan's overlaps (#1198)", { tag: "@desktop" }, () => {
 
 test.describe("the Plan's overlaps chip on a phone (#1198)", { tag: "@mobile" }, () => {
 
-    test("planPrintWorks: the chip keeps its own size in the row and is a 44px tap target by its halo", async ({ page }) => {
+    test("planPrintWorks: on a touch screen 1920px wide the chip keeps its own size in the row and is a 44px tap target by its halo; at the phone's width it is the View's, beside the fold toggle and the resolution, and a tap on it selects the pair (#1344)", async ({ page }) => {
+        const phone = page.viewportSize()!;
+        await page.setViewportSize({ width: 1920, height: 1000 });
         const entry = await openExample(page, "planPrintWorks", EVENTS);
         const faults = await entry.locator(OVERLAPS_CHIP).evaluate((chip) => {
             const bad: string[] = [];
@@ -461,6 +464,17 @@ test.describe("the Plan's overlaps chip on a phone (#1198)", { tag: "@mobile" },
             return bad;
         });
         expect(faults).toEqual([]);
+        // A phone's row holds the rail's icon, the View and the history item, and no more: the chip is the View's.
+        await page.setViewportSize(phone);
+        await settled(page);
+        await expect(entry.locator(OVERLAPS_CHIP)).toHaveCount(0);
+        await entry.getByRole("button", { name: "View", exact: true }).tap();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.locator("[data-plan-fold-all]")).toBeVisible();
+        const chip = dialog.locator("[data-plan-overlaps]");
+        await expect(chip).toHaveText("1 overlap");
+        await chip.tap();
+        await expect(entry.locator("[data-plan-announce]")).toHaveText("2 events selected");
     });
 });
 

@@ -11,24 +11,22 @@
 
 import type { ReactNode, Ref, RefObject } from "react";
 import { Box } from "@chakra-ui/react";
-import { type ValueTypeOf } from "@elaraai/east";
-import { Slice, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { HorizonBrush } from "../shell/HorizonBrush.js";
 import { FocusBar } from "../shell/FocusBar.js";
 import { PlanRuler } from "../shell/Ruler.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanUiView } from "./view.js";
+import type { PlanWindowPart } from "./window.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 export interface PlanHeaderProps {
     styles: Styles;
     gridTemplate: string;
     /** The header element — its live height feeds the expand clamp. */
     headerRef: Ref<HTMLDivElement>;
-    slice: SliceBindValue | undefined;
-    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
+    /** The sources of the Plan's slice holding the window (#1344): the brush spans their domains. */
+    windowParts: readonly PlanWindowPart[];
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
     /** The ruler's gutter caption — the active grain's name. */
@@ -50,15 +48,15 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, slice, recordSlice, affordances, now, rulerCaption, cursorChipRef,
+    styles, gridTemplate, headerRef, windowParts, affordances, now, rulerCaption, cursorChipRef,
     pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
         <Box css={styles.header} ref={headerRef} data-plan-header>
-            {/* The brush mounts only where the slice's range domain speaks the
+            {/* The brush mounts only where a source's range domain speaks the
                 axis's arm — the band decides that itself (#631). */}
-            {(slice !== undefined || recordSlice !== undefined) && affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice} recordSlice={recordSlice} now={now} />
+            {windowParts.length > 0 && affordances.includes("brush") && (
+                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} now={now} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef} />

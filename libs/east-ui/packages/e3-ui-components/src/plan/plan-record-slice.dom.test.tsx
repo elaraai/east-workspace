@@ -42,7 +42,7 @@ test("indexed Plan preserves order and hidden operation drafts through Undo, Red
     }
     await waitFor(() => expect(ui.container.querySelector('[data-plan-row][data-draft]')).not.toBeNull());
     const drafted = bar()!.getAttribute("aria-label");
-    const sliceKey = "ex.planRecordIndexes.scope";
+    const sliceKey = "ex.planRecordIndexes.rows";
     const state = decodeBeast2For(RecordSliceStateType)(store.read(sliceKey)!);
     const hidden = { ...state, preset: none, where: new Map(state.where).set("status", variant("values", [printFor(StringType)("Done")])) };
     await act(async () => { store.write(sliceKey, encodeBeast2For(RecordSliceStateType)(hidden)); });

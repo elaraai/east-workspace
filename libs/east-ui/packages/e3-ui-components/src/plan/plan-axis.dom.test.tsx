@@ -5,22 +5,24 @@
  * @vitest-environment jsdom
  *
  * Plan typed-axis DOM tests (#631) — every row kind on every axis kind, and
- * the chrome each kind mounts.
+ * the chrome each kind mounts: a window written as the record Slice's range of
+ * the axis's arm, half-open (#1344), over parts holding their rows in the test
+ * (`record-slices.test-utils.ts`).
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { system, UIStore } from "@elaraai/east-ui-components";
+import { initializeStore, recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { recordPart, recordSlices, type RangeKind } from "./record-slices.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -245,33 +247,20 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
 
 describe("Plan typed axis (#631) — chrome per kind", () => {
     const numberAxis = variant("number", { window: some({ min: 1, max: 9 }), step: 1, now: some(5), format: none });
-    /** A slice whose range field is a FLOAT — days 1..12 of orders. */
-    const numberSlice = (key: string, days: number[]) => {
+    /** The rows' source over orders by day, its range field of `kind`, holding the window `[1, 9)`. */
+    const numberSlice = (key: string, days: number[], kind: RangeKind = "float") => {
         initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            day: variant("float", { label: "Day", accessor: (r: { day: number }) => r.day, format: none }),
-        }, { rangeFieldId: some("day") });
-        const initial = {
-            range: some(variant("float", { from: 1, to: 9 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        return buildSliceHandle(key, cfg, initial as never, days.map((day) => ({ day })) as never, none) as never as {
-            read(): { range: { value: { type: string; value: { from: number; to: number } } } };
-        };
+        const part = recordPart({ key: `${key}.rows`, range: { id: "day", kind, label: "Day", values: days }, window: [1, 9] });
+        return { part, window: () => recordSliceWindow(part) };
     };
     const ticks = (container: HTMLElement) =>
         [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
-    /** A window `[a, b)` written as the slice's CLOSED float range ends one
-     *  float short of `b` (`rangeOf`) — so a row at `b`, in the next step, is
-     *  not counted in the window (#949). */
-    const endsJustBelow = (to: number, b: number) => to < b && b - to < 1e-12;
 
-    test("a number axis rules 1 … 8 with the NOW divider, mounts no resolution segment, and brushes the slice's FLOAT range live", async () => {
-        const handle = numberSlice("plan.631.brush", [1, 12]);
+    test("a number axis rules 1 … 8 with the NOW divider, mounts no resolution segment, and brushes the source's FLOAT range, written on release", async () => {
+        const { part, window } = numberSlice("plan.631.brush", [1, 12]);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis,
-            slice: some({ slice: handle, affordances: [variant("brush", null), variant("resolution", null)] }),
+            slice: some(recordSlices("plan.631.brush", [{ source: "rows", slice: part }], ["brush", "resolution"])),
         }), "plan-631-number");
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
         expect(screen.getByText("NOW")).toBeTruthy();
@@ -286,98 +275,68 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         });
         // The applied window 1..9 spans the first 8/12 of the track (0..800px).
         // Grab its body at 400 and slide +100px = one step: the draft snaps to
-        // 2..10 and is APPLIED — as the slice's `float` arm, closed.
+        // 2..10 on the strip, and the source keeps its window until the release
+        // writes it — as its `float` range, half-open (#1344).
         fireEvent.pointerDown(track, { clientX: 400, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 500, pointerId: 1, buttons: 1 });
-        await waitFor(() => expect(handle.read().range.value.value.from).toBe(2));
-        expect(handle.read().range.value.type).toBe("float");
-        expect(endsJustBelow(handle.read().range.value.value.to, 10)).toBe(true);
+        expect(window()).toEqual({ kind: "float", min: 1, max: 9 });
         fireEvent.pointerUp(track, { pointerId: 1 });
-        expect(handle.read().range.value.value.from).toBe(2);
-        expect(endsJustBelow(handle.read().range.value.value.to, 10)).toBe(true);
+        await waitFor(() => expect(window()).toEqual({ kind: "float", min: 2, max: 10 }));
         // The canvas followed: the ruler now reads 2 … 9.
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
     });
 
-    test("[ / ] and n write a number axis's window as the slice's float arm — closed, and read back whole", () => {
-        const handle = numberSlice("plan.631.keys", [1, 12]);
+    test("[ / ] and n write a number axis's window as the source's float range — half-open, and read back whole", () => {
+        const { part, window } = numberSlice("plan.631.keys", [1, 12]);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            axis: numberAxis, slice: some({ slice: handle, affordances: [] }),
+            axis: numberAxis, slice: some(recordSlices("plan.631.keys", [{ source: "rows", slice: part }], [])),
         }), "plan-631-keys");
         const surface = container.querySelector('[tabindex="0"]')!;
-        const range = () => handle.read().range.value;
         fireEvent.keyDown(surface, { key: "]" });
-        expect(range().type).toBe("float");
-        expect(range().value.from).toBe(2);
-        expect(endsJustBelow(range().value.to, 10)).toBe(true);
+        expect(window()).toEqual({ kind: "float", min: 2, max: 10 });
         // Each pan starts from the window READ BACK — whole steps, so a
         // round trip lands exactly where it began, with no shortfall carried.
         fireEvent.keyDown(surface, { key: "[" });
-        expect(range().value.from).toBe(1);
-        expect(endsJustBelow(range().value.to, 9)).toBe(true);
+        expect(window()).toEqual({ kind: "float", min: 1, max: 9 });
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
         // n re-derives the window on step edges with the same column count,
         // now (5) a third of the way in: 5 − ⌊8/3⌋ = 3 → [3, 11).
         fireEvent.keyDown(surface, { key: "n" });
-        expect(range().value.from).toBe(3);
-        expect(endsJustBelow(range().value.to, 11)).toBe(true);
+        expect(window()).toEqual({ kind: "float", min: 3, max: 11 });
     });
 
-    test("an INTEGER field's window is written closed on whole values — `[1, 9)` is `1–8` — and read back whole", () => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            day: variant("integer", { label: "Day", accessor: (r: { day: bigint }) => r.day, format: none }),
-        }, { rangeFieldId: some("day") });
-        const initial = {
-            // The eight days 1 … 8, as an author seeds them: both ends inclusive.
-            range: some(variant("integer", { from: 1n, to: 8n })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        const handle = buildSliceHandle("plan.949.integer", cfg, initial as never,
-            Array.from({ length: 12 }, (_u, i) => ({ day: BigInt(i + 1) })) as never, none) as never as {
-                read(): { range: { value: { type: string; value: { from: bigint; to: bigint } } } };
-            };
+    test("an INTEGER field's window is written on whole values — `[1, 9)` the eight days 1 … 8 — and read back whole", () => {
+        // The eight days 1 … 8, the window half-open as every record range is.
+        const { part, window } = numberSlice("plan.949.integer", Array.from({ length: 12 }, (_u, i) => i + 1), "integer");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: variant("number", { window: none, step: 1, now: some(5), format: none }),
-            slice: some({ slice: handle, affordances: [] }),
+            slice: some(recordSlices("plan.949.integer", [{ source: "rows", slice: part }], [])),
         }), "plan-949-integer");
-        // `1–8` is eight columns — the slice's closed range IS the grid.
+        // `[1, 9)` is eight columns — the source's range IS the grid.
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
-        expect(handle.read().range.value.type).toBe("integer");
-        expect(handle.read().range.value.value).toEqual({ from: 2n, to: 9n });
+        expect(window()).toEqual({ kind: "integer", min: 2, max: 10 });
+        expect(part.read().where.get("day")).toEqual(variant("range", { from: "2", to: "10" }));
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
     });
 
     test("an ordinal axis rules its values with NOW on the named phase; the brush never mounts and the window keys idle", () => {
         initializeStore(new UIStore());
-        // A DATETIME slice bound with the brush affordance — the arm a time
-        // axis would brush; an ordinal axis has no arm to speak, so the
-        // strip does not mount and a pan writes nothing.
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        const handle = buildSliceHandle("plan.631.ordinal", cfg, initial as never,
-            [{ at: W27 }, { at: W39 }] as never, none) as never as {
-                read(): { range: { value: { value: { from: Date; to: Date } } } };
-            };
+        // A DATETIME source with the brush affordance — the arm a time axis
+        // would brush; an ordinal axis has no arm to speak, so the strip does
+        // not mount and a pan writes nothing.
+        const part = recordPart({ key: "plan.631.ordinal.rows", range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime(), W39.getTime()] },
+            window: [W27.getTime(), W39.getTime()] });
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: variant("ordinal", { values: ["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"], now: some("PRINT") }),
-            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+            slice: some(recordSlices("plan.631.ordinal", [{ source: "rows", slice: part }], ["brush"])),
         }), "plan-631-ordinal");
         expect(ticks(container)).toEqual(["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"]);
         expect(screen.getByText("NOW")).toBeTruthy();
         expect(container.querySelector("[data-slot='horizon']")).toBeNull();
         expect(container.querySelector("[data-brush-track]")).toBeNull();
-        const before = handle.read().range.value.value.from.getTime();
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
-        expect(handle.read().range.value.value.from.getTime()).toBe(before);
+        expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W39.getTime() });
         expect(ticks(container)[0]).toBe("PREPRESS");
     });
 });

@@ -360,8 +360,11 @@ export interface ScheduleInstantEventsConfig<K extends EastType, R extends Struc
     at: A;
     /** Plan: how it draws — marks (the default) or tiles in bucket cells. */
     draw?: "buckets" | "marks";
-    /** The presets the library lists; an instant has no duration. */
-    templates?: readonly ScheduleInstantTemplate<ScheduleValuesOf<R, A | F>>[];
+    /**
+     * The presets the library lists — a templates record's (`Schedule.templates(rows, { name, values, source })`,
+     * #1344); an instant has no duration, so the templates give none.
+     */
+    templates?: readonly ScheduleInstantTemplate<ScheduleValuesOf<R, A | F>>[] | ScheduleTemplates<ScheduleValuesOf<R, A | F>>;
 }
 
 /**
@@ -494,7 +497,8 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  *   an `at` that is not a DateTime field, or given with `start` and `end`; a `resource` field that holds no resource key, an
  *   `of` that is not a slot name for a key field, or whose cases are not the variant's; a `status` that is not a variant;
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
- *   another type; `fields` naming a field the row does not have, or hinting one it cannot; a window over another index,
+ *   another type; a templates record (`Schedule.templates`) whose templates give no duration on a span kind, or give one
+ *   on an instant kind (#1344); `fields` naming a field the row does not have, or hinting one it cannot; a window over another index,
  *   a `backlogWindow` on plain times, a `window` over Option times without a `backlogWindow`, a `window` without
  *   `entries`, and `entries` that is not a paged read of the record's own entries naming its snapshot (#1199) — a window
  *   that reads no rows (`join` not true) is refused as it is read, naming `join: true`; a `slice` or a `filter`, which
@@ -710,6 +714,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const valuesType = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !placed.has(name))));
     const boundTemplates = config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates
         ? checkedTemplates(config.templates, valuesType, where) : undefined;
+    // A templates record's events run as long as each says, or — an instant kind's — are one time (#1344).
+    if (config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates) {
+        if (!instantKind && !config.templates.timed) {
+            throw new Error(`${where}: its templates give each event's \`duration\` — Schedule.templates(rows, { …, duration: (row) => variant("hours", …) }), how long the event a template creates runs`);
+        }
+        if (instantKind && config.templates.timed) {
+            throw new Error(`${where}: an instant kind's events are one time, and its templates give a \`duration\` — leave it out of Schedule.templates`);
+        }
+    }
     // The builder's source whose shown keys filter the templates: the one a templates list names (#1343).
     const templatesSource = config.templates !== undefined && SCHEDULE_TEMPLATES in config.templates ? config.templates.source : undefined;
     const templates = config.templates !== undefined && !(SCHEDULE_TEMPLATES in config.templates) ? config.templates : [];

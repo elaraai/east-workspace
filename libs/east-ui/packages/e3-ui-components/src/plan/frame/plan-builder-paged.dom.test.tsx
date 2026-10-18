@@ -9,28 +9,32 @@
  * presses its task generates from its count, and the jobs on them — served by
  * a stand-in paging service with `Data.bindPaged`'s contract: the real paged
  * runtime (`defaultPagedRuntime`, its channels and its revision pinning) asks
- * it for windows of the jobs' day index and backlog index, each entry joined
- * to its row, of the jobs' own entries, and of the presses, each pinned to the
+ * it for windows of the jobs' indexes — the interval index the rail's `job`
+ * source narrows them through (#1344), and the day index and backlog index a
+ * kind with no rail reads — each entry joined to its row, of the jobs' own
+ * entries, of the job templates, and of the presses, each pinned to the
  * content it holds, and for their key searches; a request is held in flight
  * while a test says so, and every one is counted. Every whole read of a
  * dataset the cache answers is counted too — but the stand-in record server's
  * own, which reads the record to apply a patch, as e3 does.
  *
- * - The jobs are read by their day index: the first day the canvas draws is
- *   sought and the pages read from it, a pan seeks the day it brings in and
- *   reads the page it read before from the runtime, an event filed under
- *   several days draws once, the drafts draw over the window — moved out of
- *   it, and into it from a day the window never read — and while a read is in
- *   flight the rows drawn before stand.
- * - The backlog is read through its index, every page from its start.
+ * - The jobs are narrowed through the Plan's one rail (#1344): its `job`
+ *   source reads the jobs overlapping the days the canvas draws through their
+ *   interval index, a pan reading the ones the days it brings in hold; an
+ *   event running several days draws once, the drafts draw over the window —
+ *   moved out of it, and into it from a day the window never read — and while
+ *   a read is in flight the rows drawn before stand.
+ * - The backlog is read through the same index, the jobs with no start.
  * - The presses are paged: a window of them at a time, the next as the page
  *   scrolls to it, the key search seeking one; the presses are never read
  *   whole. The Plan's own rows after them are read again with their dataset.
- * - The jobs are edited without their record read whole: every gesture's
- *   event read where the canvas holds it, or by its key; the inspector's
- *   event, its form, its Duplicate and Delete and the bulk edit; Undo and
- *   Redo; Save, read back by key; a conflict, named by the jobs read by their
- *   keys at the record's new revision; and a Retry.
+ * - A kind with no rail reads the jobs through their day index and their
+ *   backlog index, and is edited without its record read whole: every
+ *   gesture's event read where the canvas holds it, or by its key; a template
+ *   — a record of its own, following its source of the rail — dropped; the
+ *   inspector's event, its form, its Duplicate and Delete and the bulk edit;
+ *   Undo and Redo; Save, read back by key; a conflict, named by the jobs read
+ *   by their keys at the record's new revision; and a Retry.
  * - A standing key search stands while a pan reads the jobs again over the
  *   same presses, and a new snapshot of the presses asks it again there, its
  *   text kept and its matches the new snapshot's.
@@ -47,22 +51,21 @@ import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, OptionType, PatchType, SortedMap, StringType, StructType, applyFor, compareFor,
-    decodeBeast2For, diffFor, encodeBeast2For, none, parseFor, printFor, some, variant, type EastIR, type EastType, type SetType, type ValueTypeOf,
+    decodeBeast2For, diffFor, encodeBeast2For, none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
-import { PrintJob, PrintPress, PrintStock, planLinkStock } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintPress, PrintStock, planLinkStock, planPrintJobTemplates, planPrintJobTemplatesByGroup } from "@elaraai/e3-ui/examples/plan/plan-events";
 import { DatasetHashMismatchError, type DatasetFindQuery, type DatasetFindResult, type DatasetPage } from "@elaraai/e3-api-client";
-import { indexWindowType, type TreePath } from "@elaraai/e3-types";
+import type { TreePath } from "@elaraai/e3-types";
 import {
-    clearPagedApi, createInMemoryRecordApi, datasetCacheKey, initializePagedApi, initializeRecordApi, type PagedApi, type RecordApi,
+    clearPagedApi, createInMemoryRecordApi, initializePagedApi, initializeRecordApi, type PagedApi, type RecordApi,
 } from "../../platform/index.js";
-import { contentHash, countWholeReads, recordPaging } from "../../platform/record-paging.test-utils.js";
+import { recordPaging, servedIndex } from "../../platform/record-paging.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
@@ -77,7 +80,6 @@ type Press = ValueTypeOf<typeof PrintPress>;
 type Jobs = ValueTypeOf<typeof ex.planWindowJobs.type>;
 
 const compareString = compareFor(StringType);
-const printDateTime = printFor(DateTimeType);
 const parseString = parseFor(StringType);
 
 const FIRST = new Date("2026-10-05T00:00:00Z");
@@ -87,8 +89,9 @@ const at = (text: string) => new Date(text);
 
 // ── The records, and the stand-in paging service over them ───────────────────
 
-/** The jobs' record and the presses' dataset, where e3 keeps them. */
+/** The jobs' record, the job templates' and the presses' dataset, where e3 keeps them. */
 const JOBS_PATH = ex.planWindowJobs.path as TreePath;
+const TEMPLATES_PATH = planPrintJobTemplates.path as TreePath;
 const PRESSES_PATH = ex.planWindowPresses.output.path as TreePath;
 /** A dataset's path as e3 names it: its fields, joined by dots. */
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
@@ -104,24 +107,14 @@ const generatePresses = East.compile(ex.generateWindowPresses, []) as (count: bi
 const PRESSES = generatePresses(PRESS_COUNT);
 const encodePresses = encodeBeast2For(DictType(StringType, PrintPress));
 const decodeJobs = decodeBeast2For(ex.planWindowJobs.type);
-const encodeJobs = encodeBeast2For(ex.planWindowJobs.type);
 
-/** One of the jobs' indexes, as e3 keeps it: its own key function, its key's type and what it projects. */
-type JobIndex = typeof ex.planWindowJobsByDay | typeof ex.planWindowJobsUnscheduled;
-
-/** An index's entries over the jobs: its key function run over each job, one entry for each key it returns, in the index's order. */
-function indexer(index: JobIndex): (jobs: ReadonlyMap<string, Job>) => { ik: unknown; key: string; job: Job }[] {
-    const keysOf = (index.keyFn.toIR() as EastIR<[StringType, typeof PrintJob], SetType<EastType>>).compile([]) as (key: string, job: Job) => ReadonlySet<unknown>;
-    const compareIk = compareFor(index.keyType as EastType);
-    return (jobs) => {
-        const entries: { ik: unknown; key: string; job: Job }[] = [];
-        for (const [key, job] of jobs) for (const ik of keysOf(key, job)) entries.push({ ik, key, job });
-        return entries.sort((a, b) => compareIk(a.ik, b.ik) || compareString(a.key, b.key));
-    };
-}
-
-/** Which of the service's collections a request reads: the jobs' indexes, their own entries, or the presses. */
-type Served = "days" | "backlog" | "entries" | "presses";
+/**
+ * Which of the service's collections a request reads: the jobs through the
+ * interval index the rail's `job` source narrows them through, or by the day
+ * index and the backlog index a kind with no rail reads, or their own
+ * entries; the job templates; or the presses.
+ */
+type Served = "interval" | "days" | "backlog" | "entries" | "templates" | "presses";
 
 /** One request the service was sent: what it read, and where — a page's `offset+limit`, or a search's query. */
 interface Asked {
@@ -150,12 +143,27 @@ function seekKey(keys: readonly string[], query: DatasetFindQuery): { found: boo
 }
 
 /**
+ * What a key search asks, as the service counts it: a key's text; an index's
+ * exact fields, then the prefix after them; a key's first letters; or a range
+ * from its bound — each field its literal, space apart.
+ */
+function sought(query: DatasetFindQuery): string {
+    if ("key" in query) return query.key;
+    if ("fields" in query && query.fields !== undefined) return [...query.fields, ...(query.prefix === undefined ? [] : [query.prefix])].join(" ");
+    if ("prefix" in query && query.prefix !== undefined) return query.prefix;
+    if ("from" in query && query.from !== undefined) return query.from.join(" ");
+    return JSON.stringify(query);
+}
+
+/**
  * The paging service, as e3 serves a record's indexes and a task's output:
  * each window its rows in order — an index's entries each joined to its row
  * when asked — pinned to the content it holds, a stale pin refused naming the
  * content held now; the key search; and the jobs' revision followed as their
- * record commits. Every request is counted, held in flight while `hold` says
- * so, and refused for good while `refuse` says so.
+ * record commits. The jobs and the templates are served as e3 serves a record
+ * (`recordPaging`): its entries in key order, and each index by its own key
+ * function. Every request is counted, held in flight while `hold` says so,
+ * and refused for good while `refuse` says so.
  *
  * @param presses - The presses it serves: the example's by default
  * @returns The service, its requests, what it holds and its API
@@ -164,16 +172,11 @@ function pagingService(presses: ReadonlyMap<string, Press> = PRESSES) {
     // The presses it holds now, and their keys in key order: another write to them may change them (`movePresses`).
     let pressesNow = presses;
     let pressKeys = [...presses.keys()];
-    const indexes: { [served in Exclude<Served, "presses" | "entries">]: { index: JobIndex; entries: ReturnType<typeof indexer>; encode: (value: unknown) => Uint8Array } } = {
-        days: {
-            index: ex.planWindowJobsByDay, entries: indexer(ex.planWindowJobsByDay),
-            encode: encodeBeast2For(indexWindowType(StringType, ex.planWindowJobsByDay.keyType, ex.planWindowJobsByDay.valueType, PrintJob)) as (value: unknown) => Uint8Array,
-        },
-        backlog: {
-            index: ex.planWindowJobsUnscheduled, entries: indexer(ex.planWindowJobsUnscheduled),
-            encode: encodeBeast2For(indexWindowType(StringType, ex.planWindowJobsUnscheduled.keyType, ex.planWindowJobsUnscheduled.valueType, PrintJob)) as (value: unknown) => Uint8Array,
-        },
-    };
+    // The jobs, through each index a Plan reads them by, and the templates a kind with no rail drops from.
+    const records = recordPaging(h.cache, rawRead, [
+        { path: JOBS_PATH, type: ex.planWindowJobs.type, indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByDay, ex.planWindowJobsUnscheduled].map(servedIndex) },
+        { path: TEMPLATES_PATH, type: planPrintJobTemplates.type, indexes: [servedIndex(planPrintJobTemplatesByGroup)] },
+    ]);
     const requests: Asked[] = [];
     const waiting: (() => void)[] = [];
     // The presses' revision, and who follows it: another write to them moves it (`movePresses`).
@@ -202,21 +205,18 @@ function pagingService(presses: ReadonlyMap<string, Press> = PRESSES) {
             return requests.filter((r) => r.served === served).map((r) => `${r.op} ${r.at}`);
         },
     };
-    // The service reads the record as e3 holds it, not through the cache's reads the canvas makes.
-    const jobsBytes = () => rawRead(WORKSPACE, JOBS_PATH);
-    // The jobs' revision is their content's hash, as the record server names the state it commits.
-    const revisionOf = (path: TreePath) => (pathText(path) === pathText(JOBS_PATH) ? contentHash(jobsBytes()) : pressesRevision);
     const servedOf = (path: TreePath, index: string | undefined): Served => {
         if (pathText(path) === pathText(PRESSES_PATH) && index === undefined) return "presses";
+        if (pathText(path) === pathText(TEMPLATES_PATH)) return "templates";
         if (pathText(path) === pathText(JOBS_PATH) && index === undefined) return "entries";
+        if (pathText(path) === pathText(JOBS_PATH) && index === ex.planWindowJobsByTime.name) return "interval";
         if (pathText(path) === pathText(JOBS_PATH) && index === ex.planWindowJobsByDay.name) return "days";
         if (pathText(path) === pathText(JOBS_PATH) && index === ex.planWindowJobsUnscheduled.name) return "backlog";
         throw new Error(`the service holds no ${pathText(path)}${index === undefined ? "" : ` @${index}`}`);
     };
-    const pinned = (path: TreePath, hash: string | undefined) => {
-        const now = revisionOf(path);
-        if (hash !== undefined && hash !== now) throw new DatasetHashMismatchError("stale pin", now);
-        return now;
+    const pinnedPresses = (hash: string | undefined) => {
+        if (hash !== undefined && hash !== pressesRevision) throw new DatasetHashMismatchError("stale pin", pressesRevision);
+        return pressesRevision;
     };
     const asked = async (request: Asked) => {
         requests.push(request);
@@ -224,71 +224,32 @@ function pagingService(presses: ReadonlyMap<string, Press> = PRESSES) {
         if (service.hold(request)) await new Promise<void>((resolve) => { waiting.push(resolve); });
     };
     const api: PagedApi = {
-        async getRevision(_ws, path) { return revisionOf(path); },
-        async getPage(_ws, path, window): Promise<DatasetPage> {
+        async getRevision(ws, path) { return pathText(path) === pathText(PRESSES_PATH) ? pressesRevision : records.api.getRevision(ws, path); },
+        async getPage(ws, path, window): Promise<DatasetPage> {
             const served = servedOf(path, window.index);
             await asked({ served, op: "page", at: `${window.offset}+${window.limit}` });
-            const hash = pinned(path, window.hash);
-            let data: Uint8Array;
-            let total: number;
-            let count: number;
-            if (served === "presses") {
-                const keys = pressKeys.slice(window.offset, window.offset + window.limit);
-                data = encodePresses(new SortedMap(keys.map((key) => [key, pressesNow.get(key)!] as const), compareString));
-                total = pressKeys.length;
-                count = keys.length;
-            } else if (served === "entries") {
-                // The jobs' own entries, in key order.
-                const jobs = decodeJobs(jobsBytes()!) as ReadonlyMap<string, Job>;
-                const keys = [...jobs.keys()].slice(window.offset, window.offset + window.limit);
-                data = encodeJobs(new SortedMap(keys.map((key) => [key, jobs.get(key)!] as const), compareString) as unknown as Jobs);
-                total = jobs.size;
-                count = keys.length;
-            } else {
-                const { entries, encode } = indexes[served];
-                const all = entries(decodeJobs(jobsBytes()!) as ReadonlyMap<string, Job>);
-                const window_ = all.slice(window.offset, window.offset + window.limit)
-                    .map((e) => ({ ik: e.ik, key: e.key, value: null, row: window.join === true ? some(e.job) : none }));
-                data = encode(window_);
-                total = all.length;
-                count = window_.length;
-            }
-            return { data, totalElements: total, totalBytes: data.length, totalExact: true, segmentCount: 1, offset: window.offset, count, hash };
+            if (served !== "presses") return records.api.getPage(ws, path, window);
+            const hash = pinnedPresses(window.hash);
+            const keys = pressKeys.slice(window.offset, window.offset + window.limit);
+            const data = encodePresses(new SortedMap(keys.map((key) => [key, pressesNow.get(key)!] as const), compareString));
+            return { data, totalElements: pressKeys.length, totalBytes: data.length, totalExact: true, segmentCount: 1, offset: window.offset, count: keys.length, hash };
         },
-        async findKey(_ws, path, query: DatasetFindQuery): Promise<DatasetFindResult> {
+        async findKey(ws, path, query: DatasetFindQuery): Promise<DatasetFindResult> {
             const served = servedOf(path, query.index);
-            const hash = pinned(path, query.hash);
-            if (served === "presses" || served === "entries") {
-                // By a key's text, or a key's first letters.
-                const keys = served === "presses" ? pressKeys : [...(decodeJobs(jobsBytes()!) as ReadonlyMap<string, Job>).keys()];
-                const found = seekKey(keys, query);
-                await asked({ served, op: "seek", at: found.text });
-                return { found: found.found, row: found.row, count: found.count, hash };
+            if (served !== "presses") {
+                await asked({ served, op: "seek", at: sought(query) });
+                return records.api.findKey(ws, path, query);
             }
-            // An index, by a range from its first key: the rows filed under it or after.
-            if (!("from" in query) || query.from === undefined || query.from.length === 0) throw new Error("an index is sought by a range from a key");
-            await asked({ served, op: "seek", at: query.from[0]! });
-            const { index, entries } = indexes[served];
-            const read = parseFor(index.keyType as EastType)(query.from[0]!);
-            if (!read.success) throw new Error(`not a key of ${served}: ${query.from[0]}`);
-            const compareIk = compareFor(index.keyType as EastType);
-            const all = entries(decodeJobs(jobsBytes()!) as ReadonlyMap<string, Job>);
-            const row = all.filter((e) => compareIk(e.ik, read.value) < 0).length;
-            return { found: row < all.length, row, count: all.length - row, hash };
+            // By a key's text, or a key's first letters.
+            const hash = pinnedPresses(query.hash);
+            const found = seekKey(pressKeys, query);
+            await asked({ served, op: "seek", at: found.text });
+            return { found: found.found, row: found.row, count: found.count, hash };
         },
-        watchRevision(_ws, path, onChange) {
-            if (pathText(path) === pathText(PRESSES_PATH)) {
-                pressesWatchers.add(onChange);
-                return () => { pressesWatchers.delete(onChange); };
-            }
-            if (pathText(path) !== pathText(JOBS_PATH)) return () => {};
-            let told = revisionOf(path);
-            return h.cache.subscribe(datasetCacheKey(WORKSPACE, JOBS_PATH), () => {
-                const now = revisionOf(path);
-                if (now === told) return;
-                told = now;
-                onChange(now);
-            });
+        watchRevision(ws, path, onChange) {
+            if (pathText(path) !== pathText(PRESSES_PATH)) return records.api.watchRevision(ws, path, onChange);
+            pressesWatchers.add(onChange);
+            return () => { pressesWatchers.delete(onChange); };
         },
     };
     return Object.assign(service, { api });
@@ -301,6 +262,11 @@ function jobsRecord() {
         name: ex.planWindowJobs.name, stateType: ex.planWindowJobs.type, initial: ex.planWindowJobs.default!,
         mutations: [{ name: "patch", argTypes: [PatchType(ex.planWindowJobs.type)], reduce: (state: unknown, patch: unknown) => applyPatch(state as never, patch as never) }],
     };
+}
+
+/** The job templates' record in memory: a Plan only reads it — the library lists them, and a drop creates a job from one. */
+function templatesRecord() {
+    return { name: planPrintJobTemplates.name, stateType: planPrintJobTemplates.type, initial: planPrintJobTemplates.default!, mutations: [] };
 }
 
 let service: ReturnType<typeof pagingService>;
@@ -317,11 +283,11 @@ let rawRead: (workspace: string, path: TreePath) => Uint8Array | undefined;
 
 beforeEach(() => {
     errors = vi.spyOn(console, "error");
-    const reads = countWholeReads(h.cache);
-    wholeReads = reads.paths;
-    rawRead = reads.raw;
-    served = reads.serve;
-    memory = served(createInMemoryRecordApi(h.cache, WORKSPACE, [jobsRecord()]));
+    // The harness's count of whole reads, and its record server's naming of the states it commits.
+    wholeReads = h.wholeReads;
+    rawRead = h.raw;
+    served = h.serve;
+    memory = served(createInMemoryRecordApi(h.cache, WORKSPACE, [jobsRecord(), templatesRecord()]));
     initializeRecordApi(memory, h.cache, WORKSPACE);
     // The presses as a deployed task's manifest leaves them: whole in the cache, which the canvas never reads.
     void h.cache.write(WORKSPACE, PRESSES_PATH, encodePresses(PRESSES as never));
@@ -360,30 +326,27 @@ const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) })
 
 /**
  * The windows example's Plan (`planWindows`), unbounded — jsdom lays nothing
- * out, so a bounded canvas would mount no row — with the inspector, whose
+ * out, so a bounded canvas would mount no row — its jobs narrowed through its
+ * one rail (#1344), the `job` source reading them through their interval
+ * index, its range the window the canvas shows; with the inspector, whose
  * bulk edit moves the drafts, and the paper in stock as rows of the Plan's own
  * after the presses (`Plan.over`, over the print works' stock).
  */
 const windowsPlan = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-    const jobDays = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
-    const jobBacklog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const slice = $.const(Slice.bindRecords("plan.windows.dom", {
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+    }));
     const paper = $.const(Data.bind(planLinkStock));
     const first = $.const(FIRST, DateTimeType);
-    const days = $.let(East.Array.generate(28n, ex.PlanWindowDay, (_$2, i) => ({ day: first.addDays(i) })));
-    const slice = $.let(Slice.bind("plan.windows.dom", days, {
-        fields: { day: { label: "Day", format: { date: "MMM D" } } },
-        range: "day",
-        initial: { day: { from: first, to: first.addDays(14n).addMilliseconds(-1n) } },
-    }));
     const axis = $.let(Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }));
     // The paper in stock, each reading a week apiece from the window's first Monday.
     const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
         East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
     return Plan({
-        axis, inspector: true,
+        axis, inspector: true, slice: { slice },
         resources: {
             presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
         },
@@ -392,13 +355,12 @@ const windowsPlan = East.compile(East.function([], UIComponentType, (_$) => Reac
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
                 resource: { field: "press", of: "presses" }, state: "state", quantity: { field: "sheets", unit: "sheets" },
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-                window: jobDays, backlogWindow: jobBacklog, entries: jobEntries,
+                entries: jobEntries,
             }),
         },
         rows: [Plan.over(paper, [
             Plan.series.table(PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name, cells: (s) => Plan.tableCells(weekly(s.weekly)) }),
         ])],
-        slice: { slice, affordances: ["range", "brush"] },
         library: [Plan.library.backlog()],
     });
 }))), getRegisteredPlatformImplementations());
@@ -417,9 +379,9 @@ const draws = (c: HTMLElement, press: string) => c.querySelector(rowAt(pressRow(
 const counted = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="events"]')?.textContent ?? null;
 /** The inspector's gesture button. */
 const action = (c: HTMLElement, name: string) => slot(c, "end")!.querySelector<HTMLButtonElement>(`[data-inspector-action=${JSON.stringify(name)}]`)!;
-
-/** A day's midnight as East prints it: what the day index is sought from. */
-const day = (text: string) => printDateTime(at(`${text}T00:00:00Z`));
+/** The jobs' requests, by which collection of theirs each read. */
+const jobReads = () => service.requests.filter((r) => r.served === "interval" || r.served === "days" || r.served === "backlog" || r.served === "entries")
+    .map((r) => r.served);
 
 /** Pans the canvas a day: `]` on, `[` back. */
 async function pan(c: HTMLElement, key: "[" | "]", times = 1) {
@@ -445,11 +407,11 @@ async function press(node: Element) {
 }
 
 // ============================================================================
-// The jobs, read by their day index (PB54)
+// The jobs, narrowed through the rail's interval index (PB54, #1344)
 // ============================================================================
 
-describe("the jobs read by their day index (PB54)", () => {
-    test("only the days the canvas draws: their first day sought and the page read from it; a pan seeks the day it brings in, its page the one read before", async () => {
+describe("the jobs narrowed through the rail's interval index (PB54, #1344)", () => {
+    test("only the jobs overlapping the days the canvas draws, through the interval index alone; a pan reads the ones the days it brings in hold — the record never read whole", async () => {
         const { container } = mount(windowsPlan);
         await settle();
         // The fortnight in view and the two days laid out beyond each edge: Saturday 3 to Tuesday 20 October.
@@ -457,23 +419,25 @@ describe("the jobs read by their day index (PB54)", () => {
         expect(bar(container, "W-0004", "P-1003")).not.toBeNull();
         expect(bars(container, "W-0014")).toHaveLength(0);
         expect(counted(container)).toBe("13 events");
-        // The canvas sought the 3rd, the footer's count the 5th — the window it counts — and both read the one page.
-        expect(new Set(service.of("days"))).toEqual(new Set([`seek ${day("2026-10-03")}`, `seek ${day("2026-10-05")}`, "page 0+256"]));
-        expect(service.of("days").filter((r) => r.startsWith("page"))).toEqual(["page 0+256"]);
-        // A day on: the 4th sought, and the 6th; the page is the runtime's already.
-        const before = service.requests.length;
+        // Read through the interval index, and the record's own entries a row at a time — the session's newest key.
+        expect(new Set(jobReads())).toEqual(new Set(["interval", "entries"]));
+        expect(service.of("entries").every((r) => r.startsWith("seek") || r.endsWith("+1"))).toBe(true);
+        const sought = service.of("interval").filter((r) => r.startsWith("seek")).length;
+        expect(sought).toBeGreaterThan(0);
+        // A day on, then another: the days brought in are sought through the index; the ticket books on Thursday 22 draw.
         await pan(container, "]");
-        expect(service.requests.slice(before).map((r) => `${r.served} ${r.op} ${r.at}`).sort())
-            .toEqual([`days seek ${day("2026-10-04")}`, `days seek ${day("2026-10-06")}`].sort());
+        expect(service.of("interval").filter((r) => r.startsWith("seek")).length).toBeGreaterThan(sought);
         expect(bars(container, "W-0014")).toHaveLength(0);
-        // Another: the ticket books on Thursday 22 come into the days the canvas draws.
         await pan(container, "]");
         expect(bar(container, "W-0014", "P-1001")).not.toBeNull();
         expect(counted(container)).toBe("10 events");
-        expect(service.of("days").filter((r) => r.startsWith("page"))).toEqual(["page 0+256"]);
+        // Never the day index, the backlog index, the jobs' own entries but a row at a time, or the record whole.
+        expect(new Set(jobReads())).toEqual(new Set(["interval", "entries"]));
+        expect(service.of("entries").every((r) => r.startsWith("seek") || r.endsWith("+1"))).toBe(true);
+        expect(wholeReads).not.toContain(pathText(JOBS_PATH));
     });
 
-    test("an event filed under several days draws once: the three-day run, and the night run into the next day", async () => {
+    test("an event running several days draws once: the three-day run, and the night run into the next day", async () => {
         const { container } = mount(windowsPlan);
         await settle();
         expect(bars(container, "W-0004")).toHaveLength(1);
@@ -481,7 +445,7 @@ describe("the jobs read by their day index (PB54)", () => {
         expect(bar(container, "W-0002", "P-1001")).not.toBeNull();
     });
 
-    test("the drafts draw over the window: two jobs shifted out of the days it reads, then into them from a day it never read", async () => {
+    test("the drafts draw over the window the narrowing holds: a job shifted out of the days it reads leaves, and draws again once they hold it; one the narrowing no longer holds stays a draft, unseen, kept for Save", async () => {
         const { container } = mount(windowsPlan);
         await settle();
         // Two days on, the canvas draws Monday 5 to Thursday 22: the brochure run on the 5th and the ticket books on the 22nd.
@@ -494,25 +458,27 @@ describe("the jobs read by their day index (PB54)", () => {
         await press(action(container, "shift:-1day"));
         expect(bars(container, "W-0001")).toHaveLength(0);
         expect(bar(container, "W-0014", "P-1001")).not.toBeNull();
-        // Back two days, to Saturday 3 – Tuesday 20: the brochure run's draft draws again, and the ticket books' — the record
-        // holding them on Thursday 22, a day the window does not read — draw from their draft.
+        // Back two days, to Saturday 3 – Tuesday 20: the narrowing holds the brochure run, stored on the 5th, and its draft
+        // draws again. It holds no longer the ticket books, the record holding them on Thursday 22, a day the window does
+        // not read: a draft of an entry outside the narrowing never leaks into it (#1343) — it is kept, and Save sends it.
         await pan(container, "[", 2);
         expect(bar(container, "W-0001", "P-1001")).not.toBeNull();
-        expect(bar(container, "W-0014", "P-1001")).not.toBeNull();
+        expect(bars(container, "W-0014")).toHaveLength(0);
+        expect(pending(container)).toBe("2 pending");
         expect(readJobs().get("W-0014")!.start).toEqual(some(at("2026-10-22T06:00:00Z")));
         expect(readJobs().get("W-0001")!.start).toEqual(some(at("2026-10-05T06:00:00Z")));
     });
 
-    test("while the day index is read again the rows drawn before stand: a commit moves the window, and its rows draw once its page lands", async () => {
+    test("while the interval index is read again the rows drawn before stand: a commit moves the window, and its rows draw once its page lands", async () => {
         const { container } = mount(windowsPlan);
         await settle();
         const guide = () => bar(container, "W-0003", "P-1002");
         expect(guide()!.textContent).toContain("Museum guide");
-        // The record moves; its day index is read again, pinned to the new content, the page held on the wire.
-        service.hold = (request) => request.served === "days" && request.op === "page";
+        // The record moves; its interval index is read again, pinned to the new content, the page held on the wire.
+        service.hold = (request) => request.served === "interval" && request.op === "page";
         const before = service.requests.length;
         await writeJob("W-0003", { title: "Museum guide, second edition" });
-        expect(service.requests.slice(before).some((r) => r.served === "days" && r.op === "page")).toBe(true);
+        expect(service.requests.slice(before).some((r) => r.served === "interval" && r.op === "page")).toBe(true);
         expect(guide()!.textContent).toContain("Museum guide");
         expect(guide()!.textContent).not.toContain("second edition");
         // The page lands: the same bar, its new title.
@@ -525,11 +491,11 @@ describe("the jobs read by their day index (PB54)", () => {
 });
 
 // ============================================================================
-// The backlog, read by its index (PB54)
+// The backlog, through the same index (PB54, #1344)
 // ============================================================================
 
-describe("the backlog read by its index (PB54)", () => {
-    test("the Backlog tab lists the jobs with no start, every page of the index read from its start, none sought", async () => {
+describe("the backlog read through the rail's interval index (PB54, #1344)", () => {
+    test("the Backlog tab lists the jobs with no start, read through the same index under an unset start", async () => {
         const { container } = mount(windowsPlan);
         await settle();
         const pane = slot(container, "start")!;
@@ -541,7 +507,9 @@ describe("the backlog read by its index (PB54)", () => {
         const names = [...pane.querySelectorAll<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-library-item]')]
             .map((card) => [...card.children].find((part) => part.tagName === "DIV" && part.querySelector(":scope > svg") === null)!.children[0]!.textContent);
         expect(names).toEqual(["Order forms", "Winter brochure", "Prospectus", "Proof sheets"]);
-        expect(service.of("backlog")).toEqual(["page 0+256", "page 4+252"]);
+        // Sought exactly under the unset start — the jobs with none, its span's — and never through the backlog index.
+        expect(service.of("interval")).toContain(`seek 0 ${printFor(OptionType(DateTimeType))(none)}`);
+        expect(service.of("backlog")).toEqual([]);
     });
 });
 
@@ -702,9 +670,12 @@ const Customer = StructType({ name: StringType });
 
 /**
  * The windows example's jobs on thirty presses — one window of them, so every
- * row mounts — edited: a template to drop, the Backlog tab, a Customers tab
- * whose card sets a job's customer, and the inspector. Every edit is a draft
- * of a session over the jobs' revision, never their record whole.
+ * row mounts — read by a kind with no rail, through their day index and their
+ * backlog index, and edited: a template to drop — the job templates, a record
+ * of their own following their source of the Plan's one rail (#1344) — the
+ * Backlog tab, a Customers tab whose card sets a job's customer, and the
+ * inspector. Every edit is a draft of a session over the jobs' revision, never
+ * their record whole.
  */
 const editedPlan = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
@@ -712,10 +683,14 @@ const editedPlan = East.compile(East.function([], UIComponentType, (_$) => React
     const jobDays = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
     const jobBacklog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const jobTemplates = $.const(Data.bind(planPrintJobTemplates));
+    const slice = $.const(Slice.bindRecords("plan.windows.edited", {
+        jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: [planPrintJobTemplatesByGroup] }) },
+    }));
     const customers = $.const(new Map([["harbour-arts", { name: "Harbour Arts Society" }]]), DictType(StringType, Customer));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
-        inspector: true,
+        inspector: true, slice: { slice },
         resources: {
             presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
         },
@@ -724,10 +699,9 @@ const editedPlan = East.compile(East.function([], UIComponentType, (_$) => React
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
                 resource: { field: "press", of: "presses" }, state: "state",
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-                templates: [{
-                    key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                    values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none },
-                }],
+                templates: Schedule.templates(jobTemplates.read(), {
+                    name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
+                }),
                 window: jobDays, backlogWindow: jobBacklog, entries: jobEntries,
             }),
         },
@@ -872,7 +846,8 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         const { container: c } = mount(editedPlan, DRAG);
         await settle();
         await openTab(c, "Backlog");
-        expect(tabs(slot(c, "start")!)).toEqual(["Events 1", "Backlog 4", "Customers 1"]);
+        // The job templates, all four: the rail narrows none of them.
+        expect(tabs(slot(c, "start")!)).toEqual(["Events 4", "Backlog 4", "Customers 1"]);
         let y = layOutPlots(c, ["P-1001", "P-1002", "P-1003"]);
         // The order forms (W-0017) — 40,000 sheets at 8,000 an hour, five hours — onto Press 1003's Friday.
         const letGo = await carry(cardOf(c, elementKey("job", "W-0017"))!, OFF, { x: xAt(4), y: y("P-1003") });

@@ -5,39 +5,37 @@
 
 /**
  * The horizon strip (`Plan Spec.md` §7) — the shared brush strip at horizon
- * density over the bound slice's FULL range domain, in whole periods around
- * its data: gutter caption (`HORIZON · 26 WK`), self-excluding row-count
- * histogram (one bar per period, #949), the applied window as a full brush
- * selection, and the now tick. Editing the window here is editing the slice's
- * Range — commits route through the machine (`brush.commit` →
- * `slice.setRange`), which never stores a window itself.
+ * density over the FULL range domain of the sources holding the window
+ * (#1344), in whole periods around their data: gutter caption (`HORIZON · 26
+ * WK`), the applied window as a full brush selection, and the now tick.
+ * Editing the window here is editing every such source's range — a commit
+ * routes through the machine (`brush.commit` → `slice.setRange`), which never
+ * stores a window itself, and writes it into each source at once.
  *
  * The strip is an OVERVIEW on its own scale, so it never reads as the grid's
  * (#949): a lens under it joins the window it selected to the plot's edges —
  * the grid below is that window, magnified.
  *
- * Renders only when a slice is bound with a range domain of the AXIS's arm
- * (#631): a `datetime` domain on a time axis, a `float` / `integer` domain on
- * a number axis — the brush speaks whichever the slice's field is, and every
- * step it applies is written as that arm. An ordinal axis has no range arm
- * (its list is its window), so the strip never mounts there; an unbound Plan
- * has no wider horizon to brush.
+ * Renders only when a source holds a range domain of the AXIS's arm (#631): a
+ * `datetime` domain on a time axis, a `float` / `integer` domain on a number
+ * axis. The horizon spans every such source's domain: the jobs' and the
+ * shifts' together. An ordinal axis has no range arm (its list is its window),
+ * so the strip never mounts there; a Plan with no slice has no wider horizon
+ * to brush. A record's query moves once per gesture: the strip previews its
+ * selection, and commits on release.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import { Box, chakra } from "@chakra-ui/react";
-import { some, type ValueTypeOf } from "@elaraai/east";
-import { Slice, type RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { BrushStrip, boundRangeDomain, boundRangeHistogram, recordSliceDomain } from "@elaraai/east-ui-components/internal";
-import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { BrushStrip, recordSliceDomain } from "@elaraai/east-ui-components/internal";
+import { useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
-import { rangeArmOf, rangeOf } from "../axis.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
+import type { PlanWindowPart } from "../root/window.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 /** The lens's viewBox width — its lines' x in these units, stretched to the plot. */
 const LENS_W = 1000;
@@ -46,52 +44,49 @@ const LENS_W = 1000;
  *  counts them; the histogram caps its bars far below this. */
 const MAX_PERIODS = 100_000;
 
+/** A source's range domain, on the axis's arm: its kind, and its bounds as numbers. */
+type RecordSliceRange = NonNullable<ReturnType<typeof recordSliceDomain>>;
+
 export interface HorizonBrushProps {
     styles: Styles;
     gridTemplate: string;
-    slice: SliceBindValue | undefined;
-    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
+    /** The sources holding the window: the horizon spans their domains. */
+    parts: readonly PlanWindowPart[];
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
 }
 
+/**
+ * The horizon over several sources' domains: from the earliest to the latest
+ * of them, each of the axis's arm.
+ *
+ * @param parts - The sources holding the window
+ * @returns Their horizon; `undefined` while no source has a domain
+ */
+function horizonOf(parts: readonly PlanWindowPart[]): RecordSliceRange | undefined {
+    let out: RecordSliceRange | undefined;
+    for (const { part } of parts) {
+        const domain = recordSliceDomain(part);
+        if (domain === undefined) continue;
+        out = out === undefined ? domain : { kind: out.kind, min: Math.min(out.min, domain.min), max: Math.max(out.max, domain.max) };
+    }
+    return out;
+}
+
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
-export function HorizonBrush({ styles, gridTemplate, slice, recordSlice, now }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, parts, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
-    // ── Live PER-STEP application (#620; the #609 pattern, resizes too) ──
-    // The draft is SNAPPED to period edges, so it changes a handful of times
-    // per gesture — there is nothing per-frame to smooth, and a transform
-    // preview of stale DOM lies (the reverted #620 attempt scaled plain
-    // slides wherever the snapped draft's ms-width differed from the applied
-    // window's — month/quarter periods, unaligned windows, edge clamps).
-    // Instead, each snapped step WRITES the draft window to the slice,
-    // rAF-coalesced: every mid-gesture frame is a real render of the draft —
-    // grid, ruler, geometry and zoom are correct by construction, and the
-    // post-#616 canvas (virtualized rows, memoized row layer) makes a step
-    // a few milliseconds. A cancelled / no-op drag re-fires the origin
-    // through the same channel, so the window always lands somewhere
-    // deliberate; the release's commit cancels any pending frame so it is
-    // always the last write.
-    const stepFrameRef = useRef<number | null>(null);
-    const stepPendingRef = useRef<{ min: PlanInstantValue; max: PlanInstantValue } | null>(null);
-    useEffect(() => () => {
-        if (stepFrameRef.current !== null) cancelAnimationFrame(stepFrameRef.current);
-    }, []);
-    // Self-subscribe (#611): the histogram is a STORE read, and a re-render
-    // does not bust a memo whose deps did not move — the version has to be
-    // one of them. (The previous disable comment justified the old deps with
-    // "useSliceReactivity re-renders on change", which is exactly the
-    // misconception: it re-renders, and the memo then serves the stale value.)
-    const sliceVersion = useSliceReactivity(recordSlice?.key ?? slice?.key);
-    const readDomain = useCallback(() => recordSlice === undefined ? undefined : recordSliceDomain(recordSlice), [recordSlice]);
+    // Self-subscribe (#611): each source's domain is a STORE read through its choices, and a re-render does not
+    // bust a memo whose deps did not move.
+    useSlicesReactivity(parts.map(({ part }) => part.key));
+    const readDomain = useCallback(() => horizonOf(parts), [parts]);
     const { result: recordDomain } = useTrackedEvaluation(readDomain);
-    const domain = recordSlice !== undefined ? (recordDomain.ok ? recordDomain.value : undefined)
-        : slice === undefined ? undefined : boundRangeDomain(slice.key);
+    const domain = recordDomain.ok ? recordDomain.value : undefined;
     // The domain must speak the axis's arm — a datetime field on a time
     // axis, a numeric field on a number axis. An ordinal axis never fits.
     const fits = domain !== undefined && domain.max >= domain.min && (
@@ -115,16 +110,8 @@ export function HorizonBrush({ styles, gridTemplate, slice, recordSlice, now }: 
         return { lo, hi, periods };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the domain's bounds are primitives; the object is new per read
     }, [fits, domain?.min, domain?.max, scale]);
-    // One histogram bar per period (the §2 mock: 26 weekly bars over a
-    // 26-week horizon), capped for a very long horizon.
-    const buckets = extent !== undefined ? Math.max(1, Math.min(64, extent.periods)) : 0;
-    const counts = useMemo(
-        () => (slice !== undefined && extent !== undefined && buckets > 0 ? boundRangeHistogram(slice.key, buckets, { min: extent.lo, max: extent.hi }) : undefined),
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the histogram's dependency: it re-derives when the STORE moves (#611)
-        [slice?.key, buckets, extent, sliceVersion],
-    );
-    if (!recordDomain.ok && recordSlice !== undefined) return <Box css={styles.partError} role="alert">
-        Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => recordSlice.retry()}>Retry</chakra.button>
+    if (!recordDomain.ok) return <Box css={styles.partError} role="alert">
+        Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => { for (const { part } of parts) part.retry(); }}>Retry</chakra.button>
     </Box>;
     if (extent === undefined || domain === undefined) return null;
 
@@ -157,30 +144,6 @@ export function HorizonBrush({ styles, gridTemplate, slice, recordSlice, now }: 
     const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
     const periods = extent.periods;
     const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
-    // Every write speaks the slice field's arm (#631): `datetime` on a time
-    // axis; `float` / `integer` per the field on a number axis — an Integer
-    // field needs bigint bounds or the range is inert (#167).
-    const arm = slice === undefined ? undefined : rangeArmOf(scale.kind, slice.read(), domain.kind);
-    if (slice !== undefined && arm === undefined) return null;
-
-    // One coalesced slice write per frame — the LAST step wins the frame.
-    const applyStep = (min: PlanInstantValue, max: PlanInstantValue) => {
-        stepPendingRef.current = { min, max };
-        stepFrameRef.current ??= requestAnimationFrame(() => {
-            stepFrameRef.current = null;
-            const w = stepPendingRef.current;
-            stepPendingRef.current = null;
-            if (w !== null && slice !== undefined && arm !== undefined) slice.setRange(some(rangeOf(arm, w.min, w.max)));
-        });
-    };
-    const cancelStep = () => {
-        if (stepFrameRef.current !== null) {
-            cancelAnimationFrame(stepFrameRef.current);
-            stepFrameRef.current = null;
-        }
-        stepPendingRef.current = null;
-    };
-
     return (
         <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon"
             // The esc rung DISARMS on any release — including the
@@ -194,7 +157,7 @@ export function HorizonBrush({ styles, gridTemplate, slice, recordSlice, now }: 
                 gesture, and only strip gestures can ever settle one. */}
             <Box css={styles.brushTrack} onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
                 <BrushStrip
-                    counts={counts}
+                    counts={undefined}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
                     // The strip and its tallest bar are the canvas geometry
@@ -203,28 +166,16 @@ export function HorizonBrush({ styles, gridTemplate, slice, recordSlice, now }: 
                     barHeight={geometry.brushBar}
                     snapWindow={snapWindow}
                     // Snap AGAIN on the instants themselves so float round-trips
-                    // can never land the committed window off an edge. The
-                    // commit cancels any pending step frame, so it is always
-                    // the last write.
+                    // can never land the committed window off an edge. A
+                    // record's query moves once per gesture: the strip owns the
+                    // live selection preview, and the release commits it, so
+                    // dragging never floods the server with a new window for
+                    // each pointer frame.
                     onCommit={(f0, f1) => {
-                        cancelStep();
                         const [a, b] = snapPair(f0, f1);
                         dispatch({ t: "brush.commit", min: a, max: b });
                     }}
-                    // Live per-step application — the strip fires only when
-                    // the SNAPPED draft changes (one step per period-boundary
-                    // crossing), and each step writes the draft window to the
-                    // slice: moves slide the real canvas, resizes zoom it.
-                    // The one-period floor mirrors `snapWindow`, so what the
-                    // steps show is exactly what the release commits.
-                    // Record queries commit once per gesture. BrushStrip owns
-                    // the live selection preview; dragging never floods the
-                    // server with a new window for each pointer frame.
-                    onPreview={recordSlice !== undefined ? undefined : (f0, f1) => {
-                        const [a, b] = snapPair(f0, f1);
-                        applyStep(a, b);
-                    }}
-                    onClear={() => { cancelStep(); dispatch({ t: "brush.clear" }); }}
+                    onClear={() => { dispatch({ t: "brush.clear" }); }}
                 />
                 {/* The lens (#949): from the window's edges on the strip's own
                     scale down to the plot's edges — the grid below is this

@@ -123,14 +123,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     resolutionLabel: () => string;
     /** A time resolution's name — its segment and its one-chip menu. */
     resolutionName: (p: { resolution: string }) => string;
-    /** The slice summary line — `6 of 36 rows · 2 filters` (#949: a plain
-     *  summary; every narrowing the slice holds counts as a filter). */
-    summary: (p: { result: string; total: string; n: number; active: string }) => string;
-    /** The summary line shortened to its count — `6 of 36` — what a toolbar
-     *  short of room keeps of it (#952). */
-    summaryShort: (p: { result: string; total: string }) => string;
-    /** The badge on narrowing chrome that sees only the loaded prefix. */
-    scopeBadge: () => string;
     /** The key search's icon — what a toolbar short of room folds its box
      *  to — and the head of the popover it opens the box in (#1193). */
     keySearch: () => string;
@@ -171,6 +163,22 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     footerPending: (p: { n: number; count: string }) => string;
     /** When an event kind's record was last saved — `saved 14:02`: `when` is its time today, else its date and time. */
     footerSaved: (p: { when: string }) => string;
+    /** What a source's Save notice counts (#1344) — the `rows` source's `row`, `rows`; an event kind's `print job event`: `kind` its name as running text writes it. */
+    saveNoticeNoun: (p: { kind: string | undefined; n: number }) => string;
+
+    // ── The narrowing (#1344) ──────────────────────────────────────────────
+    /** A source of the slice whose narrowing could not be read: its banner's title — `Customers results unavailable`; `name` its label, or the noun the rail counts it in. */
+    narrowingUnavailable: (p: { name: string }) => string;
+    /** Its results moved while they were read. */
+    narrowingChanged: (p: { name: string }) => string;
+    /** Its results could not be read. */
+    narrowingFailed: (p: { name: string }) => string;
+    /** The window could not be written into a source of the slice: its banner's title — on a time axis, its dates. */
+    windowUnavailable: (p: { axis: PlanAxisWord }) => string;
+    /** A library tab the rail leaves no card — `No templates match the filters`; `name` an author's tab's name as running text writes it. */
+    libraryNarrowed: (p: { tab: PlanLibraryTabWord; name: string }) => string;
+    /** The line under it. */
+    libraryNarrowedHint: (p: { tab: PlanLibraryTabWord; name: string }) => string;
 
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
@@ -496,6 +504,10 @@ const fieldNoun = (fields: readonly string[]): string =>
 /** A noun with its article — `a customer`, `an address`. */
 const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
 
+/** What a library tab the rail narrows lists, as its narrowed words say it — `templates`, `backlog events`, an author's tab's name. */
+const narrowedNoun = (tab: PlanLibraryTabWord, name: string): string =>
+    (tab === "events" ? "templates" : tab === "backlog" ? "backlog events" : tab === "series" ? "series" : name);
+
 /** A kind's name in the plural, as English makes one — `Stop` → `Stops`, `Delivery` → `Deliveries`; a name that ends in `s` stays. */
 const pluralName = (name: string): string => {
     if (/s$/i.test(name)) return name;
@@ -534,10 +546,6 @@ export const planMessages: PlanMessages = {
     collapseAll: () => "Collapse all",
     resolutionLabel: () => "Resolution",
     resolutionName: ({ resolution }) => resolution.toUpperCase(),
-    summary: ({ result, total, n, active }) =>
-        `${result} of ${total} rows${n > 0 ? ` · ${active} ${plural(n, "filter", "filters")}` : ""}`,
-    summaryShort: ({ result, total }) => `${result} of ${total}`,
-    scopeBadge: () => "loaded rows only",
     keySearch: () => "Search Records",
     overlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     overlapsShort: ({ count }) => count,
@@ -557,6 +565,14 @@ export const planMessages: PlanMessages = {
     footerBacklog: ({ count }) => `${count} in backlog`,
     footerPending: ({ count }) => `${count} pending`,
     footerSaved: ({ when }) => `saved ${when}`,
+    saveNoticeNoun: ({ kind, n }) => (kind === undefined ? plural(n, "row", "rows") : `${kind} ${plural(n, "event", "events")}`),
+
+    narrowingUnavailable: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results unavailable`,
+    narrowingChanged: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results changed; retry the narrowing.`,
+    narrowingFailed: ({ name }) => `Could not load ${name} results`,
+    windowUnavailable: ({ axis }) => (axis === "time" ? "Dates unavailable" : "Window unavailable"),
+    libraryNarrowed: ({ tab, name }) => `No ${narrowedNoun(tab, name)} match the filters`,
+    libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${narrowedNoun(tab, name)}.`,
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),

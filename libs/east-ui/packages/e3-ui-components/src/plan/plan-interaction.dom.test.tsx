@@ -7,9 +7,10 @@
  * Plan interaction DOM tests — selection and the esc ladder, the hover
  * cursor as DOM chrome (#609), element clicks and the keyboard rungs (#569),
  * the #615 interaction fixes, and the root's element resolvers (popover /
- * hover).
+ * hover). The window the keys move is the record Slice's half-open range
+ * (#1344), over parts holding their rows in the test.
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -18,14 +19,14 @@ import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { system, UIStore } from "@elaraai/east-ui-components";
+import { initializeStore, recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanElementRefValue } from "./context.js";
 import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { recordPart, recordSlices, type RecordPart } from "./record-slices.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -273,46 +274,35 @@ describe("Plan element clicks (#569, #824)", () => {
     });
 });
 
-describe("Plan keyboard rungs (#569)", () => {
-    const sliceFixture = (key: string) => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        return buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none) as never as {
-            read(): { range: { value: { value: { from: Date; to: Date } } } };
-        };
-    };
+/** The rows' source, its window W27..W39 by the week: what the keys and the segment write. */
+const weeklyPart = (key: string, values: readonly number[] = [W27.getTime()]): RecordPart => {
+    initializeStore(new UIStore());
+    return recordPart({ key: `${key}.rows`, range: { id: "at", kind: "datetime", label: "At", values }, window: [W27.getTime(), W39.getTime()], resolution: "week" });
+};
 
+describe("Plan keyboard rungs (#569)", () => {
     test("[ and ] PAN the window one period through the slice; n recenters on now — asserted on the WINDOW, not on emitted effects", () => {
-        const handle = sliceFixture("plan.kbd.pan");
+        const part = weeklyPart("plan.kbd.pan");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [] }),
+            slice: some(recordSlices("plan.kbd.pan", [{ source: "rows", slice: part }], [])),
         }), "plan-kbd-pan");
         const surface = container.querySelector('[tabindex="0"]')!;
-        const range = () => handle.read().range.value.value;
+        const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
 
-        // A slice range is closed, so each window `[a, b)` is written ending
-        // the millisecond before `b` (#949) — and read back whole, so a pan
-        // and its inverse land exactly where they began.
+        // A record's range is half-open, as the window is (#1344) — and read
+        // back whole, so a pan and its inverse land exactly where they began.
         fireEvent.keyDown(surface, { key: "[" });
         expect(range().from.toISOString()).toBe("2026-06-22T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-09-13T23:59:59.999Z");
+        expect(range().to.toISOString()).toBe("2026-09-14T00:00:00.000Z");
         fireEvent.keyDown(surface, { key: "]" });
         expect(range().from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-09-20T23:59:59.999Z");
+        expect(range().to.toISOString()).toBe("2026-09-21T00:00:00.000Z");
 
         // n re-derives the window on period edges with the same column count,
         // now (Aug 12 → its Monday, W33) a third of the way in.
         fireEvent.keyDown(surface, { key: "n" });
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-10-04T23:59:59.999Z");
+        expect(range().to.toISOString()).toBe("2026-10-05T00:00:00.000Z");
     });
 
     test("without a slice the pan rungs idle — the declared window is not writable", () => {
@@ -379,21 +369,9 @@ describe("The toolbar's expand/collapse control", () => {
     });
 
     test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        const handle = buildSliceHandle("plan.632.resolution", cfg, initial as never, [{ at: W27 }] as never, none) as never as {
-            read(): { resolution: { type: string; value: { type: string } } };
-        };
+        const part = weeklyPart("plan.632.resolution");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [] }),
+            slice: some(recordSlices("plan.632.resolution", [{ source: "rows", slice: part }], [])),
             resolutions: [variant("week", null), variant("day", null)],
         }), "plan-632-resolution");
         const seg = container.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
@@ -406,7 +384,7 @@ describe("The toolbar's expand/collapse control", () => {
         act(() => week!.focus());
         fireEvent.keyDown(week!, { key: "ArrowRight" });
         expect(document.activeElement).toBe(day);
-        expect(handle.read().resolution.value.type).toBe("day");
+        expect(part.read().resolution).toEqual(some(variant("day", null)));
         await waitFor(() => expect(day!.getAttribute("aria-checked")).toBe("true"));
         expect(day!.tabIndex).toBe(0);
     });
@@ -414,20 +392,9 @@ describe("The toolbar's expand/collapse control", () => {
 
 describe("Plan interaction fixes (#615)", () => {
     test("neither a caption click nor a sub-threshold strip click leaves a phantom brush esc rung", () => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        const handle = buildSliceHandle("plan.brush.phantom", cfg, initial as never,
-            [{ at: W27 }, { at: W39 }] as never, none) as never;
+        const part = weeklyPart("plan.brush.phantom", [W27.getTime(), W39.getTime()]);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+            slice: some(recordSlices("plan.brush.phantom", [{ source: "rows", slice: part }], ["brush"])),
         }), "plan-brush-phantom");
 
         // Select a row — the esc target a phantom rung would eat.

@@ -31,14 +31,16 @@
  * runs its own effects — slice writes, the author's callbacks, page requests —
  * before it returns. What is left here is composition.
  *
- * Slice integration is the Table adopter pattern, chrome-only: the rows are
- * whatever the host fed (`Slice.rows` upstream) — the Plan never narrows its
- * own data. The listed affordances are the frame's toolbar items
- * (`useSliceToolbarItems`); `brush` mounts as the 32px horizon band, in main,
- * `resolution` as the WEEK/DAY segment, `summary` as the toolbar count line. Beyond Table
- * (the §3 contract), the slice's `range` / `resolution` STATE is the window /
- * resolution source of truth — the axis seeds the unbound case — and the
- * brush / segment write back through the slice.
+ * The narrowing is one `Slice.bindRecords` (#1344, `root/sources.ts`): its
+ * `rows` source gives the canvas its rows, paged from it; each event kind
+ * narrowed through a source of its own reads its events through it, and the
+ * frame narrows a resource kind's rows by its source's shown resources
+ * (`shown`). The rail is the frame's toolbar items
+ * (`useRecordSlicesToolbarItems`); `brush` mounts as the 32px horizon band, in
+ * main, the resolution as the WEEK/DAY segment, `summary` as the rail's
+ * counts. The window is the sources' shared `range` (`root/window.ts`): every
+ * source holding one holds it with the others — the axis seeds a canvas with
+ * none — and the brush, the time navigator and the keys write each of them.
  *
  * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
  * every window read / write speaks the slice arm that kind maps to
@@ -115,8 +117,12 @@ import {
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
-import { usePlanWindow } from "./root/window.js";
-import { eventReadRange, usePlanEventBlocks, usePlanEventRoot, type PlanEventRows } from "./root/events.js";
+import { createPlanWindowHold, usePlanWindow } from "./root/window.js";
+import { planEventParts, planNouns, planPart, ROWS_SOURCE } from "./root/sources.js";
+import {
+    ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
+    type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
+} from "./root/events.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -236,6 +242,13 @@ export interface PlanCanvasArgs {
     tabs?: readonly PlanLibraryTabValue[] | undefined;
     /** The Plan's drop veto over an event kind's drop (#1196): `Schedule.Types.Candidate` to its refusal's message. */
     canDrop?: PlanEventCanDropFn | undefined;
+    /** The resources the rail shows (#1344): by a resource kind's slot, the keys its source shows — what its rows draw. */
+    shown?: PlanEventShownValue | undefined;
+    /**
+     * Whether a resource kind's source is resolving a new narrowing, or its last read failed (#1344): main keeps the
+     * rows it shows, busy, and takes no gesture until the narrowing lands.
+     */
+    busy?: boolean | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -247,12 +260,12 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds with when their drafts go, the resource kinds, the library's tabs, and the event kinds' drop veto
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds with when their drafts go, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, and whether their narrowing is resolving
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch",
-    resources = NO_RESOURCES, tabs = NO_TABS, canDrop,
+    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -272,6 +285,8 @@ export function usePlanCanvas({
     const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
     const persistTo = useRef(setStored);
     useLayoutEffect(() => { persistTo.current = setStored; });
+    // The window last shown while no source of the slice holds one (#1344): the render's and the effects'.
+    const [windowHold] = useState(createPlanWindowHold);
 
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({
@@ -283,17 +298,23 @@ export function usePlanCanvas({
         // and written from outside through the state store.
         ui: getSomeorUndefined(hostValue.ui),
         subscribeUi: (listener) => getStore().subscribe(listener),
+        windowHold,
     }));
     // What the live region speaks in (#820) — handed over before anything can
     // be said.
     useLayoutEffect(() => { controller.setWords(words); }, [controller, words]);
     const paging = useControllerSelector(controller, selectPaging);
 
-    // ── The slice and the scale ───────────────────────────────────────────
+    // ── The narrowing and the scale ───────────────────────────────────────
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
-    // with.
-    const { slice, recordChrome, affordances, scale } = usePlanWindow(hostValue, hostData, words);
+    // with (#1344): the sources holding the window, the `rows` source, and
+    // each event kind narrowed through its own.
+    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold);
+    const rowsPart = useMemo(() => planPart(slices, ROWS_SOURCE), [slices]);
+    const eventParts = useMemo(() => planEventParts(slices, kinds), [slices, kinds]);
+    // Each event kind's Save notice counts what leaves its own source's narrowing.
+    const eventSlices = useMemo(() => eventParts.map(({ part }) => part), [eventParts]);
 
     // ── The editing session (#880) ────────────────────────────────────────
     // Every dropped card, move and resize is a DRAFT of the entry its row
@@ -329,15 +350,19 @@ export function usePlanCanvas({
         () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
         [editing.enabled, editing.historyKey, editing.session]);
     const eventRange = useMemo(() => eventReadRange(scale), [scale]);
-    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined, range: eventRange });
+    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices });
     const history = eventEditing.history;
     historyRef.current = history;
 
     // ── The event kinds' rows (#1192) ─────────────────────────────────────
     // Read over the range the scale draws, what the viewer hides left out
-    // (#1195), every kind's drafts in place (#1194): they lead every other row
-    // as fixed blocks.
-    const lead = usePlanEventBlocks(events, scale, hidden, eventEditing.drafts);
+    // (#1195), every kind's drafts in place (#1194), of a resource kind the
+    // rail narrows the resources it shows (#1344): they lead every other row
+    // as fixed blocks. Read by a component of their own (`PlanEventsReader`,
+    // in `provide`), which hands them over only when they move.
+    const standIn = useMemo(() => initialEventLead(events), [events]);
+    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
+    const lead = readLead ?? standIn;
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
@@ -459,7 +484,8 @@ export function usePlanCanvas({
     // snapshot of the source's data, whose rows the matches it holds no longer
     // index (#821, #1199). New rows over the same data — a pan reading the
     // event kinds' rows again, a draft — move neither, so the search stands.
-    const seekable = recordChrome === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
+    // The `rows` source's own Search Records stays primary-key navigation: the rail narrows, never the key search.
+    const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     const search = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...controller.search, resetKey: sourceId, requery: seek.again } : undefined),
@@ -961,6 +987,9 @@ export function usePlanCanvas({
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
+    const eventsReader = events !== undefined
+        ? <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources} onLead={setLead} />
+        : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
             <PlanWordsContext.Provider value={words}>
@@ -987,8 +1016,15 @@ export function usePlanCanvas({
             </PlanControllerContext.Provider>
             </PlanWordsContext.Provider>
         );
-        return densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided;
+        return (
+            <>
+                {eventsReader}
+                {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}
+            </>
+        );
     };
+    // What the rail counts each source in (#1344).
+    const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
     const bound = declaredBound ? { height, maxHeight } : undefined;
 
     // A source that cannot be READ no longer replaces the canvas (#811): its
@@ -1012,7 +1048,7 @@ export function usePlanCanvas({
 
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef}
-            slice={slice} recordSlice={recordChrome?.slice} affordances={affordances} now={now}
+            windowParts={windowParts} affordances={affordances} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             pinned={pinned.map((v) => (
@@ -1237,6 +1273,10 @@ export function usePlanCanvas({
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={transport?.partial === true ? "" : undefined}
+            // A resource kind's narrowing resolving (#1344): the rows it
+            // showed stay, busy, and take no gesture until it lands.
+            aria-busy={busy ? true : undefined}
+            inert={busy ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —
             // never shrunk to main's — so a host that bounds the frame is
@@ -1358,7 +1398,7 @@ export function usePlanCanvas({
         bound,
         main,
         chrome: {
-            words, styles, storageKey, scale, slice, recordChrome, affordances, resolutions,
+            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, rowsPart, eventParts, nouns, windowError, affordances, resolutions,
             // The grain folds the canvas's root groups (#632); below 480px the
             // narrow layout's Groups · Rows tabs own them, so nothing is left
             // for the segment to do there.

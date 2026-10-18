@@ -6,7 +6,7 @@
  *
  * UI state survives a remount (#813) — under the canvas's `storageKey`, the
  * user's collapse toggles, expanded charts and scroll anchor persist, and a
- * remount restores them; a bound slice keeps the resolution. jsdom lays
+ * remount restores them; the slice's source keeps the resolution (#1344). jsdom lays
  * nothing out and cannot scroll, so the bounded frame's geometry is stubbed
  * and its `scrollTo` moves `scrollTop` the way a browser does.
  */
@@ -15,12 +15,12 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, act, waitFor, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
+import { system, UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import { blocksSource, oneBlock, rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
+import { recordPart, recordSlices } from "./record-slices.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -137,25 +137,18 @@ const storedAt = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null"
     collapse: [string, boolean][]; charts: string[]; anchor: { key: string; offset: number; index: number } | null;
 };
 
-/** A slice bound for the resolution segment (WEEK / DAY). */
+/** A slice for the resolution segment (WEEK / DAY): its rows' source, holding the window W27..W39 by the week. */
 function resolutionSlice(key: string) {
-    const cfg = sliceConfig({
-        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-    }, { rangeFieldId: some("at") });
-    const initial = {
-        range: some(variant("datetime", { from: W27, to: W39 })),
-        compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
-        resolution: some(variant("week", null)),
-    };
-    return buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none);
+    const part = recordPart({ key: `${key}.rows`, range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime()] },
+        window: [W27.getTime(), W39.getTime()], resolution: "week" });
+    return recordSlices(key, [{ source: "rows", slice: part }], ["resolution"]);
 }
 
 describe("Plan UI state survives a remount (#813)", () => {
     test("collapse, expanded charts, resolution and the scroll anchor come back with the same storageKey", async () => {
         const slice = resolutionSlice("plan-813-slice");
         const value = () => planRoot(rows(), {
-            slice: some({ slice, affordances: [variant("resolution", null)] }),
+            slice: some(slice),
             resolutions: [variant("week", null), variant("day", null)],
         });
         const first = renderPlan(value(), "plan-813");
