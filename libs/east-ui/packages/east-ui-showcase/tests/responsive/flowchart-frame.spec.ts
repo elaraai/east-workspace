@@ -10,20 +10,21 @@
  * example gives it — one 44px toolbar row, the canvas filling main, the
  * inspector at main's end (#1250) — on by default, and at the example's width
  * its 44px rail, the frame too narrow to pin it beside main — the footer's
- * counts along the foot — and no eyebrow of the canvas's own. The
- * toolbar folds by one ladder, the slice's rail first, then the freshness
- * chip goes, LR · TD folds into its chip and find state into its icon: one
- * row at every width from 1440px to 320px, nothing past its edge, a narrower
- * row never folding less. The canvas scrolls both ways inside main under the
- * viewer's wheel, its lanes running main's whole height, the toolbar and the
- * footer staying put; over the host's tables with no `onApply` it edits nothing
- * — no "+ LANE", no lane's ×, no history item (#1247); find
- * state's query, typed a key at a time, finds a state by its label, and a
- * pick selects it and scrolls it into the canvas's view. In both themes; on a
- * phone the row holds every item, folded — LR · TD's chip with Font Awesome's
- * caret, sized by the chip recipe — and on a touch screen 1920px wide every
- * item unfolded. Every measurement is polled until it holds, on a page at
- * rest.
+ * counts along the foot — and no eyebrow of the canvas's own. The toolbar
+ * folds by one ladder — the freshness chip goes, LR · TD folds into its chip
+ * and find state into its icon — with no rail: the host's tables are never
+ * narrowed (#1346). One row at every width from 1440px to 240px, nothing past
+ * its edge, a narrower row never folding less. The canvas scrolls both ways
+ * inside main under the viewer's wheel, its lanes running main's whole height,
+ * the toolbar and the footer staying put; over the host's tables with no
+ * `onApply` it edits nothing — no "+ LANE", no lane's ×, no history item
+ * (#1247); find state's query, typed a key at a time, finds a state by its
+ * label, and a pick selects it and scrolls it into the canvas's view. In both
+ * themes; on a phone the row holds every item, the freshness chip folded and
+ * LR · TD and find state whole, and in a 240px frame LR · TD's chip — Font
+ * Awesome's caret, sized by the chip recipe — and find state's icon; and on a
+ * touch screen 1920px wide every item unfolded. Every measurement is polled
+ * until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-frame --project desktop`.
@@ -34,8 +35,8 @@ import { settled } from "./settle";
 
 const HASH = "e3/flowchart/flowchart/flowchartDepot";
 
-/** The fold ladder: the rail's four steps, then the freshness chip, LR · TD and find state. */
-const LADDER = "rail>1 rail>2 rail>3 rail>4 freshness>1 orientation>1 seek>1";
+/** The fold ladder: the freshness chip, LR · TD and find state — no rail, the host's tables never narrowed (#1346). */
+const LADDER = "freshness>1 orientation>1 seek>1";
 
 /** Open the depot's flowchart, at rest, and return its root: the box its frame fills. */
 async function openDepot(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
@@ -140,10 +141,11 @@ test.describe("The Flowchart's frame (#1245)", () => {
             expect(read.body).toEqual(read.main);
         });
 
-        test(`the toolbar folds by one ladder — the rail first, then the freshness chip, LR · TD into its chip, find state into its icon — one row at every width from 1440px to 320px, nothing past its edge (${theme})`, async ({ page }) => {
+        test(`the toolbar folds by one ladder — the freshness chip, LR · TD into its chip, find state into its icon — one row at every width from 1440px to 240px, nothing past its edge (${theme})`, async ({ page }) => {
             const root = await openDepot(page, theme);
             const seen: { row: number; folds: number }[] = [];
-            for (const width of [1440, 1200, 1000, 800, 640, 480, 400, 360, 320]) {
+            // With no rail the row keeps LR · TD and find state whole down to some 300px: the sweep runs on until each folds.
+            for (const width of [1440, 1200, 1000, 800, 640, 480, 400, 360, 320, 280, 240]) {
                 await sizeTo(page, root, width);
                 const bar = await toolbarOf(root);
                 expect(bar.ladder).toBe(LADDER);
@@ -222,13 +224,18 @@ test.describe("The Flowchart's frame on a phone and on a touch screen (#1245)", 
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`on the phone the row holds every item, folded — the rail's icon, LR · TD's chip, its caret Font Awesome's, find state's icon — in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
+        test(`on the phone the row holds every item — the freshness chip folded, LR · TD and find state whole, no rail over the host's tables (#1346) — and in a 240px frame LR · TD's chip, its caret Font Awesome's, and find state's icon, in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
             const root = await openDepot(page, theme);
+            const phone = await toolbarOf(root);
+            expect([phone.band, phone.rows, phone.past]).toEqual([44, 1, []]);
+            expect(phone.ladder).toBe(LADDER);
+            expect(phone.state).toBe("seek=0/2;orientation=0/2;freshness=1/2");
+            // A frame narrower than the phone's folds the rest.
+            await sizeTo(page, root, 240);
             const bar = await toolbarOf(root);
             expect([bar.band, bar.rows, bar.past]).toEqual([44, 1, []]);
-            expect(bar.ladder).toBe(LADDER);
-            expect(bar.state).toBe("seek=1/2;orientation=1/2;freshness=1/2;rail=4/5");
-            for (const control of ["[data-toolbar-item='rail'] [data-slot='railTrigger']", "[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']"]) {
+            expect(bar.state).toBe("seek=1/2;orientation=1/2;freshness=1/2");
+            for (const control of ["[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']"]) {
                 await expect(root.locator(control)).toBeVisible();
             }
             // LR · TD's chip: its caret Font Awesome's solid caret-down (#1246), the chip recipe sizing it —

@@ -560,12 +560,12 @@ const LIBRARY_CARDS: Record<string, { key: string; icon: string; grip: string | 
         { key: "Inbound parcels", icon: "fas diagram-project", grip: null },
         { key: "Returns", icon: "fas diagram-project", grip: null },
     ],
-    // The step types, by their kind: Intake, Sort, Hold, Load.
+    // The step types, a templates record's rows by their code, grouped by their kind: Intake, Sort, Hold, Load (#1346).
     Steps: ["ARV", "SCN", "CH*", "HLD", "LDD"].map((key) => ({ key, icon: "fas box", grip: "fas grip-vertical" })),
-    // The transition types, a record's rows by name.
+    // The transition types, a templates record's rows by name.
     Transitions: ["Observed", "Planned", "Routed"].map((key) => ({ key, icon: "fas arrow-right", grip: "fas grip-vertical" })),
-    // The roles that own a decision, the author's own cards.
-    Owners: ["sort-planner", "customs-desk"].map((key) => ({ key, icon: "fas user-tie", grip: "fas grip-vertical" })),
+    // The roles that own a decision, the author's own cards: a record's rows, in its key order (#1346).
+    Owners: ["customs-desk", "sort-planner"].map((key) => ({ key, icon: "fas user-tie", grip: "fas grip-vertical" })),
 };
 
 /** Open the depot's flows with its library, at rest, and return the flowchart's root. */

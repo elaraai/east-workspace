@@ -373,7 +373,9 @@ export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './she
 // The Flowchart (#1243–#1250): `<Flowchart>` with its namespace, the payload
 // the renderer takes through the `Flowchart` carrier — its canvas, its source
 // of flows with the editing session's Save over a record or the host's flows,
-// its library's wire, each data tab's cards read from its own rows, and its
+// a record's flows paged through its slice's `flows` source (#1346), its
+// library's wire, each data tab's cards read from its own rows and following
+// the source it names, its rail and each source's narrowed keys, and its
 // inspector's, each kind's own Details — its shared keys, its library's tabs,
 // and the types a flowchart is written with. `Flowchart` here is the internal
 // namespace — the public one, `Flowchart.Payload`, `Flowchart.Component` and
@@ -392,6 +394,7 @@ export {
     type FlowchartInspectorOptions,
     type FlowchartRowInspector,
     FlowchartLibraryFactories,
+    buildFlowchartLibrary,
     libraryFlows,
     libraryStates,
     libraryTransitions,
@@ -400,6 +403,7 @@ export {
     type FlowchartLibraryTab,
     type FlowchartOneFlowLibraryTab,
     type FlowchartLibraryRows,
+    type FlowchartTemplateRows,
     type FlowchartFlowsTab,
     type FlowchartStatesTab,
     type FlowchartTransitionsTab,
@@ -434,7 +438,6 @@ export {
     type FlowchartRecordHandle,
     type FlowchartBindHandle,
     type FlowchartCanvasOptions,
-    type FlowchartSliceOptions,
     type FlowchartFreshnessInput,
     type FlowchartOrientationLiteral,
     type RowElement,

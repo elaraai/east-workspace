@@ -50,10 +50,10 @@ A builder's tag checks its `slice` with `utils/record-sources.ts`'
 `recordSources`, a Library tab's `source` with `tabSource`, and a templates
 list's source with `templatesSource` (#1340): each builder that has moved onto
 them takes only `Slice.bindRecords`, its sources named after what they narrow —
-the Allocation, the Roster, the Calendar and the Sheet so far, the others each
-in their own child of #1340. Templates are records: each list names its source
-of the one `Slice.bindRecords`, and a list written in the code is refused,
-naming the change to make.
+the Allocation, the Roster, the Calendar, the Sheet and the Flowchart so far,
+the others each in their own child of #1340. Templates are records: each list
+names its source of the one `Slice.bindRecords`, and a list written in the code
+is refused, naming the change to make.
 
 A function captures what it reads, so a builder binds what a function reads of
 a source before the function reads it: `recordSources` pages each source's keys
@@ -79,6 +79,17 @@ record bound with `Data.bind`, a grouped sheet's row templates and group
 templates two records and two sources. A saved view is a
 `Sheet.Types.RecordView`, every source's narrowing by name. The lens is off
 until #1349: the rail filters the rows.
+
+The Flowchart (#1346) takes `slice={{ slice: Slice.bindRecords(key, { flows, …
+}) }}`. Over `record`, its `flows` source — `Data.bindPaged(record, { indexes
+})` over the same record — narrows the Flows tab, which pages and counts it;
+without one the Flows tab lists the record read whole. `window` is refused.
+Over `data`, the host's flows or the flow `Flowchart.over` builds from the
+host's tables, nothing narrows the flows: the slice holds only the sources its
+templates lists and tabs name. Each list is `Flowchart.library.states(
+templates.read(), { …, source })` (or `transitions`) over a keyed record bound
+with `Data.bind`, each card keyed by the record's key, so a list takes no
+`key`; an app's tab that names a `source` follows it by the key its `key` gives.
 
 Until a builder has moved:
 
@@ -152,13 +163,16 @@ which index declarations a view lists and is the shared editing identity.
 ### Flowchart records and indexed Flows lists
 
 One flow is one complete record entry. Bind the mutation door with
-`Record.bind`, and bind its browse source with `Data.bindPaged(record,
-{ indexes })` and `Slice.bindRecord`. Pass `window={Slice.rows(slice)}` and
-`slice={{ slice }}` to Flowchart. The Flows tab pages that ordered query through
-shared `PagedLibrary`/`VirtualRows`; never fetch every flow to render or search
-its cards. Record Slice owns indexed field choices, prefix search and counts.
-`Find state` searches the complete open graph by state key and label; it does
-not search all flow records. Keep those purposes clear in labels and examples.
+`Record.bind`, and narrow the flows through the `flows` source of the one
+`Slice.bindRecords`: `Data.bindPaged(record, { indexes })` over the same record.
+Pass `slice={{ slice }}` to Flowchart. The Flows tab pages that source through
+shared `PagedLibrary`/`VirtualRows` and counts what it shows (`Flows 683 of
+2,048`); never fetch every flow to render or search its cards. Record Slice owns
+indexed field choices, prefix search and counts; the Flows tab's own search
+finds within the narrowing by the source's `search` fields through its
+`pageWhere`, never writing the rail (#1340, ruling 11). `Find state` searches
+the complete open graph by state key and label; it does not search all flow
+records. Keep those purposes clear in labels and examples.
 
 Computed filters use the index's own key type, including values derived from
 nested graph data. Scalar keys use the index name; Struct keys expose their

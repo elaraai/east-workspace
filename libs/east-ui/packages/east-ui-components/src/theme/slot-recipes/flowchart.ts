@@ -32,11 +32,14 @@
  * dashed, with a brand line where the state lands; the state, the transition
  * (the brand wash) or the diamond it sets in the brand — each shown only while
  * the drag rests there and the drop lands; a refusal is the ghost's red
- * caption, and the not-allowed cursor.
+ * caption, and the not-allowed cursor. A library tab over a source of the
+ * rail (#1346) is the shared schedule pane's body (`pane`), busy and taking
+ * no gesture while its source resolves.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { schedulePaneBase } from "./schedule-pane.js";
 
 /** Where a drop is taken, and not refused (#1249): the stage the canvas's marks show on. */
 const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
@@ -52,8 +55,9 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "dropLane", "dropSeam",
         "legend", "legendTitle", "legendRow",
         "minimap",
-        "footer", "footerFlow", "footerStrong", "footerNeg", "footerMessage", "footerSplit",
+        "footer", "footerFlow", "footerStrong", "footerMessage", "footerSplit",
         "flowsTab", "flowsDrafts", "flowsList", "flowsFoot", "newFlow", "noFlows",
+        "pane",
     ],
     base: {
         /* Fills the box it is given and draws no border: the frame inside it
@@ -438,7 +442,6 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         /* The open flow's name, leading the counts over many flows. */
         footerFlow: { color: "fg", fontWeight: "600" },
         footerStrong: { color: "fg", fontWeight: "700" },
-        footerNeg: { color: "status.neg", fontWeight: "600" },
         /* Why a card's ⏎ was refused (#1249): the footer's own ink, cut short before the split. */
         footerMessage: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },
@@ -512,5 +515,9 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             overflow: "auto",
         },
+
+        /* ── a library tab over a source of the rail (#1346): the shared
+         *    schedule pane's body, as the Sheet's tabs take it ──────────── */
+        pane: schedulePaneBase.pane,
     },
 });

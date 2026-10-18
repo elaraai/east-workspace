@@ -25,6 +25,12 @@
  * from the left edge and its states sit where `layout.ts` puts them; the
  * canvas's drop cell is laid out at the client origin, so a pointer's client
  * point is the canvas's own.
+ *
+ * Templates are records (#1346): each templates list names its source of the
+ * flowchart's one `Slice.bindRecords`, here over the examples' templates
+ * records, served by the harness's paging service. Nothing narrows them here,
+ * so each list shows the rows it is given whole; the narrowing's own tests are
+ * `flowchart-narrowing.dom.test.tsx`'s.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -34,12 +40,14 @@ import {
     ArrayType, DictType, East, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant,
     type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
-import { Flowchart } from "@elaraai/e3-ui/internal";
+import { Data, Flowchart } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as edits from "./edits.js";
-import { enabled, mountRecord, press, readRecord, recordHarness, settle, type RecordHarness } from "./flowchart.test-utils.js";
+import { enabled, exampleRecord, mountRecord, press, readRecord, recordHarness, servedRecord, settle, type RecordHarness } from "./flowchart.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
 import { NODE_H, NODE_W, computeLayout, type FlowchartLayout } from "./layout.js";
 import { flowchartMessages } from "./messages.js";
@@ -101,9 +109,9 @@ const FLOWS: Flows = Flowchart.values({
     "Returns": { lanes: [{ key: "counter", label: "Counter" }], states: [{ key: "RCV", label: "Received", lane: "counter" }], links: [] },
 });
 
-/** A step type; the second has no code of its own, so its state's key is minted. */
+/** A step type, by its name in its templates record; the second has no code of its own, so its state's key is minted. */
 const StepRow = StructType({ code: StringType, name: StringType });
-const STEPS: ValueTypeOf<typeof StepRow>[] = [{ code: "HLD", name: "Held" }, { code: "", name: "Step" }];
+const STEPS = new SortedMap<string, ValueTypeOf<typeof StepRow>>([["Held", { code: "HLD", name: "Held" }], ["Step", { code: "", name: "Step" }]], compareFor(StringType));
 /** A transition type, by name. */
 const MoveRow = StructType({ kind: Flowchart.Types.Kind });
 const MOVES = new SortedMap<string, ValueTypeOf<typeof MoveRow>>([["Observed", { kind: variant("observed", null) }]], compareFor(StringType));
@@ -117,28 +125,38 @@ const NOTES: ValueTypeOf<typeof NoteRow>[] = [{ text: "Checked at the bay" }];
 const NameRow = StructType({ label: StringType });
 const NAMES: ValueTypeOf<typeof NameRow>[] = [{ label: "Sortation" }];
 
+/** The records the templates lists' sources page, each through its index (#1346). */
+const TEMPLATE_RECORDS = [ex.stepTemplates, ex.moveTemplates].map(exampleRecord);
+const SERVED = [servedRecord(ex.stepTemplates, [ex.stepsByKind]), servedRecord(ex.moveTemplates, [ex.movesByKind])];
+
 /**
  * The sort flow opened first, with its library: the Flows tab, the step
  * types, the transition types, and the author's owners (onto a decision),
  * notes (onto a state) and names (onto a lane's header) — each tab over its
- * rows, bound in the block.
+ * rows, bound in the block, each templates list naming its source of the one
+ * rail (#1346).
  */
 function depot<T extends EastType>($: BlockBuilder<T>) {
-    const steps = $.const(STEPS, ArrayType(StepRow));
+    const steps = $.const(STEPS, DictType(StringType, StepRow));
     const moves = $.const(MOVES, DictType(StringType, MoveRow));
     const owners = $.const(OWNERS, ArrayType(OwnerRow));
     const notes = $.const(NOTES, ArrayType(NoteRow));
     const names = $.const(NAMES, ArrayType(NameRow));
+    const slice = $.let(Slice.bindRecords("flowchart.drop", {
+        steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+        moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: [ex.movesByKind] }) },
+    }));
     return {
         flow: "Sort",
+        slice: { slice },
         library: [
             Flowchart.library.flows(),
             Flowchart.library.states(steps, {
-                name: "Steps", icon: "box", key: (s) => s.name, label: (s) => s.name, meta: (s) => some(s.code),
+                name: "Steps", icon: "box", source: "steps", label: (s) => s.name, meta: (s) => some(s.code),
                 drop: (s) => Flowchart.patch(Flowchart.Types.State, { key: s.code, label: some(s.name) }),
             }),
             Flowchart.library.transitions(moves, {
-                icon: "arrow-right", key: (_mv, name) => name, label: (_mv, name) => name,
+                icon: "arrow-right", source: "moves", label: (_mv, name) => name,
                 drop: (mv) => Flowchart.patch(Flowchart.Types.Link, { kind: some(mv.kind) }),
             }),
             Flowchart.library.tab(owners, {
@@ -159,13 +177,14 @@ function depot<T extends EastType>($: BlockBuilder<T>) {
 
 /** The sort flow over a record, its library listed, under the page's drag layer. */
 async function mountDepot(): Promise<{ container: HTMLElement; harness: RecordHarness }> {
-    const harness = recordHarness(FLOWS);
+    const harness = recordHarness(FLOWS, TEMPLATE_RECORDS, SERVED);
     const { container } = await mountRecord(depot, { drag: true });
     return { container, harness };
 }
 
 /** The sort flow as the host's read-only flows — no `onApply` — its library listed, under the page's drag layer. */
 async function mountReadOnly(): Promise<RenderResult> {
+    recordHarness(FLOWS, TEMPLATE_RECORDS, SERVED);
     const value = East.compile(East.function([], Flowchart.Types.Payload, ($) => Flowchart.Payload({ data: FLOWS, ...depot($) })),
         getRegisteredPlatformImplementations())() as FlowchartValue;
     const utils = render(

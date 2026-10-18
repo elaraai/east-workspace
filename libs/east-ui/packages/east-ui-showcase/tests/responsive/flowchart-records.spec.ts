@@ -3,7 +3,18 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 
+/**
+ * The Flowchart's indexed flows on the real in-page e3 (#1246, #1346): one
+ * rail over the record's `flows` source, the Flows tab paging what it narrows
+ * the record to. One cold workspace per device runs the whole query, edit and
+ * paging lifecycle; and at every width, in both themes, the Flows tab — or the
+ * collapsed pane's badge — counts what the rail shows (`Flows 683 of 2,048`),
+ * its count in the type its whole count has, the rail folding first and the
+ * row whole, and the tab's own search finds a flow by its name within the
+ * narrowing, the rail and the count as they were.
+ */
 import { expect, test, type Locator, type Page } from "playwright/test";
+import { toolbarFaults } from "./builder-frame";
 import { openFlowchart } from "./flowchart-page";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
@@ -33,7 +44,8 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     page.on("pageerror", error => errors.push(error.message));
     const { root } = await openFlowchart(page, "flowchartRecordIndexes");
     const save = root.locator("[data-toolbar-item='history'] [data-slot='history'] button").last();
-    const toolbar = root.locator("[data-toolbar]");
+    // The frame's toolbar: the Flows tab's search has a row of its own.
+    const toolbar = root.locator("[data-frame-slot='toolbar'] [data-toolbar]");
     await expect.poll(() => toolbar.evaluate(el => {
         const box = el.getBoundingClientRect();
         return [...el.querySelectorAll("button")].every(button => {
@@ -155,3 +167,66 @@ test("Flowchart indexed records page, search and retain drafts @narrow", async (
     expect(errors).toEqual([]);
     expect(await root.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
+
+/** Sets the width of the flowchart's box, and waits for the page at rest. */
+async function widthTo(page: Page, root: Locator, width: number) {
+    await root.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
+    await settled(page);
+}
+
+/** Chooses one description through the rail's field editor: the flows of that description, exactly. */
+async function chooseDescription(page: Page, root: Locator, description: string) {
+    const editor = await recordField(page, root, "description");
+    await editor.getByPlaceholder("Search flows…").fill(description.split(" ")[0]!);
+    await page.getByRole("option", { name: new RegExp(`^${description}`) }).click();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await settled(page);
+}
+
+for (const theme of ["light", "dark"] as const) {
+    test(`the Flows tab counts what the rail's flows source shows — \`Flows 683 of 2,048\`, in the type its whole count has — at every width and in a 294px frame, or, the pane on its rail, its badge; the rail folds first, and the tab's own search finds within the narrowing (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const { root } = await openFlowchart(page, "flowchartRecordIndexes", theme);
+        await widthTo(page, root, 1920);
+        await pane(root, "Library");
+        const start = root.locator("[data-frame-slot='start']");
+        const tab = start.locator("[role='tab']");
+        const cards = start.locator("[data-library-paged] [data-library-item]");
+        const keys = () => cards.evaluateAll((els) => els.map((el) => el.getAttribute("data-library-item")));
+        const countType = () => start.locator("[role='tab'] [data-tab-count]").evaluate((count) => {
+            const s = getComputedStyle(count);
+            return [s.fontFamily, s.fontSize, s.fontWeight, s.letterSpacing, s.color, s.fontVariantNumeric].join(" ");
+        });
+        await expect(tab).toHaveText(["Flows 2,048"]);
+        const whole = await countType();
+        // The inbound flows, every third: the rail's flows source narrows the Flows tab, which pages and counts them.
+        await chooseDescription(page, root, "Inbound parcels");
+        await pane(root, "Library");
+        await expect(tab).toHaveText(["Flows 683 of 2,048"]);
+        await expect.poll(async () => (await keys()).slice(0, 3)).toEqual(["FLOW-10000", "FLOW-10003", "FLOW-10006"]);
+        expect(await countType(), "the narrowed count in the whole count's type").toBe(whole);
+        // The tab's own search, by name, within the narrowing: the inbound flows of FLOW-10500 to FLOW-10509, the rail and the count as they were.
+        const box = start.getByRole("textbox", { name: "Search flows by name" });
+        await expect(box).toHaveAttribute("placeholder", "Search 683 flows by name…");
+        await box.fill("FLOW-1050");
+        await expect.poll(keys).toEqual(["FLOW-10501", "FLOW-10504", "FLOW-10507"]);
+        await expect(start.locator("[data-library-search-hidden]")).toHaveText("680 hidden by filter · Show all");
+        await expect(tab).toHaveText(["Flows 683 of 2,048"]);
+        await box.fill("");
+        await expect.poll(async () => (await keys())[0]).toBe("FLOW-10000");
+        // At every width the Flows tab says what it shows — or, the pane on its 44px rail, its badge counts it — the rail folding first, the row whole.
+        for (const width of [1920, 1440, 1024, 768, 390, 360, 294]) {
+            await widthTo(page, root, width);
+            const read = await start.evaluate((el) => (el.hasAttribute("data-collapsed")
+                ? { collapsed: true, said: el.querySelector("[data-dock-badge]")?.getAttribute("title") ?? null }
+                : { collapsed: false, said: el.querySelector("[role='tab']")?.textContent ?? null }));
+            expect(read.said, `${width}px, ${read.collapsed ? "collapsed" : "open"}`).toBe(read.collapsed ? "683" : "Flows 683 of 2,048");
+            expect(await toolbarFaults(root), `${width}px`).toEqual([]);
+            const ladder = await root.locator("[data-frame-slot='toolbar'] [data-toolbar]").getAttribute("data-toolbar-ladder");
+            expect(ladder, `${width}px: the rail and its summary fold first`).toMatch(/^(record-slices>\d+ )+record-summary>1 /);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    });
+}

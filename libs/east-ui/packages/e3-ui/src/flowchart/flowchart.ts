@@ -11,16 +11,18 @@
  * library lists every tab but the Flows tab (#1246, FB16) — its templates and
  * the author's tabs, each over its own rows (#1248). No form takes a callback
  * for an edit: the gestures are the editing session's, which Save commits
- * (#1247, FB24). Its payload and every refusal are `payload.ts`'s, and its
- * library's tabs and their refusals `library.ts`'s.
+ * (#1247, FB24). Every form narrows through one `Slice.bindRecords` (#1346):
+ * over a record its `flows` source pages the Flows tab, and over any source
+ * each other source narrows the templates list or the tab that names it. Its
+ * payload and every refusal are `payload.ts`'s, and its library's tabs and
+ * their refusals `library.ts`'s.
  *
  * @packageDocumentation
  */
 
 import type { StringType, SubtypeExprOrValue } from "@elaraai/east";
-import type { RecordSliceChromeOptions } from "@elaraai/east-ui/internal";
+import type { RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import type { UIElement } from "@elaraai/east-ui";
-import type { FlowchartSliceOptions } from "./canvas.js";
 import type { FlowchartLibraryTab, FlowchartOneFlowLibraryTab } from "./library.js";
 import {
     FlowchartComponent,
@@ -43,10 +45,13 @@ import type { FlowchartFlowType, FlowchartFlowsType } from "./types.js";
 export function FlowchartTag(
     props: {
         record: FlowchartRecordHandle;
-        /** Page flows through Data.bindPaged(record), or Slice.rows of a record slice. */
-        window?: { readonly page: unknown; readonly total: unknown };
-        /** Shared index filters for the record's flows; never filters the open flow's children. */
-        slice?: RecordSliceChromeOptions;
+        /**
+         * The narrowing (#1346): slice={{ slice: Slice.bindRecords(key, { flows, … }) }}, one rail on the toolbar,
+         * with its `affordances` and `persist`. Its `flows` source — `Data.bindPaged(record, { indexes })` over the
+         * same record — narrows the Flows tab, which pages it; the open flow is the viewer's, read by its name
+         * whatever the narrowing. Each other source narrows the templates list or the tab that names it.
+         */
+        slice?: RecordSlicesChromeOptions;
         /** Over many flows, the one opened first. */
         flow?: SubtypeExprOrValue<StringType>;
         /** The library pane's tabs, in order, each a `Flowchart.library.*` call; left out, or empty, no library pane. */
@@ -69,7 +74,9 @@ export function FlowchartTag(
         onApply?: SubtypeExprOrValue<FlowchartFlowsApplyType>;
         /** The library pane's tabs, in order, each a `Flowchart.library.*` call; left out, or empty, no library pane. */
         library?: readonly FlowchartLibraryTab[];
-    } & FlowchartSliceOptions & FlowchartCommon,
+        /** The narrowing of the templates lists and the tabs that name a source (#1346): the host's flows are never narrowed. */
+        slice?: RecordSlicesChromeOptions;
+    } & FlowchartCommon,
 ): UIElement;
 /**
  * `<Flowchart data={Flowchart.over(states, { … })} />` — the host's one flow:
@@ -86,7 +93,9 @@ export function FlowchartTag(
         onApply?: SubtypeExprOrValue<FlowchartFlowApplyType>;
         /** The library pane's tabs, in order — every tab but the Flows tab; left out, or empty, no library pane. */
         library?: readonly FlowchartOneFlowLibraryTab[];
-    } & FlowchartSliceOptions & FlowchartCommon,
+        /** The narrowing of the templates lists and the tabs that name a source (#1346): a flow built from the host's tables is never narrowed. */
+        slice?: RecordSlicesChromeOptions;
+    } & FlowchartCommon,
 ): UIElement;
 export function FlowchartTag(props: object): UIElement {
     return FlowchartComponent.Root(createFlowchartPayload(props));

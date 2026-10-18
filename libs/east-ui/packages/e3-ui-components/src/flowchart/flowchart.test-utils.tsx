@@ -9,8 +9,10 @@
  * patch with East's own checks — as an app binds one — beside any other
  * records a test binds too (a library tab's rows, #1248), and the flowchart
  * over it through its carrier, so a Save is a real commit — under the page's
- * drag layer where a test drags (#1249); and the waits and presses its tests
- * share.
+ * drag layer where a test drags (#1249); the paging service over the records
+ * a test's `Slice.bindRecords` pages through their indexes (#1346), each
+ * index evaluated by its own East key function, the examples' records among
+ * them; and the waits and presses its tests share.
  */
 
 import { beforeAll, afterAll, vi } from "vitest";
@@ -20,17 +22,24 @@ import { East, PatchType, applyFor, decodeBeast2For, encodeBeast2For, variant, t
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, EastChakraComponent, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { Flowchart, RecordBindHandleType, recordBindPlatformFn } from "@elaraai/e3-ui/internal";
+import type { TreePath } from "@elaraai/e3-types";
 import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
+    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, defaultPagedRuntime, initializePagedApi, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../platform/index.js";
+import { countWholeReads, recordPaging, servedIndex, type DeclaredIndex, type PagedRecord } from "../platform/record-paging.test-utils.js";
 // The flowchart is an extension: its renderer registers as it loads.
 import "./index.js";
 
 // jsdom has no layout. Give the real Library virtualizer a viewport instead
-// of disabling virtualization in the production adapter for these tests.
+// of disabling virtualization in the production adapter for these tests — and
+// each row of a paged Flows tab (#1346) the card's height its estimate is, as
+// a browser draws it: jsdom's 0 would mount every row of a record of
+// thousands, each measured afresh.
 const libraryHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
 const libraryWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!;
+/** A paged Library's row, as tall as its card (#1346). */
+const PAGED_ROW_PX = 56;
 let restoreLibrarySize = () => {};
 beforeAll(() => {
     const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
@@ -39,7 +48,14 @@ beforeAll(() => {
     const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
         return this.closest("[data-flowchart-flows]") === null ? libraryWidth.get!.call(this) : 272;
     });
-    restoreLibrarySize = () => { height.mockRestore(); width.mockRestore(); };
+    const rect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+        if (this instanceof HTMLElement && this.dataset["slot"] === "virtualRow" && this.closest("[data-library-paged]") !== null) {
+            return { x: 0, y: 0, top: 0, left: 0, right: 272, bottom: PAGED_ROW_PX, width: 272, height: PAGED_ROW_PX, toJSON: () => ({}) } as DOMRect;
+        }
+        return rect.call(this);
+    };
+    restoreLibrarySize = () => { height.mockRestore(); width.mockRestore(); Element.prototype.getBoundingClientRect = rect; };
 });
 afterAll(() => restoreLibrarySize());
 
@@ -78,7 +94,8 @@ export async function press(name: string): Promise<void> {
  */
 export const enabled = (name: string): boolean => !(toolbar().getByRole("button", { name }) as HTMLButtonElement).disabled;
 
-const WORKSPACE = "flowchart-test";
+/** The workspace the records live in. */
+export const WORKSPACE = "flowchart-test";
 const RECORD = "depot_flows";
 const FlowsHandle = RecordBindHandleType(Flowchart.Types.Flows, { patch: [PatchType(Flowchart.Types.Flows)] });
 
@@ -88,6 +105,42 @@ export interface RecordHarness {
     readonly memory: RecordApi;
     /** The dataset cache its record is read through. */
     readonly cache: ReactiveDatasetCache;
+    /** Each request the paging service was sent, as `<path> <op> <where>` (#1346). */
+    readonly requests: readonly string[];
+    /** Each dataset read whole, by its path's text, in order, while the service pages a record (#1346); none counted without. */
+    readonly wholeReads: readonly string[];
+}
+
+/** A record as e3 declares it (`e3.record`): its name, where it lives, its type and its declared state. */
+export interface DeclaredRecord {
+    readonly name: string;
+    readonly path: TreePath;
+    readonly type: EastType;
+    readonly default?: unknown;
+}
+
+/**
+ * A record of the examples', in memory beside the flows, with its patch
+ * mutation: as {@link recordHarness} takes another record.
+ *
+ * @param record - The record, as the examples declare it
+ * @returns The other record
+ */
+export function exampleRecord(record: DeclaredRecord): OtherRecord {
+    return { name: record.name, type: record.type, initial: record.default };
+}
+
+/**
+ * A record the paging service serves through its indexes, each its own East
+ * key function's, compiled — as e3 serves a record a `Slice.bindRecords`
+ * pages (#1346).
+ *
+ * @param record - The record, as the examples declare it
+ * @param indexes - Its indexes, as the examples declare them
+ * @returns What the service serves
+ */
+export function servedRecord(record: DeclaredRecord, indexes: readonly DeclaredIndex[]): PagedRecord {
+    return { path: record.path, type: record.type as PagedRecord["type"], indexes: indexes.map(servedIndex) };
 }
 
 /**
@@ -108,13 +161,19 @@ export interface OtherRecord<T extends EastType = EastType> {
 /**
  * A record of flows in memory, bound with its patch mutation, whose patch door
  * applies each patch with East's own checks — and, beside it, any other
- * records given, each with a patch mutation of its own.
+ * records given, each with a patch mutation of its own; and the paging service
+ * over the records given to page, which a slice reads through their indexes
+ * (#1346).
  *
  * @param initial - The record's flows
  * @param others - The other records, each with its patch mutation
+ * @param paged - The records the paging service serves, through their indexes
  * @returns The harness
  */
-export function recordHarness(initial: Flows, others: readonly { readonly name: string; readonly type: EastType; readonly initial: unknown }[] = []): RecordHarness {
+export function recordHarness(initial: Flows, others: readonly { readonly name: string; readonly type: EastType; readonly initial: unknown }[] = [],
+    paged: readonly PagedRecord[] = []): RecordHarness {
+    // Each harness its own paged windows: another test's never answer this one's reads.
+    defaultPagedRuntime.clear();
     const store = new Map<string, Uint8Array>();
     const api: DatasetApi = {
         async get(ws, path) {
@@ -142,8 +201,20 @@ export function recordHarness(initial: Flows, others: readonly { readonly name: 
             mutations: [{ name: "patch", argTypes: [PatchType(other.type)], reduce: (state: unknown, patch: unknown) => apply(state as never, patch as never) }],
         };
     })]);
-    initializeRecordApi(memory, cache, WORKSPACE);
-    return { memory, cache };
+    if (paged.length === 0) {
+        initializeRecordApi(memory, cache, WORKSPACE);
+        const paging = recordPaging(cache, cache.read.bind(cache), paged);
+        initializePagedApi(paging.api, WORKSPACE);
+        return { memory, cache, requests: paging.requests, wholeReads: [] };
+    }
+    // A record paged as e3 serves one: each state it commits named by its content's hash, the revision its paged reads
+    // move to — so a Save's revision is the one its reads confirm at — and every whole read of a dataset counted, which
+    // the service's own reads are not.
+    const reads = countWholeReads(cache);
+    initializeRecordApi(reads.serve(memory), cache, WORKSPACE);
+    const paging = recordPaging(cache, reads.raw, paged);
+    initializePagedApi(paging.api, WORKSPACE);
+    return { memory, cache, requests: paging.requests, wholeReads: reads.paths };
 }
 
 /**

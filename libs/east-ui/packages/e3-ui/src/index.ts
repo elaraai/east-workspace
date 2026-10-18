@@ -168,16 +168,17 @@ export {
 // transitions, decision triggers and evidence-weighted strokes, over a record
 // of flows or the host's flow, in its frame, its library pane an optional
 // prop and its inspector on by default, every gesture a transaction of its
-// editing session — the values, patches, library tabs and East types it is
-// written with (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+// editing session, narrowed through one `Slice.bindRecords` (#1346) — the
+// values, patches, library tabs and East types it is written with
+// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
 // `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
     type FlowchartInspectorOptions, type FlowchartRowInspector,
-    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows,
+    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows, type FlowchartTemplateRows,
     type FlowchartFlowsTab, type FlowchartStatesTab, type FlowchartTransitionsTab, type FlowchartAuthorTab,
     type FlowchartCardAccessors, type FlowchartStatesConfig, type FlowchartTransitionsConfig, type FlowchartTabConfig,
-    type FlowchartCanvasOptions, type FlowchartSliceOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
+    type FlowchartCanvasOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
     type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
     type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,
     type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,

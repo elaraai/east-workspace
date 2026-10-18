@@ -14,10 +14,13 @@
  * it is refused, and a drop's name in the history — and its inspector's
  * (#1250): the pane and its tabs, what it shows in its head and on its rail,
  * each field's label and help line, its sections, chips, gestures, counts and
- * hints, why an edit is refused, and each issue's words — beside the editing
- * session's own (`EditingMessages`), which its history item and banners
- * speak, as the Sheet's and the query builder's tables carry them. A host
- * translates the flowchart where it translates the session.
+ * hints, why an edit is refused, and each issue's words — and its
+ * narrowing's (#1346): what the Flows tab says when the rail leaves it no
+ * flow, what the rail counts each source a tab follows in, and the banner over
+ * a source whose narrowing could not be read — beside the editing session's
+ * own (`EditingMessages`), which its history item and banners speak, as the
+ * Sheet's and the query builder's tables carry them. A host translates the
+ * flowchart where it translates the session.
  *
  * @packageDocumentation
  */
@@ -207,6 +210,18 @@ export interface FlowchartMessages extends EditingMessages {
     flowCopy: (p: { name: string; n: number }) => string;
     /** Why an inspector's edit was refused, in the footer — `A state needs a key`, `Returns is already a flow here`. */
     inspectorRefused: (p: FlowchartRefusedWord) => string;
+    /** The Flows tab while the rail leaves it no flow (#1346): its title — `No flows match the filters` — and the line under it. */
+    flowsFiltered: (p: { part: "title" | "hint" }) => string;
+    /** What the rail counts a templates list's source in, and its banner names it by, where the source has no label of its own (#1346) — `state templates`. */
+    templatesNoun: (p: { tab: Exclude<FlowchartLibraryTabWord, "tab"> }) => string;
+    /** The banner over a source of the rail whose narrowing could not be read (#1346) — `Owners results unavailable`; `name` is the source's label, or what it is counted in. */
+    sourceUnavailable: (p: { name: string }) => string;
+    /** Why: its results moved while they were read. */
+    sourceChanged: (p: { name: string }) => string;
+    /** Why: its results could not be read. */
+    sourceFailed: (p: { name: string }) => string;
+    /** The banner's button, which reads the source again. */
+    retry: () => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -280,6 +295,9 @@ const REFUSED: { readonly [W in Exclude<FlowchartDropRefusalWord["why"], "onto">
     busy: "The flow takes no edit now",
     noFlow: "No flow is open",
 };
+
+/** A name as a sentence starts with it. */
+const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 
 /** The English table. */
 export const flowchartMessages: FlowchartMessages = {
@@ -377,6 +395,12 @@ export const flowchartMessages: FlowchartMessages = {
     flowCopy: ({ name, n }) => (n === 1 ? `${name} copy` : `${name} copy ${n}`),
     inspectorRefused: (p) => (p.why === "emptyKey" ? `A ${ROW[p.what]} needs a key`
         : p.why === "emptyName" ? "A flow needs a name" : `${p.name} is already a flow here`),
+    flowsFiltered: ({ part }) => (part === "title" ? "No flows match the filters" : "Change or clear the filters to see more flows."),
+    templatesNoun: ({ tab }) => (tab === "states" ? "state templates" : "transition templates"),
+    sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
+    sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
+    sourceFailed: ({ name }) => `Could not load ${name} results`,
+    retry: () => "Retry",
 };
 
 /** The words a flowchart speaks: its message table, and its locale's formatters. */

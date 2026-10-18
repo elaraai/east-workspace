@@ -6,12 +6,14 @@
 /**
  * The Flowchart's footer (#1245, #1247, `Flowchart Builder Spec.md` §7, FB10)
  * — today's counts, in its frame's footer: over many flows the open flow's
- * name first; then its transitions — narrowed from how many, and by what
- * share, while the host's slice narrows them — and on the right their split,
- * planned · observed · unresolved; where the flowchart edits, the changes
- * waiting on Save in the open flow (`3 pending`); over a record, when it was
- * last saved; and, after a card's ⏎ that is refused (#1249, FB34), why — a
- * polite live line, so a screen reader hears it too.
+ * name first; then its transitions, and on the right their split, planned ·
+ * observed · unresolved; where the flowchart edits, the changes waiting on
+ * Save in the open flow (`3 pending`); over a record, when it was last saved;
+ * over a record its slice's `flows` source pages, the flows a Save took out of
+ * the narrowing (#1346, the shared notice); and, after a card's ⏎ that is
+ * refused (#1249, FB34), why — a polite live line, so a screen reader hears it
+ * too. The host's tables are never narrowed (#1346): the transitions counted
+ * are the flow's.
  *
  * The counts are of the transitions the flow holds, not the arrows drawn: an
  * in-place transition folds into its state's `↻ n` badge and still counts,
@@ -39,10 +41,8 @@ export interface FlowchartFooterProps {
     readonly styles: Styles;
     /** The open flow's name, over many flows; `undefined` over one. */
     readonly name: string | undefined;
-    /** How many transitions the flow holds — the slice's rows, when it narrows them. */
+    /** How many transitions the flow holds. */
     readonly links: number;
-    /** How many there were before the slice narrowed them; `undefined` when it narrowed none. */
-    readonly narrowedFrom: number | undefined;
     /** The transitions' split. */
     readonly counts: FlowchartModel["counts"];
     /** The changes waiting on Save in the open flow; `undefined` where the flowchart does not edit. */
@@ -53,7 +53,7 @@ export interface FlowchartFooterProps {
     readonly message?: string | undefined;
     /** The flowchart's words: its numbers print in the app's locale. */
     readonly words: FlowchartWords;
-    /** Membership feedback after an indexed Save. */
+    /** The slice's `flows` source's part (#1346): the flows a Save took out of its narrowing, the shared notice. */
     readonly recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
@@ -63,8 +63,7 @@ export interface FlowchartFooterProps {
  * @param props - The open flow's name, its counts, the record's last save and a refused ⏎'s reason
  * @returns The footer
  */
-export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pending, saved, message, words, recordSlice }: FlowchartFooterProps) {
-    const share = narrowedFrom !== undefined && narrowedFrom > 0 ? 1 - links / narrowedFrom : undefined;
+export function FlowchartFooter({ styles, name, links, counts, pending, saved, message, words, recordSlice }: FlowchartFooterProps) {
     return (
         <Box css={styles.footer} data-flowchart-footer="">
             {name !== undefined && (
@@ -75,12 +74,6 @@ export function FlowchartFooter({ styles, name, links, narrowedFrom, counts, pen
             )}
             <Box as="span" css={styles.footerStrong}>{words.number(links)}</Box>
             <Box as="span">{links === 1 ? "link" : "links"}</Box>
-            {narrowedFrom !== undefined && share !== undefined && (
-                <>
-                    <Box as="span">· narrowed from {words.number(narrowedFrom)} ·</Box>
-                    <Box as="span" css={styles.footerNeg}>−{words.percent(share)}</Box>
-                </>
-            )}
             {message !== undefined && <Box as="span">·</Box>}
             {/* Always there, so a screen reader hears each line it takes. */}
             <Box as="span" css={styles.footerMessage} data-flowchart-message="" aria-live="polite">{message ?? ""}</Box>

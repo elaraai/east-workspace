@@ -45,13 +45,17 @@
  *   store, as the sessions themselves are, so the Flows tab marks a flow with
  *   drafts Pending, and lists a new flow not yet saved, whichever flow is
  *   open, and a remount finds them as they were.
+ * - **The narrowing** (#1346): over a record paged through its slice's `flows`
+ *   source, a Save's flows that leave what the rail narrows the record to are
+ *   counted for the footer's shared notice, membership read before the
+ *   commit and again after it is confirmed (`prepareRecordSliceSave`).
  *
  * @packageDocumentation
  */
 
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { BlobType, SortedMap, StringType, compareFor, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
-import { Editing, EditingDraftFieldType } from "@elaraai/east-ui/internal";
+import { Editing, EditingDraftFieldType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
     StateRuntime, useDataStable, useEditSession,
@@ -271,6 +275,8 @@ export interface FlowSessionOptions {
     readonly words: FlowchartWords;
     /** Pinned record reads, independent of the current filter. */
     readonly paged?: FlowchartPagedRecord | undefined;
+    /** The slice's `flows` source's part, whose narrowing a Save's flows may leave (#1346); `undefined` with none. */
+    readonly recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
 /** The open flow's session, and what the flowchart reads of it. */
@@ -294,7 +300,7 @@ export interface FlowSessionState {
  * @returns The session, and what the flowchart reads of it
  */
 export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
-    const { key, name, heldOf, apply, storageKey, sessions, words, paged } = options;
+    const { key, name, heldOf, apply, storageKey, sessions, words, paged, recordSlice } = options;
     const sourceId = paged?.recordId ?? (name === undefined ? noFlowSourceId(key) : flowSourceId(key, name));
     const held = name === undefined ? undefined : heldOf(name);
     // The sessions move under their version: a rename's new name joins the snapshot as it is drafted.
@@ -339,7 +345,6 @@ export function useFlowSession(options: FlowSessionOptions): FlowSessionState {
     const source = useMemo((): EditSource<FlowRow> | undefined => paged === undefined ? undefined : ({
         ...paged.window, readCurrent: paged.entry,
     }), [paged]);
-    const recordSlice = paged?.chrome.type === "some" ? paged.chrome.value.slice : undefined;
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const view = paged === undefined ? storageKey : `${storageKey}:${name === undefined ? "none" : printName(name)}`;
     const edit = useEditSession<FlowRow>(editing, source, rows, positions, view, { idOf: rowName, ready, prepare });
