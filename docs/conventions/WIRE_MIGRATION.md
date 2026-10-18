@@ -170,3 +170,18 @@ Each wire changed under this rule, with the kind it is.
   changes type with it; moving its skills and duties into an activities record
   is that record's own migration, as with any record whose type an application
   changes.
+- **e3-ui's `Calendar` narrows through `Slice.bindRecords` alone (#1340,
+  #1343)** — package-borne. The `Calendar` extension's payload loses its local
+  `slice` and its `recordSlice`: its `slice` is the chrome of a Slice over
+  several records — a source per event kind, resource kind and templates record
+  it narrows — and each source's keys are in a new `narrowed`. The Schedule
+  kinds it carries (`ScheduleKindType`, and with it the Plan's
+  `PlanEventKindType`) gain `templatesSource`, the source a templates list
+  names, and their backlog reads (`unscheduled`, `planUnscheduled`) take the
+  window the canvas reads, `(from, to, drafts)`; an app's library tab
+  (`ScheduleAuthorTabType`) gains the `source` it follows. A UI value encoded
+  under either type does not decode under the other: packages are re-exported,
+  and the dataflow computes each UI task's output again under the new type. A
+  UI task's output is not stored state, so no repository upgrade step ships
+  with it. A Calendar's templates written in the code become a templates record
+  of the application's own, as with any record an application declares.

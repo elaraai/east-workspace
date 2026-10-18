@@ -3,60 +3,83 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+/**
+ * e3-ui's Calendar renderer; BuilderFrame stays an internal React detail. Its
+ * slice narrows through one `Slice.bindRecords` (#1343): each event kind
+ * reads through its own source, the date window written to every one; each
+ * resource kind's source narrows its columns, rows and Choosers; each
+ * templates list's and each tab's narrows that tab. Overlaps, checks and
+ * commands read everything.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusDisplay } from "../components/StatusDisplay.js";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
-import { BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters } from "@elaraai/east-ui-components";
+import { BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters } from "@elaraai/east-ui-components";
 import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
+import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
-import { resourceRows, useCalendarData } from "./data.js";
+import { CalendarDataReader, initialCalendarData, resourceRows, type CalendarDataState } from "./data.js";
 import { useCalendarDrag } from "./drag.js";
-import { useCalendarInspector, useCalendarSelection } from "./inspector.js";
-import { templateSources, useCalendarLibrary } from "./library.js";
+import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
+import { templatesTab, useCalendarLibrary } from "./library.js";
+import { calendarNouns, calendarSaid, followedSources, useBacklogNarrowing } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
-import { useCalendarWindow } from "./window.js";
+import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { CalendarViews } from "./views.js";
-import { calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, type CalendarItem, type CalendarRef, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
+import { calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, type CalendarItem, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
 
 export type { CalendarValue } from "./model.js";
 /** Props of the Calendar extension renderer. */
 export interface EastChakraCalendarProps { value: CalendarValue; storageKey: string }
 interface HostProps extends EastChakraCalendarProps {
-    view: CalendarView; setView: (next: CalendarView) => void; now: Date;
-    slice: ReturnType<typeof useCalendarWindow>["slice"]; affordances: readonly string[];
-    recordChrome: ReturnType<typeof useCalendarWindow>["recordChrome"];
-    range: ReturnType<typeof calendarRange>; editing?: ScheduleEditing;
+    /** The date window and the slice's event sources (`useCalendarWindow`). */
+    dates: CalendarWindow; now: Date;
+    /** The sources the Calendar follows beside its event kinds': what each shows. */
+    followed: FollowedSources;
+    editing?: ScheduleEditing;
 }
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
+/** The row an event with no resource sits on. */
+const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group: "", resource: none };
 
 /** The sole editable wrapper: read-only Calendar never creates a record session. */
 function EditableCalendar(props: Omit<HostProps, "editing">) {
-    const editing = useScheduleEditing({ kinds: props.value.events, storageKey: props.storageKey, joined: NO_JOINED, applyMode: "batch", range: props.range, recordSlice: props.recordChrome?.slice });
+    // Each event kind's Save notice counts what leaves its own source's narrowing.
+    const recordSlices = useMemo(() => props.dates.eventParts.map(({ part }) => part), [props.dates.eventParts]);
+    const editing = useScheduleEditing({ kinds: props.value.events, storageKey: props.storageKey, joined: NO_JOINED, applyMode: "batch", range: props.dates.range, recordSlices });
     return <CalendarFrame {...props} editing={editing} />;
 }
-function CalendarFrame(props: HostProps) {
-    const data = useCalendarData(props.value, props.range, props.editing);
-    return <CalendarContent {...props} data={data} />;
+/**
+ * Test-only render probe — lets "a landing key search re-renders the window's reader, never the frame" be asserted
+ * deterministically (#1343). `undefined` outside tests.
+ */
+let calendarFrameRenderProbe: (() => void) | undefined;
+/**
+ * Install (or clear) the test frame render probe. Test use only.
+ *
+ * @param fn - Called each time the frame renders; `undefined` clears it
+ */
+export function setCalendarFrameRenderProbe(fn: (() => void) | undefined): void {
+    calendarFrameRenderProbe = fn;
 }
-// A window may need many index pages. Keep tracking every arrival in the host,
-// without rebuilding the whole frame while its displayed data stays unchanged.
-const CalendarContent = memo(function CalendarContent(props: HostProps & { data: ReturnType<typeof useCalendarData> }) {
-    const { value, storageKey, view, range, editing, now, data } = props;
+function CalendarFrame(props: HostProps) {
+    calendarFrameRenderProbe?.();
+    const { value, storageKey, editing, now, followed, dates } = props;
+    const { view, range } = dates;
     const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
     const [shownRange, setShownRange] = useState<ReturnType<typeof calendarRange> | undefined>();
     const [navigationRevision, setNavigationRevision] = useState(0);
-    const onNavigate = (date: number) => { props.setView({ ...view, date }); setNavigationRevision(before => before + 1); };
+    const onNavigate = (date: number) => { dates.setView({ ...view, date }); setNavigationRevision(before => before + 1); };
     const setView = (next: CalendarView) => {
         const middle = visible.current;
-        props.setView(view.layout === "timeline" && middle !== undefined && next.date === view.date && (next.layout !== view.layout || next.period !== view.period)
+        dates.setView(view.layout === "timeline" && middle !== undefined && next.date === view.date && (next.layout !== view.layout || next.period !== view.period)
             ? { ...next, date: dayStart((middle.from.getTime() + middle.to.getTime()) / 2).getTime() } : next);
     };
     const showRange = useCallback((next: ReturnType<typeof calendarRange>) => {
@@ -75,6 +98,8 @@ const CalendarContent = memo(function CalendarContent(props: HostProps & { data:
         setRefs(next); if (value.onSelect.type === "some") for (const ref of next) value.onSelect.value(ref);
     }, [value.onSelect]);
     const selected = useMemo(() => new Set(refs.map(ref => eventKey(ref))), [refs]);
+    // The window read reports from a component of its own, so a search landing re-renders it alone (#1343).
+    const [data, setData] = useState<CalendarDataState>(() => initialCalendarData(range));
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));
@@ -84,37 +109,55 @@ const CalendarContent = memo(function CalendarContent(props: HostProps & { data:
         main.current.closest("[data-builder-frame]")?.querySelector<HTMLButtonElement>('button[aria-label="Expand Inspector"]')?.click();
         setReveal(undefined);
     }, [reveal, data.items, view, narrow]);
-    const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, data.items), [value, editing, select, data.items]);
-    const available = !data.loading && data.error === undefined;
+    // Each resource kind's rows its source shows: the columns, the timeline's rows and the Choosers (#1343).
+    const shown = useMemo(() => value.resources.map(kind => {
+        const keys = followed.get(kind.key)?.shown.keys;
+        return keys === undefined || keys.type === "none" ? kind : { ...kind, rows: kind.rows.filter(row => keys.value.has(row.key)) };
+    }), [value.resources, followed]);
+    const resourcesBusy = value.resources.some(kind => followed.get(kind.key)?.shown.busy === true);
+    const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, data.items, shown), [value, editing, select, data.items, shown]);
+    const available = !data.loading && data.error === undefined && !resourcesBusy;
     const gestures = available ? commands : undefined;
-    const { slice, recordChrome, affordances } = props;
     const items = data.items;
-    const rows = useMemo(() => [...resourceRows(value.resources), { key: "", label: "Unassigned", meta: "", group: "", resource: none }], [value.resources]);
-    const selection = useCalendarSelection({ value, refs, range, commands });
+    // Every resource names an event's place; the ones the rail shows lay out the columns and rows.
+    const rows = useMemo(() => [...resourceRows(value.resources), UNASSIGNED], [value.resources]);
+    const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
+    // As the window read, the selection's read reports from a component of its own (#1343).
+    const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
     const selectedItems = selection.ok ? selection.value.map(event => event.item) : [];
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
+    // The templates the rail shows: the Templates tab's cards, and what a drop or a drawn event is made from.
+    const templates = useMemo(() => templatesTab(value, followed, format), [value, followed, format]);
     const [pickedTemplate, setTemplate] = useState<string>();
-    const sources = templateSources(value);
-    const activeTemplate = pickedTemplate !== undefined && sources.has(pickedTemplate) ? pickedTemplate : sources.keys().next().value;
-    const start = useCalendarLibrary({ value, backlog: data.backlog, selection: selectedItems, key: storageKey, narrow, now, day: dayStart(view.date), styles, commands: gestures, activeTemplate, onTemplate: setTemplate });
-    const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, select, selection });
+    const activeTemplate = pickedTemplate !== undefined && templates.shown.has(pickedTemplate) ? pickedTemplate : templates.shown.keys().next().value;
+    const backlogNarrowing = useBacklogNarrowing(dates.eventParts);
+    const start = useCalendarLibrary({ value, backlog: data.backlog, selection: selectedItems, key: storageKey, narrow, now, day: dayStart(view.date), styles, commands: gestures,
+        activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown });
+    const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, select, selection, shown });
     const onAction = useCallback((action: Parameters<ScheduleEditing["history"]["act"]>[0]) => {
         const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
         editing?.history.act(action);
     }, [editing]);
-    const displayRange = narrow ? (recordChrome !== undefined || slice?.read().range.type === "some" ? range : calendarRange(view, value.settings)) : view.layout === "timeline" ? shownRange ?? range : range;
+    const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : view.layout === "timeline" ? shownRange ?? range : range;
     const standardRange = calendarRange(view, value.settings);
     const rangeLabel = view.layout === "timeline" || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
         ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
     const navigationDate = !narrow && view.layout === "timeline" && shownRange !== undefined ? dayStart((shownRange.from.getTime() + shownRange.to.getTime()) / 2).getTime() : view.date;
-    const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now, count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, slice, recordChrome, affordances, styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
-    const drag = useCalendarDrag({ value, key: storageKey, commands: gestures, narrow, items: data.items, backlog: data.backlog, selection: selectedItems, activeTemplate, onError: setError });
+    const nouns = useMemo(() => calendarNouns(value, format.locale), [value, format.locale]);
+    const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
+        count: items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length, chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
+        styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
+    const drag = useCalendarDrag({ value, key: storageKey, commands: gestures, narrow, items: data.items, backlog: data.backlog, selection: selectedItems, templates: templates.shown, activeTemplate, onError: setError });
     const pick = useCallback((item: CalendarItem, additive = false) => {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
         select(additive ? selected.has(id) ? refs.filter(ref => eventKey(ref) !== id) : [...refs, ref] : [ref]);
     }, [select, selected, refs]);
+    // A followed source not yet resolved holds the frame's cold load, as an event kind's window does.
+    const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={!data.ready && data.loading && data.error === undefined} toolbar={toolbar} start={start} end={end}
+        <CalendarDataReader value={value} range={range} editing={editing} onData={setData} />
+        <CalendarSelectionReader value={value} refs={refs} range={range} commands={commands} onSelection={setSelection} />
+        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
@@ -124,27 +167,39 @@ const CalendarContent = memo(function CalendarContent(props: HostProps & { data:
             }} banners={<>
                 {editing?.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={value.events.find(kind => kind.key === held.kind)?.name}
                     onAction={action => editing.history.actOn(held.key, action)} />)}
+                {[...followed].flatMap(([source, followedSource]) => followedSource.error === undefined ? [] : [
+                    <BannerView key={source} status="error" title={`${followedSource.name.charAt(0).toLocaleUpperCase(format.locale)}${followedSource.name.slice(1)} unavailable`} description={followedSource.error}
+                        actions={<Button size="xs" variant="outline" onClick={followedSource.retry}>Retry</Button>} />])}
+                {dates.error !== undefined && <BannerView status="error" title="Dates unavailable" description={dates.error} />}
                 {(error ?? data.error) !== undefined && <Box role="alert" css={styles.error}>{error ?? data.error}</Box>}
             </>}
             footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}>
                 {value.events.map(kind => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}>
                     <Box as="span" css={styles.eventIcon}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box> {kind.name}
                 </Box>)}
-                {recordChrome !== undefined && <RecordSliceSaveNotice slice={recordChrome.slice} singular="event" plural="events" />}
+                {dates.eventParts.map(({ kind, part }) => <RecordSliceSaveNotice key={kind.key} slice={part}
+                    singular={`${kind.name.toLocaleLowerCase(format.locale)} event`} plural={`${kind.name.toLocaleLowerCase(format.locale)} events`} />)}
             </Box>}>
-            <Box ref={main} css={styles.main} data-calendar-main="" inert={!available ? true : undefined} aria-busy={data.loading && data.error === undefined} data-calendar-narrow={narrow ? "" : undefined}>
-                {!data.ready && data.error !== undefined ? <StatusDisplay variant="error" title="Calendar unavailable" message={data.error} /> : <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={available ? narrow ? displayRange : range : data.range} visibleRange={available ? displayRange : data.range} onVisible={showRange} items={items} rows={rows} now={now} narrow={narrow} styles={styles}
+            <Box ref={main} css={styles.main} data-calendar-main="" inert={!available ? true : undefined} aria-busy={(data.loading && data.error === undefined) || resourcesBusy} data-calendar-narrow={narrow ? "" : undefined}>
+                {!data.ready && data.error !== undefined ? <StatusDisplay variant="error" title="Calendar unavailable" message={data.error} /> : <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={available ? narrow ? displayRange : range : data.range} visibleRange={available ? displayRange : data.range} onVisible={showRange} items={items}
+                    rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles}
                     selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={gestures} drag={drag} />}
             </Box>
         </BuilderFrame>
     </Box>;
-});
+}
 /** Calendar in its own shared frame, with the same renderer for read-only views. */
 export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProps) {
     const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "calendar"}`;
     const now = useNow(value.settings.now.type === "some" ? value.settings.now.value : undefined);
-    const { view, setView, range, slice, recordChrome, affordances } = useCalendarWindow(value, key, now);
-    const props = { value, storageKey: key, view, setView, range, now, slice, recordChrome, affordances };
-    return value.settings.readOnly ? <CalendarFrame {...props} /> : <EditableCalendar {...props} />;
+    const dates = useCalendarWindow(value, key, now);
+    const { locale } = useFormatters();
+    // The sources the Calendar follows itself, each read once (one component each, so their hooks keep their order).
+    const sources = useMemo(() => followedSources(value), [value]);
+    const nouns = useMemo(() => new Map(Object.entries(calendarNouns(value, locale))), [value, locale]);
+    return <FollowSources chrome={dates.chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={calendarSaid}>
+        {followed => value.settings.readOnly ? <CalendarFrame value={value} storageKey={key} dates={dates} now={now} followed={followed} />
+            : <EditableCalendar value={value} storageKey={key} dates={dates} now={now} followed={followed} />}
+    </FollowSources>;
 }
 implementUIComponent(CalendarComponent, EastChakraCalendar);

@@ -21,17 +21,21 @@ import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { EventActions } from "./controls.js";
+import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
 import { DAY, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource,
     type CalendarItem, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
 
-/** The views share selection, commands, drafts and overlap state. */
+/**
+ * The views share selection, commands, drafts and overlap state. `rows` are every resource, what an event's label
+ * names; `shownRows` are the ones the rail shows (#1343), each layout's columns and rows, and `shown` each kind's.
+ */
 export interface CalendarViewsProps {
     navigationRevision?: number;
     value: CalendarValue; view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; visibleRange: CalendarRange; format: Formatters;
-    onVisible: (range: CalendarRange) => void; items: readonly CalendarItem[]; rows: readonly CalendarRow[]; now: Date; narrow: boolean; styles: CalendarStyles;
+    onVisible: (range: CalendarRange) => void; items: readonly CalendarItem[]; rows: readonly CalendarRow[]; shownRows: readonly CalendarRow[]; shown: CalendarShownResources;
+    now: Date; narrow: boolean; styles: CalendarStyles;
     selected: ReadonlySet<string>; select: (item: CalendarItem, additive?: boolean) => void; clear: () => void;
     overlaps: ScheduleOverlaps<CalendarItem>; commands: CalendarCommands | undefined; drag: CalendarDrag;
 }
@@ -204,7 +208,7 @@ function TimeGrid(props: CalendarViewsProps) {
     const scroll = useRef<HTMLDivElement>(null);
     useEffect(() => { if (scroll.current !== null) scroll.current.scrollTop = hour * 5.5; }, [hour, props.view.layout, props.view.period, props.view.date]);
     const resources = props.view.layout === "resources";
-    const columns = resources ? props.rows.map(row => ({ row, day: dayStart(props.view.date), label: row.label }))
+    const columns = resources ? props.shownRows.map(row => ({ row, day: dayStart(props.view.date), label: row.label }))
         : props.range.days.map(day => ({ day, label: props.format.weekdayDate(day), row: undefined }));
     return <Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="">
         <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.length === 1 ? "" : undefined} style={{ "--calendar-columns": columns.length } as CSSProperties}>
@@ -270,7 +274,7 @@ function MonthGrid(props: CalendarViewsProps) {
 
 function Timeline(props: CalendarViewsProps) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
-    const groups = [...new Set(props.rows.map(row => row.group))];
+    const groups = [...new Set(props.shownRows.map(row => row.group))];
     const laneHeight = props.value.settings.density.type === "compact" ? 26 : props.value.settings.density.type === "spacious" ? 40 : 32;
     const pixelsPerDay = timelinePixels(props.view.period);
     const scroll = useRef<HTMLDivElement>(null);
@@ -314,7 +318,7 @@ function Timeline(props: CalendarViewsProps) {
             <TimeRulerRow scale={ticks} styles={props.styles} band="ticks" owner="calendar" sticky />
         </Box></Box>
         {groups.map(group => {
-            const rows = props.rows.filter(row => row.group === group);
+            const rows = props.shownRows.filter(row => row.group === group);
             return <Fragment key={group}><GroupHeading scope="calendar" group={{ key: group, label: group || "Unassigned" }} styles={props.styles} collapsed={collapsed.includes(group)} toggle={toggle}>
                 <Box as="span" css={props.styles.groupMeta}>{rows.length} resources</Box>
             </GroupHeading>{!collapsed.includes(group) && rows.map(row => {
@@ -357,7 +361,7 @@ function Agenda(props: CalendarViewsProps) {
                             <Box css={props.styles.detail}>{props.value.events.find(kind => kind.key === item.kind)?.name}{item.status.type === "some" && ` · ${item.status.value.label}`}{props.overlaps.peers.has(id) && " · Overlap"}</Box>
                         </chakra.button>
                         <Button size="xs" variant="ghost" aria-pressed={props.selected.has(id)} onClick={() => props.select(item, true)}>{props.selected.has(id) ? "Remove from selection" : "Add to selection"}</Button>
-                        {props.commands !== undefined && <EventActions item={item} value={props.value} commands={props.commands} day={day} styles={props.styles} />}
+                        {props.commands !== undefined && <EventActions item={item} value={props.value} shown={props.shown} commands={props.commands} day={day} styles={props.styles} />}
                     </Box>;
                 })}
             </Box>;

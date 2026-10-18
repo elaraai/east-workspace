@@ -23,7 +23,7 @@ describe("Calendar in the shared frame", () => {
         const { container } = mount(ex.calendarOperations); await settle();
         expect(container.querySelectorAll("[data-builder-frame]")).toHaveLength(1);
         expect(slot(container, "toolbar")).not.toBeNull();
-        expect([...slot(container, "start").querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(["Templates 4", "Backlog 4", "Technicians 3"]);
+        expect([...slot(container, "start").querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
         expect(event(container, "job", "job1").textContent).toContain("Mounting brackets");
         expect(event(container, "service", "service1").hasAttribute("data-overlap")).toBe(true);
         expect(event(container, "shift", "shift1").hasAttribute("data-overlap")).toBe(false);
@@ -188,15 +188,6 @@ describe("Calendar explicit action forms", () => {
         await press(history(first.container, editingMessages.undo()));
         expect(event(first.container, "job", "job1")).not.toBeNull();
     });
-    test("the shared Slice search narrows events without changing their record", async () => {
-        const { container } = mount(ex.calendarOperations); await settle();
-        const search = within(slot(container, "toolbar")).getByPlaceholderText("Search…");
-        const user = userEvent.setup(); await user.type(search, "Mounting"); await settle();
-        const names = [...container.querySelectorAll('[data-calendar-event]')].map(node => node.getAttribute("aria-label"));
-        expect(names).toHaveLength(2); expect(names.every(name => /mounting/i.test(name ?? ""))).toBe(true);
-        expect(h.read(ex.calendarJobs).size).toBe(10);
-        await user.clear(search); await settle(); expect(container.querySelectorAll('[data-calendar-event]').length).toBeGreaterThan(2);
-    });
     test("a custom inspector's complete row update is undoable and saves through the appointment record", async () => {
         const { container } = mount(ex.calendarCustomInspector); await settle();
         await press(event(container, "appointment", "check"));
@@ -228,9 +219,10 @@ describe("Calendar explicit action forms", () => {
             await press(event(container, kind!, key!));
             await act(async () => { fireEvent.keyDown(event(container, kind!, key!), { key: "Delete" }); }); await settle();
         }
-        initializeRecordApi({ ...h.memory, mutate: async (ws, record, mutation, request) => (record === ex.calendarJobs.name
+        // The paged kinds' Saves confirm by the committed state's hash, as the harness's server names it.
+        initializeRecordApi(h.paging.reads.serve({ ...h.memory, mutate: async (ws, record, mutation, request) => (record === ex.calendarJobs.name
             ? { outcome: variant("failed", { exitCode: 1n, stderr: "Record is locked" }) }
-            : h.memory.mutate(ws, record, mutation, request)) as Awaited<ReturnType<RecordApi["mutate"]>> }, h.cache, WORKSPACE);
+            : h.memory.mutate(ws, record, mutation, request)) as Awaited<ReturnType<RecordApi["mutate"]>> }), h.cache, WORKSPACE);
         await press(history(container, editingMessages.apply()));
         expect(container.querySelector('[data-session-banner="rejected"]')?.textContent).toContain("Record is locked");
         expect(h.read(ex.calendarJobs).has("job1")).toBe(true); expect(h.read(ex.calendarServices).has("service1")).toBe(false);
@@ -245,11 +237,11 @@ describe("Calendar explicit action forms", () => {
             await act(async () => { fireEvent.keyDown(event(container, kind!, key!), { key: "Delete" }); }); await settle();
         }
         const keys: (string | undefined)[] = []; let lost = true;
-        initializeRecordApi({ ...h.memory, mutate: async (ws, record, mutation, request) => {
+        initializeRecordApi(h.paging.reads.serve({ ...h.memory, mutate: async (ws, record, mutation, request) => {
             const result = await h.memory.mutate(ws, record, mutation, request);
             if (record === ex.calendarJobs.name) { keys.push(request.idempotencyKey); if (lost) { lost = false; throw new Error("Connection closed"); } }
             return result;
-        } }, h.cache, WORKSPACE);
+        } }), h.cache, WORKSPACE);
         await press(history(container, editingMessages.apply()));
         expect(container.querySelector('[data-session-banner="unknown"]')).not.toBeNull();
         expect(h.read(ex.calendarServices).has("service1")).toBe(false);

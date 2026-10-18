@@ -257,6 +257,8 @@ const statusEqual = equalFor(OptionType(Schedule.Types.Status));
 /** The drafts a seam reads, by entry id. */
 const draftsOf = (entries: [string, Uint8Array][]) => new SortedMap(entries, compareFor(StringType));
 const NO_DRAFTS = draftsOf([]);
+/** The window a backlog read is beside: a kind no builder's slice narrows reads its backlog whole, whatever the window (#1343). */
+const OCT_1 = [at("2026-10-01T00:00:00Z"), at("2026-10-02T00:00:00Z")] as const;
 
 /** A window's items, in order. */
 function itemsIn(kind: Kind, from: string, to: string, drafts = NO_DRAFTS): Item[] {
@@ -380,7 +382,7 @@ describe("Schedule.events — its events over a window", () => {
 
 describe("Schedule.events — its backlog", () => {
     test("holds the rows with no time, each sized by its duration and filed by its due date", () => {
-        const read = jobKind.unscheduled(NO_DRAFTS);
+        const read = jobKind.unscheduled(...OCT_1, NO_DRAFTS);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value.map((i) => [i.key, i.minutes, i.start.type, i.due.type]), [["j2", 150n, "none", "some"], ["j3", 60n, "none", "none"]]);
         // The window holds only the scheduled job.
@@ -388,13 +390,13 @@ describe("Schedule.events — its backlog", () => {
     });
 
     test("sizes a row by its duration in any unit — a month counts 30 days", () => {
-        const read = taskKind.unscheduled(NO_DRAFTS);
+        const read = taskKind.unscheduled(...OCT_1, NO_DRAFTS);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value.map((i) => [i.key, i.minutes]), [["t1", 90n], ["t2", 90n], ["t3", 2_880n], ["t4", 10_080n], ["t5", 43_200n]]);
     });
 
     test("is empty for a kind whose times are plain", () => {
-        const read = shiftKind.unscheduled(NO_DRAFTS);
+        const read = shiftKind.unscheduled(...OCT_1, NO_DRAFTS);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value, []);
     });

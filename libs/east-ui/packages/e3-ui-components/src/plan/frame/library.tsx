@@ -62,6 +62,7 @@ import { SliceDensityContext } from "@elaraai/east-ui-components/internal";
 import { scheduleLibraryCard as card, scheduleLibrary as libraryOf } from "../../shared/schedule/library.js";
 import { DUE_GROUPS, dueGroupOf, durationMinutes, type DueGroup } from "../../shared/schedule/due.js";
 import type { PlanLibraryTabWord } from "../messages.js";
+import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanValue } from "./index.js";
 import { usePlanResourceRows, type PlanResourceRefValue } from "./resources.js";
@@ -96,7 +97,7 @@ const printResource = printFor(ScheduleResourceRefType);
 const LIBRARY_SIZE = "272px";
 
 /** One kind's drafts, by entry id, as its seams take them. */
-type PlanKindDraftsValue = Parameters<PlanEventKindValue["planUnscheduled"]>[0];
+type PlanKindDraftsValue = Parameters<PlanEventKindValue["planUnscheduled"]>[2];
 
 /** Every kind's drafts, by kind then by entry id (#1194). */
 type PlanEventDraftsValue = ValueTypeOf<typeof PlanEventDraftsType>;
@@ -111,6 +112,9 @@ const READING = "reading";
 
 /** No unscheduled event. */
 const NO_BACKLOG: readonly BacklogEntry[] = [];
+
+/** No window: a canvas with no time axis, whose kinds read their backlog whole. */
+const NO_WINDOW = new Date(0);
 
 /** The shared empty state's icon: an empty box, as a Library's — Font Awesome's open box (#1263). */
 const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
@@ -143,6 +147,8 @@ export interface PlanLibraryProps {
     takesEvents?: boolean | undefined;
     /** The event kinds with an event on the canvas (#1196): an author's tab whose patch lands on one lets its cards drag. */
     patchKinds?: ReadonlySet<string> | undefined;
+    /** The shared scale: the window a kind narrowed by its builder's slice reads its backlog beside (#1343). */
+    scale?: PlanScale | undefined;
 }
 
 /** No event kind has an event on the canvas. */
@@ -244,7 +250,7 @@ function seriesPickOf(
  */
 export function usePlanLibrary({
     library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
-    drafts = NONE_DRAFTED, takesEvents = false, patchKinds = NO_PATCH_KINDS,
+    drafts = NONE_DRAFTED, takesEvents = false, patchKinds = NO_PATCH_KINDS, scale,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     const noun = useCallback((tab: PlanLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
@@ -290,17 +296,19 @@ export function usePlanLibrary({
     // counts it (#1196): a card scheduled leaves, an event unscheduled joins.
     // Tracked, so a commit to a kind's record reads it again; the last read
     // stands while one is in flight or has failed.
+    const from = scale?.window.min.type === "time" ? scale.window.min.value.getTime() : undefined;
+    const to = scale?.window.max.type === "time" ? scale.window.max.value.getTime() : undefined;
     const readBacklog = useCallback((): readonly BacklogEntry[] | typeof READING | undefined => {
         if (!listsBacklog) return undefined;
         const out: BacklogEntry[] = [];
         for (const kind of kinds) {
             if (!kind.backlog) continue;
-            const read = kind.planUnscheduled(drafts.get(kind.key) ?? NO_DRAFTS);
+            const read = kind.planUnscheduled(from === undefined ? NO_WINDOW : new Date(from), to === undefined ? NO_WINDOW : new Date(to), drafts.get(kind.key) ?? NO_DRAFTS);
             if (read.type === "none") return READING;
             for (const item of read.value) out.push({ kind, item });
         }
         return out;
-    }, [listsBacklog, kinds, drafts]);
+    }, [listsBacklog, kinds, drafts, from, to]);
     const { result } = useTrackedEvaluation(readBacklog);
     const heldBacklog = useRef<readonly BacklogEntry[]>(NO_BACKLOG);
     const unscheduled = useMemo(() => {

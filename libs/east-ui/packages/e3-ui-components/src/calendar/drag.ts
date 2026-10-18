@@ -10,7 +10,7 @@ import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type Dra
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { moveSpan, resizeSpan } from "../shared/time/drag.js";
 import { timeScale } from "../shared/time/scale.js";
-import { calendarLibraryId, templateSources } from "./library.js";
+import { calendarLibraryId } from "./library.js";
 import { DAY, QUARTER, dayStart, eventKey, parseEventKey, parseResourceKey, parseTimeKey, resourceKey, timeKey, type CalendarItem, type CalendarValue } from "./model.js";
 
 /** The views hand drop coordinates to this single grammar adapter. */
@@ -29,6 +29,8 @@ export interface CalendarDrag {
 interface DragArgs {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; narrow: boolean;
     items: readonly CalendarItem[]; backlog: readonly CalendarItem[]; selection: readonly CalendarItem[];
+    /** The templates the rail shows, by their card's id: what a drop or a drawn event is made from (#1343). */
+    templates: ReadonlyMap<string, CalendarSource>;
     activeTemplate: string | undefined; onError: (message: string | undefined) => void;
 }
 /** No layer is registered in narrow or read-only mode. */
@@ -36,7 +38,7 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const { value, key, commands, narrow, items, backlog, selection, activeTemplate, onError } = args;
     const enabled = commands !== undefined && !narrow;
     const grabbed = useRef<{ id: string; offset: number } | undefined>(undefined);
-    const sources = templateSources(value);
+    const sources = args.templates;
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
         return parsed.success ? [...items, ...backlog].find(item => item.kind === parsed.value.kind && item.key === parsed.value.key)

@@ -9,6 +9,7 @@ import {
     type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import type { ScheduleEventKind } from "./events.js";
+import { tabSource } from "../utils/record-sources.js";
 import { SchedulePatchTypeFor } from "./patch.js";
 import { ScheduleFieldWriteType } from "./types.js";
 
@@ -24,9 +25,12 @@ export const ScheduleLibraryCardType = StructType({
 /** Type representing {@link ScheduleLibraryCardType}. */
 export type ScheduleLibraryCardType = typeof ScheduleLibraryCardType;
 
-/** An author's tab, resolved for a renderer. */
+/**
+ * An author's tab, resolved for a renderer.
+ * @property source - The builder's Slice source whose shown keys filter its cards, each card's key that record's key; none, its cards whole (#1343)
+ */
 export const ScheduleAuthorTabType = StructType({
-    name: StringType, icon: OptionType(StringType), drop: OptionType(StringType), cards: ArrayType(ScheduleLibraryCardType),
+    name: StringType, icon: OptionType(StringType), drop: OptionType(StringType), cards: ArrayType(ScheduleLibraryCardType), source: OptionType(StringType),
 });
 
 /** Typed accessors describing one author-defined library card. */
@@ -43,6 +47,11 @@ export interface ScheduleLibraryTabConfig<K extends EastType, R extends EastType
     group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
     /** What a card dropped on an event sets: `Schedule.patch(KindRowType, …)`, whose type names the event kind it lands on. */
     drop?: (row: ExprType<R>, key: ExprType<K>) => ExprType<P>;
+    /**
+     * The builder's `Slice.bindRecords` source whose shown keys filter this tab's cards (`people`), its rows that record's
+     * rows by key; omitted, the tab lists its rows whole. It counts what it shows, and says so when the rail leaves it none.
+     */
+    source?: string;
 }
 
 /** An author's declared tab, before its accessors are reified. */
@@ -60,11 +69,14 @@ export interface ScheduleTabDeclaration {
  * @param tab - The declared tab
  * @param events - Event kinds by slot
  * @param owner - The builder's name for diagnostics
+ * @param sources - The builder's Slice sources, which the tab's `source` must be one of
  * @returns The closed author tab
- * @throws {Error} When rows are not keyed, or a drop matches zero or several kinds
+ * @throws {Error} When rows are not keyed, a drop matches zero or several kinds, or the tab names a source the slice lacks
  */
-export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[], owner: string): ExprType<typeof ScheduleAuthorTabType> {
+export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[], owner: string,
+    sources: readonly string[]): ExprType<typeof ScheduleAuthorTabType> {
     const cfg = tab.config;
+    const named = tabSource(owner, cfg.name, cfg.source, sources);
     const where = owner + ': the "' + cfg.name + '" tab';
     const source = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const type = Expr.type(source as unknown as Expr) as EastType;
@@ -136,5 +148,6 @@ export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (
         icon: cfg.icon === undefined ? none : some(cfg.icon),
         drop: lands === undefined ? none : some(lands),
         cards,
+        source: named,
     }, ScheduleAuthorTabType);
 }

@@ -274,6 +274,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const start = usePlanLibrary({
         library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
         drafts: chrome?.events?.drafts, takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
+        scale: chrome?.scale,
     });
     // Counted with every kind's drafts in place (#1194).
     const counts = usePlanEventCounts(kinds, chrome?.scale, chrome?.events?.drafts);

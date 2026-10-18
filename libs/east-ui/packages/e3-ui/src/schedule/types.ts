@@ -329,9 +329,12 @@ export const ScheduleRolesType = StructType({
  * @property status - How each case of its status shows
  * @property backlog - Whether its rows with no time are its backlog
  * @property templates - Its templates, for the library
+ * @property templatesSource - The builder's Slice source whose shown keys filter its templates, the source its templates list names; none, every template shows (#1343)
  * @property fields - The inspector's form over its other fields (`Fields`)
  * @property items - Its events overlapping `[from, to)`, the drafts in place; `none` while a read is in flight
- * @property unscheduled - Its backlog: the rows with no time, the drafts in place
+ * @property unscheduled - Its backlog: the rows with no time, the drafts in place. It takes the window `[from, to)`
+ *   the canvas reads: a kind narrowed by its builder's slice holds the events its narrowing holds there and in its
+ *   backlog alike, so a draft moves one between them by its times (#1343)
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
  * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
@@ -346,9 +349,10 @@ export const ScheduleKindType = StructType({
     status: ArrayType(StructType({ case: StringType, status: ScheduleStatusType })),
     backlog: BooleanType,
     templates: ArrayType(ScheduleTemplateType),
+    templatesSource: OptionType(StringType),
     fields: ArrayType(FieldSpecType),
     items: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
-    unscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
+    unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
     editing: EditingType,
@@ -458,7 +462,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight
- * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place
+ * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place, over the window `[from, to)` the canvas reads, as `unscheduled` takes it
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event. A kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` — the range the canvas reads, where a gesture's event is drawn — and its backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the range
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
  */
@@ -469,7 +473,7 @@ export const PlanEventKindType = StructType({
     overlaps: ScheduleOverlapsType,
     roles: PlanEventRolesType,
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
-    planUnscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
+    planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(PlanEventReadType)),
     inspector: OptionType(RowInspectorType),
 });

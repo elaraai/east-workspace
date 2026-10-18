@@ -35,10 +35,19 @@ export interface RecordSources {
     chrome: option<ExprType<RecordSlicesChromeType>>;
     /** The slice's sources, in their order. */
     names: string[];
-    /** Each source's narrowed keys, paged through its part: what the renderer reads to show its rows. */
+    /** Each source's narrowed keys, paged through its own data: what the renderer reads to show its rows. */
     keys: Readonly<Record<string, unknown>>;
-    /** Each source's typed narrowed data, `Slice.rows(slice, name)`: what a main area that pages its rows reads. */
+    /**
+     * Each source's typed narrowed data, `Slice.rows(slice, name)`: what a main area that pages its rows reads. Like
+     * `parts`, an expression over the whole slice: bind it before a function reads it.
+     */
     data: Readonly<Record<string, unknown>>;
+    /**
+     * Each source's typed record Slice handle, its part of the slice: what a kind narrowed through it reads (a
+     * Calendar's event kind). An expression over the whole slice, so a builder binds what a function reads of it
+     * before the function reads it (`bindScheduleKindPart`, #1343): a function captures what it reads.
+     */
+    parts: Readonly<Record<string, unknown>>;
 }
 
 /** `` `lanes`, `resources` and `events` ``. */
@@ -54,11 +63,11 @@ function quoted(names: readonly string[]): string {
  *
  * @param slice - The builder's `slice` prop, if given
  * @param spec - What the builder takes, and its words
- * @returns The chrome, the sources' names, and each one's keys and typed data
+ * @returns The chrome, the sources' names, and each one's keys, typed data and part
  * @throws {Error} When `slice` is `Slice.bind` or `Slice.bindRecord`, names a source the builder does not take, or narrows a record whose keys are not Strings
  */
 export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec: RecordSourcesSpec): RecordSources {
-    if (slice === undefined) return { chrome: none, names: [], keys: {}, data: {} };
+    if (slice === undefined) return { chrome: none, names: [], keys: {}, data: {}, parts: {} };
     if (!isRecordSlices(slice.slice)) {
         throw new Error(`${spec.builder}: \`slice\` is Slice.bindRecords(key, { ${spec.names.join(", ")} }) — name each source after what it narrows; Slice.bind and Slice.bindRecord are not taken`);
     }
@@ -66,23 +75,45 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
     const sources = (Expr.type(handle as unknown as Expr) as StructType).fields["sources"];
     const names = sources?.type === "Struct" ? Object.keys(sources.fields) : [];
     const takes = spec.takes ?? ((name: string) => spec.names.includes(name));
-    const keys: Record<string, unknown> = {}, data: Record<string, unknown> = {};
+    const keys: Record<string, unknown> = {}, data: Record<string, unknown> = {}, parts: Record<string, unknown> = {};
     for (const name of names) {
         if (!takes(name)) {
             throw new Error(`${spec.builder}: \`slice\` narrows ${spec.what} — its source '${name}' is none of them; name the sources ${quoted(spec.names)}`);
         }
-        const rows = (handle as unknown as { sources: Record<string, { data: unknown }> }).sources[name]!.data;
+        const part = (handle as unknown as { sources: Record<string, { data: unknown }> }).sources[name]!;
+        const rows = part.data;
         // A source's rows are keyed as its record is: a builder matches them by String key.
         const resolved = resolveRowSource(rows, `${spec.builder}.slice's ${name}`);
         if (resolved.kind !== "ordered" || !isTypeEqual(resolved.keyType, StringType)) {
             throw new Error(`${spec.builder}: \`slice\`'s ${name} narrows a record whose keys are not Strings — each source is a record with String primary keys`);
         }
-        const visible = keyVisibility(rows, `${spec.builder}.slice's ${name}`);
-        if (visible.source === undefined) throw new Error(`${spec.builder}: \`slice\`'s ${name} narrows a record whose keys are not Strings — each source is a record with String primary keys`);
-        keys[name] = visible.source;
+        // Its keys page through its own data, bound once: their functions then hold that source alone, never the whole
+        // slice, whose every source's methods each hold its source, and which a payload encodes, and its decode
+        // compiles, once for each function holding it (#1343).
+        keys[name] = Expr.block($ => {
+            const own = $.let(rows as ExprType<StructType>);
+            const visible = keyVisibility(own, `${spec.builder}.slice's ${name}`);
+            if (visible.source === undefined) throw new Error(`${spec.builder}: \`slice\`'s ${name} narrows a record whose keys are not Strings — each source is a record with String primary keys`);
+            return visible.source;
+        });
         data[name] = rows;
+        parts[name] = part;
     }
-    return { chrome: some(recordSlicesChrome(slice)), names, keys, data };
+    return { chrome: some(recordSlicesChrome(slice)), names, keys, data, parts };
+}
+
+/**
+ * The sources a builder's `slice` names, read before it is checked: what a
+ * builder's templates check lists, so a list written in the code is refused
+ * with the change to make before a source no list names is (#1343, #1345).
+ *
+ * @param slice - The builder's `slice` prop, if given
+ * @returns Its sources, in their order; none when it is no `Slice.bindRecords`, which `recordSources` refuses
+ */
+export function sliceSourceNames(slice: RecordSlicesChromeOptions | undefined): string[] {
+    if (slice === undefined || !isRecordSlices(slice.slice)) return [];
+    const sources = (Expr.type(East.value(slice.slice) as unknown as Expr) as StructType).fields["sources"];
+    return sources?.type === "Struct" ? Object.keys(sources.fields) : [];
 }
 
 /**

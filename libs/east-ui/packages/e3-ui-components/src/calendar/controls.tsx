@@ -10,7 +10,10 @@ import { DateTimeType, OptionType, StringType, StructType, none, some, type Valu
 import { Fields } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
-import { parseResourceKey, resourceKey, type CalendarItem, type CalendarStyles, type CalendarValue } from "./model.js";
+import { parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarStyles, type CalendarValue } from "./model.js";
+
+/** Each resource kind's rows the rail shows (#1343): what a resource Chooser offers. */
+export type CalendarShownResources = CalendarValue["resources"];
 
 const PlacementFormType = StructType({ start: DateTimeType, end: DateTimeType, resource: OptionType(StringType) });
 type PlacementForm = ValueTypeOf<typeof PlacementFormType>;
@@ -24,10 +27,18 @@ function placementOf(form: PlacementForm): CalendarPlacement | undefined {
     const parsed = parseResourceKey(form.resource.value);
     return parsed.success ? { ...form, resource: some(parsed.value) } : undefined;
 }
-/** The placement form is one shared FieldForm in both the inspector and popovers. */
-export function PlacementFields({ source, value, placement, onChange, readOnly = false }: { source: CalendarSource; value: CalendarValue; placement: CalendarPlacement; onChange: (at: CalendarPlacement) => void; readOnly?: boolean }) {
+/**
+ * The placement form is one shared FieldForm in both the inspector and popovers. Its resource Chooser offers the
+ * rows the rail shows, and the placement's own resource whatever the rail hides (#1343).
+ */
+export function PlacementFields({ source, value, shown, placement, onChange, readOnly = false }: {
+    source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; placement: CalendarPlacement; onChange: (at: CalendarPlacement) => void; readOnly?: boolean;
+}) {
     const form = formOf(placement);
-    const options = useMemo(() => ({ resources: value.resources.filter(kind => source.kind.takes.includes(kind.key)).flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: `${row.label} · ${kind.name}` }))) }), [value.resources, source.kind.takes]);
+    const own = placement.resource;
+    const options = useMemo(() => ({ resources: resourceChoices(value.resources, shown, own.type === "some" ? [own.value] : [])
+        .filter(kind => source.kind.takes.includes(kind.key)).flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: `${row.label} · ${kind.name}` }))) }),
+    [value.resources, shown, own, source.kind.takes]);
     return <FieldForm specs={SPECS} readOnly={readOnly} value={form} options={options} onChange={(path, next) => {
         let changed = { ...form, [path[0]!]: next };
         if (path[0] === "start" && next instanceof Date) changed = { ...changed, end: new Date(next.getTime() + form.end.getTime() - form.start.getTime()) };
@@ -37,8 +48,8 @@ export function PlacementFields({ source, value, placement, onChange, readOnly =
     }} />;
 }
 /** An anchored action uses the same Schedule command as a desktop drop. */
-export function PlacementAction({ label, source, value, day, commands, styles }: {
-    label: string; source: CalendarSource; value: CalendarValue; day: Date; commands: CalendarCommands; styles: CalendarStyles;
+export function PlacementAction({ label, source, value, shown, day, commands, styles }: {
+    label: string; source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; day: Date; commands: CalendarCommands; styles: CalendarStyles;
 }) {
     const [open, setOpen] = useState(false);
     const [placement, setPlacement] = useState(() => initialPlacement(source, day));
@@ -53,18 +64,20 @@ export function PlacementAction({ label, source, value, day, commands, styles }:
             const refused = commands.place(source, placement, label === "Resize" ? "resize" : "typed");
             setError(refused); if (refused === undefined) setOpen(false);
         }}>{label}</Button></>}>
-        <PlacementFields source={source} value={value} placement={placement} onChange={setPlacement} />
+        <PlacementFields source={source} value={value} shown={shown} placement={placement} onChange={setPlacement} />
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
     </SliceEditPopover>;
 }
 /** Mutations are explicit and visible in cards and in the inspector. */
-export function EventActions({ item, value, commands, day, styles }: { item: CalendarItem; value: CalendarValue; commands: CalendarCommands; day: Date; styles: CalendarStyles }) {
+export function EventActions({ item, value, shown, commands, day, styles }: {
+    item: CalendarItem; value: CalendarValue; shown: CalendarShownResources; commands: CalendarCommands; day: Date; styles: CalendarStyles;
+}) {
     const kind = value.events.find(kind => kind.key === item.kind)!;
     const [error, setError] = useState<string>();
     return <>
         <Box css={styles.actions} data-calendar-event-actions="">
-            <PlacementAction label={item.start.type === "none" ? "Schedule" : "Move"} source={{ kind, item }} value={value} day={day} commands={commands} styles={styles} />
-            {item.start.type === "some" && <PlacementAction label="Resize" source={{ kind, item }} value={value} day={day} commands={commands} styles={styles} />}
+            <PlacementAction label={item.start.type === "none" ? "Schedule" : "Move"} source={{ kind, item }} value={value} shown={shown} day={day} commands={commands} styles={styles} />
+            {item.start.type === "some" && <PlacementAction label="Resize" source={{ kind, item }} value={value} shown={shown} day={day} commands={commands} styles={styles} />}
             <Button size="xs" variant="outline" data-calendar-action="duplicate" disabled={!commands.editing.available(kind.key)} onClick={() => setError(commands.duplicate([item]))}>Duplicate</Button>
             <Button size="xs" variant="outline" data-calendar-action="delete" disabled={!commands.editing.available(kind.key)} onClick={() => commands.remove([item])}>Delete</Button>
             {kind.backlog && item.start.type === "some" && <Button size="xs" variant="outline" data-calendar-action="unschedule" disabled={!commands.editing.available(kind.key)} onClick={() => setError(commands.unschedule([item]))}>Return to backlog</Button>}

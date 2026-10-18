@@ -64,7 +64,7 @@ export {
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 // A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
-export { recordSources, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
+export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the

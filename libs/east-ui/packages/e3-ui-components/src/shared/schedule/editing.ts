@@ -140,8 +140,11 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
     joined: readonly EditHistoryJoined<ScheduleEntryRef>[];
     /** The range the canvas reads its event kinds' rows over (#1199): a kind read a window at a time holds every event it draws there. */
     range?: ScheduleRange | undefined;
-    /** Indexed query over an edited kind's primary record, for confirmed Save feedback. */
-    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
+    /**
+     * The record Slices over the edited kinds' primary records, for confirmed Save feedback: each kind's is the one
+     * over its record (`sourceId`) — the Calendar's, its slice's part named after the kind (#1343).
+     */
+    recordSlices?: readonly ValueTypeOf<RecordSliceBindType>[] | undefined;
 }
 
 /** A kind's codecs, read once per kind. */
@@ -207,7 +210,7 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @param args - The kinds, when their drafts go, the canvas's storage key, the sessions that join, and the range the canvas reads
  * @returns The history, the kinds' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, storageKey, joined, range, recordSlice }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
+export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, storageKey, joined, range, recordSlices }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
     const codecs = useMemo(() => kinds.map((kind): KindCodecs => {
@@ -234,7 +237,8 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, st
     // and an event read by its key, decoded.
     const sources = useMemo(() => kinds.map((kind, i): EditHistorySource<ScheduleEntryRef> => {
         const editing = applyMode === "auto" ? { ...kind.editing, mode: variant("auto", null) } : kind.editing;
-        const prepare = prepareRecordSliceSave(recordSlice?.sourceId === editing.sourceId ? recordSlice : undefined,
+        // The Slice over this kind's own record, if one narrows it: its Save notice counts what leaves it.
+        const prepare = prepareRecordSliceSave(recordSlices?.find(slice => stringEqual(slice.sourceId, editing.sourceId)),
             kind.entries.type === "some" ? kind.entries.value.revision : undefined);
         const check = kind.ready.type === "some" ? kind.ready.value : undefined;
         const key = historyKeyOf(storageKey, editing);
@@ -256,7 +260,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, applyMode, st
             },
         };
         return { editing, ready, paged, prepare };
-    }), [kinds, codecs, applyMode, storageKey, recordSlice]);
+    }), [kinds, codecs, applyMode, storageKey, recordSlices]);
     const state = useEditHistory<ScheduleEntryRef>(sources, storageKey, joined);
     historyRef.current = state.history;
     const { history, keys, version } = state;

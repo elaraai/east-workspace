@@ -225,7 +225,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
     });
 
     test("draws its backlog the same way, each row sized by its duration", () => {
-        const read = jobKind.planUnscheduled(NO_DRAFTS);
+        const read = jobKind.planUnscheduled(...RANGE, NO_DRAFTS);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value.map((i) => i.key), ["j2"]);
         const [waiting] = read.value;
@@ -360,7 +360,7 @@ describe("Schedule.events — the Calendar's kind with Plan's options present (P
         }
         const items = equalFor(OptionType(ArrayType(Schedule.Types.Item)));
         assert.ok(items(plain.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS), withPlan.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS)));
-        assert.ok(items(plain.unscheduled(NO_DRAFTS), withPlan.unscheduled(NO_DRAFTS)));
+        assert.ok(items(plain.unscheduled(...RANGE, NO_DRAFTS), withPlan.unscheduled(...RANGE, NO_DRAFTS)));
         const j1 = encodeBeast2For(JobType)(JOBS.get("j1")!);
         const request = [{ id: "j1", entry: j1, gesture: variant("place", {
             start: at("2026-10-05T08:00:00Z"), end: at("2026-10-05T14:00:00Z"), resource: some({ kind: "presses", key: "pb" }),
