@@ -69,7 +69,7 @@ import { buildLibrary, librarySources, SheetLibraryTabType, type SheetLibraryTab
 import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
-import { recordSources, templatesSource } from "../utils/record-sources.js";
+import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 
 // ============================================================================
@@ -330,21 +330,6 @@ const NARROWS = "its rows, and the templates lists and tabs that name a source";
 const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
 /**
- * The sources a `Slice.bindRecords` handle holds, read off its type alone —
- * none for anything else, which {@link recordSources} refuses.
- *
- * @param slice - The sheet's `slice` prop
- * @returns The sources' names, in their order
- */
-function sliceNames(slice: unknown): string[] {
-    const handle = (slice as { slice?: unknown } | undefined)?.slice;
-    if (handle === undefined || !isRecordSlices(handle)) return [];
-    const type = Expr.type(East.value(handle as SubtypeExprOrValue<EastType>) as Expr) as StructType;
-    const sources = (type.fields as Record<string, EastType>)["sources"];
-    return sources?.type === "Struct" ? Object.keys(sources.fields) : [];
-}
-
-/**
  * The record identity of a slice's `rows` source: what the editing session
  * of the rows it pages is named by — the record, whichever index a view lists.
  *
@@ -395,7 +380,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     // Each list names one of the slice's sources, and a list written in the code names none — refused before a
     // source no list names is, so the refusal says the change to make. A slice of another kind is refused below.
     if (narrowing === undefined || isRecordSlices(narrowing.slice)) {
-        const names = sliceNames(narrowing);
+        const names = sliceSourceNames(narrowing);
         for (const list of lists) templatesSource("Sheet", TEMPLATES_CALL, isSheetTemplates(list) ? list.source : undefined, names);
     }
     // The slice's sources: its rows, and each a templates list or a tab names.
@@ -429,11 +414,19 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         if (entry !== undefined) {
             throw new Error("Sheet: `entry` reads one entry's rows of a record, and `slice`'s `rows` source gives the rows — take them from one or the other");
         }
-        const built = createSheetBuild(rowsData, columns, { ...sheet, ...viewOptions }, { sourceId: rowsSourceId(narrowing!), slice: sources.chrome });
-        return payloadOf(built, {
-            ...parts, id: sheet.id as string | undefined,
-            history: East.value(none, OptionType(SheetHistoryType)),
-            missing: East.value(none, OptionType(StringType)),
+        // The source's data and identity, bound once: every function the sheet builds over its rows — its pages, its
+        // seeks, its session's reads — then holds that source alone, never the whole slice, whose every source's
+        // methods each hold their source, and which a payload encodes, and its decode compiles, once for each function
+        // holding it (#1343).
+        return Expr.block(($) => {
+            const own = $.let(rowsData as ExprType<StructType>);
+            const sourceId = $.let(rowsSourceId(narrowing!));
+            const built = createSheetBuild(own, columns, { ...sheet, ...viewOptions }, { sourceId, slice: sources.chrome });
+            return payloadOf(built, {
+                ...parts, id: sheet.id as string | undefined,
+                history: East.value(none, OptionType(SheetHistoryType)),
+                missing: East.value(none, OptionType(StringType)),
+            });
         });
     }
     if (record === undefined && data === undefined) {
