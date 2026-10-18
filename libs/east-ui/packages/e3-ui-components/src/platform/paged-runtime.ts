@@ -815,6 +815,26 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         });
     }
 
+    /**
+     * Ask again what failed: an explicit refresh — a Retry — puts every channel
+     * of the snapshot that failed for a reason a retry can fix back to `idle`
+     * and re-fires its readers, so their next read fetches it at once, not
+     * after the retry gap a read alone waits. A permanent failure stays until
+     * the source moves; nothing else is dropped.
+     *
+     * @param snapshot - The source's snapshot
+     */
+    private rearmFailed(snapshot: Snapshot): void {
+        for (const key of snapshot.channels) {
+            const entry = this.entries.get(key);
+            if (entry === undefined || entry.status !== "failed" || entry.permanent === true) continue;
+            entry.status = "idle";
+            delete entry.error;
+            delete entry.failedAtMs;
+            this.notify(key);
+        }
+    }
+
     /** What a read of a channel answers: its value once loaded, `none` while
      *  in flight, or its failure, thrown. */
     private answer<T>(entry: PageEntry, value: T | undefined): option<T> {
@@ -1066,8 +1086,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     queueMicrotask(() => {
                         if (this.workspace !== workspace) return;
                         const snapshot = this.snapshotOf(workspace, path);
-                        if (target.type === "some") this.moveTo(workspace, path, snapshot, target.value);
-                        else this.find(workspace, path, snapshot);
+                        if (target.type === "some") { this.moveTo(workspace, path, snapshot, target.value); return; }
+                        // Following the current state is a Retry too: what failed is asked again now.
+                        this.rearmFailed(snapshot);
+                        this.find(workspace, path, snapshot);
                     });
                     return null;
                 }),

@@ -841,6 +841,48 @@ describe("PagedRuntime — key search (#574)", () => {
         assert.equal(callSeek(runtime, KeyedType, variant("prefix", "ka")).type, "some");
     });
 
+    test("refresh(none) is a Retry: a failed window and a failed search are asked again at once, inside the gap; a permanent failure stays", async () => {
+        // A narrowing's Retry, or a Sheet's, refreshes its source: what failed is
+        // asked again now, its readers re-fired, rather than after the gap a read
+        // alone waits — a revision that did not move must not leave it failed.
+        const g = gatedApi();
+        const runtime = await known(new TestPagedRuntime(), g.api);
+        const handle = handleOf(runtime, rowsTypeValue, opsPath);
+        callPage(runtime, 0n, 2n);
+        callSeek(runtime, KeyedType, variant("prefix", "ka"));
+        callSeek(runtime, KeyedType, variant("key", "not a literal"));
+        g.fail(serverError("internal"));
+        g.failFind(serverError("internal"));
+        g.failFind(serverError("key_parse_error"));
+        await settle();
+        let refired = 0;
+        runtime.subscribe(pagedWindowKey(ws, opsPath, R1, 0, 2), () => { refired += 1; });
+        runtime.subscribe(pagedSeekKey(ws, opsPath, R1, { prefix: "ka" }), () => { refired += 1; });
+        assert.throws(() => callPage(runtime, 0n, 2n), /internal/);
+
+        handle.refresh!(none);
+        assert.throws(() => callPage(runtime, 0n, 2n), /internal/, "deferred out of the caller's render");
+        await settle();
+        assert.equal(refired, 2, "the failed window's and search's readers re-fire");
+        assert.equal(runtime.clockMs, 0, "still inside the gap");
+        assert.equal(callPage(runtime, 0n, 2n).type, "none", "asked again: in flight, no longer failed");
+        assert.equal(callSeek(runtime, KeyedType, variant("prefix", "ka")).type, "none");
+        assert.deepEqual([g.calls.length, g.finds.length], [2, 3]);
+        assert.throws(() => callSeek(runtime, KeyedType, variant("key", "not a literal")), /key_parse_error/, "no retry can fix it");
+        assert.equal(g.finds.length, 3, "a permanent failure is never re-asked");
+
+        g.release([{ id: "a", v: 1.0 }], 1);
+        g.releaseFind(true, 1, 1);
+        await settle();
+        assert.equal(callPage(runtime, 0n, 2n).type, "some");
+        assert.equal(callSeek(runtime, KeyedType, variant("prefix", "ka")).type, "some");
+        // A refresh with nothing failed refetches nothing.
+        handle.refresh!(none);
+        await settle();
+        assert.equal(callPage(runtime, 0n, 2n).type, "some");
+        assert.deepEqual([g.calls.length, g.finds.length], [2, 3]);
+    });
+
     test("a key the server cannot parse keeps throwing, never re-asked", async () => {
         const g = gatedApi();
         const runtime = await known(new TestPagedRuntime(), g.api);
