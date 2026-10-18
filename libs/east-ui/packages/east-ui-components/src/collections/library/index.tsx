@@ -130,6 +130,24 @@ export interface LibraryGroupMark {
 /** The empty state's icon: an empty box, as the design system draws it — Font Awesome's open box (#1263). */
 const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
 
+/**
+ * What a Library says when it shows no card: the shared empty state in its
+ * words, with Clear filters while its host's narrowing is what left it none
+ * (#1339) — a Library's and a paged palette's alike (#1341).
+ *
+ * @param props - Its words, and the narrowing's Clear filters when a narrowing left it empty
+ * @returns The empty state
+ * @internal
+ */
+export function LibraryEmptyState({ said, onClear }: { said: LibraryEmpty; onClear: (() => void) | undefined }) {
+    return (
+        <Box data-library-empty="" {...(onClear !== undefined ? { "data-narrowed": "" } : {})}>
+            <EmptyStateView icon={EMPTY_ICON} title={said.title} description={said.description}
+                actions={onClear === undefined ? undefined : <Button size="xs" variant="outline" onClick={onClear}>Clear filters</Button>} />
+        </Box>
+    );
+}
+
 type SlotStyles = Record<string, SystemStyleObject>;
 
 interface LibraryToolbarState {
@@ -1197,12 +1215,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                 {...(virtualEnabled ? { "data-virtual": "" } : {})}
                 onScroll={handleScrollPersist}
             >
-                {nothing !== undefined && (
-                    <Box data-library-empty="" {...(clearNarrowing !== undefined ? { "data-narrowed": "" } : {})}>
-                        <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description}
-                            actions={clearNarrowing === undefined ? undefined : <Button size="xs" variant="outline" onClick={clearNarrowing}>Clear filters</Button>} />
-                    </Box>
-                )}
+                {nothing !== undefined && <LibraryEmptyState said={nothing} onClear={clearNarrowing} />}
                 {bodyContent}
             </Box>
             {(hiddenCount > 0 || (!gallery && addLabel !== undefined)) && (
