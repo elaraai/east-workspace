@@ -8,7 +8,7 @@ import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { none, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { act, assignment, card, mount, rosterHarness, settle, slot, START, width } from "./harness.test-utils.js";
+import { act, assignment, card, mount, narrow, open, rosterHarness, settle, slot, START, width, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const press = async (node: Element) => { await act(async () => { fireEvent.click(node); }); await settle(); };
 const save = async (c: HTMLElement) => press(within(slot(c, 'toolbar')).getByRole('button', { name: 'Save' }));
@@ -58,11 +58,11 @@ describe('Roster shared and custom forms', () => {
         week.assignments.set('request', { slot: { day: 4n, group: 'inbound', shift: 'early' }, who: variant('request', 'northside'), position: 'crew', activity: none, offset: 0, overtime: 0, agreed: none });
         // The stored request is deliberately changed below through the same remove/restore commands.
         await h.commit(ex.rosterWeeks, weeks);
-        const { container } = mount(ex.rosterPeople); await settle();
-        // Hide named staff through the shared Slice so the request row is in
-        // the mounted virtual window; filtering must not hide agency requests.
-        await userEvent.setup().type(within(slot(container, 'toolbar')).getByPlaceholderText('Search…'), 'no staff match');
-        await settle(); await width(390);
+        const { container, store } = await open(ex.rosterPeople);
+        // Hide named staff through the rail's people source so the request row is
+        // in the mounted virtual window; narrowing must not hide agency requests.
+        await narrow(store, 'rosterPeople', 'people', new Map<string, Choice>([['name', variant('prefix', 'Z. Nobody')]]));
+        await width(390);
         await press(within(card(container, 'request')).getByRole('button', { name: 'Remove' }));
         expect(within(card(container, 'request')).getByRole('button', { name: 'Restore' })).not.toBeNull();
         await press(within(card(container, 'request')).getByRole('button', { name: 'Restore' }));

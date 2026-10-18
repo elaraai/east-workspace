@@ -11,7 +11,7 @@ import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { AssignmentActions, AssignmentFields, PlaceAction, RequirementFields } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, money, type RosterViewsProps } from "./views.js";
-import { DAY, assignmentTimes, requirementOf, sameAssignment, sameSlot, viewTotals, type Assignment, type Issue, type Person, type RosterStyles, type Slot } from "./model.js";
+import { DAY, assignmentTimes, groupSkills, requirementOf, sameAssignment, sameSlot, viewTotals, type Assignment, type Issue, type Person, type RosterStyles, type Slot } from "./model.js";
 
 type Args = RosterViewsProps & { storageKey: string; tab: string; onTab: (tab: string) => void };
 function fixLabel(issue: Issue, props: RosterViewsProps) {
@@ -39,10 +39,11 @@ export function RosterIssues({ props, issues }: { props: RosterViewsProps; issue
 }
 function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot }) {
     const group = props.value.groups.find(g => g.key === (slot?.group ?? person.group));
+    const skills = group === undefined ? undefined : groupSkills(props.value, group.key);
     const coverage = slot === undefined ? undefined : props.coverage.get(slot);
-    return <><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Skills · {group?.label}</Box><Box css={props.styles.detail}>{group?.skills.filter(skill => person.skills.has(skill.key)).length} / {group?.skills.length} held</Box>
+    return <><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Skills · {group?.label}</Box><Box css={props.styles.detail}>{skills?.filter(skill => person.skills.has(skill.key)).length} / {skills?.length} held</Box>
         {person.agency && person.skills.size === 0 && <Box css={props.styles.detail}>No skills recorded for agency staff.</Box>}
-        {group?.skills.map(skill => <Box key={skill.key} css={props.styles.skillLine}><Box as="span" css={props.styles.flag} aria-label={person.skills.has(skill.key) ? "Skill held" : "Skill not held"}><FontAwesomeIcon icon={person.skills.has(skill.key) ? faCheck : faMinus} /></Box><span>{skill.label}</span><span /><span>{props.format.number(coverage?.lines.find(line => line.skill === skill.key)?.needed ?? 0)} h needed</span></Box>)}
+        {skills?.map(skill => <Box key={skill.key} css={props.styles.skillLine}><Box as="span" css={props.styles.flag} aria-label={person.skills.has(skill.key) ? "Skill held" : "Skill not held"}><FontAwesomeIcon icon={person.skills.has(skill.key) ? faCheck : faMinus} /></Box><span>{skill.label}</span><span /><span>{props.format.number(coverage?.lines.find(line => line.skill === skill.key)?.needed ?? 0)} h needed</span></Box>)}
     </Box><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Week</Box><Box css={props.styles.detail}>{props.format.number(props.hours.get(person.key) ?? 0)} h / {props.format.number(person.contract)} h</Box>
         {Array.from({ length: 7 }, (_, day) => { const rows = [...props.week.assignments].filter(([, a]) => a.who.type === "person" && a.who.value === person.key && a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => { props.setView({ ...props.view, date: props.start.getTime() + day * DAY }); props.select(rows.length === 0 ? { type: "person", key: person.key } : { type: "assignment", key: rows[0]![0] }); }}>
             {props.format.weekday(new Date(props.start.getTime() + day * DAY))} · {rows.map(([, a]) => `${props.value.shifts.find(s => s.key === a.slot.shift)?.code} ${props.format.number((props.value.shifts.find(s => s.key === a.slot.shift)?.hours ?? 0) + a.overtime)} h`).join(" · ") || "Off"}

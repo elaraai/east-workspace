@@ -12,8 +12,9 @@ export const context: ValueTypeOf<typeof Roster.Types.Context> = {
         ["agency", { key: "agency", name: "Agency", group: "goods", position: "crew", skills: new Set<string>(), contract: 0, agency: true, trainer: false, trainee: false, usual: none }],
         ["off", { key: "off", name: "Off", group: "goods", position: "crew", skills: new Set<string>(), contract: 40, agency: false, trainer: false, trainee: false, usual: none }],
     ]),
-    groups: [{ key: "goods", label: "Goods", skills: [{ key: "reach", label: "Reach truck", code: "RT" }] }],
-    duties: [{ key: "general", label: "General duties", code: "GD" }],
+    groups: [{ key: "goods", label: "Goods" }],
+    // Goods' one skill, and the duty every group shares.
+    activities: [{ key: "reach", label: "Reach truck", code: "RT", group: some("goods") }, { key: "general", label: "General duties", code: "GD", group: none }],
     shifts: [{ key: "early", label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8 }, { key: "night", label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8 }],
     positions: [{ key: "crew", label: "Crew", code: "", lead: false }, { key: "lead", label: "Lead", code: "SV", lead: true }],
     agencies: [{ key: "agency", name: "Staffing agency" }],

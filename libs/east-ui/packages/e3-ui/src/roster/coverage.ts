@@ -12,14 +12,18 @@ import {
 /**
  * Calculates every configured slot's staffing, activity coverage and cost.
  * @param week - The week, with any drafts already applied
- * @param context - Complete staff and configuration, independent of visibility filters
+ * @param context - Complete staff, activities and configuration, independent of visibility filters
  * @returns Coverage keyed by day, group and shift
  * @remarks Pure East: tasks and the renderer compile this same calculation. Requests fill positions, but never supply skills or a lead.
  */
 export const rosterCoverage = East.function([RosterWeekType, RosterContextType], DictType(RosterSlotType, RosterCoverageType), ($, week, context) => {
     const result = $.let(new Map(), DictType(RosterSlotType, RosterCoverageType));
+    // The duties: the activities of no group, which every group may need.
+    const duties = $.const(context.activities.filter((_$, activity) => activity.group.hasTag("none")));
     $.for(East.Array.range(0n, 7n), ($, day) => {
         $.for(context.groups, ($, group) => {
+            // The group's skills, then the duties, each in the activities' order.
+            const activities = $.const(context.activities.filter((_$, activity) => East.equal(activity.group, some(group.key))).concat(duties));
             $.for(context.shifts, ($, shift) => {
                 const slot = $.const({ day, group: group.key, shift: shift.key }, RosterSlotType);
                 const target = $.const(week.requirements.get(slot, $ => $.const({ positions: 0n, hours: new Map() }, RosterRequirementType)));
@@ -52,9 +56,9 @@ export const rosterCoverage = East.function([RosterWeekType, RosterContextType],
                 const lines = $.let([], ArrayType(RosterCoverageLineType));
                 const needed = $.let(0.0, FloatType);
                 $.for(target.hours, ($, hours) => { $.assign(needed, needed.add(hours)); });
-                $.for(group.skills.concat(context.duties), ($, skill, index) => {
+                $.for(activities, ($, skill) => {
                     $.if(target.hours.has(skill.key), $ => {
-                        const duty = $.const(East.greaterEqual(index, group.skills.size()));
+                        const duty = $.const(skill.group.hasTag("none"));
                         const holders = $.let(0n, IntegerType);
                         const assigned = $.let(0.0, FloatType);
                         $.for(assignments, ($, a) => {

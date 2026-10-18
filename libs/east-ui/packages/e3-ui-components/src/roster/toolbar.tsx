@@ -3,38 +3,33 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation, faSliders } from "@fortawesome/free-solid-svg-icons";
-import { ChipMenu, historyToolbarItem, useSliceReactivity, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, railAffordanceKinds, useRecordSliceToolbarItems, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
+import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { RosterCommands } from "./actions.js";
 import { DAY, type Issue, type RosterStyles, type RosterValue, type Week } from "./model.js";
-import type { useRosterWindow } from "./window.js";
+import type { RosterWindow } from "./window.js";
 
 const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "People" }] as const;
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
-interface ToolbarArgs extends ReturnType<typeof useRosterWindow> {
+interface ToolbarArgs extends RosterWindow {
     value: RosterValue; styles: RosterStyles; commands: RosterCommands; words: EditingWords; weeks: ReadonlyMap<Date, Week>;
     onDisplay: (value: Partial<{ density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }>) => void;
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
 }
-/** One shared Toolbar, including Slice's affordances and the shared editing history. */
+/** One shared Toolbar, including the narrowing's rail and the shared editing history. */
 export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
-    const { value, view, setView, start, slice, affordances, styles, commands, words, issues } = args;
-    const version = useSliceReactivity(slice?.key);
-    const kinds = useMemo(() => slice === undefined ? [] : railAffordanceKinds(affordances, slice.read()).filter(kind => kind !== "brush" && kind !== "legend" && kind !== "resolution"),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [slice, affordances, version]);
-    const rail = useSliceToolbarItems(slice, [{ key: "roster.slice", kinds }]);
-    const record = value.recordSlice?.type === "some" ? value.recordSlice.value : undefined;
-    const recordRail = useRecordSliceToolbarItems(record?.slice, { noun: "people",
-        ...(record === undefined ? {} : { affordances: record.affordances.map(a => a.type) }),
-        ...(record?.persist.type === "some" ? { persist: record.persist.value.type } : {}),
+    const { value, view, setView, start, styles, commands, words, issues } = args;
+    // The narrowing: one rail over the people and the activities, each source counted in its own noun (#1342).
+    const chrome = value.slice.type === "some" ? value.slice.value : undefined;
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { people: "people", activities: "activities" },
+        ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
+        ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
     const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
@@ -78,7 +73,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const daySelect = <Seg label="Day of week" scope="roster" name="days" active={String(args.day)} onPick={day => setView({ ...view, date: start.getTime() + Number(day) * DAY })}
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
-        ...rail, ...recordRail,
+        ...rail,
         { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
         view.layout === "shifts" && { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={PERIODS} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },

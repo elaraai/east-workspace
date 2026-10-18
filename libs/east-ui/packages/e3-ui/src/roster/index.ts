@@ -4,20 +4,21 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, NullType,
-    OptionType, SetType, StringType, StructType, VariantType, none, some, variant,
-    type ExprType, type SubtypeExprOrValue,
+    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, NullType,
+    OptionType, StringType, StructType, VariantType, none, some, variant,
+    type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { EastUI, Editing, UIComponentType, type UIElement, type RowSourceInput } from "@elaraai/east-ui";
-import { isRecordSlice, recordSliceChrome, RecordSliceChromeType, RowSourceType, localSliceHandle, SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral, type RecordSliceChromeOptions } from "@elaraai/east-ui/internal";
+import { EastUI, Editing, UIComponentType, type UIElement } from "@elaraai/east-ui";
+import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType } from "../bind/data.js";
 import { Record, RecordBindingType } from "../bind/record.js";
+import { recordSources } from "../utils/record-sources.js";
 import * as T from "./types.js";
 import { ScheduleClockType } from "../schedule/types.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterCheck, rosterRest } from "./rules.js";
+import { rosterActivities } from "./activities.js";
 import { rosterPeople } from "./people.js";
-import { rosterVisibility } from "./visibility.js";
 import {
     RosterAuthorTabType, RosterPatchType, buildRosterTab, rosterActivitiesTab, rosterLibraryTab, rosterPatch, rosterPeopleTab,
     type RosterLibraryTab,
@@ -41,22 +42,29 @@ export const RosterInspectorType = StructType({
 export type RosterWeeksHandle = ExprType<StructType<{ read: FunctionType<[], T.RosterWeeksType>; binding: RecordBindingType }>>;
 /** Optional paged history, over the same weeks record. */
 export const RosterWindowType = DataPagedHandleType(T.RosterWeeksType);
-/** The closed renderer payload. BuilderFrame is internal to the renderer. */
+/**
+ * The closed renderer payload. BuilderFrame is internal to the renderer.
+ * @property people - Every person: the calculation scope, whatever the slice shows
+ * @property activities - Every activity: each group's skills and the duties of no group
+ * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people and the activities that show (#1342)
+ * @property slice - The narrowing's chrome: a Slice over the staff's and the activities' records, one rail
+ */
 export const RosterPayloadType = StructType({
     sourceId: StringType, read: FunctionType([], T.RosterWeeksType),
     apply: AsyncFunctionType([Editing.Types.ChangeSet(T.RosterWeekType, DateTimeType)], Editing.Types.ApplyResult),
-    window: OptionType(RosterWindowType), people: ArrayType(T.RosterPersonType), visiblePeople: OptionType(SetType(StringType)),
-    groups: ArrayType(T.RosterGroupType), duties: ArrayType(T.RosterSkillType), shifts: ArrayType(T.RosterShiftType),
+    window: OptionType(RosterWindowType), people: ArrayType(T.RosterPersonType),
+    groups: ArrayType(T.RosterGroupType), activities: ArrayType(T.RosterSkillType), shifts: ArrayType(T.RosterShiftType),
     positions: ArrayType(T.RosterPositionType), agencies: ArrayType(T.RosterAgencyType), rules: T.RosterRulesType,
     costs: OptionType(T.RosterCostsType), forecast: DictType(DateTimeType, T.RosterRequirementsType), proposals: ArrayType(T.RosterProposalType),
     check: OptionType(FunctionType([T.RosterCheckContextType], ArrayType(T.RosterIssueType))),
-    library: ArrayType(RosterLibraryTabType), inspector: OptionType(RosterInspectorType), slice: OptionType(SliceChromeType),
+    library: ArrayType(RosterLibraryTabType), inspector: OptionType(RosterInspectorType),
+    narrowed: StructType({ people: OptionType(RowSourceType(ArrayType(StringType))), activities: OptionType(RowSourceType(ArrayType(StringType))) }),
+    slice: OptionType(RecordSlicesChromeType),
     settings: StructType({
         layout: RosterLayoutType, period: RosterPeriodType, date: OptionType(DateTimeType),
         weekStart: VariantType({ monday: NullType, sunday: NullType }),
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
     }), id: OptionType(StringType),
-    recordSlice: OptionType(RecordSliceChromeType), visibleSource: OptionType(RowSourceType(ArrayType(StringType))),
 });
 /** Carrier registered by e3-ui-components. */
 export const RosterComponent = EastUI.component("Roster", RosterPayloadType, { optional: true });
@@ -67,16 +75,17 @@ export interface RosterProps {
     weeks: RosterWeeksHandle;
     /** Paged access to the same record; avoids reading history whole. */
     window?: SubtypeExprOrValue<typeof RosterWindowType>;
-    /** Complete resolved staff, commonly Roster.people(bound.read(), accessors). */
+    /** Complete resolved staff, commonly Roster.people(bound.read(), accessors): coverage, costs and checks read every person. */
     people: SubtypeExprOrValue<ArrayType<T.RosterPersonType>>;
-    /** Original staff keys, or Slice.rows(recordSlice); coverage still uses complete staff. */
-    visiblePeople?: RowSourceInput<SetType<StringType>>;
-    /** Nonempty groups in display order, including their skills. */
+    /** Nonempty groups in display order. */
     groups: SubtypeExprOrValue<ArrayType<T.RosterGroupType>>;
     /** Nonempty recurring shifts. */
     shifts: SubtypeExprOrValue<ArrayType<T.RosterShiftType>>;
-    /** Duties available to every group. */
-    duties?: SubtypeExprOrValue<ArrayType<T.RosterSkillType>>;
+    /**
+     * Every activity, commonly Roster.activities(bound.read(), accessors) over a keyed activities record: each group's skills
+     * (an activity of that group) and the duties every group shares (an activity of none). Coverage and checks read every one.
+     */
+    activities?: SubtypeExprOrValue<ArrayType<T.RosterSkillType>>;
     /** Positions; defaults to Associate. */
     positions?: SubtypeExprOrValue<ArrayType<T.RosterPositionType>>;
     /** Agencies from which staffing can be requested. */
@@ -103,8 +112,13 @@ export interface RosterProps {
         /** Typed target editor. */
         requirement?: SubtypeExprOrValue<typeof RosterRequirementFormType>;
     };
-    /** Shared Slice toolbar. A record Slice narrows visible staff; a local date Slice can select the week. */
-    slice?: { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | RecordSliceChromeOptions;
+    /**
+     * The narrowing: `Slice.bindRecords(key, { people, activities })` over the staff's and the activities' records, one rail. Each
+     * source narrows every place its rows appear — `people` the grid's and the People layout's people, the People tab and the person
+     * choices; `activities` the Activities tab and the activity choices — and the Roster reads each one's keys itself. Coverage,
+     * costs and checks still read every person and activity; the week is the Roster's own navigation's.
+     */
+    slice?: RecordSlicesChromeOptions;
     /** Initial view, persisted under id. */
     view?: { layout?: "shifts" | "people"; period?: "day" | "week"; date?: SubtypeExprOrValue<DateTimeType> };
     /** Week boundary; Monday by default. */
@@ -121,28 +135,45 @@ export interface RosterProps {
     id?: string;
 }
 
+/** Whether an East value or expression's type is a struct with the field: an author's groups that still carry their skills. */
+function hasField(value: unknown, field: string): boolean {
+    if (Array.isArray(value)) return value.some(row => typeof row === "object" && row !== null && field in row);
+    if (!(value instanceof Expr)) return false;
+    const type = Expr.type(value) as EastType;
+    return type.type === "Array" && (type.value as EastType).type === "Struct" && field in (type.value as { fields: object }).fields;
+}
+
 /** Assembles a payload; domain and interaction programs live outside the tag. @internal */
 export function createRosterPayload(props: RosterProps): ExprType<typeof RosterPayloadType> {
     if (Array.isArray(props.groups) && props.groups.length === 0) throw new Error("Roster: groups must not be empty");
     if (Array.isArray(props.shifts) && props.shifts.length === 0) throw new Error("Roster: shifts must not be empty");
+    // The props #1342 retired, refused by name for an app that still passes them.
+    const retired = props as { visiblePeople?: unknown; duties?: unknown };
+    if (retired.visiblePeople !== undefined) {
+        throw new Error("Roster: `visiblePeople` is gone — the Roster reads its people from `slice`'s `people` source: slice={{ slice: Slice.bindRecords(key, { people, activities }) }}");
+    }
+    if (retired.duties !== undefined) {
+        throw new Error("Roster: `duties` is gone — a duty is an activity of no group in `activities` (Roster.activities)");
+    }
+    if (hasField(props.groups, "skills")) {
+        throw new Error("Roster: groups no longer carry their skills — each skill is an activity of its group in `activities` (Roster.activities)");
+    }
+    const narrowing = recordSources(props.slice, { builder: "Roster", names: ["people", "activities"], what: "its people and its activities" });
+    const narrowed = narrowing.keys as { people?: unknown; activities?: unknown };
     const seen = new Set<string>();
     const library = (props.library ?? []).map(tab => {
         const key = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
         if (seen.has(key)) throw new Error(`Roster: duplicate library tab ${key}`);
         seen.add(key);
-        return tab.kind === "tab" ? East.value(variant("tab", buildRosterTab(tab)), RosterLibraryTabType)
+        return tab.kind === "tab" ? East.value(variant("tab", buildRosterTab(tab, narrowing.names)), RosterLibraryTabType)
             : East.value(variant(tab.kind, null), RosterLibraryTabType);
     });
-    const record = props.slice !== undefined && isRecordSlice(props.slice.slice);
-    const visibility = props.visiblePeople === undefined ? undefined : rosterVisibility(props.visiblePeople);
-    if (record && visibility?.source === undefined) throw new Error("Roster: pass Slice.rows(recordSlice) as visiblePeople alongside record Slice controls");
-    const local = props.slice as { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | undefined;
     const forms = typeof props.inspector === "object" ? props.inspector : {};
     return East.value({
         sourceId: props.weeks.binding.name, read: props.weeks.read, apply: Record.onApply(props.weeks, { keyed: true }),
         window: props.window === undefined ? none : some(props.window), people: props.people,
-        visiblePeople: visibility?.inline === undefined ? none : some(visibility.inline), groups: props.groups, shifts: props.shifts,
-        duties: props.duties ?? [], positions: props.positions ?? [{ key: "associate", label: "Associate", code: "", lead: false }],
+        groups: props.groups, shifts: props.shifts,
+        activities: props.activities ?? [], positions: props.positions ?? [{ key: "associate", label: "Associate", code: "", lead: false }],
         agencies: props.agencies ?? [], rules: { rest: props.rules?.rest ?? 10.0, lead: props.rules?.lead ?? true, trainer: props.rules?.trainer ?? true, skill: props.rules?.skill ?? true, agree: props.rules?.agree ?? true },
         costs: props.costs === undefined ? none : some(props.costs), forecast: props.forecast ?? new Map(), proposals: props.proposals ?? [],
         check: props.check === undefined ? none : some(props.check), library,
@@ -150,16 +181,17 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
             assignment: forms.assignment === undefined ? none : some(forms.assignment),
             requirement: forms.requirement === undefined ? none : some(forms.requirement),
         }),
-        slice: record || local === undefined ? none : some({ slice: localSliceHandle(local.slice),
-            affordances: East.value((local.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)) }),
+        narrowed: {
+            people: narrowed.people === undefined ? none : some(narrowed.people as never),
+            activities: narrowed.activities === undefined ? none : some(narrowed.activities as never),
+        },
+        slice: narrowing.chrome,
         settings: {
             layout: variant(props.view?.layout ?? "shifts", null), period: variant(props.view?.layout === "people" ? "week" : props.view?.period ?? "day", null),
             date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
             density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
             requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
         }, id: props.id === undefined ? none : some(props.id),
-        recordSlice: record ? some(recordSliceChrome(props.slice as RecordSliceChromeOptions)) : none,
-        visibleSource: visibility?.source === undefined ? none : some(visibility.source),
     }, RosterPayloadType);
 }
 /** The tag, domain functions and authoring helpers. */
@@ -168,6 +200,8 @@ export interface RosterNamespace {
     (props: RosterProps): UIElement;
     /** Adapts complete staff from keyed data. */
     people: typeof rosterPeople;
+    /** Adapts every activity — each group's skills and the duties — from keyed data. */
+    activities: typeof rosterActivities;
     /** Computes coverage without a browser. */
     coverage: typeof rosterCoverage;
     /** Computes built-in warnings without a browser. */
@@ -184,7 +218,7 @@ export interface RosterNamespace {
     Types: {
         Clock: typeof ScheduleClockType; Slot: T.RosterSlotType; Who: T.RosterWhoType; Assignment: T.RosterAssignmentType; Requirement: T.RosterRequirementType;
         Requirements: T.RosterRequirementsType; Status: T.RosterStatusType; Week: T.RosterWeekType; Weeks: T.RosterWeeksType;
-        Skill: T.RosterSkillType; Group: T.RosterGroupType; Shift: T.RosterShiftType; Position: T.RosterPositionType;
+        Activity: T.RosterActivityType; Skill: T.RosterSkillType; Group: T.RosterGroupType; Shift: T.RosterShiftType; Position: T.RosterPositionType;
         Agency: T.RosterAgencyType; Person: T.RosterPersonType; Rules: T.RosterRulesType; Costs: T.RosterCostsType;
         Context: T.RosterContextType; CoverageLine: T.RosterCoverageLineType; Coverage: T.RosterCoverageType;
         Proposal: T.RosterProposalType; Fix: T.RosterFixType; Issue: T.RosterIssueType; CheckContext: T.RosterCheckContextType;
@@ -199,12 +233,12 @@ export interface RosterNamespace {
  */
 export const Roster: RosterNamespace = Object.assign(
     (props: RosterProps): UIElement => RosterComponent.Root(createRosterPayload(props)),
-    { people: rosterPeople, coverage: rosterCoverage, check: rosterCheck, weekHours: rosterWeekHours, rest: rosterRest, patch: rosterPatch,
+    { people: rosterPeople, activities: rosterActivities, coverage: rosterCoverage, check: rosterCheck, weekHours: rosterWeekHours, rest: rosterRest, patch: rosterPatch,
         library: { people: rosterPeopleTab, activities: rosterActivitiesTab, tab: rosterLibraryTab },
         Types: {
             Clock: ScheduleClockType, Slot: T.RosterSlotType, Who: T.RosterWhoType, Assignment: T.RosterAssignmentType, Requirement: T.RosterRequirementType,
             Requirements: T.RosterRequirementsType, Status: T.RosterStatusType, Week: T.RosterWeekType, Weeks: T.RosterWeeksType,
-            Skill: T.RosterSkillType, Group: T.RosterGroupType, Shift: T.RosterShiftType, Position: T.RosterPositionType,
+            Activity: T.RosterActivityType, Skill: T.RosterSkillType, Group: T.RosterGroupType, Shift: T.RosterShiftType, Position: T.RosterPositionType,
             Agency: T.RosterAgencyType, Person: T.RosterPersonType, Rules: T.RosterRulesType, Costs: T.RosterCostsType,
             Context: T.RosterContextType, CoverageLine: T.RosterCoverageLineType, Coverage: T.RosterCoverageType,
             Proposal: T.RosterProposalType, Fix: T.RosterFixType, Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextType,

@@ -7,6 +7,7 @@ import {
     ArrayType, BooleanType, East, Expr, FloatType, OptionType, StringType, StructType, none, some,
     type DictType, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
+import { tabSource } from "../utils/record-sources.js";
 
 /** A card's permitted assignment changes. An absent field leaves it untouched. */
 export const RosterPatchType = StructType({
@@ -17,8 +18,11 @@ export const RosterPatchType = StructType({
 export const RosterCardType = StructType({
     key: StringType, label: StringType, meta: OptionType(StringType), group: OptionType(StringType), patch: OptionType(RosterPatchType),
 });
-/** An author-defined tab, resolved without UI or editing programs. */
-export const RosterAuthorTabType = StructType({ name: StringType, icon: OptionType(StringType), cards: ArrayType(RosterCardType) });
+/**
+ * An author-defined tab, resolved without UI or editing programs.
+ * @property source - The slice's source whose shown keys filter its cards, each card's key that record's key; none, its cards whole (#1342)
+ */
+export const RosterAuthorTabType = StructType({ name: StringType, icon: OptionType(StringType), cards: ArrayType(RosterCardType), source: OptionType(StringType) });
 
 /** Fields a library card can set on a named assignment. */
 export interface RosterPatchOptions {
@@ -65,14 +69,19 @@ export interface RosterLibraryTabConfig<K extends EastType, R extends EastType> 
     group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
     /** Restricted assignment patch produced when the card is placed. */
     drop?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof RosterPatchType>;
+    /**
+     * The slice's source whose shown keys filter this tab's cards (`people`), its rows that record's rows by key; omitted, the tab
+     * lists its rows whole. It counts what it shows, and says so when the rail leaves it none (#1342).
+     */
+    source?: string;
 }
 /** One library declaration. Omit the library to omit its pane. */
 export type RosterLibraryTab = { readonly kind: "people" | "activities" } | {
     readonly kind: "tab"; readonly rows: unknown; readonly config: RosterLibraryTabConfig<EastType, EastType>;
 };
-/** Declares the shared staff library, including configured agency requests. */
+/** Declares the shared staff library, the slice's `people` source filtering it, and configured agency requests. */
 export function rosterPeopleTab(): RosterLibraryTab { return { kind: "people" }; }
-/** Declares the skills and duties library. */
+/** Declares the activities library: each group's skills and the duties, the slice's `activities` source filtering it. */
 export function rosterActivitiesTab(): RosterLibraryTab { return { kind: "activities" }; }
 /**
  * Declares an author tab over keyed data, including bound records.
@@ -87,8 +96,16 @@ export function rosterLibraryTab<K extends EastType, R extends EastType>(
 ): RosterLibraryTab {
     return { kind: "tab", rows, config: config as unknown as RosterLibraryTabConfig<EastType, EastType> };
 }
-/** Reifies each author's accessors once, then resolves the keyed cards. @internal */
-export function buildRosterTab(tab: Extract<RosterLibraryTab, { kind: "tab" }>): ExprType<typeof RosterAuthorTabType> {
+/**
+ * Reifies each author's accessors once, then resolves the keyed cards.
+ * @param tab - The tab's declaration
+ * @param sources - The slice's sources, which its `source` must be one of
+ * @returns The resolved tab
+ * @throws {Error} When the rows are not keyed, or the tab names a source the slice lacks
+ * @internal
+ */
+export function buildRosterTab(tab: Extract<RosterLibraryTab, { kind: "tab" }>, sources: readonly string[]): ExprType<typeof RosterAuthorTabType> {
+    const source = tabSource("Roster", tab.config.name, tab.config.source, sources);
     const rows = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const type = Expr.type(rows as Expr) as EastType;
     if (type.type !== "Dict") throw new Error(`Roster: library tab "${tab.config.name}" requires keyed rows`);
@@ -110,5 +127,6 @@ export function buildRosterTab(tab: Extract<RosterLibraryTab, { kind: "tab" }>):
         cards: (rows as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
             const describe = $.const(card); return describe(row, key);
         }),
+        source,
     }, RosterAuthorTabType);
 }

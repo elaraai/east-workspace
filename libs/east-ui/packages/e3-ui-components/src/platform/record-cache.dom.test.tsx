@@ -19,7 +19,7 @@ import { StateRuntime, UIStore, registerReactiveTracker, useEditSession, useTrac
 import { RecordSliceImpl } from "@elaraai/east-ui-components/platform";
 import { createTrackedRead, prepareRecordSliceSave, RecordSliceSaveNotice, trackKey, type EditSource } from "@elaraai/east-ui-components/internal";
 import { PagedRuntime } from "./paged-runtime.js";
-import { useRosterVisibility } from "../roster/visibility.js";
+import { useKeyVisibility, type KeyVisibilityInput } from "../shared/schedule/visibility.js";
 
 const Row = StructType({ status: StringType, quantity: IntegerType });
 const Records = DictType(StringType, Row);
@@ -154,10 +154,10 @@ test("an indexed scan exceeds both page-cache caps, finishes linearly and still 
     expect(f.requests).toHaveLength(before + 1);
 });
 
-test("Roster visibility reads more than 32 pages and replaces its keys when the query changes", async () => {
+test("a source's visibility reads more than 32 pages and replaces its keys when the query changes", async () => {
     const f = fixture(12_800);
-    const visible = (start: number, count: number): Parameters<typeof useRosterVisibility>[0] => ({
-        people: [], visiblePeople: none, recordSlice: none,
+    const visible = (start: number, count: number): KeyVisibilityInput => ({
+        rows: [], visible: none, recordSlice: none,
         visibleSource: some(variant("pinned", {
             id: `jobs:${start}:${count}`, revision: f.handle.revision, refresh: f.handle.refresh, seek: none,
             total: () => some(BigInt(count)),
@@ -167,7 +167,8 @@ test("Roster visibility reads more than 32 pages and replaces its keys when the 
             },
         })),
     });
-    const hook = renderHook(({ value }) => useRosterVisibility(value), { initialProps: { value: visible(0, 12_800) } });
+    const words = { changed: "Results changed; retry the narrowing.", failed: "Could not load results" };
+    const hook = renderHook(({ value }) => useKeyVisibility(value, words), { initialProps: { value: visible(0, 12_800) } });
     await waitFor(() => expect(hook.result.current.loading).toBe(false));
     expect(hook.result.current.keys.type === "some" && [...hook.result.current.keys.value]).toEqual(f.ids);
     expect(f.requests).toHaveLength(50);

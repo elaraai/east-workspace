@@ -59,6 +59,8 @@ export const rosterCheck = East.function([RosterWeekType, RosterContextType], Ar
     const issues = $.let([], ArrayType(RosterIssueType));
     $.for(East.Array.range(0n, 7n), ($, day) => {
         $.for(context.groups, ($, group) => {
+            // The group's skills: the activities of that group.
+            const skills = $.const(context.activities.filter((_$, activity) => East.equal(activity.group, some(group.key))));
             $.for(context.shifts, ($, shift) => {
                 const slot = $.const({ day, group: group.key, shift: shift.key }, RosterSlotType);
                 const c = $.const(coverage.get(slot));
@@ -115,7 +117,7 @@ export const rosterCheck = East.function([RosterWeekType, RosterContextType], Ar
                             });
                             $.if(context.rules.skill, $ => {
                                 $.match(a.activity, { some: ($, activity) => {
-                                    $.for(group.skills, ($, skill) => {
+                                    $.for(skills, ($, skill) => {
                                         $.if(East.equal(skill.key, activity).and(() => person.skills.has(activity).not()), $ => {
                                             $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
                                                 title: East.str`${person.name} · not skilled for ${skill.label}`,
@@ -152,7 +154,7 @@ export const rosterCheck = East.function([RosterWeekType, RosterContextType], Ar
                 $.if(context.rules.skill.and(() => East.greater(c.filled, 0n)), $ => {
                     $.for(c.lines, ($, line) => {
                         $.if(East.greater(line.gap, 0.0), $ => {
-                            $.for(group.skills, ($, skill) => {
+                            $.for(skills, ($, skill) => {
                                 $.if(East.equal(skill.key, line.skill), $ => {
                                     $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
                                         title: East.str`${skill.label} · ${line.gap} h short`,

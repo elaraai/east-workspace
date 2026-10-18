@@ -5,7 +5,7 @@
 
 import {
     DateTimeType, East, SortedMap, SortedSet, StringType, compareFor, decodeBeast2For, encodeBeast2For,
-    equalFor, none, parseFor, printFor, variant, type TypeOf, type ValueTypeOf,
+    equalFor, none, parseFor, printFor, variant, type TypeOf, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import {
     RosterAssignmentType, RosterSlotType, RosterWeekType, RosterPayloadType, RosterContextType,
@@ -14,7 +14,13 @@ import {
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 
 /** The decoded author contract. */
-export type RosterValue = ValueTypeOf<typeof RosterPayloadType>;
+export type RosterPayload = ValueTypeOf<typeof RosterPayloadType>;
+/**
+ * The payload as the renderer reads it: with which people and activities the
+ * slice shows (#1342) — `none` for every one — beside every person and
+ * activity, which coverage, costs and checks read.
+ */
+export type RosterValue = RosterPayload & { visiblePeople: option<Set<string>>; visibleActivities: option<Set<string>> };
 export type Week = ValueTypeOf<typeof RosterWeekType>;
 export type Assignment = ValueTypeOf<typeof RosterAssignmentType>;
 export type Slot = ValueTypeOf<typeof RosterSlotType>;
@@ -22,6 +28,7 @@ export type Context = ValueTypeOf<typeof RosterContextType>;
 export type Coverage = ValueTypeOf<typeof RosterCoverageType>;
 export type Issue = ValueTypeOf<typeof RosterIssueType>;
 export type Person = RosterValue["people"][number];
+export type Activity = RosterValue["activities"][number];
 export type Proposal = RosterValue["proposals"][number];
 export type RosterStyles = Record<string, Record<string, unknown>>;
 /** Persisted viewer preferences; dates are epochs for local storage. */
@@ -42,23 +49,43 @@ const decodeWeek = decodeBeast2For(RosterWeekType);
 /** Copy through East's codec: struct-keyed maps and variants retain their semantics. */
 export function copyWeek(week: Week): Week { return decodeWeek(encodeWeek(week)); }
 /** An absent week takes forecast targets but remains unsaved until its first gesture. */
-export function emptyWeek(value: RosterValue, start: Date): Week {
+export function emptyWeek(value: RosterPayload, start: Date): Week {
     return { status: variant("draft", null), assignments: new SortedMap([], compareString),
         requirements: value.forecast.get(start) ?? new SortedMap([], compareFor(RosterSlotType)), dismissed: new SortedSet([], compareString) };
 }
-/** Complete staff remains available to domain checks when Slice hides a row. */
-export function rosterContext(value: RosterValue): Context {
+/** Complete staff and activities remain available to domain checks when Slice hides a row. */
+export function rosterContext(value: RosterPayload): Context {
     return { people: new SortedMap(value.people.map(person => [person.key, person] as const), compareString), groups: value.groups,
-        duties: value.duties, shifts: value.shifts, positions: value.positions, agencies: value.agencies, rules: value.rules, costs: value.costs };
+        activities: value.activities, shifts: value.shifts, positions: value.positions, agencies: value.agencies, rules: value.rules, costs: value.costs };
+}
+/** A group's skills: the activities of that group, in the activities' order. */
+export function groupSkills(value: RosterPayload, group: string): Activity[] {
+    return value.activities.filter(activity => activity.group.type === "some" && activity.group.value === group);
+}
+/** The duties: the activities of no group, which every group may assign. */
+export function duties(value: RosterPayload): Activity[] {
+    return value.activities.filter(activity => activity.group.type === "none");
+}
+/**
+ * What a group's assignment may hold: its skills, then the duties — those the
+ * slice's `activities` source shows (#1342), and `keep`, the assignment's own,
+ * always.
+ */
+export function activityChoices(value: RosterValue, group: string, keep?: string): Activity[] {
+    const shown = value.visibleActivities;
+    return [...groupSkills(value, group), ...duties(value)].filter(activity => shown.type === "none" || shown.value.has(activity.key) || activity.key === keep);
+}
+/** An activity by its key. */
+export function activityOf(value: RosterPayload, key: string): Activity | undefined {
+    return value.activities.find(activity => activity.key === key);
 }
 /** Checks bound configuration without rejecting ordinary staffing warnings. */
-export function configError(value: RosterValue): string | undefined {
+export function configError(value: RosterPayload): string | undefined {
     if (value.groups.length === 0 || value.shifts.length === 0) return "Roster needs at least one group and one shift.";
     const unique = (rows: readonly { key: string }[]) => new Set(rows.map(row => row.key)).size === rows.length;
-    for (const [name, rows] of [["people", value.people], ["groups", value.groups], ["shifts", value.shifts], ["positions", value.positions], ["agencies", value.agencies]] as const) {
+    for (const [name, rows] of [["people", value.people], ["groups", value.groups], ["activities", value.activities], ["shifts", value.shifts], ["positions", value.positions], ["agencies", value.agencies]] as const) {
         if (!unique(rows)) return `Roster ${name} must have unique keys.`;
     }
-    if (!unique([...value.groups.flatMap(group => group.skills), ...value.duties])) return "Roster skill and duty keys must be unique across all groups.";
     if (value.shifts.some(shift => shift.hours <= 0 || !Number.isFinite(shift.hours) || shift.start.hour < 0n || shift.start.hour > 23n || shift.start.minute < 0n || shift.start.minute > 59n)) return "Roster shifts need valid start times and positive durations.";
     if (value.positions.length === 0) return "Roster needs at least one position.";
     return undefined;

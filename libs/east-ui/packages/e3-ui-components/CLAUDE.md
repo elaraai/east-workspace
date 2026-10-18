@@ -286,8 +286,8 @@ a few characters per line. Preserve the shared destination/refusal caption.
 
 ### Weekly records: Roster's reference case
 
-The examples declare staff, configuration, forecasts and proposals as
-`e3.record` definitions. `Data.bind(record)` provides reactive reads of a
+The examples declare staff, activities, configuration, forecasts and proposals
+as `e3.record` definitions; a group's skills are the activities of that group. `Data.bind(record)` provides reactive reads of a
 record, just as it reads inputs and task outputs. `Record.bind(record,
 mutations)` adds the mutation commands for a record the surface edits. The
 binding name does not change the source's storage kind. Keep these declarations
@@ -301,20 +301,22 @@ one request. Unconfirmed writes retain the draft and the same retry identity.
 Switching weeks, filtering or resizing must not discard another week's draft.
 
 Keep **visibility separate from calculation scope** when the domain requires
-it. Roster's author binds staff with `Data.bind`/`Record.bind`, applies
-`Slice.rows` over typed staff scope rows, and passes their original keys as
-`visiblePeople`. The complete `people` value still drives coverage, cost,
-rest, skills and lead/trainer checks. Never calculate a misleading surplus by
+it. Roster's author binds staff and activities with `Data.bind`/`Record.bind`
+for its calculations, and narrows them through `Slice.bindRecords(key, {
+people, activities })`, which the Roster reads itself (#1342). The complete
+`people` and `activities` values still drive coverage, cost, rest, skills and
+lead/trainer checks. Never calculate a misleading surplus by
 filtering people out of the roster's arithmetic. Hidden edits still Save.
 
-The windowed example binds a separate week-key Slice range and
-`Data.bindPaged` on the weeks record. The same range is read by the shared
-range control and written by roster navigation. Seek the active week, the
-previous Copy source and the open picker's month only; do not read the whole
-record to build the picker. Test an external Slice write and reverse navigation.
+The windowed example binds `Data.bindPaged` on the weeks record; the week is
+the Roster's own navigation and its picker, never a Slice (ruled 18 Oct, #1342).
+Seek the active week, the previous Copy source and the open picker's month only;
+do not read the whole record to build the picker. Test reverse navigation.
 
-Use the Library's facet engine for role/skill focus. A host may control those
-facets, but must not create a second search/filter implementation. Keep typed
+The People tab has no filter of its own: leads, trainers, agency and skill are
+rail fields of the staff record (#1342). A Find fix's leads, trainers or skill
+holders are a result in the People tab, with a chip that clears it; never a
+second search/filter implementation. Keep typed
 inspector callbacks on the same guarded commands as dragging and mobile
 forms; they cannot replace assignment identity or bypass published/read-only
 state. Pure coverage and rule functions live in e3-ui and are compiled for

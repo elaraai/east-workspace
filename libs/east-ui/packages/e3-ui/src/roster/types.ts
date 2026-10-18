@@ -84,22 +84,33 @@ export const RosterWeeksType = DictType(DateTimeType, RosterWeekType);
 export type RosterWeeksType = typeof RosterWeeksType;
 
 /**
- * A skill within a group, or a duty available to every group.
- * @remarks Keys are unique across all skills and duties.
- * @property key - Stable identifier
+ * One row of an activities record, keyed by the activity's key: a skill of one
+ * group, or a duty of none, which every group may assign (#1342).
+ * @remarks `Roster.activities` reads a record of these, or of the app's own rows through its accessors.
  * @property label - Display name
  * @property code - Short code on assignment chips
+ * @property group - The group whose skill it is; none, a duty every group shares
  */
-export const RosterSkillType = StructType({ key: StringType, label: StringType, code: StringType });
+export const RosterActivityType = StructType({ label: StringType, code: StringType, group: OptionType(StringType) });
+export type RosterActivityType = typeof RosterActivityType;
+/**
+ * An activity resolved from the author's keyed activities: a skill within a
+ * group, or a duty available to every group.
+ * @remarks Keys are unique across all skills and duties: they are the activities record's keys.
+ * @property key - Stable identifier: its key in the activities record
+ * @property label - Display name
+ * @property code - Short code on assignment chips
+ * @property group - The group whose skill it is; none, a duty
+ */
+export const RosterSkillType = StructType({ key: StringType, label: StringType, code: StringType, group: OptionType(StringType) });
 export type RosterSkillType = typeof RosterSkillType;
 /**
- * A group of people and the skills its work requires.
+ * A group of people. Its skills are the activities of that group.
  * @remarks The array order controls the grid and library order.
  * @property key - Stable identifier
  * @property label - Display name
- * @property skills - Skills in display order
  */
-export const RosterGroupType = StructType({ key: StringType, label: StringType, skills: ArrayType(RosterSkillType) });
+export const RosterGroupType = StructType({ key: StringType, label: StringType });
 export type RosterGroupType = typeof RosterGroupType;
 /**
  * A recurring shift's time and nominal hours.
@@ -175,10 +186,10 @@ export const RosterCostsType = StructType({
 export type RosterCostsType = typeof RosterCostsType;
 /**
  * Complete reference data used by coverage and checks.
- * @remarks Visibility filters never remove people from this context.
+ * @remarks Visibility filters never remove people or activities from this context.
  * @property people - All resolved staff by original key
- * @property groups - Groups and their skills
- * @property duties - Activities available to every group
+ * @property groups - Groups
+ * @property activities - Every activity: each group's skills, and the duties of no group
  * @property shifts - Shift definitions
  * @property positions - Position definitions
  * @property agencies - Agencies available for gap fixes
@@ -186,7 +197,7 @@ export type RosterCostsType = typeof RosterCostsType;
  * @property costs - Optional monetary configuration
  */
 export const RosterContextType = StructType({
-    people: DictType(StringType, RosterPersonType), groups: ArrayType(RosterGroupType), duties: ArrayType(RosterSkillType),
+    people: DictType(StringType, RosterPersonType), groups: ArrayType(RosterGroupType), activities: ArrayType(RosterSkillType),
     shifts: ArrayType(RosterShiftType), positions: ArrayType(RosterPositionType), agencies: ArrayType(RosterAgencyType),
     rules: RosterRulesType, costs: OptionType(RosterCostsType),
 });

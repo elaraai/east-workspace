@@ -9,7 +9,7 @@ import { FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, 
 import { RosterAssignmentType, RosterRequirementType } from "@elaraai/e3-ui/internal";
 import { Fields } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
-import { compareString, DAY, requirementOf, type Assignment, type RosterStyles, type RosterValue, type Slot, type Week } from "./model.js";
+import { activityChoices, compareString, DAY, duties, groupSkills, requirementOf, type Assignment, type RosterStyles, type RosterValue, type Slot, type Week } from "./model.js";
 import type { RosterCommands, RosterSource } from "./actions.js";
 
 const parseDay = parseFor(IntegerType);
@@ -65,7 +65,8 @@ export function PlaceAction({ label, source, slot: initial, value, start, comman
 export function AssignmentFields({ assignment, baseline, value, onChange, readOnly = false }: {
     assignment: Assignment; baseline?: Assignment; value: RosterValue; onChange: (next: Assignment) => void; readOnly?: boolean;
 }) {
-    const activities = [...(value.groups.find(g => g.key === assignment.slot.group)?.skills ?? []), ...value.duties];
+    // The group's skills and the duties the slice shows, and the assignment's own (#1342).
+    const activities = activityChoices(value, assignment.slot.group, assignment.activity.type === "some" ? assignment.activity.value : undefined);
     return <FieldForm specs={ASSIGNMENT_FIELDS.filter(field => (assignment.who.type === "person" || field.path[0] === "position") && (field.path[0] !== "agreed" || assignment.offset !== 0 || assignment.overtime !== 0))} value={assignment} baseline={baseline}
         readOnly={readOnly} options={{ positions: value.positions.map(p => ({ key: p.key, label: p.label })), activities: activities.map(a => ({ key: a.key, label: a.label })) }}
         onChange={(path, next) => onChange({ ...assignment, [path[0]!]: next })} />;
@@ -96,7 +97,9 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
 export function RequirementFields({ slot, week, value, commands, styles }: { slot: Slot; week: Week; value: RosterValue; commands: RosterCommands; styles: RosterStyles }) {
     const target = requirementOf(week, slot);
     const baseline = commands.editing.held?.requirements.get(slot);
-    const activities = [...(value.groups.find(g => g.key === slot.group)?.skills ?? []), ...value.duties];
+    // Every target line shows; a new one is one of the activities the slice shows (#1342).
+    const activities = [...groupSkills(value, slot.group), ...duties(value)];
+    const choices = activityChoices(value, slot.group).filter(a => !target.hours.has(a.key));
     const [line, setLine] = useState<ValueTypeOf<typeof AddLine>>({ activity: none, hours: 8 });
     const changeHours = (key: string, hours: number) => {
         const next = { ...target, hours: new SortedMap(target.hours, compareString) }; next.hours.set(key, hours); commands.requirement(slot, next);
@@ -109,9 +112,9 @@ export function RequirementFields({ slot, week, value, commands, styles }: { slo
                 onChange={(_path, next) => changeHours(a.key, next as number)} />
             {commands.editing.available && <Button size="xs" variant="ghost" onClick={() => changeHours(a.key, 0)}>Remove {a.code}</Button>}
         </Box>)}
-        {commands.editing.available && activities.some(a => !target.hours.has(a.key)) && <Box css={styles.paneFoot}>
+        {commands.editing.available && choices.length > 0 && <Box css={styles.paneFoot}>
             <Box css={styles.eyebrow}>Add a target</Box>
-            <FieldForm specs={ADD_FIELDS} value={line} options={{ activities: activities.filter(a => !target.hours.has(a.key)).map(a => ({ key: a.key, label: a.label })) }}
+            <FieldForm specs={ADD_FIELDS} value={line} options={{ activities: choices.map(a => ({ key: a.key, label: a.label })) }}
                 onChange={(path, next) => setLine(previous => ({ ...previous, [path[0]!]: next }))} />
             <Button size="xs" variant="outline" disabled={line.activity.type === "none" || line.hours <= 0} onClick={() => { if (line.activity.type === "some") { changeHours(line.activity.value, line.hours); setLine({ activity: none, hours: 8 }); } }}>Add target</Button>
         </Box>}

@@ -15,7 +15,12 @@ import { countWholeReads, recordPaging } from "../platform/record-paging.test-ut
 import { builderHarness } from "../shared/builder-harness.test-utils.js";
 import { act, assignment, mount, settle, slot, START, width, WORKSPACE } from "./harness.test-utils.js";
 
-const h = builderHarness(WORKSPACE, [ex.indexedRosterWeeks, ex.indexedRosterStaff, records.rosterConfiguration, records.rosterForecast, records.rosterProposals], "data-roster-main");
+const h = builderHarness(WORKSPACE, [ex.indexedRosterWeeks, ex.indexedRosterStaff, records.rosterActivities, records.rosterConfiguration, records.rosterForecast, records.rosterProposals], "data-roster-main");
+/** Each index served as e3 serves it: its own key function over each entry, a Set field fanning out. */
+const served = (index: { name: string; keyType: never; keyFn: unknown; multi: boolean }) => {
+    const fn = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
+    return { name: index.name, keyType: index.keyType, keys: (key: unknown, row: unknown) => index.multi ? fn(key, row) as Iterable<unknown> : [fn(key, row)] };
+};
 afterEach(() => clearPagedApi());
 test("indexed staff visibility replaces atomically without narrowing coverage, and hidden edits Save the original week on mobile", async () => {
     const store = new UIStore(); StateRuntime.initializeStore(store);
@@ -23,11 +28,8 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     const service = recordPaging(h.cache, reads.raw, [
         { path: ex.indexedRosterWeeks.path, type: ex.indexedRosterWeeks.type },
         { path: ex.indexedRosterStaff.path, type: ex.indexedRosterStaff.type,
-            indexes: [ex.rosterStaffByName, ex.rosterStaffByTeam, ex.rosterStaffByTrainer, ex.rosterStaffBySkill].map(index => {
-                const fn = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
-                return { name: index.name, keyType: index.keyType, keys: (key: unknown, row: unknown) => index.multi ? fn(key, row) as Iterable<unknown> : [fn(key, row)] };
-            }),
-        },
+            indexes: [ex.rosterStaffByName, ex.rosterStaffByTeam, ex.rosterStaffByPosition, ex.rosterStaffByTrainer, ex.rosterStaffByAgency, ex.rosterStaffBySkill].map(index => served(index as never)) },
+        { path: records.rosterActivities.path, type: records.rosterActivities.type, indexes: [served(records.rosterActivitiesByGroup as never)] },
     ]);
     let delay: Promise<void> | undefined;
     initializePagedApi({ ...service.api, async findKey(...args) { if (delay !== undefined) await delay; return service.api.findKey(...args); } }, WORKSPACE);
@@ -42,7 +44,7 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     const coverage = marks();
     const drafted = assignment(container, "s37");
     expect(drafted.hasAttribute("data-removed")).toBe(true);
-    const key = "ex.rosterRecordIndexes.scope";
+    const key = "ex.rosterRecordIndexes.people";
     const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
     let release = () => {};
     delay = new Promise<void>(resolve => { release = resolve; });
