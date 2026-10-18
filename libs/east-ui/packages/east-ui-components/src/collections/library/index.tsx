@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import {
     Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
@@ -758,6 +758,121 @@ export function LibraryLayoutSwitch({ layout, onPick }: { layout: LibraryLayout;
 }
 
 // ============================================================================
+// The search box — a Library's over its cards, and a paged palette's over its
+// record (#1340)
+// ============================================================================
+
+/** The widths a Library's toolbar folds its search box to: wide, mid, then narrow, without the key cap. */
+export type LibrarySearchSize = "wide" | "mid" | "narrow";
+
+/** Props of {@link LibrarySearchBox}. */
+export interface LibrarySearchBoxProps {
+    /** The width the toolbar folds it to. */
+    size: LibrarySearchSize;
+    /** Its input: the field ⌘ / brings the focus to ({@link useLibrarySearchShortcut}). */
+    inputRef: RefObject<HTMLInputElement | null>;
+    /** Its text. */
+    query: string;
+    /** Takes its text: typed, cleared by its ×, or by Escape. */
+    onQuery: (query: string) => void;
+    /** Its placeholder: `Search 27 items…`. */
+    placeholder: string;
+    /** Its accessible name. */
+    label: string;
+}
+
+/**
+ * A Library's search box, at a width its toolbar folds it to: the magnifier,
+ * the field, and its × while it holds text — else the ⌘ / key cap. Escape
+ * clears it. A Library's own, over its cards, and a paged palette's, over its
+ * record (#1340, ruling 11) — one look, the `library` recipe's.
+ *
+ * @param props - Its width, its input's ref, its text and what takes it, its placeholder and its name
+ * @returns The box
+ * @internal
+ */
+export function LibrarySearchBox({ size, inputRef, query, onQuery, placeholder, label }: LibrarySearchBoxProps) {
+    const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
+    const kbd = useRecipe({ key: "kbd" });
+    return (
+        <Box css={styles.searchBox} data-size={size}>
+            <Box as="span" css={styles.searchIcon} aria-hidden>
+                <FontAwesomeIcon icon={faMagnifyingGlass} />
+            </Box>
+            <chakra.input
+                ref={inputRef}
+                css={styles.searchInput}
+                placeholder={placeholder}
+                aria-label={label}
+                aria-keyshortcuts="Meta+/ Control+/"
+                value={query}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onQuery(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === "Escape" && query !== "") {
+                        e.preventDefault();
+                        onQuery("");
+                    }
+                }}
+            />
+            {query !== "" ? (
+                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => onQuery("")}>
+                    <FontAwesomeIcon icon={faXmark} />
+                </chakra.button>
+            ) : (
+                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
+            )}
+        </Box>
+    );
+}
+
+/**
+ * ⌘ / brings a Library's search box the focus: the box of the Library last
+ * pointed at or focused, else the first mounted — a Library's and a paged
+ * palette's alike.
+ *
+ * @param searchable - Whether the Library draws a search box
+ * @returns The box's input ref, and what the Library's root calls as the pointer enters it or it takes the focus
+ * @internal
+ */
+export function useLibrarySearchShortcut(searchable: boolean): { searchRef: RefObject<HTMLInputElement | null>; claim: () => void } {
+    const searchRef = useRef<HTMLInputElement | null>(null);
+    const [self] = useState(() => Symbol("library"));
+    useEffect(() => {
+        if (!searchable) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== "/") return;
+            searchOwner ??= self;
+            const input = searchRef.current;
+            if (searchOwner !== self || input === null) return;
+            e.preventDefault();
+            input.focus();
+            input.select();
+        };
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("keydown", onKey);
+            if (searchOwner === self) searchOwner = undefined;
+        };
+    }, [searchable, self]);
+    const claim = useCallback(() => {
+        if (searchable) searchOwner = self;
+    }, [searchable, self]);
+    return { searchRef, claim };
+}
+
+/**
+ * A Library's search box as an item of its toolbar: its wide, mid and narrow
+ * forms, the last steps of the Library's ladder.
+ *
+ * @param box - The box at each width
+ * @returns The toolbar item
+ * @internal
+ */
+export function librarySearchItem(box: (size: LibrarySearchSize) => ReactNode): ToolbarItem {
+    return { key: "search", forms: [box("wide"), box("mid"), box("narrow")], rank: [LIBRARY_RANK.searchMid, LIBRARY_RANK.searchNarrow] };
+}
+
+// ============================================================================
 // Library core
 // ============================================================================
 
@@ -769,7 +884,6 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
 
 function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
-    const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
     const words = useFormatters();
 
@@ -979,59 +1093,14 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const railItems = useSliceToolbarItems(rail?.slice, [{ key: "rail", kinds: rail?.kinds ?? [] }]);
 
     // ⌘ / focuses the search box of the Library last pointed at or focused.
-    const searchRef = useRef<HTMLInputElement | null>(null);
-    const [self] = useState(() => Symbol("library"));
-    useEffect(() => {
-        if (!searchable) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== "/") return;
-            searchOwner ??= self;
-            const input = searchRef.current;
-            if (searchOwner !== self || input === null) return;
-            e.preventDefault();
-            input.focus();
-            input.select();
-        };
-        document.addEventListener("keydown", onKey);
-        return () => {
-            document.removeEventListener("keydown", onKey);
-            if (searchOwner === self) searchOwner = undefined;
-        };
-    }, [searchable, self]);
-    const claimSearch = useCallback(() => {
-        if (searchable) searchOwner = self;
-    }, [searchable, self]);
+    const { searchRef, claim: claimSearch } = useLibrarySearchShortcut(searchable);
 
     // The search box at a width the toolbar folds it to — one element in
     // every form, so the field keeps its focus and its text as the row folds.
-    const searchBox = (size: "wide" | "mid" | "narrow") => (
-        <Box css={styles.searchBox} data-size={size}>
-            <Box as="span" css={styles.searchIcon} aria-hidden>
-                <FontAwesomeIcon icon={faMagnifyingGlass} />
-            </Box>
-            <chakra.input
-                ref={searchRef}
-                css={styles.searchInput}
-                placeholder={search ?? `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
-                aria-label={search ?? "Search library"}
-                aria-keyshortcuts="Meta+/ Control+/"
-                value={query}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key === "Escape" && query !== "") {
-                        e.preventDefault();
-                        setQuery("");
-                    }
-                }}
-            />
-            {query !== "" ? (
-                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
-                    <FontAwesomeIcon icon={faXmark} />
-                </chakra.button>
-            ) : (
-                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
-            )}
-        </Box>
+    const searchBox = (size: LibrarySearchSize) => (
+        <LibrarySearchBox size={size} inputRef={searchRef} query={query} onQuery={setQuery}
+            placeholder={search ?? `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
+            label={search ?? "Search library"} />
     );
     const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);
     // One row, the shared toolbar's: the rail and the search, then the
@@ -1040,11 +1109,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     // order LIBRARY_RANK gives.
     const toolbarItems: ReadonlyArray<ToolbarItem | false | undefined> = [
         ...railItems,
-        searchable && {
-            key: "search",
-            forms: [searchBox("wide"), searchBox("mid"), searchBox("narrow")],
-            rank: [LIBRARY_RANK.searchMid, LIBRARY_RANK.searchNarrow],
-        },
+        searchable && librarySearchItem(searchBox),
         groupOptions.length > 0 && {
             key: "group",
             forms: [

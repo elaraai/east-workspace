@@ -205,7 +205,16 @@ component, nothing in east-ui.
   (`emptied`), and a narrowing that clears elsewhere (a Find's chip) offers no
   Clear filters (#1342). A tab's search box finds within that tab alone, never
   the rail's search: the Library is a palette (#1340, ruling 11). The paged Library (`PagedLibrary`,
-  `./internal`) takes the same `empty` and `narrowing` (#1341). A tab's count
+  `./internal`) takes the same `empty` and `narrowing` (#1341), and, given its
+  source's part of the rail (`search`, #1346), draws the Library's search box
+  over its record (`LibrarySearchBox`, shared with the Library, ⌘ / and all):
+  a prefix of the first String field its source lists in `search` that follows
+  the rail's choices on one index, or that the rail narrows already, narrowed
+  further (`paged-search.ts`), read through the part's `pageWhere` and
+  `countWhere`. Its text is the tab's own state, never the rail's, so the rail,
+  the board and every count stay as they are; its footer counts what it hides,
+  with Show all, and a search the rail's choices block says which, with the
+  rail's Clear filters. A tab's count
   while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
   or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed
   pane's rail may carry a `mark` after its badge (`Overdue event`).

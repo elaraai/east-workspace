@@ -32,7 +32,8 @@ type Part = Product["parts"][number];
 type Field = ValueTypeOf<RecordSliceFieldType>;
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 const scalarTypes = { datetime: DateTimeType, integer: IntegerType, float: FloatType };
-const SEARCH_DELAY_MS = 250;
+/** How long a record search waits after the last keystroke before it reads: the rail's field search, and a paged tab's own (#1340). */
+export const SEARCH_DELAY_MS = 250;
 
 /** Optional Unset is not a String hint; only real known values replace search. */
 function hasStringHints(field: Field): boolean {
