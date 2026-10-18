@@ -5,14 +5,15 @@
 /**
  * A builder's narrowing, checked once for every builder (#1340, #1341): its
  * `slice` is `Slice.bindRecords`, every source one it takes, each a record with
- * String keys — and a tab's `source` is one of the slice's.
+ * String keys — a tab's `source` is one of the slice's, and a templates list's
+ * is too, templates being records (#1345).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DictType, IntegerType, StringType, StructType, some } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
-import { Data, recordSources, tabSource } from "@elaraai/e3-ui/internal";
+import { Data, recordSources, tabSource, templatesSource } from "@elaraai/e3-ui/internal";
 
 const Person = StructType({ name: StringType, team: StringType });
 const staff = e3.record("sources_spec_staff", DictType(StringType, Person), new Map());
@@ -79,4 +80,21 @@ test("a tab's source: none when it names none; one of the slice's; refused other
     assert.throws(() => tabSource("Roster", "Positions", "positions", ["people", "activities"]),
         /Roster: the Positions tab's source 'positions' is not one of the slice's sources \(people, activities\)/);
     assert.throws(() => tabSource("Roster", "Positions", "positions", []), /\(it has no slice\)/);
+});
+
+test("a templates list's source: one of the slice's; a list naming none, written in the code, or naming one the slice lacks, refused with the change to make", () => {
+    const what = "Sheet.templates(rows, { …, source: \"rowTemplates\" })";
+    assert.equal(templatesSource("Sheet", what, "rowTemplates", ["rows", "rowTemplates"]), "rowTemplates");
+    const change = /Sheet: templates are records now — bind them in Slice.bindRecords and name the source, Sheet.templates\(rows, \{ …, source: "rowTemplates" \}\)/;
+    // A list naming no source — one written in the code names none — lists the slice's sources.
+    assert.throws(() => templatesSource("Sheet", what, undefined, ["rows", "rowTemplates"]), change);
+    assert.throws(() => templatesSource("Sheet", what, undefined, ["rows", "rowTemplates"]), /\(the slice's sources: rows, rowTemplates\)$/);
+    // A source the slice lacks, and no slice at all.
+    assert.throws(() => templatesSource("Sheet", what, "groupTemplates", ["rows", "rowTemplates"]),
+        /\(the slice's sources: rows, rowTemplates — 'groupTemplates' is not one of them\)$/);
+    assert.throws(() => templatesSource("Sheet", what, "rowTemplates", []), /\(it has no slice — 'rowTemplates' is not one of them\)$/);
+    assert.throws(() => templatesSource("Sheet", what, undefined, []), /\(it has no slice\)$/);
+    // Builder-neutral: each builder names itself and its own declaration.
+    assert.throws(() => templatesSource("Example", "Example.templates(rows, { …, source: \"templates\" })", undefined, ["events"]),
+        /^Error: Example: templates are records now — bind them in Slice.bindRecords and name the source, Example.templates\(rows, \{ …, source: "templates" \}\) \(the slice's sources: events\)$/);
 });
