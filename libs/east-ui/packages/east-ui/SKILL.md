@@ -514,7 +514,7 @@ Task → Which tag?
 │   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = a Font Awesome solid icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
 │   ├─ <Plan> — the planning canvas (ONE shared time | number | ordinal axis over heterogeneous rows: event kinds over records, rows laid out by a series list over data, and read-only rows) is e3-ui's (#1177, #1191): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
-│   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows or the host's, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
+│   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows, the host's or its rail's `rows` source, a blank tail that invites the next row, typed grammars, an East-function copilot, one `Slice.bindRecords` rail with saved views, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — row structs, or RecursiveType rows whose node is a struct (nested with `tree`); columns (required) — array of Matrix.column(…) (data-drivable with .map)
@@ -1495,8 +1495,8 @@ tier so they stay subordinate to tags at every density.
   e3-ui's `<Sheet>` (#1179, #1216) is where a planner TYPES
   them, in its builder frame: typed cells with grammars (dates, quantities,
   register lookups, a directed link), a blank tail that inserts rows, an
-  East-function copilot, and a slice lens drawn as context bands rather than
-  a filtered row set. Reach for `<Sheet>` when the rows are authored in place
+  East-function copilot, and one rail narrowing its rows, its templates and
+  its tabs, with saved views. Reach for `<Sheet>` when the rows are authored in place
   and written back (through an e3 record's patch, or `onUpdate` / `onApply`)
   — the e3-ui skill documents it; for reading, sorting and reviewing a
   dataset, `<Table>`.
