@@ -104,6 +104,30 @@ for (const theme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape");
     });
 
+    test(`the yard's own words and shifts (#1338): every heading in its column, none cut; the bands head the yard's shifts (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const entry = await open(page, "allocationLabels", theme);
+        await size(page, entry, 1440);
+        const table = entry.locator("[data-allocation-table]").first();
+        const head = table.locator("[data-allocation-table-head]");
+        expect(await head.evaluate(el => [...el.children].map(c => c.textContent))).toEqual(["Time", "Bay", "Delivery", "Vol", "Spec", "Kiln", "Load", "Status"]);
+        // The columns keep their widths whatever their words, and no heading is cut; a longer one would end in an ellipsis.
+        const widths = await head.evaluate(el => [...el.children].map(c => Math.round(c.getBoundingClientRect().width)));
+        expect([widths[0], widths[1], widths[3], widths[4], widths[6], widths[7]]).toEqual([84, 64, 64, 72, 144, 128]);
+        expect(await head.evaluate(el => [...el.children].filter(c => c.scrollWidth > c.clientWidth).map(c => c.textContent))).toEqual([]);
+        expect(await head.evaluate(el => [getComputedStyle(el.children[3]!).textOverflow, el.children[3]!.getAttribute("title")])).toEqual(["ellipsis", "Vol"]);
+        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("3 of 3 bays·33 of 33 kilns");
+        // The bands: the yard's shifts, folded to their heads.
+        for (let i = 0; i < 3; i++) {
+            const unfolded = table.locator("[data-allocation-band][aria-expanded=true]").first();
+            if (await unfolded.count() === 0) break;
+            await unfolded.click(); await settled(page);
+        }
+        expect(await table.locator("[data-allocation-band]").evaluateAll(els => els.map(e => e.textContent))).toEqual([
+            "Night207 bins · 13 free · 208 m³ · collapsed", "Day shift4013 bins · 27 free · 208 m³ · collapsed", "Evening206 bins · 14 free · 140 m³ · collapsed",
+        ]);
+    });
+
     test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationTable", theme);

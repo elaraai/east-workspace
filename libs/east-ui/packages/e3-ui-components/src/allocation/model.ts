@@ -184,7 +184,7 @@ export function emptyDay(): Day {
 
 /** Checks the bound configuration, before anything draws. */
 export function configError(value: AllocationValue): string | undefined {
-    if (value.lanes.length === 0) return "Allocation needs at least one lane.";
+    if (value.lanes.length === 0) return `Allocation needs at least one ${value.labels.lane.one.toLocaleLowerCase()}.`;
     const unique = (rows: readonly { key: string }[]) => new Set(rows.map(row => row.key)).size === rows.length;
     for (const [name, rows] of [["lanes", value.lanes], ["events", value.events], ["resources", value.resources]] as const) {
         if (!unique(rows)) return `Allocation ${name} must have unique keys.`;

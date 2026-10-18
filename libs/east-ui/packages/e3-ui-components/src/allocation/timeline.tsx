@@ -31,6 +31,7 @@ import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { gripCoord, gripOf, gripOfPayload, laneCoord, placeAsk, rowCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import { familyOf, layoutLinks, type FamilyLink } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
+import { a, one, useNouns } from "./nouns.js";
 import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
 import {
     allocationWords, compareDate, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Fit,
@@ -218,6 +219,7 @@ const onActivate = (act: () => void) => (event: KeyboardEvent) => {
 export function AllocationTimeline(props: TimelineProps) {
     const { value, context, styles, plan, day, loads, slots } = props;
     const words = allocationWords();
+    const nouns = useNouns();
     const unit = context.unit;
     // The lanes the narrowing shows, in their order: a hidden lane's column goes, with its cards and its slots (#1336).
     const lanes = useMemo(() => value.lanes.filter(lane => props.visibleLanes.type === "none" || props.visibleLanes.value.has(lane.key)), [value.lanes, props.visibleLanes]);
@@ -367,7 +369,7 @@ export function AllocationTimeline(props: TimelineProps) {
         <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="" data-edge-scroll-row={ROW_H}>
             <Box css={styles.laneContent}>
                 <Box css={[styles.head, styles.laneHead]}>
-                    <Box data-head-caption="" css={styles.headCaption}><span>Lane</span><span>Hour</span></Box>
+                    <Box data-head-caption="" css={styles.headCaption}><span>{nouns.lane.one}</span><span>Hour</span></Box>
                     {lanes.map((lane, i) => {
                         const head = grid.heads[i]!;
                         const minute = head.first === undefined ? "" : formatDatePattern("mm", head.first);
@@ -375,7 +377,7 @@ export function AllocationTimeline(props: TimelineProps) {
                             <Box as="span" css={styles.laneName} title={`${lane.label} takes one bin at :${minute} past each ${value.every.type === "hours" ? "hour" : "slot"}`}>
                                 {lane.label}<Box as="span" css={styles.laneOffset}>at :{minute}</Box>
                             </Box>
-                            <Box as="span" css={styles.laneMeta} title={`Bins booked in this lane today${unit === "" ? "" : ` · ${unit}`}`}>
+                            <Box as="span" css={styles.laneMeta} title={`Bins booked in this ${one(nouns.lane)} today${unit === "" ? "" : ` · ${unit}`}`}>
                                 {plural(head.bins, "bin")} · {words.quantity(head.quantity, unit)}
                             </Box>
                         </Box>;
@@ -404,7 +406,7 @@ export function AllocationTimeline(props: TimelineProps) {
                 {marker !== undefined && <FitsMarker props={props} marker={marker} top={marker.side === "above" ? rowsTop + 12 : rowsTop + Math.max(0, rowsView - 40)} />}
             </>}
             header={<Box css={[styles.head, styles.resourceHead]} data-allocation-resource-head="">
-                <Box data-head-caption="" css={styles.headCaption}><span>Week</span><span>Resource</span></Box>
+                <Box data-head-caption="" css={styles.headCaption}><span>Week</span><span>{nouns.resource.one}</span></Box>
                 <Box ref={ruler} css={styles.ruler}>
                     <TimeRulerRow scale={weeks} styles={styles} band="units" owner="allocation" />
                     <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="allocation" highlight={axis.today}
@@ -432,7 +434,7 @@ export function AllocationTimeline(props: TimelineProps) {
                 caption={ribbon => {
                     const link = linkOf(ribbon), selected = selectedLink === ribbon.id;
                     return { role: "button", "aria-label": `${selected ? "Selected link" : "Link"} of ${linkName(link)}`, "data-allocation-caption": `${link.bin}|${link.resource}`,
-                        title: !props.editable ? `Link of ${linkName(link)}` : selected ? "Selected · × or Delete removes the link" : "Click to select the link, then Delete · drag onto a resource row to move it",
+                        title: !props.editable ? `Link of ${linkName(link)}` : selected ? "Selected · × or Delete removes the link" : `Click to select the link, then Delete · drag onto ${a(nouns.resource)} row to move it`,
                         onClick: () => props.selectLink({ bin: link.bin, resource: link.resource }) };
                 }} />
         </Box>}
@@ -473,6 +475,7 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, 
     const { styles, context, value, drag } = props;
     const { id, bin } = card;
     const words = allocationWords();
+    const nouns = useNouns();
     const reserved = bin.event.type === "none";
     const event = bin.event.type === "some" ? context.events.get(bin.event.value) : undefined;
     const code = reserved ? "Reserved" : event?.label ?? (bin.event.type === "some" ? bin.event.value : "");
@@ -490,9 +493,9 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, 
     const at = `${lane} ${formatDatePattern("HH:mm", bin.at)}`;
     const qty = words.quantity(bin.quantity, context.unit);
     const to = resource === undefined ? "" : `${resource.label}${parts.length > 1 ? ` + ${parts.length - 1}` : ""}`;
-    const moves = props.editable ? " · drag to another lane hour to move it" : "";
+    const moves = props.editable ? ` · drag to another ${one(nouns.lane)} hour to move it` : "";
     const tip = reserved
-        ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no event yet${moves}`
+        ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no ${one(nouns.event)} yet${moves}`
         : `${code}${event?.meta.type === "some" ? ` · ${event.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${moves}`;
     const marks: ReactNode[] = [];
     for (const issue of flags) {
@@ -508,8 +511,8 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, body, 
         marks.push(<Box key="under" as="span" css={styles.cardMark} data-mark="under" title={why}><FontAwesomeIcon icon={faArrowDown} aria-label="Under minimum" /></Box>);
     }
     const connector = resource === undefined
-        ? `Drag the connector onto a resource to allocate ${reserved ? "this reservation" : code} · click to choose one`
-        : `Allocated to ${to} · drag the connector onto a resource to move it · click to choose another`;
+        ? `Drag the connector onto ${a(nouns.resource)} to allocate ${reserved ? "this reservation" : code} · click to choose one`
+        : `Allocated to ${to} · drag the connector onto ${a(nouns.resource)} to move it · click to choose another`;
     return <Box {...body} ref={attach} css={styles.card} role="button" tabIndex={0} title={tip} aria-label={tip} aria-pressed={selected}
         data-scope="allocation" data-allocation-card={id} data-resources={parts.map(p => p.key).join(" ")} data-reserved={reserved ? "" : undefined}
         data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}

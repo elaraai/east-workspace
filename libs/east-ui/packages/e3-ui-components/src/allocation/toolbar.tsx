@@ -24,6 +24,7 @@ import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationWindow } from "./window.js";
 import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
+import { other, type Nouns } from "./nouns.js";
 
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
@@ -32,9 +33,6 @@ const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeli
 export function statusWord(held: Day | undefined, plan: Day): "Not started" | "Draft" | "Publishing" | "Published" {
     return held?.status.type === "published" ? "Published" : plan.status.type === "published" ? "Publishing" : held === undefined ? "Not started" : "Draft";
 }
-
-/** What the narrowing's summary counts each source in. */
-const NOUNS = { lanes: "lanes", resources: "resources" } as const;
 
 /** `1 issue`, `3 issues`. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -78,6 +76,8 @@ interface ToolbarArgs extends AllocationWindow {
     /** The focus (A13): its resource, its load, and whether the narrowing hides its row. */
     focus: { resource: ResourceRow; load: Load; hidden: boolean } | undefined;
     onClearFocus: () => void;
+    /** The board's nouns: what the narrowing's summary counts each source in. */
+    nouns: Nouns;
 }
 
 /** The board's toolbar items: the shared Toolbar's, ranked around `HOST_RANK`. */
@@ -86,7 +86,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     const timeline = view.layout === "timeline";
     // The narrowing: one rail over the lanes and the resources, in both layouts, each source counted (#1336).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: NOUNS,
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { lanes: other(args.nouns.lane), resources: other(args.nouns.resource) },
         ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });

@@ -23,6 +23,7 @@ import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
 import type { AllocationFit } from "./fit.js";
 import { compareDate, compareFloat, dayKey, parseDay, partsOf, type Context, type Day, type Fit, type FitAsk, type FitResult, type Slot } from "./model.js";
+import { a, one, type Nouns } from "./nouns.js";
 
 /** What a drag carries: a bin's body (A24), its connector, or one of its links. */
 export type Grip = { kind: "body"; bin: string } | { kind: "port"; bin: string } | { kind: "link"; bin: string; resource: string };
@@ -129,6 +130,8 @@ export interface DropScene {
     without: (reservation: string) => Day;
     /** A lane's label. */
     laneLabel: (lane: string) => string;
+    /** The board's nouns, as its captions and refusals write them. */
+    nouns: Nouns;
 }
 
 /** A bin's event's code. */
@@ -182,12 +185,13 @@ function onResource(scene: DropScene, grip: Grip, resource: string, of: Day | un
  */
 export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: readonly string[]): Verdict {
     const code = codeOf(scene, grip.bin);
+    const { lane, event, resource: noun } = scene.nouns;
     // A Table row's resource cell takes a resource's drag only (A33).
-    if (target.kind === "cell") return refused("drop on the event cell", { word: "Not booked", text: `Drop ${code} on a row’s event cell to book it.` });
+    if (target.kind === "cell") return refused(`drop on the ${one(event)} cell`, { word: "Not booked", text: `Drop ${code} on a row’s ${one(event)} cell to book it.` });
     if (grip.kind === "body") {
         if (target.kind === "resource") {
-            return refused("lane hours only · drag its connector to change the resource",
-                { word: "Not moved", text: `${code} moves between lane hours only. To change its resource, drag its connector.` });
+            return refused(`${one(lane)} hours only · drag its connector to change the ${one(noun)}`,
+                { word: "Not moved", text: `${code} moves between ${one(lane)} hours only. To change its ${one(noun)}, drag its connector.` });
         }
         const card = target.card === undefined ? undefined : scene.plan.bins.get(target.card);
         // A reservation: the bin fills it, if the fit takes the bin on the reservation's resource (A38).
@@ -207,7 +211,7 @@ export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: r
             run: home ? () => false : () => scene.commands.move(grip.bin, target.lane, at) };
     }
     if (target.kind === "lane") {
-        return refused("drop on a resource", { word: "Not allocated", text: `To allocate ${code}, drop its link on a resource row.` });
+        return refused(`drop on ${a(noun)}`, { word: "Not allocated", text: `To allocate ${code}, drop its link on ${a(noun)} row.` });
     }
     // A connector's or a link's drop on a resource links what it carries there; its current resource, nothing (A39).
     const current = currentOf(scene.plan, grip);

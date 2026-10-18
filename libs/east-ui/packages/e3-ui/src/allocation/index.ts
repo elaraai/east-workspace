@@ -20,9 +20,9 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, East, EastTypeType, Expr, FunctionType, IntegerType, NullType,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, East, EastTypeType, Expr, FloatType, FunctionType, IntegerType, NullType,
     OptionType, StringType, StructType, VariantType, isTypeEqual, none, printType, some, toEastTypeValue, variant,
-    type DictType, type EastType, type ExprType, type SubtypeExprOrValue,
+    type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type option,
 } from "@elaraai/east";
 import { EastUI, Editing, StatusTokenType, TimeStepType, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import {
@@ -81,6 +81,52 @@ export const AllocationColumnType = StructType({
 /** Type representing {@link AllocationColumnType}. */
 export type AllocationColumnType = typeof AllocationColumnType;
 
+/**
+ * One of the board's nouns, resolved: as a heading writes it, its plural, and its article.
+ *
+ * @property one - The singular, as a heading writes it (`Bay`)
+ * @property other - The plural (`Bays`)
+ * @property article - `a` or `an`, before the singular in running text
+ */
+export const AllocationNounType = StructType({ one: StringType, other: StringType, article: StringType });
+
+/** Type representing {@link AllocationNounType}. */
+export type AllocationNounType = typeof AllocationNounType;
+
+/**
+ * The board's nouns, the app's, everywhere the board writes them.
+ *
+ * @property lane - A lane (`Lane`)
+ * @property event - An event (`Event`)
+ * @property resource - A resource (`Resource`)
+ * @property quantity - The quantity's heading word (`QTY`)
+ */
+export const AllocationLabelsType = StructType({ lane: AllocationNounType, event: AllocationNounType, resource: AllocationNounType, quantity: StringType });
+
+/** Type representing {@link AllocationLabelsType}. */
+export type AllocationLabelsType = typeof AllocationLabelsType;
+
+/**
+ * One of the Table's time bands: it runs from its hour to the next band's, the last to midnight.
+ *
+ * @property from - Its first hour of the day, `0 ≤ from < 24` (a fraction is minutes: `7.5` is 07:30)
+ * @property label - Its heading; `none`, its hours (`06:00–12:00`)
+ */
+export const AllocationBandType = StructType({ from: FloatType, label: OptionType(StringType) });
+
+/** Type representing {@link AllocationBandType}. */
+export type AllocationBandType = typeof AllocationBandType;
+
+/**
+ * The Table's options.
+ *
+ * @property bands - Its time bands, the first from 00:00, each later than the one before
+ */
+export const AllocationTableOptionsType = StructType({ bands: ArrayType(AllocationBandType) });
+
+/** Type representing {@link AllocationTableOptionsType}. */
+export type AllocationTableOptionsType = typeof AllocationTableOptionsType;
+
 /** The plans read a day at a time: `Data.bindPaged(plans)`'s handle, its windows as bytes at `Days(V)`. */
 export const AllocationWindowType = DataPagedHandleType(BlobType);
 
@@ -130,6 +176,8 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property slice - The narrowing's chrome: a Slice over the lanes' and the resources' records, one rail
  * @property settings - The board's settings
  * @property id - Storage keys and drag-source ids
+ * @property labels - The board's nouns
+ * @property table - The Table's options
  */
 export const AllocationPayloadType = StructType({
     sourceId: StringType,
@@ -153,6 +201,8 @@ export const AllocationPayloadType = StructType({
     slice: OptionType(RecordSlicesChromeType),
     settings: AllocationSettingsType,
     id: OptionType(StringType),
+    labels: AllocationLabelsType,
+    table: AllocationTableOptionsType,
 });
 
 /** Type representing {@link AllocationPayloadType}. */
@@ -167,6 +217,13 @@ export const AllocationComponent = EastUI.component("Allocation", AllocationPayl
 
 /** The plans record bound with its patch mutation: what `days` takes. */
 export type AllocationDaysHandle<V extends EastType> = ExprType<StructType<{ read: FunctionType<[], T.AllocationDaysType<V>>; binding: RecordBindingType }>>;
+
+/**
+ * One of the board's nouns: the singular as a heading writes it (`Bay`), or with
+ * its plural and article when they aren't regular. The plural defaults to the
+ * singular and `s`; the article to `an` before a vowel letter, else `a`.
+ */
+export type AllocationNoun = string | { one: string; other?: string; article?: "a" | "an" };
 
 /** A library tab declaration. Omit the library to omit its pane. */
 export type AllocationLibraryDeclaration = { readonly kind: "events" | "resources" };
@@ -241,6 +298,37 @@ export interface AllocationProps<V extends EastType> {
     readOnly?: SubtypeExprOrValue<BooleanType>;
     /** Storage keys and drag-source ids, when a surface holds two boards. */
     id?: string;
+    /**
+     * The board's nouns, everywhere it writes them: `{ lane: "Bay", event: "Load", resource: "Kiln" }`. Lane, Event and
+     * Resource by default; `quantity` is the quantity's heading word, `QTY` by default. Running text writes a noun in lower
+     * case unless it is written in capitals.
+     */
+    labels?: { lane?: AllocationNoun; event?: AllocationNoun; resource?: AllocationNoun; quantity?: string };
+    /**
+     * The Table's time bands: each runs from its hour to the next band's, the last to midnight — `[{ from: 0, label: "Night" },
+     * { from: 6, label: "Day" }, { from: 18 }]`. The first is from 0; each later than the one before; a band's heading is its
+     * hours unless labelled. Four by default: 00–06 · 06–12 · 12–18 · 18–24.
+     */
+    table?: { bands?: readonly { from: number; label?: string }[] };
+}
+
+/** The Table's bands, checked: from 00:00, increasing, inside the day. */
+function bandsOf(bands: readonly { from: number; label?: string }[] | undefined): { from: number; label: option<string> }[] {
+    const given = bands ?? [{ from: 0 }, { from: 6 }, { from: 12 }, { from: 18 }];
+    if (given.length === 0) throw new Error("Allocation: `table.bands` needs at least one band, from 0");
+    given.forEach((band, i) => {
+        if (!Number.isFinite(band.from) || band.from < 0 || band.from >= 24) throw new Error(`Allocation: \`table.bands\`' band ${i + 1} starts at ${band.from}: a band starts within the day, 0 to under 24`);
+        if (i === 0 && band.from !== 0) throw new Error("Allocation: `table.bands`' first band starts at 0, so every slot of the day is in one");
+        if (i > 0 && band.from <= given[i - 1]!.from) throw new Error(`Allocation: \`table.bands\` start in order: band ${i + 1} starts at ${band.from}, not after ${given[i - 1]!.from}`);
+    });
+    return given.map(band => ({ from: band.from, label: band.label === undefined ? none : some(band.label) }));
+}
+
+/** A noun, resolved: its plural the singular and `s`, its article `an` before a vowel letter, unless given. */
+function nounOf(input: AllocationNoun | undefined, fallback: string, prop: string): { one: string; other: string; article: string } {
+    const given = input === undefined ? { one: fallback } : typeof input === "string" ? { one: input } : input;
+    if (given.one.trim() === "") throw new Error(`Allocation: \`labels.${prop}\` must not be empty`);
+    return { one: given.one, other: given.other ?? `${given.one}s`, article: given.article ?? (/^[aeiou]/i.test(given.one) ? "an" : "a") };
 }
 
 /** The plans' bin values type, read from the plans record's type. */
@@ -258,7 +346,7 @@ function valuesOf(daysType: EastType): EastType | undefined {
  * @typeParam V - The app's bin values
  * @param props - The board's props
  * @returns The payload
- * @throws {Error} When `days` is not a plans record, `fit` is bound over other bin values, `lanes` is empty, a library tab repeats, a column key repeats, a callback has another type, or `slice` is not `Slice.bindRecords` over `lanes` and `resources`
+ * @throws {Error} When `days` is not a plans record, `fit` is bound over other bin values, `lanes` is empty, a library tab repeats, a column key repeats, a callback has another type, `slice` is not `Slice.bindRecords` over `lanes` and `resources`, a label is empty, or the Table's bands don't start at 0 and rise within the day
  * @internal
  */
 export function createAllocationPayload<V extends EastType>(props: AllocationProps<V>): ExprType<typeof AllocationPayloadType> {
@@ -405,6 +493,11 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
             title: props.title ?? "Allocation", publish: props.publish ?? true, readOnly: props.readOnly ?? false,
         },
         id: props.id === undefined ? none : some(props.id),
+        labels: {
+            lane: nounOf(props.labels?.lane, "Lane", "lane"), event: nounOf(props.labels?.event, "Event", "event"),
+            resource: nounOf(props.labels?.resource, "Resource", "resource"), quantity: props.labels?.quantity ?? "QTY",
+        },
+        table: { bands: bandsOf(props.table?.bands) },
     }, AllocationPayloadType);
 }
 

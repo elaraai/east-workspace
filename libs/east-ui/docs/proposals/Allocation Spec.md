@@ -310,6 +310,7 @@ records, and each is paired with its behavioural tests.
 | `allocationMinimal` | §3.2. |
 | `allocationKilnYard` | §3.3, Timeline. |
 | `allocationTable` | The same, `view={{ layout: "table" }}`. |
+| `allocationLabels` | The Table in the yard's own words and shifts: `labels={{ lane: "Bay", event: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol" }}`, `table={{ bands }}` Night · Day shift · Evening. |
 | `allocationPublished` | A published day (Tue 4 May): read-only; navigation, narrowing, focus, links and the inspector still work. |
 | `allocationNoPublish` | `publish={false}`: no status chip, no Publish. |
 | `allocationSplit` | A day with loads split across kilns (Wed 12 May): parts, an unallocated remainder, its issue and its links. |
@@ -380,6 +381,8 @@ The lanes are the rows in key order, each keyed by its row's key: a
 | `publish` | `boolean`, default `true` | The status chip and Publish. |
 | `readOnly` | `Boolean` | No edits; a published day is always read-only. |
 | `id` | `string` | Storage keys and drag-source ids when a surface holds two. |
+| `labels` | `{ lane?, event?, resource?: Noun; quantity?: string }`, a `Noun` a string (`"Bay"`) or `{ one, other?, article? }` | The board's nouns everywhere it writes them (A97); Lane, Event, Resource and `QTY` by default. A plural defaults to the singular and `s`, an article to `an` before a vowel letter. |
+| `table` | `{ bands?: Array<{ from: number; label?: string }> }` | The Table's time bands: each from its hour to the next band's, the last to midnight; the first from 0, each later than the one before (A41). Four by default. |
 
 ## 5. The East types
 
@@ -495,6 +498,8 @@ AllocationPayloadType = StructType({
     settings: StructType({ layout: Layout, date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
                            title: StringType, publish: BooleanType, readOnly: BooleanType }),
     id: OptionType(StringType),
+    labels: StructType({ lane: Noun, event: Noun, resource: Noun, quantity: StringType }),   // Noun = { one, other, article }, resolved by the tag
+    table: StructType({ bands: ArrayType(StructType({ from: FloatType, label: OptionType(StringType) })) }),
 });
 AllocationComponent = EastUI.component("Allocation", AllocationPayloadType, { optional: true });
 ```
@@ -642,7 +647,7 @@ buttons 32 × 32. In the product the shared Toolbar's row and items.
 **Table.** At least 900px wide; a 36px sticky header; columns `84px 64px
 minmax(200px, 1.3fr) 64px` then one 72px column per `columns` entry shown in
 the Table, then `minmax(176px, 1fr) 144px 128px` (Time · Lane · Event ·
-Quantity · the app's columns · Resource · Load · Status); the heads mono 10px 600
+QTY · the app's columns · Resource · Load · Status — the board's nouns, A97); the heads mono 10px 600
 uppercase, tracked 0.14em, ink-4. Time bands are the shared group band (§6):
 chevron, `00:00–06:00`, a 16px count badge on paper-3, `5 bins · 1 reserved · 14
 free · 96 m³` (no reservations said when there are none), `· collapsed`; rows
@@ -881,11 +886,13 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 ### 9.6 The Table (owner: table)
 
 - **A41.** One 36px row per slot (lane × hour) and one per extra bin of a batch,
-  ordered by time then lane, in four foldable bands 00–06 · 06–12 · 12–18 · 18–24
-  (`GroupHeading`, fold state persisted); a row never moves when an allocation
+  ordered by time then lane, in foldable time bands — by default four, 00–06 ·
+  06–12 · 12–18 · 18–24, the app's to set (`table.bands`: each from its hour to
+  the next band's, headed by its label or its hours) — (`GroupHeading`, fold
+  state persisted by a band's hours); a row never moves when an allocation
   changes. The narrowing hides rows (A93), never reorders them. *Ruled.*
-- **A42.** The band's head: `00:00–06:00`, its row count, `N bins · N reserved ·
-  N free · Q m³`, and `· collapsed` when folded.
+- **A42.** The band's head: its label or its hours (`00:00–06:00`), its row count,
+  `N bins · N reserved · N free · Q m³`, and `· collapsed` when folded.
 - **A43.** A row: Time (ink when it holds a bin), Lane, the event chip or its
   placeholder, Quantity, the app's columns (warn-text 600 with its tone), the
   resource chip or its placeholder, Load (the load line of A19 with ⚠ ● ↓), Status
@@ -1164,6 +1171,19 @@ controls) are the shared part's.
   When the narrowing leaves nothing: `No rows match the filters`, with Clear
   filters.
 
+### 9.16 The board's nouns (owner: nouns, #1338) — *ruled*
+
+- **A97.** Every word the board writes that names a lane, an event, a resource or
+  the quantity is the app's (`labels`): the Table's heads (`Time · Bay · Delivery
+  · Vol · … · Kiln · Load · Status`; a heading longer than its column ends in an
+  ellipsis, its title the whole), the Timeline's head captions, the
+  Chooser's heading and search, the placeholders and their tooltips, the chips'
+  ×s, the drag captions and refusals, the connector's and the cards' tooltips,
+  the banners, the narrowing's summary, the footer's legend, the history's step
+  names, and the Library's and the Inspector's words. Lane, Event and Resource by
+  default, and the quantity `QTY`. Running text writes a noun in lower case unless
+  it is written in capitals.
+
 ## 10. Drag and drop, as a table
 
 | Drag | Onto | Does | Refused or warned |
@@ -1389,10 +1409,11 @@ Only the rulings of §2 change the mock's behaviour.
 10. The Table and the Chooser in it (A41–A49).
 11. One record Slice over the lanes and the resources (A91–A96): `Slice.bindRecords`,
     its rail, `Allocation.lanes`.
-12. The Library (A50–A54).
-13. The Inspector and Issues (A55–A64).
-14. Split loads and Find a fit (A70–A74).
-15. The narrow layout (A78).
-16. The Roster's fit (R1–R5).
-17. The kiln yard in the showcase on e3-web, its responsive specs, the e3-ui skill
+12. The board's nouns (A97): `labels`.
+13. The Library (A50–A54).
+14. The Inspector and Issues (A55–A64).
+15. Split loads and Find a fit (A70–A74).
+16. The narrow layout (A78).
+17. The Roster's fit (R1–R5).
+18. The kiln yard in the showcase on e3-web, its responsive specs, the e3-ui skill
     and the plugin indexes.

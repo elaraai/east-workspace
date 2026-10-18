@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { SortedMap, SortedSet, StringType, compareFor, none, some, variant, type option } from "@elaraai/east";
-import { narrowBands, narrowRows, tableBands, tableRows, type TableRow } from "./table-rows.js";
+import { DEFAULT_BANDS, narrowBands, narrowRows, tableBands, tableRows, type TableRow } from "./table-rows.js";
 import type { Bin, Day, Slot } from "./model.js";
 
 const byString = compareFor(StringType);
@@ -171,5 +171,36 @@ describe("narrowBands (#1336)", () => {
                 expect(band.bins + band.reserved + band.free).toBe(band.rows.length);
             });
         }
+    });
+});
+
+describe("tableBands (#1329)", () => {
+    test("the app's bands partition the day's rows in order: each row in the one band its slot's time falls in, from its hour to the next band's", () => {
+        for (let seed = 1; seed <= 300; seed++) {
+            const { slots, plan } = randomDay(seed);
+            const rows = tableRows(slots, plan);
+            const r = random(seed * 2_147_483_647);
+            // From 0, rising: whole hours and half hours.
+            const starts = [0, ...[...new Set(r.subset([1.5, 3, 6, 7.5, 12, 15, 18, 22.5]))].sort((x, y) => x - y)];
+            const bands = tableBands(rows, plan, DAY, starts.map(from => ({ from, label: r.chance(0.5) ? some(`B${from}`) : none })));
+            expect(bands.map(b => b.rows).flat().map(row => row.key), `seed ${seed}`).toEqual(rows.map(row => row.key));
+            bands.forEach((band, i) => {
+                const to = starts[i + 1] ?? 24;
+                for (const row of band.rows) {
+                    const h = (row.slotAt.getTime() - DAY.getTime()) / 3_600_000;
+                    expect(h >= starts[i]! && h < to, `seed ${seed} band ${band.key}`).toBe(true);
+                }
+            });
+        }
+    });
+
+    test("a band's heading is its label, or its hours; its fold is kept by its hours either way", () => {
+        const { slots, plan } = randomDay(1);
+        const rows = tableRows(slots, plan);
+        expect(tableBands(rows, plan, DAY).map(b => [b.key, b.label])).toEqual([
+            ["00:00–06:00", "00:00–06:00"], ["06:00–12:00", "06:00–12:00"], ["12:00–18:00", "12:00–18:00"], ["18:00–24:00", "18:00–24:00"]]);
+        expect(tableBands(rows, plan, DAY, DEFAULT_BANDS)).toEqual(tableBands(rows, plan, DAY));
+        expect(tableBands(rows, plan, DAY, [{ from: 0, label: some("Night") }, { from: 7.5, label: none }]).map(b => [b.key, b.label]))
+            .toEqual([["00:00–07:30", "Night"], ["07:30–24:00", "07:30–24:00"]]);
     });
 });

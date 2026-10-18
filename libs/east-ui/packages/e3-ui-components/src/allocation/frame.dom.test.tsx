@@ -12,7 +12,6 @@ import { fireEvent, within } from "@testing-library/react";
 import { DateTimeType, none, printFor, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { LEGENDS } from "./footer.js";
 import { issueSummary } from "./toolbar.js";
 import type { Issue } from "./model.js";
 import { act, allocationHarness, mount, settle, slot, THU, TUE, TUE_4 } from "./harness.test-utils.js";
@@ -98,9 +97,9 @@ describe("the board's frame", () => {
     test("A79 — the footer is the layout's legend only", async () => {
         const { container } = mount(ex.allocationKilnYard); await settle();
         const items = () => [...slot(container, "footer").querySelectorAll("[data-allocation-legend]")].map(i => i.textContent);
-        expect(items()).toEqual(LEGENDS.timeline.map(l => l.label));
+        expect(items()).toEqual(["Bin", "Draft", "Today's load", "Prior job", "Next job", "Overlap", "Link", "Draft link"]);
         await press(toolbar(container).getByRole("radio", { name: "Table" }));
-        expect(items()).toEqual(LEGENDS.table.map(l => l.label));
+        expect(items()).toEqual(["Event or resource", "Draft", "Empty · drop here", "Reserved", "Free"]);
     });
 
     test("A80 — the frame is covered until the active day resolves, a day at a time through the window", async () => {

@@ -101,11 +101,11 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
         remove(id) {
             if (!plan.bins.has(id)) return;
             const committed = editing.held?.bins.has(id) === true;
-            if (write("Back to Events", "remove", next => { next.bins.delete(id); })) select(committed ? { type: "bin", id } : undefined);
+            if (write(`Back to ${value.labels.event.other}`, "remove", next => { next.bins.delete(id); })) select(committed ? { type: "bin", id } : undefined);
         },
         revert(id) {
             if (editing.held?.bins.has(id) !== true) {
-                if (plan.bins.has(id) && write("Return to Events", "remove", next => { next.bins.delete(id); })) select(undefined);
+                if (plan.bins.has(id) && write(`Return to ${value.labels.event.other}`, "remove", next => { next.bins.delete(id); })) select(undefined);
                 return;
             }
             if (write("Revert", "typed", next => { next.bins.set(id, domain.copyDay(editing.held!).bins.get(id)!); })) select({ type: "bin", id });
