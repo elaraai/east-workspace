@@ -8,29 +8,36 @@
  * pane's two tabs. Details shows a refused drop's note (A40), the drop list
  * during a drag or a pick (A34), else the selection — a bin (A56–A59), a free
  * slot (A60), a reservation (A61), a resource (A62) — else the summary (A63);
- * Issues groups every issue with its fix (A64). Every edit is one of the
- * board's commands, a draft of the day's session until Save; every fit is the
- * app's answer; every figure and word is e3-ui's or `inspector-model.ts`'s.
- * The parts are the shared inspector's — its head, its sections, its counts —
- * with FieldForm, the Chooser, the banner, the segments, the stepper and the
- * meter; the `allocationInspector` recipe owns every style.
+ * Issues groups every issue with its fix (A64). A bin's Assigned to holds its
+ * parts (A70–A74, #1332): each part's quantity a field, the remainder in
+ * warn, `Split…` to put the remainder on another resource, and Find a fit.
+ * Every edit is one of the board's commands, a draft of the day's session
+ * until Save; every fit is the app's answer; every figure and word is e3-ui's
+ * or `inspector-model.ts`'s. The parts are the shared inspector's — its head,
+ * its sections, its counts — with FieldForm, the Chooser, the anchored
+ * popover, the banner, the segments, the stepper and the meter; the
+ * `allocationInspector` recipe owns every style.
  *
  * @packageDocumentation
  */
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faArrowRight, faChevronDown, faChevronUp, faCircleCheck, faCircleExclamation, faLinkSlash, faMinus, faPlus, faRotateLeft, faTriangleExclamation, faXmark,
+    faArrowRight, faArrowsSplitUpAndLeft, faChevronDown, faChevronUp, faCircleCheck, faCircleExclamation, faLinkSlash, faMagnifyingGlass, faMinus, faPlus,
+    faRotateLeft, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
-import { DateTimeType, FloatType, StringType, StructType, variant, type SortedMap, type ValueTypeOf, type option } from "@elaraai/east";
+import { DateTimeType, FloatType, OptionType, StringType, StructType, none, some, variant, type SortedMap, type ValueTypeOf, type option } from "@elaraai/east";
 import { Fields, UIComponentType, type FieldSpecValue } from "@elaraai/east-ui";
-import { BannerView, EastChakraComponent, FieldForm, useDropCell, useTrackedEvaluation, type BuilderFrameDock } from "@elaraai/east-ui-components";
+import {
+    BannerView, EastChakraComponent, FieldForm, SliceEditPopover, fieldFormMessages, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
+    type FieldFormWords,
+} from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
-import { linkedQuantity, type AllocationCommands } from "./actions.js";
+import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
 import { dropTarget, landing, placeAsk, rowCoord, type AllocationDrag, type Grip, type Refusal, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
@@ -52,6 +59,12 @@ type Styles = Record<string, Record<string, unknown>>;
 
 /** The Bin section's fields (A57): its lane and its time, each drawn by the board in the shared field, and its quantity. */
 const BIN_FIELDS = StructType({ lane: StringType, at: DateTimeType, quantity: FloatType });
+/** What `Split…` places (A71): a quantity, the remainder's at most. */
+const SPLIT_FIELDS = StructType({ quantity: FloatType });
+/** A part's field (A71): its quantity, an Option so its Clear unlinks it. */
+const PART = OptionType(FloatType);
+/** A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the shared field shows. */
+const partsType = (keys: readonly string[]) => StructType(Object.fromEntries(keys.map(key => [key, PART])));
 
 /** The Inspector's args: what the board knows, and what it can do. */
 export interface InspectorArgs {
@@ -94,8 +107,10 @@ export interface InspectorArgs {
     tab: string;
     onTab: (tab: string) => void;
     storageKey: string;
-    /** Finds a fit for a bin's unallocated quantity (A74, #1332): with none, no fix offers it. */
+    /** Finds a fit for a bin's unallocated quantity (A74, #1332): with none — no Library's Resources tab to show the fits in — nothing offers it. */
     onFind?: ((bin: string) => void) | undefined;
+    /** Whether a bin's find is asked and its answer for the drafts as they are is on its way: its button reads `Finding…`. */
+    finding?: ((bin: string) => boolean) | undefined;
 }
 
 /** What every part reads. */
@@ -256,13 +271,18 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const asked = placeAsk(plan, { kind: "port", bin: id });
     const alternatives = alternativesOf(asked === undefined ? undefined : fit.answer(asked.ask), current, context);
     const moves = linkedQuantity(bin, undefined)?.from !== undefined;
+    // Find a fit (A74): a bin's action while its parts leave some of it unallocated. It edits nothing, so a day that takes no edit offers it too.
+    const find = args.onFind !== undefined && compareFloat(remainderOf(bin), 0) > 0 ? args.onFind : undefined;
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New bin" : `Bin ${id}`, icon: "box" }} title={`${code} · ${words.quantity(bin.quantity)}`}
             when={event?.meta.type === "some" ? event.meta.value : undefined} status={statusOf(status)} pending={status.pending}>
-            {editable && <Box css={styles.headActions} data-allocation-bin-actions="">
-                {bin.parts.size > 0 && <Button size="xs" variant="outline" onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
-                {committed !== undefined && draft && <Button size="xs" variant="outline" onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
-                <Button size="xs" variant="outline" onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Back to {nouns.event.other}</Button>
+            {(editable || find !== undefined) && <Box css={styles.headActions} data-allocation-bin-actions="">
+                {editable && bin.parts.size > 0 && <Button size="xs" variant="outline" onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
+                {editable && committed !== undefined && draft && <Button size="xs" variant="outline" onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
+                {editable && <Button size="xs" variant="outline" onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Back to {nouns.event.other}</Button>}
+                {find !== undefined && <Button size="xs" variant="outline" data-allocation-find="" onClick={() => find(id)}>
+                    <FontAwesomeIcon icon={faMagnifyingGlass} />{args.finding?.(id) === true ? "Finding…" : "Find a fit"}
+                </Button>}
             </Box>}
         </ScheduleInspectorHead>
         <Banners styles={styles} banners={banners} />
@@ -457,9 +477,19 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     </chakra.button>;
     const choices = open && <Chooser sections={sections} placeholder={`Find ${a(nouns.resource)}`} surface="inline" autoFocus
         onChoose={key => { close(); if (key !== current) commands.link(id, key, current); }} onClose={close} />;
+    // `Split…` (A71) while the parts leave some of the bin unallocated: the remainder onto another resource.
+    const remainder = remainderOf(bin);
+    const split = editable && compareFloat(remainder, 0) > 0 ? <Split {...part} id={id} bin={bin} remainder={remainder} /> : undefined;
+    const opener = current !== undefined && at !== undefined
+        ? <chakra.button type="button" css={styles.link} onClick={() => args.inspect({ type: "resource", key: current })}>Open {one(nouns.resource)}<FontAwesomeIcon icon={faArrowRight} /></chakra.button>
+        : undefined;
+    const head = <Box css={styles.sectionRow}>
+        <Box css={styles.sectionHead}>Assigned to</Box>
+        {(split !== undefined || opener !== undefined) && <Box as="span" css={styles.sectionActions}>{split}{opener}</Box>}
+    </Box>;
     if (current === undefined || at === undefined) {
         return <Box css={styles.section} data-allocation-assigned="">
-            <Box css={styles.sectionHead}>Assigned to</Box>
+            {head}
             <Box css={styles.sectionRow}>{field}</Box>
             {choices}
             <Box css={styles.line}>{args.layout === "table" ? "Or use the chevron on its row in the table." : `Or drag the bin’s connector onto ${a(nouns.resource)} row.`}</Box>
@@ -467,10 +497,7 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     }
     const tone = at.line.over ? "danger" : at.line.under ? "warning" : undefined;
     return <Box css={styles.section} data-allocation-assigned="">
-        <Box css={styles.sectionRow}>
-            <Box css={styles.sectionHead}>Assigned to</Box>
-            <chakra.button type="button" css={styles.link} onClick={() => args.inspect({ type: "resource", key: current })}>Open {one(nouns.resource)}<FontAwesomeIcon icon={faArrowRight} /></chakra.button>
-        </Box>
+        {head}
         <Box css={styles.sectionRow}>{field}<Box as="span" css={styles.fill} data-tone={tone} data-allocation-fill="">{words.load(at.load.fill, at.row)}</Box></Box>
         {choices}
         <Meter styles={styles} at={at} tone={tone === "danger" ? "danger" : tone === "warning" ? "warning" : "brand"} />
@@ -479,7 +506,88 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
         <Box css={styles.sectionHead}>On this {one(nouns.resource)} today</Box>
         <Mates {...part} resource={current} current={id} />
         <Box css={styles.line} data-allocation-batch="">{batchLine(at.load, words)}</Box>
+        <Parts {...part} id={id} bin={bin} remainder={remainder} />
     </Box>;
+}
+
+/**
+ * A bin's parts (A70, A71): each part's quantity a field of the shared form,
+ * in its resources' order, labelled by its resource; its Clear unlinks the
+ * part, as nothing on it does; each holds at most itself and the remainder.
+ * Then what the parts leave unallocated, in warn. Every edit is a command.
+ */
+function Parts({ args, styles, words, id, bin, remainder }: Part & { id: string; bin: Bin; remainder: number }) {
+    const { context, commands, held } = args;
+    const editable = commands.canEdit();
+    const code = binCode(context, bin);
+    const keys = useMemo(() => [...bin.parts.keys()], [bin.parts]);
+    // Each part's field: its resource's name, from none to what it holds and the remainder together.
+    const specs = useMemo(() => Fields.specs(partsType(keys), Object.fromEntries(keys.map(key => [key,
+        Fields.number({ label: context.resources.get(key)?.label ?? key, min: 0, max: (bin.parts.get(key) ?? 0) + remainder, step: 1,
+            ...(context.unit === "" ? {} : { unit: context.unit }) })]))), [keys, bin.parts, remainder, context]);
+    const value = useMemo(() => Object.fromEntries(keys.map(key => [key, some(bin.parts.get(key)!)])), [keys, bin.parts]);
+    // What the drafts began from: the parts as the day holds the bin, none where it held nothing.
+    const committed = held?.bins.get(id);
+    const baseline = useMemo(() => committed === undefined ? undefined : Object.fromEntries(keys.map(key => {
+        const was = committed.parts.get(key);
+        return [key, was === undefined ? none : some(was)];
+    })), [committed, keys]);
+    const { setPart, unlink } = commands;
+    const onChange = useCallback((path: readonly string[], next: unknown) => {
+        const key = path[0];
+        if (key === undefined || !bin.parts.has(key)) return;
+        const part = next as option<number>;
+        if (part.type === "none") unlink(id, key); else setPart(id, key, part.value);
+    }, [bin.parts, id, setPart, unlink]);
+    // The form's Clear is a part's Unlink, in the Table's words for it (A84).
+    const format = useFormatters();
+    const formWords = useMemo((): FieldFormWords => ({ ...format, m: { ...fieldFormMessages, clear: ({ label }) => `Unlink ${code} from ${label}` } }), [format, code]);
+    return <Box css={styles.parts} data-allocation-parts="">
+        <Box css={styles.sectionHead}>Parts</Box>
+        <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} />
+        {compareFloat(remainder, 0) > 0 && <Box css={styles.remainder} data-allocation-remainder="">{words.quantity(remainder)} unallocated</Box>}
+    </Box>;
+}
+
+/**
+ * `Split…` (A71): an anchored popover over the shared one — the quantity,
+ * the remainder by default and at most, and the resource through the
+ * Chooser, every section of it the fit's answer for that quantity (A73),
+ * the bin's own resources left out. A choice adds the part, one command.
+ */
+function Split({ args, styles, words, id, bin, remainder }: Part & { id: string; bin: Bin; remainder: number }) {
+    const { context, commands, fit } = args;
+    const nouns = words.nouns;
+    const [open, setOpen] = useState(false);
+    const [quantity, setQuantity] = useState(remainder);
+    // Opened again, or the remainder moved: it places the remainder again.
+    useEffect(() => { if (!open) setQuantity(remainder); }, [open, remainder]);
+    const placed = compareFloat(quantity, remainder) > 0 ? remainder : quantity;
+    const ask = useMemo(() => variant("place", { subject: variant("bin", id), quantity: placed }), [id, placed]);
+    const { ask: asking } = fit;
+    useEffect(() => { if (open) asking(ask); }, [open, ask, asking, args.plan]);
+    const except = useMemo(() => new Set(bin.parts.keys()), [bin.parts]);
+    const sections = open ? resourceChoices({ context, words, binRow: true, current: undefined, answer: fit.answer(ask), shown: args.shown.resources, except }) : [];
+    const least = compareFloat(remainder, 1) < 0 ? remainder : 1;
+    const specs = useMemo(() => Fields.specs(SPLIT_FIELDS, {
+        quantity: Fields.number({ label: nouns.quantity, min: least, max: remainder, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
+    }), [nouns.quantity, least, remainder, context.unit]);
+    const shownValue = useMemo(() => ({ quantity: placed }), [placed]);
+    const onChange = useCallback((path: readonly string[], next: unknown) => { if (path[0] === "quantity") setQuantity(next as number); }, []);
+    const code = binCode(context, bin);
+    const label = `Split ${code} · ${words.quantity(remainder)} unallocated`;
+    // It opens on the Chooser's search: the remainder is what a split most often places.
+    return <SliceEditPopover open={open} onOpenChange={setOpen} label={label}
+        initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-split="${id}"] [data-chooser] input`)}
+        trigger={<chakra.button type="button" css={styles.link} data-allocation-split-open="" title={label}>
+            <FontAwesomeIcon icon={faArrowsSplitUpAndLeft} />Split…
+        </chakra.button>}>
+        <Box css={styles.split} data-allocation-split={id}>
+            <FieldForm specs={specs} value={shownValue} onChange={onChange} />
+            {open && <Chooser sections={sections} placeholder={`Find ${a(nouns.resource)}`} surface="inline"
+                onChoose={key => { setOpen(false); commands.split(id, key, placed); }} />}
+        </Box>
+    </SliceEditPopover>;
 }
 
 /** One booking or reservation in a list (A60, A61): its name and figure, its line, and its button. */
@@ -693,15 +801,23 @@ function IssueItem({ args, styles, words, issue }: Part & { issue: Issue }) {
     const fix = issue.fix.type === "some" ? issue.fix.value : undefined;
     // The bin a fix opens the resource Chooser of: its own, or the one a resource's issue names to move.
     const chosen = fix?.type === "move" ? fix.value : fix?.type === "choose" && issue.bin.type === "some" ? issue.bin.value : undefined;
-    const find = fix?.type === "find" && issue.bin.type === "some" && args.onFind !== undefined ? issue.bin.value : undefined;
-    const run = find !== undefined ? () => args.onFind!(find)
-        : chosen !== undefined && commands.canEdit() && plan.bins.has(chosen) ? () => { args.inspect({ type: "bin", id: chosen }); args.setChooser(chosen); } : undefined;
+    const choose = chosen !== undefined && commands.canEdit() && plan.bins.has(chosen) ? () => { args.inspect({ type: "bin", id: chosen }); args.setChooser(chosen); } : undefined;
+    // Find a fit (A74): a Partly allocated issue's fix, and a Not linked one's beside its Choose, while the bin has some unallocated.
+    // It edits nothing, so a day that takes no edit offers it too.
+    const named = issue.bin.type === "some" ? plan.bins.get(issue.bin.value) : undefined;
+    const find = issue.bin.type === "some" && named !== undefined && args.onFind !== undefined && (fix?.type === "find" || issue.kind.type === "unlinked")
+        && compareFloat(remainderOf(named), 0) > 0 ? issue.bin.value : undefined;
     return <Box css={styles.issue} data-allocation-issue={issue.kind.type}>
         <Box css={styles.issueTop}>
             <Box as="span" css={styles.issueTitle} title={issue.title}>{issue.title}</Box>
             {show !== undefined && <chakra.button type="button" css={styles.link} onClick={() => args.inspect(show)}>Show<FontAwesomeIcon icon={faArrowRight} /></chakra.button>}
         </Box>
         <Box css={styles.issueDetail}>{issue.detail}</Box>
-        {run !== undefined && label !== undefined && <Box><Button size="xs" variant="outline" onClick={run}>{label}</Button></Box>}
+        {((choose !== undefined && label !== undefined) || find !== undefined) && <Box css={styles.issueActions}>
+            {choose !== undefined && label !== undefined && <Button size="xs" variant="outline" onClick={choose}>{label}</Button>}
+            {find !== undefined && <Button size="xs" variant="outline" data-allocation-find="" onClick={() => args.onFind!(find)}>
+                {args.finding?.(find) === true ? "Finding…" : "Find a fit"}
+            </Button>}
+        </Box>}
     </Box>;
 }

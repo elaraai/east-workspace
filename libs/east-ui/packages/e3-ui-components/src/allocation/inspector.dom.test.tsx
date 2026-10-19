@@ -186,14 +186,14 @@ describe("a bin (A56–A59)", () => {
         expect(undo(c)).toHaveProperty("disabled", false);
     });
 
-    test("A56, A59 — a new bin: `New bin`, `Added · unsaved` and New, `new booking · not in the plan yet`; Back to Events returns its event", async () => {
+    test("A56, A59, A74 — a new bin: `New bin`, `Added · unsaved` and New, `new booking · not in the plan yet`; not linked, it offers Find a fit; Back to Events returns its event", async () => {
         const c = await open(ex.allocationTable);
         await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
         const book = details(c).querySelector<HTMLElement>('[data-allocation-option="event:LD-2235"]')!;
         await press(button(book, "Book"));
         expect(headOf(c)).toMatchObject({ kind: "New bin", title: "LD-2235 · 8 m³", status: "Not linked · unsaved", chip: "New" });
         expect(text(details(c).querySelector("[data-allocation-was]"))).toBe("new booking · not in the plan yet");
-        expect(actions(c)).toEqual(["Back to Events"]);
+        expect(actions(c)).toEqual(["Back to Events", "Find a fit"]);
         await press(button(details(c), "Back to Events"));
         expect(c.querySelector("[data-allocation-row='bin:N1']")).toBeNull();
         expect(headOf(c).kind).toBe("Plan · Tue 11 May");

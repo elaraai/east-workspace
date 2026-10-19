@@ -14,7 +14,11 @@
  * board's figure, its ready line, its look and its tooltip; under the cards the
  * foot's hint, and the picked card's action. A card drags as a board's grip
  * does (§10), and a click picks it (A9, A10). Collapsed, the rail: the open
- * tab's count, the overdue mark, the label.
+ * tab's count, the overdue mark, the label. A Find a fit's result (A74,
+ * #1332) is the Resources tab's: the resources the app's fit says take the
+ * bin's unallocated quantity, among what the rail shows, best first, each
+ * card's line the fit's reason, under a chip that clears it — the tab's, not
+ * a filter, so the rail and the board stay as they are (A98).
  *
  * @packageDocumentation
  */
@@ -24,15 +28,17 @@ import { Box, Button } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faInbox } from "@fortawesome/free-solid-svg-icons";
 import { none, some, type SortedMap } from "@elaraai/east";
-import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryCardExtras, type LibraryGroupMark, type LibraryItemValue } from "@elaraai/east-ui-components";
-import { formatDatePattern } from "@elaraai/east-ui-components/internal";
+import {
+    EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryCardExtras, type LibraryGroupMark, type LibraryItemValue, type LibraryNarrowing,
+} from "@elaraai/east-ui-components";
+import { SliceFieldChip, formatDatePattern, narrowedCount } from "@elaraai/east-ui-components/internal";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { sourceTab, type SourceShown } from "../shared/schedule/source-tab.js";
 import type { AllocationCommands } from "./actions.js";
 import { eventCardKey, libraryGripOf, type AllocationDrag, type LibraryGrip, type Target, type Verdict } from "./drag.js";
 import {
-    allocationWords, compareDate, compareString, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Load, type ResourceLine,
-    type Selection, type TimeStep,
+    allocationWords, compareDate, compareFloat, compareString, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitResult,
+    type Load, type ResourceLine, type Selection, type TimeStep,
 } from "./model.js";
 import { a, one, other, type Nouns } from "./nouns.js";
 
@@ -235,6 +241,40 @@ export function resourceCards(args: {
     return [...resources.filter(r => state(r) === "free"), ...loading, ...resources.filter(r => state(r) === "busy")].map(cardOf);
 }
 
+/** A Find a fit's result in the Resources tab (A74): its bin, the chip's words, the fit's answer, and whether that answer is on its way. */
+export interface ResourceFind {
+    /** The bin it finds a fit for. */
+    bin: string;
+    /** What it finds a fit for, as the chip says it: `LD-2210 · 4 m³`. */
+    label: string;
+    /** The fit's answer for the drafts as they are, which the tab shows; `undefined` while it is on its way, or failed. */
+    shown: FitResult | undefined;
+    /** Whether that answer is on its way: the tab is busy, showing what the rail shows, and no verdict (F2). */
+    busy: boolean;
+}
+
+/**
+ * The resources a fit's answer says fit, best first — its scores, ties kept in
+ * the tab's order: the fit ranks, never the board (F4).
+ *
+ * @param cards - The cards the rail shows, in the tab's order
+ * @param answer - The fit's answer
+ * @returns The cards that fit, best first
+ */
+export function foundCards<C extends { key: string }>(cards: readonly C[], answer: FitResult): C[] {
+    const scored = cards.flatMap(card => { const verdict = answer.resources.get(card.key); return verdict?.type === "fits" ? [{ card, score: verdict.value.score }] : []; });
+    return scored.sort((a, b) => compareFloat(b.score, a.score)).map(fit => fit.card);
+}
+
+/** A found card's line (A74): the fit's reason, its warning after it in the warning's tone; its tooltip the whole, which a narrow card cuts. */
+function reasonOf(answer: FitResult, card: ResourceCard): LibraryCardExtras | undefined {
+    const verdict = answer.resources.get(card.key);
+    if (verdict?.type !== "fits") return undefined;
+    const { why, warn } = verdict.value;
+    const text = warn.type === "some" ? `${why} · ${warn.value}` : why;
+    return { title: text, figure: card.figure, note: warn.type === "some" ? { text, tone: "warning" } : { text } };
+}
+
 /** The Library's args. */
 export interface LibraryArgs {
     value: AllocationValue;
@@ -264,6 +304,9 @@ export interface LibraryArgs {
     onTab: (tab: string) => void;
     /** What the rail shows of each tab's source: the events' and the resources'. */
     shown: { events: SourceShown; resources: SourceShown };
+    /** A Find a fit's result, shown in the Resources tab until its chip clears it (A74). */
+    find?: ResourceFind | undefined;
+    onClearFind?: (() => void) | undefined;
 }
 
 /** The picked card's action (A53, A87): its note, and its button. */
@@ -293,6 +336,11 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const resourceTab = useMemo(() => sourceTab({ cards: resources, keyOf: card => card.key, shown: shown.resources, noun: other(nouns.resource), words: format }),
         [resources, shown.resources, nouns.resource, format]);
     const shownEvents = eventTab.cards, shownResources = resourceTab.cards;
+    // A Find a fit's result (A74): the fits among what the rail shows, best first. Until its answer for the drafts as they are
+    // lands, the tab shows what the rail shows, busy, and no verdict (F2).
+    const find = args.find, answer = find?.shown;
+    const found = useMemo(() => answer === undefined ? undefined : foundCards(shownResources, answer), [answer, shownResources]);
+    const listedResources = found ?? shownResources;
     const editable = commands.canEdit();
     const draggable = drag.enabled && !narrow;
     const selectedEvent = selection?.type === "bin" ? plan.bins.get(selection.id)?.event : undefined;
@@ -305,11 +353,11 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         return scheduleLibraryCard({ key: card.key, label: card.label, sublabel: card.sub === "" ? none : some(card.sub), icon: none, status: none, trailing: none,
             draggable: draggable && card.grip !== undefined, filtered: false, placed, search: some(card.search), groups: new Map([["group", card.group]]) });
     }), [shownEvents, pick, selectedEvent, draggable]);
-    const resourceItems = useMemo(() => shownResources.map((card): LibraryItemValue => scheduleLibraryCard({
+    const resourceItems = useMemo(() => listedResources.map((card): LibraryItemValue => scheduleLibraryCard({
         key: card.key, label: card.label, sublabel: card.sub === "" ? none : some(card.sub), icon: none, status: none, trailing: none, draggable, filtered: false,
         placed: (selection?.type === "resource" && selection.key === card.key) || (pick?.kind === "resource" && pick.resource === card.key),
         search: some(card.search), groups: new Map([["group", card.group]]),
-    })), [shownResources, selection, pick, draggable]);
+    })), [listedResources, selection, pick, draggable]);
     const unbook = commands.unbook;
     const eventExtras = useMemo(() => {
         const byKey = new Map(events.map((card): [string, LibraryCardExtras] => [card.key, {
@@ -319,10 +367,12 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         }]));
         return (item: LibraryItemValue) => byKey.get(item.key);
     }, [events, editable, unbook]);
+    // A found card's line is the fit's reason (A74); every other card's, its line today.
     const resourceExtras = useMemo(() => {
-        const byKey = new Map(resources.map((card): [string, LibraryCardExtras] => [card.key, { title: card.tip, figure: card.figure, note: card.line }]));
+        const byKey = new Map(resources.map((card): [string, LibraryCardExtras] => [card.key,
+            (answer === undefined ? undefined : reasonOf(answer, card)) ?? { title: card.tip, figure: card.figure, note: card.line }]));
         return (item: LibraryItemValue) => byKey.get(item.key);
-    }, [resources]);
+    }, [resources, answer]);
     const overdueMark = useCallback((label: string): LibraryGroupMark | undefined => label === "Overdue" ? { icon: "triangle-exclamation", label: "Overdue", tone: "warning" } : undefined, []);
 
     // A card's click (A9, A10).
@@ -421,13 +471,23 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         }
         const library = scheduleLibrary({ id: drag.libraries.resources, items: resourceItems, groupOptions: [{ key: "group", label: "Group" }],
             noun: some({ singular: one(nouns.resource), plural: other(nouns.resource) }), onCardClick: some(resourceClick) }, true);
-        return { key: "resources", label: nouns.resource.other, count: resourceTab.count,
-            body: <Box css={styles.pane} data-allocation-library="resources" {...resourceTab.pane}
+        // A find counts its fits of every resource; with none that fit, it says so — its chip, not Clear filters, clears it — unless
+        // the rail left the tab nothing, which the rail's Clear filters clears.
+        const count = found === undefined ? resourceTab.count : narrowedCount(format, found.length, resources.length, true);
+        const narrowing: LibraryNarrowing | undefined = found === undefined || resourceTab.narrowing?.emptied === true ? resourceTab.narrowing
+            : { empty: { title: `No ${one(nouns.resource)} has a gap that fits`, description: `Clear the find to see the ${other(nouns.resource)} the rail shows.` }, emptied: found.length === 0 };
+        const pane = find?.busy === true ? { ...resourceTab.pane, "aria-busy": true as const } : resourceTab.pane;
+        return { key: "resources", label: nouns.resource.other, count,
+            body: <Box css={styles.pane} data-allocation-library="resources" {...pane}
             onPointerDownCapture={arm(drag.libraries.resources)} onKeyDownCapture={arm(drag.libraries.resources)}>
+            {/* Pressed, the chip clears the find: its name says so, its face what the find is for (A74). */}
+            {find !== undefined && args.onClearFind !== undefined && <Box css={styles.paneFoot} data-allocation-find="">
+                <SliceFieldChip label={`Find · ${find.label}`} aria-label={`Clear find · ${find.label}`} active removeLabel="Clear find" onRemove={args.onClearFind} onClick={args.onClearFind} />
+            </Box>}
             {/* Grouped by the day's states; every filter is the rail's (ruled 18 Oct): the tab has its search, and no filter of its own. */}
             <EastChakraLibrary value={library} storageKey={drag.libraries.resources} extras={resourceExtras} search={`Find ${a(nouns.resource)} or group`} empty={resourceTab.empty}
-                narrowing={resourceTab.narrowing}
-                noMatch={{ title: `No ${other(nouns.resource)} match`, description: `Clear the search to see all ${shownResources.length} ${other(nouns.resource)}.` }} />
+                narrowing={narrowing}
+                noMatch={{ title: `No ${other(nouns.resource)} match`, description: `Clear the search to see all ${listedResources.length} ${other(nouns.resource)}.` }} />
             {feet("resources")}
         </Box> };
     });
@@ -435,7 +495,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const late = shownEvents.some(card => card.group === "Overdue");
     return {
         label: "Library", icon: "layer-group", size: "264px", tabs, tab: open, onTabChange: args.onTab, persist: "local",
-        badge: open === "resources" ? shownResources.length : shownEvents.length,
+        badge: open === "resources" ? listedResources.length : shownEvents.length,
         ...(open === "events" && late ? { mark: { icon: "triangle-exclamation", label: `Overdue ${one(nouns.event)}`, tone: "warning" as const } } : {}),
     };
 }

@@ -26,8 +26,8 @@
  *   narrowing leaves nothing to show (#1336).
  * - The Timeline (A14–A21): `timeline`; the panes' one head row, `head`, `headCaption`; the lane pane, `lanePane`,
  *   `laneContent`, `laneHead`, `laneHeadCell`, `laneName`, `laneOffset`, `laneMeta`, `laneGrid`, `laneBand`, `laneHour`,
- *   `laneCell`; a bin's card, `card`, `cardTop`, `cardCode`, `cardQty`, `cardLine`, `cardTo`, `cardMark`, and its
- *   connector, `connector`, `connectorMark`; the link channel, `channel`, `channelHead`; the resource pane,
+ *   `laneCell`; a bin's card, `card`, `cardTop`, `cardCode`, `cardQty`, `cardLine`, `cardTo` with what a split bin's parts
+ *   leave, `cardLeft` (A70), `cardMark`, and its connector, `connector`, `connectorMark`; the link channel, `channel`, `channelHead`; the resource pane,
  *   `resourcePane`, `resourceHead`, `resourceCaption`, `ruler` and the shared ruler's `rulerRow`, `rulerTick`,
  *   `rulerLabel`; a resource row, `resourceRow`, `resourceLabel`, `resourceText`, `resourceName`, `resourceLine`, and
  *   its plot, `plot`, `shade`, `weekRule`, `span`, `bar`, `barLabel`, `overlap`; the now line's `nowLine`, `nowDot`,
@@ -46,7 +46,10 @@
  *   the resource's and its load's `tableResourceSpan`), `tableUnits`, `tableValue`, `tableLoad`, `tableStatus` and its
  *   `tableStatusDot`; a chip, `tableChip`, `tableChipIcon`, `tableChipCode`, `tableChipMeta`, `tableChipButton`; and a
  *   dashed placeholder, `tablePlaceholder`, `tablePlaceholderText`; during a drag or a pick a cell says what a drop does
- *   (`data-verdict`: `fits`, `refused`, `pick`, A45), a resource card's drag on its resource cells too (A32).
+ *   (`data-verdict`: `fits`, `refused`, `pick`, A45), a resource card's drag on its resource cells too (A32). A split or
+ *   partly allocated bin's resource cell, `tableParts`, lists its parts as chips, `tablePart`, each its face — its
+ *   resource and its quantity `tableChipQty`, one button, `tablePartFace` — and its ×, then `+ resource` for its
+ *   remainder, the dashed placeholder taking what is left (A71).
  * - The Library (A50–A54, #1330): the shared pane part's `pane`, `paneFoot`, `paneHint` and `paneAction`; its cards are the
  *   shared Library's. A picked event marks the Timeline's free lane hours (`data-allocation-pick`, A11); a resource card's drag
  *   marks the bins that refuse it (`data-refuses`) and, when it would not take a reservation, the free lane hours (A32).
@@ -99,14 +102,14 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "main", "status", "pickerDot", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
         "timeline", "head", "headCaption", "lanePane", "laneContent", "laneHead", "laneHeadCell", "laneName", "laneOffset", "laneMeta",
-        "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardMark",
+        "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardLeft", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
         "rulerRow", "rulerTick", "rulerLabel", "resourceRow", "resourceLabel", "resourceText", "resourceName", "resourceLine",
         "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", "linkLines", ...nowSlots,
         "lanePlaceholder", "rank", "reason", "runLabel", "runMeta", "fitsMarker", ...moveGhostSlots,
         ...scheduleGroupSlots, ...schedulePaneSlots, "bandCount", "table", "tablePane", "tableHead", "tableRow", "tableTime", "tableLane", "tableCell", "tableSpan",
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
-        "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText",
+        "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText", "tableParts", "tablePart", "tablePartFace", "tableChipQty",
     ],
     base: {
         ...nowBase,
@@ -265,6 +268,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "& > svg, & > [data-icon]": { ...markIcon, display: "inline-block", verticalAlign: "-1px", marginRight: "4px" },
             "& [data-unlinked]": { fontStyle: "italic", fontWeight: "normal" },
         },
+        // What a split bin's parts leave (A70): `4 m³ unallocated` in warn-text 600 after where it is, a warning a dimmed card keeps, as its flags do.
+        cardLeft: { color: "fg.warning", fontWeight: "semibold" },
         // A card's marks (A16): the app's flags, ⚠ overlap, ● over max, ↓ under min.
         cardMark: {
             ...markIcon, flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -559,8 +564,26 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
                 "&[data-icon-role=idle]": { display: "none" }, "&[data-icon-role=refused]": { display: "inline-flex", color: "fg.warning" },
             },
         },
-        tableChipCode: { ...tableText, flex: "none", maxWidth: "60%", fontSize: "label.lg", fontWeight: "semibold", color: "fg", "[data-draft] > &": { color: "brandPressed" } },
+        tableChipCode: {
+            ...tableText, flex: "none", maxWidth: "60%", fontSize: "label.lg", fontWeight: "semibold", color: "fg", "[data-draft] > &": { color: "brandPressed" },
+            // A part's resource gives way before its chip leaves the cell, cut with an ellipsis (A71); a draft part's in the brand.
+            "[data-allocation-chip=part] &": { flex: "0 1 auto", maxWidth: "none" },
+            "[data-allocation-chip=part][data-draft] &": { color: "brandPressed" },
+        },
         tableChipMeta: { ...tableText, flex: 1, fontSize: "label.sm", fontWeight: "normal", color: "fg.subtle" },
+        // A part's quantity (A71): mono 10.5 / 500 in ink-2, a draft's in the brand's darker step, as a card's quantity is.
+        tableChipQty: { ...tableText, flex: "none", fontSize: "label.md", fontWeight: "medium", color: "fg.strong", "[data-allocation-chip=part][data-draft] &": { color: "brandPressed" } },
+        // A split or partly allocated bin's resource cell (A71): its parts' chips 4px apart, then `+ resource`, the placeholder taking what is left.
+        tableParts: { gap: "4px" },
+        // A part's chip: as wide as its words, its resource giving way first where the cell is short of room.
+        tablePart: { flex: "0 1 auto", gap: "4px" },
+        // A part's face: its resource and its quantity, one button that opens the Chooser that moves it — the whole of the chip but its ×.
+        tablePartFace: {
+            flex: "0 1 auto", minWidth: 0, height: "100%", display: "flex", alignItems: "center", gap: "4px", padding: 0, border: 0, background: "transparent",
+            color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer",
+            "&:is(span)": { cursor: "default" },
+            ...planElementFocus,
+        },
         // A chip's chevron and ×: 20px targets, ink-3.
         tableChipButton: {
             flex: "none", width: "20px", height: "20px", display: "grid", placeItems: "center", padding: 0, marginLeft: "auto", borderRadius: "sm",

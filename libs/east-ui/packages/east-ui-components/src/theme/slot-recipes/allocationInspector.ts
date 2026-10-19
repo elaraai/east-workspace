@@ -14,8 +14,10 @@
  * The board's slots:
  * - `refusal` — a refused drop's note at the top of Details (A40), the shared banner 12px in.
  * - `banner` — an issue's banner (A56, A62): the shared banner in its section.
- * - `section` — one section; `sectionRow` its head with an action at its end (`Open resource →`).
- * - `link` — a brand text action (`Open resource →`, `Show →`).
+ * - `section` — one section; `sectionRow` its head with its actions at its end (`sectionActions`: `Split…`, `Open resource →`).
+ * - `link` — a brand text action (`Split…`, `Open resource →`, `Show →`).
+ * - `parts` — a bin's parts in Assigned to (A70, A71): each part's quantity a field of the shared form; `remainder` what they
+ *   leave unallocated, in warn-text; `split` the `Split…` popover's body: its quantity over the Chooser.
  * - `resourceField` — the resource field (A58): 32px, its name in mono, `+ Choose a resource` in warn; `fill` the
  *   fill beside it, in its tone; `meter`, `meterTick` the shared meter's track with the min tick.
  * - `line` — a mono line in ink-4: the group line, the batch line, a hint; `absent` — what is not there
@@ -25,8 +27,8 @@
  *   and its button (A59–A61); `dropRow` — a fit in the drop list, a dashed brand target at least 48px (A34).
  * - `was` — a draft's `was` line on paper-2 (A59, A61).
  * - `statSub`, `note` — a count's line, and the narrowing's note (A63).
- * - `issues`, `issueGroup`, `issueHead`, `issueCount`, `issue`, `issueTop`, `issueDetail`, `emptyIcon` — the Issues
- *   tab (A64).
+ * - `issues`, `issueGroup`, `issueHead`, `issueCount`, `issue`, `issueTop`, `issueDetail`, `issueActions`, `emptyIcon` — the
+ *   Issues tab (A64): an issue's fixes in a row (`Choose a resource`, `Find a fit`, A74).
  *
  * @packageDocumentation
  */
@@ -45,9 +47,10 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
     className: "east-allocation-inspector",
     slots: [
         ...planInspectorSlotRecipe.slots,
-        "headActions", "refusal", "banner", "section", "sectionRow", "link", "resourceField", "resourceName", "fill", "meter", "meterTick", "line", "absent",
-        "rows", "rowLabel", "rowValue", "mates", "mate", "option", "optionText", "optionName", "optionLine", "rank", "dropRow", "dropRank", "was", "statSub",
-        "note", "error", "issues", "issueGroup", "issueHead", "issueCount", "issue", "issueTop", "issueTitle", "issueDetail", "emptyIcon",
+        "headActions", "refusal", "banner", "section", "sectionRow", "sectionActions", "link", "resourceField", "resourceName", "fill", "meter", "meterTick",
+        "line", "absent", "parts", "remainder", "split", "rows", "rowLabel", "rowValue", "mates", "mate", "option", "optionText", "optionName", "optionLine",
+        "rank", "dropRow", "dropRank", "was", "statSub", "note", "error", "issues", "issueGroup", "issueHead", "issueCount", "issue", "issueTop", "issueTitle",
+        "issueDetail", "issueActions", "emptyIcon",
     ],
     base: {
         ...plan,
@@ -59,6 +62,8 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
         banner: { ...INSPECTOR_SECTION, paddingY: "12px" },
         section: { ...INSPECTOR_SECTION, gap: "8px" },
         sectionRow: { display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "8px", minWidth: 0 },
+        // A head's actions at its end: `Split…` before `Open resource →` (A71).
+        sectionActions: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: "12px", minWidth: 0 },
         link: {
             display: "inline-flex", alignItems: "center", gap: "4px", padding: 0, border: 0, background: "transparent", cursor: "pointer",
             textStyle: "body.sm", fontWeight: "medium", color: "brand.solid", whiteSpace: "nowrap",
@@ -91,6 +96,12 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
         meterTick: { position: "absolute", top: "-4px", bottom: "-4px", width: "1px", background: "fg", pointerEvents: "none" },
         line: { ...mono, fontSize: "label.sm", color: "fg.subtle", overflowWrap: "anywhere", textWrap: "pretty" },
         absent: { textStyle: "absent", fontSize: "label.lg" },
+        // A bin's parts (A71): under their head, the shared form's fields, then the remainder; 8px apart, as the section's parts are.
+        parts: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
+        // What the parts leave unallocated (A70): `4 m³ unallocated`, warn-text 600.
+        remainder: { ...mono, fontSize: "label.lg", fontWeight: "semibold", color: "fg.warning", overflowWrap: "anywhere" },
+        // `Split…`'s popover (A71): its quantity over the Chooser, 12px apart, as the popover's body spaces its parts.
+        split: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         // Rows on `88px 1fr` (A57–A59): the app's values, Before · Hold · Next fill, the event's details — a mono caps label, a mono value.
         rows: { display: "grid", gridTemplateColumns: "88px minmax(0, 1fr)", alignItems: "baseline", rowGap: "8px", columnGap: "12px", margin: 0, minWidth: 0 },
         rowLabel: {
@@ -190,6 +201,8 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
         issueTop: { display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 },
         issueTitle: { flex: 1, minWidth: 0, ...mono, fontSize: "label.lg", fontWeight: "semibold", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         issueDetail: { ...mono, fontSize: "label.sm", lineHeight: 1.5, color: "fg.muted", textWrap: "pretty", overflowWrap: "anywhere" },
+        // An issue's fixes, in a row that wraps: its own, then Find a fit (A74).
+        issueActions: { display: "flex", flexWrap: "wrap", gap: "8px", minWidth: 0 },
         emptyIcon: { ...fontAwesomeSize("22px"), color: "border.strong" },
     },
 });

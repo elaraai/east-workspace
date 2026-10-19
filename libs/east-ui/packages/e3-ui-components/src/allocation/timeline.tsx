@@ -33,14 +33,15 @@ import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { remainderOf } from "./actions.js";
 import { currentOf, dropTarget, gripCoord, laneCoord, movedLinkOf, rowCoord, type AllocationDrag, type BoardGrip, type Target } from "./drag.js";
 import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
 import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
 import {
-    allocationWords, compareDate, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type Fit,
-    type Issue, type Load, type ResourceLine, type ResourceRow, type Selection, type Slot,
+    allocationWords, compareDate, compareFloat, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day,
+    type Fit, type Issue, type Load, type ResourceLine, type ResourceRow, type Selection, type Slot,
 } from "./model.js";
 
 /** The panes' head, the recipe's: the rows sit under it. */
@@ -680,10 +681,13 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
     const at = `${lane} ${formatDatePattern("HH:mm", bin.at)}`;
     const qty = words.quantity(bin.quantity, context.unit);
     const to = resource === undefined ? "" : `${resource.label}${parts.length > 1 ? ` + ${parts.length - 1}` : ""}`;
+    // What its parts leave unallocated (A70): after where it is, in warn-text, cut with the line where the card cuts it; the tooltip says it whole.
+    const remainder = reserved ? 0 : remainderOf(bin);
+    const left = resource !== undefined && compareFloat(remainder, 0) > 0 ? `${words.quantity(remainder, context.unit)} unallocated` : undefined;
     const moves = props.editable ? ` · drag to another ${one(nouns.lane)} hour to move it` : "";
     const tip = reserved
         ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no ${one(nouns.event)} yet${moves}`
-        : `${code}${event?.meta.type === "some" ? ` · ${event.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${moves}`;
+        : `${code}${event?.meta.type === "some" ? ` · ${event.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${left === undefined ? "" : ` · ${left}`}${moves}`;
     const marks: ReactNode[] = [];
     for (const issue of flags) {
         if (issue.bin.type === "some" && issue.bin.value === id && issue.flag.type === "some") {
@@ -716,7 +720,7 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
             <Box as="span" css={styles.cardTo} data-allocation-to="">
                 {resource === undefined
                     ? <><FontAwesomeIcon icon={faLinkSlash} /><span data-unlinked="">not linked</span></>
-                    : <><FontAwesomeIcon icon={faArrowRight} />{to}</>}
+                    : <><FontAwesomeIcon icon={faArrowRight} />{to}{left !== undefined && <> · <Box as="span" css={styles.cardLeft} data-allocation-left="">{left}</Box></>}</>}
             </Box>
             {marks}
         </Box>

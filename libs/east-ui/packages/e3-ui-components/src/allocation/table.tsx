@@ -11,8 +11,10 @@
  * and resource are a chip or a dashed placeholder; a chip's × removes or
  * unlinks, and a cell's chevron opens the shared Chooser, every section of it
  * the app's fit's answer. A bin's chip drags onto a free row's event cell
- * (A47). Every figure and word is e3-ui's; every size the `allocationBuilder`
- * recipe's.
+ * (A47). A split or partly allocated bin lists its parts as resource chips
+ * with their quantities across the Resource and Load columns, each its own
+ * chevron and ×, and `+ resource` for its remainder (A71, #1332). Every
+ * figure and word is e3-ui's; every size the `allocationBuilder` recipe's.
  *
  * @packageDocumentation
  */
@@ -20,13 +22,15 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faChevronDown, faChevronUp, faCircleExclamation, faGripVertical, faInbox, faLink, faLinkSlash, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import {
+    faArrowDown, faChevronDown, faChevronUp, faCircleExclamation, faGripVertical, faInbox, faLink, faLinkSlash, faPlus, faTriangleExclamation, faXmark,
+} from "@fortawesome/free-solid-svg-icons";
 import { variant, type SortedMap, type option } from "@elaraai/east";
 import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { Chooser, VirtualRows, formatDatePattern, type ChooserSection } from "@elaraai/east-ui-components/internal";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { linkedQuantity, type AllocationCommands } from "./actions.js";
+import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
 import { eventChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
@@ -35,8 +39,8 @@ import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
-    allocationWords, partsOf, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitAsk, type Load,
-    type ResourceLine, type Selection, type Slot,
+    allocationWords, compareFloat, partsOf, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitAsk,
+    type Load, type ResourceLine, type Selection, type Slot,
 } from "./model.js";
 
 /** A band's and a row's height, the recipe's: the rows are virtualised by them. */
@@ -80,8 +84,15 @@ export interface TableProps {
     book: (target: Target) => void;
 }
 
-/** A row's cell a Chooser is open on. */
-interface Open { row: string; side: "event" | "resource" }
+/**
+ * A row's cell a Chooser is open on: its event, or its resource — the row's,
+ * one part of a split bin's (`part`, its resource), or the remainder's
+ * (`part: null`, `+ resource`, A71).
+ */
+interface Open { row: string; side: "event" | "resource"; part?: string | null | undefined }
+
+/** A Chooser's identity in its row, as a row's memo compares it: `event`, `resource`, `resource:K-203`, `resource:+`. */
+const openKey = (side: Open["side"], part: Open["part"]) => part === undefined ? side : `${side}:${part ?? "+"}`;
 
 /** One flattened line of the virtualised Table: a band's head, or a row. */
 type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow };
@@ -176,7 +187,7 @@ export function AllocationTable(props: TableProps) {
                     </GroupHeading>;
                 }
                 return <Row props={props} row={line.row} columns={cells?.get(line.row.bin ?? "")} shown={shown.length} lines={resourceLines}
-                    open={open?.row === line.row.key ? open.side : undefined} setOpen={setOpen} words={choiceWords} />;
+                    open={open?.row === line.row.key ? openKey(open.side, open.part) : undefined} setOpen={setOpen} words={choiceWords} />;
             }} />}
     </Box>;
 }
@@ -197,7 +208,10 @@ function selects(selection: Selection | undefined, row: TableRow, plan: Day, hig
 
 interface RowProps {
     props: TableProps; row: TableRow; columns: readonly { text: string; warn: boolean }[] | undefined; shown: number;
-    lines: ReadonlyMap<string, ResourceLine>; open: "event" | "resource" | undefined; setOpen: (open: Open | undefined) => void; words: ChoiceWords;
+    lines: ReadonlyMap<string, ResourceLine>;
+    /** The row's open Chooser, by its key (`openKey`). */
+    open: string | undefined;
+    setOpen: (open: Open | undefined) => void; words: ChoiceWords;
 }
 
 /**
@@ -283,9 +297,13 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const time = formatDatePattern("HH:mm", row.at);
     const lane = words.lane(row.lane);
     const meta = bin?.event.type === "some" ? context.events.get(bin.event.value)?.meta : undefined;
-    // Its status (A43): what it holds, and whether its resource needs a look.
+    // A split or partly allocated bin (A71): its parts' chips, and `+ resource` for what they leave, across the Resource and Load columns.
+    const remainder = bin === undefined ? 0 : remainderOf(bin);
+    const split = row.kind === "bin" && parts.length > 0 && (parts.length > 1 || compareFloat(remainder, 0) > 0);
+    // Its status (A43): what it holds, and whether a resource of it needs a look.
+    const check = parts.some(part => { const l = lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
     const status = row.kind === "free" ? "Free" : row.kind === "bin" && parts.length === 0 ? "Not linked"
-        : line !== undefined && (line.over || line.overlap) ? "Check" : draft ? "Draft" : row.kind === "reserved" ? "Reserved" : "Committed";
+        : check ? "Check" : draft ? "Draft" : row.kind === "reserved" ? "Reserved" : "Committed";
     const select = () => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() });
     const loadText = resource !== undefined && load !== undefined ? board.load(load.fill, resource, unit) : undefined;
     const into = line?.overlap === true && line.next.type === "some" && load?.hold.type === "some"
@@ -295,10 +313,46 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
         onPointerDown={event => event.stopPropagation()}><FontAwesomeIcon icon={isOpen ? faChevronUp : faChevronDown} /></chakra.button>;
     const placeholder = (side: "event" | "resource") => (isOpen: boolean) => <Placeholder props={props} side={side} reserved={row.kind === "reserved"} open={isOpen} button
         say={side === "event" ? eventSay : resourceSay} />;
-    const chooser = (side: "event" | "resource", trigger: (isOpen: boolean) => ReactElement) => editable
-        ? <ChoiceCell props={props} row={row} side={side} open={open === side} setOpen={setOpen} words={words} trigger={trigger} /> : null;
+    const chooser = (side: "event" | "resource", trigger: (isOpen: boolean) => ReactElement, part?: string | null) => editable
+        ? <ChoiceCell props={props} row={row} side={side} part={part} open={open === openKey(side, part)} setOpen={setOpen} words={words} trigger={trigger} /> : null;
     const eventLabel = row.kind === "bin" ? `Replace ${code} with another ${one(nouns.event)}` : `Choose ${a(nouns.event)}`;
     const resourceLabel = resource !== undefined ? `Change the ${one(nouns.resource)}` : row.kind === "bin" ? `Choose ${a(nouns.resource)}` : `Reserve ${a(nouns.resource)}`;
+    // A resource's marks (A43): ⚠ overlapping, ● over max, ↓ under min.
+    const marksOf = (of: ResourceLine | undefined) => <>
+        {of?.overlap === true && !of.over && <Box as="span" css={styles.cardMark} data-mark="overlap"><FontAwesomeIcon icon={faTriangleExclamation} aria-label="Overlaps the next job" /></Box>}
+        {of?.over === true && <Box as="span" css={styles.cardMark} data-mark="over"><FontAwesomeIcon icon={faCircleExclamation} aria-label="Over max" /></Box>}
+        {of?.under === true && !of.over && <Box as="span" css={styles.cardMark} data-mark="under"><FontAwesomeIcon icon={faArrowDown} aria-label="Under minimum" /></Box>}
+    </>;
+    // A split bin's part (A71): its resource and what it holds there — one button, which opens the Chooser that moves it — and its ×.
+    // Two parts and `+ resource` share the Resource and Load columns, 176 + 144px at the Table's least width, so a part has no chevron
+    // of its own and no marks: its tooltip is its resource's load line, as the Load cell's is (A84), and the row's Status says Check
+    // for any resource of it over max or held into its next job (A43).
+    const partChip = (part: { key: string; quantity: number }) => {
+        const of = context.resources.get(part.key), at = props.loads.get(part.key);
+        const name = of?.label ?? part.key, figure = board.quantity(part.quantity, unit);
+        const loadLine = of === undefined || at === undefined ? undefined : board.load(at.fill, of, unit);
+        const was = committed?.parts.get(part.key);
+        const title = `${name} · ${figure}${loadLine === undefined ? "" : ` · ${loadLine}`}`;
+        const inside = <><Box as="span" css={styles.tableChipCode}>{name}</Box><Box as="span" css={styles.tableChipQty}>{figure}</Box></>;
+        const face = (isOpen: boolean) => <chakra.button type="button" css={styles.tablePartFace} aria-haspopup="listbox" data-open={isOpen ? "" : undefined}
+            aria-label={`Move the ${figure} on ${name} to another ${one(nouns.resource)}`} title={title} onPointerDown={event => event.stopPropagation()}>{inside}</chakra.button>;
+        return <Box key={part.key} css={[styles.tableChip, styles.tablePart]} data-allocation-chip="part" data-allocation-part={part.key}
+            data-draft={was === undefined || compareFloat(was, part.quantity) !== 0 ? "" : undefined}>
+            {chooser("resource", face, part.key) ?? <Box as="span" css={styles.tablePartFace} title={title}>{inside}</Box>}
+            {editable && <chakra.button type="button" css={styles.tableChipButton} data-allocation-chip-remove="" aria-label={`Unlink ${code} from ${name}`} title={`Unlink ${code} from ${name}`}
+                onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (row.bin !== undefined) commands.unlink(row.bin, part.key); }}>
+                <FontAwesomeIcon icon={faXmark} />
+            </chakra.button>}
+        </Box>;
+    };
+    // `+ resource` for what the parts leave (A71): its Chooser links the remainder.
+    const remainderWords = `Choose ${a(nouns.resource)} for the ${board.quantity(remainder, unit)} unallocated`;
+    const remainderInside = <>
+        <Box as="span" css={styles.tableChipIcon} data-icon-role="idle"><FontAwesomeIcon icon={faPlus} /></Box>
+        <Box as="span" css={styles.tablePlaceholderText} data-say="idle">{one(nouns.resource)}</Box>
+    </>;
+    const remainderTrigger = (isOpen: boolean) => <chakra.button type="button" css={styles.tablePlaceholder} data-allocation-placeholder="remainder" data-open={isOpen ? "" : undefined}
+        title={remainderWords} aria-label={remainderWords} aria-haspopup="listbox" onPointerDown={event => event.stopPropagation()}>{remainderInside}</chakra.button>;
     return <Box css={styles.tableRow} role="row" data-allocation-row={row.key} data-kind={row.kind} data-columns={shown === 0 ? "none" : undefined}
         data-selected={marked !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
@@ -328,7 +382,12 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
                 ? <Placeholder props={props} side="event" reserved={row.kind === "reserved"} open={false} button say={eventSay} onBook={() => props.book(eventTarget(row))} />
                 : chooser("event", placeholder("event")) ?? <Placeholder props={props} side="event" reserved={row.kind === "reserved"} open={false} button={false} say={eventSay} />}
         </Box>}
-        {resource !== undefined && row.bin !== undefined ? <>
+        {split && row.bin !== undefined ? <Box ref={resourceDrop} css={[styles.tableCell, styles.tableResourceSpan, styles.tableParts]} data-allocation-cell-side="resource"
+            data-allocation-parts="">
+            {parts.map(partChip)}
+            {compareFloat(remainder, 0) > 0 && (chooser("resource", remainderTrigger, null)
+                ?? <Box css={styles.tablePlaceholder} data-allocation-placeholder="remainder" title={`${board.quantity(remainder, unit)} unallocated`}>{remainderInside}</Box>)}
+        </Box> : resource !== undefined && row.bin !== undefined ? <>
             <Box ref={resourceDrop} css={styles.tableCell} data-allocation-cell-side="resource">
                 <Box css={styles.tableChip} data-allocation-chip="resource" data-draft={draft ? "" : undefined} data-verdict={resourceSay?.state}
                     title={resourceSay?.state === "refused" && resourceSay.reason !== undefined ? resourceSay.reason : `${resource.label}${resource.meta.type === "some" ? ` · ${resource.meta.value}` : ""}`}>
@@ -347,9 +406,7 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
             <Box as="span" css={styles.tableLoad} data-tone={line?.over === true ? "danger" : line?.overlap === true || line?.under === true ? "warning" : undefined}
                 title={`${resource.label} · ${loadText}${into === undefined ? "" : ` · ${board.quantity(into, "")} d into the next job`}`}>
                 <span>{loadText}</span>
-                {line?.overlap === true && !line.over && <Box as="span" css={styles.cardMark} data-mark="overlap"><FontAwesomeIcon icon={faTriangleExclamation} aria-label="Overlaps the next job" /></Box>}
-                {line?.over === true && <Box as="span" css={styles.cardMark} data-mark="over"><FontAwesomeIcon icon={faCircleExclamation} aria-label="Over max" /></Box>}
-                {line?.under === true && !line.over && <Box as="span" css={styles.cardMark} data-mark="under"><FontAwesomeIcon icon={faArrowDown} aria-label="Under minimum" /></Box>}
+                {marksOf(line)}
             </Box>
         </> : <Box ref={resourceDrop} css={[styles.tableCell, styles.tableResourceSpan]} data-allocation-cell-side="resource">
             {chooser("resource", placeholder("resource")) ?? <Placeholder props={props} side="resource" reserved={false} open={false} button={false} say={resourceSay} />}
@@ -397,35 +454,44 @@ function Placeholder({ props, side, reserved, open, button, say, onBook, ...trig
 
 /**
  * A cell's chevron and its Chooser (A48, A49): the question the cell asks the
- * fit, its answer's sections, and what a choice does.
+ * fit, its answer's sections, and what a choice does. A split bin's part
+ * chip moves that part, and `+ resource` links the remainder, each asked
+ * for the quantity it places (A71, A73).
  */
-function ChoiceCell({ props, row, side, open, setOpen, words, trigger }: {
-    props: TableProps; row: TableRow; side: "event" | "resource"; open: boolean; setOpen: (open: Open | undefined) => void; words: ChoiceWords;
+function ChoiceCell({ props, row, side, part, open, setOpen, words, trigger }: {
+    props: TableProps; row: TableRow; side: "event" | "resource";
+    /** A resource Chooser's part: the row's (`undefined`, its bin's first), a part's resource, or the remainder (`null`). */
+    part?: string | null | undefined;
+    open: boolean; setOpen: (open: Open | undefined) => void; words: ChoiceWords;
     trigger: (open: boolean) => ReactElement;
 }) {
     const { plan, context, day, fit, commands } = props;
     const nouns = useNouns();
     const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     const current = bin === undefined ? undefined : partsOf(bin)[0]?.key;
-    // The question (F1): an event cell takes its row's resource, of the day without its bin; a resource cell places its bin,
-    // or a reservation in its free slot.
+    // The part a resource Chooser moves: the row's first, a chip's own, or none for the remainder, which it links.
+    const from = part === undefined ? current : part ?? undefined;
+    // The question (F1): an event cell takes its row's resource, of the day without its bin; a resource cell places what it moves of
+    // its bin — the part, or the remainder (A73) — or a reservation in its free slot.
     const question = useMemo((): { ask: FitAsk; of: Day | undefined } | undefined => {
         if (side === "event") {
             if (current === undefined || row.bin === undefined) return undefined;
             return { ask: variant("take", { resource: current }), of: props.without(row.bin) };
         }
         if (row.bin === undefined) return { ask: variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 }), of: props.reserving(row.lane, row.slotAt) };
-        const quantity = bin === undefined ? 0 : bin.event.type === "none" ? 0 : linkedQuantity(bin, current)?.quantity ?? bin.quantity;
+        const quantity = bin === undefined ? 0 : bin.event.type === "none" ? 0 : linkedQuantity(bin, from)?.quantity ?? bin.quantity;
         return { ask: variant("place", { subject: variant("bin", row.bin), quantity }), of: undefined };
         // The question stands for the row's cell and the drafts.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [side, row.bin, row.lane, row.slotAt, current, plan]);
+    }, [side, row.bin, row.lane, row.slotAt, current, from, plan]);
     const { ask } = fit;
     useEffect(() => { if (open && question !== undefined) ask(question.ask, question.of); }, [open, question, ask]);
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
+    // `+ resource` offers the resources its bin is not on: each it is on is a part of its own (A71).
+    const except = part === null && bin !== undefined ? new Set(bin.parts.keys()) : undefined;
     const sections: ChooserSection[] = !open ? [] : side === "event"
         ? eventChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, shown: props.visibleEvents })
-        : resourceChoices({ context, words, binRow: row.kind === "bin", current, answer, shown: props.visibleResources });
+        : resourceChoices({ context, words, binRow: row.kind === "bin", current: from, answer, shown: props.visibleResources, except });
     const close = () => setOpen(undefined);
     const choose = (key: string) => {
         close();
@@ -436,14 +502,15 @@ function ChoiceCell({ props, row, side, open, setOpen, words, trigger }: {
             else commands.book(key, row.lane, row.slotAt, undefined);
             return;
         }
-        if (key === current) return;
-        if (row.bin !== undefined) commands.link(row.bin, key, current);
+        if (key === from) return;
+        if (row.bin !== undefined) commands.link(row.bin, key, from);
         else commands.reserve(row.lane, row.slotAt, key);
     };
-    return <SliceEditPopover trigger={trigger(open)} open={open} onOpenChange={next => setOpen(next ? { row: row.key, side } : undefined)} flush
+    const choices = `${row.key}|${openKey(side, part)}`;
+    return <SliceEditPopover trigger={trigger(open)} open={open} onOpenChange={next => setOpen(next ? { row: row.key, side, part } : undefined)} flush
         label={`${side === "event" ? nouns.event.one : nouns.resource.one} · ${words.lane(row.lane)} ${formatDatePattern("HH:mm", row.at)}`}
-        initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-choices="${row.key}|${side}"] input`)}>
-        <Box data-allocation-choices={`${row.key}|${side}`}>
+        initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-choices="${choices}"] input`)}>
+        <Box data-allocation-choices={choices}>
             {open && <Chooser sections={sections} placeholder={`Find ${a(side === "event" ? nouns.event : nouns.resource)}`} onChoose={choose} />}
         </Box>
     </SliceEditPopover>;

@@ -45,7 +45,19 @@ the Chooser laid in the pane and the meter, its words and figures pure in
 of the day's session until Save; an explicit inspection opens Details, and a
 selection a command makes keeps the tab. A drop a cell's veto refuses never
 reaches a drag target's `onDrag`: its `onRefuse` hears it, which is how the
-refusal's note reaches the inspector (A40). The segment strip
+refusal's note reaches the inspector (A40). A bin split across resources
+(#1332) is its parts and what they leave: Assigned to holds each part's
+quantity as a field of the shared form, keyed by its resource, its Clear the
+part's Unlink, the remainder in warn, and `Split…`, an anchored popover that
+puts the remainder on another resource through the Chooser; the Table lists
+the parts as chips across its Resource and Load columns with `+ resource` for
+the remainder, and a card's line says what is left. Every one of them asks
+the fit for the quantity it places — a part's, or the remainder's (A73) — and
+each edit is one of the board's commands (`split`, `setPart`, `link`,
+`unlink`). Find a fit (A74) asks the fit to place a bin's remainder and shows
+the answer in the Library's Resources tab — the fits among what the rail
+shows, best first, each card's reason the fit's — under a chip that clears
+it, as the Roster's Find fixes do: the tab's, never a filter. The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
 toolbars share, are `src/shared/schedule/segments.tsx`.
 The time parts the Plan shares with the Calendar are in `src/shared/time/`

@@ -17,6 +17,19 @@ import type { AllocationEditing } from "./editing.js";
 import { compareFloat, compareString, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Day, type Selection } from "./model.js";
 
 /**
+ * What a bin's parts leave unallocated (A70): its quantity less what its parts
+ * hold — all of it with no part; none for a reservation.
+ *
+ * @param bin - The bin
+ * @returns The remainder, never below zero
+ */
+export function remainderOf(bin: Bin): number {
+    if (bin.event.type === "none") return 0;
+    const left = bin.quantity - [...bin.parts.values()].reduce((n, q) => n + q, 0);
+    return compareFloat(left, 0) > 0 ? left : 0;
+}
+
+/**
  * What a drag onto a resource carries of a bin (A39, A73): a link's part, or
  * a connector's remainder — all of it with no part — or, with nothing left
  * over, its largest part.
@@ -53,6 +66,17 @@ export interface AllocationCommands {
     setQuantity(id: string, quantity: number): boolean;
     /** Takes a bin as the app's bin form wrote it (`inspector={{ bin }}`): one transaction, as every gesture is (A75). */
     edit(id: string, bin: Bin): boolean;
+    /**
+     * Splits a bin (A71): a new part on a resource it is not on, of what its
+     * parts leave unallocated — more than nothing, no more than all of it.
+     */
+    split(id: string, resource: string, quantity: number): boolean;
+    /**
+     * Sets one part's quantity (A71, the inspector's field in Assigned to): no
+     * more than the part and the remainder together; nothing unlinks it, what
+     * it held unallocated again. The bin's quantity never changes.
+     */
+    setPart(id: string, resource: string, quantity: number): boolean;
     /** Moves a bin to a lane slot, after the slot's bins by a minute each (A37); its resource never changes. */
     move(id: string, lane: string, at: Date): boolean;
     /**
@@ -221,6 +245,23 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
             const was = plan.bins.get(id);
             if (was === undefined || domain.sameBin(was, bin)) return false;
             return write("Edit bin", "typed", next => { next.bins.set(id, bin); });
+        },
+        split(id, resource, quantity) {
+            const bin = plan.bins.get(id);
+            if (bin === undefined || bin.event.type === "none" || bin.parts.has(resource) || !Number.isFinite(quantity)
+                || compareFloat(quantity, 0) <= 0 || compareFloat(quantity, remainderOf(bin)) > 0) return false;
+            const done = write("Split", "typed", next => { next.bins.get(id)!.parts.set(resource, quantity); });
+            if (done) select({ type: "bin", id }, true);
+            return done;
+        },
+        setPart(id, resource, quantity) {
+            const bin = plan.bins.get(id);
+            const part = bin?.parts.get(resource);
+            if (bin === undefined || part === undefined || !Number.isFinite(quantity) || compareFloat(quantity, 0) < 0
+                || compareFloat(quantity, part) === 0 || compareFloat(quantity, part + remainderOf(bin)) > 0) return false;
+            // Nothing on it unlinks it (A71): what it held is unallocated again.
+            if (compareFloat(quantity, 0) === 0) return write("Unlink", "remove", next => { next.bins.get(id)!.parts.delete(resource); });
+            return write("Edit bin", "typed", next => { next.bins.get(id)!.parts.set(resource, quantity); });
         },
         restore(id, lane, at, resource) {
             const held = editing.held;

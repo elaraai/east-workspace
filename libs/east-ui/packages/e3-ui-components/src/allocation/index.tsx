@@ -21,17 +21,18 @@ import {
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { StatusDisplay } from "../components/StatusDisplay.js";
-import { allocationCommands } from "./actions.js";
+import { allocationCommands, remainderOf } from "./actions.js";
 import { placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
 import { useAllocationInspector } from "./inspector.js";
-import { useAllocationLibrary, type Pick } from "./library.js";
+import { binCode } from "./inspector-model.js";
+import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
 import { useAllocationFit } from "./fit.js";
 import { useAllocationData } from "./data.js";
 import { useAllocationEditing } from "./editing.js";
 import { AllocationFooter } from "./footer.js";
 import {
-    NARROW_WIDTH, allocationContext, allocationDomain, allocationWords, compareString, configError, dayKey, focusOf, type AllocationStyles, type AllocationValue, type Bin, type Day,
-    type Issue, type Selection,
+    NARROW_WIDTH, allocationContext, allocationDomain, allocationWords, compareFloat, compareString, configError, dayKey, focusOf, type AllocationStyles, type AllocationValue,
+    type Bin, type Day, type Issue, type Selection,
 } from "./model.js";
 import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
@@ -65,6 +66,9 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const [refusal, setRefusal] = useState<Refusal>();
     // The bin whose resource Chooser is open in the inspector (A8, A21, A64).
     const [chooser, setChooser] = useState<string>();
+    // Find a fit (A74): the bin whose unallocated quantity the Library's Resources tab shows the fits for, until its chip clears it —
+    // the tab's, not a filter, so neither a selection nor the rail lets it go.
+    const [find, setFind] = useState<string>();
     // Selecting follows the selection (A12); a selection a command makes after a drop follows it softly.
     const [follow, setFollow] = useState<TimelineFollow>({ nonce: 0, soft: false });
     const select = useCallback((next: Selection | undefined, soft = false) => {
@@ -97,9 +101,11 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
-    // Another day: its own selection, pick and refusal.
+    // Another day: its own selection, pick and refusal, and no find — a find is its bin's, on the day it was asked of.
     const dayEpoch = window.day.getTime();
-    useEffect(() => { setSelection(undefined); setLink(undefined); setPick(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); setChooser(undefined); }, [dayEpoch]);
+    useEffect(() => {
+        setSelection(undefined); setLink(undefined); setPick(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); setChooser(undefined); setFind(undefined);
+    }, [dayEpoch]);
     // Another layout closes the selected link (A7), and shows the selection there.
     useEffect(() => { setLink(undefined); setFollow(before => before.nonce === 0 ? before : { nonce: before.nonce + 1, soft: false }); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
@@ -120,6 +126,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const commands = allocationCommands(value, domain, editing, select);
     // The app's fit (§12): every verdict a drag or a pick shows is its answer.
     const fit = useAllocationFit(value, domain, window.day, plan, context);
+    const { ask: askFit } = fit;
     // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38).
     // The drafts are the cache's key: new drafts, a new cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -186,10 +193,33 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const { state: libraryTab, setState: setLibraryTab } = usePersistedState<{ tab: string }>(`${key}.library.tab`, { tab: "events" });
     const lines = useMemo(() => new Map(value.resources.map(r => [r.key, allocationWords().line(window.day, r, loads.get(r.key)!, context.unit)] as const)),
         [value.resources, loads, window.day, context.unit]);
+    // A find's question (A73, A74): the bin's unallocated quantity placed, asked of the drafts as they are and again as they change (F1).
+    // A find whose bin is gone, or wholly allocated, is done.
+    const findBin = find === undefined ? undefined : plan.bins.get(find);
+    const findAsk = find === undefined || findBin === undefined || compareFloat(remainderOf(findBin), 0) <= 0 ? undefined : placeAsk(plan, { kind: "port", bin: find });
+    const findKey = findAsk === undefined ? "" : `${find}|${findAsk.quantity}`;
+    useEffect(() => { if (findAsk !== undefined) askFit(findAsk.ask); },
+        // The question stands for its bin, its quantity and the drafts.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [findKey, plan, askFit]);
+    useEffect(() => { if (find !== undefined && findKey === "") setFind(undefined); }, [find, findKey]);
+    const findAnswer = findAsk === undefined ? undefined : fit.answer(findAsk.ask);
+    // While its answer for the drafts as they are is on its way, the find's buttons read `Finding…` and its tab is busy (F2).
+    const finding = useCallback((bin: string) => bin === find && findKey !== "" && findAnswer === undefined && fit.error === undefined,
+        [find, findKey, findAnswer, fit.error]);
+    const libraryFind: ResourceFind | undefined = find === undefined || findAsk === undefined || findBin === undefined ? undefined
+        : { bin: find, label: `${binCode(context, findBin)} · ${allocationWords().quantity(findAsk.quantity, context.unit)}`, shown: findAnswer, busy: finding(find) };
+    // Find a fit opens the Library's Resources tab, where its result is: with no such tab, nothing offers it.
+    const findable = value.library.some(tab => tab.type === "resources");
+    const onFind = (bin: string) => {
+        setFind(bin); setLibraryTab({ tab: "resources" }); revealPane("Library");
+        // Pressed again after the fit failed, a find is asked again.
+        if (fit.error !== undefined) fit.retry();
+    };
     const start = useAllocationLibrary({
         value, context, day: window.day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
         tab: libraryTab.tab, onTab: tab => setLibraryTab({ tab }), onVerdict: runVerdict,
-        shown: { events: eventsSource, resources: resourcesSource },
+        shown: { events: eventsSource, resources: resourcesSource }, find: libraryFind, onClearFind: () => setFind(undefined),
         // A9: an event card picks it, again unpicks it; a selected free slot or reservation stays selected. A pick's fits are Details' (A34).
         onEvent: grip => {
             const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "event" ? pick.kind === "event" && pick.event === grip.event : pick.kind === "removed" && pick.bin === grip.bin);
@@ -215,14 +245,13 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         value, domain, context, day: window.day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
         without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, events: eventsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
-        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key,
+        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding,
     });
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();
     useEffect(() => { if (drag.grip === undefined) setFitError(fit.error); }, [drag.grip, fit.error]);
     // The selected bin is the board's subject at rest: its connector's question is asked before a drag needs it (A23, F1).
     const selectedBin = selection?.type === "bin" ? selection.id : undefined;
-    const { ask: askFit } = fit;
     useEffect(() => {
         const asked = selectedBin === undefined ? undefined : placeAsk(plan, { kind: "port", bin: selectedBin });
         if (asked !== undefined) askFit(asked.ask);
