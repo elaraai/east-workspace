@@ -10,10 +10,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DictType, East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, isTypeEqual, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Allocation } from "@elaraai/e3-ui";
 import { allocationResourceLine, resolveAllocationEvents } from "@elaraai/e3-ui/internal";
 import { BinValues, Kiln, TimberLoad, YardDay, yardArrivals, yardDay, yardKilns, yardLanes, yardPlanDay } from "./kiln-yard.js";
 import { bulkFitBody, yardFitBody } from "./allocation.examples.js";
+import * as ex from "./fit.examples.js";
+
+describeEast("Allocation — pure functions", test => {
+    Assert.examples(test, {
+        allocationDayLoads: ex.allocationDayLoads, allocationRules: ex.allocationRules, allocationAnswerPlace: ex.allocationAnswerPlace,
+        allocationAnswerTake: ex.allocationAnswerTake, allocationLookahead: ex.allocationLookahead, allocationChecks: ex.allocationChecks,
+        allocationSlots: ex.allocationSlots,
+    });
+}, { platformFns: TestImpl });
 
 const Context = Allocation.Types.Context;
 const Request = Allocation.Types.FitRequest(BinValues);
