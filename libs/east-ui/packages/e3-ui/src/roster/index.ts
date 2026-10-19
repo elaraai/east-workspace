@@ -11,7 +11,7 @@ import {
 import { EastUI, Editing, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType } from "../bind/data.js";
-import { FuncBindingType, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
 import { Record, RecordBindingType } from "../bind/record.js";
 import { recordSources } from "../utils/record-sources.js";
 import * as T from "./types.js";
@@ -162,16 +162,12 @@ function hasField(value: unknown, field: string): boolean {
  * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
  */
 function fitBinding(fit: unknown): ExprType<typeof FuncBindingType> {
-    const fitType = fit instanceof Expr ? Expr.type(fit) as EastType : undefined;
-    const fields = fitType?.type === "Struct" ? fitType.fields : undefined;
-    const call = fields?.["call"], read = fields?.["read"];
-    const asked = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0]! : undefined;
-    const answered = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
-    if (asked === undefined || answered === undefined || fields?.["binding"] === undefined) {
+    const signature = boundFuncSignature(fit);
+    if (signature === undefined) {
         throw new Error("Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest to Roster.Types.FitResult");
     }
-    if (!isTypeEqual(asked, T.RosterFitRequestType)) throw new Error(`Roster: \`fit\` asks ${printType(asked)}, not Roster.Types.FitRequest`);
-    if (!isTypeEqual(answered, T.RosterFitResultType)) throw new Error(`Roster: \`fit\` answers ${printType(answered)}, not Roster.Types.FitResult`);
+    if (!isTypeEqual(signature.asks, T.RosterFitRequestType)) throw new Error(`Roster: \`fit\` asks ${printType(signature.asks)}, not Roster.Types.FitRequest`);
+    if (!isTypeEqual(signature.answers, T.RosterFitResultType)) throw new Error(`Roster: \`fit\` answers ${printType(signature.answers)}, not Roster.Types.FitResult`);
     return (fit as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding;
 }
 

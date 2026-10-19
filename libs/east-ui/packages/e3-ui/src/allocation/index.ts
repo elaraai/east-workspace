@@ -27,7 +27,7 @@ import {
 import { EastUI, Editing, StatusTokenType, TimeStepType, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType, type PagedValue } from "../bind/data.js";
-import { FuncBindingType, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
 import { Record, type RecordBindingType } from "../bind/record.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { recordSources } from "../utils/record-sources.js";
@@ -360,14 +360,11 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
     }
     const dayType = T.AllocationDayTypeFor(values);
     // The fit, bound over the same bin values.
-    const fitType = Expr.type(props.fit as unknown as Expr) as EastType;
-    const call = fitType.type === "Struct" ? fitType.fields["call"] : undefined;
-    const read = fitType.type === "Struct" ? fitType.fields["read"] : undefined;
-    const asked = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0]! : undefined;
-    const answered = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
-    if (asked === undefined || answered === undefined || fitType.type !== "Struct" || fitType.fields["binding"] === undefined) {
+    const signature = boundFuncSignature(props.fit);
+    if (signature === undefined) {
         throw new Error("Allocation: `fit` is Func.bind of the app's e3.function from Allocation.Types.FitRequest(V) to Allocation.Types.FitResult");
     }
+    const { asks: asked, answers: answered } = signature;
     if (!isTypeEqual(asked, T.AllocationFitRequestTypeFor(values))) {
         const theirs = asked.type === "Struct" && asked.fields["plan"]?.type === "Struct" && asked.fields["plan"].fields["bins"]?.type === "Dict"
             && asked.fields["plan"].fields["bins"].value.type === "Struct" ? asked.fields["plan"].fields["bins"].value.fields["values"] : undefined;
