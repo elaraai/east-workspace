@@ -596,7 +596,7 @@ loading from confirmed absent; Roster moves onto it); **`shared/func/`**
 | `allocation.navigation` | start | `HOST_RANK + 4` / `+ 6` | TimeNavigator full · compact · inside the combined View | Steps a day; Today in the picker; marks Published · Draft · Not started for the open month |
 | `allocation.layout` | start | `HOST_RANK + 1` | Seg Table · Timeline (icons `table`, `chart-gantt`) · inside View | Order as the mock: Table, then Timeline |
 | `allocation.status` | start | `HOST_RANK` | Not started · Draft · Publishing · Published · hidden | The day's stored status; absent with `publish={false}` |
-| `allocation.focus` | start | `HOST_RANK + 2` | the focus chip · its icon | Timeline only, while a focus is set |
+| `allocation.focus` | start | `HOST_RANK + 2` / `+ 6` | the focus chip · its icon · inside View | Timeline only, while a focus is set; its Show all in the View in the narrowest frame |
 | the rail | start | the rail's own, folding first | a chip per source's field, in source order, then the presets · Filters › Narrowing | Both layouts (§9.15) |
 | the rail's count | end | the rail's | `3 of 3 lanes · 21 of 33 resources` | One count per source; both layouts |
 | `allocation.issues` | end | `HOST_RANK + 3` | warn chip `3 issues` · inside View | Opens Inspector › Issues |

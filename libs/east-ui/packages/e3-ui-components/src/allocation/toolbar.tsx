@@ -108,9 +108,12 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     const canPublish = value.settings.publish && commands.canEdit();
     const layout = (key: "table" | "timeline") => setView({ ...view, layout: key });
     const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={LAYOUTS} active={view.layout} onPick={layout} />;
-    // The narrowest frame's one popover: the layout, the issues and Publish beside the date (A1).
+    const focus = args.focus;
+    // The narrowest frame's one popover: the layout, the focus, the issues and Publish beside the date (A1). The focus's chip comes
+    // with them, so its Show all stays reachable on a phone, where no Esc is (A13, A78).
     const controls = <Box css={styles.controls}>
         {layoutSeg("compact-layout")}
+        {timeline && focus !== undefined && focusChip(false)}
         {value.inspector.type === "some" && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
         {canPublish && <Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>}
     </Box>;
@@ -125,8 +128,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         {canPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish</ChakraMenu.Item></>}
     </ChipMenu>;
     // The focus chip (A13, A81): `K-203 · 3 bins · 31 m³`, `· hidden by Filters` when its row is narrowed out; × or Esc clears it.
-    const focus = args.focus;
-    const focusChip = (compact: boolean) => {
+    function focusChip(compact: boolean) {
         if (focus === undefined) return null;
         const unit = value.quantity.unit.type === "some" ? value.quantity.unit.value : "";
         const meta = `${plural(Number(focus.load.bins), "bin")} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
@@ -136,7 +138,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
             {!compact && <><span>{focus.resource.label}</span><span data-chip-meta="">{meta}</span></>}
             <chakra.button type="button" css={styles.focusClear} aria-label="Show all" title="Show all · Esc" onClick={args.onClearFocus}><FontAwesomeIcon icon={faXmark} /></chakra.button>
         </chakra.span>;
-    };
+    }
     const navigation = (compact = false, combined = false) => <TimeNavigator scope="allocation" date={view.date} period="day" sunday={false}
         onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"} initialPanel="day"
         onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started"
@@ -147,7 +149,10 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
         { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
         { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "allocation.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
-        timeline && focus !== undefined && { key: "allocation.focus", side: "start", rank: HOST_RANK + 2, forms: [focusChip(false), focusChip(true)] },
+        // Its icon, then — in the narrowest frame — into the View's popover with the controls (A1): a chip that cannot fold would run the row
+        // past its end at 294px.
+        timeline && focus !== undefined && { key: "allocation.focus", side: "start", rank: [HOST_RANK + 2, HOST_RANK + 6], bundle: [undefined, "allocation.controls"],
+            forms: [focusChip(false), focusChip(true), null] },
         value.settings.publish && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [
             <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
         summary.count > 0 && value.inspector.type === "some" && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [

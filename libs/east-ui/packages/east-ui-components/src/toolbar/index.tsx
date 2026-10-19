@@ -30,11 +30,14 @@
  *
  * An item holding an open overlay (a popover or menu hanging from a trigger
  * inside it) keeps its form, and the row folds around it; so does an item an
- * author marks `held`. An overlay's trigger turns its `data-state` in the
- * overlay's own render, after the toolbar has chosen, so the toolbar watches
- * its triggers' state and chooses again, before paint, when one opens or
- * closes (#1231): a row left folded around an overlay that has closed would
- * not be the configuration for its width.
+ * author marks `held`. A tooltip is no such overlay: it shows wherever the
+ * pointer rests, an item a narrowing row moves under it included, and an item
+ * held for it would be left unfolded past the row's end (#1333). An overlay's
+ * trigger turns its `data-state` in the overlay's own render, after the
+ * toolbar has chosen, so the toolbar watches its triggers' state and chooses
+ * again, before paint, when one opens or closes (#1231): a row left folded
+ * around an overlay that has closed would not be the configuration for its
+ * width.
  *
  * Steps of several items can make one BUNDLE (#1229), given as `rank` is: they
  * apply together, so a chip that takes the place of other controls draws in
@@ -85,11 +88,11 @@ export interface ToolbarProps {
     gap?: "md" | "lg" | undefined;
 }
 
-/** An open overlay inside an item: a Zag popover's or menu's trigger, open. */
-const OPEN_OVERLAY = '[data-part="trigger"][data-state="open"]';
+/** An open overlay inside an item: a Zag popover's or menu's trigger, open — never a tooltip's, which holds nothing. */
+const OPEN_OVERLAY = '[data-part="trigger"][data-state="open"]:not([data-scope="tooltip"])';
 
-/** An overlay's trigger, whose `data-state` says whether it hangs open. */
-const OVERLAY_TRIGGER = '[data-part="trigger"]';
+/** An overlay's trigger, whose `data-state` says whether it hangs open — a tooltip's is none. */
+const OVERLAY_TRIGGER = '[data-part="trigger"]:not([data-scope="tooltip"])';
 
 /** The most measure-and-choose passes one change may take — each measures a
  *  form it had not, so a real toolbar settles in a few. */
