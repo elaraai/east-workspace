@@ -1108,8 +1108,12 @@ describeEast("GoogleOr platform functions", (test) => {
         $(Assert.equal(result.wall_time.greaterEqual(result.build_time.add(result.solve_time)), true));
     });
 
+    // Glop's choice among the LP's tied optimal vertices is the host's own
+    // floating point (CI's arm64 leg answered another vertex at the same
+    // objective), so its pin is x86-64's and the harness skips it elsewhere;
+    // HiGHS and SCIP answer the pinned vertex on every host.
     for (const [backend, label, pinned] of [
-        ['glop', 'Glop', ref.lpSmallGlop],
+        ['glop', 'Glop (x86-64)', ref.lpSmallGlop],
         ['scip', 'SCIP', ref.lpSmallScip],
     ] as const) {
         test(`linear columns answer a generated 500-variable LP identically on ${label}`, $ => {
