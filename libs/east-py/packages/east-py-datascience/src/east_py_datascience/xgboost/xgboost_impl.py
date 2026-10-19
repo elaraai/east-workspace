@@ -39,6 +39,7 @@ from east_py_datascience.xgboost._blob import (
     load_quantiles,
     load_regressor,
     quantile_blob,
+    refuse_legacy,
 )
 
 _check_xgboost_support = extra_guard("xgboost", "xgboost", "XGBoost")
@@ -354,6 +355,7 @@ def xgboost_predict(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_regressor", "xgboost_predict")
+    refuse_legacy(payload["data"], "xgboost_predict")
 
     X_np = X.to_numpy()
 
@@ -404,6 +406,7 @@ def xgboost_predict_class(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_classifier", "xgboost_predict_class")
+    refuse_legacy(payload["data"], "xgboost_predict_class")
 
     X_np = X.to_numpy()
 
@@ -460,6 +463,7 @@ def xgboost_predict_proba(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_classifier", "xgboost_predict_proba")
+    refuse_legacy(payload["data"], "xgboost_predict_proba")
 
     X_np = X.to_numpy()
 
@@ -681,6 +685,7 @@ def xgboost_predict_quantile(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_quantile", "xgboost_predict_quantile")
+    refuse_legacy(payload["data"], "xgboost_predict_quantile")
 
     X_np = X.to_numpy()
 
@@ -722,6 +727,46 @@ def xgboost_predict_quantile(
 # ============================================================================
 
 # Collected from the @platform_function decorations above.
+@platform_function(
+    name="xgboost_resave",
+    inputs=[XGBoostModelBlobType],
+    output=XGBoostModelBlobType,
+)
+def xgboost_resave(model_blob: EastVariant) -> EastVariant:
+    """Re-save a model blob in the UBJSON form every runner reads.
+
+    A blob from before that form — a cloudpickle, which this runner alone
+    reads — comes back as the library's UBJSON model, its class labels and
+    quantiles carried over; a UBJSON blob comes back as the library writes it
+    again. The other fields of the blob are kept. Every other function refuses
+    a pre-UBJSON blob, naming this one.
+
+    Args:
+        model_blob: ``XGBoostModelBlobType`` (``EastVariant``) - any case.
+
+    Returns:
+        ``XGBoostModelBlobType`` (``EastVariant``) - the same case, its ``data``
+        the UBJSON form.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: the blob is not one this runner reads.
+    """
+    _check_xgboost_support()
+    payload = model_blob.value
+    fields = dict(payload.items())
+    if model_blob.type == "xgboost_regressor":
+        fields["data"] = booster_blob(load_regressor(payload["data"], legacy=True))
+    elif model_blob.type == "xgboost_classifier":
+        model, classes = load_classifier(payload["data"], legacy=True)
+        fields["data"] = classifier_blob(model, classes)
+    elif model_blob.type == "xgboost_quantile":
+        fields["data"] = quantile_blob(load_quantiles(payload["data"], legacy=True))
+    else:
+        raise RuntimeError(f"xgboost_resave: unknown model blob case {model_blob.type}")
+    return EastVariant(model_blob.type, EastStruct(fields))
+
+
 xgboost_impl = platform_functions(__name__)
 
 __all__ = [

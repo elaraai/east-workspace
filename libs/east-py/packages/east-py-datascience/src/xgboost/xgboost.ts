@@ -126,12 +126,15 @@ export const XGBoostQuantileConfigType = StructType({
 /**
  * Model blob type for serialized XGBoost models.
  *
- * Each model type has its own variant case containing cloudpickle bytes and metadata.
+ * Each model type has its own variant case holding the library's own UBJSON
+ * model — so a model trained on one runner predicts on every other — and its
+ * metadata. A blob from before the UBJSON form (a cloudpickle) is refused by
+ * every function but {@link xgboost_resave}, which rewrites it once.
  */
 export const XGBoostModelBlobType = VariantType({
     /** XGBoost regressor model */
     xgboost_regressor: StructType({
-        /** Cloudpickle serialized model */
+        /** The UBJSON model */
         data: BlobType,
         /** Number of input features */
         n_features: IntegerType,
@@ -142,7 +145,7 @@ export const XGBoostModelBlobType = VariantType({
     }),
     /** XGBoost classifier model */
     xgboost_classifier: StructType({
-        /** Cloudpickle serialized model */
+        /** The UBJSON model, its class labels in the booster attribute `east_classes` */
         data: BlobType,
         /** Number of input features */
         n_features: IntegerType,
@@ -155,7 +158,7 @@ export const XGBoostModelBlobType = VariantType({
     }),
     /** XGBoost quantile regressor (multiple models, one per quantile) */
     xgboost_quantile: StructType({
-        /** Cloudpickle serialized dict of {quantile: model} */
+        /** A container of one UBJSON model per quantile */
         data: BlobType,
         /** Quantiles this model predicts */
         quantiles: VectorType(FloatType),
@@ -273,6 +276,22 @@ export const xgboost_train_quantile = East.platform(
  * @param X - Feature matrix
  * @returns Quantiles and predictions matrix (n_samples x n_quantiles)
  */
+/**
+ * Re-save a model blob in the UBJSON form every runner reads: a blob from
+ * before that form (a cloudpickle, which the python runner alone reads) comes
+ * back as UBJSON, its class labels and quantiles carried over; a UBJSON blob
+ * comes back as the library writes it again. Every other function refuses a
+ * pre-UBJSON blob, naming this one.
+ *
+ * @param model - Model blob of any case
+ * @returns The same case, its data in the UBJSON form
+ */
+export const xgboost_resave = East.platform(
+    "xgboost_resave",
+    [XGBoostModelBlobType],
+    XGBoostModelBlobType
+);
+
 export const xgboost_predict_quantile = East.platform(
     "xgboost_predict_quantile",
     [XGBoostModelBlobType, MatrixType(FloatType)],
@@ -494,6 +513,8 @@ export const XGBoost = {
      * ```
      */
     predictQuantile: xgboost_predict_quantile,
+    /** Re-save a model blob in the UBJSON form every runner reads (a pre-UBJSON blob once, on the python runner) */
+    resave: xgboost_resave,
     /** Type definitions */
     Types: XGBoostTypes,
 } as const;

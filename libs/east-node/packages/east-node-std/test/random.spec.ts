@@ -4,8 +4,10 @@
  */
 import { describe, test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { East, ArrayType, FloatType, IntegerType } from "@elaraai/east";
 import { describeEast, Assert, Random, resetToCryptoRNG, NodePlatform, XorShift128RNG } from "@elaraai/east-node-std";
 import * as ex from "./random.examples.js";
+import * as ref from "./random.reference.generated.js";
 
 // Reset RNG before each test to avoid test pollution
 beforeEach(() => {
@@ -237,5 +239,38 @@ describeEast("Random platform functions", (test) => {
         $(Random.seed(999n));
         const v2 = $.let(Random.uniform());
         $(Assert.notEqual(v1, v2));
+    });
+
+    // The seeded streams, pinned: the first 1,000 values of each after
+    // random_seed(s), as random.reference.generated.ts holds them (written by
+    // scripts/make_random_reference.mjs from this package's generator). Every
+    // runtime's std package replays this suite, so a seeded program draws the
+    // same stream wherever it runs — XorShift128+ seeded by SplitMix64, the
+    // top 53 bits as a float, the polar method's first draw as a normal.
+    test("a seeded stream of uniforms is the same on every runtime", $ => {
+        $(Random.seed(42n));
+        const xs = $.let(East.value([], ArrayType(FloatType)));
+        $.for(East.Array.range(0n, 1000n), ($) => {
+            $(xs.pushLast(Random.uniform()));
+        });
+        $(Assert.equal(xs, ref.uniform42));
+    });
+
+    test("a seeded stream of ranges is the same on every runtime", $ => {
+        $(Random.seed(12345n));
+        const xs = $.let(East.value([], ArrayType(IntegerType)));
+        $.for(East.Array.range(0n, 1000n), ($) => {
+            $(xs.pushLast(Random.range(1n, 1000000n)));
+        });
+        $(Assert.equal(xs, ref.range12345));
+    });
+
+    test("a seeded stream of normals is the same on every runtime", $ => {
+        $(Random.seed(7n));
+        const xs = $.let(East.value([], ArrayType(FloatType)));
+        $.for(East.Array.range(0n, 1000n), ($) => {
+            $(xs.pushLast(Random.normal()));
+        });
+        $(Assert.equal(xs, ref.normal7));
     });
 }, { platformFns: NodePlatform });

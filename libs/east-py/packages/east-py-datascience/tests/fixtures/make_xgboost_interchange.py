@@ -26,6 +26,8 @@ import numpy as np
 from east import none, some
 from east.types.types import FloatType, IntegerType
 from east.types.values import EastMatrix, EastStruct, EastVector
+from east_py_datascience._common import serialize
+from east_py_datascience.xgboost._blob import load_regressor
 from east_py_datascience.xgboost.xgboost_impl import (
     xgboost_predict,
     xgboost_predict_class,
@@ -72,6 +74,17 @@ def blob_struct(model) -> dict:
     return {"case": model.type, "fields": fields}
 
 
+class Stream:
+    """Park–Miller: x ← x·48271 mod (2³¹−1); floats in [0, 1)."""
+
+    def __init__(self, seed: int) -> None:
+        self.x = seed
+
+    def float(self) -> float:
+        self.x = (self.x * 48271) % 2147483647
+        return self.x / 2147483647
+
+
 def main() -> None:
     # A regressor over a numeric and a categorical column, the category space fixed
     X_reg = matrix([[1.0, 0.0], [2.0, 1.0], [3.0, 2.0], [4.0, 0.0], [5.0, 1.0], [6.0, 2.0], [7.0, 0.0], [8.0, 1.0]])
@@ -112,9 +125,42 @@ def main() -> None:
     X_q_test = matrix([[2.5], [6.5]])
     q_result = xgboost_predict_quantile(quantile, X_q_test)
 
+    # A seeded, single-threaded fit of 48 rows, generated: the blob a runner's own
+    # fit must write, byte for byte — the library's UBJSON model of the same trees.
+    r = Stream(11)
+    X_fit_rows = [[r.float() * 10.0, r.float() * 5.0, r.float()] for _ in range(48)]
+    y_fit = [0.5 * x0 + x1 * x1 - x2 + 0.1 * r.float() for x0, x1, x2 in X_fit_rows]
+    classes_fit = [0 if y < 6.0 else (1 if y < 14.0 else 2) for y in y_fit]
+    X_fit = matrix(X_fit_rows)
+    fit_config = {
+        "n_estimators": some(20), "max_depth": some(3), "learning_rate": some(0.3),
+        **NONE_OPTIONS, "random_state": some(7), "n_jobs": some(1),
+        "categorical_features": none, "categorical_n": none, "scale_pos_weight": none,
+    }
+    fit_regressor = xgboost_train_regressor(X_fit, EastVector(FloatType, np.array(y_fit)), EastStruct(fit_config))
+    fit_classifier = xgboost_train_classifier(
+        X_fit, EastVector(IntegerType, np.array(classes_fit, dtype=np.int64)), EastStruct(fit_config)
+    )
+
+    # A blob from before the UBJSON form: the regressor above as the cloudpickle an
+    # earlier release wrote. Every runner refuses it, naming xgboost_resave, which
+    # rewrites it on this runner (tests/test_xgboost_resave.py).
+    legacy_fields = dict(regressor.value.items())
+    legacy_fields["data"] = serialize(load_regressor(regressor.value["data"]))
+    legacy = type(regressor)("xgboost_regressor", EastStruct(legacy_fields))
+
     fixture = {
         "note": "Written by tests/fixtures/make_xgboost_interchange.py on east-py-datascience; "
                 "every runner predicts from these blobs and must answer these values.",
+        "fit": {
+            "X": X_fit_rows,
+            "y": y_fit,
+            "classes": classes_fit,
+            "config": {"n_estimators": 20, "max_depth": 3, "learning_rate": 0.3, "random_state": 7, "n_jobs": 1},
+            "regressor": blob_struct(fit_regressor),
+            "classifier": blob_struct(fit_classifier),
+        },
+        "legacy": {"model": blob_struct(legacy)},
         "regressor": {
             "model": blob_struct(regressor),
             "train": {

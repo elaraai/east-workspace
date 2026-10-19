@@ -89,7 +89,7 @@ Task → What do you need?
     │   ├─ Curve fitting → .curveFit()
     │   └─ Interpolation → .interpolate1dFit(), .interpolate1dPredict()
     ├─ XGBoost (on the python and the C runtimes) → train .trainRegressor(), .trainClassifier(), .trainQuantile() ·
-    │            predict .predict(), .predictClass(), .predictProba(), .predictQuantile() — a model blob is XGBoost's
+    │            predict .predict(), .predictClass(), .predictProba(), .predictQuantile(), .resave() — a model blob is XGBoost's
     │            own UBJSON model, so one trained on either runtime predicts on the other
     ├─ LightGBM → train .trainRegressor(), .trainClassifier() · predict .predict(), .predictClass(), .predictProba()
     ├─ NGBoost (probabilistic boosting) → .trainRegressor() · .predict(), .predictDist()

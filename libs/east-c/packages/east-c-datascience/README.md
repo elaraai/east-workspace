@@ -8,7 +8,7 @@ specs export run here unchanged.
 | Family | Functions | On |
 |---|---|---|
 | Google OR-Tools | `google_or_cpsat_solve`, `google_or_cpsat_solve_all`, `google_or_linear_solve` (Glop, SCIP, HiGHS by the same backend ids), `google_or_routing_solve`, `google_or_min_cost_flow`, `google_or_max_flow`, `google_or_assignment`, `google_or_min_cost_assignment` | OR-Tools' C++ API, the model built straight from the East values |
-| XGBoost | `xgboost_train_regressor`, `xgboost_train_classifier`, `xgboost_train_quantile`, `xgboost_predict`, `xgboost_predict_class`, `xgboost_predict_proba`, `xgboost_predict_quantile` | XGBoost's C API; the model blob is XGBoost's own UBJSON model, so a model trained on one runner predicts on the other |
+| XGBoost | `xgboost_train_regressor`, `xgboost_train_classifier`, `xgboost_train_quantile`, `xgboost_predict`, `xgboost_predict_class`, `xgboost_predict_proba`, `xgboost_predict_quantile`, `xgboost_resave` | XGBoost's C API; the model blob is XGBoost's own UBJSON model, so a model trained on one runner predicts on the other — and a seeded, single-threaded fit writes the same bytes on both. A blob from before the UBJSON form (a cloudpickle) is refused, naming `xgboost_resave`, which rewrites it on the python runner |
 | NeuralNet | `nn_init`, `nn_train`, `nn_run` | The networks east-py-datascience states as data (`libs/east-py/packages/east-py-datascience/docs/neural-networks.md`) on libtorch, PyTorch's C++ library: the same kernels, optimiser and generator as the python interpreter, on the CPU or on CUDA by the libtorch build linked; a network's plan and its weights kept between calls |
 
 ## Install

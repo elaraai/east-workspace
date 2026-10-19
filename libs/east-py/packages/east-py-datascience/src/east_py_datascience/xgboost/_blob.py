@@ -13,8 +13,9 @@ a little-endian ``u32`` count, then each model's quantile (``f64``), length
 (``u64``) and bytes.
 
 Blobs an earlier release wrote are cloudpickle (a protocol-2+ pickle begins
-with ``0x80``; UBJSON with ``{``): the loaders read those too, so a model a
-repository holds keeps predicting until it is trained again.
+with ``0x80``; UBJSON with ``{``). Every runner refuses one the same way,
+naming the conversion: ``xgboost_resave`` reads it — on this runner, which
+alone reads a pickle — and writes it in the UBJSON form, once.
 """
 
 from __future__ import annotations
@@ -40,6 +41,19 @@ def is_legacy_pickle(data: bytes) -> bool:
     return data[:1] == b"\x80"
 
 
+LEGACY_MESSAGE = (
+    "the model blob is from before the UBJSON form (a cloudpickle); "
+    "re-save it once with xgboost_resave on the python runner"
+)
+"""What every runner says of a pre-UBJSON blob, after the function's name."""
+
+
+def refuse_legacy(blob: EastBlob, fn: str) -> None:
+    """Refuses a cloudpickle blob as every runner refuses it, naming the conversion."""
+    if is_legacy_pickle(bytes(blob)):
+        raise RuntimeError(f"{fn}: {LEGACY_MESSAGE}")
+
+
 def booster_blob(model: Any) -> EastBlob:
     """The UBJSON model of a fitted sklearn wrapper or a ``Booster``."""
     import xgboost as xgb
@@ -61,22 +75,28 @@ def _loaded(estimator: Any, data: bytes) -> Any:
     return estimator
 
 
-def load_regressor(blob: EastBlob) -> Any:
-    """The fitted regressor a ``xgboost_regressor`` blob holds."""
+def load_regressor(blob: EastBlob, legacy: bool = False) -> Any:
+    """The fitted regressor a ``xgboost_regressor`` blob holds; a pickle only
+    when ``legacy`` (``xgboost_resave``'s read)."""
     data = bytes(blob)
     if is_legacy_pickle(data):
+        if not legacy:
+            raise RuntimeError(LEGACY_MESSAGE)
         return deserialize(blob)
     import xgboost as xgb
 
     return _loaded(xgb.XGBRegressor(), data)
 
 
-def load_classifier(blob: EastBlob) -> tuple[Any, np.ndarray]:
-    """The fitted classifier a ``xgboost_classifier`` blob holds, and its class labels."""
+def load_classifier(blob: EastBlob, legacy: bool = False) -> tuple[Any, np.ndarray]:
+    """The fitted classifier a ``xgboost_classifier`` blob holds, and its class
+    labels; a pickle only when ``legacy`` (``xgboost_resave``'s read)."""
     data = bytes(blob)
     if is_legacy_pickle(data):
-        legacy = deserialize(blob)
-        return legacy["model"], np.asarray(legacy["classes"])
+        if not legacy:
+            raise RuntimeError(LEGACY_MESSAGE)
+        old = deserialize(blob)
+        return old["model"], np.asarray(old["classes"])
     import xgboost as xgb
 
     model = _loaded(xgb.XGBClassifier(), data)
@@ -96,10 +116,13 @@ def quantile_blob(models: dict[float, Any]) -> EastBlob:
     return EastBlob(bytes(out))
 
 
-def load_quantiles(blob: EastBlob) -> dict[float, Any]:
-    """The fitted regressors a ``xgboost_quantile`` blob holds, by quantile."""
+def load_quantiles(blob: EastBlob, legacy: bool = False) -> dict[float, Any]:
+    """The fitted regressors a ``xgboost_quantile`` blob holds, by quantile; a
+    pickle only when ``legacy`` (``xgboost_resave``'s read)."""
     data = bytes(blob)
     if is_legacy_pickle(data):
+        if not legacy:
+            raise RuntimeError(LEGACY_MESSAGE)
         return deserialize(blob)
     if data[: len(QUANTILE_MAGIC)] != QUANTILE_MAGIC:
         raise RuntimeError("the quantile model blob is not one this runner reads")
@@ -118,7 +141,9 @@ def load_quantiles(blob: EastBlob) -> dict[float, Any]:
 
 __all__ = [
     "QUANTILE_MAGIC",
+    "LEGACY_MESSAGE",
     "is_legacy_pickle",
+    "refuse_legacy",
     "booster_blob",
     "classifier_blob",
     "load_regressor",

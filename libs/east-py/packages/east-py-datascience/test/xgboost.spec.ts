@@ -31,6 +31,12 @@ interface FixtureModel {
     };
 }
 interface Fixture {
+    fit: {
+        X: number[][]; y: number[]; classes: number[];
+        config: { n_estimators: number; max_depth: number; learning_rate: number; random_state: number; n_jobs: number };
+        regressor: FixtureModel; classifier: FixtureModel;
+    };
+    legacy: { model: FixtureModel };
     regressor: {
         model: FixtureModel;
         train: {
@@ -959,6 +965,53 @@ describeEast("XGBoost platform functions", (test) => {
         FIXTURE.regressor.predictions.forEach((expected, i) => {
             $(Assert.less(pred.get(BigInt(i)).subtract(East.value(expected)).abs(), East.value(1e-6)));
         });
+    });
+
+    test("a seeded single-threaded fit writes the blob the python runner wrote, byte for byte", $ => {
+        // The same 48 rows, the same seed, one thread: the library's UBJSON model
+        // of the same trees — the blob itself is equal, and so every prediction.
+        const X = $.let(East.Matrix.fromArray(FIXTURE.fit.X));
+        const config = $.let({
+            n_estimators: some(BigInt(FIXTURE.fit.config.n_estimators)),
+            max_depth: some(BigInt(FIXTURE.fit.config.max_depth)),
+            learning_rate: some(FIXTURE.fit.config.learning_rate),
+            min_child_weight: none,
+            subsample: none,
+            colsample_bytree: none,
+            reg_alpha: none,
+            reg_lambda: none,
+            gamma: none,
+            random_state: some(BigInt(FIXTURE.fit.config.random_state)),
+            n_jobs: some(BigInt(FIXTURE.fit.config.n_jobs)),
+            sample_weight: none,
+            categorical_features: none,
+            categorical_n: none,
+            max_cat_to_onehot: none,
+            max_cat_threshold: none,
+            scale_pos_weight: none,
+        }, XGBoostConfigType);
+        const regressor = $.let(XGBoost.trainRegressor(X, Float64Array.from(FIXTURE.fit.y), config));
+        $(Assert.equal(regressor, fixtureModel(FIXTURE.fit.regressor)));
+        const classifier = $.let(XGBoost.trainClassifier(X, BigInt64Array.from(FIXTURE.fit.classes.map((c) => BigInt(c))), config));
+        $(Assert.equal(classifier, fixtureModel(FIXTURE.fit.classifier)));
+    });
+
+    test("a blob from before the UBJSON form is refused, naming xgboost_resave", $ => {
+        // A cloudpickle an earlier release wrote: every function refuses it alike,
+        // on every runner, and says what rewrites it.
+        const legacy = $.const(fixtureModel(FIXTURE.legacy.model), XGBoostModelBlobType);
+        const X = $.let(East.Matrix.fromArray(FIXTURE.regressor.X));
+        $(Assert.throws(XGBoost.predict(legacy, X), /^xgboost_predict: the model blob is from before the UBJSON form \(a cloudpickle\); re-save it once with xgboost_resave on the python runner$/));
+    });
+
+    test("xgboost_resave answers a UBJSON blob that predicts the same", $ => {
+        const model = $.const(fixtureModel(FIXTURE.regressor.model), XGBoostModelBlobType);
+        const resaved = $.let(XGBoost.resave(model));
+        const X = $.let(East.Matrix.fromArray(FIXTURE.regressor.X));
+        const pred = $.let(XGBoost.predict(resaved, X));
+        $(Assert.equal(pred, XGBoost.predict(model, X)));
+        // the other fields are kept
+        $(Assert.equal(resaved.unwrap('xgboost_regressor').n_features, model.unwrap('xgboost_regressor').n_features));
     });
 
     test("interchange: a classifier east-py-datascience trained predicts the same here", $ => {

@@ -51,6 +51,38 @@ requests; this file is the record of behaviour. Changes land under
 - `bench/solvers.mjs` (east-py-datascience) measures the three times of each
   solver call on both runners at the requirements' sizes.
 
+### The std random streams (breaking: every runtime's seeded stream)
+
+- **One seeded stream on every runtime.** After `random_seed(s)`, every
+  runtime now draws the same `random_uniform`, `random_range` and
+  `random_normal` values, bit for bit; the first 1,000 of each are pinned in
+  the Random suite every runtime replays. What changed: east-node-std's
+  generator wraps at 64 bits as XorShift128+ does (it let a shifted word grow
+  past 64 bits, parting from the other runtimes at the second draw), and its
+  `random_normal` returns the polar method's first draw, as the others do;
+  and the normal draw's logarithm on every runtime is one algorithm (fdlibm's,
+  the one behind V8's `Math.log`) rather than the host's libm, which rounds a
+  few inputs in a thousand differently from one host to the next. So a seeded
+  east-node program draws a different sequence from this release, and a seeded
+  east-py or east-c program a normal differing in its last bit now and then.
+  *Migration:* a result that depends on the old draws is recomputed; nothing
+  stored by e3 changes.
+
+### east-py-datascience and east-c-datascience (XGBoost; breaking for pre-UBJSON blobs)
+
+- **A model blob from before the UBJSON form (a cloudpickle) is refused by
+  every XGBoost function, on every runner, naming the conversion**:
+  `xgboost_resave(blob)` reads it — on the python runner, which alone reads a
+  pickle — and writes the same model in the UBJSON form, its class labels and
+  quantiles carried over; a UBJSON blob comes back as the library writes it
+  again. The python runner used to read a pickle silently; east-c never did.
+  *Migration:* re-save each such blob once with `xgboost_resave` on the
+  python runner (the blobs an e3 dataset holds under the old `ModelBlobType`
+  union need re-training or re-saving in any case, see above).
+- A seeded, single-threaded fit (`random_state`, `n_jobs: 1`) writes the same
+  UBJSON blob on both runners, byte for byte; the XGBoost suite holds both to
+  the blob the python runner wrote.
+
 ### e3
 
 - `STOCK_PLATFORMS_BY_RUNNER.east_c` lists `east-c-datascience`, and rack

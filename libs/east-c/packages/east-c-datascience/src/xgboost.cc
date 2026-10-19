@@ -304,12 +304,38 @@ std::string save(const Booster &b, const char *fn)
     return std::string(out, len);
 }
 
+/* What every runner says of a blob from before the UBJSON form (a cloudpickle,
+ * which begins with 0x80; UBJSON with `{`), after the function's name — the
+ * python runner alone reads one, through xgboost_resave. */
+const char *const LEGACY_MESSAGE = "the model blob is from before the UBJSON form (a cloudpickle); "
+                                   "re-save it once with xgboost_resave on the python runner";
+
+bool is_legacy_pickle(std::string_view bytes)
+{
+    return !bytes.empty() && static_cast<unsigned char>(bytes[0]) == 0x80;
+}
+
+void refuse_legacy(std::string_view bytes, const char *fn)
+{
+    if (is_legacy_pickle(bytes)) throw Error(msg(fn, LEGACY_MESSAGE));
+}
+
 Booster load(std::string_view bytes, const Dense &X, const char *fn)
 {
     Booster b;
     if (XGBoosterCreate(nullptr, 0, &b.h) != 0 ||
         XGBoosterLoadModelFromBuffer(b.h, bytes.data(), bytes.size()) != 0)
         throw Error(msg(fn, "Prediction failed with X shape " + shape(X) + " - " + last_error()));
+    return b;
+}
+
+/* A booster from its UBJSON model alone (xgboost_resave). */
+Booster load_model(std::string_view bytes, const char *fn)
+{
+    Booster b;
+    if (XGBoosterCreate(nullptr, 0, &b.h) != 0 ||
+        XGBoosterLoadModelFromBuffer(b.h, bytes.data(), bytes.size()) != 0)
+        throw Error(msg(fn, "the model blob is not one this runner reads - " + last_error()));
     return b;
 }
 
@@ -355,11 +381,14 @@ EastValue *expect_case(EastValue *model, const char *tag, const char *fn)
 }
 
 /* The class labels a classifier carries, as JSON: `[0,1,7]`. */
+/* The class labels as the python runner writes them (json.dumps: ", "
+ * between elements), so a classifier fitted alike on both runners is the
+ * same bytes. */
 std::string classes_json(const std::vector<int64_t> &classes)
 {
     std::string s = "[";
     for (size_t i = 0; i < classes.size(); i++) {
-        if (i) s += ",";
+        if (i) s += ", ";
         s += std::to_string(classes[i]);
     }
     return s + "]";
@@ -562,6 +591,7 @@ EvalResult predict_values(EastValue **args, size_t num_args, EastType *out)
     const char *fn = "xgboost_predict";
     if (num_args != 2) throw Error(msg(fn, "takes a model and X"));
     EastValue *blob_value = expect_case(args[0], "xgboost_regressor", fn);
+    refuse_legacy(blob_bytes(field(blob_value, "data", fn), fn), fn);
     Dense X = dense(args[1], fn);
     Categorical c = categorical_config(blob_value, fn);
     encode_categorical(X, c, fn, false);
@@ -598,6 +628,7 @@ EvalResult predict_class(EastValue **args, size_t num_args, EastType *out)
     const char *fn = "xgboost_predict_class";
     if (num_args != 2) throw Error(msg(fn, "takes a model and X"));
     EastValue *blob_value = expect_case(args[0], "xgboost_classifier", fn);
+    refuse_legacy(blob_bytes(field(blob_value, "data", fn), fn), fn);
     Dense X = dense(args[1], fn);
     Categorical c = categorical_config(blob_value, fn);
     encode_categorical(X, c, fn, false);
@@ -625,6 +656,7 @@ EvalResult predict_proba(EastValue **args, size_t num_args, EastType *out)
     const char *fn = "xgboost_predict_proba";
     if (num_args != 2) throw Error(msg(fn, "takes a model and X"));
     EastValue *blob_value = expect_case(args[0], "xgboost_classifier", fn);
+    refuse_legacy(blob_bytes(field(blob_value, "data", fn), fn), fn);
     Dense X = dense(args[1], fn);
     Categorical c = categorical_config(blob_value, fn);
     encode_categorical(X, c, fn, false);
@@ -639,6 +671,7 @@ EvalResult predict_quantile(EastValue **args, size_t num_args, EastType *out)
     const char *fn = "xgboost_predict_quantile";
     if (num_args != 2) throw Error(msg(fn, "takes a model and X"));
     EastValue *blob_value = expect_case(args[0], "xgboost_quantile", fn);
+    refuse_legacy(blob_bytes(field(blob_value, "data", fn), fn), fn);
     Dense X = dense(args[1], fn);
     Categorical c = categorical_config(blob_value, fn);
     encode_categorical(X, c, fn, false);
@@ -660,6 +693,45 @@ EvalResult predict_quantile(EastValue **args, size_t num_args, EastType *out)
     return eval_ok(s.build());
 }
 
+/* xgboost_resave: the blob's data in the UBJSON form, as the library writes it
+ * again; the other fields kept. A pre-UBJSON blob (a cloudpickle) is refused
+ * here: the python runner alone reads one. */
+EvalResult resave(EastValue **args, size_t num_args, EastType *out)
+{
+    const char *fn = "xgboost_resave";
+    if (num_args != 1) throw Error(msg(fn, "takes a model"));
+    const char *tag = case_of(args[0], fn);
+    EastValue *blob_value = payload(args[0]);
+    std::string_view bytes = blob_bytes(field(blob_value, "data", fn), fn);
+    if (is_legacy_pickle(bytes))
+        throw Error(msg(fn, "the model blob is from before the UBJSON form (a cloudpickle), which "
+                            "only the python runner reads: re-save it there"));
+    std::string data;
+    if (std::strcmp(tag, "xgboost_quantile") == 0) {
+        std::vector<QuantileModel> models = unpack_quantiles(bytes, fn);
+        for (QuantileModel &m : models)
+            m.model = save(load_model(m.model, fn), fn);
+        data = pack_quantiles(models);
+    } else {
+        data = save(load_model(bytes, fn), fn);
+    }
+    EastType *payload_t = case_type(out, tag, fn);
+    StructBuilder s(payload_t, fn);
+    size_t n = blob_value->data.struct_.num_fields;
+    for (size_t k = 0; k < n; k++) {
+        const char *name = east_struct_field_name(blob_value, k);
+        if (!name) continue;
+        if (std::strcmp(name, "data") == 0) {
+            s.set("data", blob(data.data(), data.size()));
+        } else {
+            EastValue *v = east_struct_get_field_idx(blob_value, k);
+            east_value_retain(v);
+            s.set(name, v);
+        }
+    }
+    return eval_ok(variant(out, tag, s.build()));
+}
+
 } // namespace
 
 namespace east_ds
@@ -674,6 +746,7 @@ void register_xgboost(PlatformRegistry *reg)
     platform_registry_add(reg, "xgboost_predict_class", &platform_call<predict_class>, false);
     platform_registry_add(reg, "xgboost_predict_proba", &platform_call<predict_proba>, false);
     platform_registry_add(reg, "xgboost_predict_quantile", &platform_call<predict_quantile>, false);
+    platform_registry_add(reg, "xgboost_resave", &platform_call<resave>, false);
 }
 
 } // namespace east_ds

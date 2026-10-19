@@ -36,7 +36,7 @@ EAST_DS_API void east_datascience_register_google_or(PlatformRegistry *reg);
 
 /* XGBoost, the whole family: xgboost_train_regressor, xgboost_train_classifier,
  * xgboost_train_quantile, xgboost_predict, xgboost_predict_class,
- * xgboost_predict_proba, xgboost_predict_quantile. */
+ * xgboost_predict_proba, xgboost_predict_quantile, xgboost_resave. */
 EAST_DS_API void east_datascience_register_xgboost(PlatformRegistry *reg);
 
 /* The neural-network family (#1357): nn_init, nn_train and nn_run, the
