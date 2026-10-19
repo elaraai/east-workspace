@@ -485,13 +485,24 @@ jobs:
         with:
           path: libtorch-zip
           key: libtorch-zip-${{ hashFiles('libs/east-c/scripts/libtorch-pins.json') }}
+      # The archive is kept between runs (actions/cache above); node fetches it
+      # — the slim image has no curl — and the package's command takes it.
       - name: Fetch libtorch beside the package
         working-directory: smoke
         run: |
-          PINS=../libs/east-c/scripts/libtorch-pins.json
-          URL="$(node -p "const p = require('$PINS'); p.url.replace('{variant}', 'cpu').replace('{version}', p.version)")"
           mkdir -p ../libtorch-zip
-          [ -f ../libtorch-zip/libtorch.zip ] || curl -fsSL --retry 3 -o ../libtorch-zip/libtorch.zip "$URL"
+          if [ ! -f ../libtorch-zip/libtorch.zip ]; then
+            node --input-type=module -e '
+              import fs from "node:fs";
+              import { pipeline } from "node:stream/promises";
+              import { Readable } from "node:stream";
+              const p = JSON.parse(fs.readFileSync("../libs/east-c/scripts/libtorch-pins.json", "utf8"));
+              const url = p.url.replace("{variant}", "cpu").replace("{version}", p.version);
+              const res = await fetch(url);
+              if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+              await pipeline(Readable.fromWeb(res.body), fs.createWriteStream("../libtorch-zip/libtorch.zip"));
+            '
+          fi
           npx east-c-datascience fetch-libtorch --archive ../libtorch-zip/libtorch.zip
           npx east-c version -p east-c-datascience | tee version.txt
           grep -q 'libtorch 2\.' version.txt
