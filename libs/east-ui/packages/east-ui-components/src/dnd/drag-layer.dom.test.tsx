@@ -22,6 +22,7 @@ import { useState } from "react";
 import { StringType, equalFor } from "@elaraai/east";
 import {
     DragLayerProvider,
+    ghostRect,
     useDragTarget,
     useDropCell,
     useDropSink,
@@ -1116,6 +1117,116 @@ describe("the ghost's caption (#1187)", () => {
         expect(caption()).toEqual({ text: "cho pm", refused: false });
         fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
         expect(caption()).toBeNull();
+    });
+});
+
+describe("a cell told the drag left it", () => {
+    /** A cell that writes down what it is told: each rest it is asked to caption — taken or refused — and each leave. */
+    function TellingCell({ slot, said, canDrop }: { slot: string; said: string[]; canDrop?: DropVeto }) {
+        const ref = useDropCell({ surface: "roster", row: "patel", slot }, false, canDrop, undefined, {
+            caption: (_coord, _payload, allowed) => { said.push(`${slot} ${allowed ? "rests" : "refuses"}`); return undefined; },
+            onLeave: () => { said.push(`${slot} left`); },
+        });
+        return <div ref={ref} data-testid={`cell-${slot}`} />;
+    }
+    const restOver = (el: Element | null, x: number) => {
+        pointAt(el);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: x, clientY: 10 });
+    };
+    /** What the cells were told, a caption asked again of the same rest said once: the layer asks on a move and on an over. */
+    const told = (said: readonly string[]) => said.filter((s, i) => s !== said[i - 1]);
+
+    test("a cell is told when the drag leaves it — for another cell, for nothing, at the drop, at the cancel and as it leaves the screen — before the next cell says anything", () => {
+        const said: string[] = [];
+        const events: DragEventValue[] = [];
+        const refuseFri: DropVeto = (e) => !(e.type === "add" && e.value.into.slot === "fri");
+        function Canvas() {
+            const [shown, setShown] = useState(true);
+            return (
+                <>
+                    <button data-testid="hide" onClick={() => setShown(false)} />
+                    {shown && <TellingCell slot="thu" said={said} />}
+                    <TellingCell slot="fri" said={said} canDrop={refuseFri} />
+                </>
+            );
+        }
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <Canvas />
+            </DragLayerProvider>,
+        );
+        const card = getByTestId("card-patel");
+        // From Thursday to Friday, which refuses it: Thursday is told first.
+        engage(card, getByTestId("cell-thu"));
+        restOver(getByTestId("cell-fri"), 20);
+        expect(told(said)).toEqual(["thu rests", "thu left", "fri refuses"]);
+        // Still over Friday: nothing is left.
+        restOver(getByTestId("cell-fri"), 24);
+        expect(told(said)).toEqual(["thu rests", "thu left", "fri refuses"]);
+        // Over nothing; back over Thursday, and dropped there.
+        restOver(null, 30);
+        restOver(getByTestId("cell-thu"), 40);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 40, clientY: 10 });
+        expect(sole(events).type).toBe("add");
+        expect(told(said)).toEqual(["thu rests", "thu left", "fri refuses", "fri left", "thu rests", "thu left"]);
+        // Cancelled over Thursday.
+        said.length = 0;
+        engage(card, getByTestId("cell-thu"));
+        fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+        expect(told(said)).toEqual(["thu rests", "thu left"]);
+        // Thursday leaves the screen under the drag: told once, and never again at the release.
+        said.length = 0;
+        engage(card, getByTestId("cell-thu"));
+        act(() => { getByTestId("hide").click(); });
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        expect(said.filter(s => s === "thu left")).toHaveLength(1);
+        expect(told(said)).toEqual(["thu rests", "thu left"]);
+    });
+});
+
+describe("a link's line as a draggable, and the ghost's box (#1328)", () => {
+    /** A link's line, an SVG path, holding the drag of its link. */
+    function LinePath({ event }: { event: string }) {
+        const drag = useDragEventChip({ surface: "roster", row: "link", slot: "K-1", event }, <span>{event}</span>);
+        return <svg><path data-testid={`line-${event}`} d="M 0 0 L 300 400" {...drag} /></svg>;
+    }
+
+    test("a draggable may be an SVG element — a link's line: its press picks the drag up, it is marked while the drag is in flight, and its drop is delivered", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: [], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <LinePath event="b1" />
+                <Cell surface="roster" row="resource" slot="K-2" />
+            </DragLayerProvider>,
+        );
+        const line = getByTestId("line-b1");
+        expect([line.getAttribute("role"), line.getAttribute("tabindex"), line.getAttribute("aria-roledescription")]).toEqual(["button", "0", "draggable"]);
+        engage(line, getByTestId("cell-resource-K-2"));
+        expect(line.hasAttribute("data-dragging")).toBe(true);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        const e = sole(events);
+        expect(e.type).toBe("move");
+        if (e.type === "move") {
+            expect([e.value.from.row, e.value.from.event.type === "some" ? e.value.from.event.value : undefined]).toEqual(["link", "b1"]);
+            expect([e.value.to.row, e.value.to.slot]).toEqual(["resource", "K-2"]);
+        }
+        expect(line.hasAttribute("data-dragging")).toBe(false);
+    });
+
+    test("the window keeps the ghost inside it by what it shows: its box as wide as its widest part, where that is narrower than what was picked up", () => {
+        const wrapper = document.createElement("div"), ghost = document.createElement("span");
+        wrapper.appendChild(ghost);
+        document.body.appendChild(wrapper);
+        // A link's route picked up by its line: the overlay as wide as the route, 600; the ghost 100.
+        layOut(new Map([[wrapper, { left: 40, top: 20, width: 600, height: 24 }], [ghost, { left: 40, top: 20, width: 100, height: 24 }]]));
+        expect(ghostRect(wrapper)).toEqual({ left: 40, top: 20, width: 100, height: 24, right: 140, bottom: 44 });
+        // A ghost wider than what was picked up — a connector's 22px: the overlay's own box, as ever.
+        layOut(new Map([[wrapper, { left: 40, top: 20, width: 22, height: 24 }], [ghost, { left: 40, top: 20, width: 130, height: 24 }]]));
+        expect(ghostRect(wrapper)).toEqual({ left: 40, top: 20, width: 22, height: 24, right: 62, bottom: 44 });
+        wrapper.remove();
     });
 });
 
