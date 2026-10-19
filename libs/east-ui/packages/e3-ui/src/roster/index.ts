@@ -159,7 +159,6 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
         throw new Error("Roster: groups no longer carry their skills — each skill is an activity of its group in `activities` (Roster.activities)");
     }
     const narrowing = recordSources(props.slice, { builder: "Roster", names: ["people", "activities"], what: "its people and its activities" });
-    const narrowed = narrowing.keys as { people?: unknown; activities?: unknown };
     const seen = new Set<string>();
     const library = (props.library ?? []).map(tab => {
         const key = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
@@ -169,30 +168,33 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
             : East.value(variant(tab.kind, null), RosterLibraryTabType);
     });
     const forms = typeof props.inspector === "object" ? props.inspector : {};
-    return East.value({
-        sourceId: props.weeks.binding.name, read: props.weeks.read, apply: Record.onApply(props.weeks, { keyed: true }),
-        window: props.window === undefined ? none : some(props.window), people: props.people,
-        groups: props.groups, shifts: props.shifts,
-        activities: props.activities ?? [], positions: props.positions ?? [{ key: "associate", label: "Associate", code: "", lead: false }],
-        agencies: props.agencies ?? [], rules: { rest: props.rules?.rest ?? 10.0, lead: props.rules?.lead ?? true, trainer: props.rules?.trainer ?? true, skill: props.rules?.skill ?? true, agree: props.rules?.agree ?? true },
-        costs: props.costs === undefined ? none : some(props.costs), forecast: props.forecast ?? new Map(), proposals: props.proposals ?? [],
-        check: props.check === undefined ? none : some(props.check), library,
-        inspector: props.inspector === undefined || props.inspector === false ? none : some({
-            assignment: forms.assignment === undefined ? none : some(forms.assignment),
-            requirement: forms.requirement === undefined ? none : some(forms.requirement),
-        }),
-        narrowed: {
-            people: narrowed.people === undefined ? none : some(narrowed.people as never),
-            activities: narrowed.activities === undefined ? none : some(narrowed.activities as never),
-        },
-        slice: narrowing.chrome,
-        settings: {
-            layout: variant(props.view?.layout ?? "shifts", null), period: variant(props.view?.layout === "people" ? "week" : props.view?.period ?? "day", null),
-            date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
-            density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
-            requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
-        }, id: props.id === undefined ? none : some(props.id),
-    }, RosterPayloadType);
+    return Expr.block($ => {
+        const narrowed = narrowing.bind($).keys as { people?: unknown; activities?: unknown };
+        return East.value({
+            sourceId: props.weeks.binding.name, read: props.weeks.read, apply: Record.onApply(props.weeks, { keyed: true }),
+            window: props.window === undefined ? none : some(props.window), people: props.people,
+            groups: props.groups, shifts: props.shifts,
+            activities: props.activities ?? [], positions: props.positions ?? [{ key: "associate", label: "Associate", code: "", lead: false }],
+            agencies: props.agencies ?? [], rules: { rest: props.rules?.rest ?? 10.0, lead: props.rules?.lead ?? true, trainer: props.rules?.trainer ?? true, skill: props.rules?.skill ?? true, agree: props.rules?.agree ?? true },
+            costs: props.costs === undefined ? none : some(props.costs), forecast: props.forecast ?? new Map(), proposals: props.proposals ?? [],
+            check: props.check === undefined ? none : some(props.check), library,
+            inspector: props.inspector === undefined || props.inspector === false ? none : some({
+                assignment: forms.assignment === undefined ? none : some(forms.assignment),
+                requirement: forms.requirement === undefined ? none : some(forms.requirement),
+            }),
+            narrowed: {
+                people: narrowed.people === undefined ? none : some(narrowed.people as never),
+                activities: narrowed.activities === undefined ? none : some(narrowed.activities as never),
+            },
+            slice: narrowing.chrome,
+            settings: {
+                layout: variant(props.view?.layout ?? "shifts", null), period: variant(props.view?.layout === "people" ? "week" : props.view?.period ?? "day", null),
+                date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
+                density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
+                requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
+            }, id: props.id === undefined ? none : some(props.id),
+        }, RosterPayloadType);
+    }) as ExprType<typeof RosterPayloadType>;
 }
 /** The tag, domain functions and authoring helpers. */
 export interface RosterNamespace {

@@ -71,7 +71,6 @@ import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
-import { bindScheduleKindPart, type ScheduleKindPart } from "../schedule/record-window.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { PlanRootType } from "./ir.js";
 import { PlanAxisType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue } from "./types.js";
@@ -449,12 +448,12 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
     }
     // The `rows` source gives the canvas its rows, paged from it in its index's order (#1344).
-    const rowsData = sources.data[ROWS];
-    if (rowsData !== undefined && canvas.data !== undefined) {
+    const pagesRows = sources.names.includes(ROWS);
+    if (pagesRows && canvas.data !== undefined) {
         throw new Error("Plan: `slice`'s `rows` source gives the canvas its rows, paged from it — leave `data` out: " +
             "data={Slice.rows(slice)} is gone, and the Plan reads its rows from the slice: slice={{ slice }}");
     }
-    if (canvas.data === undefined && rowsData === undefined && events === undefined && rows === undefined) {
+    if (canvas.data === undefined && !pagesRows && events === undefined && rows === undefined) {
         throw new Error("Plan: needs its rows — `data` and its `series`, `slice`'s `rows` source, event kinds (`events` over `resources`), or read-only `rows`");
     }
     // An event is scheduled in time. An axis Plan.axis built is checked here;
@@ -509,20 +508,11 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     } as never, PlanSettingsType);
     // `data`'s series a viewer can hide are its picked ones, through the pick.
     const picked = canvas.pick !== undefined;
-    // Each source's narrowed keys, paged through its own data: what the renderer reads to show a source's rows.
-    const narrowed = East.value(new Map(sources.names.map((name) => [name, sources.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
     return Expr.block(($) => {
-        // The `rows` source's data and each event kind's part of the slice, bound once: every function the Plan builds
-        // over them — the canvas's pages and seeks, its session's reads, each kind's reads — then holds that source
-        // alone, never the whole slice, whose every source's methods each hold their source, and which a payload
-        // encodes, and its decode compiles, once for each function holding it (#1343).
-        const own = rowsData === undefined ? undefined : $.let(rowsData as ExprType<StructType>);
-        const parts: Record<string, ScheduleKindPart> = {};
-        for (const slot of kinds) {
-            const handle = sources.parts[slot];
-            if (handle !== undefined) parts[slot] = bindScheduleKindPart($, handle);
-        }
-        const data = own ?? canvas.data;
+        const bound = sources.bind($);
+        // Each source's narrowed keys, paged through its own data: what the renderer reads to show a source's rows.
+        const narrowed = East.value(new Map(sources.names.map((name) => [name, bound.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
+        const data = bound.data[ROWS] ?? canvas.data;
         // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
         const plan = buildPlanRoot(
             { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
@@ -563,7 +553,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             plan,
             resourceKinds.map(([slot, kind]) => kind.buildPlan(slot)),
             // Each event kind narrowed through its own source of the slice, when the slice has one (#1344).
-            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, parts[slot])),
+            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot])),
             veto,
             settings,
             tabs,

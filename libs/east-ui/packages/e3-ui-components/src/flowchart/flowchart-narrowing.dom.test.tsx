@@ -14,17 +14,18 @@
  * of the narrowing reported in the footer's shared notice; the Flows tab's
  * own search finding within the narrowing, the rail and every count as they
  * were; the flows paged, counted, searched and saved through their indexes
- * and reads by name, never read whole; the examples mounted as they are; and
- * the flows' functions holding the `flows` source alone, never the whole slice
- * (#1343). Over the examples' records in memory and the paging service over
- * their indexes (`flowchart.test-utils.tsx`), the flowchart in a Reactive root
- * as a ui task draws it, the rail written as its chips write it.
+ * and reads by name, never read whole; and the examples mounted as they are.
+ * Over the examples' records in memory and the paging service over their
+ * indexes (`flowchart.test-utils.tsx`), the flowchart in a Reactive root as a
+ * ui task draws it, the rail written as its chips write it. That no function
+ * holds the whole slice is e3-ui's one guard over every builder's examples
+ * (#1356).
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, IntegerType, OptionType, SortedMap, StringType, compareFor, encodeBeast2For, equalFor, printFor, some, variant, type EastIR } from "@elaraai/east";
+import { East, IntegerType, OptionType, SortedMap, StringType, compareFor, equalFor, printFor, some, variant, type EastIR } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, UIStore, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
@@ -356,42 +357,5 @@ describe("the examples, mounted as they are (#1346)", () => {
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
         expect(harness.requests.some((request) => request.startsWith(`${FLOWS_PATH} `))).toBe(true);
         expect(harness.wholeReads).not.toContain(FLOWS_PATH);
-    });
-});
-
-/**
- * The route flows' payload over `flows` and the step templates, the steps'
- * second kind hint `hint`: two such payloads are one program, the same code,
- * and differ only in that hint, as data.
- */
-const payloadHinting = (hint: string) => East.compile(East.function([], Flowchart.Types.Payload, ($) => {
-    const flows = $.let(Record.bind(ex.indexedFlows, [ex.indexedFlowsPatch]));
-    const steps = $.let(Data.bind(ex.stepTemplates));
-    const slice = $.let(Slice.bindRecords(`${KEY}.own`, {
-        flows: flowsSource(),
-        steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }), fields: { kind: { label: "Kind", hints: ["Intake", hint] } } },
-    }));
-    return Flowchart.Payload({
-        record: flows, slice: { slice },
-        library: [Flowchart.library.flows(), Flowchart.library.states(steps.read(), {
-            source: "steps", label: (s) => s.name, drop: (_s, code) => Flowchart.patch(Flowchart.Types.State, { key: code }),
-        })],
-    });
-}), getRegisteredPlatformImplementations())();
-
-describe("the flows' functions hold their own source alone (#1343, #1346)", () => {
-    test("the Flows tab's window, the read of a flow by its name and the tab's own search encode alike however much another source holds", () => {
-        // A function captures what it reads, and a payload encodes, and its decode compiles, each capture once for each
-        // function holding it: flows paged through the slice would carry every other source's methods and config in each.
-        const encodeSlice = encodeBeast2For(Flowchart.Types.Payload.fields.slice);
-        const encodeSource = encodeBeast2For(Flowchart.Types.Source);
-        // Built from one call site: East's source map holds where a program was built, and two lines would differ there.
-        const built = ["Hold", Array.from({ length: 400 }, (_x, i) => `holding bay ${i}`).join(", ")].map((hint) => payloadHinting(hint));
-        const short = built[0]!, long = built[1]!;
-        // The rail holds the hint, some two thousand bytes of it as beast2 packs it.
-        expect(encodeSlice(long.slice).length - encodeSlice(short.slice).length).toBeGreaterThan(1_000);
-        // The flows' paged arm holds none of it.
-        if (long.source.type !== "paged") throw new Error(`expected the paged arm, got ${long.source.type}`);
-        expect(encodeSource(long.source)).toEqual(encodeSource(short.source));
     });
 });

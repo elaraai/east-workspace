@@ -401,7 +401,7 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * notice of Plan's options.
      *
      * @param slot - The builder's slot name for it
-     * @param part - Its source of the builder's `Slice.bindRecords`, the source named after its slot, when the slice has one (#1343): its typed handle and what the kind's reads call, bound in the builder's payload (`bindScheduleKindPart`)
+     * @param part - Its source of the builder's `Slice.bindRecords`, the source named after its slot, when the slice has one (#1343): its typed handle, bound once in the builder's payload (`recordSources(…).bind($)`, #1356)
      * @returns The kind, closed
      * @throws {Error} When the kind is given a source beside `window` or `backlogWindow`, or with no `entries`, or `entries` with neither
      */

@@ -6,7 +6,7 @@
 /** Schedule's typed adapter to record Slice's indexed queries. */
 import {
     ArrayType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
-    isSubtype, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
+    isSubtype, isTypeEqual, none, some, variant, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
     RecordSliceBindType, RecordSliceChoiceType, RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, recordSliceReadPlatform,
@@ -25,48 +25,12 @@ export type ScheduleRecordSlice<K extends EastType, R extends EastType> = Subtyp
 
 /**
  * A kind's source of its builder's slice, as the builder hands it to the kind
- * (#1343): its typed handle, which the kind's build checks against its record,
- * and what the kind's reads call, each bound once in the builder's payload. A
- * function captures what it reads, so a read through the slice would capture
- * the whole slice — every source's methods, each of which holds its source —
- * and a payload encodes, and its decode compiles, a capture once for each
- * function holding it.
+ * (#1343, #1356): the source's typed record Slice handle, `Slice.bindRecords`'
+ * part named after the kind's slot, bound once in the builder's payload by
+ * `recordSources(…).bind($)`. The kind's reads read its members inside their
+ * functions, so each holds this one source, never the whole slice.
  */
-export interface ScheduleKindPart {
-    /** The source's typed record Slice handle, `Slice.bindRecords`' part. */
-    readonly handle: unknown;
-    /** Its controls and supported paths, `config`. */
-    readonly config: unknown;
-    /** Its narrowing's state, `read`. */
-    readonly read: unknown;
-    /** An exact count under a narrowing, `countWhere`. */
-    readonly countWhere: unknown;
-    /** A page under a narrowing, `pageWhere`. */
-    readonly pageWhere: unknown;
-    /** Its narrowed data's identity, `data.id`. */
-    readonly id: unknown;
-    /** Its record's revision, `data.revision`. */
-    readonly revision: unknown;
-}
-
-/**
- * Binds a kind's source of its builder's slice for the kind's reads (#1343):
- * each member they call, once, in the builder's payload.
- * @typeParam T - The block's type.
- * @param $ - The builder's payload block.
- * @param handle - The source's typed handle: the slice's part named after the kind's slot.
- * @returns The part, as the kind's build takes it.
- */
-export function bindScheduleKindPart<T extends EastType>($: BlockBuilder<T>, handle: unknown): ScheduleKindPart {
-    const part = East.value(handle as never) as unknown as ExprType<ReturnType<typeof ScheduleRecordSliceType<EastType, EastType>>>;
-    const config = $.let(part.config);
-    const read = $.let(part.read);
-    const countWhere = $.let(part.countWhere);
-    const pageWhere = $.let(part.pageWhere);
-    const id = $.let(part.data.id);
-    const revision = $.let(part.data.revision);
-    return { handle, config, read, countWhere, pageWhere, id, revision };
-}
+export type ScheduleKindPart = ExprType<StructType>;
 
 /**
  * Read a visible interval or backlog through the same declared Slice paths.
@@ -75,7 +39,7 @@ export function bindScheduleKindPart<T extends EastType>($: BlockBuilder<T>, han
  * The narrowing is the source's choices but its start field's and, on the
  * start field, the window's half-open range — or, for a backlog, the start
  * Unset; exact start values a choice holds stand for a window.
- * @param part - The kind's source of its builder's slice, its reads bound in the builder's payload.
+ * @param part - The kind's source of its builder's slice, bound in the builder's payload.
  * @param slot - The kind's slot, which names its source.
  * @param key - Original record key type.
  * @param row - Record row type.
@@ -90,9 +54,8 @@ export function bindScheduleKindPart<T extends EastType>($: BlockBuilder<T>, han
  */
 export function scheduleRecordWindow(part: ScheduleKindPart, slot: string, key: EastType, row: EastType, start: string, end: string,
     optional: boolean, backlog: boolean, label: string): ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> {
-    const value = East.value(part.handle as never);
     const Type = ScheduleRecordSliceType(key, row);
-    const type = Expr.type(value as Expr);
+    const type = Expr.type(part as unknown as Expr);
     const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : {};
     const data = fields.data;
     const page = fields.pageWhere;
@@ -114,22 +77,21 @@ export function scheduleRecordWindow(part: ScheduleKindPart, slot: string, key: 
     // Preserve the actual window's wire type (including its index key and
     // covering value); only the two validated entry fields are inspected.
     const Entries = collection as ArrayType<StructType<{ key: EastType; row: OptionType<EastType> }>>;
-    // The variables the builder bound: the reader captures each, and nothing else of the slice.
-    const bound = {
-        config: part.config as ExprType<RecordSliceConfigType>,
-        read: part.read as ExprType<FunctionType<[], RecordSliceStateType>>,
-        countWhere: part.countWhere as ExprType<FunctionType<[RecordSliceWhereType], OptionType<IntegerType>>>,
-        pageWhere: part.pageWhere as ExprType<FunctionType<[RecordSliceWhereType, IntegerType, IntegerType], OptionType<typeof Entries>>>,
-        id: part.id as ExprType<StringType>,
-        revision: part.revision as ExprType<FunctionType<[], OptionType<StringType>>>,
-    };
     return East.function([DateTimeType, DateTimeType], OptionType(Held), ($, from, to) => {
-        const config = $.const(bound.config);
-        const read = $.const(bound.read);
-        const countWhere = $.const(bound.countWhere);
-        const pageWhere = $.const(bound.pageWhere);
-        const id = $.const(bound.id);
-        const revision = $.const(bound.revision);
+        // The source as the builder bound it, its members read here: the reader captures the source alone.
+        const source = $.const(part as unknown as ExprType<StructType<{
+            config: RecordSliceConfigType;
+            read: FunctionType<[], RecordSliceStateType>;
+            countWhere: FunctionType<[RecordSliceWhereType], OptionType<IntegerType>>;
+            pageWhere: FunctionType<[RecordSliceWhereType, IntegerType, IntegerType], OptionType<typeof Entries>>;
+            data: StructType<{ id: StringType; revision: FunctionType<[], OptionType<StringType>> }>;
+        }>>);
+        const config = $.const(source.config);
+        const read = $.const(source.read);
+        const countWhere = $.const(source.countWhere);
+        const pageWhere = $.const(source.pageWhere);
+        const id = $.const(source.data.id);
+        const revision = $.const(source.data.revision);
         $.if(config.range.match({ none: () => true, some: (_$2, field) => field.notEqual(start) }), $2 => {
             $2.error(`${label}: set the record Slice range to '${start}' so navigation and filters share one window`);
         });

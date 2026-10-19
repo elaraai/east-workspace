@@ -106,6 +106,9 @@ A builder binds one `Slice.bindRecords` (#1340): its rail is
 `useRecordSlicesToolbarItems`, over the shared rail, editors, choice/search/range
 parts and toolbar ladder in east-ui-components; east-ui's own collections keep
 the local carrier (`useSliceToolbarItems`). Honor affordances and persistence.
+Its tag in e3-ui reads each source only through `recordSources(…).bind($)`,
+which binds each source once in the payload, so no function the renderer
+decodes carries the whole slice — every source's methods (#1356).
 A builder bound to `Slice.bindRecords` reads each source's shown keys through
 `shared/schedule/visibility.ts`'s `useSourceVisibility`, and every place the
 source's rows appear — main, its Choosers and its Library's tabs — narrows by

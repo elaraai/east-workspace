@@ -55,13 +55,15 @@ Templates are records: each list names its source of the one
 `Slice.bindRecords`, and a list written in the code is refused, naming the
 change to make.
 
-A function captures what it reads, so a builder binds what a function reads of
-a source before the function reads it: `recordSources` pages each source's keys
-through that source's own data, and `bindScheduleKindPart` binds what an event
-kind's reads call. A function that read through the slice would capture every
-source's methods, each of which holds its source, and the payload would encode
-them, and its decode compile them, once for each such function (#1343: so an
-eight-source Calendar once held 350 MB a mount).
+A builder reads its sources only through `recordSources(…).bind($)` (#1356),
+the first thing its payload's block does: it binds each source's part, its
+narrowed data and its keys once. A function captures what it reads, so one
+reading a source through what `bind` returns holds that source alone; one that
+read through the slice would capture every source's methods, and beast2 writes
+a captured value wherever a function holding it is written (#1343: an
+eight-source Calendar once held 350 MB a mount). An event kind reads its
+part's members inside its own functions. `test/utils/record-sources-captures.spec.ts`
+holds every example to it: no function captures the whole slice.
 
 A record a builder reads whole beside its pages — a templates list, the
 resources a check reads — binds with `Data.bind`. A UI task's manifest preloads

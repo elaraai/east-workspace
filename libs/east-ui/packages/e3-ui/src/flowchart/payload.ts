@@ -542,26 +542,24 @@ function recordArm(record: unknown): FlowchartArm {
     };
 }
 
-/** What the payload's block bound of the slice's `flows` source: its narrowed data and its part's reads. */
+/** The slice's `flows` source, as the payload's block bound it (#1356): its part and its narrowed data. */
 interface FlowchartFlowsSource {
+    /** Its part of the slice: a narrowing's page, and a flow by its name. */
+    readonly part: ExprType<StructType>;
     /** Its narrowed data — `Slice.rows(slice, "flows")`. */
     readonly rows: ExprType<StructType>;
-    /** Its part's `pageWhere`: a narrowing's page, the rail's state unchanged. */
-    readonly pageWhere: ExprType<FunctionType>;
-    /** Its part's `readEntry`: a flow by its name, whatever the narrowing. */
-    readonly readEntry: ExprType<FunctionType>;
 }
 
 /**
  * The paged arm (#1346): the checked record — its identity, its history and
  * the session's Apply through its patch door — and the `flows` source's reads,
- * each over what the payload's block bound of the source alone: the Flows
+ * each over the source alone, as the payload's block bound it: the Flows
  * tab's window, a flow by its name, and the tab's own search's page. The whole
  * record is never read.
  */
 function pagedArm(record: unknown, flows: FlowchartFlowsSource): FlowchartArm {
     const { handle, apply } = checkedRecord(record);
-    const view = flowchartWindow(flows.rows, flows.pageWhere, flows.readEntry);
+    const view = flowchartWindow(flows.part, flows.rows);
     return { many: true, source: variant("paged", { recordId: handle.binding.name, ...view, history: handle.history, apply }) };
 }
 
@@ -750,13 +748,15 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
         builder: "Flowchart", names: ["flows", ...named.filter((source) => source !== "flows")], what: NARROWS,
         takes: (source) => source === "flows" || named.includes(source),
     });
-    const flowsRows = sources.data["flows"];
-    const flowsPart = sources.parts["flows"] as { pageWhere: ExprType<FunctionType>; readEntry: ExprType<FunctionType> } | undefined;
-    if (flowsRows !== undefined && record === undefined) {
+    const pagesFlows = sources.names.includes("flows");
+    if (pagesFlows && record === undefined) {
         throw new Error("Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record={Record.bind(record, [e3.mutation.patch(record)])}, or leave `flows` out of the slice");
     }
-    const narrowed = East.value(new Map(Object.entries(sources.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-    const payloadOf = (arm: FlowchartArm): ExprType<FlowchartPayloadType> => {
+    return Expr.block(($) => {
+        const bound = sources.bind($);
+        const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
+        const arm = pagesFlows ? pagedArm(record, { part: bound.parts["flows"]!, rows: bound.data["flows"]! })
+            : record !== undefined ? recordArm(record) : dataArm(data, onApply);
         if (flow !== undefined && !arm.many) {
             throw new Error("Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart.Types.Flow — leave `flow` out");
         }
@@ -771,18 +771,5 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
             readOnly: readOnly ?? false,
             name: name === undefined ? none : some(name),
         } as never, FlowchartPayloadType);
-    };
-    if (flowsRows !== undefined && flowsPart !== undefined) {
-        // The `flows` source's data and reads, bound once: every function the flowchart builds over its flows — the
-        // Flows tab's pages, the read of a flow by its name, the tab's own search — then holds that source alone,
-        // never the whole slice, whose every source's methods each hold their source, and which a payload encodes, and
-        // its decode compiles, once for each function holding it (#1343).
-        return Expr.block(($) => {
-            const rows = $.let(flowsRows as ExprType<StructType>);
-            const pageWhere = $.let(flowsPart.pageWhere);
-            const readEntry = $.let(flowsPart.readEntry);
-            return payloadOf(pagedArm(record, { rows, pageWhere, readEntry }));
-        });
-    }
-    return payloadOf(record !== undefined ? recordArm(record) : dataArm(data, onApply));
+    });
 }

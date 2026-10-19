@@ -17,10 +17,10 @@
  * tab; the customers' the tab that names them — each tab counting what it
  * shows and saying so, with Clear filters, when the rail leaves it none. A Save
  * that moves a job out of its kind's narrowing says so in the footer, and the
- * jobs are never read whole. The event kinds' functions hold their own source
- * alone (#1343), a source's methods share one descriptor (#1352), and a window
- * read through the interval indexes lands its key searches re-rendering the
- * readers alone, never the frame.
+ * jobs are never read whole. A source's methods share one descriptor (#1352),
+ * and a window read through the interval indexes lands its key searches
+ * re-rendering the readers alone, never the frame. That no function holds the
+ * whole slice is e3-ui's one guard over every builder's examples (#1356).
  */
 
 import { describe, expect, test } from "vitest";
@@ -33,7 +33,7 @@ import { EAST_IR_SYMBOL } from "@elaraai/east/internal";
 import { RecordSliceBindType, RecordSliceStateType, Slice, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
-import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { initializePagedApi } from "../../platform/index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
@@ -68,7 +68,6 @@ type Choice = ValueTypeOf<RecordSliceChoiceType>;
 /** The print works' four weeks, and the days a test moves its window to. */
 const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
-const NOW = new Date("2026-10-14T09:00:00Z");
 const day = (date: string) => new Date(`2026-${date}T00:00:00Z`);
 
 // ── The rail, as the store keeps it ──────────────────────────────────────────
@@ -320,89 +319,10 @@ describe("each source narrows every place its records appear (#1344)", () => {
 });
 
 // ============================================================================
-// The event kinds' functions hold their own source alone (#1343, #1344)
+// A source's methods share one descriptor (#1352)
 // ============================================================================
 
-/**
- * The print works' jobs and shifts as a payload under a rail of five sources,
- * the customers' second district hint `hint`: two such payloads are one
- * program, the same code, and differ only in that hint, as data.
- */
-const payloadHinting = (hint: string) => East.compile(East.function([], PlanPayloadType, ($) => {
-    const presses = $.let(Data.bind(ex.planPrintPresses));
-    const crews = $.let(Record.bind(ex.planPrintCrews, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-    const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
-    const customers = $.let(Data.bind(ex.planPrintCustomers));
-    const jobTemplates = $.let(Data.bind(ex.planPrintJobTemplates));
-    const jobEntries = $.let(Data.bindPaged(ex.planPrintJobs));
-    const shiftEntries = $.let(Data.bindPaged(ex.planPrintShifts));
-    const slice = $.let(Slice.bindRecords(`${KEY}.own`, {
-        job: { source: Data.bindPaged(ex.planPrintJobs, { indexes: [ex.planPrintJobsByTime, ex.planPrintJobsByStockTime] }),
-            fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start" },
-        shift: { source: Data.bindPaged(ex.planPrintShifts, { indexes: [ex.planPrintShiftsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
-        presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } } },
-        customers: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["North Quay", hint] } } },
-        jobTemplates: { source: Data.bindPaged(ex.planPrintJobTemplates, { indexes: [ex.planPrintJobTemplatesByGroup] }), fields: { group: { label: "Job templates", hints: ["Jobs"] } } },
-    }));
-    const axis = $.let(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", now: NOW }));
-    return Plan.Payload({
-        axis, slice: { slice }, inspector: true,
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),
-            crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name, group: (c) => c.hall }),
-        },
-        events: {
-            job: Schedule.events(jobs, {
-                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, state: "state",
-                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due }, entries: jobEntries,
-                templates: Schedule.templates(jobTemplates.read(), {
-                    name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
-                }),
-            }),
-            shift: Schedule.events(shifts, {
-                name: "Crew shift", icon: "user-clock", draw: "cards", title: "title", start: "start", end: "end",
-                resource: { field: "crew", of: "crews" }, state: "state", entries: shiftEntries,
-            }),
-        },
-        library: [
-            Plan.library.events(), Plan.library.backlog(),
-            Plan.library.tab(customers.read(), { name: "Customers", icon: "building", label: (c) => c.name, group: (c) => c.district, source: "customers" }),
-        ],
-    });
-}), getRegisteredPlatformImplementations())();
-
-describe("the event kinds' functions hold their own source alone (#1343, #1344)", () => {
-    test("however much another source holds, the kinds, their rows, the resources, the library and every other source's keys encode alike", () => {
-        // A function captures what it reads, and a payload encodes, and its decode compiles, each capture once for each
-        // function holding it: a kind that read through the slice would carry every other source's methods and config in
-        // each of its functions.
-        const root = PlanPayloadType.fields;
-        const encodeSlice = encodeBeast2For(root.plan.fields.slice);
-        const encodeRoot = encodeBeast2For(root.plan);
-        const encodeEvents = encodeBeast2For(root.events);
-        const encodeBlocks = encodeBeast2For(root.blocks);
-        const encodeResources = encodeBeast2For(root.resources);
-        const encodeLibrary = encodeBeast2For(root.library);
-        const encodeKeys = encodeBeast2For(root.narrowed.value);
-        // Built from one call site: East's source map holds where a program was built, and two lines would differ there.
-        const built = ["Old Town", Array.from({ length: 400 }, (_x, i) => `district ${i}`).join(", ")].map((hint) => payloadHinting(hint));
-        const short = built[0]!, long = built[1]!;
-        // The rail holds the hint, some thousands of bytes of it as beast2 packs it.
-        expect(encodeSlice(long.plan.slice).length - encodeSlice(short.plan.slice).length).toBeGreaterThan(1_000);
-        // The canvas holds none of it but in its rail.
-        expect(encodeRoot({ ...long.plan, slice: none })).toEqual(encodeRoot({ ...short.plan, slice: none }));
-        // The event kinds, their rows over the resources, the resources and the library hold none of it.
-        expect(encodeEvents(long.events)).toEqual(encodeEvents(short.events));
-        expect(encodeBlocks(long.blocks)).toEqual(encodeBlocks(short.blocks));
-        expect(encodeResources(long.resources)).toEqual(encodeResources(short.resources));
-        expect(encodeLibrary(long.library)).toEqual(encodeLibrary(short.library));
-        // Nor does any other source's narrowed keys: each is paged through its own source.
-        for (const source of ["job", "shift", "presses", "jobTemplates"]) {
-            expect(encodeKeys(long.narrowed.get(source)!), source).toEqual(encodeKeys(short.narrowed.get(source)!));
-        }
-    });
-
+describe("a source's methods share one descriptor (#1352)", () => {
     test("a source's methods share one descriptor: a payload writes it once, and a decode makes the one every method reads (#1352)", () => {
         const make = East.function([], undefined, () => Slice.bindRecords(`${KEY}.descriptor`, {
             job: { source: Data.bindPaged(ex.planPrintJobs, { indexes: [ex.planPrintJobsByStockTime] }), fields: { stock: { label: "Stock" } } },

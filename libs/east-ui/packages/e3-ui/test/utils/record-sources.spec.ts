@@ -5,13 +5,14 @@
 /**
  * A builder's narrowing, checked once for every builder (#1340, #1341): its
  * `slice` is `Slice.bindRecords`, every source one it takes, each a record with
- * String keys — a tab's `source` is one of the slice's, and a templates list's
- * is too, templates being records (#1345).
+ * String keys, and each bound once in the builder's payload (#1356) — a tab's
+ * `source` is one of the slice's, and a templates list's is too, templates
+ * being records (#1345).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, IntegerType, StringType, StructType, some } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui";
+import { ArrayType, DictType, Expr, IntegerType, StringType, StructType, isTypeEqual, some, type EastType } from "@elaraai/east";
+import { RowSourceType, Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Data, recordSources, tabSource, templatesSource } from "@elaraai/e3-ui/internal";
 
@@ -23,7 +24,7 @@ const activities = e3.record("sources_spec_activities", DictType(StringType, Act
 const activitiesByGroup = e3.recordIndex("sources_spec_activities_by_group", activities, { on: ["group"] });
 const spec = { builder: "Roster", names: ["people", "activities"], what: "its people and its activities" } as const;
 
-test("a Slice.bindRecords over the sources a builder takes: its chrome, each source's keys and typed data, in source order", () => {
+test("a Slice.bindRecords over the sources a builder takes: its chrome, and each source's part, typed data and keys bound once in the builder's block, in source order", () => {
     const slice = Slice.bindRecords("spec.roster", {
         people: { source: Data.bindPaged(staff, { indexes: [staffByTeam] }), fields: { team: { label: "Group" } } },
         activities: { source: Data.bindPaged(activities, { indexes: [activitiesByGroup] }) },
@@ -31,15 +32,31 @@ test("a Slice.bindRecords over the sources a builder takes: its chrome, each sou
     const sources = recordSources({ slice }, spec);
     assert.deepEqual(sources.names, ["people", "activities"]);
     assert.equal(sources.chrome.type, "some");
-    assert.deepEqual(Object.keys(sources.keys), ["people", "activities"]);
-    assert.deepEqual(Object.keys(sources.data), ["people", "activities"]);
+    const typeOf = (value: unknown) => Expr.type(value as Expr) as EastType;
+    const handle = typeOf(slice) as StructType;
+    const parts = (handle.fields["sources"] as StructType).fields as Record<string, StructType>;
+    Expr.block(($) => {
+        const bound = sources.bind($);
+        for (const field of ["parts", "data", "keys"] as const) assert.deepEqual(Object.keys(bound[field]), ["people", "activities"], field);
+        for (const name of ["people", "activities"]) {
+            // Its part as the slice holds it, its part's data, and its keys paged through that data.
+            assert.ok(isTypeEqual(typeOf(bound.parts[name]), parts[name]!), name);
+            assert.ok(isTypeEqual(typeOf(bound.data[name]), parts[name]!.fields["data"]!), name);
+            assert.ok(isTypeEqual(typeOf(bound.keys[name]), RowSourceType(ArrayType(StringType))), name);
+        }
+        return null;
+    });
     // A builder may take only some of its sources.
     assert.deepEqual(recordSources({ slice: Slice.bindRecords("spec.people", { people: { source: Data.bindPaged(staff, { indexes: [staffByTeam] }) } }) }, spec).names, ["people"]);
 });
 
-test("no slice: no chrome, and nothing narrowed", () => {
+test("no slice: no chrome, and nothing narrowed or bound", () => {
     const sources = recordSources(undefined, spec);
-    assert.deepEqual([sources.chrome.type, sources.names, sources.keys, sources.data], ["none", [], {}, {}]);
+    assert.deepEqual([sources.chrome.type, sources.names], ["none", []]);
+    Expr.block(($) => {
+        assert.deepEqual(sources.bind($), { parts: {}, data: {}, keys: {} });
+        return null;
+    });
 });
 
 test("Slice.bind and a single Slice.bindRecord are refused, naming Slice.bindRecords and the builder's sources", () => {

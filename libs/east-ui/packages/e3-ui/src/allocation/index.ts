@@ -449,45 +449,47 @@ export function createAllocationPayload<V extends EastType>(props: AllocationPro
     }
     // The narrowing names each source after what it narrows; the board reads each one's keys itself.
     const narrowing = recordSources(props.slice, { builder: "Allocation", names: ["lanes", "resources", "events"], what: "its lanes, its resources and its events" });
-    const narrowed = narrowing.keys as { lanes?: unknown; resources?: unknown; events?: unknown };
     const form = typeof props.inspector === "object" ? props.inspector.bin : undefined;
-    return East.value({
-        sourceId: handle.binding.name,
-        read: East.function([], BlobType, (_$) => East.Blob.encodeBeast(handle.read(), "v2")),
-        apply: East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, bytes) => {
-            const commitOf = $.const(commit);
-            return commitOf(bytes.decodeBeast(batchType, "v2"));
-        }),
-        window: window === undefined ? none : some(window),
-        valuesType: toEastTypeValue(values),
-        lanes: props.lanes, every: props.every ?? variant("hours", 1.0),
-        events: events.events, resources: props.resources, initial: events.initial,
-        narrowed: {
-            lanes: narrowed.lanes === undefined ? none : some(narrowed.lanes as never), resources: narrowed.resources === undefined ? none : some(narrowed.resources as never),
-            events: narrowed.events === undefined ? none : some(narrowed.events as never),
-        },
-        fit: (props.fit as unknown as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding,
-        check: check === undefined ? none : some(check),
-        columns, rules: { under: props.rules?.under ?? true },
-        quantity: { unit: props.quantity?.unit === undefined ? none : some(props.quantity.unit) },
-        library,
-        inspector: props.inspector === undefined || props.inspector === false ? none : some({
-            bin: form === undefined ? none : some(rowInspector(form, T.AllocationBinTypeFor(values) as unknown as StructType,
-                `Allocation: \`inspector.bin\` is an East function of the bin, Allocation.Types.Bin(${printType(values)}), and a writer of the edited bin, returning UIComponentType`)),
-        }),
-        slice: narrowing.chrome,
-        settings: {
-            layout: variant(props.view?.layout ?? "timeline", null), date: props.view?.date === undefined ? none : some(props.view.date),
-            horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },
-            title: props.title ?? "Allocation", publish: props.publish ?? true, readOnly: props.readOnly ?? false,
-        },
-        id: props.id === undefined ? none : some(props.id),
-        labels: {
-            lane: nounOf(props.labels?.lane, "Lane", "lane"), event: nounOf(props.labels?.event, "Event", "event"),
-            resource: nounOf(props.labels?.resource, "Resource", "resource"), quantity: props.labels?.quantity ?? "QTY",
-        },
-        table: { bands: bandsOf(props.table?.bands) },
-    }, AllocationPayloadType);
+    return Expr.block($ => {
+        const narrowed = narrowing.bind($).keys as { lanes?: unknown; resources?: unknown; events?: unknown };
+        return East.value({
+            sourceId: handle.binding.name,
+            read: East.function([], BlobType, (_$) => East.Blob.encodeBeast(handle.read(), "v2")),
+            apply: East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, bytes) => {
+                const commitOf = $.const(commit);
+                return commitOf(bytes.decodeBeast(batchType, "v2"));
+            }),
+            window: window === undefined ? none : some(window),
+            valuesType: toEastTypeValue(values),
+            lanes: props.lanes, every: props.every ?? variant("hours", 1.0),
+            events: events.events, resources: props.resources, initial: events.initial,
+            narrowed: {
+                lanes: narrowed.lanes === undefined ? none : some(narrowed.lanes as never), resources: narrowed.resources === undefined ? none : some(narrowed.resources as never),
+                events: narrowed.events === undefined ? none : some(narrowed.events as never),
+            },
+            fit: (props.fit as unknown as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding,
+            check: check === undefined ? none : some(check),
+            columns, rules: { under: props.rules?.under ?? true },
+            quantity: { unit: props.quantity?.unit === undefined ? none : some(props.quantity.unit) },
+            library,
+            inspector: props.inspector === undefined || props.inspector === false ? none : some({
+                bin: form === undefined ? none : some(rowInspector(form, T.AllocationBinTypeFor(values) as unknown as StructType,
+                    `Allocation: \`inspector.bin\` is an East function of the bin, Allocation.Types.Bin(${printType(values)}), and a writer of the edited bin, returning UIComponentType`)),
+            }),
+            slice: narrowing.chrome,
+            settings: {
+                layout: variant(props.view?.layout ?? "timeline", null), date: props.view?.date === undefined ? none : some(props.view.date),
+                horizon: { before: props.horizon?.before ?? variant("days", 3.0), after: props.horizon?.after ?? variant("days", 10.0) },
+                title: props.title ?? "Allocation", publish: props.publish ?? true, readOnly: props.readOnly ?? false,
+            },
+            id: props.id === undefined ? none : some(props.id),
+            labels: {
+                lane: nounOf(props.labels?.lane, "Lane", "lane"), event: nounOf(props.labels?.event, "Event", "event"),
+                resource: nounOf(props.labels?.resource, "Resource", "resource"), quantity: props.labels?.quantity ?? "QTY",
+            },
+            table: { bands: bandsOf(props.table?.bands) },
+        }, AllocationPayloadType);
+    }) as ExprType<typeof AllocationPayloadType>;
 }
 
 // ============================================================================

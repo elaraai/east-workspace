@@ -12,7 +12,6 @@ import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions }
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { Schedule, scheduleCheck, type ScheduleNamespace } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
-import { bindScheduleKindPart, type ScheduleKindPart } from "../schedule/record-window.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleTabDeclaration, type ScheduleLibraryTabConfig } from "../schedule/library.js";
 import { ScheduleCandidateType, ScheduleEventRefType, ScheduleKindType, ScheduleResourcesType } from "../schedule/types.js";
@@ -149,17 +148,10 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             : East.value(variant(tab.kind, null), CalendarLibraryTabType);
     });
     return Expr.block($ => {
-        // Each event kind reads through its source of the slice, what its reads call bound once here: its functions
-        // then hold those alone, never the whole slice, whose every source's methods each hold its source, and which
-        // the payload would encode, and its decode compile, once for each function holding it (#1343).
-        const parts: Record<string, ScheduleKindPart> = {};
-        for (const [slot] of events) {
-            const handle = narrowing.parts[slot];
-            if (handle !== undefined) parts[slot] = bindScheduleKindPart($, handle);
-        }
+        const bound = narrowing.bind($);
         return East.value({
             // Each event kind narrowed through its own source of the slice, when the slice has one.
-            events: events.map(([slot, kind]) => kind.build(slot, parts[slot])),
+            events: events.map(([slot, kind]) => kind.build(slot, bound.parts[slot])),
             resources: Object.entries(resources).map(([slot, kind]) => kind.build(slot)),
             settings: {
                 layout: variant(props.view?.layout ?? "calendar", null), period: variant(props.view?.period ?? "week", null),
@@ -170,7 +162,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             },
             library, inspector: props.inspector ?? false,
             slice: narrowing.chrome,
-            narrowed: new Map(narrowing.names.map(source => [source, narrowing.keys[source] as never])),
+            narrowed: new Map(narrowing.names.map(source => [source, bound.keys[source] as never])),
             canDrop: props.canDrop === undefined ? none : some(props.canDrop),
             onSelect: props.onSelect === undefined ? none : some(props.onSelect), id: props.id === undefined ? none : some(props.id),
         }, CalendarPayloadType);

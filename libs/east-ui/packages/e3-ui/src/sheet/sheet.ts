@@ -330,18 +330,6 @@ const NARROWS = "its rows, and the templates lists and tabs that name a source";
 const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
 /**
- * The record identity of a slice's `rows` source: what the editing session
- * of the rows it pages is named by — the record, whichever index a view lists.
- *
- * @param slice - The sheet's checked `slice` prop
- * @returns The `rows` source's record identity
- */
-function rowsSourceId(slice: RecordSlicesChromeOptions): ExprType<StringType> {
-    const handle = East.value(slice.slice) as unknown as { sources: { rows: { sourceId: ExprType<StringType> } } };
-    return handle.sources.rows.sourceId;
-}
-
-/**
  * Creates the sheet's payload alone — what `<Sheet>` returns through the
  * `Sheet` carrier — for the tests and the renderer's fixtures, which read it
  * whole: the sheet over its rows, its templates, its library's tabs, each
@@ -390,7 +378,6 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         takes: (source) => source === "rows" || named.includes(source),
     });
     const checked = declared.map((list): SheetTemplatesList => ({ templates: list, source: templatesSource("Sheet", TEMPLATES_CALL, list.source, sources.names) }));
-    const narrowed = East.value(new Map(Object.entries(sources.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
     if (record !== undefined && data !== undefined) {
         throw new Error("Sheet: takes its rows from `record` or from `data`, never both");
     }
@@ -398,10 +385,9 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         throw new Error("Sheet: `views` is a bind handle — State.bind keeps them per viewer, Data.bind shares them — and the sheet writes every change to them through it; it takes no `onViewsChange`");
     }
     const viewOptions = views === undefined ? {} : viewsOf(views);
-    const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
     // The `rows` source's rows are the sheet's (#1345): paged from it, its record's keys their ids.
-    const rowsData = sources.data["rows"];
-    if (rowsData !== undefined) {
+    const pagesRows = sources.names.includes("rows");
+    if (pagesRows) {
         if (record !== undefined) {
             throw new Error("Sheet: `slice`'s `rows` source gives the rows, paged from it — commit them with onApply={Record.onApply(record, { keyed: true })} rather than `record`");
         }
@@ -414,25 +400,9 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         if (entry !== undefined) {
             throw new Error("Sheet: `entry` reads one entry's rows of a record, and `slice`'s `rows` source gives the rows — take them from one or the other");
         }
-        // The source's data and identity, bound once: every function the sheet builds over its rows — its pages, its
-        // seeks, its session's reads — then holds that source alone, never the whole slice, whose every source's
-        // methods each hold their source, and which a payload encodes, and its decode compiles, once for each function
-        // holding it (#1343).
-        return Expr.block(($) => {
-            const own = $.let(rowsData as ExprType<StructType>);
-            const sourceId = $.let(rowsSourceId(narrowing!));
-            const built = createSheetBuild(own, columns, { ...sheet, ...viewOptions }, { sourceId, slice: sources.chrome });
-            return payloadOf(built, {
-                ...parts, id: sheet.id as string | undefined,
-                history: East.value(none, OptionType(SheetHistoryType)),
-                missing: East.value(none, OptionType(StringType)),
-            });
-        });
-    }
-    if (record === undefined && data === undefined) {
+    } else if (record === undefined && data === undefined) {
         throw new Error("Sheet: needs its rows — `record`, an e3 record bound with its patch mutation, `data`: an array, a bind handle or a paged source, or the `rows` source of `slice`");
-    }
-    if (record !== undefined) {
+    } else if (record !== undefined) {
         for (const prop of ["onApply", "onUpdate"]) {
             if (prop in sheet) {
                 throw new Error(`Sheet: \`${prop}\` writes \`data\` back — a sheet over \`record\` commits through the record's patch mutation`);
@@ -440,6 +410,31 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         }
         if ("id" in sheet) {
             throw new Error("Sheet: `id` names the identity field of `data`'s rows — a record's rows are identified by their key, or by `entry.id`; to name the sheet, pass `name`");
+        }
+    } else if (entry !== undefined || window !== undefined) {
+        throw new Error(`Sheet: \`${entry !== undefined ? "entry" : "window"}\` reads a record — pass \`record\` for it, or leave it out with \`data\``);
+    }
+    return Expr.block(($) => {
+        const bound = sources.bind($);
+        const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
+        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+        if (pagesRows) {
+            // The rows source's data, and its record's identity, which names the session over the rows it pages.
+            const part = bound.parts["rows"] as unknown as { sourceId: ExprType<StringType> };
+            const built = createSheetBuild(bound.data["rows"], columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome });
+            return payloadOf(built, {
+                ...parts, id: sheet.id as string | undefined,
+                history: East.value(none, OptionType(SheetHistoryType)),
+                missing: East.value(none, OptionType(StringType)),
+            });
+        }
+        if (record === undefined) {
+            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome });
+            return payloadOf(built, {
+                ...parts, id: sheet.id as string | undefined,
+                history: East.value(none, OptionType(SheetHistoryType)),
+                missing: East.value(none, OptionType(StringType)),
+            });
         }
         const rows = recordRows(record, { entry, window });
         // Read only by the author's word, or while the record does not hold the entry.
@@ -458,15 +453,6 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             history: East.value(some(history), OptionType(SheetHistoryType)),
             missing: rows.missing,
         });
-    }
-    if (entry !== undefined || window !== undefined) {
-        throw new Error(`Sheet: \`${entry !== undefined ? "entry" : "window"}\` reads a record — pass \`record\` for it, or leave it out with \`data\``);
-    }
-    const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome });
-    return payloadOf(built, {
-        ...parts, id: sheet.id as string | undefined,
-        history: East.value(none, OptionType(SheetHistoryType)),
-        missing: East.value(none, OptionType(StringType)),
     });
 }
 
