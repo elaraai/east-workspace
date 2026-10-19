@@ -988,6 +988,30 @@ describe("announcements (#608)", () => {
         expect(announced()).toBe("s1 was not dropped.");
     });
 
+    test("a drop a cell's veto refuses is never delivered: its surface's `onRefuse` hears the event it would have been, and it is said as not dropped", () => {
+        const delivered: DragEventValue[] = [];
+        const refused: DragEventValue[] = [];
+        const refuseFri: DropVeto = (e) => !(e.type === "add" && e.value.into.slot === "fri");
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => delivered.push(e), onRefuse: e => refused.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <Cell surface="roster" row="patel" slot="thu" />
+                <Cell surface="roster" row="patel" slot="fri" canDrop={refuseFri} />
+            </DragLayerProvider>,
+        );
+        drag(getByTestId("card-patel"), getByTestId("cell-patel-fri"));
+        expect(delivered).toHaveLength(0);
+        const e = sole(refused);
+        expect(e.type).toBe("add");
+        if (e.type === "add") expect(e.value.into.slot).toBe("fri");
+        expect(announced()).toBe("patel was not dropped.");
+        // A drag cancelled over it, and a drop a cell takes, tell it nothing.
+        drag(getByTestId("card-patel"), getByTestId("cell-patel-fri"), { cancel: true });
+        drag(getByTestId("card-patel"), getByTestId("cell-patel-thu"));
+        expect([refused.length, delivered.length]).toEqual([1, 1]);
+    });
+
     test("a host rendering again with a new inline table mid-drag leaves every cell registered — the drag keeps resting where it rests", () => {
         const events: DragEventValue[] = [];
         function Page({ n }: { n: number }) {

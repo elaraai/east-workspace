@@ -163,6 +163,12 @@ export interface DragTargetConfig {
      * takes it.
      */
     onDrag?: (event: DragEventValue, meta?: DragMeta) => unknown;
+    /**
+     * Told of a drop a cell's veto refused, with the event it would have
+     * delivered — `onDrag` hears nothing of it — so the surface can say why
+     * (the Allocation's refusal note, A40). A cancelled drag tells it nothing.
+     */
+    onRefuse?: (event: DragEventValue) => void;
 }
 
 /**
@@ -913,8 +919,14 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const event = dropEvent(payload, coord, track.altKey);
             const name = targetName(el, point, payload);
             // The veto is asked once more, of the event about to be
-            // delivered — its duplicate flag the one the drop carries.
-            if (target?.onDrag === undefined || !(cell.canDrop?.(event) ?? true)) {
+            // delivered — its duplicate flag the one the drop carries. A drop
+            // it refuses is never delivered; the surface hears why it was not.
+            if (target?.onDrag === undefined) {
+                outcome.current = { kind: "notDropped", item };
+                return;
+            }
+            if (!(cell.canDrop?.(event) ?? true)) {
+                target.onRefuse?.(event);
                 outcome.current = { kind: "notDropped", item };
                 return;
             }
