@@ -33,9 +33,12 @@ export type EastNodePlatform =
   | '@elaraai/east-node-std'
   | '@elaraai/east-node-io';
 
-/** Stock platforms shipped by `@elaraai/east-c-cli` runner. */
+/** Stock platforms shipped by `@elaraai/east-c-cli` runner. `east-c-datascience`
+ *  is east-py-datascience's families on the C runtime (OR-Tools, XGBoost): a
+ *  build of east-c configured with them, which the published runner carries. */
 export type EastCPlatform =
-  | 'east-c-std';
+  | 'east-c-std'
+  | 'east-c-datascience';
 
 /**
  * A platform argument: a stock literal, or an explicit user-defined name.
@@ -138,7 +141,7 @@ export function runnerToVariant(r: Runner): RunnerValue {
 export const STOCK_PLATFORM_FAMILIES: ReadonlyArray<ReadonlyArray<string>> = [
   ['east-py-std', '@elaraai/east-node-std', 'east-c-std'],
   ['east-py-io', '@elaraai/east-node-io'],
-  ['east-py-datascience'],
+  ['east-py-datascience', 'east-c-datascience'],
 ];
 
 /**

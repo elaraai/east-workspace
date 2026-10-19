@@ -18,10 +18,14 @@ import {
     GoogleOr,
     CpSatModelType,
     CpSatConfigType,
+    CpSatModelColumnsType,
+    CpSatColumnsConfigType,
     RoutingModelType,
     RoutingConfigType,
     LinearModelType,
     LinearConfigType,
+    LinearModelColumnsType,
+    LinearColumnsConfigType,
 } from "@elaraai/east-py-datascience";
 import * as cpsatEx from "./google_or.cpsat.examples.js";
 import * as routingEx from "./google_or.routing.examples.js";
@@ -488,6 +492,338 @@ describeEast("GoogleOr platform functions", (test) => {
 
         $(Assert.equal(result.status, variant('infeasible', null)));
         $(Assert.equal(result.assignments.length(), 0n));
+    });
+
+    // ========================================================================
+    // Shared fixtures across runners: exact where the solver is deterministic,
+    // the status and objective where it is not
+    // ========================================================================
+
+    test("cpsat on one worker answers a model's one solution exactly", $ => {
+        // x + y = 10 and x - y = 2 fix x = 6, y = 4; 10·b + x ≥ 16 then fixes b.
+        // A feasibility problem with one solution, so every runner, and every
+        // OR-Tools release, answers the same assignments.
+        const model = $.let({
+            int_vars: [
+                { name: "x", lower_bound: 0n, upper_bound: 10n },
+                { name: "y", lower_bound: 0n, upper_bound: 10n },
+            ],
+            bool_vars: [{ name: "b" }],
+            interval_vars: [],
+            constraints: [
+                variant('linear', {
+                    expr: { terms: [{ var: "x", coeff: 1n }, { var: "y", coeff: 1n }], constant: 0n },
+                    op: variant('equal', null),
+                    rhs: 10n,
+                }),
+                variant('linear', {
+                    expr: { terms: [{ var: "x", coeff: 1n }, { var: "y", coeff: -1n }], constant: 0n },
+                    op: variant('equal', null),
+                    rhs: 2n,
+                }),
+                variant('linear', {
+                    expr: { terms: [{ var: "b", coeff: 10n }, { var: "x", coeff: 1n }], constant: 0n },
+                    op: variant('greater_equal', null),
+                    rhs: 16n,
+                }),
+            ],
+            objective: none,
+        }, CpSatModelType);
+        const config = $.let({
+            max_time_seconds: some(10.0),
+            num_workers: some(1n),
+            log_search_progress: none,
+            seed: some(1n),
+            max_solutions: none,
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.assignments, new Map([["b", 1n], ["x", 6n], ["y", 4n]])));
+    });
+
+    test("cpsat on several workers answers a model's status and objective exactly", $ => {
+        // maximize x + y with x + y ≤ 10: many optima, one optimum. Several
+        // workers may land on any of them, so the status and the objective
+        // are what every runner answers alike.
+        const model = $.let({
+            int_vars: [
+                { name: "x", lower_bound: 0n, upper_bound: 10n },
+                { name: "y", lower_bound: 0n, upper_bound: 10n },
+            ],
+            bool_vars: [],
+            interval_vars: [],
+            constraints: [
+                variant('linear', {
+                    expr: { terms: [{ var: "x", coeff: 1n }, { var: "y", coeff: 1n }], constant: 0n },
+                    op: variant('less_equal', null),
+                    rhs: 10n,
+                }),
+            ],
+            objective: some(variant('maximize', {
+                terms: [{ var: "x", coeff: 1n }, { var: "y", coeff: 1n }],
+                constant: 0n,
+            })),
+        }, CpSatModelType);
+        const config = $.let({
+            max_time_seconds: some(10.0),
+            num_workers: some(4n),
+            log_search_progress: none,
+            seed: some(3n),
+            max_solutions: none,
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.objective_value, some(10.0)));
+        // Whichever optimum: the assignments it answers attain it.
+        $(Assert.equal(result.assignments.get("x").add(result.assignments.get("y")), 10n));
+    });
+
+    test("linear answers an LP's status, objective and solution exactly on every backend", $ => {
+        // Maximize 3x + 2y with x + y ≤ 4, x ≤ 3, y ≤ 3: one vertex, x = 3, y = 1.
+        const model = $.let({
+            variables: [
+                { name: "x", lower_bound: 0.0, upper_bound: 3.0, is_integer: false },
+                { name: "y", lower_bound: 0.0, upper_bound: 3.0, is_integer: false },
+            ],
+            constraints: [
+                {
+                    terms: [{ var: "x", coeff: 1.0 }, { var: "y", coeff: 1.0 }],
+                    lower_bound: -1e20,
+                    upper_bound: 4.0,
+                },
+            ],
+            objective: {
+                terms: [{ var: "x", coeff: 3.0 }, { var: "y", coeff: 2.0 }],
+                maximize: true,
+            },
+        }, LinearModelType);
+
+        for (const backend of ['glop', 'highs'] as const) {
+            const config = $.let({
+                solver: some(variant(backend, null)),
+                max_time_seconds: none,
+                relative_gap_limit: none,
+                hints: none,
+            }, LinearConfigType);
+            const result = $.let(GoogleOr.linearSolve(model, config));
+            $(Assert.equal(result.status, variant('optimal', null)));
+            $(Assert.equal(result.objective_value, some(11.0)));
+            $(Assert.less(result.assignments.get("x").subtract(3.0).abs(), East.value(1e-9)));
+            $(Assert.less(result.assignments.get("y").subtract(1.0).abs(), East.value(1e-9)));
+        }
+    });
+
+    // ========================================================================
+    // The columnar forms: the same solves, the model as vectors
+    // ========================================================================
+
+    Assert.examples(test, { linearSolveColumns: linearEx.linearSolveColumns, cpsatSolveColumns: cpsatEx.cpsatSolveColumns });
+
+    test("linear columns answer the LP the named form answers, exactly, on every backend", $ => {
+        // Maximize 3x + 2y with x + y ≤ 4, x, y in [0, 3]: x = 3, y = 1, 11.
+        const model = $.let({
+            var_lower: new Float64Array([0.0, 0.0]),
+            var_upper: new Float64Array([3.0, 3.0]),
+            var_integer: new Uint8ClampedArray([0, 0]),
+            row_lower: new Float64Array([-1e20]),
+            row_upper: new Float64Array([4.0]),
+            row_ptr: new BigInt64Array([0n, 2n]),
+            col_ix: new BigInt64Array([0n, 1n]),
+            coeff: new Float64Array([1.0, 1.0]),
+            objective: new Float64Array([3.0, 2.0]),
+            maximize: true,
+        }, LinearModelColumnsType);
+
+        for (const backend of ['glop', 'highs'] as const) {
+            const config = $.let({
+                solver: some(variant(backend, null)),
+                max_time_seconds: none,
+                relative_gap_limit: none,
+                hints: none,
+            }, LinearColumnsConfigType);
+            const result = $.let(GoogleOr.linearSolveColumns(model, config));
+            $(Assert.equal(result.status, variant('optimal', null)));
+            $(Assert.equal(result.objective_value, some(11.0)));
+            $(Assert.equal(result.values.length(), 2n));
+            $(Assert.less(result.values.get(0n).subtract(3.0).abs(), East.value(1e-9)));
+            $(Assert.less(result.values.get(1n).subtract(1.0).abs(), East.value(1e-9)));
+            $(Assert.greater(result.wall_time, East.value(0.0)));
+        }
+    });
+
+    test("linear columns solve a MIP, with a hint by index", $ => {
+        // The 0/1 knapsack of linearSolveMipWarmStart: values [6, 10, 12],
+        // weights [2, 4, 6], capacity 10 — items 1 and 2, 22. The hint names
+        // an index the model has not, which is ignored.
+        const model = $.let({
+            var_lower: new Float64Array([0.0, 0.0, 0.0]),
+            var_upper: new Float64Array([1.0, 1.0, 1.0]),
+            var_integer: new Uint8ClampedArray([1, 1, 1]),
+            row_lower: new Float64Array([-1e20]),
+            row_upper: new Float64Array([10.0]),
+            row_ptr: new BigInt64Array([0n, 3n]),
+            col_ix: new BigInt64Array([0n, 1n, 2n]),
+            coeff: new Float64Array([2.0, 4.0, 6.0]),
+            objective: new Float64Array([6.0, 10.0, 12.0]),
+            maximize: true,
+        }, LinearModelColumnsType);
+        const config = $.let({
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: some(0.01),
+            hints: some({ index: new BigInt64Array([0n, 1n, 2n, 9n]), value: new Float64Array([0.0, 1.0, 1.0, 1.0]) }),
+        }, LinearColumnsConfigType);
+
+        const result = $.let(GoogleOr.linearSolveColumns(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.objective_value, some(22.0)));
+        $(Assert.less(result.values.get(0n).abs(), East.value(1e-9)));
+        $(Assert.less(result.values.get(1n).subtract(1.0).abs(), East.value(1e-9)));
+        $(Assert.less(result.values.get(2n).subtract(1.0).abs(), East.value(1e-9)));
+    });
+
+    test("linear columns refuse a row pointer that does not fit the rows", $ => {
+        const model = $.let({
+            var_lower: new Float64Array([0.0, 0.0]),
+            var_upper: new Float64Array([3.0, 3.0]),
+            var_integer: new Uint8ClampedArray([0, 0]),
+            row_lower: new Float64Array([-1e20]),
+            row_upper: new Float64Array([4.0]),
+            row_ptr: new BigInt64Array([0n, 1n, 2n]),
+            col_ix: new BigInt64Array([0n, 1n]),
+            coeff: new Float64Array([1.0, 1.0]),
+            objective: new Float64Array([3.0, 2.0]),
+            maximize: true,
+        }, LinearModelColumnsType);
+        const config = $.let({
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
+            hints: none,
+        }, LinearColumnsConfigType);
+
+        $(Assert.throws(GoogleOr.linearSolveColumns(model, config), /google_or_linear_solve_columns: row_ptr has 3 entries but there are 1 rows: it needs 2/));
+    });
+
+    test("cpsat columns answer the model the named form answers, exactly", $ => {
+        // maximize 2x + 3y with x + y ≤ 10, x, y in [0, 10]: x = 0, y = 10, 30.
+        const model = $.let({
+            var_lower: new BigInt64Array([0n, 0n]),
+            var_upper: new BigInt64Array([10n, 10n]),
+            row_lower: new BigInt64Array([-9223372036854775808n]),
+            row_upper: new BigInt64Array([10n]),
+            row_ptr: new BigInt64Array([0n, 2n]),
+            col_ix: new BigInt64Array([0n, 1n]),
+            coeff: new BigInt64Array([1n, 1n]),
+            objective: some({ coeff: new BigInt64Array([2n, 3n]), maximize: true }),
+            names: none,
+            interval_vars: [],
+            constraints: [],
+        }, CpSatModelColumnsType);
+        const config = $.let({
+            max_time_seconds: some(10.0),
+            num_workers: some(1n),
+            log_search_progress: none,
+            seed: some(42n),
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: some({ index: new BigInt64Array([0n, 1n, 7n]), value: new BigInt64Array([0n, 10n, 1n]) }),
+        }, CpSatColumnsConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolveColumns(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.objective_value, some(30.0)));
+        $(Assert.equal(result.values, new BigInt64Array([0n, 10n])));
+        $(Assert.greater(result.wall_time, East.value(0.0)));
+    });
+
+    test("cpsat columns take the other constraint kinds over named variables", $ => {
+        // a, b, c in [1, 3], all different, maximize a + 2b + 3c: 1, 2, 3 — 14.
+        const model = $.let({
+            var_lower: new BigInt64Array([1n, 1n, 1n]),
+            var_upper: new BigInt64Array([3n, 3n, 3n]),
+            row_lower: new BigInt64Array([]),
+            row_upper: new BigInt64Array([]),
+            row_ptr: new BigInt64Array([0n]),
+            col_ix: new BigInt64Array([]),
+            coeff: new BigInt64Array([]),
+            objective: some({ coeff: new BigInt64Array([1n, 2n, 3n]), maximize: true }),
+            names: some(["a", "b", "c"]),
+            interval_vars: [],
+            constraints: [variant('all_different', { vars: ["a", "b", "c"] })],
+        }, CpSatModelColumnsType);
+        const config = $.let({
+            max_time_seconds: some(10.0),
+            num_workers: some(1n),
+            log_search_progress: none,
+            seed: some(42n),
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatColumnsConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolveColumns(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.objective_value, some(14.0)));
+        $(Assert.equal(result.values, new BigInt64Array([1n, 2n, 3n])));
+    });
+
+    test("cpsat columns refuse a constraint over variables no names name", $ => {
+        const model = $.let({
+            var_lower: new BigInt64Array([1n, 1n]),
+            var_upper: new BigInt64Array([3n, 3n]),
+            row_lower: new BigInt64Array([]),
+            row_upper: new BigInt64Array([]),
+            row_ptr: new BigInt64Array([0n]),
+            col_ix: new BigInt64Array([]),
+            coeff: new BigInt64Array([]),
+            objective: none,
+            names: none,
+            interval_vars: [],
+            constraints: [variant('all_different', { vars: ["a", "b"] })],
+        }, CpSatModelColumnsType);
+        const config = $.let({
+            max_time_seconds: none,
+            num_workers: none,
+            log_search_progress: none,
+            seed: none,
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatColumnsConfigType);
+
+        $(Assert.throws(GoogleOr.cpsatSolveColumns(model, config), /google_or_cpsat_solve_columns: the interval variables and constraints name variables, but names is none/));
+    });
+
+    test("min cost flow answers a network's flows exactly", $ => {
+        // 20 units from 0 to 3: 15 go 0→1→3 at 6 a unit, the other 5 0→2→3 at
+        // 10 a unit, the one cheapest flow — 140 in all.
+        const input = $.let({
+            start_nodes: [0n, 0n, 1n, 2n],
+            end_nodes:   [1n, 2n, 3n, 3n],
+            capacities:  [15n, 8n, 20n, 8n],
+            unit_costs:  [4n,  4n, 2n,  6n],
+            supplies:    [20n, 0n, 0n, -20n],
+        });
+
+        const result = $.let(GoogleOr.minCostFlow(input));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.total_cost, 140n));
+        $(Assert.equal(result.flows, [15n, 5n, 15n, 5n]));
     });
 
 }, { exportOnly: true });

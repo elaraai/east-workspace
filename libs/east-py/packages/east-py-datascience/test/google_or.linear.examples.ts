@@ -185,3 +185,44 @@ export const linearSolveMipWarmStart = example({
     inputs: [],
     returns: true,
 });
+
+export const linearSolveColumns = example({
+    keywords: ["google or", "linear", "linearSolveColumns", "columns", "columnar", "vectors", "bulk", "LP", "production", "sparse rows"],
+    description: "Allocate production hours with the linear program given in columns: the variables' bounds, the constraint rows and the objective as vectors",
+    fn: East.function([], BooleanType, ($) => {
+        // The resource allocation of linearSolveResourceAllocation, as columns:
+        // variables A, B, C are indices 0, 1, 2; the two constraint rows hold
+        // their terms at row_ptr[r] .. row_ptr[r + 1] of col_ix and coeff.
+        const model = $.let({
+            var_lower: new Float64Array([0.0, 0.0, 0.0]),
+            var_upper: new Float64Array([100.0, 100.0, 100.0]),
+            var_integer: new Uint8ClampedArray([0, 0, 0]),
+            // machine hours: 2A + 3B + 1C <= 18; labor hours: 1A + 2B + 2C <= 12
+            row_lower: new Float64Array([-1e20, -1e20]),
+            row_upper: new Float64Array([18.0, 12.0]),
+            row_ptr: new BigInt64Array([0n, 3n, 6n]),
+            col_ix: new BigInt64Array([0n, 1n, 2n, 0n, 1n, 2n]),
+            coeff: new Float64Array([2.0, 3.0, 1.0, 1.0, 2.0, 2.0]),
+            // profit: 5A + 8B + 6C, maximized
+            objective: new Float64Array([5.0, 8.0, 6.0]),
+            maximize: true,
+        }, GoogleOr.Types.LinearModelColumnsType);
+
+        const config = $.let({
+            solver: none,
+            max_time_seconds: none,
+            relative_gap_limit: none,
+            hints: none,
+        }, GoogleOr.Types.LinearColumnsConfigType);
+
+        const result = $.let(GoogleOr.linearSolveColumns(model, config));
+
+        // The optimum the named form finds, and one value per variable
+        return result.objective_value.match({
+            some: ($, v) => v.greaterThan(0.0).and(() => result.values.length().equal(3n)),
+            none: ($) => false,
+        });
+    }),
+    inputs: [],
+    returns: true,
+});

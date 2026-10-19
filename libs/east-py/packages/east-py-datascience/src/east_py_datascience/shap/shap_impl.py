@@ -27,6 +27,7 @@ from east_py_datascience.types import (
     StringVectorType,
     TreeExplainerConfigType,
 )
+from east_py_datascience.xgboost._blob import load_classifier, load_quantiles, load_regressor
 
 _check_shap_support = extra_guard("shap", "shap", "SHAP")
 
@@ -59,19 +60,17 @@ def _extract_tree_model(model_blob: EastVariant, function_name: str):
     n_features = int(model_value["n_features"])
 
     if model_type in xgboost_types:
-        # Direct XGBoost model
-        model_data = deserialize(model_value["data"])
-
+        # Direct XGBoost model, read as xgboost/_blob.py writes it
         # For quantile models, select the median quantile (or closest to 0.5)
         if model_type == "xgboost_quantile":
-            quantiles = sorted(model_data.keys())
+            models = load_quantiles(model_value["data"])
+            quantiles = sorted(models.keys())
             median_q = min(quantiles, key=lambda q: abs(q - 0.5))
-            model = model_data[median_q]
+            model = models[median_q]
         elif model_type == "xgboost_classifier":
-            # Classifier stores {"model": xgb_model, "classes": ...}
-            model = model_data["model"]
+            model, _classes = load_classifier(model_value["data"])
         else:
-            model = model_data
+            model = load_regressor(model_value["data"])
 
     else:
         # A MAPIE wrapper (regressor or classifier): explain its underlying
@@ -292,6 +291,16 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
         # Uncertainty predictors - data contains { mapie }
         combined = deserialize(model_data["data"])
         model = combined["mapie"]
+        n_features = int(model_data["n_features"])
+    elif model_type == "xgboost_quantile":
+        # The models by quantile, as xgboost/_blob.py writes them
+        model = load_quantiles(model_data["data"])
+        n_features = int(model_data["n_features"])
+    elif model_type == "xgboost_classifier":
+        model, _classes = load_classifier(model_data["data"])
+        n_features = int(model_data["n_features"])
+    elif model_type == "xgboost_regressor":
+        model = load_regressor(model_data["data"])
         n_features = int(model_data["n_features"])
     else:
         # Standard model blobs

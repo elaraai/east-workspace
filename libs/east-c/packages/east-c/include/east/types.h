@@ -1,6 +1,10 @@
 #ifndef EAST_TYPES_H
 #define EAST_TYPES_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -177,5 +181,9 @@ int east_type_print(EastType *t, char *buf, size_t buf_size);
 
 // Helpers
 const char *east_type_kind_name(EastTypeKind kind);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

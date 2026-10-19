@@ -70,6 +70,7 @@ make install-cli
 |---------|-------------|
 | `packages/east-c` | Core runtime — types, values, IR, compiler, builtins, serialization |
 | `packages/east-c-std` | Standard platform functions — console, fs, path, crypto, time, random, fetch, test |
+| `packages/east-c-datascience` | east-py-datascience's platform functions on this runtime — Google OR-Tools (CP-SAT, routing, LP/MIP, graph algorithms) and XGBoost — built with `-DEAST_C_DATASCIENCE=ON`; see its README |
 | `packages/east-c-cli` | Command-line interface for running East IR programs |
 
 ## Claude Code plugin

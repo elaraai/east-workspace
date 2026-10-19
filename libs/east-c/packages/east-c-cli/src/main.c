@@ -13,6 +13,9 @@
 #include <east/type_of_type.h>
 #include <east/ir_normalize.h>
 #include <east_std/east_std.h>
+#ifdef EAST_HAS_DATASCIENCE
+#include <east_datascience/east_datascience.h>
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -564,19 +567,52 @@ static bool is_std_package(const char *name)
     return strcmp(name, "east-c-std") == 0 || strcmp(name, "std") == 0;
 }
 
+/* east-c-datascience: the data-science platform functions (OR-Tools, XGBoost),
+ * in a build configured with -DEAST_C_DATASCIENCE=ON. */
+static bool is_datascience_package(const char *name)
+{
+    return strcmp(name, "east-c-datascience") == 0 || strcmp(name, "datascience") == 0;
+}
+
+/* The platform packages this runner knows, as its messages list them. */
+#ifdef EAST_HAS_DATASCIENCE
+#define AVAILABLE_PACKAGES                                                                         \
+    "east-c-std (or shorthand: std), east-c-datascience (or shorthand: datascience)"
+#else
+#define AVAILABLE_PACKAGES                                                                         \
+    "east-c-std (or shorthand: std); east-c-datascience needs a build with "                       \
+    "-DEAST_C_DATASCIENCE=ON"
+#endif
+
+/* Registers one named package's platform functions. False for a package this
+ * runner does not know, with the message in `err`. */
+static bool register_package(PlatformRegistry *platform, const char *name, char *err,
+                             size_t err_len)
+{
+    if (is_std_package(name)) {
+        east_std_register_all(platform);
+        return true;
+    }
+#ifdef EAST_HAS_DATASCIENCE
+    if (is_datascience_package(name)) {
+        east_datascience_register_all(platform);
+        return true;
+    }
+#endif
+    snprintf(err, err_len, "Unknown platform package: %s (available: " AVAILABLE_PACKAGES ")",
+             name);
+    return false;
+}
+
 /* Registers the -p packages' platform functions. Returns false with a
  * message on stderr for a package this runner does not know. */
 static bool register_platform_packages(PlatformRegistry *platform, const char **packages,
                                        int num_packages)
 {
+    char err[512];
     for (int i = 0; i < num_packages; i++) {
-        if (is_std_package(packages[i])) {
-            east_std_register_all(platform);
-        } else {
-            fprintf(stderr,
-                    "Error: Unknown platform package: %s\n"
-                    "Available: east-c-std (or shorthand: std)\n",
-                    packages[i]);
+        if (!register_package(platform, packages[i], err, sizeof(err))) {
+            fprintf(stderr, "Error: %s\n", err);
             return false;
         }
     }
@@ -983,20 +1019,18 @@ static EvalResult exec_error(const char *fallback)
 static bool exec_registries(const EastUnit *unit, BuiltinRegistry **builtins_out,
                             PlatformRegistry **platform_out)
 {
+    PlatformRegistry *platform = platform_registry_new();
+    char err[512];
     for (size_t i = 0; i < unit->num_platforms; i++) {
-        if (!is_std_package(unit->platforms[i])) {
-            char msg[512];
-            snprintf(msg, sizeof(msg),
-                     "Unknown platform package: %s (available: east-c-std, or shorthand std)",
-                     unit->platforms[i]);
-            east_builtin_error(msg);
+        if (!register_package(platform, unit->platforms[i], err, sizeof(err))) {
+            east_builtin_error(err);
+            platform_registry_free(platform);
             return false;
         }
     }
     *builtins_out = builtin_registry_new();
     east_register_all_builtins(*builtins_out);
-    *platform_out = platform_registry_new();
-    if (unit->num_platforms > 0) east_std_register_all(*platform_out);
+    *platform_out = platform;
     return true;
 }
 
@@ -1674,6 +1708,20 @@ static int cmd_version(const char **packages, int num_packages)
                 printf("  east-c-std %s (%zu platform functions)\n", EAST_RUNTIME_VERSION,
                        fn_count);
                 platform_registry_free(tmp);
+#ifdef EAST_HAS_DATASCIENCE
+            } else if (is_datascience_package(packages[i])) {
+                PlatformRegistry *tmp = platform_registry_new();
+                east_datascience_register_all(tmp);
+                size_t fn_count =
+                    hashmap_count(tmp->functions) + hashmap_count(tmp->generic_functions);
+                printf("  east-c-datascience %s (%zu platform functions; OR-Tools %s, XGBoost "
+                       "%s)\n",
+                       EAST_RUNTIME_VERSION, fn_count, east_datascience_ortools_version(),
+                       east_datascience_xgboost_version());
+                platform_registry_free(tmp);
+#endif
+            } else if (is_datascience_package(packages[i])) {
+                printf("  east-c-datascience: not in this build (cmake -DEAST_C_DATASCIENCE=ON)\n");
             } else {
                 printf("  %s: not available\n", packages[i]);
             }
@@ -1721,7 +1769,9 @@ static void print_usage(const char *prog)
             "  version  Show version information\n"
             "\n"
             "Options:\n"
-            "  -p, --package PACKAGE   Platform package (e.g., std or east-c-std)\n"
+            "  -p, --package PACKAGE   Platform package: std (east-c-std), or datascience\n"
+            "                          (east-c-datascience: OR-Tools and XGBoost, in a build\n"
+            "                          configured with -DEAST_C_DATASCIENCE=ON)\n"
             "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
             "  -o, --output FILE       Output file for result\n"
             "      --decode MODE       How collection inputs are read: lazy (the default)\n"

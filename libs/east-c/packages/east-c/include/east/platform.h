@@ -1,6 +1,10 @@
 #ifndef EAST_PLATFORM_H
 #define EAST_PLATFORM_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "eval_result.h"
 #include "hashmap.h"
 #include <stdbool.h>
@@ -91,5 +95,9 @@ void platform_registry_free(PlatformRegistry *reg);
 
 void platform_registry_retain(PlatformRegistry *reg);
 void platform_registry_release(PlatformRegistry *reg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

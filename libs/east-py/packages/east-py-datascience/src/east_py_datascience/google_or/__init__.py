@@ -13,6 +13,9 @@ reuse the implementations without an IR round-trip. The East type definitions
 
 from east_py_datascience.google_or.cpsat import (
     CpSatBoolVarType,
+    CpSatColumnsConfigType,
+    CpSatColumnsHintType,
+    CpSatColumnsResultType,
     CpSatComparisonType,
     CpSatConfigType,
     CpSatConstraintType,
@@ -22,12 +25,14 @@ from east_py_datascience.google_or.cpsat import (
     CpSatLinearExprType,
     CpSatLinearTermType,
     CpSatLiteralType,
+    CpSatModelColumnsType,
     CpSatModelType,
     CpSatObjectiveType,
     CpSatResultType,
     cpsat_impl,
     cpsat_solve,
     cpsat_solve_all,
+    cpsat_solve_columns,
 )
 from east_py_datascience.google_or.graph import (
     AssignmentInputType,
@@ -46,9 +51,13 @@ from east_py_datascience.google_or.graph import (
     min_cost_flow,
 )
 from east_py_datascience.google_or.linear import (
+    LinearColumnsConfigType,
+    LinearColumnsHintType,
+    LinearColumnsResultType,
     LinearConfigType,
     LinearConstraintDefType,
     LinearHintType,
+    LinearModelColumnsType,
     LinearModelType,
     LinearObjectiveType,
     LinearResultType,
@@ -57,6 +66,7 @@ from east_py_datascience.google_or.linear import (
     LinearVarType,
     linear_impl,
     linear_solve,
+    linear_solve_columns,
 )
 from east_py_datascience.google_or.routing import (
     RoutingConfigType,
@@ -87,8 +97,10 @@ __all__ = [
     # Directly-callable implementations
     "cpsat_solve",
     "cpsat_solve_all",
+    "cpsat_solve_columns",
     "routing_solve",
     "linear_solve",
+    "linear_solve_columns",
     "min_cost_flow",
     "max_flow",
     "assignment",
@@ -109,6 +121,10 @@ __all__ = [
     "CpSatHintType",
     "CpSatConfigType",
     "CpSatResultType",
+    "CpSatModelColumnsType",
+    "CpSatColumnsHintType",
+    "CpSatColumnsConfigType",
+    "CpSatColumnsResultType",
     # Routing types
     "RoutingFirstSolutionType",
     "RoutingMetaheuristicType",
@@ -128,6 +144,10 @@ __all__ = [
     "LinearHintType",
     "LinearConfigType",
     "LinearResultType",
+    "LinearModelColumnsType",
+    "LinearColumnsHintType",
+    "LinearColumnsConfigType",
+    "LinearColumnsResultType",
     # Graph types
     "MinCostFlowInputType",
     "MinCostFlowResultType",

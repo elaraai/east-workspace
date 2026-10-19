@@ -41,9 +41,9 @@ When using a git dependency in `pyproject.toml`:
 | **SimAnneal** | `simanneal` | simanneal |
 | **Scipy** | `scipy` | scipy, cloudpickle |
 | **Optimization** | *(none)* | *(core only — numpy)* |
-| **GoogleOr** | `google-or` | ortools |
+| **GoogleOr** | `google-or` | ortools, scipy (the columnar linear model fills OR-Tools from a sparse matrix) |
 | **Sklearn** | `sklearn` | scikit-learn, skl2onnx, onnxruntime, cloudpickle |
-| **XGBoost** | `xgboost` | xgboost, cloudpickle |
+| **XGBoost** | `xgboost` | xgboost (a model blob is XGBoost's own UBJSON model; cloudpickle reads blobs an earlier release wrote) |
 | **LightGBM** | `lightgbm` | lightgbm, cloudpickle |
 | **NGBoost** | `ngboost` | ngboost, cloudpickle |
 | **Torch** | `torch` | torch, cloudpickle |
@@ -100,14 +100,14 @@ const optimize = East.function([], MADS.Types.ResultType, $ => {
 | **SimAnneal** | Simulated annealing for discrete optimization | TSP, scheduling, subset selection, knapsack, assignment problems |
 | **Scipy** | Scientific optimization and curve fitting | Gradient-based minimization, curve fitting, interpolation, statistics |
 | **Optimization** | Iterative coordinate descent optimization | Parameter tuning, sequential optimization across parameter groups |
-| **GoogleOr** | Google OR-Tools constraint programming, routing, LP, and graph algorithms | CP-SAT, vehicle routing (TSP/VRP), linear/mixed-integer programming, min-cost flow, max flow, assignment, sparse min-cost assignment |
+| **GoogleOr** | Google OR-Tools constraint programming, routing, LP, and graph algorithms — on the python and the C runtimes (`east-c-datascience`) | CP-SAT and LP/MIP, named or in columns (the model as vectors, nothing crossing an element at a time), vehicle routing (TSP/VRP), min-cost flow, max flow, assignment, sparse min-cost assignment |
 
 ### Machine Learning
 
 | Module | Description | Use Cases |
 |--------|-------------|-----------|
 | **Sklearn** | Core ML utilities from scikit-learn | N-way splits, preprocessing (Standard/MinMax/RobustScaler), encoding (Label/Ordinal), metrics, GMM clustering, multi-target regression |
-| **XGBoost** | Gradient boosting with XGBoost | Regression, classification, feature importance, fast training |
+| **XGBoost** | Gradient boosting with XGBoost — on the python and the C runtimes (`east-c-datascience`); a model trained on either predicts on the other | Regression, classification, quantile regression, feature importance, fast training |
 | **LightGBM** | Fast gradient boosting with leaf-wise growth | Large datasets, high cardinality features, faster than XGBoost on big data |
 | **NGBoost** | Natural gradient boosting with uncertainty | Probabilistic predictions, confidence intervals, uncertainty quantification |
 | **Torch** | Neural networks with PyTorch | MLP regression/classification, deep learning, custom architectures |

@@ -162,7 +162,7 @@ anything a task should react to is an input.
 |---|---|
 | omitted | `{ runtime: 'east-node', platforms: ['@elaraai/east-node-std'] }` — every project has Node |
 | `{ runtime: 'east-py', platforms: ['east-py-std', 'east-py-io', 'east-py-datascience'] }` | Python |
-| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead |
+| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead; `'east-c-datascience'` adds the OR-Tools and XGBoost families (an east-c built with them) |
 | `{ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }` | any command: e3 appends `run`'s arguments (`-i <input>` each, `-o <output>`, the program's file) |
 
 Platform names are typed per runtime — a typo, or another runtime's platform, is

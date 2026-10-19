@@ -32,6 +32,7 @@ from east_py_datascience.google_or import google_or_impl
 from east_py_datascience.google_or.cpsat import (
     cpsat_solve,
     cpsat_solve_all,
+    cpsat_solve_columns,
 )
 from east_py_datascience.google_or.graph import (
     assignment,
@@ -41,6 +42,7 @@ from east_py_datascience.google_or.graph import (
 )
 from east_py_datascience.google_or.linear import (
     linear_solve,
+    linear_solve_columns,
 )
 from east_py_datascience.google_or.routing import (
     routing_solve,
@@ -275,6 +277,7 @@ __all__ = [
     "causal_experiment",
     "cpsat_solve",
     "cpsat_solve_all",
+    "cpsat_solve_columns",
     "gp_predict",
     "gp_predict_std",
     "gp_train",
@@ -290,6 +293,7 @@ __all__ = [
     "lightning_predict",
     "lightning_train",
     "linear_solve",
+    "linear_solve_columns",
     "mads_optimize",
     "mapie_predict_interval",
     "mapie_predict_set",

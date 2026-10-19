@@ -6,10 +6,76 @@
 /**
  * XGBoost platform function tests
  */
-import { East, variant } from "@elaraai/east";
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { East, variant, some, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
-import { XGBoost } from "@elaraai/east-py-datascience";
+import { XGBoost, XGBoostModelBlobType, XGBoostConfigType } from "@elaraai/east-py-datascience";
 import * as ex from "./xgboost.examples.js";
+
+// The interchange fixture: model blobs east-py-datascience trained and wrote
+// (tests/fixtures/make_xgboost_interchange.py), the inputs it asked them
+// about and what they answered. Baked into the IR as constants, so every
+// runner that implements the family — east-py-datascience, east-c's
+// east-c-datascience — predicts from the very bytes the python runner wrote
+// and must answer what it answered.
+interface FixtureModel {
+    case: string;
+    fields: {
+        data: string;
+        n_features: number;
+        n_classes?: number;
+        quantiles?: number[];
+        categorical_features: number[] | null;
+        categorical_n: number[] | null;
+    };
+}
+interface Fixture {
+    regressor: {
+        model: FixtureModel;
+        train: {
+            X: number[][]; y: number[]; n_estimators: number; max_depth: number;
+            learning_rate: number; random_state: number;
+            categorical_features: number[]; categorical_n: number[];
+        };
+        X: number[][];
+        predictions: number[];
+    };
+    classifier: { model: FixtureModel; X: number[][]; classes: number[]; probabilities: number[][] };
+    quantile: { model: FixtureModel; X: number[][]; quantiles: number[]; predictions: number[][] };
+}
+const fixturePath = (): string => {
+    // Beside this file in the source tree; two levels up from dist/test/ when built.
+    for (const candidate of ["./fixtures/xgboost_interchange.json", "../../test/fixtures/xgboost_interchange.json"]) {
+        const path = fileURLToPath(new URL(candidate, import.meta.url));
+        if (existsSync(path)) return path;
+    }
+    throw new Error("xgboost_interchange.json: the interchange fixture is missing");
+};
+const FIXTURE = JSON.parse(readFileSync(fixturePath(), "utf-8")) as Fixture;
+
+const integerVector = (xs: number[] | null) => xs === null ? none : some(BigInt64Array.from(xs.map((x) => BigInt(x))));
+
+/** The fixture's model blob as the East value `XGBoostModelBlobType` holds. */
+const fixtureModel = (model: FixtureModel) => {
+    const data = new Uint8Array(Buffer.from(model.fields.data, "base64"));
+    const common = {
+        data,
+        n_features: BigInt(model.fields.n_features),
+        categorical_features: integerVector(model.fields.categorical_features),
+        categorical_n: integerVector(model.fields.categorical_n),
+    };
+    switch (model.case) {
+        case "xgboost_regressor":
+            return variant("xgboost_regressor", common);
+        case "xgboost_classifier":
+            return variant("xgboost_classifier", { ...common, n_classes: BigInt(model.fields.n_classes ?? 0) });
+        case "xgboost_quantile":
+            return variant("xgboost_quantile", { ...common, quantiles: Float64Array.from(model.fields.quantiles ?? []) });
+        default:
+            throw new Error(`unknown fixture model ${model.case}`);
+    }
+};
 
 describeEast("XGBoost platform functions", (test) => {
 
@@ -879,5 +945,83 @@ describeEast("XGBoost platform functions", (test) => {
 
         // Must not crash and must return 4 predictions
         $(Assert.equal(y_pred.length(), 4n));
+    });
+
+    // ============================================================================
+    // Interchange: a model trained on one runner predicts on the other
+    // ============================================================================
+
+    test("interchange: a regressor east-py-datascience trained predicts the same here", $ => {
+        const model = $.const(fixtureModel(FIXTURE.regressor.model), XGBoostModelBlobType);
+        const X = $.let(East.Matrix.fromArray(FIXTURE.regressor.X));
+        const pred = $.let(XGBoost.predict(model, X));
+        $(Assert.equal(pred.length(), BigInt(FIXTURE.regressor.predictions.length)));
+        FIXTURE.regressor.predictions.forEach((expected, i) => {
+            $(Assert.less(pred.get(BigInt(i)).subtract(East.value(expected)).abs(), East.value(1e-6)));
+        });
+    });
+
+    test("interchange: a classifier east-py-datascience trained predicts the same here", $ => {
+        const model = $.const(fixtureModel(FIXTURE.classifier.model), XGBoostModelBlobType);
+        const X = $.let(East.Matrix.fromArray(FIXTURE.classifier.X));
+        const classes = $.let(XGBoost.predictClass(model, X));
+        const proba = $.let(XGBoost.predictProba(model, X));
+        FIXTURE.classifier.classes.forEach((expected, i) => {
+            $(Assert.equal(classes.get(BigInt(i)), BigInt(expected)));
+        });
+        $(Assert.equal(proba.rows(), BigInt(FIXTURE.classifier.probabilities.length)));
+        FIXTURE.classifier.probabilities.forEach((row, r) => {
+            row.forEach((expected, c) => {
+                $(Assert.less(proba.get(BigInt(r), BigInt(c)).subtract(East.value(expected)).abs(), East.value(1e-6)));
+            });
+        });
+    });
+
+    test("interchange: a quantile model east-py-datascience trained predicts the same here", $ => {
+        const model = $.const(fixtureModel(FIXTURE.quantile.model), XGBoostModelBlobType);
+        const X = $.let(East.Matrix.fromArray(FIXTURE.quantile.X));
+        const result = $.let(XGBoost.predictQuantile(model, X));
+        // The quantiles come back ascending, whatever order they were trained in
+        FIXTURE.quantile.quantiles.forEach((q, i) => {
+            $(Assert.equal(result.quantiles.get(BigInt(i)), East.value(q)));
+        });
+        FIXTURE.quantile.predictions.forEach((row, r) => {
+            row.forEach((expected, c) => {
+                $(Assert.less(result.predictions.get(BigInt(r), BigInt(c)).subtract(East.value(expected)).abs(), East.value(1e-6)));
+            });
+        });
+    });
+
+    test("interchange: training the fixture's regressor here predicts within tolerance of the python runner's", $ => {
+        // The same data, hyperparameters and seed on the same library version:
+        // the two runners' models agree to floating point, where the sum order
+        // of a histogram may differ.
+        const train = FIXTURE.regressor.train;
+        const X = $.let(East.Matrix.fromArray(train.X));
+        const y = $.let(Float64Array.from(train.y));
+        const config = $.let({
+            n_estimators: some(BigInt(train.n_estimators)),
+            max_depth: some(BigInt(train.max_depth)),
+            learning_rate: some(train.learning_rate),
+            min_child_weight: none,
+            subsample: none,
+            colsample_bytree: none,
+            reg_alpha: none,
+            reg_lambda: none,
+            gamma: none,
+            random_state: some(BigInt(train.random_state)),
+            n_jobs: none,
+            sample_weight: none,
+            categorical_features: integerVector(train.categorical_features),
+            categorical_n: integerVector(train.categorical_n),
+            max_cat_to_onehot: none,
+            max_cat_threshold: none,
+            scale_pos_weight: none,
+        }, XGBoostConfigType);
+        const model = $.let(XGBoost.trainRegressor(X, y, config));
+        const pred = $.let(XGBoost.predict(model, $.let(East.Matrix.fromArray(FIXTURE.regressor.X))));
+        FIXTURE.regressor.predictions.forEach((expected, i) => {
+            $(Assert.less(pred.get(BigInt(i)).subtract(East.value(expected)).abs(), East.value(1e-3)));
+        });
     });
 }, { exportOnly: true });

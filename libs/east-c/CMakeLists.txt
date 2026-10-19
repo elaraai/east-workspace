@@ -140,8 +140,20 @@ if(WIN32)
     endif()
 endif()
 
+# east-c-datascience: east-py-datascience's platform functions on this runtime
+# (OR-Tools, XGBoost), a C++ package built on request. It links a prebuilt
+# OR-Tools install (scripts/fetch-ortools.sh) and builds XGBoost from its
+# checked-in release archive; the CLI registers it as `east-c-datascience`.
+option(EAST_C_DATASCIENCE "Build east-c-datascience (OR-Tools and XGBoost platform functions)" OFF)
+if(EAST_C_DATASCIENCE)
+    enable_language(CXX)
+endif()
+
 enable_testing()
 
 add_subdirectory(packages/east-c)
 add_subdirectory(packages/east-c-std)
+if(EAST_C_DATASCIENCE)
+    add_subdirectory(packages/east-c-datascience)
+endif()
 add_subdirectory(packages/east-c-cli)

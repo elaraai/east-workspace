@@ -1,17 +1,20 @@
 # east-c
 
-C port of the East language runtime. Three packages:
+C port of the East language runtime. Four packages:
 
 - `packages/east-c/` — Core runtime (types, values, IR, compiler, builtins, serialization).
 - `packages/east-c-std/` — Standard platform functions (console, fs, path, crypto, time, random, fetch, test).
+- `packages/east-c-datascience/` — east-py-datascience's platform functions on this runtime, family by family (Google OR-Tools, XGBoost), in C++ over the C API; built on request (`EAST_C_DATASCIENCE=ON`) against a prebuilt OR-Tools (`scripts/fetch-ortools.sh`) and the vendored XGBoost source, and held to east-py-datascience's own exported suites. See its `CLAUDE.md`.
 - `packages/east-c-cli/` — Native C CLI binary source **and** the npm launcher `@elaraai/east-c-cli`. The same directory carries both: CMake builds the binary; `package.json` + `bin/east-c.mjs` are the npm-side launcher that resolves a per-platform binary (`@elaraai/east-c-cli-<target>`) via `require.resolve` and spawns it. Per-platform packages are generated at release time, not committed. See `docs/npm-runner-distribution.md`.
 
 ## Commands
 
 ```bash
-make build    # Build both packages
+make build    # Build the runtime, std and the CLI
+make build EAST_C_DATASCIENCE=ON  # … and east-c-datascience (after make fetch-ortools)
 make unit     # Run the ctest gates (no exported IR needed)
 make test     # Gates + both compliance suites
+make test-east-c-datascience  # The data-science suites (make -C libs/east-py test-export first)
 make bench-cli # The interpreter, dict-output and paged-read benchmarks (needs a built libs/east)
 make clean    # Remove build directory
 ```
@@ -93,3 +96,5 @@ REBUILD=1 make leak-check-all
   dict-output and paged-read profiles (`make bench-cli`).
 - `packages/east-c/tests/` — unit tests and compliance runner.
 - `packages/east-c-std/` — platform functions.
+- `packages/east-c-datascience/` — the data-science platform functions (C++); `src/value_util.h` is how C++ reads East values and builds results in the declared type.
+- `packages/east-c/include/east/location.h` — `EastLocation`, on its own so `eval_result.h` (what a platform function answers) names no IR header; the headers a platform package reaches (`types.h`, `values.h`, `eval_result.h`, `platform.h`, `hashmap.h`) carry `extern "C"` guards for C++ consumers.

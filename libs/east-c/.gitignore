@@ -5,3 +5,4 @@ build-msvc/
 build-prof/
 build-release/
 build-win/
+build-deps/

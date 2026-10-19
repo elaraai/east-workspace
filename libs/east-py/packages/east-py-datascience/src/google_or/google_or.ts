@@ -24,6 +24,7 @@ import {
     FloatType,
     NullType,
     StringType,
+    VectorType,
 } from "@elaraai/east";
 
 // ============================================================================
@@ -203,6 +204,70 @@ export const CpSatResultType = StructType({
     wall_time: FloatType,
 });
 
+/**
+ * A CP-SAT model in columns: its variables by index and its linear
+ * constraints by rows, so the model crosses between the East runtime and the
+ * solver as vectors — whole, never an element at a time — where
+ * {@link CpSatModelType} names every variable and term.
+ *
+ * Variable `i` has the domain `[var_lower[i], var_upper[i]]` (a boolean is
+ * `[0, 1]`). Linear constraint `r` holds its sum in
+ * `[row_lower[r], row_upper[r]]` (an open side is the Integer's min or max)
+ * and its terms are `coeff[k] * variable(col_ix[k])` for `k` in
+ * `row_ptr[r] .. row_ptr[r + 1]`; so `row_ptr` has one more entry than there
+ * are rows, starts at 0 and ends at the term count. The objective, when there
+ * is one, is `coeff[i] * variable(i)` summed, minimized or maximized.
+ *
+ * The other constraint kinds and the interval variables stay as they are in
+ * {@link CpSatModelType}, over named variables: `names` gives variable `i`
+ * its name, and is `none` when nothing names one.
+ */
+export const CpSatModelColumnsType = StructType({
+    var_lower: VectorType(IntegerType),
+    var_upper: VectorType(IntegerType),
+    row_lower: VectorType(IntegerType),
+    row_upper: VectorType(IntegerType),
+    row_ptr: VectorType(IntegerType),
+    col_ix: VectorType(IntegerType),
+    coeff: VectorType(IntegerType),
+    objective: OptionType(StructType({
+        coeff: VectorType(IntegerType),
+        maximize: BooleanType,
+    })),
+    names: OptionType(ArrayType(StringType)),
+    interval_vars: ArrayType(CpSatIntervalVarType),
+    constraints: ArrayType(CpSatConstraintType),
+});
+
+/** A partial solution hint by variable index: `value[k]` for variable `index[k]`. */
+export const CpSatColumnsHintType = StructType({
+    index: VectorType(IntegerType),
+    value: VectorType(IntegerType),
+});
+
+/** CP-SAT solver configuration for a columnar model: {@link CpSatConfigType}'s
+ *  fields, with the hint by variable index and no `max_solutions` (the
+ *  columnar form solves for one solution). */
+export const CpSatColumnsConfigType = StructType({
+    max_time_seconds: OptionType(FloatType),
+    num_workers: OptionType(IntegerType),
+    log_search_progress: OptionType(BooleanType),
+    seed: OptionType(IntegerType),
+    relative_gap_limit: OptionType(FloatType),
+    absolute_gap_limit: OptionType(FloatType),
+    hints: OptionType(CpSatColumnsHintType),
+});
+
+/** A columnar CP-SAT solution: the variables' values by index, beside the
+ *  status, objective and wall time of {@link CpSatResultType}. `values` is
+ *  empty unless the status is `optimal` or `feasible`. */
+export const CpSatColumnsResultType = StructType({
+    status: GoogleOrStatusType,
+    objective_value: OptionType(FloatType),
+    values: VectorType(IntegerType),
+    wall_time: FloatType,
+});
+
 // ============================================================================
 // Routing Types
 // ============================================================================
@@ -351,6 +416,61 @@ export const LinearResultType = StructType({
     wall_time: FloatType,
 });
 
+/**
+ * A linear program in columns, the form a solver takes in bulk: its
+ * variables by index and its constraints by rows, so the model crosses
+ * between the East runtime and the solver as vectors — whole, never an
+ * element at a time — where {@link LinearModelType} names every variable and
+ * term.
+ *
+ * Variable `i` has the bounds `[var_lower[i], var_upper[i]]` and is integer
+ * when `var_integer[i]`. Constraint `r` holds its sum in
+ * `[row_lower[r], row_upper[r]]` (an unbounded side is `-1e20` or `1e20`, as
+ * {@link LinearConstraintDefType} spells it) and its terms are
+ * `coeff[k] * variable(col_ix[k])` for `k` in `row_ptr[r] .. row_ptr[r + 1]`;
+ * so `row_ptr` has one more entry than there are rows, starts at 0 and ends
+ * at the term count. The objective is `objective[i] * variable(i)` summed,
+ * maximized when `maximize`.
+ */
+export const LinearModelColumnsType = StructType({
+    var_lower: VectorType(FloatType),
+    var_upper: VectorType(FloatType),
+    var_integer: VectorType(BooleanType),
+    row_lower: VectorType(FloatType),
+    row_upper: VectorType(FloatType),
+    row_ptr: VectorType(IntegerType),
+    col_ix: VectorType(IntegerType),
+    coeff: VectorType(FloatType),
+    objective: VectorType(FloatType),
+    maximize: BooleanType,
+});
+
+/** A partial solution hint by variable index: `value[k]` for variable `index[k]`. */
+export const LinearColumnsHintType = StructType({
+    index: VectorType(IntegerType),
+    value: VectorType(FloatType),
+});
+
+/** LP solver configuration for a columnar model: {@link LinearConfigType}'s
+ *  fields, with the hint by variable index. A hint reaches the backend that
+ *  takes one (SCIP); Glop and HiGHS ignore it. */
+export const LinearColumnsConfigType = StructType({
+    solver: OptionType(LinearSolverType),
+    max_time_seconds: OptionType(FloatType),
+    relative_gap_limit: OptionType(FloatType),
+    hints: OptionType(LinearColumnsHintType),
+});
+
+/** A columnar LP/MIP solution: the variables' values by index, beside the
+ *  status, objective and wall time of {@link LinearResultType}. `values` is
+ *  empty unless the status is `optimal` or `feasible`. */
+export const LinearColumnsResultType = StructType({
+    status: GoogleOrStatusType,
+    objective_value: OptionType(FloatType),
+    values: VectorType(FloatType),
+    wall_time: FloatType,
+});
+
 // ============================================================================
 // Graph Algorithm Types
 // ============================================================================
@@ -456,6 +576,13 @@ export const google_or_cpsat_solve_all = East.platform(
     ArrayType(CpSatResultType)
 );
 
+/** Solve a CP-SAT model given in columns and return the best solution. */
+export const google_or_cpsat_solve_columns = East.platform(
+    "google_or_cpsat_solve_columns",
+    [CpSatModelColumnsType, CpSatColumnsConfigType],
+    CpSatColumnsResultType
+);
+
 /** Solve a vehicle routing problem. */
 export const google_or_routing_solve = East.platform(
     "google_or_routing_solve",
@@ -468,6 +595,13 @@ export const google_or_linear_solve = East.platform(
     "google_or_linear_solve",
     [LinearModelType, LinearConfigType],
     LinearResultType
+);
+
+/** Solve a linear programming / MIP problem given in columns. */
+export const google_or_linear_solve_columns = East.platform(
+    "google_or_linear_solve_columns",
+    [LinearModelColumnsType, LinearColumnsConfigType],
+    LinearColumnsResultType
 );
 
 /** Solve a min-cost flow problem. */
@@ -520,6 +654,10 @@ export const GoogleOrTypes = {
     CpSatHintType,
     CpSatConfigType,
     CpSatResultType,
+    CpSatModelColumnsType,
+    CpSatColumnsHintType,
+    CpSatColumnsConfigType,
+    CpSatColumnsResultType,
     // Routing
     RoutingFirstSolutionType,
     RoutingMetaheuristicType,
@@ -539,6 +677,10 @@ export const GoogleOrTypes = {
     LinearHintType,
     LinearConfigType,
     LinearResultType,
+    LinearModelColumnsType,
+    LinearColumnsHintType,
+    LinearColumnsConfigType,
+    LinearColumnsResultType,
     // Graph
     MinCostFlowInputType,
     MinCostFlowResultType,
@@ -618,6 +760,40 @@ export const GoogleOr = {
      */
     cpsatSolveAll: google_or_cpsat_solve_all,
     /**
+     * Solve a CP-SAT model given in columns — its variables by index and its
+     * linear constraints by rows, as vectors — and return the best solution,
+     * the variables' values by index.
+     *
+     * @example
+     * ```ts
+     * import { East, none, some, variant } from "@elaraai/east";
+     * import { GoogleOr } from "@elaraai/east-py-datascience";
+     *
+     * // maximize 2x + 3y with x + y <= 10, x and y in [0, 10]
+     * const solve = East.function([], GoogleOr.Types.CpSatColumnsResultType, ($) => {
+     *     const model = $.let({
+     *         var_lower: new BigInt64Array([0n, 0n]),
+     *         var_upper: new BigInt64Array([10n, 10n]),
+     *         row_lower: new BigInt64Array([-9223372036854775808n]),
+     *         row_upper: new BigInt64Array([10n]),
+     *         row_ptr: new BigInt64Array([0n, 2n]),
+     *         col_ix: new BigInt64Array([0n, 1n]),
+     *         coeff: new BigInt64Array([1n, 1n]),
+     *         objective: some({ coeff: new BigInt64Array([2n, 3n]), maximize: true }),
+     *         names: none,
+     *         interval_vars: [],
+     *         constraints: [],
+     *     }, GoogleOr.Types.CpSatModelColumnsType);
+     *     const config = $.let({
+     *         max_time_seconds: some(10.0), num_workers: none, log_search_progress: none,
+     *         seed: some(42n), relative_gap_limit: none, absolute_gap_limit: none, hints: none,
+     *     }, GoogleOr.Types.CpSatColumnsConfigType);
+     *     return $.return(GoogleOr.cpsatSolveColumns(model, config));
+     * });
+     * ```
+     */
+    cpsatSolveColumns: google_or_cpsat_solve_columns,
+    /**
      * Solve a vehicle routing problem.
      *
      * @example
@@ -664,6 +840,38 @@ export const GoogleOr = {
      * ```
      */
     linearSolve: google_or_linear_solve,
+    /**
+     * Solve a linear programming / MIP problem given in columns — its
+     * variables by index and its constraints by rows, as vectors — and
+     * return the variables' values by index.
+     *
+     * @example
+     * ```ts
+     * import { East, none, variant } from "@elaraai/east";
+     * import { GoogleOr } from "@elaraai/east-py-datascience";
+     *
+     * // maximize 3x + 2y with x + y <= 4, x and y in [0, 3]
+     * const solve = East.function([], GoogleOr.Types.LinearColumnsResultType, ($) => {
+     *     const model = $.let({
+     *         var_lower: new Float64Array([0.0, 0.0]),
+     *         var_upper: new Float64Array([3.0, 3.0]),
+     *         var_integer: [false, false],
+     *         row_lower: new Float64Array([-1e20]),
+     *         row_upper: new Float64Array([4.0]),
+     *         row_ptr: new BigInt64Array([0n, 2n]),
+     *         col_ix: new BigInt64Array([0n, 1n]),
+     *         coeff: new Float64Array([1.0, 1.0]),
+     *         objective: new Float64Array([3.0, 2.0]),
+     *         maximize: true,
+     *     }, GoogleOr.Types.LinearModelColumnsType);
+     *     const config = $.let({
+     *         solver: none, max_time_seconds: none, relative_gap_limit: none, hints: none,
+     *     }, GoogleOr.Types.LinearColumnsConfigType);
+     *     return $.return(GoogleOr.linearSolveColumns(model, config));
+     * });
+     * ```
+     */
+    linearSolveColumns: google_or_linear_solve_columns,
     /**
      * Solve a min-cost flow problem.
      *

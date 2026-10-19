@@ -17,6 +17,7 @@ CP-SAT is designed for discrete optimization problems where:
 import time
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from east import none, some, variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
@@ -30,8 +31,9 @@ from east.types.types import (
     StringType,
     StructType,
     VariantType,
+    VectorType,
 )
-from east.types.values import EastArray, EastDict, EastStruct, EastVariant
+from east.types.values import EastArray, EastDict, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
 
@@ -387,6 +389,84 @@ Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
 (``Dict<String, Integer>`` mapping variable names to their integer values),
 ``wall_time`` (``Float`` seconds).
 """
+
+# --- The columnar form ---
+
+CpSatModelColumnsType = StructType(
+    [
+        ("var_lower", VectorType(IntegerType)),
+        ("var_upper", VectorType(IntegerType)),
+        ("row_lower", VectorType(IntegerType)),
+        ("row_upper", VectorType(IntegerType)),
+        ("row_ptr", VectorType(IntegerType)),
+        ("col_ix", VectorType(IntegerType)),
+        ("coeff", VectorType(IntegerType)),
+        (
+            "objective",
+            OptionType(
+                StructType(
+                    [
+                        ("coeff", VectorType(IntegerType)),
+                        ("maximize", BooleanType),
+                    ]
+                )
+            ),
+        ),
+        ("names", OptionType(ArrayType(StringType))),
+        ("interval_vars", ArrayType(CpSatIntervalVarType)),
+        ("constraints", ArrayType(CpSatConstraintType)),
+    ]
+)
+"""A CP-SAT model in columns: its variables by index and its linear
+constraints by rows, as vectors.
+
+Variable ``i`` has the domain ``[var_lower[i], var_upper[i]]`` (a boolean is
+``[0, 1]``). Linear constraint ``r`` holds its sum in ``[row_lower[r],
+row_upper[r]]`` (an open side is the Integer's min or max) and its terms are
+``coeff[k] * variable(col_ix[k])`` for ``k`` in ``row_ptr[r] .. row_ptr[r +
+1]``; so ``row_ptr`` has one more entry than there are rows, starts at 0 and
+ends at the term count. The objective, when there is one, is ``coeff[i] *
+variable(i)`` summed, minimized or maximized. The other constraint kinds and
+the interval variables stay as ``CpSatModelType`` has them, over named
+variables: ``names`` gives variable ``i`` its name, and is ``none`` when
+nothing names one.
+"""
+
+CpSatColumnsHintType = StructType(
+    [
+        ("index", VectorType(IntegerType)),
+        ("value", VectorType(IntegerType)),
+    ]
+)
+"""A partial solution hint by variable index: ``value[k]`` for variable ``index[k]``."""
+
+CpSatColumnsConfigType = StructType(
+    [
+        ("max_time_seconds", OptionType(FloatType)),
+        ("num_workers", OptionType(IntegerType)),
+        ("log_search_progress", OptionType(BooleanType)),
+        ("seed", OptionType(IntegerType)),
+        ("relative_gap_limit", OptionType(FloatType)),
+        ("absolute_gap_limit", OptionType(FloatType)),
+        ("hints", OptionType(CpSatColumnsHintType)),
+    ]
+)
+"""Solver configuration for a columnar CP-SAT solve: ``CpSatConfigType``'s
+fields, with the hint by variable index and no ``max_solutions`` (the columnar
+form solves for one solution)."""
+
+CpSatColumnsResultType = StructType(
+    [
+        ("status", GoogleOrStatusType),
+        ("objective_value", OptionType(FloatType)),
+        ("values", VectorType(IntegerType)),
+        ("wall_time", FloatType),
+    ]
+)
+"""Result returned by ``google_or_cpsat_solve_columns``: the variables' values
+by index (``Vector<Integer>``, empty unless ``optimal`` or ``feasible``)
+beside the ``status``, ``objective_value`` and ``wall_time`` of
+``CpSatResultType``."""
 
 
 # ============================================================================
@@ -839,6 +919,184 @@ def cpsat_solve_all(
     return EastArray(CpSatResultType, solutions)
 
 
+@platform_function(
+    name="google_or_cpsat_solve_columns",
+    inputs=[CpSatModelColumnsType, CpSatColumnsConfigType],
+    output=CpSatColumnsResultType,
+)
+def cpsat_solve_columns(
+    model_data: EastStruct,
+    config: EastStruct,
+) -> EastStruct:
+    """Solve a CP-SAT model given in columns and return the best solution.
+
+    The same solve as :func:`cpsat_solve`, from the columnar form: the
+    variables' domains and the linear rows cross to numpy without a copy and
+    fill the model's proto in bulk; the other constraint kinds and the interval
+    variables are added as :func:`cpsat_solve` adds them, over the variables
+    ``names`` names.
+
+    Args:
+        model_data: ``CpSatModelColumnsType`` (``EastStruct``) - ``var_lower``
+            and ``var_upper`` (``Vector<Integer>``, a domain per variable),
+            the linear rows (``row_lower``, ``row_upper``, and the terms
+            ``col_ix``/``coeff`` cut by ``row_ptr``), ``objective``
+            (``Option<{coeff: Vector<Integer>, maximize: Boolean}>``),
+            ``names`` (``Option<Array<String>>``, one per variable when any
+            constraint or interval below names one), ``interval_vars`` and
+            ``constraints`` as ``CpSatModelType`` has them.
+        config: ``CpSatColumnsConfigType`` (``EastStruct``) -
+            ``CpSatConfigType``'s fields but ``max_solutions``, and ``hints``
+            (``Option<{index: Vector<Integer>, value: Vector<Integer>}>``) by
+            variable index - advisory; an index outside the variables is
+            ignored, an index given twice collapses to its last value.
+
+    Returns:
+        ``CpSatColumnsResultType`` (``EastStruct``): ``status``,
+        ``objective_value`` (``Option<Float>``), ``values`` (``Vector<Integer>``
+        - every variable's value by index when feasible or optimal, else
+        empty), ``wall_time`` (``Float`` seconds).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools) is not installed.
+        RuntimeError: the vectors do not describe one model (see
+            :func:`linear_solve_columns`), ``names`` has another count than the
+            variables, or a constraint names a variable while ``names`` is
+            ``none``.
+    """
+    _check_google_or_support()
+    from ortools.sat.python import cp_model
+
+    fn = "google_or_cpsat_solve_columns"
+
+    var_lower = model_data["var_lower"].to_numpy(dtype=np.int64)
+    var_upper = model_data["var_upper"].to_numpy(dtype=np.int64)
+    row_lower = model_data["row_lower"].to_numpy(dtype=np.int64)
+    row_upper = model_data["row_upper"].to_numpy(dtype=np.int64)
+    row_ptr = model_data["row_ptr"].to_numpy(dtype=np.int64)
+    col_ix = model_data["col_ix"].to_numpy(dtype=np.int64)
+    coeff = model_data["coeff"].to_numpy(dtype=np.int64)
+
+    n_vars = len(var_lower)
+    if len(var_upper) != n_vars:
+        raise RuntimeError(f"{fn}: var_lower has {n_vars} entries but var_upper has {len(var_upper)}")
+    n_rows = len(row_lower)
+    if len(row_upper) != n_rows:
+        raise RuntimeError(f"{fn}: row_lower has {n_rows} entries but row_upper has {len(row_upper)}")
+    from east_py_datascience.google_or.linear import _check_rows
+
+    _check_rows(fn, n_vars, row_ptr, col_ix, len(coeff), n_rows)
+
+    model = cp_model.CpModel()
+    proto = model.proto
+    for lb, ub in zip(var_lower.tolist(), var_upper.tolist(), strict=True):
+        proto.variables.add().domain.extend([lb, ub])
+    for r in range(n_rows):
+        ct = proto.constraints.add().linear
+        lo, hi = int(row_ptr[r]), int(row_ptr[r + 1])
+        ct.vars.extend(col_ix[lo:hi].tolist())
+        ct.coeffs.extend(coeff[lo:hi].tolist())
+        ct.domain.extend([int(row_lower[r]), int(row_upper[r])])
+    variables = [cp_model.IntVar(proto, i) for i in range(n_vars)]
+
+    objective_opt = model_data["objective"].unwrap_or(None)
+    if objective_opt is not None:
+        obj_coeff = objective_opt["coeff"].to_numpy(dtype=np.int64)
+        if len(obj_coeff) != n_vars:
+            raise RuntimeError(
+                f"{fn}: the objective has {len(obj_coeff)} coefficients but there are {n_vars} variables"
+            )
+        nonzero = np.flatnonzero(obj_coeff)
+        expr = cp_model.LinearExpr.weighted_sum(
+            [variables[i] for i in nonzero.tolist()], obj_coeff[nonzero].tolist()
+        )
+        if bool(objective_opt["maximize"]):
+            model.maximize(expr)
+        else:
+            model.minimize(expr)
+
+    # The named constraints and intervals, over the variables `names` names
+    names_opt = model_data["names"].unwrap_or(None)
+    interval_vars = model_data["interval_vars"]
+    constraints = model_data["constraints"]
+    vars_by_name: dict[str, Any] = {}
+    if names_opt is not None:
+        names = list(names_opt)
+        if len(names) != n_vars:
+            raise RuntimeError(f"{fn}: names has {len(names)} entries but there are {n_vars} variables")
+        for name, var in zip(names, variables, strict=True):
+            vars_by_name[name] = var
+    elif len(interval_vars) > 0 or len(constraints) > 0:
+        raise RuntimeError(f"{fn}: the interval variables and constraints name variables, but names is none")
+    for v in interval_vars:
+        name = v.get("name")
+        start = vars_by_name[v.get("start")]
+        size = vars_by_name[v.get("size")]
+        end = vars_by_name[v.get("end")]
+        is_present = v["is_present"].unwrap_or(None)
+        if is_present is not None:
+            vars_by_name[name] = model.new_optional_interval_var(
+                start, size, end, vars_by_name[is_present], name
+            )
+        else:
+            vars_by_name[name] = model.new_interval_var(start, size, end, name)
+    for c in constraints:
+        _add_constraint(model, vars_by_name, c)
+
+    hints = config["hints"].unwrap_or(None)
+    if hints is not None:
+        index = hints["index"].to_numpy(dtype=np.int64)
+        value = hints["value"].to_numpy(dtype=np.int64)
+        kept: dict[int, int] = {}
+        for i, v in zip(index.tolist(), value.tolist(), strict=False):
+            if 0 <= i < n_vars:
+                kept[i] = v
+        for i, v in kept.items():
+            model.add_hint(variables[i], v)
+
+    solver = cp_model.CpSolver()
+    max_time = config["max_time_seconds"].unwrap_or(None)
+    if max_time is not None:
+        solver.parameters.max_time_in_seconds = float(max_time)
+    num_workers = config["num_workers"].unwrap_or(None)
+    if num_workers is not None:
+        solver.parameters.num_workers = int(num_workers)
+    log_progress = config["log_search_progress"].unwrap_or(None)
+    if log_progress is not None:
+        solver.parameters.log_search_progress = bool(log_progress)
+    seed = config["seed"].unwrap_or(None)
+    if seed is not None:
+        solver.parameters.random_seed = int(seed)
+    rel_gap = config["relative_gap_limit"].unwrap_or(None)
+    if rel_gap is not None:
+        solver.parameters.relative_gap_limit = float(rel_gap)
+    abs_gap = config["absolute_gap_limit"].unwrap_or(None)
+    if abs_gap is not None:
+        solver.parameters.absolute_gap_limit = float(abs_gap)
+
+    start_time = time.perf_counter()
+    status_code = solver.solve(model)
+    wall_time = time.perf_counter() - start_time
+
+    values = np.zeros(0, dtype=np.int64)
+    obj_value: EastVariant = none
+    if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        # The solution read back whole: the response's values, the columnar
+        # variables first, in index order
+        solution = solver.response_proto.solution
+        values = np.fromiter(solution, dtype=np.int64, count=len(solution))[:n_vars]
+        obj_value = some(float(solver.objective_value))
+
+    return EastStruct(
+        {
+            "status": variant(_status_tag(status_code), None, GoogleOrStatusType),
+            "objective_value": obj_value,
+            "values": EastVector(IntegerType, values),
+            "wall_time": wall_time,
+        }
+    )
+
+
 # ============================================================================
 # Platform Function Registration
 # ============================================================================
@@ -863,4 +1121,8 @@ __all__ = [
     "CpSatHintType",
     "CpSatConfigType",
     "CpSatResultType",
+    "CpSatModelColumnsType",
+    "CpSatColumnsHintType",
+    "CpSatColumnsConfigType",
+    "CpSatColumnsResultType",
 ]

@@ -7,6 +7,7 @@ on:
       - "libs/east-c/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-py/packages/east-py-datascience/**"
       - ".github/workflows/test-east-c.yml"
   pull_request:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - "libs/east-c/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-py/packages/east-py-datascience/**"
       - ".github/workflows/test-east-c.yml"
 
 concurrency:
@@ -40,10 +42,11 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install
-      - name: Export IR (east + east-node-std)
+      - name: Export IR (east + east-node-std + east-py-datascience)
         run: |
           make -C libs/east test-export
           make -C libs/east-node test-export-std
+          make -C libs/east-py test-export
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
@@ -53,6 +56,12 @@ jobs:
         with:
           name: ir-std
           path: tmp/east-node-std/
+          if-no-files-found: error
+      # The data-science suites, which east-c-datascience runs too (below).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-datascience
+          path: tmp/east-py-datascience/
           if-no-files-found: error
 
   test-east-c:
@@ -278,6 +287,48 @@ jobs:
         env:
           EAST_TEST_IR_DIR: ${{ github.workspace }}/tmp/east-test-ir
         run: ctest --test-dir build-asan --output-on-failure
+
+  # east-c-datascience: east-py-datascience's platform functions on this
+  # runtime (OR-Tools, XGBoost), built on request (-DEAST_C_DATASCIENCE=ON)
+  # against the pinned prebuilt OR-Tools release and the vendored XGBoost
+  # source, then held to the same suites east-py-datascience runs — the IR
+  # the export job wrote. Linux only: the one platform the pinned OR-Tools
+  # archive is fetched for (libs/east-c/scripts/fetch-ortools.sh).
+  test-east-c-datascience:
+    name: Test east-c-datascience
+    needs: export-ir
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      # The pinned OR-Tools release (some 55 MB), kept between runs.
+      - name: Cache OR-Tools
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/or-tools
+          key: or-tools-${{ hashFiles('libs/east-c/scripts/fetch-ortools.sh') }}
+      - name: Fetch OR-Tools
+        run: make -C libs/east-c fetch-ortools
+
+      - name: Build east-c with east-c-datascience
+        run: make -C libs/east-c build EAST_C_DATASCIENCE=ON
+
+      # The gates still pass with the package built in.
+      - name: east-c gates (ctest)
+        working-directory: libs/east-c
+        run: ctest --test-dir build --output-on-failure
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-datascience
+          path: tmp/east-py-datascience
+
+      - name: east-c-datascience compliance
+        run: make -C libs/east-c test-east-c-datascience
 
   lint-east-c:
     name: Lint east-c (clang-format)

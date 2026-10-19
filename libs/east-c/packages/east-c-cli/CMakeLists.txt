@@ -1,6 +1,12 @@
 add_executable(east-c-cli src/main.c)
 set_target_properties(east-c-cli PROPERTIES OUTPUT_NAME east-c)
 target_link_libraries(east-c-cli east-c-std)
+# The data-science package, when the build has it (-DEAST_C_DATASCIENCE=ON):
+# `-p east-c-datascience`, and `version -p east-c-datascience`.
+if(TARGET east-c-datascience)
+    target_link_libraries(east-c-cli east-c-datascience)
+    target_compile_definitions(east-c-cli PRIVATE EAST_HAS_DATASCIENCE=1)
+endif()
 if(WIN32)
     target_link_libraries(east-c-cli psapi)
 endif()

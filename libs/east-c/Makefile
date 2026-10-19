@@ -6,9 +6,15 @@
 include ../../paths.mk
 
 .PHONY: build rebuild clean install-cli \
-        unit test test-east-c test-east-c-std test-all \
+        unit test test-east-c test-east-c-std test-east-c-datascience test-all \
         leak-check leak-check-std leak-check-all bench-cli \
-        help lint format ensure-clang-format
+        help lint format ensure-clang-format fetch-ortools
+
+# east-c-datascience (packages/east-c-datascience: OR-Tools and XGBoost) is
+# built on request: `make build EAST_C_DATASCIENCE=ON`, after `make
+# fetch-ortools` has put the pinned OR-Tools release at build-deps/or-tools.
+# Off, the build is the C runtime, std and the CLI alone.
+EAST_C_DATASCIENCE ?= OFF
 
 # On Windows use Ninja (single-config) so test binaries land at
 # build/packages/.../<name> as on Unix; the default Visual Studio generator is
@@ -22,7 +28,12 @@ endif
 
 ## Build native C libraries and tests
 build:
-	@mkdir -p build && cd build && cmake .. $(CMAKE_GEN) && cmake --build . -j$$(nproc)
+	@mkdir -p build && cd build && cmake .. $(CMAKE_GEN) -DEAST_C_DATASCIENCE=$(EAST_C_DATASCIENCE) && cmake --build . -j$$(nproc)
+
+## Fetch the pinned prebuilt OR-Tools release east-c-datascience links
+## (build-deps/or-tools, gitignored; the script verifies its SHA-256)
+fetch-ortools:
+	@./scripts/fetch-ortools.sh
 
 ## Clean and rebuild
 rebuild: clean build
@@ -67,6 +78,20 @@ test-east-c: build
 
 test-east-c-std: build
 	@./packages/east-c/scripts/run_compliance.sh $(EAST_NODE_STD_IR) build/packages/east-c-std/test_std_compliance
+
+# The suites east-py-datascience exports (`make -C libs/east-py test-export`,
+# into EAST_DATASCIENCE_IR_DIR) that east-c-datascience implements: each
+# family moves whole, so a family's suite runs here unchanged.
+DATASCIENCE_SUITES := GoogleOr_platform_functions XGBoost_platform_functions
+
+## Run the data-science compliance suites (needs a build with EAST_C_DATASCIENCE=ON)
+test-east-c-datascience:
+	@test -x build/packages/east-c-datascience/test_datascience_compliance || { \
+		echo "Error: no east-c-datascience build: run make build EAST_C_DATASCIENCE=ON (after make fetch-ortools)"; exit 1; }
+	@fail=0; for suite in $(DATASCIENCE_SUITES); do \
+		echo "── $$suite ──────────────────────────────────────────"; \
+		./build/packages/east-c-datascience/test_datascience_compliance "$(EAST_DATASCIENCE_IR_DIR)/$$suite.json" || fail=1; \
+	done; exit $$fail
 
 ## Run native tests (gates + east-c + east-c-std)
 test: unit test-east-c test-east-c-std
@@ -131,9 +156,9 @@ leak-check-all: leak-check leak-check-std
 
 CLANG_FORMAT_VERSION := 18.1.8
 
-# Files to lint/format — all .c and .h under packages/, excluding build dirs
-# and FetchContent-vendored deps.
-C_SOURCES := $(shell find packages -type f \( -name '*.c' -o -name '*.h' \) \
+# Files to lint/format — all .c, .cc and .h under packages/, excluding build
+# dirs and FetchContent-vendored deps.
+C_SOURCES := $(shell find packages -type f \( -name '*.c' -o -name '*.cc' -o -name '*.h' \) \
 	-not -path '*/build*/*' \
 	-not -path '*/_deps/*' \
 	-not -path '*/node_modules/*' 2>/dev/null)
@@ -156,7 +181,8 @@ format: ensure-clang-format
 help:
 	@echo "east-c (C runtime)"
 	@echo ""
-	@echo "  build          - Build native C libraries (cmake)"
+	@echo "  build          - Build native C libraries (cmake); EAST_C_DATASCIENCE=ON adds east-c-datascience"
+	@echo "  fetch-ortools  - Fetch the pinned OR-Tools release east-c-datascience links (build-deps/or-tools)"
 	@echo "  rebuild        - Clean and rebuild"
 	@echo "  clean          - Remove build directory"
 	@echo "  install-cli    - Install east-c CLI to ~/.local/bin"
@@ -164,6 +190,7 @@ help:
 	@echo "  unit           - Run the ctest gates (no exported IR needed)"
 	@echo "  test-east-c    - Run east-c compliance tests"
 	@echo "  test-east-c-std - Run east-c-std compliance tests"
+	@echo "  test-east-c-datascience - Run the data-science suites east-c-datascience implements"
 	@echo "  test-all       - Run all compliance tests"
 	@echo "  bench-cli      - Interpreter, dict-output and paged-read benchmarks (needs a built libs/east)"
 	@echo ""

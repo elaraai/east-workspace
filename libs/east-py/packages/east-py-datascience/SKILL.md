@@ -10,7 +10,9 @@ ML models, Bayesian and causal inference, simulation, preprocessing and
 explainability. This is the platform's **Reason** layer — a model earns its
 place by improving a decision (a forecast or optimisation that feeds a
 `decision`), so wire its outputs toward one. The functions run on the python
-runtime only: an e3 task needs a python runner (see Related skills).
+runtime, and the Google OR-Tools and XGBoost families on the C runtime too
+(`east-c-datascience`, the same names, types and results): an e3 task needs a
+python runner, or an east-c runner for those two families (see Related skills).
 
 ## Before writing code — search the example index
 
@@ -70,10 +72,12 @@ Task → What do you need?
     │   │   where a move changed it (coordinate or swap mode)
     │   └─ .iterativeGrouped(groupObjective, paramSpaces, config) — contributions grouped by VALUE (employees, bins,
     │       vehicles): a move from A to B recomputes groups A and B
-    ├─ GoogleOr (OR-Tools)
-    │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll()
+    ├─ GoogleOr (OR-Tools; on the python and the C runtimes)
+    │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll() · in columns .cpsatSolveColumns() (domains and linear rows as
+    │   │   vectors, the other constraint kinds over named variables; values by index)
     │   ├─ Routing → .routingSolve() (TSP, CVRP, VRPTW, VRPPD)
-    │   ├─ Linear → .linearSolve() (LP, MIP)
+    │   ├─ Linear → .linearSolve() (LP, MIP) · in columns .linearSolveColumns() (bounds, rows by row_ptr/col_ix/coeff
+    │   │   and the objective as vectors — nothing crosses an element at a time; values by index)
     │   └─ Graph → .minCostFlow(), .maxFlow(), .assignment() (dense cost matrix),
     │              .minCostAssignment() (sparse arcs, task capacity, opt-out penalty)
     ├─ Scipy
@@ -83,8 +87,9 @@ Task → What do you need?
     │   ├─ Histogram / KDE → .histogram(), .kdeFit(), .kdeEvaluate()
     │   ├─ Curve fitting → .curveFit()
     │   └─ Interpolation → .interpolate1dFit(), .interpolate1dPredict()
-    ├─ XGBoost → train .trainRegressor(), .trainClassifier(), .trainQuantile() · predict .predict(), .predictClass(),
-    │            .predictProba(), .predictQuantile()
+    ├─ XGBoost (on the python and the C runtimes) → train .trainRegressor(), .trainClassifier(), .trainQuantile() ·
+    │            predict .predict(), .predictClass(), .predictProba(), .predictQuantile() — a model blob is XGBoost's
+    │            own UBJSON model, so one trained on either runtime predicts on the other
     ├─ LightGBM → train .trainRegressor(), .trainClassifier() · predict .predict(), .predictClass(), .predictProba()
     ├─ NGBoost (probabilistic boosting) → .trainRegressor() · .predict(), .predictDist()
     ├─ Torch (MLP) → train .mlpTrain(), .mlpTrainMulti() · predict .mlpPredict(), .mlpPredictMulti() · embeddings
@@ -239,8 +244,9 @@ Rules:
   mirroring the TypeScript `Module.Types.*`.
 - **Names are the platform names** (`xgboost_train_regressor`,
   `mads_optimize`, …), except GoogleOr's, exported without the `google_or_`
-  prefix: `cpsat_solve`, `cpsat_solve_all`, `routing_solve`, `linear_solve`,
-  `min_cost_flow`, `max_flow`, `assignment`, `min_cost_assignment`.
+  prefix: `cpsat_solve`, `cpsat_solve_all`, `cpsat_solve_columns`,
+  `routing_solve`, `linear_solve`, `linear_solve_columns`, `min_cost_flow`,
+  `max_flow`, `assignment`, `min_cost_assignment`.
 - **Inside an East body**: `East.function([...], ..., lambda b, X, y, cfg:
   xgboost_predict(xgboost_train_regressor(X, y, cfg), X))` — the calls are
   `Platform` nodes; `East.compile(fn, platform=east_py_datascience.platform)`
@@ -265,8 +271,11 @@ For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 - **e3** — **required to run these**: they need the python runtime, so wrap each
   call in an `e3.task` with a python runner (`{ runner: { runtime: 'east-py',
   platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py
-  from the project's `.venv`, no `uv run` wrapper needed). They do not run on
-  the Node or C runtimes.
+  from the project's `.venv`, no `uv run` wrapper needed). The GoogleOr and
+  XGBoost families also run on the C runtime (`{ runner: { runtime: 'east-c',
+  platforms: ['east-c-std', 'east-c-datascience'] } }`, an east-c built with
+  them): a task moves by changing its runner and nothing else. Nothing runs on
+  the Node runtime.
 - **east** — the language for objective functions, configs and results.
 - **east-py** — the python runtime: East values as plain python data, eager
   methods, and the `@East.platform_function` on-ramp the direct calls live in.

@@ -1,6 +1,10 @@
 #ifndef EAST_VALUES_H
 #define EAST_VALUES_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "types.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -524,5 +528,9 @@ double east_strtod_c(const char *text, char **end_out);
 
 // Type helpers
 const char *east_value_kind_name(EastValueKind kind);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

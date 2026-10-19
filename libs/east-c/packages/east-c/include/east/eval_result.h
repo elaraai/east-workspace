@@ -1,7 +1,11 @@
 #ifndef EAST_EVAL_RESULT_H
 #define EAST_EVAL_RESULT_H
 
-#include "ir.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "location.h"
 #include "values.h"
 
 typedef enum {
@@ -25,5 +29,9 @@ typedef struct {
 EvalResult eval_ok(EastValue *value);
 EvalResult eval_error(const char *msg);
 void eval_result_free(EvalResult *result);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
