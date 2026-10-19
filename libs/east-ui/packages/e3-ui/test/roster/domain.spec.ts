@@ -10,7 +10,8 @@ import { Roster } from "@elaraai/e3-ui";
 import * as ex from "./domain.examples.js";
 
 describeEast("Roster — pure domain", test => {
-    Assert.examples(test, { rosterCoverage: ex.rosterCoverage, rosterChecks: ex.rosterChecks, rosterWeeklyHours: ex.rosterWeeklyHours, rosterRest: ex.rosterRest });
+    Assert.examples(test, { rosterCoverage: ex.rosterCoverage, rosterChecks: ex.rosterChecks, rosterWeeklyHours: ex.rosterWeeklyHours, rosterRest: ex.rosterRest,
+        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads });
 }, { platformFns: TestImpl });
 const context = decodeBeast2For(Roster.Types.Context)(encodeBeast2For(Roster.Types.Context)(ex.context));
 const fresh = () => decodeBeast2For(Roster.Types.Week)(encodeBeast2For(Roster.Types.Week)(ex.week));

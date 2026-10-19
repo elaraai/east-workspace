@@ -9,29 +9,41 @@
  * tab the source it names; each counts what it shows (`People 12 of 69`), says
  * so when its source leaves it none, with Clear filters for that source, and
  * has no filter of its own — its search and its groups only. A Find fix's
- * leads, trainers or skill holders are a result in the People tab, with a chip
- * that clears it. The People tab's agency requests are actions, not people:
- * they always show, and what the tab says of its people shows above them.
+ * result is the app's fit's answer (#1334): the People tab shows the people it
+ * says fit among what the rail shows, best first in its order, each card with
+ * its reason, under a chip that clears it — the Roster decides no one itself.
+ * The People tab's agency requests are actions, not people: they always show,
+ * and what the tab says of its people shows above them.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
-import { none, some, variant } from "@elaraai/east";
-import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryItemValue, type LibraryNarrowing } from "@elaraai/east-ui-components";
+import { FloatType, compareFor, none, some, variant } from "@elaraai/east";
+import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryCardExtras, type LibraryItemValue, type LibraryNarrowing } from "@elaraai/east-ui-components";
 import { SliceFieldChip, narrowedCount } from "@elaraai/east-ui-components/internal";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { sourceTab, type SourceShown } from "../shared/schedule/source-tab.js";
 import { readRosterSource, rosterSourceKey } from "./identity.js";
 import { PlaceAction } from "./controls.js";
-import type { PeopleFocus, RosterCommands, RosterSource } from "./actions.js";
+import type { RosterCommands, RosterSource } from "./actions.js";
+import type { FitResult, Need } from "./fit.js";
 import { DAY, activityOf, type Coverage, type Person, type RosterStyles, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
 
 export function rosterLibraryId(key: string, tab: string): string { return `${key}.library.${tab}`; }
+/** A Find fix's result in the People tab (#1334): what it looks for, the fit's answer, and whether that answer is still to land. */
+export interface PeopleFind {
+    /** What the find looks for: the chip's words. */
+    need: Need;
+    /** The fit's answer for the drafts as they are, which the tab shows; `undefined` while it is on its way, or failed. */
+    shown: FitResult | undefined;
+    /** Whether the find is asked and its answer for the drafts as they are has not landed: the tab is busy, showing what the rail shows. */
+    busy: boolean;
+}
 interface LibraryArgs {
     value: RosterValue; week: Week; start: Date; day: number; storageKey: string; narrow: boolean; styles: RosterStyles;
     commands: RosterCommands; selection: Selection | undefined; select: (next: Selection | undefined) => void;
     hours: ReadonlyMap<string, number>; coverage: ReadonlyMap<Slot, Coverage>;
-    /** What a Find fix found, shown in the People tab until its chip clears it. */
-    focus: PeopleFocus; onClearFocus: () => void;
+    /** A Find fix's result, shown in the People tab until its chip clears it. */
+    find: PeopleFind | undefined; onClearFind: () => void;
     tab: string | undefined; onTab: (tab: string) => void;
     /** What the rail shows of each source a tab follows, and how that source alone clears. */
     shown: { people: SourceShown; activities: SourceShown };
@@ -40,18 +52,36 @@ interface LibraryArgs {
 const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
 /** What the People tab says while a Find finds no one; its chip clears it. */
 const NO_ONE_FOUND = { title: "No one found", description: "Clear the find to see the people the rail shows." };
+const byScore = compareFor(FloatType);
 
-/** Whether a Find fix found the person: a lead on the day, a trainer, or a holder of the skill. */
-function finds(focus: NonNullable<PeopleFocus>, person: Person, lead: boolean): boolean {
-    return focus.type === "skill" ? person.skills.has(focus.key) : focus.type === "leads" ? lead : person.trainer;
+/** The people the fit's answer says fit, best first — its scores, ties kept in the tab's order: the fit ranks, never the Roster. */
+function fitsOf<E extends { person: Person }>(entries: readonly E[], answer: FitResult): E[] {
+    const scored = entries.flatMap(entry => {
+        const verdict = answer.people.get(entry.person.key);
+        return verdict?.type === "fits" ? [{ entry, score: verdict.value.score }] : [];
+    });
+    return scored.sort((a, b) => byScore(b.score, a.score)).map(fit => fit.entry);
+}
+
+/** A found card's line: the fit's reason, and its warning in the warning's tone; its tooltip the whole, which a narrow card cuts. */
+function reasonOf(answer: FitResult, item: LibraryItemValue): LibraryCardExtras | undefined {
+    const source = readRosterSource(item.key);
+    const verdict = source.success && source.value.type === "person" ? answer.people.get(source.value.value) : undefined;
+    if (verdict?.type !== "fits") return undefined;
+    const { why, warn } = verdict.value;
+    const text = warn.type === "some" ? `${why} · ${warn.value}` : why;
+    return { note: warn.type === "some" ? { text, tone: "warning" } : { text }, title: text };
 }
 
 /** Optional library pane; every dataset stays the author's original bound data. */
 export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
-    const { value, week, start, day, storageKey, narrow, styles, commands, selection, select, hours, coverage, focus, shown } = args;
+    const { value, week, start, day, storageKey, narrow, styles, commands, selection, select, hours, coverage, find, shown } = args;
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
     const [error, setError] = useState<string>();
+    // Each found card's reason, the same function while the answer stands: the Library's memo compares it.
+    const answer = find?.shown;
+    const reasons = useMemo(() => answer === undefined ? undefined : (item: LibraryItemValue) => reasonOf(answer, item), [answer]);
     if (value.library.length === 0) return undefined;
     const rostered = new Set([...week.assignments.values()].flatMap(a => a.slot.day === BigInt(day) && a.who.type === "person" ? [a.who.value] : []));
     const draggable = !narrow && commands.editing.available && week.status.type === "draft";
@@ -62,9 +92,10 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         key, label, sublabel: some(meta), groups: new Map([["group", group]]), icon: icon === undefined ? none : some(icon),
         status: none, trailing: none, draggable, filtered: false, placed: false, search: some(`${label} ${meta} ${group}`),
     });
-    // What a Find fix finds: a skill's holders, the leads on the day, or the trainers.
-    const findWhat = focus === undefined ? undefined : focus.type === "skill" ? activityOf(value, focus.key)?.label ?? focus.key
-        : focus.type === "leads" ? "Leads" : "Trainers";
+    // What a Find fix looks for: a skill's holders, leads, or trainers.
+    const need = find?.need;
+    const findWhat = need === undefined ? undefined : need.type === "skill" ? activityOf(value, need.value)?.label ?? need.value
+        : need.type === "leads" ? "Leads" : "Trainers";
     // The people the rail shows, off that day: the collapsed rail's badge.
     const shownPeople = shown.people.keys;
     const off = value.people.filter(p => (shownPeople.type === "none" || shownPeople.value.has(p.key)) && !rostered.has(p.key)).length;
@@ -75,6 +106,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         let follows: ReturnType<typeof sourceTab<unknown>>;
         let count: string | number;
         let narrowing: LibraryNarrowing | undefined;
+        let pane: ReturnType<typeof sourceTab<unknown>>["pane"];
         if (tab.type === "people") {
             const entries = value.people.map(person => {
                 const assigned = [...week.assignments.values()].filter(a => a.slot.day === BigInt(day) && a.who.type === "person" && a.who.value === person.key);
@@ -84,24 +116,31 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 const place = assigned.length === 0 ? `Off ${format.weekday(new Date(start.getTime() + day * DAY))} · available` : position?.lead ? "Leads" : person.agency ? "Agency staff" : "Associates";
                 const shift = assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.label ?? a.slot.shift).join(", ");
                 const card = make(rosterSourceKey("person", person.key), person.name, `${group?.label ?? person.group} · ${shift || "Off today"}${position?.code ? ` · ${position.code}` : ""}${person.trainer ? " · trainer" : ""}${person.trainee ? " · trainee" : ""}`, place, undefined);
-                return { person, lead: position?.lead === true, card: { ...card, avatar: some(person.name), placed: chosen[name] === rosterSourceKey("person", person.key),
+                return { person, card: { ...card, avatar: some(person.name), placed: chosen[name] === rosterSourceKey("person", person.key),
                     status: some({ label: assigned.length === 0 ? "OFF" : assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift).join(" · "), tone: variant(assigned.length === 0 ? "info" : "neutral", null), ring: false }),
                     search: some(`${person.name} ${group?.label} ${position?.label} ${person.agency ? "agency" : ""} ${person.trainer ? "trainer" : ""} ${skills.map(s => s.label).join(" ")}`),
                     dims: new Map([["hours", variant("meter", { value: hours.get(person.key) ?? 0, max: person.contract, text: some(`${format.number(hours.get(person.key) ?? 0)} / ${format.number(person.contract)} h`) })]]),
                 } };
             });
             follows = sourceTab({ cards: entries, keyOf: entry => entry.person.key, shown: shown.people, noun: "people", words: format });
-            // A Find fix's result, among what the rail shows.
-            const found = focus === undefined ? follows.cards as typeof entries : (follows.cards as typeof entries).filter(entry => finds(focus, entry.person, entry.lead));
-            count = focus === undefined ? follows.count : narrowedCount(format, found.length, entries.length, true);
+            // A Find fix's result: the people the fit's answer says fit, among what the rail shows, best first. Until its answer
+            // for the drafts as they are lands, the tab shows what the rail shows, busy, and no verdict (F2).
+            const found = answer === undefined ? follows.cards as typeof entries : fitsOf(follows.cards as typeof entries, answer);
+            count = answer === undefined ? follows.count : narrowedCount(format, found.length, entries.length, true);
             // With no person to show, the tab says why above the agency requests, which stay: the rail's narrowing, with its
             // Clear filters, when it hid everyone; else a Find that found no one, which its chip clears.
-            narrowing = focus === undefined || follows.narrowing?.emptied === true ? follows.narrowing : { empty: NO_ONE_FOUND, emptied: found.length === 0 };
+            narrowing = answer === undefined || follows.narrowing?.emptied === true ? follows.narrowing : { empty: NO_ONE_FOUND, emptied: found.length === 0 };
+            pane = find?.busy === true ? { ...follows.pane, "aria-busy": true } : follows.pane;
             // Agency requests are actions, not staff: every one shows, whatever the rail narrows.
-            cards = [...value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultSlot.shift)?.hours ?? 0)} h`, "Agency staff", "building"),
-                status: some({ label: "REQ", tone: variant("neutral", null), ring: false }) })), ...found.map(entry => entry.card)];
-            const groupRank = (card: LibraryItemValue) => { const group = card.groups.get("group"); return group?.startsWith("Off ") ? 0 : group === "Leads" ? 1 : group === "Associates" ? 2 : 3; };
-            cards.sort((a, b) => groupRank(a) - groupRank(b));
+            const requests = value.agencies.map(agency => ({ ...make(rosterSourceKey("agency", agency.key), agency.name, `Request · ${format.number(value.shifts.find(s => s.key === defaultSlot.shift)?.hours ?? 0)} h`, "Agency staff", "building"),
+                status: some({ label: "REQ", tone: variant("neutral", null), ring: false }) }));
+            if (answer !== undefined) {
+                // Best first, in the fit's order: each group heads where its best card stands, and the requests come last.
+                cards = [...found.map(entry => entry.card), ...requests];
+            } else {
+                const groupRank = (card: LibraryItemValue) => { const group = card.groups.get("group"); return group?.startsWith("Off ") ? 0 : group === "Leads" ? 1 : group === "Associates" ? 2 : 3; };
+                cards = [...requests, ...found.map(entry => entry.card)].sort((a, b) => groupRank(a) - groupRank(b));
+            }
         } else if (tab.type === "activities") {
             // Each group's skills in the groups' order, then the duties, each in the record's order.
             const rank = (group: string | undefined) => { const at = value.groups.findIndex(g => g.key === group); return at < 0 ? value.groups.length : at; };
@@ -109,6 +148,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             follows = sourceTab({ cards: activities, keyOf: activity => activity.key, shown: shown.activities, noun: "activities", words: format });
             count = follows.count;
             narrowing = follows.narrowing;
+            pane = follows.pane;
             cards = (follows.cards as typeof activities).map(skill => {
                 const group = skill.group.type === "some" ? value.groups.find(g => skill.group.type === "some" && g.key === skill.group.value)?.label ?? skill.group.value : "Any group";
                 const lines = [...coverage].filter(([slot]) => slot.day === BigInt(day)).flatMap(([, c]) => c.lines.filter(line => line.skill === skill.key));
@@ -122,6 +162,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             follows = sourceTab({ cards: tab.value.cards, keyOf: card => card.key, shown: followed, noun: tab.value.name.toLowerCase(), words: format });
             count = follows.count;
             narrowing = follows.narrowing;
+            pane = follows.pane;
             cards = (follows.cards as typeof tab.value.cards).map(card => ({ ...make(card.key, card.label, card.meta.type === "some" ? card.meta.value : "", card.group.type === "some" ? card.group.value : "", tab.value.icon.type === "some" ? tab.value.icon.value : undefined), draggable: draggable && card.patch.type === "some", placed: chosen[name] === card.key }));
         }
         const choose = (key: string): null => {
@@ -144,12 +185,13 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const target = selection?.type === "assignment" ? selection.key : undefined;
         const custom = tab.type === "tab" ? tab.value.cards.find(card => card.key === chosenKey) : undefined;
         const finding = tab.type === "people" && findWhat !== undefined;
-        return { key: name, label, count, body: <Box css={styles.pane} data-roster-library={name} {...follows.pane}>
+        return { key: name, label, count, body: <Box css={styles.pane} data-roster-library={name} {...pane}>
             {finding && <Box css={styles.paneFoot} data-roster-find="">
-                {/* Pressed, the chip clears the find: its name says so, its face what the find found. */}
-                <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFocus} onClick={args.onClearFocus} />
+                {/* Pressed, the chip clears the find: its name says so, its face what the find looks for. */}
+                <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFind} onClick={args.onClearFind} />
             </Box>}
-            <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing} />
+            <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing}
+                extras={tab.type === "people" ? reasons : undefined} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
                 : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift"}</Box>
             {commands.editing.available && chosenKey !== undefined && <Box css={styles.paneFoot}>

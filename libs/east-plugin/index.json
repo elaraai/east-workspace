@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1257,
+    "totalEntries": 1259,
     "totalFiles": 209,
     "packages": {
       "east": 570,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 316,
-      "e3-ui": 127,
+      "e3-ui": 129,
       "e3": 18,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -43226,17 +43226,70 @@
       "source": "// A night shift with overtime leaves only six hours before the following late shift\n// inputs: [context]  returns: 6\n/** Small staffing fixture with independently calculable hours and cost. */\nexport const context: ValueTypeOf<typeof Roster.Types.Context> = {\n    people: new Map([\n        [\"lead\", { key: \"lead\", name: \"Lead\", group: \"goods\", position: \"lead\", skills: new Set([\"reach\"]), contract: 40, agency: false, trainer: true, trainee: false, usual: some(\"early\") }],\n        [\"agency\", { key: \"agency\", name: \"Agency\", group: \"goods\", position: \"crew\", skills: new Set<string>(), contract: 0, agency: true, trainer: false, trainee: false, usual: none }],\n        [\"off\", { key: \"off\", name: \"Off\", group: \"goods\", position: \"crew\", skills: new Set<string>(), contract: 40, agency: false, trainer: false, trainee: false, usual: none }],\n    ]),\n    groups: [{ key: \"goods\", label: \"Goods\" }],\n    // Goods' one skill, and the duty every group shares.\n    activities: [{ key: \"reach\", label: \"Reach truck\", code: \"RT\", group: some(\"goods\") }, { key: \"general\", label: \"General duties\", code: \"GD\", group: none }],\n    shifts: [{ key: \"early\", label: \"Early\", code: \"E\", start: { hour: 6n, minute: 0n }, hours: 8 }, { key: \"night\", label: \"Night\", code: \"N\", start: { hour: 22n, minute: 0n }, hours: 8 }],\n    positions: [{ key: \"crew\", label: \"Crew\", code: \"\", lead: false }, { key: \"lead\", label: \"Lead\", code: \"SV\", lead: true }],\n    agencies: [{ key: \"agency\", name: \"Staffing agency\" }],\n    rules: { rest: 10, lead: true, skill: true, trainer: true, agree: true },\n    costs: some({ currency: \"AUD\", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: none }),\n};\n\nEast.function([Roster.Types.Context], FloatType, ($, context) => {\n        const rest = $.const(Roster.rest);\n        const prior = $.const({ status: variant(\"draft\", null), dismissed: new Set<string>(), requirements: new Map(), assignments: new Map([\n            [\"night\", { slot: { day: 0n, group: \"goods\", shift: \"night\" }, who: variant(\"person\", \"lead\"), position: \"lead\", activity: none, offset: 0, overtime: 2, agreed: some(true) }],\n        ]) }, Roster.Types.Week);\n        return rest({ slot: { day: 1n, group: \"goods\", shift: \"early\" }, who: variant(\"person\", \"lead\"), position: \"lead\", activity: none, offset: 8, overtime: 0, agreed: none }, \"next\", prior, context).before;\n    })"
     },
     {
+      "id": "e3-ui:domain.examples.ts:rosterFitTrainer",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/roster/domain.examples.ts",
+      "suite": "",
+      "test": "The ready-made fit: a trainer off that day whose rest is kept fits Goods' early shift, scored by spare contract hours and a week's more in the slot's group",
+      "keywords": [
+        "Roster",
+        "Roster.fit",
+        "fit",
+        "Find",
+        "trainer",
+        "spare hours",
+        "rest"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, SortedMap, compareFor, example, none, some, variant, type ValueTypeOf } from \"@elaraai/east\";",
+        "import { Roster } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// The ready-made fit: a trainer off that day whose rest is kept fits Goods' early shift, scored by spare contract hours and a week's more in the slot's group\n// inputs: [week, context]  returns: variant(\"fits\", { score: 198, why: \"Goods · 30 h spare\", warn: none })\n/** Small staffing fixture with independently calculable hours and cost. */\nexport const context: ValueTypeOf<typeof Roster.Types.Context> = {\n    people: new Map([\n        [\"lead\", { key: \"lead\", name: \"Lead\", group: \"goods\", position: \"lead\", skills: new Set([\"reach\"]), contract: 40, agency: false, trainer: true, trainee: false, usual: some(\"early\") }],\n        [\"agency\", { key: \"agency\", name: \"Agency\", group: \"goods\", position: \"crew\", skills: new Set<string>(), contract: 0, agency: true, trainer: false, trainee: false, usual: none }],\n        [\"off\", { key: \"off\", name: \"Off\", group: \"goods\", position: \"crew\", skills: new Set<string>(), contract: 40, agency: false, trainer: false, trainee: false, usual: none }],\n    ]),\n    groups: [{ key: \"goods\", label: \"Goods\" }],\n    // Goods' one skill, and the duty every group shares.\n    activities: [{ key: \"reach\", label: \"Reach truck\", code: \"RT\", group: some(\"goods\") }, { key: \"general\", label: \"General duties\", code: \"GD\", group: none }],\n    shifts: [{ key: \"early\", label: \"Early\", code: \"E\", start: { hour: 6n, minute: 0n }, hours: 8 }, { key: \"night\", label: \"Night\", code: \"N\", start: { hour: 22n, minute: 0n }, hours: 8 }],\n    positions: [{ key: \"crew\", label: \"Crew\", code: \"\", lead: false }, { key: \"lead\", label: \"Lead\", code: \"SV\", lead: true }],\n    agencies: [{ key: \"agency\", name: \"Staffing agency\" }],\n    rules: { rest: 10, lead: true, skill: true, trainer: true, agree: true },\n    costs: some({ currency: \"AUD\", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: none }),\n};\n\nexport const slot = { day: 0n, group: \"goods\", shift: \"early\" };\n\nexport const week: ValueTypeOf<typeof Roster.Types.Week> = {\n    status: variant(\"draft\", null), dismissed: new Set<string>(),\n    assignments: new Map([\n        [\"a\", { slot, who: variant(\"person\", \"lead\"), position: \"lead\", activity: some(\"reach\"), offset: 1, overtime: 2, agreed: none }],\n        [\"b\", { slot, who: variant(\"person\", \"agency\"), position: \"crew\", activity: some(\"general\"), offset: 0, overtime: 0, agreed: none }],\n        [\"c\", { slot, who: variant(\"request\", \"agency\"), position: \"crew\", activity: none, offset: 0, overtime: 0, agreed: none }],\n    ]),\n    requirements: new SortedMap([[slot, { positions: 4n, hours: new Map([[\"reach\", 24], [\"general\", 6]]) }]], compareFor(Roster.Types.Slot)),\n};\n\nEast.function([Roster.Types.Week, Roster.Types.Context], Roster.Types.Fit, ($, week, context) => {\n        const coverage = $.const(Roster.coverage);\n        const fit = $.const(Roster.fit);\n        // Day 1's early shift: Lead's day 0 shift ends at 17:00, so 13 hours' rest is kept; 10 of their 40 contract hours are rostered.\n        const request = $.const({ need: variant(\"trainers\", null), slot: { day: 1n, group: \"goods\", shift: \"early\" }, start: new Date(\"2028-03-05T00:00:00Z\"),\n            week, context, coverage: coverage(week, context) }, Roster.Types.FitRequest);\n        return fit(request, context.people.get(\"lead\"));\n    })"
+    },
+    {
+      "id": "e3-ui:domain.examples.ts:rosterAnswerLeads",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/roster/domain.examples.ts",
+      "suite": "",
+      "test": "Roster.answer maps a rule over every person, echoing the need and the slot: the lead fits, and the two associates are refused as not leads",
+      "keywords": [
+        "Roster",
+        "Roster.answer",
+        "Roster.fit",
+        "fit",
+        "Find",
+        "lead",
+        "refused"
+      ],
+      "imports": [
+        "import { East, FloatType, IntegerType, SortedMap, compareFor, example, none, some, variant, type ValueTypeOf } from \"@elaraai/east\";",
+        "import { Roster } from \"@elaraai/e3-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Roster.answer maps a rule over every person, echoing the need and the slot: the lead fits, and the two associates are refused as not leads\n// inputs: [week, context]  returns: {\n        need: variant(\"leads\", null), slot: { day: 1n, group: \"goods\", shift: \"early\" },\n        people: new Map<string, ValueTypeOf<typeof Roster.Types.Fit>>([\n            [\"agency\", variant(\"refused\", { group: \"Not a lead\", reason: \"Crew · not a lead\", measure: variant(\"none\", null) })],\n            [\"lead\", variant(\"fits\", { score: 198, why: \"Goods · 30 h spare\", warn: none })],\n            [\"off\", variant(\"refused\", { group: \"Not a lead\", reason: \"Crew · not a lead\", measure: variant(\"none\", null) })],\n        ]),\n    }\n/** Small staffing fixture with independently calculable hours and cost. */\nexport const context: ValueTypeOf<typeof Roster.Types.Context> = {\n    people: new Map([\n        [\"lead\", { key: \"lead\", name: \"Lead\", group: \"goods\", position: \"lead\", skills: new Set([\"reach\"]), contract: 40, agency: false, trainer: true, trainee: false, usual: some(\"early\") }],\n        [\"agency\", { key: \"agency\", name: \"Agency\", group: \"goods\", position: \"crew\", skills: new Set<string>(), contract: 0, agency: true, trainer: false, trainee: false, usual: none }],\n        [\"off\", { key: \"off\", name: \"Off\", group: \"goods\", position: \"crew\", skills: new Set<string>(), contract: 40, agency: false, trainer: false, trainee: false, usual: none }],\n    ]),\n    groups: [{ key: \"goods\", label: \"Goods\" }],\n    // Goods' one skill, and the duty every group shares.\n    activities: [{ key: \"reach\", label: \"Reach truck\", code: \"RT\", group: some(\"goods\") }, { key: \"general\", label: \"General duties\", code: \"GD\", group: none }],\n    shifts: [{ key: \"early\", label: \"Early\", code: \"E\", start: { hour: 6n, minute: 0n }, hours: 8 }, { key: \"night\", label: \"Night\", code: \"N\", start: { hour: 22n, minute: 0n }, hours: 8 }],\n    positions: [{ key: \"crew\", label: \"Crew\", code: \"\", lead: false }, { key: \"lead\", label: \"Lead\", code: \"SV\", lead: true }],\n    agencies: [{ key: \"agency\", name: \"Staffing agency\" }],\n    rules: { rest: 10, lead: true, skill: true, trainer: true, agree: true },\n    costs: some({ currency: \"AUD\", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: none }),\n};\n\nexport const slot = { day: 0n, group: \"goods\", shift: \"early\" };\n\nexport const week: ValueTypeOf<typeof Roster.Types.Week> = {\n    status: variant(\"draft\", null), dismissed: new Set<string>(),\n    assignments: new Map([\n        [\"a\", { slot, who: variant(\"person\", \"lead\"), position: \"lead\", activity: some(\"reach\"), offset: 1, overtime: 2, agreed: none }],\n        [\"b\", { slot, who: variant(\"person\", \"agency\"), position: \"crew\", activity: some(\"general\"), offset: 0, overtime: 0, agreed: none }],\n        [\"c\", { slot, who: variant(\"request\", \"agency\"), position: \"crew\", activity: none, offset: 0, overtime: 0, agreed: none }],\n    ]),\n    requirements: new SortedMap([[slot, { positions: 4n, hours: new Map([[\"reach\", 24], [\"general\", 6]]) }]], compareFor(Roster.Types.Slot)),\n};\n\nEast.function([Roster.Types.Week, Roster.Types.Context], Roster.Types.FitResult, ($, week, context) => {\n        const coverage = $.const(Roster.coverage);\n        const answer = $.const(Roster.answer);\n        const fit = $.const(Roster.fit);\n        const request = $.const({ need: variant(\"leads\", null), slot: { day: 1n, group: \"goods\", shift: \"early\" }, start: new Date(\"2028-03-05T00:00:00Z\"),\n            week, context, coverage: coverage(week, context) }, Roster.Types.FitRequest);\n        return answer(request, fit);\n    })"
+    },
+    {
       "id": "e3-ui:roster-records.examples.tsx:rosterRecordIndexes",
       "skill": "e3-ui",
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/roster/roster-records.examples.tsx",
       "suite": "",
-      "test": "500 staff and 520 weeks of history. Indexed staff narrowing retains full-staff coverage, costs and rules. Week history is paged; hidden assignment edits Save by the original week key.",
+      "test": "500 staff and 520 weeks of history. Indexed staff narrowing retains full-staff coverage, costs and rules, and a Find fix asks the warehouse's greedy fit over every person, whatever the rail shows. Week history is paged; hidden assignment edits Save by the original week key.",
       "keywords": [
         "Roster",
         "Slice",
         "Slice.bindRecords",
         "Roster.activities",
+        "Func.bind",
+        "fit",
+        "Find",
         "records",
         "indexes",
         "paging",
@@ -43245,14 +43298,14 @@
       "imports": [
         "import { DateTimeType, East, SortedMap, compareFor, example } from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";",
-        "import { rosterWeeks as warehouseWeeks, rosterStaff as warehouseStaff, rosterActivities, rosterActivitiesByGroup, rosterConfiguration, rosterForecast, rosterProposals } from \"./roster.examples.js\";"
+        "import {"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// 500 staff and 520 weeks of history. Indexed staff narrowing retains full-staff coverage, costs and rules. Week history is paged; hidden assignment edits Save by the original week key.\n// inputs: []\n/** A larger staff pool for these indexed examples, preserving the mock's named people. */\nfunction staffSeed() {\n    const people = new Map(warehouseStaff.default);\n    const originals = [...people.values()];\n    for (let i = 0; people.size < 500; i++) {\n        const person = originals[i % originals.length]!;\n        people.set(`pool-${1000 + i}`, { ...person, name: `${person.name} ${i + 1}` });\n    }\n    return people;\n}\n\n/** Ten years of weekly records; navigation still requests only its active window. */\nfunction weekSeed() {\n    const weeks = new SortedMap(warehouseWeeks.default, compareFor(DateTimeType));\n    const originals = [...weeks.values()];\n    const first = weeks.keys().next().value!;\n    for (let i = 0; weeks.size < 520; i++) {\n        const day = new Date(first.getTime() - (i + 1) * 7 * 86400000);\n        weeks.set(day, originals[i % originals.length]!);\n    }\n    return weeks;\n}\n\nexport const indexedRosterWeeks = e3.record(\"indexed_roster_weeks\", warehouseWeeks.type, weekSeed());\n\nexport const indexedRosterWeeksPatch = e3.mutation.patch(indexedRosterWeeks);\n\nexport const indexedRosterStaff = e3.record(\"indexed_roster_staff\", warehouseStaff.type, staffSeed());\n\nexport const rosterStaffByName = e3.recordIndex(\"staff_by_name\", indexedRosterStaff, { on: [\"name\"] });\n\nexport const rosterStaffByTeam = e3.recordIndex(\"staff_by_team_name\", indexedRosterStaff, { on: [\"team\", \"name\"] });\n\nexport const rosterStaffByTrainer = e3.recordIndex(\"staff_by_trainer\", indexedRosterStaff, { on: [\"trainer\"] });\n\nexport const rosterStaffBySkill = e3.recordIndex(\"staff_by_skill\", indexedRosterStaff, { on: [\"skills\"] });\n\nexport const rosterStaffByPosition = e3.recordIndex(\"staff_by_position\", indexedRosterStaff, { on: [\"position\"] });\n\nexport const rosterStaffByAgency = e3.recordIndex(\"staff_by_agency\", indexedRosterStaff, { on: [\"agency\"] });\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const weeks = $.let(Record.bind(indexedRosterWeeks, [indexedRosterWeeksPatch]));\n        const history = $.let(Data.bindPaged(indexedRosterWeeks));\n        // Complete staff is the calculation context; visibility is a separate indexed query.\n        const staff = $.let(Data.bind(indexedRosterStaff));\n        const acts = $.let(Data.bind(rosterActivities));\n        // One rail over both records: the staff, opening on Inbound, and the activities (#1342).\n        const people = $.let(Data.bindPaged(indexedRosterStaff, { indexes: [rosterStaffByName, rosterStaffByTeam, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill] }));\n        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));\n        const slice = $.let(Slice.bindRecords(\"ex.rosterRecordIndexes\", {\n            people: { source: people, icon: { prefix: \"fas\", name: \"user\" }, search: [\"name\", \"skills\"], initial: { team: [\"inbound\"] },\n                fields: { team: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\"] }, name: { label: \"Name\" }, position: { label: \"Position\", hints: [\"lead\", \"deputy\", \"acting\", \"crew\"] },\n                    trainer: { label: \"Trainer\" }, agency: { label: \"Agency\" }, skills: { label: \"Skills\" } } },\n            activities: { source: activities, icon: { prefix: \"fas\", name: \"list-check\" }, fields: { group: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\", null] } } },\n        }, { presets: [{ id: \"trainers\", name: \"Trainers\", where: { people: { trainer: [true] } } }] }));\n        const configuration = $.let(Data.bind(rosterConfiguration));\n        const forecast = $.let(Data.bind(rosterForecast));\n        const proposals = $.let(Data.bind(rosterProposals));\n        const cfg = $.const(configuration.read());\n        return <Box width=\"100%\"  height=\"760px\"><Roster id=\"rosterRecordIndexes\" weeks={weeks} window={history}\n            people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position,\n                skills: p => p.skills, contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer,\n                trainee: p => p.trainee, usual: p => p.usual })}\n            slice={{ slice }}\n            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}\n            rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}\n            week={{ start: \"sunday\" }} view={{ layout: \"shifts\", period: \"day\", date: new Date(\"2028-03-09T00:00:00Z\") }}\n            library={[Roster.library.people(), Roster.library.activities()]} inspector />\n        </Box>;\n    }}</Reactive>)"
+      "source": "// 500 staff and 520 weeks of history. Indexed staff narrowing retains full-staff coverage, costs and rules, and a Find fix asks the warehouse's greedy fit over every person, whatever the rail shows. Week history is paged; hidden assignment edits Save by the original week key.\n// inputs: []\n/** A larger staff pool for these indexed examples, preserving the mock's named people. */\nfunction staffSeed() {\n    const people = new Map(warehouseStaff.default);\n    const originals = [...people.values()];\n    for (let i = 0; people.size < 500; i++) {\n        const person = originals[i % originals.length]!;\n        people.set(`pool-${1000 + i}`, { ...person, name: `${person.name} ${i + 1}` });\n    }\n    return people;\n}\n\n/** Ten years of weekly records; navigation still requests only its active window. */\nfunction weekSeed() {\n    const weeks = new SortedMap(warehouseWeeks.default, compareFor(DateTimeType));\n    const originals = [...weeks.values()];\n    const first = weeks.keys().next().value!;\n    for (let i = 0; weeks.size < 520; i++) {\n        const day = new Date(first.getTime() - (i + 1) * 7 * 86400000);\n        weeks.set(day, originals[i % originals.length]!);\n    }\n    return weeks;\n}\n\nexport const indexedRosterWeeks = e3.record(\"indexed_roster_weeks\", warehouseWeeks.type, weekSeed());\n\nexport const indexedRosterWeeksPatch = e3.mutation.patch(indexedRosterWeeks);\n\nexport const indexedRosterStaff = e3.record(\"indexed_roster_staff\", warehouseStaff.type, staffSeed());\n\nexport const rosterStaffByName = e3.recordIndex(\"staff_by_name\", indexedRosterStaff, { on: [\"name\"] });\n\nexport const rosterStaffByTeam = e3.recordIndex(\"staff_by_team_name\", indexedRosterStaff, { on: [\"team\", \"name\"] });\n\nexport const rosterStaffByTrainer = e3.recordIndex(\"staff_by_trainer\", indexedRosterStaff, { on: [\"trainer\"] });\n\nexport const rosterStaffBySkill = e3.recordIndex(\"staff_by_skill\", indexedRosterStaff, { on: [\"skills\"] });\n\nexport const rosterStaffByPosition = e3.recordIndex(\"staff_by_position\", indexedRosterStaff, { on: [\"position\"] });\n\nexport const rosterStaffByAgency = e3.recordIndex(\"staff_by_agency\", indexedRosterStaff, { on: [\"agency\"] });\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const weeks = $.let(Record.bind(indexedRosterWeeks, [indexedRosterWeeksPatch]));\n        const history = $.let(Data.bindPaged(indexedRosterWeeks));\n        // Complete staff is the calculation context; visibility is a separate indexed query.\n        const staff = $.let(Data.bind(indexedRosterStaff));\n        const acts = $.let(Data.bind(rosterActivities));\n        // One rail over both records: the staff, opening on Inbound, and the activities (#1342).\n        const people = $.let(Data.bindPaged(indexedRosterStaff, { indexes: [rosterStaffByName, rosterStaffByTeam, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill] }));\n        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));\n        const slice = $.let(Slice.bindRecords(\"ex.rosterRecordIndexes\", {\n            people: { source: people, icon: { prefix: \"fas\", name: \"user\" }, search: [\"name\", \"skills\"], initial: { team: [\"inbound\"] },\n                fields: { team: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\"] }, name: { label: \"Name\" }, position: { label: \"Position\", hints: [\"lead\", \"deputy\", \"acting\", \"crew\"] },\n                    trainer: { label: \"Trainer\" }, agency: { label: \"Agency\" }, skills: { label: \"Skills\" } } },\n            activities: { source: activities, icon: { prefix: \"fas\", name: \"list-check\" }, fields: { group: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\", null] } } },\n        }, { presets: [{ id: \"trainers\", name: \"Trainers\", where: { people: { trainer: [true] } } }] }));\n        const configuration = $.let(Data.bind(rosterConfiguration));\n        const forecast = $.let(Data.bind(rosterForecast));\n        const proposals = $.let(Data.bind(rosterProposals));\n        const cfg = $.const(configuration.read());\n        // The app's fit: a Find fix asks it who fits, over all 500 people, and the People tab shows its answer among what the rail shows.\n        const staffFit = $.let(Func.bind(rosterStaffFit));\n        return <Box width=\"100%\"  height=\"760px\"><Roster id=\"rosterRecordIndexes\" weeks={weeks} window={history}\n            people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position,\n                skills: p => p.skills, contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer,\n                trainee: p => p.trainee, usual: p => p.usual })}\n            slice={{ slice }} fit={staffFit}\n            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}\n            rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}\n            week={{ start: \"sunday\" }} view={{ layout: \"shifts\", period: \"day\", date: new Date(\"2028-03-09T00:00:00Z\") }}\n            library={[Roster.library.people(), Roster.library.activities()]} inspector />\n        </Box>;\n    }}</Reactive>)"
     },
     {
       "id": "e3-ui:roster-records.examples.tsx:rosterRecordIndexesMobile",
@@ -43274,9 +43327,9 @@
       "imports": [
         "import { DateTimeType, East, SortedMap, compareFor, example } from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";",
-        "import { rosterWeeks as warehouseWeeks, rosterStaff as warehouseStaff, rosterActivities, rosterActivitiesByGroup, rosterConfiguration, rosterForecast, rosterProposals } from \"./roster.examples.js\";"
+        "import {"
       ],
       "languages": [
         "tsx"
@@ -43289,7 +43342,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/roster/roster.examples.tsx",
       "suite": "",
-      "test": "The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, and whole-week Save and Publish.",
+      "test": "The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, whole-week Save and Publish, and the warehouse's greedy fit on e3, which a Find fix asks who fits.",
       "keywords": [
         "Roster",
         "Record.bind",
@@ -43298,6 +43351,10 @@
         "Slice",
         "Slice.bindRecords",
         "Data.bindPaged",
+        "Func.bind",
+        "e3.function",
+        "fit",
+        "Find",
         "BuilderFrame",
         "mobile",
         "Save",
@@ -43305,16 +43362,16 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, and whole-week Save and Publish.\n// inputs: []\nexport const rosterWeeks = e3.record(\"roster_weeks\", Roster.Types.Weeks, warehouseWeeks);\n\nexport const rosterWeeksPatch = e3.mutation.patch(rosterWeeks);\n\nexport const rosterStaff = e3.record(\"roster_staff\", DictType(StringType, WarehousePerson), warehousePeople);\n\nexport const rosterConfiguration = e3.record(\"roster_configuration\", WarehouseConfig, warehouseConfig);\n\nexport const rosterForecast = e3.record(\"roster_forecast\", DictType(DateTimeType, Roster.Types.Requirements), warehouseForecast);\n\nexport const rosterProposals = e3.record(\"roster_proposals\", ArrayType(Roster.Types.Proposal), warehouseProposals);\n\n/** Every activity by its key: each group's skills, and the duty of none (#1342). */\nexport const rosterActivities = e3.record(\"roster_activities\", DictType(StringType, WarehouseActivity), warehouseActivities);\n\nexport const rosterStaffByTeamName = e3.recordIndex(\"roster_staff_by_team_name\", rosterStaff, { on: [\"team\", \"name\"] });\n\nexport const rosterStaffByPosition = e3.recordIndex(\"roster_staff_by_position\", rosterStaff, { on: [\"position\"] });\n\nexport const rosterStaffByTrainer = e3.recordIndex(\"roster_staff_by_trainer\", rosterStaff, { on: [\"trainer\"] });\n\nexport const rosterStaffByAgency = e3.recordIndex(\"roster_staff_by_agency\", rosterStaff, { on: [\"agency\"] });\n\nexport const rosterStaffBySkill = e3.recordIndex(\"roster_staff_by_skill\", rosterStaff, { on: [\"skills\"] });\n\nexport const rosterStaffByName = e3.recordIndex(\"roster_staff_by_name\", rosterStaff, { on: [\"name\"] });\n\nexport const rosterActivitiesByGroup = e3.recordIndex(\"roster_activities_by_group\", rosterActivities, { on: [\"group\"] });\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));\n        const staff = $.let(Data.bind(rosterStaff));\n        const configuration = $.let(Data.bind(rosterConfiguration));\n        const forecast = $.let(Data.bind(rosterForecast));\n        const proposals = $.let(Data.bind(rosterProposals));\n        const cfg = $.const(configuration.read());\n        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).\n        const acts = $.let(Data.bind(rosterActivities));\n        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));\n        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));\n        const slice = $.let(Slice.bindRecords(\"ex.rosterWarehouse\", {\n            people: { source: people, icon: { prefix: \"fas\", name: \"user\" }, search: [\"name\", \"skills\"],\n                fields: { team: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\"] }, position: { label: \"Position\", hints: [\"lead\", \"deputy\", \"acting\", \"crew\"] },\n                    trainer: { label: \"Trainer\" }, agency: { label: \"Agency\" }, skills: { label: \"Skill\" }, name: { label: \"Name\" } } },\n            activities: { source: activities, icon: { prefix: \"fas\", name: \"list-check\" }, fields: { group: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\", null] } } },\n        }, { presets: [{ id: \"leads\", name: \"Leads\", where: { people: { position: [\"lead\", \"deputy\", \"acting\"] } } }] }));\n        return <Box width=\"100%\" height=\"760px\"><Roster id=\"rosterWarehouse\" weeks={weeks}\n            people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,\n                contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}\n            slice={{ slice }}\n            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}\n            rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}\n            week={{ start: \"sunday\" }} view={{ layout: \"shifts\", period: \"day\", date: new Date(\"2028-03-09T00:00:00Z\") }}\n            library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {\n                name: \"Positions\", icon: \"id-badge\", label: p => p.label, meta: p => some(p.code), drop: (_p, key) => Roster.patch({ position: key }),\n            })]} inspector />\n        </Box>;\n    }}</Reactive>)"
+      "source": "// The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, whole-week Save and Publish, and the warehouse's greedy fit on e3, which a Find fix asks who fits.\n// inputs: []\nexport const rosterWeeks = e3.record(\"roster_weeks\", Roster.Types.Weeks, warehouseWeeks);\n\nexport const rosterWeeksPatch = e3.mutation.patch(rosterWeeks);\n\nexport const rosterStaff = e3.record(\"roster_staff\", DictType(StringType, WarehousePerson), warehousePeople);\n\nexport const rosterConfiguration = e3.record(\"roster_configuration\", WarehouseConfig, warehouseConfig);\n\nexport const rosterForecast = e3.record(\"roster_forecast\", DictType(DateTimeType, Roster.Types.Requirements), warehouseForecast);\n\nexport const rosterProposals = e3.record(\"roster_proposals\", ArrayType(Roster.Types.Proposal), warehouseProposals);\n\n/** Every activity by its key: each group's skills, and the duty of none (#1342). */\nexport const rosterActivities = e3.record(\"roster_activities\", DictType(StringType, WarehouseActivity), warehouseActivities);\n\nexport const rosterStaffByTeamName = e3.recordIndex(\"roster_staff_by_team_name\", rosterStaff, { on: [\"team\", \"name\"] });\n\nexport const rosterStaffByPosition = e3.recordIndex(\"roster_staff_by_position\", rosterStaff, { on: [\"position\"] });\n\nexport const rosterStaffByTrainer = e3.recordIndex(\"roster_staff_by_trainer\", rosterStaff, { on: [\"trainer\"] });\n\nexport const rosterStaffByAgency = e3.recordIndex(\"roster_staff_by_agency\", rosterStaff, { on: [\"agency\"] });\n\nexport const rosterStaffBySkill = e3.recordIndex(\"roster_staff_by_skill\", rosterStaff, { on: [\"skills\"] });\n\nexport const rosterStaffByName = e3.recordIndex(\"roster_staff_by_name\", rosterStaff, { on: [\"name\"] });\n\nexport const rosterActivitiesByGroup = e3.recordIndex(\"roster_activities_by_group\", rosterActivities, { on: [\"group\"] });\n\n/** The warehouse's fit's body: the ready-made rule, then a greedy order — the people off that day with the most spare contract hours first, whatever their group. */\nexport const rosterStaffFitBody = East.function([Roster.Types.FitRequest], Roster.Types.FitResult, ($, req) => {\n    const answer = $.const(Roster.answer);\n    const rule = $.const(Roster.fit);\n    const weekHours = $.const(Roster.weekHours);\n    // Every person's hours this week, once: what is left of each one's contract ranks them.\n    const hours = $.const(weekHours(req.week, req.context));\n    return answer(req, East.function([Roster.Types.FitRequest, Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {\n        const verdict = $2.const(rule(request, person));\n        $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });\n        const fits = $2.const(verdict.unwrap(\"fits\"));\n        return variant(\"fits\", { score: person.contract.subtract(hours.get(person.key, () => 0.0)), why: fits.why, warn: fits.warn });\n    }));\n});\n\nexport const rosterStaffFit = e3.function(\"roster_staff_fit\", rosterStaffFitBody);\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));\n        const staff = $.let(Data.bind(rosterStaff));\n        const configuration = $.let(Data.bind(rosterConfiguration));\n        const forecast = $.let(Data.bind(rosterForecast));\n        const proposals = $.let(Data.bind(rosterProposals));\n        const cfg = $.const(configuration.read());\n        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).\n        const acts = $.let(Data.bind(rosterActivities));\n        const people = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));\n        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));\n        const slice = $.let(Slice.bindRecords(\"ex.rosterWarehouse\", {\n            people: { source: people, icon: { prefix: \"fas\", name: \"user\" }, search: [\"name\", \"skills\"],\n                fields: { team: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\"] }, position: { label: \"Position\", hints: [\"lead\", \"deputy\", \"acting\", \"crew\"] },\n                    trainer: { label: \"Trainer\" }, agency: { label: \"Agency\" }, skills: { label: \"Skill\" }, name: { label: \"Name\" } } },\n            activities: { source: activities, icon: { prefix: \"fas\", name: \"list-check\" }, fields: { group: { label: \"Group\", hints: [\"inbound\", \"picking\", \"dispatch\", null] } } },\n        }, { presets: [{ id: \"leads\", name: \"Leads\", where: { people: { position: [\"lead\", \"deputy\", \"acting\"] } } }] }));\n        // The app's fit: a Find fix asks it who fits, over every person, and the People tab shows its answer.\n        const staffFit = $.let(Func.bind(rosterStaffFit));\n        return <Box width=\"100%\" height=\"760px\"><Roster id=\"rosterWarehouse\" weeks={weeks}\n            people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,\n                contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}\n            slice={{ slice }} fit={staffFit}\n            groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}\n            rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}\n            week={{ start: \"sunday\" }} view={{ layout: \"shifts\", period: \"day\", date: new Date(\"2028-03-09T00:00:00Z\") }}\n            library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(cfg.positions, {\n                name: \"Positions\", icon: \"id-badge\", label: p => p.label, meta: p => some(p.code), drop: (_p, key) => Roster.patch({ position: key }),\n            })]} inspector />\n        </Box>;\n    }}</Reactive>)"
     },
     {
       "id": "e3-ui:roster.examples.tsx:rosterMobile",
@@ -43338,10 +43395,10 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
@@ -43371,10 +43428,10 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
@@ -43404,10 +43461,10 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
@@ -43434,10 +43491,10 @@
         "Publish"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
@@ -43467,10 +43524,10 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
@@ -43500,10 +43557,10 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [
@@ -43533,10 +43590,10 @@
         "FieldForm"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Roster } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Roster } from \"@elaraai/e3-ui\";",
         "import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from \"./warehouse.js\";"
       ],
       "languages": [

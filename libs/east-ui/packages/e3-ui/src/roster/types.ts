@@ -8,7 +8,7 @@ import {
     OptionType, SetType, StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { StatusTokenType } from "@elaraai/east-ui";
-import { ScheduleClockType } from "../schedule/types.js";
+import { ScheduleClockType, ScheduleFitType, ScheduleRefusalType } from "../schedule/types.js";
 
 /**
  * One shift of one group on one day. Day zero is the record key's UTC date.
@@ -247,18 +247,26 @@ export type RosterCoverageType = typeof RosterCoverageType;
 export const RosterProposalType = StructType({ key: StringType, week: DateTimeType, slot: RosterSlotType, person: StringType, reason: StringType });
 export type RosterProposalType = typeof RosterProposalType;
 /**
+ * What a Find fix looks for (#1334): what the app's fit is asked who fits.
+ * @property leads - Someone in a lead position
+ * @property trainers - Someone who trains others
+ * @property skill - Someone who holds this skill, by its activity key
+ */
+export const RosterNeedType = VariantType({ leads: NullType, trainers: NullType, skill: StringType });
+export type RosterNeedType = typeof RosterNeedType;
+/**
  * A corrective action offered for an issue.
- * @remarks Every data-changing action is one gesture of the shared edit session.
+ * @remarks Every data-changing action is one gesture of the shared edit session. A find edits nothing: it asks the app's fit who fits its need on the issue's slot, and is offered only when the Roster has a `fit` (#1334).
  * @property request - Request someone from this agency
  * @property agree - Mark the assignment agreed
  * @property accept - Accept this proposal key
  * @property move - Move the assignment to this shift
  * @property start - Set this start offset in hours
- * @property find - Show leads, trainers or holders of a skill in the library
+ * @property find - Find who fits this need on the issue's slot: the app's fit's answer, in the People tab
  */
 export const RosterFixType = VariantType({
     request: StringType, agree: NullType, accept: StringType, move: StringType, start: FloatType,
-    find: VariantType({ leads: NullType, trainers: NullType, skill: StringType }),
+    find: RosterNeedType,
 });
 export type RosterFixType = typeof RosterFixType;
 /**
@@ -289,3 +297,34 @@ export type RosterIssueType = typeof RosterIssueType;
  */
 export const RosterCheckContextType = StructType({ start: DateTimeType, week: RosterWeekType, context: RosterContextType, coverage: DictType(RosterSlotType, RosterCoverageType) });
 export type RosterCheckContextType = typeof RosterCheckContextType;
+/** Why someone does not fit a need: Schedule's, shared with the Allocation (#1334). */
+export const RosterRefusalType = ScheduleRefusalType;
+export type RosterRefusalType = typeof RosterRefusalType;
+/** One verdict of the app's fit: Schedule's, shared with the Allocation — it fits with a score, a reason and a warning, or it is refused (#1334). */
+export const RosterFitType = ScheduleFitType;
+export type RosterFitType = typeof RosterFitType;
+/**
+ * One question to the app's fit (#1334): who fits a Find fix's need on its
+ * issue's slot, over the drafted week.
+ * @remarks The context is complete — every person, whatever the rail shows — as the checks read it.
+ * @property need - What is looked for
+ * @property slot - The issue's day, group and shift
+ * @property start - The week's first day
+ * @property week - The drafted week
+ * @property context - Complete staff and configuration
+ * @property coverage - The drafted week's coverage for every configured slot
+ */
+export const RosterFitRequestType = StructType({
+    need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, week: RosterWeekType, context: RosterContextType,
+    coverage: DictType(RosterSlotType, RosterCoverageType),
+});
+export type RosterFitRequestType = typeof RosterFitRequestType;
+/**
+ * The app's fit's answer (#1334). It echoes its question, so the Roster
+ * matches each answer to the question it asked.
+ * @property need - The need answered
+ * @property slot - The slot answered
+ * @property people - A verdict for every person, by staff key; the People tab shows the fits, best first
+ */
+export const RosterFitResultType = StructType({ need: RosterNeedType, slot: RosterSlotType, people: DictType(StringType, RosterFitType) });
+export type RosterFitResultType = typeof RosterFitResultType;

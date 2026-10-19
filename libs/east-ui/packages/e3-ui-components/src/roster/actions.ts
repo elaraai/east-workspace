@@ -8,12 +8,11 @@ import { SortedMap, none, some, variant, type ValueTypeOf } from "@elaraai/east"
 import type { RosterPatchType } from "@elaraai/e3-ui/internal";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { RosterEditing } from "./editing.js";
+import type { RosterFind } from "./fit.js";
 import { activityOf, assignmentFor, availableProposals, compareString, copyWeek, sameSlot, type Assignment, type Issue, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
 
 /** Where a place command gets its person or request. */
 export type RosterSource = { type: "person" | "agency" | "assignment" | "proposal"; key: string };
-/** What a Find fix found: the leads, the trainers, or the holders of a skill — a result in the People tab, with its chip (#1342). */
-export type PeopleFocus = { type: "leads" | "trainers" } | { type: "skill"; key: string } | undefined;
 /** All mutation paths use these guarded commands and one session transaction. */
 export interface RosterCommands {
     editing: RosterEditing;
@@ -30,8 +29,11 @@ export interface RosterCommands {
     copy(previous: Week): void;
     publish(): void;
 }
-/** Every draft is detached before the command changes it; record state stays untouched. */
-export function rosterCommands(value: RosterValue, editing: RosterEditing, start: Date, select: (selection: Selection | undefined) => void, find: (focus: PeopleFocus) => void): RosterCommands {
+/**
+ * Every draft is detached before the command changes it; record state stays untouched. A find fix edits nothing: it hands its
+ * need and its issue's slot to `find`, which asks the app's fit (#1334).
+ */
+export function rosterCommands(value: RosterValue, editing: RosterEditing, start: Date, select: (selection: Selection | undefined) => void, find: (asked: RosterFind) => void): RosterCommands {
     const { week } = editing;
     const canEdit = () => editing.available && week.status.type === "draft";
     const unavailable = () => canEdit() ? undefined : "This week is not available to edit.";
@@ -145,7 +147,7 @@ export function rosterCommands(value: RosterValue, editing: RosterEditing, start
         fix(issue) {
             if (issue.fix.type === "none") return;
             const fix = issue.fix.value;
-            if (fix.type === "find") { find(fix.value.type === "skill" ? { type: "skill", key: fix.value.value } : { type: fix.value.type }); return; }
+            if (fix.type === "find") { if (issue.slot.type === "some") find({ need: fix.value, slot: issue.slot.value }); return; }
             if (fix.type === "accept") return api.accept(fix.value);
             if (fix.type === "request") return issue.slot.type === "some" ? api.place({ type: "agency", key: fix.value }, issue.slot.value) : undefined;
             if (issue.assignment.type !== "some") return;

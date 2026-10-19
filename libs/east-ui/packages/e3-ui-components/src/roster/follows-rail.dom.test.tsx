@@ -10,8 +10,9 @@
  * assignment's activity choices — and each tab counts what it shows, `People 37
  * of 69`; a tab its source empties says so and clears that source alone, the
  * People tab above its agency requests, which stay; the People tab has no
- * filter of its own, and a Find fix is a result in it with a chip that clears
- * it; the rail's fields each offer something to choose, its Skill a search;
+ * filter of its own, and a Find fix's result — the app's fit's answer (#1334),
+ * among what the rail shows — is shown in it with a chip that clears it; the
+ * rail's fields each offer something to choose, its Skill a search;
  * coverage and costs read every person and activity, whatever the rail hides.
  * A filter change builds nothing again: the Roster's body runs no more, and no
  * payload is decoded (#1354).
@@ -19,7 +20,7 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { OptionType, StringType, compareFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { readRosterSource, rosterSourceKey } from "./identity.js";
 import { act, assignment, narrow, narrowing, open, programOf, rosterHarness, settle, slot, width, type Choice } from "./harness.test-utils.js";
@@ -41,8 +42,6 @@ const values = (field: string, chosen: readonly string[]) => new Map<string, Cho
 type Person = ValueTypeOf<typeof ex.rosterStaff.type> extends Map<string, infer P> ? P : never;
 /** The staff's keys whose row passes the test, in key order. */
 const staff = (test: (person: Person) => boolean) => [...h.read(ex.rosterStaff)].filter(([, person]) => test(person)).map(([key]) => key);
-const byKey = compareFor(StringType);
-const sorted = (keys: readonly string[]) => [...keys].sort(byKey);
 /** The inspector summary's figure under a label: `Cost`, `Filled`. */
 const stat = (c: HTMLElement, label: string) => within(slot(c, "end")).getByText(label, { selector: "div" }).nextElementSibling?.textContent;
 /** Opens a form's select, reads what it offers, and closes it again. */
@@ -123,24 +122,23 @@ describe("the Roster's Library follows the rail (#1342)", () => {
         await waitFor(() => expect(tabs(c)[1]).toBe("Activities 17"));
     });
 
-    test("the People tab has no segment and no Filter menu; a Find fix finds exactly its people among what the rail shows, with a chip that clears it", async () => {
+    test("the People tab has no segment and no Filter menu; a Find fix's result is the app's fit's answer among what the rail shows, with a chip that clears it", async () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
         expect(within(pane(c, "people")).queryByRole("radiogroup")).toBeNull();
         expect(within(pane(c, "people")).queryByRole("button", { name: /^Filter/ })).toBeNull();
         await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
-        await press(within(slot(c, "end")).getAllByRole("button", { name: "Find a trainer" })[0]);
+        await press(within(slot(c, "end")).getAllByRole("button", { name: "Find a lead" })[0]);
         const chip = await waitFor(() => { const el = pane(c, "people").querySelector<HTMLElement>("[data-roster-find] button"); expect(el).not.toBeNull(); return el!; });
-        // The chip shows what the find found, and is named for what pressing it does.
-        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["Find · Trainers", "Clear find · Trainers"]);
-        const trainers = staff(person => person.trainer);
-        expect(trainers.length).toBeGreaterThan(0);
-        expect(sorted(people(c))).toEqual(sorted(trainers));
-        expect(tabs(c)[0]).toBe(`People ${trainers.length} of 69`);
-        // Under the rail, the trainers it shows; the agency's request card stays.
+        // The chip shows what the find looks for, and is named for what pressing it does.
+        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["Find · Leads", "Clear find · Leads"]);
+        // The fit says J. Quartz, the one lead off on Thursday, fits Dispatch's early shift (#1334).
+        await waitFor(() => expect(people(c)).toEqual(["jquartz"]));
+        expect(tabs(c)[0]).toBe("People 1 of 69");
+        // Under the rail, the fits it shows: J. Quartz is Dispatch's, so Inbound shows no one; the agency's request card stays.
         await narrow(store, "rosterWarehouse", "people", values("team", [text("inbound")]));
-        const inbound = staff(person => person.trainer && person.team === "inbound");
-        await waitFor(() => expect(sorted(people(c))).toEqual(sorted(inbound)));
-        expect(tabs(c)[0]).toBe(`People ${inbound.length} of 69`);
+        await waitFor(() => expect(people(c)).toEqual([]));
+        expect(request(c)).not.toBeNull();
+        expect(tabs(c)[0]).toBe("People 0 of 69");
         await press(chip);
         expect(pane(c, "people").querySelector("[data-roster-find]")).toBeNull();
         expect(tabs(c)[0]).toBe(`People ${staff(person => person.team === "inbound").length} of 69`);
@@ -148,7 +146,7 @@ describe("the Roster's Library follows the rail (#1342)", () => {
 
     test("a Find that finds no one says `No one found` above the agency requests, with no Clear filters: its chip clears it", async () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
-        // Dispatch has no trainer.
+        // Every trainer is rostered on Thursday, and Dispatch has none: the fit finds no one, whatever the rail shows.
         expect(staff(person => person.trainer && person.team === "dispatch")).toEqual([]);
         await narrow(store, "rosterWarehouse", "people", values("team", [text("dispatch")]));
         await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));

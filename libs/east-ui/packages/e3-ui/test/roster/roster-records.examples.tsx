@@ -5,9 +5,12 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import { DateTimeType, East, SortedMap, compareFor, example } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-import { Data, Record, Roster } from "@elaraai/e3-ui";
+import { Data, Func, Record, Roster } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
-import { rosterWeeks as warehouseWeeks, rosterStaff as warehouseStaff, rosterActivities, rosterActivitiesByGroup, rosterConfiguration, rosterForecast, rosterProposals } from "./roster.examples.js";
+import {
+    rosterWeeks as warehouseWeeks, rosterStaff as warehouseStaff, rosterActivities, rosterActivitiesByGroup, rosterConfiguration, rosterForecast, rosterProposals,
+    rosterStaffFit,
+} from "./roster.examples.js";
 
 /** A larger staff pool for these indexed examples, preserving the mock's named people. */
 function staffSeed() {
@@ -44,8 +47,8 @@ export const rosterStaffByPosition = e3.recordIndex("staff_by_position", indexed
 export const rosterStaffByAgency = e3.recordIndex("staff_by_agency", indexedRosterStaff, { on: ["agency"] });
 
 export const rosterRecordIndexes = example({
-    description: "500 staff and 520 weeks of history. Indexed staff narrowing retains full-staff coverage, costs and rules. Week history is paged; hidden assignment edits Save by the original week key.",
-    keywords: ["Roster", "Slice", "Slice.bindRecords", "Roster.activities", "records", "indexes", "paging", "mobile"], inputs: [],
+    description: "500 staff and 520 weeks of history. Indexed staff narrowing retains full-staff coverage, costs and rules, and a Find fix asks the warehouse's greedy fit over every person, whatever the rail shows. Week history is paged; hidden assignment edits Save by the original week key.",
+    keywords: ["Roster", "Slice", "Slice.bindRecords", "Roster.activities", "Func.bind", "fit", "Find", "records", "indexes", "paging", "mobile"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(indexedRosterWeeks, [indexedRosterWeeksPatch]));
         const history = $.let(Data.bindPaged(indexedRosterWeeks));
@@ -65,11 +68,13 @@ export const rosterRecordIndexes = example({
         const forecast = $.let(Data.bind(rosterForecast));
         const proposals = $.let(Data.bind(rosterProposals));
         const cfg = $.const(configuration.read());
+        // The app's fit: a Find fix asks it who fits, over all 500 people, and the People tab shows its answer among what the rail shows.
+        const staffFit = $.let(Func.bind(rosterStaffFit));
         return <Box width="100%"  height="760px"><Roster id="rosterRecordIndexes" weeks={weeks} window={history}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position,
                 skills: p => p.skills, contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer,
                 trainee: p => p.trainee, usual: p => p.usual })}
-            slice={{ slice }}
+            slice={{ slice }} fit={staffFit}
             groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}

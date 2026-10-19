@@ -305,9 +305,16 @@ Seek the active week, the previous Copy source and the open picker's month only;
 do not read the whole record to build the picker. Test reverse navigation.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
-rail fields of the staff record (#1342). A Find fix's leads, trainers or skill
-holders are a result in the People tab, with a chip that clears it; never a
-second search/filter implementation. Keep typed
+rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334):
+`fit` is `Func.bind` of an `e3.function` from `Roster.Types.FitRequest` to
+`Roster.Types.FitResult`, the Allocation's contract — its issue's need and slot
+over the drafted week and the complete staff, whatever the rail shows. Its
+answer is a result in the People tab — the fits among what the rail shows,
+best first in the fit's order, each card with the fit's reason — with a chip
+that clears it; never a second search/filter implementation, and the renderer
+decides no one itself. Without `fit` no Find fix is offered. `Roster.fit` (the
+need held, not rostered that day, rest kept; the slot's group, then spare
+contract hours) and `Roster.answer` are the ready-made East parts. Keep typed
 inspector callbacks on the same guarded commands as dragging and mobile
 forms; they cannot replace assignment identity or bypass published/read-only
 state. Pure coverage and rule functions live in e3-ui and are compiled for

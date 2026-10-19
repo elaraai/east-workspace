@@ -8,10 +8,11 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { RosterComponent } from "@elaraai/e3-ui/internal";
 import { BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters, usePersistedState, useTrackedEvaluation, type HistoryAction } from "@elaraai/east-ui-components";
-import { rosterCommands, type PeopleFocus } from "./actions.js";
+import { rosterCommands } from "./actions.js";
 import { useRosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
 import { useRosterEditing } from "./editing.js";
+import { sameFind, useRosterFit, type RosterFind } from "./fit.js";
 import { RosterFooter } from "./footer.js";
 import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
@@ -43,15 +44,16 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const [selection, setSelection] = useState<Selection>();
     const [tab, setTab] = useState("details");
     const [libraryTab, setLibraryTab] = useState<string>();
-    const [focus, setFocus] = useState<PeopleFocus>();
+    // A Find fix's question: its need on its issue's slot, which the People tab shows the app's fit's answer to (#1334).
+    const [find, setFind] = useState<RosterFind>();
     const [error, setError] = useState<string>();
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     const select = useCallback((next: Selection | undefined) => { setSelection(next); setTab("details"); if (next !== undefined) revealPane("Inspector"); }, []);
-    const find = useCallback((next: PeopleFocus) => { setFocus(next); setLibraryTab("people"); revealPane("Library"); }, []);
     const weekEpoch = window.start.getTime();
-    useEffect(() => { setSelection(undefined); setError(undefined); }, [weekEpoch]);
+    // Another week: its own selection, and no find — a find is its issue's, in the week it was asked of.
+    useEffect(() => { setSelection(undefined); setError(undefined); setFind(undefined); }, [weekEpoch]);
     const recipe = useSlotRecipe({ key: "rosterBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as RosterStyles, [recipe]);
     const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
@@ -66,15 +68,25 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
     const allIssues: Issue[] = [...builtIn, ...(custom.result.ok ? custom.result.value : []), ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
         title: `${value.people.find(person => person.key === p.person)?.name ?? p.person} · proposed`, detail: p.reason, slot: some(p.slot), assignment: none, flag: none, fix: some(variant("accept", p.key)) }))];
     const issues = allIssues.filter(i => window.view.layout === "people" || window.view.period === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day);
+    // The app's fit (#1334): a Find fix asks it who fits over the complete staff, and the People tab shows its answer.
+    const fit = useRosterFit(value, window.start, editing.week, context, find);
+    const { error: fitError, retry: retryFit, pending: finding } = fit;
+    const findFix = useCallback((next: RosterFind) => {
+        setFind(next); setLibraryTab("people"); revealPane("Library");
+        // Pressed again after the fit failed, a find is asked again.
+        if (fitError !== undefined) retryFit();
+    }, [fitError, retryFit]);
+    const isFinding = useCallback((asked: RosterFind) => finding && find !== undefined && sameFind(find, asked), [finding, find]);
     // Commands update the selected item without changing the user's pane/tab.
     // Only an explicit inspection click uses `select` to reveal Details.
-    const commands = rosterCommands(value, { ...editing, available: editing.available && !visibility.loading && visibility.error === undefined }, window.start, setSelection, find);
+    const commands = rosterCommands(value, { ...editing, available: editing.available && !visibility.loading && visibility.error === undefined }, window.start, setSelection, findFix);
     const drag = useRosterDrag({ value, commands, storageKey: key, narrow, start: window.start, onError: setError });
     const viewProps = { value, week: editing.week, held: editing.held, start: window.start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, issues, proposals, selection, select, commands, drag, onError: setError };
-    const start = useRosterLibrary({ ...viewProps, storageKey: key, focus, onClearFocus: () => setFocus(undefined), tab: libraryTab, onTab: setLibraryTab,
+    const start = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
+        find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined),
         shown: { people: peopleShown, activities: activitiesShown } });
-    const end = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab });
+    const end = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding } });
     const onIssues = () => { setTab("issues"); revealPane("Inspector"); };
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, words, weeks: data.weeks, issues, onIssues, onAction, onPickerDates: setPickerDates, onDisplay: next => setDisplay({ ...display, ...next }) });
@@ -95,6 +107,8 @@ function RosterFrame({ value: source, storageKey }: EastChakraRosterProps) {
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The roster's additional checks could not run. Built-in checks are still shown." />}
             {visibility.error !== undefined && <BannerView status="error" title="Staff results unavailable" description={visibility.error} actions={<Button size="xs" variant="outline" onClick={visibility.retry}>Retry</Button>} />}
             {activities.error !== undefined && <BannerView status="error" title="Activity results unavailable" description={activities.error} actions={<Button size="xs" variant="outline" onClick={activities.retry}>Retry</Button>} />}
+            {/* A find the app's fit failed to answer (R4): its message, and Retry, while the find stands. */}
+            {find !== undefined && fitError !== undefined && <BannerView status="warning" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={retryFit}>Retry</Button>} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<RosterFooter styles={styles} narrow={narrow} />}>
             <Box ref={main} css={styles.main} data-roster-main="" aria-busy={(data.loading && data.error === undefined) || visibility.loading} inert={visibility.loading || visibility.error !== undefined ? true : undefined} data-roster-narrow={narrow ? "" : undefined}>{data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Roster unavailable" message={data.error} /> : <RosterViews {...viewProps} />}</Box>

@@ -8,6 +8,7 @@ import { decodeBeast2For, encodeBeast2For, type EastIR } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "./roster-records.examples.js";
+import { rosterStaffFit, rosterWarehouse } from "./roster.examples.js";
 
 for (const example of [ex.rosterRecordIndexes, ex.rosterRecordIndexesMobile]) {
     test(example.description, () => {
@@ -20,3 +21,9 @@ for (const example of [ex.rosterRecordIndexes, ex.rosterRecordIndexesMobile]) {
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(ui)).type, ui.type);
     });
 }
+
+test("R5 — rosterWarehouse and rosterRecordIndexes bind the warehouse's greedy fit, `roster_staff_fit`, as their tasks' one bound function; the mobile example binds none, and offers no Find", () => {
+    assert.deepEqual(deriveManifest(rosterWarehouse.fn).functions, [rosterStaffFit.name]);
+    assert.deepEqual(deriveManifest(ex.rosterRecordIndexes.fn).functions, [rosterStaffFit.name]);
+    assert.deepEqual(deriveManifest(ex.rosterRecordIndexesMobile.fn).functions, []);
+});

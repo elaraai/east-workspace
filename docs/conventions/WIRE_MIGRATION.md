@@ -246,3 +246,12 @@ Each wire changed under this rule, with the kind it is.
   Packages are re-exported, and the dataflow computes each UI task's output
   again under the new type. A UI task's output is not stored state, so no
   repository upgrade step ships with it.
+- **e3-ui's `Roster` asks the app's fit (#1319, #1334)** — package-borne. The
+  `Roster` extension's payload gains `fit`, after `check`: the binding of the
+  app's `e3.function` a Find fix asks who fits (`Option<FuncBinding>`), none
+  when the Roster offers no Find. A fix's `find` names its need as
+  `Roster.Types.Need`, which holds the same cases as before, so a fix encodes
+  as it did. A UI value encoded under either payload type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it.

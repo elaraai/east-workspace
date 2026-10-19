@@ -11,10 +11,18 @@ import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { AssignmentActions, AssignmentFields, PlaceAction, RequirementFields } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, money, type RosterViewsProps } from "./views.js";
+import type { RosterFind } from "./fit.js";
 import { DAY, assignmentTimes, groupSkills, requirementOf, sameAssignment, sameSlot, viewTotals, type Assignment, type Issue, type Person, type RosterStyles, type Slot } from "./model.js";
 
-type Args = RosterViewsProps & { storageKey: string; tab: string; onTab: (tab: string) => void };
-function fixLabel(issue: Issue, props: RosterViewsProps) {
+/** The Find fixes, as the inspector offers them (#1334): only with the app's fit, and reading `Finding…` while their find is asked. */
+export interface FindFixes {
+    /** Whether the app bound a fit: without one no Find fix is offered, though `Roster.check` still reports its issue (R2). */
+    offered: boolean;
+    /** Whether this find is asked and its answer has not landed (R4). */
+    finding: (asked: RosterFind) => boolean;
+}
+type Args = RosterViewsProps & { storageKey: string; tab: string; onTab: (tab: string) => void; find: FindFixes };
+function fixLabel(issue: Issue, props: Args) {
     if (issue.fix.type === "none") return "";
     const fix = issue.fix.value;
     switch (fix.type) {
@@ -23,10 +31,11 @@ function fixLabel(issue: Issue, props: RosterViewsProps) {
         case "request": return "Request agency";
         case "move": return `Move to ${props.value.shifts.find(s => s.key === fix.value)?.label ?? fix.value}`;
         case "start": return `Start ${props.format.number(fix.value)} h later`;
-        case "find": return fix.value.type === "skill" ? "Find skilled staff" : fix.value.type === "leads" ? "Find a lead" : "Find a trainer";
+        case "find": return issue.slot.type === "some" && props.find.finding({ need: fix.value, slot: issue.slot.value }) ? "Finding…"
+            : fix.value.type === "skill" ? "Find skilled staff" : fix.value.type === "leads" ? "Find a lead" : "Find a trainer";
     }
 }
-export function RosterIssues({ props, issues }: { props: RosterViewsProps; issues: readonly Issue[] }) {
+export function RosterIssues({ props, issues }: { props: Args; issues: readonly Issue[] }) {
     return <>{issues.map((issue, index) => <Box key={index} css={props.styles.issue} data-tone={issue.tone.type} data-roster-issue={issue.kind.type}>
         <chakra.button type="button" css={props.styles.issueTitle} onClick={() => {
             if (issue.slot.type === "some") props.setView({ ...props.view, date: props.start.getTime() + Number(issue.slot.value.day) * DAY });
@@ -34,7 +43,8 @@ export function RosterIssues({ props, issues }: { props: RosterViewsProps; issue
             else if (issue.fix.type === "some" && issue.fix.value.type === "accept") props.select({ type: "proposal", key: issue.fix.value.value });
             else if (issue.slot.type === "some") props.select({ type: "slot", slot: issue.slot.value });
         }}>{issue.title}</chakra.button><Box css={props.styles.issueDetail}>{issue.detail}</Box>
-        {issue.fix.type === "some" && (props.commands.editing.available || issue.fix.value.type === "find") && <Box css={props.styles.issueActions}><Button size="xs" variant="outline" onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
+        {/* A find edits nothing, so it is offered on a week that can't be edited — but only with the app's fit, which decides who fits. */}
+        {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : props.commands.editing.available) && <Box css={props.styles.issueActions}><Button size="xs" variant="outline" onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
     </Box>)}</>;
 }
 function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot }) {

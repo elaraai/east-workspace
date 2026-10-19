@@ -5,12 +5,13 @@
 
 import {
     ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, NullType,
-    OptionType, StringType, StructType, VariantType, none, some, variant,
+    OptionType, StringType, StructType, VariantType, isTypeEqual, none, printType, some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, Editing, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { DataPagedHandleType } from "../bind/data.js";
+import { FuncBindingType, type BoundFunc } from "../bind/func.js";
 import { Record, RecordBindingType } from "../bind/record.js";
 import { recordSources } from "../utils/record-sources.js";
 import * as T from "./types.js";
@@ -18,6 +19,7 @@ import { ScheduleClockType } from "../schedule/types.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterCheck, rosterRest } from "./rules.js";
 import { rosterActivities } from "./activities.js";
+import { rosterAnswer, rosterFit } from "./fit.js";
 import { rosterPeople } from "./people.js";
 import {
     RosterAuthorTabType, RosterPatchType, buildRosterTab, rosterActivitiesTab, rosterLibraryTab, rosterPatch, rosterPeopleTab,
@@ -46,6 +48,7 @@ export const RosterWindowType = DataPagedHandleType(T.RosterWeeksType);
  * The closed renderer payload. BuilderFrame is internal to the renderer.
  * @property people - Every person: the calculation scope, whatever the slice shows
  * @property activities - Every activity: each group's skills and the duties of no group
+ * @property fit - The app's fit, by its `e3.function`'s name: who fits a Find fix's need; `none`, no Find fix is offered (#1334)
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people and the activities that show (#1342)
  * @property slice - The narrowing's chrome: a Slice over the staff's and the activities' records, one rail
  */
@@ -57,6 +60,7 @@ export const RosterPayloadType = StructType({
     positions: ArrayType(T.RosterPositionType), agencies: ArrayType(T.RosterAgencyType), rules: T.RosterRulesType,
     costs: OptionType(T.RosterCostsType), forecast: DictType(DateTimeType, T.RosterRequirementsType), proposals: ArrayType(T.RosterProposalType),
     check: OptionType(FunctionType([T.RosterCheckContextType], ArrayType(T.RosterIssueType))),
+    fit: OptionType(FuncBindingType),
     library: ArrayType(RosterLibraryTabType), inspector: OptionType(RosterInspectorType),
     narrowed: StructType({ people: OptionType(RowSourceType(ArrayType(StringType))), activities: OptionType(RowSourceType(ArrayType(StringType))) }),
     slice: OptionType(RecordSlicesChromeType),
@@ -103,6 +107,13 @@ export interface RosterProps {
     proposals?: SubtypeExprOrValue<ArrayType<T.RosterProposalType>>;
     /** Additional warnings over the complete draft; exceptions are reported without hiding built-in checks. */
     check?: SubtypeExprOrValue<FunctionType<[T.RosterCheckContextType], ArrayType<T.RosterIssueType>>>;
+    /**
+     * The app's fit: `Func.bind` of its `e3.function` from `Roster.Types.FitRequest` to `Roster.Types.FitResult`. A Find fix (find a
+     * lead, a trainer, skilled staff) asks it who fits the issue's need on its slot, over the complete staff, and the People tab
+     * shows its fits best first, each with its reason. `Roster.fit` is the ready-made rule, `Roster.answer` maps a rule over every
+     * person. Omitted, no Find fix is offered; `Roster.check` still reports the issue.
+     */
+    fit?: BoundFunc<[T.RosterFitRequestType], T.RosterFitResultType>;
     /** Tabs to show; omitted, no library pane. */
     library?: readonly RosterLibraryTab[];
     /** Inspector with shared forms, or author-provided typed forms. */
@@ -143,6 +154,27 @@ function hasField(value: unknown, field: string): boolean {
     return type.type === "Array" && (type.value as EastType).type === "Struct" && field in (type.value as { fields: object }).fields;
 }
 
+/**
+ * The fit's binding, checked: `Func.bind` of an `e3.function` from `Roster.Types.FitRequest` to `Roster.Types.FitResult`.
+ *
+ * @param fit - What the app passed as `fit`
+ * @returns The binding's descriptor, which names the function
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ */
+function fitBinding(fit: unknown): ExprType<typeof FuncBindingType> {
+    const fitType = fit instanceof Expr ? Expr.type(fit) as EastType : undefined;
+    const fields = fitType?.type === "Struct" ? fitType.fields : undefined;
+    const call = fields?.["call"], read = fields?.["read"];
+    const asked = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0]! : undefined;
+    const answered = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
+    if (asked === undefined || answered === undefined || fields?.["binding"] === undefined) {
+        throw new Error("Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest to Roster.Types.FitResult");
+    }
+    if (!isTypeEqual(asked, T.RosterFitRequestType)) throw new Error(`Roster: \`fit\` asks ${printType(asked)}, not Roster.Types.FitRequest`);
+    if (!isTypeEqual(answered, T.RosterFitResultType)) throw new Error(`Roster: \`fit\` answers ${printType(answered)}, not Roster.Types.FitResult`);
+    return (fit as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding;
+}
+
 /** Assembles a payload; domain and interaction programs live outside the tag. @internal */
 export function createRosterPayload(props: RosterProps): ExprType<typeof RosterPayloadType> {
     if (Array.isArray(props.groups) && props.groups.length === 0) throw new Error("Roster: groups must not be empty");
@@ -159,6 +191,7 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
         throw new Error("Roster: groups no longer carry their skills — each skill is an activity of its group in `activities` (Roster.activities)");
     }
     const narrowing = recordSources(props.slice, { builder: "Roster", names: ["people", "activities"], what: "its people and its activities" });
+    const fit = props.fit === undefined ? undefined : fitBinding(props.fit);
     const seen = new Set<string>();
     const library = (props.library ?? []).map(tab => {
         const key = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
@@ -177,7 +210,7 @@ export function createRosterPayload(props: RosterProps): ExprType<typeof RosterP
             activities: props.activities ?? [], positions: props.positions ?? [{ key: "associate", label: "Associate", code: "", lead: false }],
             agencies: props.agencies ?? [], rules: { rest: props.rules?.rest ?? 10.0, lead: props.rules?.lead ?? true, trainer: props.rules?.trainer ?? true, skill: props.rules?.skill ?? true, agree: props.rules?.agree ?? true },
             costs: props.costs === undefined ? none : some(props.costs), forecast: props.forecast ?? new Map(), proposals: props.proposals ?? [],
-            check: props.check === undefined ? none : some(props.check), library,
+            check: props.check === undefined ? none : some(props.check), fit: fit === undefined ? none : some(fit), library,
             inspector: props.inspector === undefined || props.inspector === false ? none : some({
                 assignment: forms.assignment === undefined ? none : some(forms.assignment),
                 requirement: forms.requirement === undefined ? none : some(forms.requirement),
@@ -208,6 +241,10 @@ export interface RosterNamespace {
     coverage: typeof rosterCoverage;
     /** Computes built-in warnings without a browser. */
     check: typeof rosterCheck;
+    /** The ready-made fit: one person's verdict for a Find fix's need on its slot. */
+    fit: typeof rosterFit;
+    /** A fit's answer from a rule per person. */
+    answer: typeof rosterAnswer;
     /** Computes each person's total hours. */
     weekHours: typeof rosterWeekHours;
     /** Computes rest before and after an assignment. */
@@ -224,6 +261,7 @@ export interface RosterNamespace {
         Agency: T.RosterAgencyType; Person: T.RosterPersonType; Rules: T.RosterRulesType; Costs: T.RosterCostsType;
         Context: T.RosterContextType; CoverageLine: T.RosterCoverageLineType; Coverage: T.RosterCoverageType;
         Proposal: T.RosterProposalType; Fix: T.RosterFixType; Issue: T.RosterIssueType; CheckContext: T.RosterCheckContextType;
+        Need: T.RosterNeedType; FitRequest: T.RosterFitRequestType; FitResult: T.RosterFitResultType; Fit: T.RosterFitType; Refusal: T.RosterRefusalType;
         Patch: typeof RosterPatchType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType;
     };
 }
@@ -235,7 +273,8 @@ export interface RosterNamespace {
  */
 export const Roster: RosterNamespace = Object.assign(
     (props: RosterProps): UIElement => RosterComponent.Root(createRosterPayload(props)),
-    { people: rosterPeople, activities: rosterActivities, coverage: rosterCoverage, check: rosterCheck, weekHours: rosterWeekHours, rest: rosterRest, patch: rosterPatch,
+    { people: rosterPeople, activities: rosterActivities, coverage: rosterCoverage, check: rosterCheck, fit: rosterFit, answer: rosterAnswer,
+        weekHours: rosterWeekHours, rest: rosterRest, patch: rosterPatch,
         library: { people: rosterPeopleTab, activities: rosterActivitiesTab, tab: rosterLibraryTab },
         Types: {
             Clock: ScheduleClockType, Slot: T.RosterSlotType, Who: T.RosterWhoType, Assignment: T.RosterAssignmentType, Requirement: T.RosterRequirementType,
@@ -244,6 +283,7 @@ export const Roster: RosterNamespace = Object.assign(
             Agency: T.RosterAgencyType, Person: T.RosterPersonType, Rules: T.RosterRulesType, Costs: T.RosterCostsType,
             Context: T.RosterContextType, CoverageLine: T.RosterCoverageLineType, Coverage: T.RosterCoverageType,
             Proposal: T.RosterProposalType, Fix: T.RosterFixType, Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextType,
+            Need: T.RosterNeedType, FitRequest: T.RosterFitRequestType, FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType,
             Patch: RosterPatchType, Layout: RosterLayoutType, Period: RosterPeriodType,
         },
     },

@@ -387,9 +387,17 @@ Seek the active week, the previous Copy source and the open picker's month only;
 do not read the whole record to build the picker. Test reverse navigation.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
-rail fields of the staff record (#1342). A Find fix's leads, trainers or skill
-holders are a result in the People tab, with a chip that clears it; never a
-second search/filter implementation. Keep typed
+rail fields of the staff record (#1342). A Find fix asks the app's fit
+(`roster/fit.ts`, #1334) through the shared fit (`shared/func/use-fit.ts`, the
+Allocation's machinery over its own questions): one question in flight, the
+latest asked first, answers kept by question and drafts, asked again when the
+drafts change. The People tab shows the answer — the fits among what the rail
+shows, best first in the fit's order, each card's reason the shared Library's
+note line — with a chip that clears it. While its answer for the drafts as
+they are is on its way the tab shows no verdict, only what the rail shows,
+busy (F2), and the fix reads `Finding…`; a failure is a warning banner with
+Retry. Never a second search/filter implementation, and no local
+predicate decides who fits. Without the payload's `fit`, no Find button. Keep typed
 inspector callbacks on the same guarded commands as dragging and mobile
 forms; they cannot replace assignment identity or bypass published/read-only
 state. Pure coverage and rule functions live in e3-ui and are compiled for

@@ -4,12 +4,14 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DateTimeType, DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, none, some } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, none, some, variant, type EastTypeValue } from "@elaraai/east";
+import type { PlatformFunction } from "@elaraai/east/internal";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui";
+import e3 from "@elaraai/e3";
 import { Data, Roster } from "@elaraai/e3-ui";
-import { Record, RosterAuthorTabType, RosterPayloadType, buildRosterTab, createRosterPayload, type RosterProps } from "@elaraai/e3-ui/internal";
+import { Func, Record, RosterAuthorTabType, RosterPayloadType, buildRosterTab, createRosterPayload, funcBindPlatformFn, type RosterProps } from "@elaraai/e3-ui/internal";
 import { memoryRecords } from "../schedule/memory-records.js";
 import { warehouseConfig } from "./warehouse.js";
 import * as ex from "./roster.examples.js";
@@ -92,6 +94,35 @@ test("Roster.activities reads a keyed record in its order: each skill with its g
     assert.deepEqual(labelsOnly(new SortedMap([["pick", { label: "Order picking", code: "OP", group: some("picking") }]], compareFor(StringType))), [{ key: "pick", label: "Order picking", code: "", group: none }]);
     assert.throws(() => East.function([DictType(DateTimeType, Roster.Types.Activity)], Skills, (_$, rows) => Roster.activities(rows as never, { label: () => "" })),
         /Roster.activities: activities must be a Dict keyed by String/);
+});
+
+/** `Func.bind`, in memory: a handle that names its function and is never called here. */
+const memoryFunctions: PlatformFunction[] = [funcBindPlatformFn.implement((_handleType: EastTypeValue) => (nameArg: unknown) => ({
+    call: () => null, read: () => none, status: () => variant("idle", null), error: () => none, pending: () => false, cancel: () => null,
+    binding: { name: nameArg as string },
+}))];
+/** A payload built over the warehouse's weeks with `fit` bound to the e3.function given. */
+const boundTo = (fn: unknown) => East.function([], RosterPayloadType, $ => {
+    const weeks = $.let(Record.bind(ex.rosterWeeks, [ex.rosterWeeksPatch]));
+    const fit = $.let(Func.bind(fn as typeof ex.rosterStaffFit));
+    return createRosterPayload({ weeks, people: [], groups: warehouseConfig.groups, shifts: warehouseConfig.shifts, fit });
+});
+
+test("R2 — `fit` is optional: without it the payload names no fit, and the Roster offers no Find fix; with it, its e3.function by name", () => {
+    const records = memoryRecords(new Map([[ex.rosterWeeks.name, ex.rosterWeeks.default]]));
+    assert.deepEqual(East.compile(payload(() => ({})), records)().fit, none);
+    assert.deepEqual(East.compile(boundTo(ex.rosterStaffFit), [...records, ...memoryFunctions])().fit, some({ name: "roster_staff_fit" }));
+});
+
+test("the tag refuses a `fit` that is no Func.bind of an e3.function from Roster.Types.FitRequest to Roster.Types.FitResult, naming what it asks or answers", () => {
+    const answersText = e3.function("spec_answers_text", East.function([Roster.Types.FitRequest], StringType, () => "nobody"));
+    const asksText = e3.function("spec_asks_text", East.function([StringType], Roster.Types.FitResult, (_$, group) => ({
+        need: variant("leads", null), slot: { day: 0n, group, shift: "early" }, people: new Map(),
+    })));
+    assert.throws(() => boundTo(answersText), /Roster: `fit` answers \.String, not Roster.Types.FitResult/);
+    assert.throws(() => boundTo(asksText), /Roster: `fit` asks \.String, not Roster.Types.FitRequest/);
+    assert.throws(() => payload(() => ({ fit: East.value("roster_staff_fit") as never })),
+        /Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest to Roster.Types.FitResult/);
 });
 
 test("Roster.activities in an app's order: lowest first, and activities of one order in the record's key order", () => {

@@ -3,10 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data, Record, Roster } from "@elaraai/e3-ui";
+import { Data, Func, Record, Roster } from "@elaraai/e3-ui";
 import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehouseForecast, warehousePeople, warehouseProposals, warehouseWeeks } from "./warehouse.js";
 
 export const rosterWeeks = e3.record("roster_weeks", Roster.Types.Weeks, warehouseWeeks);
@@ -27,9 +27,26 @@ export const rosterStaffBySkill = e3.recordIndex("roster_staff_by_skill", roster
 export const rosterStaffByName = e3.recordIndex("roster_staff_by_name", rosterStaff, { on: ["name"] });
 export const rosterActivitiesByGroup = e3.recordIndex("roster_activities_by_group", rosterActivities, { on: ["group"] });
 
+/** The warehouse's fit's body: the ready-made rule, then a greedy order — the people off that day with the most spare contract hours first, whatever their group. */
+export const rosterStaffFitBody = East.function([Roster.Types.FitRequest], Roster.Types.FitResult, ($, req) => {
+    const answer = $.const(Roster.answer);
+    const rule = $.const(Roster.fit);
+    const weekHours = $.const(Roster.weekHours);
+    // Every person's hours this week, once: what is left of each one's contract ranks them.
+    const hours = $.const(weekHours(req.week, req.context));
+    return answer(req, East.function([Roster.Types.FitRequest, Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
+        const verdict = $2.const(rule(request, person));
+        $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
+        const fits = $2.const(verdict.unwrap("fits"));
+        return variant("fits", { score: person.contract.subtract(hours.get(person.key, () => 0.0)), why: fits.why, warn: fits.warn });
+    }));
+});
+// The warehouse's fit, on e3: who fits a Find fix's need on its slot.
+export const rosterStaffFit = e3.function("roster_staff_fit", rosterStaffFitBody);
+
 export const rosterWarehouse = example({
-    inputs: [], description: 'The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, and whole-week Save and Publish.',
-    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
+    inputs: [], description: 'The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, whole-week Save and Publish, and the warehouse\'s greedy fit on e3, which a Find fix asks who fits.',
+    keywords: ["Roster", "Record.bind", "Roster.people", "Roster.activities", "Slice", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "e3.function", "fit", "Find", "BuilderFrame", "mobile", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
         const staff = $.let(Data.bind(rosterStaff));
@@ -47,10 +64,12 @@ export const rosterWarehouse = example({
                     trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
             activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
         }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
+        // The app's fit: a Find fix asks it who fits, over every person, and the People tab shows its answer.
+        const staffFit = $.let(Func.bind(rosterStaffFit));
         return <Box width="100%" height="760px"><Roster id="rosterWarehouse" weeks={weeks}
             people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
                 contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual })}
-            slice={{ slice }}
+            slice={{ slice }} fit={staffFit}
             groups={cfg.groups} shifts={cfg.shifts} activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })} positions={cfg.positions.toArray((_$2, p) => p)} agencies={cfg.agencies}
             rules={cfg.rules} costs={cfg.costs} forecast={forecast.read()} proposals={proposals.read()}
             week={{ start: "sunday" }} view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}

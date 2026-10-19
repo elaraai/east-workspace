@@ -56,6 +56,18 @@ async function remount(page: Page, name: string) {
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
     return entry.locator('[data-roster-frame]').first();
 }
+/** The warehouse's Thursday issue that a Find a lead fixes (#1334). */
+const LEAD_ISSUE = 'No lead on Dispatch · Early';
+/** Presses a fix under an issue: the inspector opened from its rail when it is collapsed, on its Issues tab, and the fix under the issue's title. */
+async function pressFix(page: Page, frame: Locator, title: string, fix: string) {
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) await expand.click();
+    const end = frame.locator('[data-frame-slot="end"]');
+    await end.getByRole('tab', { name: /^Issues/ }).click();
+    const issue = end.locator('[data-roster-issue]').filter({ has: page.getByRole('button', { name: title, exact: true }) });
+    await issue.getByRole('button', { name: fix, exact: true }).click();
+    await settled(page);
+}
 for (const theme of ['light', 'dark'] as const) {
     test(`Roster frame fits 1440/1024/768/390/360 (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
@@ -549,6 +561,60 @@ for (const theme of ['light', 'dark'] as const) {
         await settled(page);
         await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 69');
         await expect(people.locator('[data-library-empty]')).toHaveCount(0);
+    });
+    test(`R1 — a Find's answer in the People tab at 1440/1024/768/390/360 and a 294px parent: its chip and each found card's reason inside the pane, the reason in the card note's voice, cut only by an ellipsis and whole in the card's title (${theme})`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        const people = frame.locator('[data-roster-library="people"]');
+        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+            await size(page, entry, width);
+            // Find a lead, pressed under its issue: the Library opens on the People tab under the find's chip, and the app's fit on e3 finds J. Quartz, with its reason.
+            await pressFix(page, frame, LEAD_ISSUE, 'Find a lead');
+            await expect(people.locator('[data-roster-find] button').first(), `${width}px`).toHaveText('Find · Leads');
+            await expect(people.locator('[data-library-note]'), `${width}px`).toHaveText(['Dispatch · 14 h spare']);
+            await expect(people, `${width}px`).not.toHaveAttribute('aria-busy', 'true');
+            const faults = await people.evaluate(root => {
+                // The theme's tokens, as the page resolves them.
+                const resolve = (property: 'color' | 'fontFamily', token: string) => {
+                    const probe = document.createElement('span');
+                    probe.style[property] = `var(${token})`;
+                    document.body.appendChild(probe);
+                    const resolved = getComputedStyle(probe)[property];
+                    probe.remove();
+                    return resolved;
+                };
+                const quiet = resolve('color', '--chakra-colors-fg-subtle'), mono = resolve('fontFamily', '--chakra-fonts-mono');
+                const inside = (b: DOMRect, p: DOMRect) => b.left >= p.left - 0.5 && b.right <= p.right + 0.5;
+                const out: string[] = [];
+                const pane = root.getBoundingClientRect();
+                if (!inside(pane, root.closest('[data-builder-frame]')!.getBoundingClientRect())) out.push('the People tab leaves the frame');
+                // The chip: inside the pane, its words whole.
+                const chip = root.querySelector('[data-roster-find] button')!;
+                if (!inside(chip.getBoundingClientRect(), pane)) out.push('the chip leaves the pane');
+                if (chip.scrollWidth - chip.clientWidth > 1) out.push('the chip cuts its words');
+                // Each found card: inside the pane, its reason inside it in the note's voice, cut only by an ellipsis, the whole of it in the card's title.
+                for (const card of root.querySelectorAll('[data-library-item]')) {
+                    const note = card.querySelector('[data-library-note]');
+                    if (note === null) continue;
+                    const key = card.getAttribute('data-library-item'), c = card.getBoundingClientRect(), s = getComputedStyle(note);
+                    if (!inside(c, pane)) out.push(`${key} leaves the pane`);
+                    if (!inside(note.getBoundingClientRect(), c)) out.push(`${key}'s reason leaves its card`);
+                    if (s.color !== quiet || s.fontFamily !== mono || s.fontSize !== '10px') out.push(`${key}'s reason is not in the note's voice: ${s.color} ${s.fontFamily} ${s.fontSize}`);
+                    if (note.scrollWidth - note.clientWidth > 0.5 && (s.textOverflow !== 'ellipsis' || s.whiteSpace !== 'nowrap')) out.push(`${key}'s reason is cut with no ellipsis`);
+                    if (card.getAttribute('title') !== note.textContent) out.push(`${key}'s title is not its reason`);
+                }
+                const body = root.querySelector('[data-library] [data-scrollable]');
+                if (body !== null && body.scrollWidth - body.clientWidth > 1) out.push('the cards scroll sideways');
+                return out;
+            });
+            expect(faults, `${width}px`).toEqual([]);
+            expect(await toolbarFaults(frame), `${width}px`).toEqual([]);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px page`).toBeLessThanOrEqual(0);
+        }
+        // Its chip pressed, the find clears: no chip, and no card carries a reason.
+        await people.locator('[data-roster-find] button').first().click();
+        await expect(people.locator('[data-roster-find]')).toHaveCount(0);
+        await expect(people.locator('[data-library-note]')).toHaveCount(0);
     });
     test(`folded on a phone, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });

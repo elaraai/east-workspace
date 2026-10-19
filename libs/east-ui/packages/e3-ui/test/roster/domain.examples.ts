@@ -69,3 +69,36 @@ export const rosterRest = example({
         return rest({ slot: { day: 1n, group: "goods", shift: "early" }, who: variant("person", "lead"), position: "lead", activity: none, offset: 8, overtime: 0, agreed: none }, "next", prior, context).before;
     }),
 });
+export const rosterFitTrainer = example({
+    description: "The ready-made fit: a trainer off that day whose rest is kept fits Goods' early shift, scored by spare contract hours and a week's more in the slot's group",
+    keywords: ["Roster", "Roster.fit", "fit", "Find", "trainer", "spare hours", "rest"], inputs: [week, context],
+    returns: variant("fits", { score: 198, why: "Goods · 30 h spare", warn: none }),
+    fn: East.function([Roster.Types.Week, Roster.Types.Context], Roster.Types.Fit, ($, week, context) => {
+        const coverage = $.const(Roster.coverage);
+        const fit = $.const(Roster.fit);
+        // Day 1's early shift: Lead's day 0 shift ends at 17:00, so 13 hours' rest is kept; 10 of their 40 contract hours are rostered.
+        const request = $.const({ need: variant("trainers", null), slot: { day: 1n, group: "goods", shift: "early" }, start: new Date("2028-03-05T00:00:00Z"),
+            week, context, coverage: coverage(week, context) }, Roster.Types.FitRequest);
+        return fit(request, context.people.get("lead"));
+    }),
+});
+export const rosterAnswerLeads = example({
+    description: "Roster.answer maps a rule over every person, echoing the need and the slot: the lead fits, and the two associates are refused as not leads",
+    keywords: ["Roster", "Roster.answer", "Roster.fit", "fit", "Find", "lead", "refused"], inputs: [week, context],
+    returns: {
+        need: variant("leads", null), slot: { day: 1n, group: "goods", shift: "early" },
+        people: new Map<string, ValueTypeOf<typeof Roster.Types.Fit>>([
+            ["agency", variant("refused", { group: "Not a lead", reason: "Crew · not a lead", measure: variant("none", null) })],
+            ["lead", variant("fits", { score: 198, why: "Goods · 30 h spare", warn: none })],
+            ["off", variant("refused", { group: "Not a lead", reason: "Crew · not a lead", measure: variant("none", null) })],
+        ]),
+    },
+    fn: East.function([Roster.Types.Week, Roster.Types.Context], Roster.Types.FitResult, ($, week, context) => {
+        const coverage = $.const(Roster.coverage);
+        const answer = $.const(Roster.answer);
+        const fit = $.const(Roster.fit);
+        const request = $.const({ need: variant("leads", null), slot: { day: 1n, group: "goods", shift: "early" }, start: new Date("2028-03-05T00:00:00Z"),
+            week, context, coverage: coverage(week, context) }, Roster.Types.FitRequest);
+        return answer(request, fit);
+    }),
+});
