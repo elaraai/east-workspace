@@ -9,6 +9,7 @@ import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
+import { scheduleAgenda, scheduleAgendaGroup, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeHeaderText } from "./time/axis.js";
@@ -19,7 +20,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
     slots: [...moveGhostSlots, "root", "main", "scroll", "grid", "row", "gutter", "headerGutter", "head", "shiftHead", "shiftHeading", "shiftLabel", "shiftMeta", "time", ...scheduleGroupSlots,
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
-        "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "actions", ...schedulePaneSlots, "section", "status",
+        "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
         "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
     base: {
         ...moveGhostBase,
@@ -86,11 +87,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         weekValue: { textStyle: "mono.xs", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=danger]": { color: "fg.danger" } },
         peopleHead: { padding: "6px 12px", display: "flex", flexDirection: "column", gap: "3px", minHeight: "50px", justifyContent: "center", textAlign: "left", ...planRowFocus, "&[data-tone=warning]": { color: "fg.warning" } },
         peopleCell: { display: "flex", flexDirection: "column", justifyContent: "center", gap: "3px", padding: "6px", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, "&[data-selected]": { background: "bg.panel" }, "&[data-drop-active]": { background: "brand.subtle" } },
-        agenda: { padding: "12px", display: "flex", flexDirection: "column", gap: "16px", minWidth: 0, background: "bg.panel" },
-        agendaGroup: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
-        card: { padding: "12px", display: "flex", flexDirection: "column", gap: "8px", border: "1px solid", borderColor: "border.subtle", borderRadius: "sm", background: "bg.surface", minWidth: 0, ...planElementDrafted, ...planElementSelected, ...planElementFocus },
-        cardHead: { textStyle: "title.row", textAlign: "left", minWidth: 0, overflowWrap: "anywhere" },
-        actions: { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" },
+        // The phone's cards: the shared part the Calendar and the Allocation take too.
+        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, card: scheduleCard, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { ...INSPECTOR_SECTION, gap: "12px" },
         status: INSPECTOR_STATUS,
         footer: builderFooter, footerItem: builderFooterItem,

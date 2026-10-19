@@ -165,6 +165,24 @@ export function narrowBands(bands: readonly TableBand[], plan: Day, lanes: optio
     });
 }
 
+/** A row's status (A43), as its Status cell and its narrow card say it. */
+export type RowStatus = "Free" | "Not linked" | "Check" | "Draft" | "Reserved" | "Committed";
+
+/**
+ * A row's status (A43): what it holds, and whether a resource of it needs a
+ * look — `Free`, `Not linked`, `Check` (a resource of it over max or held into
+ * its next job), `Draft`, `Reserved` or `Committed`.
+ *
+ * @param kind - What the row holds
+ * @param linked - Whether its bin has a part on a resource
+ * @param check - Whether a resource of it is over max or held into its next job
+ * @param draft - Whether its bin is a draft
+ * @returns Its status
+ */
+export function rowStatus(kind: TableRowKind, linked: boolean, check: boolean, draft: boolean): RowStatus {
+    return kind === "free" ? "Free" : kind === "bin" && !linked ? "Not linked" : check ? "Check" : draft ? "Draft" : kind === "reserved" ? "Reserved" : "Committed";
+}
+
 /**
  * A band's line (A42): `7 bins · 1 reserved · 13 free · 208 m³`, no
  * reservations said when it has none, and `· collapsed` when folded.

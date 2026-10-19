@@ -348,7 +348,7 @@ function Agenda(props: CalendarViewsProps) {
         {props.range.days.map(day => {
             const next = new Date(day.getTime() + DAY);
             const items = chronological(props.items.filter(item => inWindow(item, day, next)));
-            return <Box key={day.getTime()} css={props.styles.agendaDay} data-calendar-day={dateText(day)}>
+            return <Box key={day.getTime()} css={props.styles.agendaGroup} data-calendar-day={dateText(day)}>
                 <Box css={props.styles.agendaHead} data-calendar-agenda-heading="">{props.format.weekdayDate(day)}</Box>
                 {items.length === 0 && <Box css={props.styles.empty}>Nothing scheduled</Box>}
                 {items.map(item => {

@@ -151,7 +151,7 @@ for (const theme of ["light", "dark"] as const) {
             .toEqual({ w: 22, h: 22, right: 11, top: 3 });
     });
 
-    test(`Timeline fits 1440/1024/768/390/360 and a 294px parent (${theme}) @narrow`, async ({ page }) => {
+    test(`Timeline fits 1440/1024/768/390/360 and a 294px parent; below 480px of main, its cards (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         for (const width of [1440, 1024, 768, 390, 360, 294]) {
@@ -163,6 +163,9 @@ for (const theme of ["light", "dark"] as const) {
                 if (frame.scrollWidth - frame.clientWidth > 1) faults.push("frame overflows");
                 const timeline = frame.querySelector("[data-allocation-timeline]");
                 // The Timeline is main's from 480px of main; below it, the narrow layout's cards (A78, #1333).
+                const cards = frame.querySelector('[data-allocation-cards="timeline"]');
+                if (main.width < 480 && (timeline !== null || cards === null)) faults.push("below 480px of main, main is not the Timeline's cards");
+                if (main.width >= 480 && (timeline === null || cards !== null)) faults.push("from 480px of main, main is not the Timeline");
                 if (timeline !== null && main.width >= 480) {
                     const t = timeline.getBoundingClientRect();
                     if (t.right > box.right + 1 || t.left < box.left - 1) faults.push("timeline leaves the frame");

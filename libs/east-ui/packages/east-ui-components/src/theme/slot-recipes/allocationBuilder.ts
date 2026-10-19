@@ -53,6 +53,10 @@
  * - The Library (A50–A54, #1330): the shared pane part's `pane`, `paneFoot`, `paneHint` and `paneAction`; its cards are the
  *   shared Library's. A picked event marks the Timeline's free lane hours (`data-allocation-pick`, A11); a resource card's drag
  *   marks the bins that refuse it (`data-refuses`) and, when it would not take a reservation, the free lane hours (A32).
+ * - The narrow layout (A78, #1333), the shared agenda part the Roster and the Calendar take too: main's box, `cards`; the list,
+ *   `agenda`, each of its rows `agendaItem`; a card, `agendaCard`, its head `agendaCardHead`, title `agendaCardTitle` and lines
+ *   `agendaLine` (`data-tone`), its actions `agendaActions`; a bin on a resource's card, `agendaBin`, its head `agendaBinHead`;
+ *   a row's card's status, `agendaStatus`, its dot the Table's `tableStatusDot`.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -63,6 +67,7 @@ import { linkRibbons } from "./links/ribbons.js";
 import { planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
+import { scheduleAgenda, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { timeRulerBase } from "./time/axis.js";
@@ -96,6 +101,8 @@ const tableColumns = {
 } as const;
 /** A Table cell's text: mono, one line, cut with an ellipsis. */
 const tableText = { fontFamily: "mono", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 } as const;
+/** A row's status word (A43): mono 10.5px 600 uppercase, tracked, ink-3 — its Status cell's and its narrow card's. */
+const statusWord = { fontSize: "label.md", fontWeight: "semibold", letterSpacing: "caps", textTransform: "uppercase", color: "fg.muted" } as const;
 
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
@@ -110,6 +117,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         ...scheduleGroupSlots, ...schedulePaneSlots, "bandCount", "table", "tablePane", "tableHead", "tableRow", "tableTime", "tableLane", "tableCell", "tableSpan",
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
         "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText", "tableParts", "tablePart", "tablePartFace", "tableChipQty",
+        "cards", "agenda", "agendaItem", "agendaCard", "agendaCardHead", "agendaCardTitle", "agendaLine", "agendaActions", "agendaBin", "agendaBinHead", "agendaStatus",
     ],
     base: {
         ...nowBase,
@@ -531,10 +539,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
         },
         // The status: an 8px dot and the word, mono 10.5px 600 uppercase, ink-3.
-        tableStatus: {
-            ...tableText, padding: "0 20px 0 12px", display: "flex", alignItems: "center", gap: "8px",
-            fontSize: "label.md", fontWeight: "semibold", letterSpacing: "caps", textTransform: "uppercase", color: "fg.muted",
-        },
+        tableStatus: { ...tableText, padding: "0 20px 0 12px", display: "flex", alignItems: "center", gap: "8px", ...statusWord },
         tableStatusDot: {
             flex: "none", width: "8px", height: "8px", borderRadius: "full", background: "fg.faint",
             "[data-status='Not linked'] > &": { background: "status.warn" },
@@ -621,6 +626,29 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "[data-allocation-cell-side][data-drop-invalid] > * > &": { "&[data-say=idle], &[data-say=pick]": { display: "none" }, "&[data-say=refused]": { display: "block" } },
             "[data-allocation-cell-side][data-drop-invalid] > *:has([data-say=reason]) > &": { "&[data-say=refused]": { display: "none" }, "&[data-say=reason]": { display: "block" } },
         },
+        // ── The narrow layout (A78) ── main as a list of cards on the panel: a resource's (the Timeline's) or a row's (the Table's).
+        cards: { position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "bg.panel" },
+        agenda: scheduleAgenda,
+        // Each of the list's rows: a card, or a band's head, 8px over the next, as the shared agenda's groups are.
+        agendaItem: { paddingBottom: "8px" },
+        agendaCard: scheduleCard,
+        agendaCardHead: scheduleCardHead,
+        agendaCardTitle: scheduleCardTitle,
+        agendaActions: scheduleCardActions,
+        // A card's lines, mono 10px in ink-3; a resource's load line in its tone, as its row's is (A19).
+        agendaLine: {
+            textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere", minWidth: 0,
+            "&[data-tone=danger]": { color: "fg.danger", fontWeight: "semibold" },
+            "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
+        },
+        // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink.
+        agendaBin: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle" },
+        agendaBinHead: {
+            display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: "8px", minWidth: 0, textAlign: "left", textStyle: "mono.sm", color: "fg.strong",
+            "[data-draft] > &": { color: "brandPressed" }, "[data-selected] > &": { color: "fg", fontWeight: "semibold" }, ...planElementFocus,
+        },
+        // A row's card's status: the Status cell's word and dot (A43).
+        agendaStatus: { ...tableText, display: "inline-flex", alignItems: "center", gap: "8px", ...statusWord },
         // The focus chip's ×, a 16px target (A81).
         focusClear: {
             width: "16px", height: "16px", display: "grid", placeItems: "center", padding: 0, borderRadius: "sm", color: "inherit", cursor: "pointer",

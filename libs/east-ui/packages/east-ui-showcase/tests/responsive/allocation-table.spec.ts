@@ -137,7 +137,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("2 of 3 bays");
     });
 
-    test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main (${theme}) @narrow`, async ({ page }) => {
+    test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main; below 480px of main, its cards (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationTable", theme);
         for (const width of [1440, 1024, 768, 390, 360, 294]) {
@@ -147,6 +147,10 @@ for (const theme of ["light", "dark"] as const) {
                 const box = frame.getBoundingClientRect();
                 if (frame.scrollWidth - frame.clientWidth > 1) faults.push("frame overflows");
                 const table = frame.querySelector("[data-allocation-table]");
+                // The Table is main's from 480px of main; below it, the narrow layout's cards (A78, #1333).
+                const main = frame.querySelector("[data-allocation-main]")!.getBoundingClientRect(), cards = frame.querySelector('[data-allocation-cards="table"]');
+                if (main.width < 480 && (table !== null || cards === null)) faults.push("below 480px of main, main is not the Table's cards");
+                if (main.width >= 480 && (table === null || cards !== null)) faults.push("from 480px of main, main is not the Table");
                 if (table !== null) {
                     const t = table.getBoundingClientRect();
                     if (t.right > box.right + 1 || t.left < box.left - 1) faults.push("table leaves the frame");

@@ -34,7 +34,7 @@ import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.
 import { eventChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
-import { bandLine, narrowBands, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
 import type { TimelineFollow } from "./timeline.js";
@@ -87,12 +87,13 @@ export interface TableProps {
 /**
  * A row's cell a Chooser is open on: its event, or its resource — the row's,
  * one part of a split bin's (`part`, its resource), or the remainder's
- * (`part: null`, `+ resource`, A71).
+ * (`part: null`, `+ resource`, A71). A narrow card's actions open the same
+ * Choosers (A78).
  */
-interface Open { row: string; side: "event" | "resource"; part?: string | null | undefined }
+export interface Open { row: string; side: "event" | "resource"; part?: string | null | undefined }
 
 /** A Chooser's identity in its row, as a row's memo compares it: `event`, `resource`, `resource:K-203`, `resource:+`. */
-const openKey = (side: Open["side"], part: Open["part"]) => part === undefined ? side : `${side}:${part ?? "+"}`;
+export const openKey = (side: Open["side"], part: Open["part"]) => part === undefined ? side : `${side}:${part ?? "+"}`;
 
 /** One flattened line of the virtualised Table: a band's head, or a row. */
 type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow };
@@ -302,8 +303,7 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const split = row.kind === "bin" && parts.length > 0 && (parts.length > 1 || compareFloat(remainder, 0) > 0);
     // Its status (A43): what it holds, and whether a resource of it needs a look.
     const check = parts.some(part => { const l = lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
-    const status = row.kind === "free" ? "Free" : row.kind === "bin" && parts.length === 0 ? "Not linked"
-        : check ? "Check" : draft ? "Draft" : row.kind === "reserved" ? "Reserved" : "Committed";
+    const status = rowStatus(row.kind, parts.length > 0, check, draft);
     const select = () => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() });
     const loadText = resource !== undefined && load !== undefined ? board.load(load.fill, resource, unit) : undefined;
     const into = line?.overlap === true && line.next.type === "some" && load?.hold.type === "some"
@@ -453,13 +453,40 @@ function Placeholder({ props, side, reserved, open, button, say, onBook, ...trig
 }
 
 /**
+ * A Chooser in the shared anchored popover (A48): its trigger, the sections
+ * its question was answered with, and what a choice does; its search takes the
+ * focus as it opens.
+ *
+ * @param args - Its identity (`data-allocation-choices`), its label, its trigger, whether it is open, its sections, its search's words and what a choice does
+ * @returns The popover
+ */
+export function ChooserPopover({ id, label, trigger, open, onOpenChange, sections, placeholder, onChoose }: {
+    id: string; label: string; trigger: ReactElement; open: boolean; onOpenChange: (open: boolean) => void;
+    sections: ChooserSection[]; placeholder: string; onChoose: (key: string) => void;
+}) {
+    return <SliceEditPopover trigger={trigger} open={open} onOpenChange={onOpenChange} flush label={label}
+        initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-choices="${id}"] input`)}>
+        <Box data-allocation-choices={id}>
+            {open && <Chooser sections={sections} placeholder={placeholder} onChoose={onChoose} />}
+        </Box>
+    </SliceEditPopover>;
+}
+
+/** What a cell's Chooser reads of the board: the day, every event and resource, the fit, the commands, the days it asks of, and what the narrowing shows. */
+export type ChoiceScene = Pick<TableProps, "plan" | "context" | "day" | "fit" | "commands" | "without" | "reserving" | "visibleEvents" | "visibleResources">;
+
+/**
  * A cell's chevron and its Chooser (A48, A49): the question the cell asks the
  * fit, its answer's sections, and what a choice does. A split bin's part
  * chip moves that part, and `+ resource` links the remainder, each asked
- * for the quantity it places (A71, A73).
+ * for the quantity it places (A71, A73). A narrow card's `Book…`, `Reserve…`,
+ * `Allocate…` and `Move` are these Choosers on its own trigger (A78).
+ *
+ * @param args - The board, the row, its side and part, whether it is open, the words and its trigger
+ * @returns The Chooser's popover on its trigger
  */
-function ChoiceCell({ props, row, side, part, open, setOpen, words, trigger }: {
-    props: TableProps; row: TableRow; side: "event" | "resource";
+export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigger }: {
+    props: ChoiceScene; row: TableRow; side: "event" | "resource";
     /** A resource Chooser's part: the row's (`undefined`, its bin's first), a part's resource, or the remainder (`null`). */
     part?: string | null | undefined;
     open: boolean; setOpen: (open: Open | undefined) => void; words: ChoiceWords;
@@ -506,12 +533,7 @@ function ChoiceCell({ props, row, side, part, open, setOpen, words, trigger }: {
         if (row.bin !== undefined) commands.link(row.bin, key, from);
         else commands.reserve(row.lane, row.slotAt, key);
     };
-    const choices = `${row.key}|${openKey(side, part)}`;
-    return <SliceEditPopover trigger={trigger(open)} open={open} onOpenChange={next => setOpen(next ? { row: row.key, side, part } : undefined)} flush
+    return <ChooserPopover id={`${row.key}|${openKey(side, part)}`} trigger={trigger(open)} open={open} onOpenChange={next => setOpen(next ? { row: row.key, side, part } : undefined)}
         label={`${side === "event" ? nouns.event.one : nouns.resource.one} · ${words.lane(row.lane)} ${formatDatePattern("HH:mm", row.at)}`}
-        initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-choices="${choices}"] input`)}>
-        <Box data-allocation-choices={choices}>
-            {open && <Chooser sections={sections} placeholder={`Find ${a(side === "event" ? nouns.event : nouns.resource)}`} onChoose={choose} />}
-        </Box>
-    </SliceEditPopover>;
+        sections={sections} placeholder={`Find ${a(side === "event" ? nouns.event : nouns.resource)}`} onChoose={choose} />;
 }

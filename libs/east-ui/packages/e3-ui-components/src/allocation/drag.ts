@@ -388,11 +388,29 @@ function bookVerdict(scene: DropScene, grip: Extract<LibraryGrip, { kind: "event
     }
     const land = scene.firstFree();
     const resource = target.resource;
-    return onResource(scene, askOf(scene, grip), code, resource, "Not booked", "to ", () => {
-        if (land !== undefined) return book(land.lane, land.at, resource);
-        scene.notice({ word: "Not booked", text: `No free bin is left on ${formatDatePattern("ddd D", scene.day)} for ${code}.` });
-        return false;
-    }, ranks, land === undefined ? "" : ` · ${slotText(scene, land.lane, land.at)}`, asking);
+    return onResource(scene, askOf(scene, grip), code, resource, "Not booked", "to ", () => bookOnto(scene, grip, resource),
+        ranks, land === undefined ? "" : ` · ${slotText(scene, land.lane, land.at)}`, asking);
+}
+
+/**
+ * Books a Library event, or a committed bin the drafts removed, onto a
+ * resource at the day's first free slot of the lanes that show (A36): what a
+ * drop on the resource runs, and a narrow card's `Book an event…` (A78). With
+ * no slot left, nothing is booked and the banner says so.
+ *
+ * @param scene - What the board knows
+ * @param grip - The event, or the removed bin
+ * @param resource - The resource
+ * @returns Whether it was booked
+ */
+export function bookOnto(scene: Pick<DropScene, "context" | "plan" | "held" | "day" | "commands" | "firstFree" | "notice">,
+    grip: Extract<LibraryGrip, { kind: "event" | "removed" }>, resource: string): boolean {
+    const land = scene.firstFree();
+    if (land !== undefined) {
+        return grip.kind === "event" ? scene.commands.book(grip.event, land.lane, land.at, resource) : scene.commands.restore(grip.bin, land.lane, land.at, resource);
+    }
+    scene.notice({ word: "Not booked", text: `No free bin is left on ${formatDatePattern("ddd D", scene.day)} for ${codeOf(scene, grip)}.` });
+    return false;
 }
 
 /**

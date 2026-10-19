@@ -10,6 +10,7 @@ import { INSPECTOR_STATUS } from "./inspector.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
+import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { rowsBase } from "./plan/rows.js";
@@ -26,7 +27,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "timeGridContent", "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
         "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", ...scheduleGroupSlots, "title", "detail",
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
-        "timelineRow", "rowHead", "rowPlot", "agenda", "agendaDay", "agendaHead", "card", "cardHead", "cardTitle",
+        "timelineRow", "rowHead", "rowPlot", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle",
         "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
         "form", "error", "empty", ...nowSlots,
     ],
@@ -110,13 +111,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle" },
         rowHead: { ...rowsBase.gutterCell, position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "4px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
         rowPlot: { position: "relative", flex: 1 },
-        agenda: { minWidth: 0, padding: "12px", background: "bg.panel", display: "flex", flexDirection: "column", gap: "16px" },
-        agendaDay: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
-        agendaHead: { ...timeHeaderText },
-        card: { ...planElementDrafted, ...planElementSelected, ...planElementFocus, minWidth: 0, padding: "12px", borderWidth: "1px", borderColor: "border.subtle", borderRadius: "sm", background: "bg.surface", display: "flex", flexDirection: "column", gap: "8px", "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } },
-        cardHead: { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" },
-        cardTitle: { textStyle: "title.row", overflowWrap: "anywhere", minWidth: 0 },
-        actions: { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" },
+        // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
+        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
+        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } }, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
         footer: builderFooter,

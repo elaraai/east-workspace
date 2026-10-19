@@ -7,7 +7,8 @@
  * The Allocation's renderer (`Allocation Spec.md`): the board in its
  * BuilderFrame — one toolbar, the banners, the panes, the footer's legend and
  * the loading cover — over the plans record, a day at a time, each day its own
- * shared editing session (#1325).
+ * shared editing session (#1325). Below 480px of main, the Timeline and the
+ * Table are cards with explicit actions, and nothing takes a drag (#1333).
  *
  * @packageDocumentation
  */
@@ -22,7 +23,8 @@ import {
 } from "@elaraai/east-ui-components";
 import { StatusDisplay } from "../components/StatusDisplay.js";
 import { allocationCommands, remainderOf } from "./actions.js";
-import { placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
+import { AllocationCards } from "./cards.js";
+import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
 import { useAllocationInspector } from "./inspector.js";
 import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
@@ -297,6 +299,14 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                 aria-busy={(data.loading && data.error === undefined) || narrowingLoading} inert={narrowingLoading || narrowingFailed ? true : undefined}
                 data-allocation-narrow={narrow ? "" : undefined}>
                 {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
+                    // Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the
+                    // selection and the drafts, which are the frame's.
+                    : narrow ? <AllocationCards value={value} context={context} styles={styles} day={window.day} plan={plan} held={editing.held}
+                        sameBin={domain.sameBin} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
+                        selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
+                        without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
+                        visibleEvents={eventsShown.keys} clearFilters={clearFilters}
+                        bookOnto={(event, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "event", event }, resource); }} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
                         held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleEvents={eventsShown.keys}

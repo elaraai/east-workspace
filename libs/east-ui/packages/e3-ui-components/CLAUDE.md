@@ -57,7 +57,17 @@ each edit is one of the board's commands (`split`, `setPart`, `link`,
 `unlink`). Find a fit (A74) asks the fit to place a bin's remainder and shows
 the answer in the Library's Resources tab — the fits among what the rail
 shows, best first, each card's reason the fit's — under a chip that clears
-it, as the Roster's Find fixes do: the tab's, never a filter. The segment strip
+it, as the Roster's Find fixes do: the tab's, never a filter. Below 480px of
+main (#1333, A78) the Timeline is a card per resource the rail shows — its
+load line, its bins with Unlink, Move (the part, to another resource) and Back
+to Events, and `Book an event…` — and the Table a card per row in its bands,
+with `Book…`, `Reserve…`, `Allocate…`, `Unlink` and `Back to Events`
+(`cards.tsx`): a choice is the Table's Chooser in its anchored popover
+(`ChoiceCell`), Unlink and Back to Events act at once, every action one of the
+board's commands, and nothing registers a drag source, a drop target or a
+handle. The cards' looks are the shared agenda part
+(`slot-recipes/schedule-agenda.ts`) the Roster's and the Calendar's cards are
+on too. The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
 toolbars share, are `src/shared/schedule/segments.tsx`.
 The time parts the Plan shares with the Calendar are in `src/shared/time/`

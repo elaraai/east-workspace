@@ -269,7 +269,7 @@ function People(props: RosterViewsProps) {
 function AssignmentCard({ props, id, assignment, removed }: { props: RosterViewsProps; id: string; assignment: Assignment; removed: boolean }) {
     const times = assignmentTimes(assignment, props.value, props.start), baseline = props.held?.assignments.get(id);
     return <Box css={props.styles.card} data-roster-card={id} data-selected={props.selection?.type === "assignment" && props.selection.key === id ? "" : undefined} data-drafted={removed || baseline === undefined || !sameAssignment(baseline, assignment) ? "" : undefined}>
-        <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "assignment", key: id })}>{assignmentName(props.value, assignment)}{removed && " · removed"}</chakra.button>
+        <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "assignment", key: id })}><Box css={props.styles.cardTitle}>{assignmentName(props.value, assignment)}{removed && " · removed"}</Box></chakra.button>
         <Box css={props.styles.detail}>{times !== undefined && `${props.format.time(times.from)}–${props.format.time(times.to)}`}{assignment.activity.type === "some" && ` · ${activityOf(props.value, assignment.activity.value)?.label ?? assignment.activity.value}`}</Box>
         {props.issues.filter(i => i.assignment.type === "some" && i.assignment.value === id).map((issue, i) => <Box key={i} css={props.styles.flag} data-tone={issue.tone.type}>{issue.title}</Box>)}
         <AssignmentActions id={id} assignment={assignment} removed={removed} value={props.value} start={props.start} commands={props.commands} styles={props.styles} />
@@ -287,8 +287,8 @@ function PeopleAgenda(props: RosterViewsProps) {
                 if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={props.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} />;
                 const person = row.person;
                 return <Box css={props.styles.card} data-roster-person-card={person?.key ?? row.key}>
-                    {person === undefined ? <><Box css={props.styles.cardHead}>Agency requests</Box>{matchingAssignments(props, a => a.who.type === "request" && a.slot.group === row.group.key).map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}</> : <>
-                        <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "person", key: person.key })}>{person.name} · {props.format.number(props.hours.get(person.key) ?? 0)} / {props.format.number(person.contract)} h</chakra.button>
+                    {person === undefined ? <><Box css={props.styles.cardHead}><Box css={props.styles.cardTitle}>Agency requests</Box></Box>{matchingAssignments(props, a => a.who.type === "request" && a.slot.group === row.group.key).map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}</> : <>
+                        <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "person", key: person.key })}><Box css={props.styles.cardTitle}>{person.name} · {props.format.number(props.hours.get(person.key) ?? 0)} / {props.format.number(person.contract)} h</Box></chakra.button>
                         {Array.from({ length: 7 }, (_, day) => {
                             const assignments = matchingAssignments(props, a => a.who.type === "person" && a.who.value === person.key && a.slot.day === BigInt(day));
                             return <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.detail}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))}</Box>
@@ -308,7 +308,7 @@ function Agenda(props: RosterViewsProps) {
         {props.view.period === "day" && props.view.layout === "shifts" && <Seg fullWidth label="Day of week" scope="roster" name="agenda-days" active={String(props.day)} items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: props.format.weekday(new Date(props.start.getTime() + day * DAY)) }))} onPick={day => props.setView({ ...props.view, date: props.start.getTime() + Number(day) * DAY })} />}
         {days.map(day => <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.groupLabel}>{props.format.weekdayDate(new Date(props.start.getTime() + day * DAY))}</Box>
             {props.value.groups.flatMap(group => props.value.shifts.map(shift => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }, c = props.coverage.get(slot)!; return <Box key={slotKey(slot)} css={props.styles.card} data-roster-agenda-slot={slotKey(slot)}>
-                <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "slot", slot })}>{group.label} · {shift.label}</chakra.button>
+                <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "slot", slot })}><Box css={props.styles.cardTitle}>{group.label} · {shift.label}</Box></chakra.button>
                 <Box css={props.styles.detail}>{String(c.filled)} / {String(c.positions)} positions · {String(c.open)} open</Box>
                 {props.value.settings.requirements && <CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} compact />}
                 {assignments(props, slot).map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}
