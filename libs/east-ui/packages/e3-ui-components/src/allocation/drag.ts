@@ -14,13 +14,17 @@
  * resource takes the app's fit's verdict; while that answer is on its way the
  * caption says so, and the drop waits for it (F2). A pick (A11) is asked and
  * answered as a drag of its card is, and its click runs the same verdict.
+ * Where a drag rests is told to the board as it moves (`rest`): what its marks
+ * and its links read, without a render of the board (A29, A35, A65).
  *
  * @packageDocumentation
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { none, some, variant, type option } from "@elaraai/east";
-import { useDragLayerOptional, useDragTarget, type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig } from "@elaraai/east-ui-components";
+import {
+    useDragLayerOptional, useDragTarget, type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type DropCellOptions, type DropVeto,
+} from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
 import type { AllocationFit } from "./fit.js";
@@ -36,14 +40,65 @@ export type LibraryGrip = { kind: "event"; event: string } | { kind: "removed"; 
 export type Grip = BoardGrip | LibraryGrip;
 
 /**
- * Where a drag rests: a lane hour (a card in it names the card; a Table row's
- * event cell is its slot's, `table`), a resource's row, or a Table row's
+ * Where a drag rests (A26): a lane hour (a card in it names the card; a Table
+ * row's event cell is its slot's, `table`), a resource — its row, the fits
+ * marker over the rows (its #1's), or a fit in the inspector's drop list, each
+ * dropping as the resource's row does, at `rowCoord` — or a Table row's
  * resource cell.
  */
 export type Target =
     | { kind: "lane"; lane: string; at: Date; card: string | undefined; table?: boolean }
     | { kind: "resource"; resource: string }
     | { kind: "cell"; row: string };
+
+/** A target's identity, as a cache and the drag's rest key it. */
+export function targetKey(target: Target): string {
+    return target.kind === "resource" ? `r:${target.resource}` : target.kind === "cell" ? `c:${target.row}`
+        : `l:${target.lane}|${target.at.getTime()}|${target.card ?? ""}|${target.table === true ? "t" : ""}`;
+}
+
+/** Where a drag rests, as the board's drop targets report it: the target, and whether it takes the drop there. */
+export interface DragRest { target: Target; allowed: boolean }
+
+/**
+ * Where a drag rests, held outside React's state (A35): the drop targets set
+ * it as the drag rests on them and clear it as it leaves them, and the parts
+ * that mark or draw it — a row's bins and its run's label (A29), the links
+ * (A65) — subscribe; nothing else renders as the pointer moves.
+ */
+export class DragRestStore {
+    private value: DragRest | undefined = undefined;
+    private readonly listeners = new Set<() => void>();
+
+    readonly subscribe = (listener: () => void): (() => void) => {
+        this.listeners.add(listener);
+        return () => { this.listeners.delete(listener); };
+    };
+
+    readonly get = (): DragRest | undefined => this.value;
+
+    /** The drag rests on a target, which takes the drop there or refuses it. */
+    rest(target: Target, allowed: boolean): void {
+        const was = this.value;
+        if (was !== undefined && was.allowed === allowed && targetKey(was.target) === targetKey(target)) return;
+        this.set({ target, allowed });
+    }
+
+    /** The drag left a target: it rests on nothing, unless another has taken it already. */
+    leave(target: Target): void {
+        if (this.value !== undefined && targetKey(this.value.target) === targetKey(target)) this.set(undefined);
+    }
+
+    /** The drag ended. */
+    clear(): void {
+        if (this.value !== undefined) this.set(undefined);
+    }
+
+    private set(next: DragRest | undefined): void {
+        this.value = next;
+        for (const listener of this.listeners) listener();
+    }
+}
 
 /** A grip on the board as the drag grammar's coordinate. */
 export function gripCoord(surface: string, grip: BoardGrip): Required<CellCoord> {
@@ -166,6 +221,23 @@ export function currentOf(plan: Day, grip: Grip): string | undefined {
     if (grip.kind !== "body" && grip.kind !== "port") return undefined;
     const bin = plan.bins.get(grip.bin);
     return bin === undefined ? undefined : partsOf(bin)[0]?.key;
+}
+
+/**
+ * The link a grip's drag moves (A69): a link's own; a connector's when it
+ * carries its bin's largest part, its bin having nothing left to link (A21); a
+ * body's or a Library card's, none.
+ *
+ * @param plan - The day as drafted
+ * @param grip - What is dragged
+ * @returns The bin's part it moves, or `undefined` for a drag that moves no link
+ */
+export function movedLinkOf(plan: Day, grip: Grip): { bin: string; resource: string } | undefined {
+    if (grip.kind === "link") return { bin: grip.bin, resource: grip.resource };
+    if (grip.kind !== "port") return undefined;
+    const bin = plan.bins.get(grip.bin);
+    const carried = bin === undefined ? undefined : linkedQuantity(bin, undefined);
+    return carried?.from === undefined ? undefined : { bin: grip.bin, resource: carried.from };
 }
 
 /** The three best fits of an answer, best first, the current resource excepted (A28). */
@@ -443,6 +515,38 @@ export interface AllocationDrag {
     gripOfPayload: (payload: DragPayload) => Grip | undefined;
     /** The grip and the target a completed drag names. */
     gripOfEvent: (event: DragEventValue) => Grip | undefined;
+    /** Where the drag rests, as its targets report it (`dropTarget`): what the board's marks and its links read. */
+    rest: DragRestStore;
+}
+
+/**
+ * A drop target of the board's (A26) — a lane hour, a card, a resource row,
+ * the fits marker, a Table cell, a fit in the inspector's drop list — as the
+ * shared drag layer takes it: its veto and the ghost's caption, both the
+ * board's one verdict for the target (§10), and where the drag rests told to
+ * the board as it rests and as it leaves (`rest`). A fit in the drop list is
+ * `{ kind: "resource", resource }` at `rowCoord(drag.surface, resource)`, as
+ * its row is.
+ *
+ * @param drag - The board's drags
+ * @param target - What the target is
+ * @returns The veto and the options a `useDropCell` takes
+ */
+export function dropTarget(drag: AllocationDrag, target: Target): { veto: DropVeto; options: DropCellOptions } {
+    return {
+        veto: (candidate: DragEventValue) => { const grip = drag.gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
+        options: {
+            accepts: (payload: DragPayload) => drag.gripOfPayload(payload) !== undefined,
+            caption: (_coord: unknown, payload: DragPayload, allowed: boolean) => {
+                const grip = drag.gripOfPayload(payload);
+                if (grip === undefined) return undefined;
+                drag.rest.rest(target, allowed);
+                const verdict = drag.verdict(grip, target);
+                return { text: verdict.caption, warn: verdict.warn };
+            },
+            onLeave: () => drag.rest.leave(target),
+        },
+    };
 }
 
 /**
@@ -482,9 +586,7 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const kept = useMemo(() => new Map<string, Verdict>(), [scene.plan, scene.slots, answer, ranks, fit.error]);
     const judge = (asking: boolean) => (g: Grip, target: Target): Verdict => {
-        const where = target.kind === "resource" ? `r:${target.resource}` : target.kind === "cell" ? `c:${target.row}`
-            : `l:${target.lane}|${target.at.getTime()}|${target.card ?? ""}|${target.table === true ? "t" : ""}`;
-        const key = `${gripKey(g)}|${where}`;
+        const key = `${gripKey(g)}|${targetKey(target)}`;
         const known = kept.get(key);
         if (known !== undefined && !known.pending) return known;
         const next = verdictOf(scene, g, target, ranks, asking);
@@ -537,5 +639,8 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
         };
     }, [surface, libraries, gripOfEvent]);
     useDragTarget(enabled ? config : null);
-    return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, ranks, verdict: judge(true), peek: judge(false), gripOfPayload, gripOfEvent };
+    // Where the drag rests: one store for the board's life, empty once no drag is under way.
+    const [rest] = useState(() => new DragRestStore());
+    useEffect(() => { if (grip === undefined) rest.clear(); }, [grip, rest]);
+    return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, ranks, verdict: judge(true), peek: judge(false), gripOfPayload, gripOfEvent, rest };
 }

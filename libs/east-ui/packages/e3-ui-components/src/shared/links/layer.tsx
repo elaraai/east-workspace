@@ -23,10 +23,16 @@
  * outlined, carrying a × in its own 16px target whose pointer-down is stopped
  * (never a drag) and whose click unlinks (A68); a link DRAG's preview — the
  * moved link faded to its `was` line, and the new line to the pointer (A69);
- * captions that take the pointer as the line does, lighting it (`caption`); a
- * link's tone (`data-tone`, a draft's); and the lit link reported (`onLit`), for
- * a host that rings the ends itself (`halo={false}`), as the Allocation rings
- * its bin card and its resource's load bar (A67).
+ * a GRIP on a link's line and its caption, the host's component drawn in their
+ * place to spread its drag handle on them (`grip`, A69); thin GUIDES from the
+ * pointer into rows (`guides`, A30); captions that take the pointer as the line
+ * does, lighting it (`caption`); a link's tone (`data-tone`: a draft's, a
+ * drag's verdict); links that light nothing while a drag is under way
+ * (`lights={false}`); and the lit link reported (`onLit`), for a host that
+ * rings the ends itself (`halo={false}`), as the Allocation rings its bin card
+ * and its resource's load bar (A67). The preview and the guides follow the
+ * pointer wherever it is, so the bounds' clip does not cut them: the host's box
+ * does, and they draw over the captions.
  *
  * The DOM's vocabulary is Plan's, where these parts began (`data-plan-link`,
  * `data-plan-ribbon-band`, `data-plan-casing`, …), so Plan's tests and its
@@ -36,7 +42,9 @@
  * @packageDocumentation
  */
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type SVGProps } from "react";
+import {
+    useEffect, useId, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type PointerEvent, type ReactNode, type SVGProps,
+} from "react";
 import { chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -74,12 +82,41 @@ export interface LinkRibbon extends RibbonPath {
     tone?: string | undefined;
 }
 
+/** A line the layer draws beside the links: its path, and its head. */
+export interface LinkLine {
+    stroke: string;
+    head: string;
+}
+
 /** A link drag's preview (A69). */
 export interface LinkPreview {
     /** The link being moved, drawn as its faded `was` line; `undefined` for a new link. */
     was: number | undefined;
-    /** The new line, from its source to the pointer: its path and its head; `undefined` while it has nowhere to go. */
-    line: { stroke: string; head: string } | undefined;
+    /** The new line, from its source to the pointer; `undefined` while it has nowhere to go. */
+    line: LinkLine | undefined;
+}
+
+/** What a grip spreads on the part it holds: its ref, the handlers that pick a drag up, its role and its marks. */
+export interface LinkGripHandle {
+    ref?: ((el: SVGElement | null) => void) | undefined;
+    onPointerDown?: ((event: PointerEvent<SVGElement>) => void) | undefined;
+    onKeyDown?: ((event: KeyboardEvent<SVGElement>) => void) | undefined;
+    role?: string | undefined;
+    tabIndex?: number | undefined;
+    "aria-roledescription"?: string | undefined;
+    "aria-describedby"?: string | undefined;
+    "aria-disabled"?: boolean | undefined;
+    "aria-pressed"?: boolean | undefined;
+    [mark: `data-${string}`]: string | undefined;
+}
+
+/** What a host's grip is handed (A69): the link, the part it holds, and the part to draw with the grip's handle on it. */
+export interface LinkGripProps {
+    ribbon: LinkRibbon;
+    /** Its line's hit area, or its caption. */
+    part: "line" | "caption";
+    /** Draws the part, the handle spread on it. */
+    render: (handle: LinkGripHandle) => ReactNode;
 }
 
 /** What the layer draws. */
@@ -103,8 +140,18 @@ export interface LinksLayerProps {
     unlinkLabel?: ((ribbon: LinkRibbon) => string) | undefined;
     /** A link drag's preview (A69). */
     preview?: LinkPreview | undefined;
+    /** Thin lines from the pointer into rows, drawn as the preview is (A30). */
+    guides?: readonly LinkLine[] | undefined;
     /** What a caption carries when it takes the pointer as its line does: its attributes, its handlers and its tooltip. Omitted, captions only label. */
     caption?: ((ribbon: LinkRibbon) => SVGProps<SVGGElement> & { title?: string | undefined }) | undefined;
+    /**
+     * A host's grip on each link's line and on each caption that takes the pointer (A69): a component the layer draws in their
+     * place, which spreads its drag handle on them. It keeps one identity — the layer remounts nothing for it — so a drag it
+     * starts outlives the render that started it.
+     */
+    grip?: ComponentType<LinkGripProps> | undefined;
+    /** Whether a link under the pointer lights (true by default); a host passes false while a drag is under way, and the lit link goes out. */
+    lights?: boolean | undefined;
     /** Hears which link is lit, as it changes; `null` for none. */
     onLit?: ((id: number | null) => void) | undefined;
     /** Whether the layer rings a lit link's ends itself (true by default); a host that rings them passes false. */
@@ -162,14 +209,16 @@ function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): v
  * @returns The SVG, or nothing when there is nothing to draw
  */
 export function LinksLayer({
-    ribbons, edgeSlots = [], width, height, clip, hit, selected, onUnlink, unlinkLabel, preview, caption, onLit, halo = true,
+    ribbons, edgeSlots = [], width, height, clip, hit, selected, onUnlink, unlinkLabel, preview, guides = [], caption, grip: Grip, lights = true, onLit, halo = true,
 }: LinksLayerProps): ReactNode {
     // The link under the pointer — lit, drawn over the others, its ends haloed.
     const [lit, setLit] = useState<number | null>(null);
-    // A lit link that is gone (the focus moved on) lights nothing.
+    // A lit link that is gone (the focus moved on) lights nothing, nor one while the layer lights nothing.
     useLayoutEffect(() => {
-        if (lit !== null && !ribbons.some((r) => r.id === lit)) setLit(null);
-    }, [lit, ribbons]);
+        if (lit !== null && (!lights || !ribbons.some((r) => r.id === lit))) setLit(null);
+    }, [lit, ribbons, lights]);
+    const light = (id: number) => { if (lights) setLit(id); };
+    const unlight = (id: number) => setLit((now) => (now === id ? null : now));
     // The host hears the lit link as it changes.
     const heard = useRef<number | null>(null);
     useLayoutEffect(() => {
@@ -195,10 +244,33 @@ export function LinksLayer({
     // Nothing of the layer leaves the bounds: the routes keep inside them, and
     // the clip takes what a halo or a casing would carry over their edge.
     const clipId = `plan-links-${useId().replace(/[^\w-]/g, "")}`;
-    if (ribbons.length === 0 && edgeSlots.length === 0 && preview?.line === undefined) return null;
+    if (ribbons.length === 0 && edgeSlots.length === 0 && preview?.line === undefined && guides.length === 0) return null;
     // The lit link last: its casing and ink over every other link's.
     const ordered = lit === null ? ribbons
         : [...ribbons.filter((r) => r.id !== lit), ...ribbons.filter((r) => r.id === lit)];
+    /** A link's hit area — the stroke and 5 either side — a grip's handle on it. */
+    const hitArea = (r: LinkRibbon, handle: LinkGripHandle) => (
+        <path data-link={r.id} aria-label={r.label} {...hit(r)} {...handle}
+            d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
+            onPointerEnter={() => light(r.id)} onPointerLeave={() => unlight(r.id)} />
+    );
+    /** A link's caption on its knockout; when it takes the pointer, a grip's handle on it. */
+    const captionOf = (r: LinkRibbon, handle: LinkGripHandle) => {
+        const { title, ...takes } = caption?.(r) ?? {};
+        return (
+            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-selected={selected === r.id ? "" : undefined}
+                data-lit={caption !== undefined && lit === r.id ? "" : undefined}
+                {...(caption === undefined ? {} : {
+                    ...takes, ...handle,
+                    onPointerEnter: () => light(r.id),
+                    onPointerLeave: () => unlight(r.id),
+                })}>
+                {title !== undefined && <title>{title}</title>}
+                <rect data-plan-ribbon-knockout x={r.lx} y={r.ly - KNOCKOUT_RISE} width={0} height={KNOCKOUT_H} />
+                <text data-plan-ribbon-caption data-x={r.lx} x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
+            </g>
+        );
+    };
     return (
         <svg ref={svgRef} width={width} height={height}>
             <defs>
@@ -235,41 +307,34 @@ export function LinksLayer({
                                 </>
                             )}
                             {/* The hit area — the stroke and 5 either side of it.
-                                Its caption is its label; the host names its ref. */}
-                            <path data-link={r.id} aria-label={r.label} {...hit(r)}
-                                d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
-                                onPointerEnter={() => setLit(r.id)}
-                                onPointerLeave={() => setLit((now) => (now === r.id ? null : now))} />
+                                Its caption is its label; the host names its ref, and its grip holds it. */}
+                            {Grip === undefined ? hitArea(r, {}) : <Grip ribbon={r} part="line" render={(handle) => hitArea(r, handle)} />}
                         </g>
                     );
                 })}
-                {/* A link drag's new line, to the pointer (A69). */}
-                {preview?.line !== undefined && (
-                    <g data-plan-link-preview="">
-                        <path data-plan-ribbon-band d={preview.line.stroke} />
-                        <path data-plan-ribbon-head d={preview.line.head} />
-                    </g>
-                )}
                 {/* The captions, over every link: each on its paper knockout,
                     sized to its text once drawn; the selected one carries its ×. */}
                 {ribbons.map((r) => {
                     if (r.label === undefined) return null;
-                    const { title, ...takes } = caption?.(r) ?? {};
-                    return (
-                        <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-selected={selected === r.id ? "" : undefined}
-                            data-lit={caption !== undefined && lit === r.id ? "" : undefined}
-                            {...(caption === undefined ? {} : {
-                                ...takes,
-                                onPointerEnter: () => setLit(r.id),
-                                onPointerLeave: () => setLit((now) => (now === r.id ? null : now)),
-                            })}>
-                            {title !== undefined && <title>{title}</title>}
-                            <rect data-plan-ribbon-knockout x={r.lx} y={r.ly - KNOCKOUT_RISE} width={0} height={KNOCKOUT_H} />
-                            <text data-plan-ribbon-caption data-x={r.lx} x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
-                        </g>
-                    );
+                    // A caption that takes the pointer is a grip too, when the host has one.
+                    return Grip === undefined || caption === undefined ? captionOf(r, {})
+                        : <Grip key={`label-${r.id}`} ribbon={r} part="caption" render={(handle) => captionOf(r, handle)} />;
                 })}
             </g>
+            {/* What follows the pointer — the guides into rows (A30) and a link drag's new line (A69) — over the captions, and
+                cut by the host's box, not the bounds': a line to the pointer runs past them. */}
+            {guides.map((g, i) => (
+                <g key={`guide-${i}`} data-plan-link-guide="">
+                    <path data-plan-ribbon-band d={g.stroke} />
+                    <path data-plan-ribbon-head d={g.head} />
+                </g>
+            ))}
+            {preview?.line !== undefined && (
+                <g data-plan-link-preview="">
+                    <path data-plan-ribbon-band d={preview.line.stroke} />
+                    <path data-plan-ribbon-head d={preview.line.head} />
+                </g>
+            )}
             {/* The selected caption's × in its own target, just past its knockout: a control, not a link, so the
                 bounds' clip does not cut it where its caption sits by an edge. */}
             {ribbons.map((r) => (selected === r.id && r.label !== undefined && onUnlink !== undefined ? (

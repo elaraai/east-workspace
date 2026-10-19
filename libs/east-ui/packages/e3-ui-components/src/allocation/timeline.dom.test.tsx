@@ -9,13 +9,13 @@
  * sessions (#1325) acted on through the Timeline's cards. Every expected word
  * and figure is the mock's, as it draws the same yard.
  */
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, TUE, TUE_4 } from "./harness.test-utils.js";
+import { act, allocationHarness, mount, settle, slot, stubLinkGeometry, TUE, TUE_4 } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-allocation-card="${id}"]`);
@@ -296,18 +296,6 @@ describe("the day's sessions, through the Timeline (#1325)", () => {
     });
 });
 
-/** The board's three boxes the links run between, as a browser lays them out: jsdom lays out nothing. */
-function stubLinkGeometry() {
-    const spy = vi.mocked(Element.prototype.getBoundingClientRect);
-    const base = spy.getMockImplementation()!;
-    spy.mockImplementation(function (this: Element) {
-        const box = (left: number, width: number, height: number) => ({ x: left, y: 0, top: 0, left, right: left + width, bottom: height, width, height, toJSON() {} });
-        if (this.hasAttribute("data-allocation-timeline")) return box(0, 1200, 700);
-        if (this.hasAttribute("data-allocation-grid")) return box(10, 336, 1116);
-        if (this.hasAttribute("data-allocation-channel")) return box(347, 48, 700);
-        return base.call(this);
-    });
-}
 const links = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-links] [data-plan-link]")];
 const hitOf = (c: HTMLElement, bin: string, resource: string) => c.querySelector<SVGPathElement>(`[data-allocation-link="${bin}|${resource}"]`)!;
 const captionOf = (c: HTMLElement, bin: string, resource: string) => c.querySelector<SVGGElement>(`[data-allocation-caption="${bin}|${resource}"]`)!;

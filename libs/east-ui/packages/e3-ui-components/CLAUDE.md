@@ -343,6 +343,31 @@ remain readable even when the source event is a very short timeline bar.
   working examples and displayed source. e3-web needs a secure context, so use
   HTTPS for a remote preview. Notify the user only after that build is served.
 
+### Links that are drag grips, and lines that follow the pointer
+
+The shared links layer (`src/shared/links/layer.tsx`) draws only what a host
+opts into beyond Plan's links, and Plan opts into none of it: a `grip`, the
+host's component drawn in each link's line and in each caption that takes the
+pointer, spreading the host's drag handle on them (the shared drag engine
+takes an SVG element as a draggable); `guides`, thin lines from the pointer
+into rows; `lights={false}`, nothing lit while a drag is under way; and a link
+drag's `preview`, its `was` line and the new line. The preview and the guides
+follow the pointer past the bounds' clip: the host's box cuts them, and they
+draw over the captions. The Allocation's Timeline uses them all (#1328): every
+link of the day is numbered once (`links.ts`' `linkIds`), so the grip a drag
+starts on outlives the families the drag draws in the focus's place
+(`dragFamilies`, A65). What follows the pointer (`PointerLines`) is the only
+part drawn again as the pointer moves, its point read from the page's pointer
+moves while a button is held, so a keyboard's drag draws no new line; each
+link's words are made once for the day as drafted (A35). Where a drag rests is
+the board's `DragRestStore` (`drag.ts`), which each drop target's
+`dropTarget(drag, target)` sets as the drag rests on it and lets go through
+the engine's `onLeave` as the drag leaves it; the marks on the cards and on the
+runs' labels (A29) and the links read it outside React's renders. A new drop
+target of the board's, such as a fit in the inspector's drop list (A26, A34),
+is `dropTarget(drag, { kind: "resource", resource })` at
+`rowCoord(drag.surface, resource)`, as a resource row is.
+
 ### Footer rails and drag previews are shared parts too
 
 Use the same footer rail recipe as Plan, not just its text style. The shared

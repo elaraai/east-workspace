@@ -14,7 +14,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe, Box } from "@chakra-ui/react";
 import { system } from "@elaraai/east-ui-components";
-import { LinksLayer, type LinkRibbon } from "./layer.js";
+import { LinksLayer, type LinkGripProps, type LinkRibbon } from "./layer.js";
 import { routeRibbon, type RibbonEnd } from "./geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -125,6 +125,55 @@ describe("the shared links layer", () => {
         expect(container.querySelectorAll("[data-plan-linkend]")).toHaveLength(2);
     });
 
+    test("A69 — a host's grip holds each link's line and each caption that takes the pointer: the layer draws the part with the grip's handle on it", () => {
+        const pressed: string[] = [];
+        function Held({ ribbon, part, render }: LinkGripProps) {
+            return <>{render({ "data-held": `${part}:${ribbon.id}`, tabIndex: part === "caption" ? 0 : -1, onPointerDown: () => pressed.push(`${part}:${ribbon.id}`) })}</>;
+        }
+        const { container } = mount({ grip: Held, caption: () => ({ role: "button" }) });
+        expect(container.querySelector("[data-link='1']")!.getAttribute("data-held")).toBe("line:1");
+        expect(container.querySelector("[data-plan-ribbon-label='0']")!.getAttribute("data-held")).toBe("caption:0");
+        expect(container.querySelector("[data-plan-ribbon-label='0']")!.getAttribute("tabindex")).toBe("0");
+        // The reservation's link has no caption: its line alone is held.
+        expect(container.querySelector("[data-link='2']")!.getAttribute("data-held")).toBe("line:2");
+        fireEvent.pointerDown(container.querySelector("[data-link='1']")!);
+        fireEvent.pointerDown(container.querySelector("[data-plan-ribbon-label='0']")!);
+        expect(pressed).toEqual(["line:1", "caption:0"]);
+        // Captions that only label, Plan's, are never held.
+        cleanup();
+        const plan = mount({ grip: Held });
+        expect(plan.container.querySelector("[data-plan-ribbon-label][data-held]")).toBeNull();
+        expect(plan.container.querySelectorAll("[data-link][data-held]")).toHaveLength(3);
+    });
+
+    test("A69, A30 — the new line and the guides follow the pointer past the bounds: drawn outside the clip, over the captions", () => {
+        const line = { stroke: "M 140 18 L 700 18", head: "M 691 12 L 700 18 L 691 24 Z" };
+        const guides = [{ stroke: "M -40 90 L 432 90", head: "M 432 86 L 440 90 L 432 94 Z" }];
+        const { container } = mount({ clip: { left: 52, width: 388 }, preview: { was: 0, line }, guides });
+        const svg = container.querySelector("svg")!;
+        const preview = svg.querySelector("[data-plan-link-preview]")!, guide = svg.querySelector("[data-plan-link-guide]")!;
+        expect([preview.closest("[data-plan-clip]"), guide.closest("[data-plan-clip]")]).toEqual([null, null]);
+        // After the clipped links and their captions, in that order: the guides, then the new line.
+        expect([...svg.children].map(el => el.hasAttribute("data-plan-clip") ? "clip" : el.hasAttribute("data-plan-link-guide") ? "guide"
+            : el.hasAttribute("data-plan-link-preview") ? "preview" : el.tagName.toLowerCase())).toEqual(["defs", "clip", "guide", "preview"]);
+        expect(guide.querySelector("[data-plan-ribbon-band]")!.getAttribute("d")).toBe(guides[0]!.stroke);
+        // Guides alone are drawn, with no link to draw.
+        cleanup();
+        expect(mount({ ribbons: [], guides }).container.querySelector("[data-plan-link-guide]")).not.toBeNull();
+    });
+
+    test("A65 — while a drag is under way the layer lights nothing: the lit link goes out, the host hears it, and the pointer lights no other", () => {
+        const onLit = vi.fn();
+        const { container, rerender } = render(<ChakraProvider value={system}><Layer onLit={onLit} /></ChakraProvider>);
+        fireEvent.pointerEnter(container.querySelector("[data-link='1']")!);
+        expect(container.querySelector("[data-plan-link='1']")!.hasAttribute("data-lit")).toBe(true);
+        rerender(<ChakraProvider value={system}><Layer onLit={onLit} lights={false} /></ChakraProvider>);
+        expect(container.querySelector("[data-plan-link][data-lit]")).toBeNull();
+        expect(onLit).toHaveBeenLastCalledWith(null);
+        fireEvent.pointerEnter(container.querySelector("[data-link='0']")!);
+        expect(container.querySelector("[data-plan-link][data-lit]")).toBeNull();
+    });
+
     test("a link's tone marks its group for the host's recipe", () => {
         const { container } = mount({ ribbons: [{ ...LINKS[0]!, tone: "draft" }, LINKS[1]!] });
         expect(container.querySelector("[data-plan-link='0']")!.getAttribute("data-tone")).toBe("draft");
@@ -140,7 +189,10 @@ describe("the shared links layer", () => {
         expect(look["& [data-plan-ribbon-band]"]).toEqual({ fill: "none", stroke: "var(--chakra-colors-fg-muted)" });
         expect(look["& [data-selected] [data-plan-ribbon-knockout]"]).toEqual({ stroke: "var(--chakra-colors-fg)", strokeWidth: "1px" });
         expect(look["& [data-was] [data-plan-ribbon-band]"]).toEqual({ stroke: "var(--chakra-colors-fg-subtle)", strokeWidth: "1.5px" });
-        expect((look["& [data-plan-link-preview] [data-plan-ribbon-band]"] as Record<string, unknown>).strokeWidth).toBe("3px");
+        // The new line: brand-d, 3, its corners joined round, as the mock's (A69); the guides: 1.5 in the brand's mark (A30).
+        expect(look["& [data-plan-link-preview] [data-plan-ribbon-band]"]).toEqual({ stroke: "var(--chakra-colors-brand-solid)", strokeWidth: "3px", strokeLinejoin: "round" });
+        expect(look["& [data-plan-link-guide] [data-plan-ribbon-band]"]).toEqual({ stroke: "var(--chakra-colors-brand-mark)", strokeWidth: "1.5px" });
+        expect(look["& [data-plan-link-guide] [data-plan-ribbon-head]"]).toEqual({ fill: "var(--chakra-colors-brand-mark)" });
         expect(look["position"]).toBe("absolute");
     });
 });

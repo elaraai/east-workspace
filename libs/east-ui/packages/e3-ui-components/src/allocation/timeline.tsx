@@ -7,29 +7,34 @@
  * The Timeline (`Allocation Spec.md` §8, §9.2–§9.3, #1326): one head row over
  * three panes — the lane grid with a card per bin, the link channel, and the
  * resources in their fixed order, each row's plot on the resource axis — and
- * the focus. Every figure and word is e3-ui's (the slots, the loads, each
- * resource's line); the layout's indices are `timeline-layout.ts`'s, and every
- * size is the `allocationBuilder` recipe's.
+ * the focus; during a drag, the drag's links in the focus's place — its
+ * families, a link drag's new line to the pointer, an event's lines into its
+ * best rows (A65, A69, A30). Every figure and word is e3-ui's (the slots, the
+ * loads, each resource's line); the layout's indices are `timeline-layout.ts`'s,
+ * and every size is the `allocationBuilder` recipe's.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import {
+    createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
+    type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject,
+} from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowDown, faArrowRight, faArrowUp, faCircleExclamation, faFilter, faLink, faLinkSlash, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap, option } from "@elaraai/east";
-import { useContainerBelow, useDragEventChip, useDropCell, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { useContainerBelow, useDragEventChip, useDropCell, type Formatters } from "@elaraai/east-ui-components";
 import { VirtualRows, formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { LinksLayer, type LinkRibbon } from "../shared/links/layer.js";
+import { LinksLayer, type LinkGripProps, type LinkLine, type LinkRibbon } from "../shared/links/layer.js";
 import { useScrollTop } from "../shared/links/scroll.js";
 import { NowLine } from "../shared/time/now-line.js";
 import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { gripCoord, laneCoord, rowCoord, type AllocationDrag, type Target } from "./drag.js";
-import { familyOf, layoutLinks, type FamilyLink } from "./links.js";
+import { currentOf, dropTarget, gripCoord, laneCoord, movedLinkOf, rowCoord, type AllocationDrag, type BoardGrip, type Target } from "./drag.js";
+import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
 import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
@@ -101,23 +106,6 @@ export interface TimelineProps {
     candidates: AllocationDomain["candidates"];
 }
 
-/** A drop cell's veto and caption for a target: the board's one verdict (§10). */
-function dropOptions(drag: AllocationDrag, target: Target, hover?: (allowed: boolean) => void) {
-    return {
-        veto: (candidate: DragEventValue) => { const grip = drag.gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
-        options: {
-            accepts: (payload: DragPayload) => drag.gripOfPayload(payload) !== undefined,
-            caption: (_coord: unknown, payload: DragPayload, allowed: boolean) => {
-                hover?.(allowed);
-                const grip = drag.gripOfPayload(payload);
-                if (grip === undefined) return undefined;
-                const verdict = drag.verdict(grip, target);
-                return { text: verdict.caption, warn: verdict.warn };
-            },
-        },
-    };
-}
-
 /** A refusing run's label (A27): `✕ Over max · 3 resources · by 4–13 m³`, over the rows it gathers. */
 interface RefusalRun { from: number; to: number; label: string; meta: string; tip: string }
 
@@ -178,9 +166,9 @@ function fitsMarker(ranks: readonly string[], rowIndex: ReadonlyMap<string, numb
 }
 
 /** A lane hour: a drop target for a bin's body (A14, A37). */
-function LaneCellView({ props, lane, at, free, style, onRest }: { props: TimelineProps; lane: string; at: Date; free: boolean; style: CSSProperties; onRest: () => void }) {
+function LaneCellView({ props, lane, at, free, style }: { props: TimelineProps; lane: string; at: Date; free: boolean; style: CSSProperties }) {
     const { drag, styles } = props;
-    const { veto, options } = dropOptions(drag, { kind: "lane", lane, at, card: undefined }, onRest);
+    const { veto, options } = dropTarget(drag, { kind: "lane", lane, at, card: undefined });
     const ref = useDropCell(drag.enabled ? laneCoord(drag.surface, lane, at) : null, false, veto, undefined, options);
     return <Box ref={ref} css={styles.laneCell} data-allocation-cell={`${lane}|${at.getTime()}`} data-free={free ? "" : undefined} style={style}
         onClick={() => { if (props.picked && free && props.editable) props.book({ kind: "lane", lane, at, card: undefined }); else props.select(undefined); }}>
@@ -191,7 +179,7 @@ function LaneCellView({ props, lane, at, free, style, onRest }: { props: Timelin
 /** The fits marker over the rows (A31): a drop on it goes to the #1. */
 function FitsMarker({ props, marker, top }: { props: TimelineProps; marker: Marker; top: number }) {
     const { drag, styles } = props;
-    const { veto, options } = dropOptions(drag, { kind: "resource", resource: marker.resource });
+    const { veto, options } = dropTarget(drag, { kind: "resource", resource: marker.resource });
     const ref = useDropCell(drag.enabled ? rowCoord(drag.surface, marker.resource) : null, false, veto, undefined, options);
     return <Box ref={ref} css={styles.fitsMarker} data-allocation-marker={marker.side} style={{ top: `${top}px` }}>
         <FontAwesomeIcon icon={marker.side === "hidden" ? faFilter : marker.side === "below" ? faArrowDown : faArrowUp} aria-hidden="true" />{marker.label}
@@ -288,30 +276,41 @@ export function AllocationTimeline(props: TimelineProps) {
     // Each run of contiguous rows refusing for one reason gathers under one label (A27).
     const runs = useMemo((): RefusalRun[] => verdicts === undefined ? [] : refusalRuns(rows.map(r => verdicts.get(r.key)), words, unit), [verdicts, rows, words, unit]);
 
-    // The links (A65–A68): the focus's family, through the channel; none at rest and none on hover.
-    const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus), [plan, held, props.focus]);
-    const linking = family.length > 0;
+    // The links (A65–A69): the focus's family, through the channel, none at rest and none on hover; during a drag, the drag's
+    // families in its place. Every link of the day is numbered once, so a drag that starts on a focus's link draws it still.
+    const ids = useMemo(() => linkIds(plan), [plan]);
+    const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus, ids), [plan, held, props.focus, ids]);
+    const linking = family.length > 0 || grip !== undefined;
     const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking || marking);
     // The fits out of view, marked at the pane's edge over the rows; a drop on it goes to the #1 (A31).
     const [rowsView, setRowsView] = useState(0);
     useLayoutEffect(() => { if (marking && rscPane.current !== null) setRowsView(rscPane.current.clientHeight - HEAD); }, [marking]);
     const marker = marking ? fitsMarker(drag.ranks, rowIndex, rowsTop, rowsView, key => context.resources.get(key)?.label ?? key) : undefined;
-    // While a drag rests on a row, its bins outline for the verdict and its run's label steps aside (A27, A29) —
-    // marked on the elements, so pointer motion repaints no card (A35).
-    const hover = useCallback((resource: string | undefined, index: number | undefined, allowed: boolean) => {
+    // While a drag rests on a resource — its row, the fits marker, a fit in the inspector's list — its bins outline for the
+    // verdict and its run's label steps aside (A27, A29); they let go as the drag leaves it, for the channel, the head or
+    // nothing. Marked on the elements as the drag's rest moves, so pointer motion repaints no card (A35).
+    const rowIndexNow = useRef(rowIndex);
+    rowIndexNow.current = rowIndex;
+    const { rest } = drag;
+    const markRest = useCallback(() => {
         const box = root.current;
         if (box === null) return;
         for (const el of box.querySelectorAll("[data-drop-target]")) el.removeAttribute("data-drop-target");
         for (const el of box.querySelectorAll("[data-run][data-pointer]")) el.removeAttribute("data-pointer");
-        if (resource === undefined || index === undefined) return;
+        const at = rest.get();
+        if (at === undefined || at.target.kind !== "resource") return;
+        const resource = at.target.resource, index = rowIndexNow.current.get(resource);
         for (const el of box.querySelectorAll(`[data-allocation-card]`)) {
-            if ((el.getAttribute("data-resources") ?? "").split(" ").includes(resource)) el.setAttribute("data-drop-target", allowed ? "fits" : "refused");
+            if ((el.getAttribute("data-resources") ?? "").split(" ").includes(resource)) el.setAttribute("data-drop-target", at.allowed ? "fits" : "refused");
         }
+        if (index === undefined) return;
         for (const el of box.querySelectorAll<HTMLElement>("[data-run]")) {
             if (Number(el.dataset.from) <= index && index <= Number(el.dataset.to)) el.setAttribute("data-pointer", "");
         }
-    }, []);
-    useEffect(() => { if (grip === undefined) hover(undefined, undefined, false); }, [grip, hover]);
+    }, [rest]);
+    useEffect(() => { markRest(); return rest.subscribe(markRest); }, [rest, markRest]);
+    // What mounts while the drag rests — a run's label as the fit's answer lands — is marked as it mounts.
+    useLayoutEffect(() => { if (grip !== undefined) markRest(); });
     // Where they run: the lane grid's left edge and the channel's right edge, in the board's px, and the panes' view.
     const [view, setView] = useState<{ gridLeft: number; channelRight: number; height: number }>();
     useLayoutEffect(() => {
@@ -329,14 +328,18 @@ export function AllocationTimeline(props: TimelineProps) {
         return () => observer.disconnect();
     }, [linking]);
     const cardOf = useMemo(() => new Map(grid.cards.map(card => [card.id, card] as const)), [grid]);
-    const codeOf = (bin: string) => { const event = plan.bins.get(bin)?.event; return event?.type === "some" ? context.events.get(event.value)?.label ?? event.value : ""; };
-    const selectedLink = props.link === undefined ? undefined : family.find(l => l.bin === props.link!.bin && l.resource === props.link!.resource)?.id;
-    const ribbons = useMemo(() => view === undefined || !linking ? [] : layoutLinks(family, cardOf, rowIndex, { ...view, laneTop, rowsTop },
-        link => words.quantity(link.quantity!, unit), selectedLink), [view, linking, family, cardOf, rowIndex, laneTop, rowsTop, words, unit, selectedLink]);
-    const linkOf = (ribbon: LinkRibbon): FamilyLink => (ribbon as (typeof ribbons)[number]).link;
-    const linkName = (link: FamilyLink) => link.quantity === undefined ? "the reservation" : `${codeOf(link.bin)}, ${words.quantity(link.quantity, unit)}`;
-    const [lit, setLit] = useState<number | null>(null);
-    const litLink = lit === null ? undefined : family[lit];
+    // Each link's words, once for the day as drafted: a drag's pointer motion says no quantity again (A35).
+    const linkWords = useMemo(() => {
+        const out = new Map<string, Map<string, LinkWords>>();
+        for (const [id, bin] of plan.bins) {
+            const code = bin.event.type === "some" ? context.events.get(bin.event.value)?.label ?? bin.event.value : "";
+            out.set(id, new Map(partsOf(bin).map(part => [part.key, linkWordsOf(code, bin.event.type === "none" ? undefined : words.quantity(part.quantity, unit))] as const)));
+        }
+        return out;
+    }, [plan, context.events, words, unit]);
+    const wordsOf = useCallback((link: FamilyLink): LinkWords => linkWords.get(link.bin)?.get(link.resource) ?? linkWordsOf("", undefined), [linkWords]);
+    // The link under the pointer (A67): its bin's card and its resource's load bar ring.
+    const [lit, setLit] = useState<FamilyLink>();
     // Under 36px a day, its tick shows its number only.
     const short = useContainerBelow(ruler, axis.days.length * SHORT_DAY);
     const time = useMemo(() => timeWords(props.format.locale), [props.format.locale]);
@@ -405,8 +408,8 @@ export function AllocationTimeline(props: TimelineProps) {
                         <Box as="span" css={styles.laneHour}>{formatDatePattern(value.every.type === "hours" ? "HH" : "HH:mm", band.at)}</Box>
                     </Box>)}
                     {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={lanes[cell.lane]!.key} at={cell.at} free={cell.free}
-                        style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} onRest={() => hover(undefined, undefined, false)} />)}
-                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={litLink?.bin === card.id} onRest={() => hover(undefined, undefined, false)}
+                        style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} />)}
+                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={lit?.bin === card.id}
                         refuses={taking !== undefined && !card.bin.parts.has(taking) && takes?.bins.get(card.id)?.type === "refused"} />)}
                 </Box>
             </Box>
@@ -435,28 +438,189 @@ export function AllocationTimeline(props: TimelineProps) {
                 const resource = rows[index]!;
                 const rank = drag.ranks.indexOf(resource.key);
                 return <ResourceRowView resource={resource} line={lines.get(resource.key)!} load={loads.get(resource.key)!} axis={axis} props={props}
-                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={litLink?.resource === resource.key}
+                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={lit?.resource === resource.key}
                     verdict={verdicts?.get(resource.key)} rank={ranking && rank >= 0 ? rank + 1 : undefined} preview={previews.get(resource.key)}
-                    quantity={dragged?.quantity} onRest={allowed => hover(resource.key, index, allowed)} />;
+                    quantity={dragged?.quantity} />;
             }} />
-        {view !== undefined && ribbons.length > 0 && <Box css={styles.links} data-allocation-links="" style={{ height: view.height }}>
-            <LinksLayer ribbons={ribbons} width={view.channelRight} height={view.height} halo={false} onLit={setLit}
+        {view !== undefined && linking && <TimelineLinks props={props} family={family} ids={ids} cards={cardOf} rows={rowIndex}
+            view={{ ...view, laneTop, rowsTop }} words={wordsOf} onLit={setLit} />}
+        {view !== undefined && grip !== undefined && <PointerLines props={props} root={root} cards={cardOf} rows={rowIndex} view={{ ...view, laneTop, rowsTop }} />}
+    </Box>;
+}
+
+/** A link's words (A67, A68): its bin's code, its quantity, its name (`LD-2232, 4 m³`) and its ghost's (`LD-2232 · 4 m³`). */
+interface LinkWords { code: string; quantity: string | undefined; name: string; ghost: string }
+
+/** A link's words from its bin's code and its quantity; a reservation's has none: `the reservation`, `Reserved`. */
+function linkWordsOf(code: string, quantity: string | undefined): LinkWords {
+    return quantity === undefined ? { code, quantity, name: "the reservation", ghost: "Reserved" } : { code, quantity, name: `${code}, ${quantity}`, ghost: `${code} · ${quantity}` };
+}
+
+/** A routed link of the Timeline's: the ribbon and its link. */
+type TimelineRibbon = ReturnType<typeof layoutLinks>[number];
+const linkOf = (ribbon: LinkRibbon): FamilyLink => (ribbon as TimelineRibbon).link;
+
+/** What the links read of the Timeline (A65–A69). */
+interface TimelineLinksProps {
+    props: TimelineProps;
+    /** The focus's family: what draws with no drag under way. */
+    family: readonly FamilyLink[];
+    ids: LinkIds;
+    cards: ReadonlyMap<string, LaneCard>;
+    rows: ReadonlyMap<string, number>;
+    view: LinkView;
+    words: (link: FamilyLink) => LinkWords;
+    /** Hears the link under the pointer (A67), `undefined` for none. */
+    onLit: (link: FamilyLink | undefined) => void;
+}
+
+/**
+ * The links over the panes (A65–A69): the focus's family at rest — lit,
+ * selected, unlinked by its ×; during a drag, the drag's families in its
+ * place: the dragged bin's resource's, the link it moves faded to its `was`
+ * line, and the family of the resource the drag rests on, in the drop's
+ * verdict. It reads where the drag rests itself, so nothing else of the board
+ * renders as the drag moves (A35). Each link's line and caption is a grip.
+ */
+function TimelineLinks({ props, family, ids, cards, rows, view, words, onLit }: TimelineLinksProps) {
+    const { drag, styles, plan, held } = props;
+    const { grip } = drag;
+    const nouns = useNouns();
+    const rest = useSyncExternalStore(drag.rest.subscribe, drag.rest.get, drag.rest.get);
+    const current = grip === undefined ? undefined : currentOf(plan, grip);
+    const moved = grip === undefined ? undefined : movedLinkOf(plan, grip);
+    // The resource the drag rests on, unless it is the dragged bin's own, and the drop's verdict there; a body's drag draws its own family alone.
+    let target: DragTarget | undefined;
+    if (grip !== undefined && grip.kind !== "body" && rest !== undefined && rest.target.kind === "resource" && rest.target.resource !== current) {
+        const verdict = drag.peek(grip, rest.target);
+        target = { resource: rest.target.resource, verdict: verdict.pending ? undefined : verdict.allowed ? "fits" : "refused" };
+    }
+    const atRest = grip === undefined;
+    const links = atRest ? family : dragFamilies(plan, held, ids, current, moved, target);
+    const selected = props.link === undefined ? undefined : ids.get(props.link.bin)?.get(props.link.resource);
+    const was = moved === undefined ? undefined : ids.get(moved.bin)?.get(moved.resource);
+    // The selected link is drawn a px heavier, in the ink, at rest only: during a drag its caption keeps its outline alone.
+    const ribbons = layoutLinks(links, cards, rows, view, link => words(link).quantity, atRest ? selected : undefined);
+    const scope: GripScope = { drag, styles, words, select: link => props.selectLink({ bin: link.bin, resource: link.resource }) };
+    if (ribbons.length === 0) return null;
+    const isSelected = (ribbon: LinkRibbon) => selected === ribbon.id;
+    return <GripContext.Provider value={scope}>
+        <Box css={styles.links} data-allocation-links="" style={{ height: view.height }}>
+            <LinksLayer ribbons={ribbons} width={view.channelRight} height={view.height} halo={false} lights={atRest}
+                onLit={id => onLit(id === null ? undefined : links.find(link => link.id === id))}
                 clip={{ left: view.gridLeft + HOUR_W, width: Math.max(0, view.channelRight - view.gridLeft - HOUR_W) }}
-                selected={selectedLink} onUnlink={props.editable ? id => { const link = family[id]; if (link !== undefined) props.unlink(link.bin, link.resource); } : undefined}
-                unlinkLabel={ribbon => `Unlink ${codeOf(linkOf(ribbon).bin)} · Delete`}
+                selected={selected} preview={was === undefined ? undefined : { was, line: undefined }}
+                onUnlink={atRest && props.editable ? id => { const link = links.find(l => l.id === id); if (link !== undefined) props.unlink(link.bin, link.resource); } : undefined}
+                unlinkLabel={ribbon => `Unlink ${words(linkOf(ribbon)).code} · Delete`}
+                grip={drag.enabled ? LinkGrip : undefined}
                 hit={ribbon => {
-                    const link = linkOf(ribbon), name = `${selectedLink === ribbon.id ? "Selected link" : "Link"} of ${linkName(link)}`;
-                    return { "data-allocation-link": `${link.bin}|${link.resource}`, "aria-label": name, children: <title>{`Link of ${linkName(link)} · click to select`}</title>,
-                        onClick: () => props.selectLink({ bin: link.bin, resource: link.resource }) };
+                    const link = linkOf(ribbon), name = words(link).name;
+                    return { "data-allocation-link": `${link.bin}|${link.resource}`, "aria-label": `${isSelected(ribbon) ? "Selected link" : "Link"} of ${name}`,
+                        children: <title>{`Link of ${name} · click to select`}</title>, onClick: () => props.selectLink({ bin: link.bin, resource: link.resource }) };
                 }}
                 caption={ribbon => {
-                    const link = linkOf(ribbon), selected = selectedLink === ribbon.id;
-                    return { role: "button", "aria-label": `${selected ? "Selected link" : "Link"} of ${linkName(link)}`, "data-allocation-caption": `${link.bin}|${link.resource}`,
-                        title: !props.editable ? `Link of ${linkName(link)}` : selected ? "Selected · × or Delete removes the link" : `Click to select the link, then Delete · drag onto ${a(nouns.resource)} row to move it`,
+                    const link = linkOf(ribbon), name = words(link).name, chosen = isSelected(ribbon);
+                    return { role: "button", "aria-label": `${chosen ? "Selected link" : "Link"} of ${name}`, "data-allocation-caption": `${link.bin}|${link.resource}`,
+                        title: !props.editable ? `Link of ${name}` : chosen ? "Selected · × or Delete removes the link" : `Click to select the link, then Delete · drag onto ${a(nouns.resource)} row to move it`,
                         onClick: () => props.selectLink({ bin: link.bin, resource: link.resource }) };
                 }} />
-        </Box>}
+        </Box>
+    </GripContext.Provider>;
+}
+
+/** What a link's grip reads of the board: its drags, its look, each link's words, and selecting a link. */
+interface GripScope {
+    drag: AllocationDrag;
+    styles: AllocationStyles;
+    words: (link: FamilyLink) => LinkWords;
+    select: (link: FamilyLink) => void;
+}
+const GripContext = createContext<GripScope | null>(null);
+
+/**
+ * A link's grip (A69): its line, or its caption, picks the link's part up as
+ * the board's drag of it — the shared drag's handle spread on it, its ghost
+ * the part's words, `LD-2232 · 4 m³` — as a card's body or its connector does.
+ * One component the layer keeps, so a drag it starts outlives the families the
+ * drag draws in the focus's place. A link with a caption is one control, its
+ * caption — its line holds the drag for the pointer alone — and a reservation's
+ * link, which has none, its line: Enter selects the link (A68), Space picks it up.
+ */
+function LinkGrip({ ribbon, part, render }: LinkGripProps) {
+    const scope = useContext(GripContext);
+    const link = linkOf(ribbon);
+    const { bin, resource } = link;
+    const enabled = scope?.drag.enabled === true, surface = scope?.drag.surface ?? "";
+    const at = useMemo(() => enabled ? gripCoord(surface, { kind: "link", bin, resource }) : null, [enabled, surface, bin, resource]);
+    const label = scope === null ? "" : scope.words(link).ghost;
+    const styles = scope?.styles;
+    const ghost = useMemo(() => styles === undefined ? null : <MoveGhost styles={styles} label={label} />, [styles, label]);
+    const handle = useDragEventChip(at, ghost, false, label);
+    if (scope === null || handle === undefined) return <>{render({})}</>;
+    const { ref, onPointerDown, onKeyDown, ...control } = handle;
+    const grip: BoardGrip = { kind: "link", bin, resource };
+    const pointer = { ref, "data-scope": "allocation", "data-allocation-grip": "", onPointerDown: (event: ReactPointerEvent<SVGElement>) => { scope.drag.arm(grip); onPointerDown?.(event); } };
+    if (part === "line" && ribbon.label !== undefined) return <>{render(pointer)}</>;
+    return <>{render({
+        ...pointer, ...control,
+        onKeyDown: event => {
+            if (event.key === "Enter") { event.preventDefault(); scope.select(link); return; }
+            if (event.key === " ") scope.drag.arm(grip);
+            onKeyDown?.(event);
+        },
+    })}</>;
+}
+
+/** No links of its own: the layer over the panes that draws what follows the pointer. */
+const NO_RIBBONS: readonly LinkRibbon[] = [];
+const NO_LINES: readonly LinkLine[] = [];
+const NO_CLIP = { left: 0, width: 0 };
+const NO_HIT = () => ({});
+
+/**
+ * What follows the pointer through a drag (A69, A30): a link's or a
+ * connector's new line from its card to the pointer, or an event's lines from
+ * the pointer into its three best fits' rows — the only part of the board
+ * drawn again as the pointer moves (A35). A keyboard's drag has no pointer to
+ * follow, and draws neither.
+ */
+function PointerLines({ props, root, cards, rows, view }: {
+    props: TimelineProps; root: RefObject<HTMLDivElement | null>; cards: ReadonlyMap<string, LaneCard>; rows: ReadonlyMap<string, number>; view: LinkView;
+}) {
+    const { drag, styles } = props;
+    const { grip } = drag;
+    const card = grip !== undefined && (grip.kind === "link" || grip.kind === "port") ? cards.get(grip.bin) : undefined;
+    const ranking = grip !== undefined && (grip.kind === "event" || grip.kind === "removed");
+    const at = useDragPointer(root, card !== undefined || ranking);
+    if (at === undefined) return null;
+    const line = card === undefined ? undefined : dragLine(cardEnd(card, view), at.x, at.y, view);
+    const guides = ranking ? guideLines(at.x, at.y, drag.ranks, rows, view) : NO_LINES;
+    if (line === undefined && guides.length === 0) return null;
+    return <Box css={styles.linkLines} data-allocation-link-lines="" style={{ height: view.height }}>
+        <LinksLayer ribbons={NO_RIBBONS} width={view.channelRight} height={view.height} clip={NO_CLIP} hit={NO_HIT} preview={{ was: undefined, line }} guides={guides} />
     </Box>;
+}
+
+/**
+ * Where the pointer carrying a drag is, in the links' layer's px — the board's
+ * box under its head — as it moves; `undefined` until it moves, or while `on`
+ * is off. A pointer whose buttons are up carries no drag: a mouse moved during
+ * a keyboard's drag draws nothing.
+ */
+function useDragPointer(root: RefObject<HTMLDivElement | null>, on: boolean): { x: number; y: number } | undefined {
+    const [at, setAt] = useState<{ x: number; y: number }>();
+    useEffect(() => {
+        if (!on) return undefined;
+        const move = (event: PointerEvent) => {
+            const box = root.current;
+            if (box === null || event.buttons === 0) return;
+            const r = box.getBoundingClientRect();
+            setAt({ x: event.clientX - r.left, y: event.clientY - r.top - HEAD });
+        };
+        document.addEventListener("pointermove", move, { passive: true });
+        return () => { document.removeEventListener("pointermove", move); setAt(undefined); };
+    }, [on, root]);
+    return on ? at : undefined;
 }
 
 interface CardProps {
@@ -470,7 +634,7 @@ type DragHandle = ReturnType<typeof useDragEventChip>;
  * A bin's card (A16, A21): the shared drag hooks here, outside the card's
  * body, so pointer motion repaints nothing in it (A35, the Roster's chips).
  */
-function Card({ onRest, ...args }: CardProps & { onRest: () => void }) {
+function Card(args: CardProps) {
     const { card, props } = args;
     const { styles, context, drag } = props;
     const { id, bin } = card;
@@ -485,7 +649,7 @@ function Card({ onRest, ...args }: CardProps & { onRest: () => void }) {
     const body = useDragEventChip(bodyAt, ghost, false, label);
     const port = useDragEventChip(portAt, ghost, false, label);
     // A card is its lane hour's drop target too, and a reservation's a bin fills (A38).
-    const { veto, options } = dropOptions(drag, { kind: "lane", lane: bin.lane, at: card.slotAt, card: id }, onRest);
+    const { veto, options } = dropTarget(drag, { kind: "lane", lane: bin.lane, at: card.slotAt, card: id });
     const drop = useDropCell(drag.enabled ? laneCoord(drag.surface, bin.lane, card.slotAt, id) : null, false, veto, undefined, options);
     const bodyRef = body?.ref;
     const attach = useCallback((el: HTMLElement | null) => { bodyRef?.(el); drop(el); }, [bodyRef, drop]);
@@ -572,9 +736,9 @@ interface ResourceRowProps {
 }
 
 /** A resource's row (A18–A20): a drop target for a connector or a link (A39), and a body's refusal (§10) — its hook outside the row's body (A35). */
-function ResourceRowView({ onRest, ...args }: ResourceRowProps & { onRest: (allowed: boolean) => void }) {
+function ResourceRowView(args: ResourceRowProps) {
     const { drag } = args.props;
-    const { veto, options } = dropOptions(drag, { kind: "resource", resource: args.resource.key }, onRest);
+    const { veto, options } = dropTarget(drag, { kind: "resource", resource: args.resource.key });
     const drop = useDropCell(drag.enabled ? rowCoord(drag.surface, args.resource.key) : null, false, veto, undefined, options);
     return <ResourceRowBody {...args} drop={drop} />;
 }

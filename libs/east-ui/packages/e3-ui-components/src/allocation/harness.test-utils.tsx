@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { East } from "@elaraai/east";
 import { Allocation } from "@elaraai/e3-ui";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
@@ -84,4 +84,22 @@ export function allocationHarness() {
     });
     afterEach(() => { clearPagedApi(); clearFunctionApi(); });
     return Object.assign(h, { paging, fits });
+}
+
+/**
+ * The board's three boxes the links run between, as a browser lays them out —
+ * jsdom lays out nothing: the board at the window's corner, 1200 × 700, so the
+ * links' layer, under its 48px head, is the window's px less 48 down; the lane
+ * grid from 10, 336 wide; the channel to 395, the rows' leading edge.
+ */
+export function stubLinkGeometry() {
+    const spy = vi.mocked(Element.prototype.getBoundingClientRect);
+    const base = spy.getMockImplementation()!;
+    spy.mockImplementation(function (this: Element) {
+        const box = (left: number, width: number, height: number) => ({ x: left, y: 0, top: 0, left, right: left + width, bottom: height, width, height, toJSON() {} });
+        if (this.hasAttribute("data-allocation-timeline")) return box(0, 1200, 700);
+        if (this.hasAttribute("data-allocation-grid")) return box(10, 336, 1116);
+        if (this.hasAttribute("data-allocation-channel")) return box(347, 48, 700);
+        return base.call(this);
+    });
 }

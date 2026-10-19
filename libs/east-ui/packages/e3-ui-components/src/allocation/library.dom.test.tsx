@@ -9,7 +9,9 @@
  * day's states (A52), the foot's hint and the picked card's action (A53, A87),
  * the rail and the empty search (A54), the cards' words (A83), the picks (A9–
  * A11) and every Library row of §10's drag table, with A32's marks and A36's
- * landing slot. Every word and figure is the mock's for the same day.
+ * landing slot, and what a Library card's drag draws over the board: the
+ * lines to an event's best fits (A30) and the target's links (A65). Every word
+ * and figure is the mock's for the same day.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
@@ -18,7 +20,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, mount, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
@@ -83,6 +85,27 @@ async function hover(from: Element, into: Element) {
 }
 async function release() { await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 12, clientY: 12 }); }); await settle(); }
 async function drop(from: Element, into: Element) { await hover(from, into); await release(); }
+/** Moves the pointer carrying a drag — its button held, as a hand's is — to a point over a target: the window's px, the links' layer 48 under the board's top. */
+async function moveTo(into: Element, x: number, y: number) {
+    await act(async () => { pointAt(into); fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: x, clientY: y }); });
+    await settle();
+}
+/** Picks a card up with its button held and carries it to a point over a target. */
+async function carry(from: Element, into: Element, x: number, y: number) {
+    expect(from).not.toBeNull(); expect(into).not.toBeNull();
+    await act(async () => {
+        pointAt(from); fireEvent.pointerDown(from, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, clientX: x - 12, clientY: y });
+        pointAt(into); fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: x - 6, clientY: y });
+    });
+    await settle();
+    await moveTo(into, x, y);
+}
+/** The lines from the pointer into the best fits (A30): each one's band and head. */
+const guides = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-link-lines] [data-plan-link-guide]")]
+    .map(g => [g.querySelector("[data-plan-ribbon-band]")!.getAttribute("d"), g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")]);
+/** The links the layer draws: each one's bin and resource, its tone, and whether it is a `was` line. */
+const drawn = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-links] [data-plan-link]")]
+    .map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"), g.getAttribute("data-tone"), g.hasAttribute("data-was")] as const);
 /** The fit's answer to placing an event, and its three best. */
 const answerFor = (event: string) => [...h.fits.history].reverse().find(a => {
     const ask = (a as FitResult).ask;
@@ -432,7 +455,7 @@ describe("Library drags (§10, A32, A33, A36)", () => {
         expect(undo(t)).toHaveProperty("disabled", true);
     });
 
-    test("§10, A33 — a resource onto a free lane hour reserves it; an event into the reservation fills it, or is refused by the fit", async () => {
+    test("§10, A33, A38 — a resource onto a free lane hour reserves it; an event into the reservation fills it, or is refused by the fit", async () => {
         const c = await open(ex.allocationKilnYard);
         await tab(c, "Resources");
         await hover(card(c, "resources", "K-305"), cell(c, "B-1", hour(0, 15)));
@@ -497,5 +520,54 @@ describe("Library drags (§10, A32, A33, A36)", () => {
         expect([free().getAttribute("data-verdict"), free().querySelector("[data-say=drop]")!.textContent, caption()!.textContent]).toEqual(["fits", "drop to reserve", "reserve B-1 00:15"]);
         await release();
         expect(tableRow(c, "bin:V1").getAttribute("data-kind")).toBe("reserved");
+    });
+});
+
+describe("what a Library card's drag draws over the board (A30, A65)", () => {
+    test("A30 — while an event is dragged over the lane grid, a thin line runs from the pointer into each of its three best fits' rows; over the rows, none", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationKilnYard);
+        // Picked and unpicked: the fit's answer for LD-2236, and its three best — the mock's three, in the yard's fit's order.
+        await press(card(c, "events", "event:LD-2236")); await press(card(c, "events", "event:LD-2236"));
+        const best = bestOf(answerFor("LD-2236"));
+        expect([best.length, best]).toEqual([3, expect.arrayContaining(["K-103", "K-107", "K-601"])]);
+        // The pointer at (36, 353) in the layer, as the mock measures LD-2236's: a line into each, best first.
+        await carry(card(c, "events", "event:LD-2236"), cell(c, "B-1", hour(4, 15)), 36, 401);
+        const into: Record<string, string[]> = {
+            // K-107, the seventh row, and K-103, the third: out of the drag point, through the riser, into each row's leading edge.
+            "K-107": ["M 36.0 353.0 L 360.0 353.0 A 8.0 8.0 0 0 0 368.0 345.0 L 368.0 242.0 A 8.0 8.0 0 0 1 376.0 234.0 L 387.0 234.0", "M 387.0 230.0 L 395.0 234.0 L 387.0 238.0 Z"],
+            "K-103": ["M 36.0 353.0 L 360.0 353.0 A 8.0 8.0 0 0 0 368.0 345.0 L 368.0 98.0 A 8.0 8.0 0 0 1 376.0 90.0 L 387.0 90.0", "M 387.0 86.0 L 395.0 90.0 L 387.0 94.0 Z"],
+            // K-601, below the rows' view: Plan's stub down the riser, toward it.
+            "K-601": ["M 36.0 353.0 L 360.0 353.0 A 8.0 8.0 0 0 1 368.0 361.0 L 368.0 644.0", "M 364.0 644.0 L 368.0 652.0 L 372.0 644.0 Z"],
+        };
+        expect(guides(c)).toEqual(best.map(key => into[key]));
+        // They follow the pointer across the grid, and go 12 short of the riser.
+        await moveTo(cell(c, "B-3", hour(4, 55)), 355, 401);
+        expect(guides(c).map(([band]) => band!.slice(0, 13))).toEqual(["M 355.0 353.0", "M 355.0 353.0", "M 355.0 353.0"]);
+        await moveTo(cell(c, "B-3", hour(4, 55)), 356, 401);
+        expect(guides(c)).toEqual([]);
+        await moveTo(row(c, "K-106")!, 695, 246);
+        expect(guides(c)).toEqual([]);
+        await release();
+        expect(c.querySelector("[data-allocation-link-lines]")).toBeNull();
+    });
+
+    test("A65 — a Library card's drag has no family of its own: over a row, that row's links in the drop's verdict — an event's refusal, and a resource card's, warn", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationKilnYard);
+        await carry(card(c, "events", "event:LD-2236"), cell(c, "B-1", hour(4, 15)), 36, 401);
+        expect(c.querySelector("[data-allocation-links]")).toBeNull();
+        // K-106 refuses LD-2236, `over max by 7 m³`, as the mock's drag of it does: its link warn.
+        await moveTo(row(c, "K-106")!, 695, 246);
+        expect(caption()!.textContent).toBe("over max by 7 m³");
+        expect(drawn(c).map(([link, tone, was]) => [link!.split("|")[1], tone, was])).toEqual([["K-106", "refused", false]]);
+        await release();
+        // A resource card onto a resource row is no drop: that row's links warn.
+        await tab(c, "Resources");
+        await carry(card(c, "resources", "K-305"), row(c, "K-106")!, 695, 246);
+        expect(drawn(c).map(([link, tone]) => [link!.split("|")[1], tone])).toEqual([["K-106", "refused"]]);
+        expect(guides(c)).toEqual([]);
+        await release();
+        expect(c.querySelector("[data-allocation-links]")).toBeNull();
     });
 });

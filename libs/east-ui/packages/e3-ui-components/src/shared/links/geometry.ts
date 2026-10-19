@@ -123,6 +123,14 @@ const HEAD_LEN = 8;
 const RUN_OUT = 11;
 /** Corner radius at every direction change (clamped to the available drop). */
 const CORNER_R = 8;
+/** The corner every link turns at, before its clamp (px): what a line a host draws beside the links turns at too. */
+export const RIBBON_CORNER = CORNER_R;
+/**
+ * How far before its destination's start a forward link's riser stands with a
+ * full corner: the head, the run-out into it and the corner (27px, `Allocation
+ * Spec.md` §11) — where a line a host draws toward the same rows rises too.
+ */
+export const RIBBON_RISER = HEAD_LEN + RUN_OUT + CORNER_R;
 /** Below this gap past the head and two run-outs the metro-S degenerates —
  *  route the loopback. */
 const MIN_S_GAP = 4;
@@ -151,8 +159,12 @@ const f = (n: number) => n.toFixed(1);
  * points, each corner turned at radius `r`, clamped to half of either run
  * beside it. Consecutive points share an x or a y; a point that turns
  * nothing is passed straight through.
+ *
+ * @param points - The polyline's points, in order
+ * @param r - The corner radius, before its clamp
+ * @returns The path data
  */
-function rounded(points: readonly (readonly [number, number])[], r: number): string {
+export function rounded(points: readonly (readonly [number, number])[], r: number): string {
     const [x0, y0] = points[0]!;
     let d = `M ${f(x0)} ${f(y0)}`;
     for (let i = 1; i < points.length - 1; i++) {

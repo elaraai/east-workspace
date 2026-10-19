@@ -66,11 +66,14 @@ export const linkRibbons = {
         _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
     },
     // A link drag (A69): the moved link faded to its `was` line, and the new
-    // line to the pointer in the brand.
+    // line to the pointer in the brand, its corners joined round.
     "& [data-was] [data-plan-ribbon-band]": { stroke: "fg.subtle", strokeWidth: "1.5px" },
     "& [data-was] [data-plan-ribbon-head]": { fill: "fg.subtle" },
-    "& [data-plan-link-preview] [data-plan-ribbon-band]": { stroke: "brand.solid", strokeWidth: "3px", strokeLinecap: "round" },
+    "& [data-plan-link-preview] [data-plan-ribbon-band]": { stroke: "brand.solid", strokeWidth: "3px", strokeLinejoin: "round" },
     "& [data-plan-link-preview] [data-plan-ribbon-head]": { fill: "brand.solid" },
+    // The thin lines from the pointer into the best rows (A30): 1.5 in the brand's mark.
+    "& [data-plan-link-guide] [data-plan-ribbon-band]": { stroke: "brandMark", strokeWidth: "1.5px" },
+    "& [data-plan-link-guide] [data-plan-ribbon-head]": { fill: "brandMark" },
     // The hit area: the stroke and 5 either side — the part of the layer that
     // takes the pointer.
     "& [data-link]": {

@@ -32,7 +32,10 @@
  *   `rulerLabel`; a resource row, `resourceRow`, `resourceLabel`, `resourceText`, `resourceName`, `resourceLine`, and
  *   its plot, `plot`, `shade`, `weekRule`, `span`, `bar`, `barLabel`, `overlap`; the now line's `nowLine`, `nowDot`,
  *   `nowChip`; the toolbar's focus chip's ×, `focusClear`; the focus's links over the panes, `links` (A65–A68: Plan's
- *   look, a draft's in the brand, the selected one in the ink, its captions taking the pointer).
+ *   look, a draft's in the brand, the selected one in the ink, its captions taking the pointer; during a drag, the drag's
+ *   families, a link into the target ink-2 where the drop fits and warn where it refuses, and nothing of them taking the
+ *   pointer, A65, A69), each link's line and caption a grip (`data-allocation-grip`); and what follows the pointer during
+ *   a drag, `linkLines` (a link drag's new line over the cards, A69; an event's lines into its best fits, A30).
  * - The drags (A24–A35, #1328): a free lane hour's target during a body's drag, `lanePlaceholder`; a ranked fit's
  *   badge, `rank`; a row's reason, `reason`; a refusing run's label, `runLabel`, `runMeta`; the fits marker,
  *   `fitsMarker`; and the shared move ghost's `moveGhost`, `moveGhostLabel`, `moveGhostSpan`. The board draws its
@@ -99,7 +102,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
         "rulerRow", "rulerTick", "rulerLabel", "resourceRow", "resourceLabel", "resourceText", "resourceName", "resourceLine",
-        "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", ...nowSlots,
+        "plot", "shade", "weekRule", "span", "bar", "barLabel", "overlap", "focusClear", "links", "linkLines", ...nowSlots,
         "lanePlaceholder", "rank", "reason", "runLabel", "runMeta", "fitsMarker", ...moveGhostSlots,
         ...scheduleGroupSlots, ...schedulePaneSlots, "bandCount", "table", "tablePane", "tableHead", "tableRow", "tableTime", "tableLane", "tableCell", "tableSpan",
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
@@ -415,13 +418,34 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "& [data-tone=draft] [data-plan-ribbon-head]": { fill: "brand.solid" },
             "& [data-tone=draft][data-lit] [data-plan-ribbon-band]": { stroke: "brandPressed" },
             "& [data-tone=draft][data-lit] [data-plan-ribbon-head]": { fill: "brandPressed" },
-            // The selected link, in the ink (A68).
-            "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },
-            "& [data-plan-link][data-selected] [data-plan-ribbon-head]": { fill: "fg" },
-            // A caption takes the pointer as its line does, in the strong ink while lit.
+            // During a drag, a link into the resource the drag rests on: ink-2 where the drop fits, warn where it refuses (A65).
+            "& [data-tone=fits] [data-plan-ribbon-band]": { stroke: "fg.strong" },
+            "& [data-tone=fits] [data-plan-ribbon-head]": { fill: "fg.strong" },
+            "& [data-tone=refused] [data-plan-ribbon-band]": { stroke: "status.warn" },
+            "& [data-tone=refused] [data-plan-ribbon-head]": { fill: "status.warn" },
+            // The selected link, in the ink, at rest (A68); during a drag its caption keeps its outline alone.
+            "[data-allocation-timeline]:not([data-allocation-drag]) > &": {
+                "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },
+                "& [data-plan-link][data-selected] [data-plan-ribbon-head]": { fill: "fg" },
+            },
+            // A caption takes the pointer as its line does, in the strong ink while lit; a grip, a hand to pick it up (A69).
             "& [data-plan-ribbon-label]": { pointerEvents: "auto", cursor: "pointer" },
+            "& [data-plan-ribbon-label][data-allocation-grip]": { cursor: "grab", touchAction: "none" },
             "& [data-plan-ribbon-label][data-lit] [data-plan-ribbon-caption]": { fill: "fg.strong" },
             "& [data-link]": { ...linkRibbons["& [data-link]"], pointerEvents: "stroke" },
+            "& [data-link][data-allocation-grip]": { touchAction: "none" },
+            // Keyboard focus: a caption's knockout ringed in the focus ink; a reservation's line, which has no caption, in it.
+            "& [data-plan-ribbon-label]:focus-visible, & [data-link]:focus-visible": { outline: "none" },
+            "& [data-plan-ribbon-label]:focus-visible [data-plan-ribbon-knockout]": { stroke: "border.focus", strokeWidth: "2px" },
+            "& [data-plan-link]:has(> [data-link]:focus-visible) [data-plan-ribbon-band]": { stroke: "border.focus" },
+            // During a drag nothing of a link takes the pointer: what lies under it is the drop's target (A26).
+            "[data-allocation-drag] > &": { "& [data-link], & [data-plan-ribbon-label]": { pointerEvents: "none" } },
+        },
+        // What follows the pointer during a drag (A69, A30), over the links: an event's lines into its best fits among them, as the
+        // mock draws them, a link's or a connector's new line over the cards too, as the mock's own layer does.
+        linkLines: {
+            ...linkRibbons, position: "absolute", left: 0, right: 0, top: "48px", zIndex: 5, overflow: "hidden", pointerEvents: "none",
+            "[data-allocation-drag=link] > &, [data-allocation-drag=port] > &": { zIndex: 7 },
         },
         // A ranked fit's badge, #1 #2 #3 before its name (A28).
         rank: {
