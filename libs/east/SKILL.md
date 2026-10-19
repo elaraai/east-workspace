@@ -392,10 +392,12 @@ east-py   run prog.beast2 -p east-py-std -i a.beast2 -o out.beast2 [--profile]  
 
 - `--profile` (east-c and east-py, `run` and `exec`) prints every East
   function and platform function the work called, by self time, with its
-  calls and where it is defined and called. `EAST_PROFILE=1` profiles without
-  the flag — e3 hands its environment to the runners, so a task's report
-  lands in its log — and `EAST_PROFILE_INTERVAL=N` prints the profile so far
-  every N seconds while the work runs.
+  calls and where it is defined and called; under a python platform
+  function, what its calls spent on the bridge (converting arguments and
+  results, the element crossings its body made). `EAST_PROFILE=1` profiles
+  without the flag — e3 hands its environment to the runners, so a task's
+  report lands in its log — and `EAST_PROFILE_INTERVAL=N` prints the profile
+  so far every N seconds while the work runs.
 - Each `-i` is one argument, in parameter order, and each `-p` loads one
   platform package (east-node needs at least one); `-o` writes the result,
   else it is printed. IR and values may be `.beast2`, `.beast`, `.east` or

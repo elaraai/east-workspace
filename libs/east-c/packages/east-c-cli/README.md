@@ -123,6 +123,14 @@ decoded. Keyed reads at random beyond the segments the pager keeps
 (`EAST_PAGED_CACHE_BYTES`), or a scan repeated, show there; the reading
 function's total time keeps those decodes, and its self time does not.
 
+A host that runs a platform function in its own runtime — east-py's python
+functions — reports what each call spent on the bridge
+(`east_profile_platform_note`), and the entry then carries a line of its own
+under it: the time converting the arguments into the host's values, the time
+converting the result back, and the element-level crossings its body made
+(each element read from or written to an East collection through the host).
+east-c's own platform functions cross no bridge and print none.
+
 `EAST_PROFILE` set to anything but `0` profiles without the flag, which is
 how a task run by e3 is profiled: e3 hands its environment to the runner,
 and the report lands in the task's log. `EAST_PROFILE_INTERVAL=N` (seconds)

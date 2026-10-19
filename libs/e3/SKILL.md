@@ -631,7 +631,11 @@ called: the python lines of a function `East.importFunction` linked in
 included. Each input read lazily is an entry too, named as `-v` names it
 (`input 1`): the time its reads spent decoding segments, a call each — keyed
 reads at random beyond the segments the runner keeps, or a scan repeated,
-which `-v`'s account counts — and not the reading function's own time.
+which `-v`'s account counts — and not the reading function's own time. A
+python platform function's entry (a solver, a model) carries a `bridge` line:
+the time converting its arguments and results across the python bridge, and
+the element crossings its body made, so a task bound by the bridge rather than
+its library shows it, and wants its data in columns or the C runtime.
 `EAST_PROFILE_INTERVAL=300` adds the profile so far every five minutes while a
 long task runs. east-node does not profile. Like `-v` it changes no hash: add
 `--force` for a cached task.

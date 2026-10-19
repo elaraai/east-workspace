@@ -540,6 +540,15 @@ add_executable(test_east_text tests/test_east_text.c)
 target_link_libraries(test_east_text east-c)
 add_test(NAME east_text COMMAND test_east_text)
 
+# Profiler bridge-note gate (#1357): a host running a platform function in its
+# own runtime reports what a call spent on the bridge (converting arguments and
+# results, the element crossings its body made); the note lands on the platform
+# function's entry, prints under its line, and is nothing while the profiler
+# is off.
+add_executable(test_profile_note tests/test_profile_note.c)
+target_link_libraries(test_profile_note east-c)
+add_test(NAME profile_note COMMAND test_profile_note)
+
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's
 # error text is byte-identical to the TS analyzer's. Skips (exit 77) unless

@@ -92,6 +92,16 @@ typedef struct {
     uint64_t calls;
     uint64_t total_ns;
     uint64_t self_ns;
+    /* What a host's platform function spent on its bridge, when the host
+     * reports it (east_profile_platform_note): the time converting its
+     * arguments into the host's values and its result back, and the
+     * element-level crossings its body made — each read or write of an East
+     * collection's element through the host (#1357). A function east-c calls
+     * directly reports none, and `bridged` stays false. */
+    bool bridged;
+    uint64_t convert_in_ns;
+    uint64_t convert_out_ns;
+    uint64_t crossings;
 } EastProfileEntry;
 
 /* The environment variables a runner's profile reads (east_profile_start). */
@@ -128,6 +138,18 @@ void east_profile_finish(FILE *out);
  * read decoded. Off, each costs one branch. */
 void east_profile_paged_enter(const char *label);
 void east_profile_paged_exit(void);
+/* A host that runs a platform function in its own runtime (east-py's python
+ * functions) reports what one call spent on the bridge: `convert_in_ns`
+ * converting the arguments into the host's values, `convert_out_ns` converting
+ * the result back, and `crossings` element-level reads and writes of East
+ * collections its body made through the host. Added to the entry of the
+ * platform function `name`, which then prints a bridge line under its own.
+ * Off, nothing. */
+void east_profile_platform_note(const char *name, uint64_t convert_in_ns, uint64_t convert_out_ns,
+                                uint64_t crossings);
+/* The profiler's clock: monotonic nanoseconds, for a host that times a
+ * bridge with the same clock the entries are timed with. */
+uint64_t east_profile_now_ns(void);
 
 // Top-level API
 EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins);

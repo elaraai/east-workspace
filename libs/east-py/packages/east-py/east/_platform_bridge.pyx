@@ -19,12 +19,12 @@ struct is declared opaque in _eastc.pxd to break a circular dependency).
 from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
 from cpython.tuple cimport PyTuple_New, PyTuple_SET_ITEM
 from libc.stddef cimport size_t
-from libc.stdint cimport int64_t, uint8_t, uintptr_t
+from libc.stdint cimport int64_t, uint8_t, uint64_t, uintptr_t
 from libc.stdlib cimport malloc, free
 from libc.string cimport strdup
 
 from east cimport _eastc
-from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
+from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type, bridge_crossings
 
 # asyncio, imported the first time an async platform function runs: importing
 # it costs every process that imports east some 17 ms, and only an async
@@ -158,6 +158,12 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
     cdef _eastc.EvalResult err_result
     cdef _eastc.EastValue *c_result
     cdef bytes name_bytes
+    # The profile's bridge split (#1357): when the profiler is armed, the time
+    # converting the arguments and the result, and the element crossings the
+    # body made, go to this function's entry.
+    cdef bint profiling = _eastc.east_profile_enabled()
+    cdef uint64_t t_start = 0, t_body = 0, t_result = 0, t_done = 0, crossings = 0
+    cdef const char *profiled_name = _current_name
 
     err_result.status = _eastc.EVAL_ERROR
     err_result.value = NULL
@@ -190,6 +196,9 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
             return err_result
 
         # Convert C args to Python using declared input types
+        if profiling:
+            t_start = _eastc.east_profile_now_ns()
+            crossings = bridge_crossings()
         py_args = PyTuple_New(num_args)
         for i in range(num_args):
             if i < num_input_types and input_types[i] != NULL:
@@ -198,6 +207,8 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
                 val = c_value_to_py(args[i], &_eastc.east_null_type)
             Py_INCREF(val)
             PyTuple_SET_ITEM(py_args, i, val)
+        if profiling:
+            t_body = _eastc.east_profile_now_ns()
 
         # Call the Python function
         result = py_fn(*py_args)
@@ -205,6 +216,10 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
         # Handle async results — only check for async platform functions
         if is_async and _asyncio().iscoroutine(result):
             result = _run_async(result)
+
+        if profiling:
+            t_result = _eastc.east_profile_now_ns()
+            crossings = bridge_crossings() - crossings
 
         # Convert result back to C using the output type from the IR node
         if result is None:
@@ -246,6 +261,11 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
                     _eastc.east_value_retain(c_result)
                 else:
                     c_result = py_value_to_c(result, output_type)
+
+        if profiling:
+            t_done = _eastc.east_profile_now_ns()
+            _eastc.east_profile_platform_note(profiled_name, t_body - t_start, t_done - t_result,
+                                              crossings)
 
         return _eastc.eval_ok(c_result)
 

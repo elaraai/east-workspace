@@ -118,7 +118,14 @@ input's decoding: each segment its reads decode is a call of one entry named
 after the input as `-v` names it (`input 1`), so keyed reads at random beyond
 the segments the pager keeps, or a scan repeated, show there rather than in
 the reading function's self time. The profiler is east-c's, so the report is
-the one `east-c run --profile` prints.
+the one `east-c run --profile` prints — with one line east-c's own never has:
+under a python platform function's entry, what its calls spent on the bridge,
+the time converting its arguments into python values, the time converting its
+result back, and the element crossings its body made (every row it read from
+an East array, every entry it wrote to an East dict). A function whose
+bridge line weighs more than its self time is bound by the bridge, not by
+its library: hand it its data in columns (`google_or_linear_solve_columns`),
+or move it to east-c.
 
 `EAST_PROFILE=1` profiles without the flag — e3 hands its environment to the
 runner, so a task's report lands in its log — and `EAST_PROFILE_INTERVAL=N`

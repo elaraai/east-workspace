@@ -749,6 +749,12 @@ cdef extern from "east/compiler.h":
     bint east_profile_enabled()
     bint east_profile_start(bint on)
     void east_profile_finish(FILE *out)
+    # What a python platform function spent on the bridge (#1357): the
+    # conversions either way and the element crossings its body made, added
+    # to its entry; the profiler's own clock, to time them with.
+    void east_profile_platform_note(const char *name, uint64_t convert_in_ns,
+                                    uint64_t convert_out_ns, uint64_t crossings)
+    uint64_t east_profile_now_ns()
 
 
 # ─── east.h ──────────────────────────────────────────────────────────────
