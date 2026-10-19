@@ -121,7 +121,7 @@ export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/sl
 // Row-source contract (#567) — the contract's types, and the resolution every
 // collection shares.
 export {
-    Paged, PagedSourceType, PinnedSourceType, RowSourceType, type PagedSource, type PinnedSource, type RowSource,
+    Paged, PagedSourceType, PinnedSourceType, LiveSourceType, RowSourceType, type PagedSource, type PinnedSource, type LiveSource, type RowSource,
     resolveRowSource, buildRowSource, buildPagedWindow, type ResolvedRowSource,
 } from "./contracts/source.js";
 export * from "./platform/slice/record-types.js";

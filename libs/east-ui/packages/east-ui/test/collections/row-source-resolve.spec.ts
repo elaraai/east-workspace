@@ -77,6 +77,7 @@ const TITLE_PAGE = East.function([IntegerType, IntegerType], OptionType(StringTy
 const EMPTY_TOTAL = East.function([], OptionType(IntegerType), () => some(0n));
 const REVISION = East.function([], OptionType(StringType), () => some("r1"));
 const REFRESH = East.function([OptionType(StringType)], NullType, () => null);
+const QUERY = East.function([], StringType, () => "{}");
 
 const ID = "records.plans";
 
@@ -98,7 +99,15 @@ const PINNED_ROWS_BY_KEY = East.value(
     { id: ID, page: ROWS_BY_KEY_PAGE, total: EMPTY_TOTAL, seek: none, revision: REVISION, refresh: REFRESH },
     Paged.Types.PinnedSource(RowsByKey));
 
-// Lookalikes: each carries `page` and `total`, and each is neither shape.
+// A rail's narrowed source (#1354): the contract, naming the narrowing it serves too.
+const LIVE_ROWS = East.value(
+    { id: ID, page: ROWS_PAGE, total: EMPTY_TOTAL, seek: none, revision: REVISION, refresh: REFRESH, query: QUERY },
+    Paged.Types.LiveSource(Rows));
+const LIVE_ENTRIES = East.value(
+    { id: ID, page: ENTRIES_PAGE, total: EMPTY_TOTAL, seek: none, revision: REVISION, refresh: REFRESH, query: QUERY },
+    Paged.Types.LiveSource(Entries));
+
+// Lookalikes: each carries `page` and `total`, and each is none of the shapes.
 const Page = FunctionType([IntegerType, IntegerType], OptionType(Rows));
 const Total = FunctionType([], OptionType(IntegerType));
 const Seek = OptionType(FunctionType([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange)));
@@ -124,14 +133,22 @@ const LOOKALIKES = {
     "`refresh` without `revision`": East.value(
         { id: ID, page: ROWS_PAGE, total: EMPTY_TOTAL, seek: none, refresh: REFRESH },
         StructType({ id: StringType, page: Page, total: Total, seek: Seek, refresh: FunctionType([OptionType(StringType)], NullType) })),
+    "`query` without `revision` and `refresh`": East.value(
+        { id: ID, page: ROWS_PAGE, total: EMPTY_TOTAL, seek: none, query: QUERY },
+        StructType({ id: StringType, page: Page, total: Total, seek: Seek, query: FunctionType([], StringType) })),
+    "`query` before `revision`": East.value(
+        { id: ID, page: ROWS_PAGE, total: EMPTY_TOTAL, seek: none, query: QUERY, revision: REVISION, refresh: REFRESH },
+        StructType({ id: StringType, page: Page, total: Total, seek: Seek, query: FunctionType([], StringType),
+            revision: FunctionType([], OptionType(StringType)), refresh: FunctionType([OptionType(StringType)], NullType) })),
 };
 
-/** What a refusal of a lookalike says: the contract, every field in its order at its type. */
+/** What a refusal of a lookalike says: the contract, every field in its order at its type, and its two variants. */
 const NAMES_THE_CONTRACT = (label: string) => new RegExp(
     `^Error: ${label}: a paged source is a platform bind's handle \\(Data\\.bindPaged\\) — ` +
     "`\\{ id: String, page: \\(Integer, Integer\\) → Option<C>, total: \\(\\) → Option<Integer>, " +
     "seek: Option<\\(SeekQuery\\) → Option<SeekRange>>, revision: \\(\\) → Option<String>, " +
     "refresh: \\(Option<String>\\) → Null \\}`, its fields in that order at those types, " +
+    "the same with `query: \\(\\) → String` after them \\(a rail's narrowed source, Slice\\.rows\\), " +
     "or the same without `revision` and `refresh`");
 
 describe("resolveRowSource", () => {
@@ -197,7 +214,28 @@ describe("resolveRowSource", () => {
         }
     });
 
-    test("a struct with `page` and `total` that is neither shape is refused, naming the contract's fields", () => {
+    test("a source that names its narrowing too — a rail's narrowed source — is pinned and live, a window of rows and an index window alike (#1354)", () => {
+        const rows = resolveRowSource(LIVE_ROWS, "Table");
+        assert.equal(rows.kind, "paged");
+        if (rows.kind !== "paged") return;
+        assert.deepEqual([rows.pinned, rows.query], [true, true]);
+        assert.ok(isTypeEqual(rows.collectionType, Rows));
+
+        const ordered = resolveRowSource(LIVE_ENTRIES, "Table");
+        assert.equal(ordered.kind, "ordered");
+        if (ordered.kind !== "ordered") return;
+        assert.deepEqual([ordered.pinned, ordered.query], [true, true]);
+        assert.ok(isTypeEqual(ordered.keyType, StringType));
+    });
+
+    test("a source that names no narrowing is not live, pinned or not", () => {
+        for (const source of [PINNED_ROWS, PINNED_ENTRIES, ROWS_SOURCE, ENTRIES_SOURCE]) {
+            const resolved = resolveRowSource(source, "Table");
+            assert.equal(resolved.kind !== "inline" && resolved.query, false);
+        }
+    });
+
+    test("a struct with `page` and `total` that is none of the shapes is refused, naming the contract's fields", () => {
         // East struct subtyping is exact: a lookalike read by its field names
         // would be paged through members that do not mean what a component
         // reads them as.

@@ -138,6 +138,12 @@ test("computed membership deduplicates per record, searches nested values, survi
         const saved = encodeBeast2For(Slice)(f.create());
         StateRuntime.initializeStore(new UIStore());
         const decoded = decodeBeast2For(Slice, { platform: f.platform })(saved);
+        // Controls belong to the decoder's UI store, seeded from the declared
+        // initial narrowing, and the decoded source reads its narrowing there
+        // when its rows are read, never the one it was encoded under (#1354).
+        assert.equal(decoded.read().where.size, 0);
+        assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b", "c", "d"]);
+        decoded.choose("lane", ['"load"']);
         assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b"]);
         const changed = new Map(rows);
         changed.set("a", { description: "Inbound", states: [step("review")] });
@@ -149,11 +155,9 @@ test("computed membership deduplicates per record, searches nested values, survi
         });
         assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["b"]);
         assert.equal(await ready(() => decoded.countWhere(captured)), 1n);
-        // The serialized window captures its query; controls belong to the
-        // decoder's UI store, seeded from the declared initial narrowing.
-        assert.equal(decoded.read().where.size, 0);
         assert.equal(await ready(() => decoded.contains(captured, "a")), false);
         assert.equal((await ready(() => decoded.readEntry("a"))).type, "some", "leaving the index never means the primary flow was deleted");
+        decoded.clear("lane");
         decoded.choose("owner", [".none"]);
         assert.equal(await ready(() => decoded.count()), 2n);
         decoded.clearAll();

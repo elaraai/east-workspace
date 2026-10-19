@@ -230,3 +230,19 @@ Each wire changed under this rule, with the kind it is.
   the code, or held in an input, become a templates record of the
   application's own, keyed by each template's key, as with any record an
   application declares.
+- **east-ui's `RowSourceType` gains `live`, and a record Slice's narrowed
+  `data` names its narrowing (#1340, #1354)** — package-borne. A rail's
+  narrowed source — a record Slice handle's `data`, `Slice.rows(slice,
+  source)` — is one source per binding whatever the narrowing: its reads read
+  the narrowing when they run, its `id` names the source alone, and it gains
+  `query`, the narrowing it serves, printed (`Paged.Types.LiveSource`). A
+  builder over it is not built again when a choice changes. `RowSourceType`
+  gains the `live` arm that carries it; `live` sorts after `inline`, so `paged`
+  and `pinned` move down one, and a UI value encoded under either type does not
+  decode under the other. The record Slice's operations lose
+  `slice_record_page`, `slice_record_seek` and `slice_record_data_count`, which
+  took the narrowing as an argument, for `slice_record_data_page`,
+  `slice_record_data_seek` and `slice_record_data_query`, which read it.
+  Packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it.

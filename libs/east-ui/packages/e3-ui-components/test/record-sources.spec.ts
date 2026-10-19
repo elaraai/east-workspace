@@ -180,12 +180,16 @@ test("Clear all clears every part and keeps each part's presentation resolution"
 test("the handle and its chrome survive serialization; the decoded product's functions act on the decoder's parts", async () => {
     const h = host();
     h.create().parts[0]!.slice.choose("area", ['"North"']);
-    // A handle captures the narrowing it was made under.
     const bytes = encodeBeast2For(Yard)(h.create());
     const other = host();
     const decoded = decodeBeast2For(Yard, { platform: other.implementations })(bytes);
     assert.deepEqual(decoded.parts.map(part => part.slice.key), ["test.yard.lanes", "test.yard.resources"]);
-    assert.deepEqual((await ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2"], "a decoded source keeps its captured narrowing");
+    // A source reads its narrowing when its rows are read (#1354): a decoded
+    // one reads the decoder's store, never the narrowing it was encoded under.
+    assert.deepEqual((await ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"], "a decoded source reads the decoder's narrowing");
+    decoded.parts[0]!.slice.choose("area", ['"South"']);
+    assert.deepEqual((await ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-3"], "a choice in the decoder narrows the decoded source's rows");
+    assert.deepEqual(decodeBeast2For(RecordSliceStateType)(h.store.read("test.yard.lanes")!).where.get("area"), variant("values", ['"North"']), "the encoding host's narrowing stays its own");
     decoded.togglePreset("a");
     const stored = (store: UIStore) => decodeBeast2For(RecordSliceStateType)(store.read("test.yard.resources")!);
     assert.deepEqual(stored(other.store).preset, some("a"));

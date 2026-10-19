@@ -19,7 +19,8 @@
  * indexes (`flowchart.test-utils.tsx`), the flowchart in a Reactive root as a
  * ui task draws it, the rail written as its chips write it. That no function
  * holds the whole slice is e3-ui's one guard over every builder's examples
- * (#1356).
+ * (#1356). A filter change builds nothing again: the flowchart's body runs no
+ * more, and no payload is decoded (#1354).
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -34,6 +35,7 @@ import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import { WORKSPACE, exampleRecord, recordHarness, servedRecord, settle, type RecordHarness } from "./flowchart.test-utils.js";
 import { pathText } from "../platform/record-paging.test-utils.js";
 import { flowchartMessages } from "./messages.js";
+import { countBuilds, type UIProgram } from "../shared/builds.test-utils.js";
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the popovers do.
 beforeAll(() => {
@@ -102,7 +104,9 @@ const sources = () => ({
 /**
  * The route flows under one rail, the Flows tab paging its `flows` source and
  * the library's templates lists and its Owners tab following theirs — in a
- * Reactive root, so a narrowing written to the rail builds the flowchart again.
+ * Reactive root, as a ui task draws it. A narrowing written to the rail is read
+ * where each source's rows are read, and nothing builds the flowchart again
+ * (#1354).
  */
 const flowchart = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const flows = $.let(Record.bind(ex.indexedFlows, [ex.indexedFlowsPatch]));
@@ -138,9 +142,13 @@ function railParts() {
     return (source: string) => chrome.slice.parts.find((part) => stringEqual(part.source, source))!.slice;
 }
 
-/** Mounts an example, or the test's flowchart, as a ui task draws it. */
-function mount(example: { fn: { toIR(): unknown } }): RenderResult {
-    const program = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+/** An example's program, or the test's flowchart's, compiled. */
+const programOf = (example: { fn: { toIR(): unknown } }): UIProgram =>
+    (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+
+/** Mounts an example, the test's flowchart, or a program already compiled, as a ui task draws it. */
+function mount(example: { fn: { toIR(): unknown } } | UIProgram): RenderResult {
+    const program = "fn" in example ? programOf(example) : example;
     return render(<ChakraProvider value={system}><EastChakraComponent value={program()} storageKey="flowchart.narrowing" /></ChakraProvider>);
 }
 
@@ -357,5 +365,27 @@ describe("the examples, mounted as they are (#1346)", () => {
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
         expect(harness.requests.some((request) => request.startsWith(`${FLOWS_PATH} `))).toBe(true);
         expect(harness.wholeReads).not.toContain(FLOWS_PATH);
+    });
+});
+
+describe("a filter change rebuilds no builder (#1354)", () => {
+    test("a choice on the rail builds the flowchart no more: the Flows tab and a templates list follow it over the payload it mounted with", async () => {
+        const builds = countBuilds("Flowchart", programOf(flowchart));
+        try {
+            const { container } = mount(builds.program);
+            const part = railParts();
+            await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
+            await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
+            const mounted = [builds.runs, builds.decodes];
+            expect(Math.min(...mounted)).toBeGreaterThan(0);
+            await act(async () => { part("flows").choose("description", [printDescription(some("Inbound parcels"))]); });
+            await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 683 of 2,048`));
+            await waitFor(() => expect(cardKeys(container).slice(0, 3)).toEqual(["FLOW-10000", "FLOW-10003", "FLOW-10006"]));
+            await act(async () => { part("steps").choose("kind", [printText("Intake")]); });
+            await waitFor(() => expect(tabs(container)[1]).toBe("Steps 2 of 5"));
+            expect([builds.runs, builds.decodes], "no choice runs the body again or decodes a payload").toEqual(mounted);
+        } finally {
+            builds.restore();
+        }
     });
 });

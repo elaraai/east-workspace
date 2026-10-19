@@ -11,7 +11,7 @@ import {
 import { ValueFormatType } from "../../contracts/format.js";
 import { IconType } from "../../display/icon/types.js";
 import { TimeResolutionType } from "../../contracts/time.js";
-import { PinnedSourceType, SeekQueryType, SeekRangeType } from "../../contracts/source.js";
+import { LiveSourceType, SeekQueryType, SeekRangeType } from "../../contracts/source.js";
 
 /**
  * One field's narrowing, with values encoded as typed .east literals.
@@ -178,12 +178,16 @@ export type RecordSliceBindType = typeof RecordSliceBindType;
 
 /**
  * Typed authoring handle; `data` preserves the narrowed window type through $.let.
+ * @remarks `data` is a live source (#1354): one per binding, whatever the
+ * narrowing, its reads reading the narrowing as it stands when they run and
+ * its `query` naming it — so a component built over it is not built again when
+ * a choice changes.
  * @typeParam C - The collection type one narrowed window serves.
  * @param collection - Window type.
  * @returns The typed record Slice handle.
  */
 export function RecordSliceHandleType<C extends EastType | string>(collection: C) {
-    return StructType({ ...RecordSliceBindType.fields, data: PinnedSourceType(collection),
+    return StructType({ ...RecordSliceBindType.fields, data: LiveSourceType(collection),
         /** Read a captured narrowing without replacing the shared controls' state. */
         pageWhere: FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType(collection)),
     });
@@ -247,7 +251,13 @@ function op<const A extends readonly (EastType | string)[], O extends EastType |
     return East.genericPlatform(`slice_record_${name}`, ["S", "C"], [...descriptor, ...args], output, { optional: true });
 }
 
-/** Serializable operations carrying the binding descriptor, including after decode. @internal */
+/**
+ * Serializable operations carrying the binding descriptor, including after decode.
+ * @remarks The narrowed data's reads (`dataPage`, `dataSeek`, `dataQuery`) read
+ * the binding's narrowing when they run, so its handle captures none (#1354);
+ * its total is `count`.
+ * @internal
+ */
 export const RecordSlicePrimitives = {
     read: op("read", [], RecordSliceStateType),
     write: op("write", [RecordSliceStateType], NullType),
@@ -265,10 +275,10 @@ export const RecordSlicePrimitives = {
     replaces: op("replaces", [StringType], ArrayType(StringType)),
     togglePreset: op("toggle_preset", [StringType], NullType),
     setResolution: op("set_resolution", [OptionType(TimeResolutionType)], NullType),
-    page: op("page", [RecordSliceWhereType, IntegerType, IntegerType], OptionType("C")),
     pageWhere: op("page_where", [RecordSliceWhereType, IntegerType, IntegerType], OptionType("C")),
-    seek: op("seek", [RecordSliceWhereType, SeekQueryType], OptionType(SeekRangeType)),
-    dataCount: op("data_count", [RecordSliceWhereType], OptionType(IntegerType)),
+    dataPage: op("data_page", [IntegerType, IntegerType], OptionType("C")),
+    dataSeek: op("data_seek", [SeekQueryType], OptionType(SeekRangeType)),
+    dataQuery: op("data_query", [], StringType),
     revision: op("revision", [], OptionType(StringType)),
     refresh: op("refresh", [OptionType(StringType)], NullType),
     retry: op("retry", [], NullType),

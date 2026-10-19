@@ -214,7 +214,11 @@ component, nothing in east-ui.
   `countWhere`. Its text is the tab's own state, never the rail's, so the rail,
   the board and every count stay as they are; its footer counts what it hides,
   with Show all, and a search the rail's choices block says which, with the
-  rail's Clear filters. A tab's count
+  rail's Clear filters. Over a rail's narrowed source — a live one, its id the
+  same under every narrowing (#1354) — it starts its viewport again when the
+  source's `query()` moves, as for a new source; a reader that keeps windows
+  keys them by `snapshotOf(source)`, the revision and the narrowing together.
+  A tab's count
   while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
   or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed
   pane's rail may carry a `mark` after its badge (`Overdue event`).

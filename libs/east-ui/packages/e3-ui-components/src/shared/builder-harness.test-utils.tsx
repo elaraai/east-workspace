@@ -91,8 +91,10 @@ export function builderHarness(WORKSPACE: string, RECORDS: readonly { name: stri
 export async function settle() { await act(async () => { for (let i = 0; i < 8; i++) await new Promise<void>(resolve => setTimeout(resolve, 0)); }); }
 export async function width(value: number) { await act(async () => { mainWidth = value; for (const observe of [...observers]) observe(); }); await settle(); }
 export const programOf = (example: { fn: { toIR(): unknown } }): (() => ValueTypeOf<typeof UIComponentType>) => (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
-export function mount(example: { fn: { toIR(): unknown } }, storageKey = "builder-test"): RenderResult {
-    const program = programOf(example);
+/** An example, or a program already compiled (a counted one, `builds.test-utils.ts`). */
+export type Mountable = { fn: { toIR(): unknown } } | (() => ValueTypeOf<typeof UIComponentType>);
+export function mount(example: Mountable, storageKey = "builder-test"): RenderResult {
+    const program = "fn" in example ? programOf(example) : example;
     return render(<ChakraProvider value={system}><DragLayerProvider><EastChakraComponent value={program()} storageKey={storageKey} /></DragLayerProvider></ChakraProvider>);
 }
 export const slot = (container: HTMLElement, name: string) => container.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`)!;

@@ -25,14 +25,14 @@ import type { ReactNode } from "react";
 import { beforeEach, afterEach } from "vitest";
 import { cleanup, render, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, PatchType, applyFor, encodeBeast2For, type DictType, type EastIR, type EastType } from "@elaraai/east";
+import { East, PatchType, applyFor, encodeBeast2For, type DictType, type EastIR, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, EastChakraComponent, I18nProvider, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import type { TreePath } from "@elaraai/e3-types";
 import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, defaultPagedRuntime, initializePagedApi, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type RecordApi,
+    type DatasetApi, type PagedApi, type RecordApi,
 } from "../../platform/index.js";
 import { recordPaging, type PagedRecord } from "../../platform/record-paging.test-utils.js";
 import { act, isolateRuns } from "../../test-runs.test-utils.js";
@@ -60,7 +60,7 @@ export const WORKSPACE = "sheet-test";
 /** The Sheet's payload, decoded. */
 export type Payload = SheetValue;
 
-/** What a test reads and writes through: the records in memory, the cache over them, and the paging service's requests. */
+/** What a test reads and writes through: the records in memory, the cache over them, and the paging service. */
 export interface SheetHarness {
     /** The records' API: their patch doors and their history. */
     memory: RecordApi;
@@ -68,6 +68,8 @@ export interface SheetHarness {
     cache: ReactiveDatasetCache;
     /** Each request the paging service was sent, as `<path> <op> <where>`. */
     requests: string[];
+    /** The paging service's API, as the harness installs it: what a test wraps to hold its answers. */
+    api: PagedApi;
 }
 
 /** An index as an example declares it: its name, its key type, and its key function over a record's entry. */
@@ -159,6 +161,7 @@ export function sheetHarness(): SheetHarness {
             indexed(ex.sheetStressJobs, [ex.sheetStressByActivity, ex.sheetStressByStatus, ex.sheetStressByNotes]),
         ]);
         harness.requests = paging.requests;
+        harness.api = paging.api;
         initializePagedApi(paging.api, WORKSPACE);
         // The workshop's activities: an input, its declared value.
         const activities = ex.sheetWorkshopActivities;
@@ -199,15 +202,23 @@ function page(children: ReactNode, options: MountOptions): ReactNode {
 }
 
 /**
- * Mounts an example of the Sheet's, as a surface does.
+ * An example's program, compiled.
  *
  * @param example - The example
+ * @returns Its program — its `fn` erases its output type at the package boundary; the Sheet's examples are UI components
+ */
+export const programOf = (example: { fn: { toIR(): unknown } }): (() => ValueTypeOf<typeof UIComponentType>) =>
+    (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+
+/**
+ * Mounts an example of the Sheet's, as a surface does.
+ *
+ * @param example - The example, or its program already compiled (a counted one, `builds.test-utils.ts`)
  * @param options - Whether the page holds a drag layer
  * @returns The render
  */
-export function mount(example: { fn: { toIR(): unknown } }, options: MountOptions = {}): RenderResult {
-    // An example's `fn` erases its output type at the package boundary; the Sheet's examples are UI components.
-    const program = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+export function mount(example: { fn: { toIR(): unknown } } | (() => ValueTypeOf<typeof UIComponentType>), options: MountOptions = {}): RenderResult {
+    const program = "fn" in example ? programOf(example) : example;
     return render(page(<EastChakraComponent value={program()} storageKey="sheet" />, options));
 }
 

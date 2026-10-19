@@ -20,7 +20,9 @@
  * jobs are never read whole. A source's methods share one descriptor (#1352),
  * and a window read through the interval indexes lands its key searches
  * re-rendering the readers alone, never the frame. That no function holds the
- * whole slice is e3-ui's one guard over every builder's examples (#1356).
+ * whole slice is e3-ui's one guard over every builder's examples (#1356). A
+ * filter change builds nothing again: the Plan's body runs no more, and no
+ * payload is decoded (#1354).
  */
 
 import { describe, expect, test } from "vitest";
@@ -39,6 +41,7 @@ import { initializePagedApi } from "../../platform/index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { WORKSPACE, act, el, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { setPlanFrameRenderProbe } from "./index.js";
+import { countBuilds } from "../../shared/builds.test-utils.js";
 
 const h = planHarness();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -335,7 +338,7 @@ describe("a source's methods share one descriptor (#1352)", () => {
         /** Every method of a source, its narrowed data's among them. */
         const methods = (part: Part): unknown[] => [
             ...Object.entries(RecordSliceBindType.fields).filter(([, type]) => type.type === "Function").map(([name]) => (part as Record<string, unknown>)[name]),
-            part.pageWhere, part.data.page, part.data.total, part.data.revision, part.data.refresh,
+            part.pageWhere, part.data.page, part.data.total, part.data.revision, part.data.refresh, part.data.query,
             ...(part.data.seek.type === "some" ? [part.data.seek.value] : []),
         ];
         /** What a function captures, by name. */
@@ -405,6 +408,41 @@ describe("a window read through interval indexes re-renders its readers, never t
             expect(bar(container, "J-1006", "Hall A", "a2")).not.toBeNull();
         } finally {
             setPlanFrameRenderProbe(undefined);
+        }
+    });
+});
+
+// ============================================================================
+// A filter change rebuilds no builder (#1354)
+// ============================================================================
+
+describe("a filter change rebuilds no builder (#1354)", () => {
+    test("a choice on the rail, and the window's navigation, build the Plan no more: the rows, the events, the tabs and their counts follow over the payload it mounted with", async () => {
+        const builds = countBuilds("Plan", programOf(ex.planPrintWorks));
+        try {
+            const { container } = mount(builds.program);
+            await settle();
+            const mounted = [builds.runs, builds.decodes];
+            expect(Math.min(...mounted)).toBeGreaterThan(0);
+            // A resource kind's source: Hall B's presses go.
+            await narrow("presses", where(["hall", values(text("Hall A"))]));
+            expect(draws(container, pressRow("Hall A", "a1"))).toBe(true);
+            expect(draws(container, pressRow("Hall B", "b1"))).toBe(false);
+            // A tab's source: its count follows.
+            await narrow("customers", where(["district", values(text("Old Town"))]));
+            expect(tabs(pane(container))[3]).toBe("Customers 6 of 16");
+            // An event kind's source: the coated jobs go, and the backlog counts what the choice hides.
+            const start = narrowing("job").get("start")!;
+            await narrow("job", where(["start", start], ["stock", values(stockOf(variant("board", null)))]));
+            expect(bar(container, "J-1005", "Hall A", "a1")).not.toBeNull();
+            expect(bar(container, "J-1001", "Hall A", "a1")).toBeNull();
+            expect(tabs(pane(container))[1]).toBe("Backlog 1 of 8");
+            // The window, written into every event source's range.
+            await press(toolbar(container).getByRole("button", { name: "Next day" }));
+            expect(narrowing("shift").get("start")).toEqual(range(day("10-06"), day("11-03"), false));
+            expect([builds.runs, builds.decodes], "no choice and no navigation runs the body again or decodes a payload").toEqual(mounted);
+        } finally {
+            builds.restore();
         }
     });
 });

@@ -16,13 +16,16 @@ import {
     ArrayType, BlobType, East, IntegerType, OptionType, StringType, StructType, FunctionType,
     isTypeEqual, none, printType, some, type ExprType,
 } from "@elaraai/east";
-import { buildRowSource, resolveRowSource, PinnedSourceType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { buildRowSource, resolveRowSource, LiveSourceType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { FlowchartFlowType } from "./types.js";
 
 /** A list entry retains the record's primary key even when sorted by an index. */
 export const FlowchartEntryType = StructType({ name: StringType, flow: FlowchartFlowType });
-/** The normalized, snapshot-pinned list of flows. */
-export const FlowchartWindowType = PinnedSourceType(ArrayType(FlowchartEntryType));
+/**
+ * The normalized list of flows, pinned to the record's snapshot and to the rail's narrowing (#1354): a live source,
+ * read under the narrowing as it stands, its `query` naming it.
+ */
+export const FlowchartWindowType = LiveSourceType(ArrayType(FlowchartEntryType));
 /** Read by primary identity: outer none is pending; inner none is confirmed absence. */
 export const FlowchartReadEntryType = FunctionType([StringType], OptionType(OptionType(BlobType)));
 /**
@@ -55,13 +58,13 @@ type FlowsPart = ExprType<StructType<{
 export function flowchartWindow(part: ExprType<StructType>, rows: ExprType<StructType>) {
     const resolved = resolveRowSource(rows, "Flowchart.slice's flows");
     const joined = resolved.kind === "ordered" && resolved.elementType.type === "Struct" ? resolved.elementType.fields.row : undefined;
-    const flows = resolved.kind === "ordered" && resolved.pinned && isTypeEqual(resolved.keyType, StringType)
+    const flows = resolved.kind === "ordered" && resolved.query && isTypeEqual(resolved.keyType, StringType)
         && joined?.type === "Variant" && joined.cases.some !== undefined && isTypeEqual(joined.cases.some, FlowchartFlowType);
     if (!flows) {
         throw new Error(`Flowchart: \`slice\`'s \`flows\` source pages a record of flows by name, Flowchart.Types.Flows, its rows joined — Data.bindPaged(record, { indexes }) over the record \`record\` binds — and this one pages ${printType(resolved.collectionType)}`);
     }
     const entries = (collection: ExprType<ArrayType<FlowEntry>>) => collection.map((_$, entry) => ({ name: entry.key, flow: entry.row.unwrap("some") }));
-    const window = buildRowSource(resolved, ArrayType(FlowchartEntryType), (collection) => entries(collection as unknown as ExprType<ArrayType<FlowEntry>>)).unwrap("pinned");
+    const window = buildRowSource(resolved, ArrayType(FlowchartEntryType), (collection) => entries(collection as unknown as ExprType<ArrayType<FlowEntry>>)).unwrap("live");
     const search = East.function([RecordSliceWhereType, IntegerType, IntegerType], OptionType(ArrayType(FlowchartEntryType)), ($, where, offset, limit) => {
         const page = $.const((part as unknown as FlowsPart).pageWhere);
         const result = $.let(none, OptionType(ArrayType(FlowchartEntryType)));

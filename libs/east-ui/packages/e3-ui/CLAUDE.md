@@ -65,6 +65,18 @@ eight-source Calendar once held 350 MB a mount). An event kind reads its
 part's members inside its own functions. `test/utils/record-sources-captures.spec.ts`
 holds every example to it: no function captures the whole slice.
 
+A source's narrowing is read where its rows are read, never where the builder
+is built (#1354). The bind reads no state and returns one handle per binding,
+whatever its narrowing: its narrowed data is a live source
+(`Paged.Types.LiveSource`), whose id names the source alone and whose reads
+read the narrowing when they run, `query()` naming it. A choice re-renders the
+readers of the source — its rows, counts, tabs and the rail — and builds no
+builder again: the payload is not encoded, decoded or compiled again. A
+builder's payload block never reads a source's state (`read()`): that read
+would build it again at every choice. Each builder's narrowing spec holds it
+(`a filter change rebuilds no builder`): a choice runs the builder's body no
+more and decodes no payload.
+
 A record a builder reads whole beside its pages — a templates list, the
 resources a check reads — binds with `Data.bind`. A UI task's manifest preloads
 a record `Data.bind` reads, but not one `Record.bind` reads beside

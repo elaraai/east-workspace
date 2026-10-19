@@ -47,6 +47,12 @@ export interface LibraryPageSource<T> {
     page(offset: bigint, limit: bigint): option<T[]>;
     total(): option<bigint>;
     revision(): option<string>;
+    /**
+     * The narrowing its rows belong to, for a source a builder's rail narrows (a live source, #1354): its `id` stays
+     * the same under every narrowing, so the palette starts its viewport again when this moves, as it does for a new
+     * source.
+     */
+    query?(): string;
 }
 
 /**
@@ -134,11 +140,12 @@ export function PagedLibrary<T>(props: PagedLibraryProps<T>) {
         setText(next);
         if (next === "") setQuery("");
     }, []);
-    // The box says how many rows the rail shows, and the field it searches by under the rail's choices.
+    // The box says how many rows the rail shows, and the field it searches by under the rail's choices; and the
+    // narrowing the rows belong to, which starts the viewport again when it moves (#1354).
     const readBox = useCallback(() => {
         const total = source.total();
         const target = search === undefined || !searchable ? undefined : pagedSearchTarget(search.part.config, search.part.read().where);
-        return { total: total.type === "some" ? Number(total.value) : undefined, field: target?.field };
+        return { total: total.type === "some" ? Number(total.value) : undefined, field: target?.field, narrowed: source.query?.() ?? "" };
     }, [source, search, searchable]);
     const { result: boxRead } = useTrackedEvaluation(readBox);
     const { searchRef, claim } = useLibrarySearchShortcut(searchable);
@@ -158,7 +165,7 @@ export function PagedLibrary<T>(props: PagedLibraryProps<T>) {
                     <Toolbar items={[librarySearchItem(box)]} />
                 </Box>
             )}
-            <PagedRows key={`${source.id}|${query}`} {...props} query={query} styles={styles} onShowAll={() => onQuery("")} />
+            <PagedRows key={`${source.id}|${known?.narrowed ?? ""}|${query}`} {...props} query={query} styles={styles} onShowAll={() => onQuery("")} />
         </Box>
     );
 }

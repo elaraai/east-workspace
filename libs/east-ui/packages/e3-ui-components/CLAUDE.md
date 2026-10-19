@@ -166,6 +166,13 @@ shared range editors and brushes must write the same bound state.
 
 On query replacement, retain the previous complete rows/membership and window
 until the replacement lands, then swap atomically. Reset the new paging origin.
+A rail's source keeps its id under every narrowing and names the narrowing it
+serves (`query()`, a live source, #1354): a reader keys what it keeps by it as
+by the revision (`snapshotOf`), the Plan's driver taking a new narrowing as a
+new result, the Sheet naming each narrowing's rows apart by the source and the
+narrowing together, and the visibility scan starting again. Editing keeps the
+revision alone, so a Save confirms against the record's state whatever the
+narrowing.
 Pending is not empty; errors retain usable data and offer Retry. Mark retained
 content busy and disable its editing gestures while pending. Keep toolbar
 navigation and session Save usable. The shared BuilderFrame Skeleton owns cold

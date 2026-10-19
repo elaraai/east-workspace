@@ -9,7 +9,7 @@ import {
     DateTimeType, DictType, East, Expr, NullType, SetType, StringType, StructType, printFor,
     decodeBeast2For, encodeBeast2For, equalFor, compareFor, parseFor, OptionType, none, some, variant, type option,
 } from "@elaraai/east";
-import { bindRecord } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, bindRecord } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import * as e3 from "@elaraai/e3";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
@@ -29,6 +29,9 @@ const program = East.function([], Binding, $ => $.return(binding));
 const coverBinding = Data.bindPaged(people, { indexes: [byName, bySkill], join: false });
 const coverProgram = East.function([], Expr.type(coverBinding), $ => $.return(coverBinding));
 const indexRows = indexWindowType(StringType, StringType, NullType, Person);
+const stringEqual = equalFor(StringType);
+const revisionEqual = equalFor(OptionType(StringType));
+const printWhere = printFor(RecordSliceWhereType);
 const settle = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
 async function ready<T>(read: () => option<T>): Promise<T> {
@@ -163,7 +166,7 @@ function slicePlatform(runtime: PagedRuntime) {
     return implementations;
 }
 
-test("record Slice binds typed controls, captures each narrowing, and survives decode into another host", async () => {
+test("record Slice binds typed controls, reads each narrowing when its rows are read, and survives decode into another host", async () => {
     const runtime = new PagedRuntime();
     const service = server("A");
     runtime.initialize(service.api, "ws");
@@ -194,11 +197,14 @@ test("record Slice binds typed controls, captures each narrowing, and survives d
     assert.equal(await ready(() => handle.contains(captured, "p2")), false, "a present row outside the query is distinguished from a missing page");
     assert.equal(await ready(() => handle.contains(captured, "p3")), true, "membership does not depend on a resident page");
     assert.equal(await ready(() => handle.contains(captured, "missing")), false);
+    assert.ok(stringEqual(handle.data.query(), printWhere(captured)), "`query` names the narrowing the rows serve");
     handle.choose("skills", ['"a"']);
     const changed = create();
-    assert.notEqual(changed.data.id, handle.data.id);
-    assert.deepEqual((await ready(() => changed.data.page(0n, 10n))).map(row => row.key), ["p1"]);
-    assert.deepEqual((await ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1", "p3"], "an existing source keeps its captured narrowing");
+    assert.equal(changed, handle, "the bind returns its binding's one handle, whatever the narrowing (#1354)");
+    assert.ok(stringEqual(handle.data.query(), printWhere(handle.read().where)), "`query` moves with the narrowing");
+    assert.ok(!stringEqual(handle.data.query(), printWhere(captured)));
+    assert.deepEqual((await ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1"], "a handle bound before the choice reads the narrowing as it stands");
+    assert.ok(revisionEqual(handle.data.revision(), some("A")), "a narrowing never moves the revision a Save confirms against");
     assert.equal(changed.read().where.get("skills")?.type, "values");
     assert.throws(() => changed.choose("skills", ['"a"', '"b"']), /Choose one/);
     assert.throws(() => changed.prefix("skills", "b"), /exact value/);
@@ -217,10 +223,17 @@ test("record Slice binds typed controls, captures each narrowing, and survives d
     another.initialize(otherService.api, "ws");
     StateRuntime.initializeStore(new UIStore());
     const decoded = decodeBeast2For(Narrowed, { platform: slicePlatform(another) })(bytes);
+    assert.ok(stringEqual(decoded.data.id, handle.data.id), "the source's id names no narrowing, so a payload written under one serves under every other");
+    // The decoder's store is seeded from the declared initial narrowing, and
+    // the decoded source reads it there, never the narrowing it was encoded under.
     const rows = await ready(() => decoded.data.page(0n, 10n));
     assert.deepEqual(rows.map(row => row.key), ["p1", "p3"]);
     assert.deepEqual(rows.map(row => row.row.type === "some" ? row.row.value.name : ""), ["B Ada", "B Cal"]);
     assert.deepEqual(await ready(() => decoded.data.revision()), "B");
+    decoded.choose("skills", ['"a"']);
+    assert.ok(stringEqual(decoded.data.query(), printWhere(decoded.read().where)));
+    assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["p1"], "a decoded source reads the decoder's narrowing as it stands");
+    assert.ok(revisionEqual(decoded.data.revision(), some("B")));
     const confirmed = await ready(() => decoded.readEntry("p2"));
     assert.ok(confirmed.type === "some" && equalFor(Person)(decodeBeast2For(Person)(confirmed.value), { name: "B Bea", skills: new Set() }), "decoded confirmation uses the new host");
     assert.equal(decoded.sourceId, handle.sourceId, "narrowing does not change editing identity");

@@ -21,7 +21,7 @@ import { SortedSet, StringType, compareFor, none, some, type ArrayType, type opt
 import type { RowSourceType } from "@elaraai/east-ui";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { PagedScan } from "@elaraai/east-ui-components/internal";
+import { PagedScan, snapshotOf } from "@elaraai/east-ui-components/internal";
 
 const compareString = compareFor(StringType);
 const PAGE = 256n;
@@ -70,14 +70,17 @@ export interface KeyVisibility {
  */
 export function useKeyVisibility(value: KeyVisibilityInput, words: KeyVisibilityWords): KeyVisibility {
     const source = value.visibleSource?.type === "some" ? value.visibleSource.value : undefined;
-    const scan = useMemo(() => source?.type === "pinned" ? new PagedScan<string, Set<string>>(
+    // A pinned source's keys belong to its revision, a live one's — a rail's narrowed source — to its narrowing too.
+    const snapshotted = source?.type === "pinned" || source?.type === "live" ? source.value : undefined;
+    const scan = useMemo(() => snapshotted !== undefined ? new PagedScan<string, Set<string>>(
         () => new SortedSet<string>([], compareString),
         (keys, page) => { for (const key of page) keys.add(key); },
-    ) : undefined, [source]);
+    ) : undefined, [snapshotted]);
     const read = useCallback((): option<Set<string>> => {
         if (source === undefined) return some(value.visible.type === "some" ? value.visible.value : new SortedSet(value.rows.map(row => row.key), compareString));
         if (source.type === "inline") return some(new SortedSet(source.value, compareString));
-        if (source.type === "pinned" && scan !== undefined) return scan.read(source.value.revision, source.value.total, source.value.page);
+        // The scan starts again when the snapshot moves — a write, or a choice (#1354) — whatever the count.
+        if (snapshotted !== undefined && scan !== undefined) return scan.read(() => snapshotOf(snapshotted) ?? none, snapshotted.total, snapshotted.page);
         const handle = source.value;
         const count = handle.total();
         if (count.type === "none") return none;
@@ -91,7 +94,7 @@ export function useKeyVisibility(value: KeyVisibilityInput, words: KeyVisibility
             offset += BigInt(page.value.length);
         }
         return some(keys);
-    }, [source, scan, value.visible, value.rows, words.changed]);
+    }, [source, snapshotted, scan, value.visible, value.rows, words.changed]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<option<Set<string>>>(none);
     if (result.ok && result.value.type === "some") last.current = result.value;
@@ -100,7 +103,7 @@ export function useKeyVisibility(value: KeyVisibilityInput, words: KeyVisibility
     const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : words.failed;
     const retry = () => {
         if (value.recordSlice?.type === "some") value.recordSlice.value.slice.retry();
-        else if (source?.type === "pinned") source.value.refresh(none);
+        else if (snapshotted !== undefined) snapshotted.refresh(none);
     };
     return { keys: source === undefined ? value.visible : keys, ready: last.current.type === "some", loading, error, retry };
 }

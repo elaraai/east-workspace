@@ -51,7 +51,7 @@ import {
 import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
-import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./use-plan-paging.js";
+import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
@@ -336,19 +336,21 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
+            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
+            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
     }, [paged, editing]);
-    // The wrapper rides the source's own arm: a pinned source stays pinned.
+    // The wrapper rides the source's own arm: a pinned source stays pinned, a live one live.
     const shownData = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...data, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...data, rows: variant(data.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...data, rows: variant(windowedArm(data.rows), wrapped) as PlanRootValue["rows"] };
         return data;
     }, [data, inlineBlocks, wrapped]);
     const shownValue = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...value, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...value, rows: variant(value.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...value, rows: variant(windowedArm(value.rows), wrapped) as PlanRootValue["rows"] };
         return value;
     }, [value, inlineBlocks, wrapped]);
 

@@ -285,6 +285,50 @@ export const PinnedSourceType = <C extends EastType | string>(c: C) => StructTyp
  */
 export type PinnedSource<C extends EastType> = ExprType<ReturnType<typeof PinnedSourceType<C>>>;
 
+/**
+ * A {@link PinnedSourceType} that names the NARROWING it serves (#1354) — what
+ * a rail's narrowed source is (`Slice.rows(slice, source)`): its windows, its
+ * total and its searches are the rows the narrowing holds, read under the
+ * narrowing as it stands when they are read.
+ *
+ * @remarks
+ * Its `id` names the source, never its narrowing, so a component built over it
+ * is not built again when a choice changes: `query` names the narrowing its
+ * windows belong to, as `revision` names the snapshot. A component keys its
+ * windows by both — when either moves it reads them again, the rows it had
+ * standing in until each lands (#821). Editing keeps the revision alone: a
+ * Save confirms against the record's state, whatever the narrowing.
+ *
+ * @typeParam C - The collection type one window carries.
+ * @param c - The collection type value.
+ * @returns The concrete `StructType` of a live source over `c`.
+ *
+ * @property id - The source's identity, the same under every narrowing.
+ * @property page - As {@link PinnedSourceType}'s, under the narrowing as it stands.
+ * @property total - The narrowing's element count, once known.
+ * @property seek - As {@link PinnedSourceType}'s, within the narrowing.
+ * @property revision - The record's snapshot, as {@link PinnedSourceType}'s.
+ * @property refresh - As {@link PinnedSourceType}'s.
+ * @property query - The narrowing the windows, the total and the searches
+ *   belong to, as text: it moves when a choice does, and a reader re-fires then.
+ */
+export const LiveSourceType = <C extends EastType | string>(c: C) => StructType({
+    id:       StringType,
+    page:     FunctionType([IntegerType, IntegerType], OptionType(c)),
+    total:    FunctionType([], OptionType(IntegerType)),
+    seek:     OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh:  FunctionType([OptionType(StringType)], NullType),
+    query:    FunctionType([], StringType),
+});
+
+/**
+ * The TypeScript type of a {@link LiveSourceType} over collection type `C`.
+ *
+ * @typeParam C - The collection type one window carries.
+ */
+export type LiveSource<C extends EastType> = ExprType<ReturnType<typeof LiveSourceType<C>>>;
+
 // ============================================================================
 // The row-source variant — what components actually store
 // ============================================================================
@@ -299,22 +343,25 @@ export type PinnedSource<C extends EastType> = ExprType<ReturnType<typeof Pinned
  * composite one (the Plan's blocks, one row stream per series) share one
  * vocabulary without any shape leaking into the arm names (#568).
  *
- * The two windowed arms differ in one thing: whether the source names its
- * snapshot. `paged` is the released arm — exported UIs carry it, so it never
- * changes — and a component reads each of its windows once; `pinned` names the
- * revision its windows belong to, which is what lets a component follow the
- * source as its content changes, and edit it.
+ * The windowed arms differ in what the source names. `paged` is the released
+ * arm — exported UIs carry it, so it never changes — and a component reads
+ * each of its windows once; `pinned` names the revision its windows belong to,
+ * which is what lets a component follow the source as its content changes,
+ * and edit it; `live` names the narrowing they serve too — a rail's narrowed
+ * source — so a component follows a choice as it follows a write (#1354).
  *
  * @typeParam C - The collection type.
  * @param c - The collection type value.
  * @returns The concrete `VariantType` of a row source over `c`.
  *
  * @property inline - The whole collection, already in hand.
+ * @property live - A {@link LiveSourceType} — windows at a named snapshot under a named narrowing, followed as either moves.
  * @property paged - A {@link PagedSourceType} fetched a window at a time.
  * @property pinned - A {@link PinnedSourceType} — windows at a named snapshot, followed from one to the next.
  */
 export const RowSourceType = <C extends EastType>(c: C): RowSourceType<C> => VariantType({
     inline: c,
+    live:   LiveSourceType(c),
     paged:  PagedSourceType(c),
     pinned: PinnedSourceType(c),
 });
@@ -332,9 +379,10 @@ export const RowSourceType = <C extends EastType>(c: C): RowSourceType<C> => Var
  * @typeParam C - The collection type.
  */
 export interface RowSourceType<C extends EastType> extends VariantType {
-    /** The arms, by name — {@link RowSourceType}'s three. */
+    /** The arms, by name — {@link RowSourceType}'s four. */
     readonly cases: {
         readonly inline: C;
+        readonly live: ReturnType<typeof LiveSourceType<C>>;
         readonly paged: ReturnType<typeof PagedSourceType<C>>;
         readonly pinned: ReturnType<typeof PinnedSourceType<C>>;
     };
@@ -387,11 +435,13 @@ export type RowSourceInput<C extends EastType> =
  * `pinned` says whether a windowed source names its snapshot — `revision` and
  * `refresh`, as {@link PinnedSourceType} has them — and so builds the `pinned`
  * arm: the one a component follows through changes to the source, and the
- * only one the Sheet and the Plan edit.
+ * only one the Sheet and the Plan edit. `query` says whether it names the
+ * narrowing it serves too, as {@link LiveSourceType} does — a rail's narrowed
+ * source, which names its snapshot as well — and so builds the `live` arm.
  */
 export type ResolvedRowSource =
     | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; live?: ExprType<StructType> }
-    | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; pinned: boolean }
+    | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; pinned: boolean; query: boolean }
     | {
         kind: "ordered";
         source: ExprType<StructType>;
@@ -403,6 +453,8 @@ export type ResolvedRowSource =
         orderKeyType: EastType;
         /** Whether the source names its snapshot — `revision` and `refresh`. */
         pinned: boolean;
+        /** Whether the source names the narrowing it serves — `query` (#1354). */
+        query: boolean;
     };
 
 /** A resolved WINDOWED source — `paged`, or an `ordered` index window. */
@@ -481,19 +533,22 @@ function pagePayload(fields: Record<string, EastType>): EastType | undefined {
 /**
  * Recognise a WINDOWED source by its East type, through East's own subtype
  * relation: a subtype of {@link PinnedSourceType} over the collection its
- * `page` serves — the contract, `Data.bindPaged`'s handle — or of
+ * `page` serves — the contract, `Data.bindPaged`'s handle — of
+ * {@link LiveSourceType}, a rail's narrowed source, or of
  * {@link PagedSourceType}, the shape that predates `revision` / `refresh`.
+ * East's struct subtyping is exact, so the three never overlap.
  *
  * @param t - The rows prop's East type
  * @param fields - Its struct fields
- * @returns The collection the source serves, and whether it names its
- *   snapshot; `undefined` when it is neither shape
+ * @returns The collection the source serves, whether it names its snapshot,
+ *   and whether it names its narrowing; `undefined` when it is none of the shapes
  */
-function windowedSource(t: EastType, fields: Record<string, EastType>): { collectionType: EastType; pinned: boolean } | undefined {
+function windowedSource(t: EastType, fields: Record<string, EastType>): { collectionType: EastType; pinned: boolean; query: boolean } | undefined {
     const c = pagePayload(fields);
     if (c === undefined) return undefined;
-    if (isSubtype(t, PinnedSourceType(c))) return { collectionType: c, pinned: true };
-    if (isSubtype(t, PagedSourceType(c))) return { collectionType: c, pinned: false };
+    if (isSubtype(t, LiveSourceType(c))) return { collectionType: c, pinned: true, query: true };
+    if (isSubtype(t, PinnedSourceType(c))) return { collectionType: c, pinned: true, query: false };
+    if (isSubtype(t, PagedSourceType(c))) return { collectionType: c, pinned: false, query: false };
     return undefined;
 }
 
@@ -514,9 +569,10 @@ const CONTRACT_FIELDS =
  * - a collection expression / value (`Array<R>`, `Dict<K, V>`, `Set<R>`) ⇒ `inline`;
  * - a WINDOWED source, recognised by its East type: a subtype of
  *   {@link PinnedSourceType} over the collection its `page` serves (the
- *   contract — `Data.bindPaged`'s handle) builds the `pinned` arm, and a
- *   subtype of {@link PagedSourceType} (the shape that predates `revision` /
- *   `refresh`) builds `paged`. A window of index entries is `ordered`;
+ *   contract — `Data.bindPaged`'s handle) builds the `pinned` arm, a subtype
+ *   of {@link LiveSourceType} (a rail's narrowed source, #1354) builds `live`,
+ *   and a subtype of {@link PagedSourceType} (the shape that predates
+ *   `revision` / `refresh`) builds `paged`. A window of index entries is `ordered`;
  * - a struct carrying `read` ⇒ a whole-value bind handle, which resolves by
  *   CALLING `read()` and recursing. The call becomes part of the surrounding
  *   East expression, so it is evaluated inside the component's reactive render
@@ -546,7 +602,7 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
     const fields = structFields(t);
     const windowed = fields === undefined ? undefined : windowedSource(t, fields);
     if (windowed !== undefined) {
-        const { collectionType, pinned } = windowed;
+        const { collectionType, pinned, query } = windowed;
         const elementType = elementTypeOf(collectionType);
         if (elementType === undefined) {
             throw new Error(
@@ -560,16 +616,17 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         // so a source that serves index entries needs no second vocabulary.
         const entry = collectionType.type === "Array" ? orderedEntry(elementType) : null;
         if (entry !== null) {
-            return { kind: "ordered", source, collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik, pinned };
+            return { kind: "ordered", source, collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik, pinned, query };
         }
-        return { kind: "paged", source, collectionType, elementType, keyType: keyTypeOf(collectionType), pinned };
+        return { kind: "paged", source, collectionType, elementType, keyType: keyTypeOf(collectionType), pinned, query };
     }
     if (fields !== undefined && fields["page"] !== undefined && fields["total"] !== undefined) {
         throw new Error(
             `${label}: a paged source is a platform bind's handle (Data.bindPaged) — ${CONTRACT_FIELDS}, ` +
-            `its fields in that order at those types, or the same without \`revision\` and \`refresh\` ` +
+            `its fields in that order at those types, the same with \`query: () → String\` after them ` +
+            `(a rail's narrowed source, Slice.rows), or the same without \`revision\` and \`refresh\` ` +
             `(the handle a UI exported before them carries); this struct has \`page\` and \`total\` but is ` +
-            `neither: ${printType(t)}`,
+            `none of them: ${printType(t)}`,
         );
     }
     if (fields !== undefined && fields["read"] !== undefined) {
@@ -631,8 +688,10 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
  *
  * A source that names its snapshot (`resolved.pinned`, a
  * {@link PinnedSourceType}) builds the `pinned` arm, its `revision` and
- * `refresh` carried through as they are; any other builds `paged`, which has
- * neither. The derived `page` is the same either way.
+ * `refresh` carried through as they are; one that names its narrowing too
+ * (`resolved.query`, a {@link LiveSourceType}) builds `live`, its `query`
+ * carried through as well (#1354); any other builds `paged`, which has none of
+ * them. The derived `page` is the same in every arm.
  */
 export function buildRowSource<Out extends EastType>(
     resolved: ResolvedRowSource,
@@ -683,7 +742,17 @@ export function buildRowSource<Out extends EastType>(
     const snapshot = resolved.source as unknown as ExprType<StructType<{
         revision: FunctionType<[], OptionType<StringType>>;
         refresh: FunctionType<[OptionType<StringType>], NullType>;
+        query: FunctionType<[], StringType>;
     }>>;
+    if (resolved.query) {
+        return East.value(
+            variant("live", {
+                id: handle.id, page, total: handle.total, seek: handle.seek,
+                revision: snapshot.revision, refresh: snapshot.refresh, query: snapshot.query,
+            }) as never,
+            sourceType,
+        ) as RowSource<Out>;
+    }
     return East.value(
         variant("pinned", {
             id: handle.id, page, total: handle.total, seek: handle.seek,
@@ -829,6 +898,20 @@ export const Paged = {
          */
         PinnedSource: PinnedSourceType,
         /**
+         * A pinned source that names the narrowing it serves too — a rail's
+         * narrowed source, `Slice.rows(slice, source)` (#1354).
+         *
+         * @remarks See {@link LiveSourceType} for its fields.
+         * @property id - The source's identity, the same under every narrowing
+         * @property page - `(offset, limit)` → that window under the narrowing as it stands
+         * @property total - The narrowing's element count
+         * @property seek - Key search within the narrowing
+         * @property revision - The record's snapshot
+         * @property refresh - Move the source to a snapshot, or to its current one
+         * @property query - The narrowing the windows belong to, as text
+         */
+        LiveSource: LiveSourceType,
+        /**
          * Where a key query landed in a source's row order.
          *
          * @remarks See {@link SeekRangeType}.
@@ -853,6 +936,7 @@ export const Paged = {
          *
          * @remarks See {@link RowSourceType}.
          * @property inline - The whole collection, already in hand
+         * @property live - A {@link LiveSourceType}
          * @property paged - A {@link PagedSourceType}
          * @property pinned - A {@link PinnedSourceType}
          */

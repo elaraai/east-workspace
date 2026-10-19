@@ -14,7 +14,9 @@
  * tab counting what it shows and saying so, with Clear filters, when the rail
  * leaves it none. A hidden draft still saves to its original key. A window read
  * through interval indexes lands some fifty-five key searches a kind, each
- * re-rendering the window's reader alone, never the frame.
+ * re-rendering the window's reader alone, never the frame. A filter change
+ * builds nothing again: the Calendar's body runs no more, and no payload is
+ * decoded (#1354).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -23,7 +25,8 @@ import { DateTimeType, OptionType, StringType, printFor, some, variant } from "@
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { initializePagedApi } from "../platform/index.js";
-import { act, calendarHarness, card, event, mount, narrow, narrowing, open, settle, slot, width, WORKSPACE, type Where } from "./harness.test-utils.js";
+import { act, calendarHarness, card, event, mount, narrow, narrowing, open, programOf, settle, slot, width, WORKSPACE, type Where } from "./harness.test-utils.js";
+import { countBuilds } from "../shared/builds.test-utils.js";
 import { setCalendarFrameRenderProbe } from "./index.js";
 
 const h = calendarHarness();
@@ -261,5 +264,26 @@ describe("a window read through interval indexes re-renders its reader, never th
         } finally {
             setCalendarFrameRenderProbe(undefined);
         }
+    });
+});
+
+describe("a filter change rebuilds no builder (#1354)", () => {
+    test("a choice on the rail, and the window's navigation, build the Calendar no more: the events, the columns and the tabs follow over the payload it mounted with", async () => {
+        const builds = countBuilds("Calendar", programOf(ex.calendarOperations));
+        const { container, store } = await open(builds.program);
+        const mounted = [builds.runs, builds.decodes];
+        expect(Math.min(...mounted)).toBeGreaterThan(0);
+        // An event kind's source, its window kept.
+        const start = narrowing(store, EX, "job").get("start")!;
+        await narrow(store, EX, "job", new Map([["status", variant("values", [status(variant("active", null))])], ["start", start]]));
+        expect(event(container, "job", "job1")).not.toBeNull();
+        expect(event(container, "job", "job2")).toBeNull();
+        // A tab's source: its count, and the people's columns.
+        await narrow(store, EX, "people", values("team", [text("Maintenance")]));
+        expect(tabs(container)[2]).toBe("Technicians 2 of 3");
+        // The window, written into every event source's range.
+        await press(toolbar(container).getByRole("button", { name: "Next week" }));
+        expect(narrowing(store, EX, "service").get("start")).toEqual(window(new Date("2026-10-05T00:00:00Z"), new Date("2026-10-12T00:00:00Z"), false));
+        expect([builds.runs, builds.decodes], "no choice and no navigation runs the body again or decodes a payload").toEqual(mounted);
     });
 });

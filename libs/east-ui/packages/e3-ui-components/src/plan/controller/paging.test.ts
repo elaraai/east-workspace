@@ -910,6 +910,69 @@ describe("paging driver — content revisions (#821)", () => {
     });
 });
 
+describe("paging driver — a new narrowing is a new result (#1354)", () => {
+    /** A live source — a rail's narrowed `rows` source: its id and its revision
+     *  the same under every narrowing, its `query` naming the one it serves. A
+     *  narrowing's windows (and its total) are in flight until it is `open`, and
+     *  every row carries the narrowing that served it. Records each window asked,
+     *  under the narrowing it was asked under. */
+    function narrowed(windows: number) {
+        const state = { narrowing: "A", open: new Set(["A"]) };
+        const asked: string[] = [];
+        const value = {
+            id: "narrowed",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                asked.push(`${state.narrowing}:${w}`);
+                if (!state.open.has(state.narrowing)) return none;
+                const pad = String(w).padStart(4, "0");
+                return some([paged([wire(`w${pad}r000`, { narrowing: state.narrowing }), wire(`w${pad}r001`, { narrowing: state.narrowing })])]);
+            },
+            total: () => (state.open.has(state.narrowing) ? some(BigInt(windows * PLAN_PAGE_SIZE)) : none),
+            seek: none,
+            revision: () => some("R1"),
+            refresh: () => null,
+            query: () => state.narrowing,
+        } as unknown as PlanPagedSourceValue;
+        return { value, state, asked };
+    }
+    const narrowingsShown = (s: PlanPagingSnapshot) => new Set(s.rows.map((r) => (r as unknown as { narrowing: string }).narrowing));
+
+    test("the view the last narrowing drew stands in, whole, until the new one's first window lands — then its rows, from its own first window", () => {
+        const { value, state, asked } = narrowed(250);
+        const { d, snap } = drive(value);
+        d.jumpToElement(40_000);
+        d.committed(snap());
+        const before = snap();
+        expect(narrowingsShown(before)).toEqual(new Set(["A"]));
+        expect(span(before)[0]).toBeGreaterThan(30_000);
+        // A choice on the rail: the source serves B under the same id and revision, its windows still in flight.
+        state.narrowing = "B";
+        d.refresh();
+        expect(snap().rows).toBe(before.rows);
+        expect(snap().loading).toBe(true);
+        // B's reads start at its first window: no offset of A's result drives them.
+        expect(asked.filter((a) => a.startsWith("B:"))).toEqual(["B:0"]);
+        // B lands: its own rows, from its first window, at its top.
+        state.open.add("B");
+        d.refresh();
+        expect(narrowingsShown(snap())).toEqual(new Set(["B"]));
+        expect(residentText(snap())).toBe("0-600");
+        expect(bandText(head(snap()))).toBe("-");
+        expect(snap().loading).toBe(false);
+    });
+
+    test("a narrowing that did not move reads nothing again, and publishes nothing", () => {
+        const { value, asked } = narrowed(50);
+        const { d, notified } = drive(value);
+        const before = [...asked];
+        const n = notified();
+        d.refresh();
+        expect(asked).toEqual(before);
+        expect(notified()).toBe(n);
+    });
+});
+
 describe("paging driver — blocks page apart (#823)", () => {
     /** A source of `windows` windows serving TWO paged blocks per window — a
      *  span series and a heat series over the same entries, say — with

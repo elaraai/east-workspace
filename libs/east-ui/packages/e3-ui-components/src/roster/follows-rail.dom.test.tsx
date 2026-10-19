@@ -13,6 +13,8 @@
  * filter of its own, and a Find fix is a result in it with a chip that clears
  * it; the rail's fields each offer something to choose, its Skill a search;
  * coverage and costs read every person and activity, whatever the rail hides.
+ * A filter change builds nothing again: the Roster's body runs no more, and no
+ * payload is decoded (#1354).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -20,7 +22,8 @@ import userEvent from "@testing-library/user-event";
 import { OptionType, StringType, compareFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { readRosterSource, rosterSourceKey } from "./identity.js";
-import { act, assignment, narrow, narrowing, open, rosterHarness, settle, slot, width, type Choice } from "./harness.test-utils.js";
+import { act, assignment, narrow, narrowing, open, programOf, rosterHarness, settle, slot, width, type Choice } from "./harness.test-utils.js";
+import { countBuilds } from "../shared/builds.test-utils.js";
 
 const h = rosterHarness();
 const text = printFor(StringType), group = printFor(OptionType(StringType));
@@ -223,5 +226,22 @@ describe("each source narrows every place its rows appear (#1342)", () => {
         await narrow(store, "rosterWarehouse", "activities", new Map());
         await waitFor(() => expect(tabs(c)[1]).toBe("Activities 17"));
         expect(await offered(field())).toEqual(["Unloading", "Put-away", "Reach truck", "Cross-dock", "Receiving QA", "Yard", "General duties"]);
+    });
+});
+
+describe("a filter change rebuilds no builder (#1354)", () => {
+    test("a choice on the rail builds the Roster no more: the board and the People and Activities tabs follow it over the payload it mounted with", async () => {
+        const builds = countBuilds("Roster", programOf(ex.rosterWarehouse));
+        const { container: c, store } = await open(builds.program);
+        expect(tabs(c)).toEqual(["People 69", "Activities 17", "Positions 4"]);
+        const mounted = [builds.runs, builds.decodes];
+        expect(Math.min(...mounted)).toBeGreaterThan(0);
+        const inbound = staff(person => person.team === "inbound");
+        await narrow(store, "rosterWarehouse", "people", values("team", [text("inbound")]));
+        await waitFor(() => expect(tabs(c)[0]).toBe(`People ${inbound.length} of 69`));
+        expect([...slot(c, "main").querySelectorAll("[data-roster-assignment]:not([data-request])")].every(el => el.closest('[data-roster-slot*="inbound"]') !== null)).toBe(true);
+        await narrow(store, "rosterWarehouse", "activities", values("group", [group(some("inbound"))]));
+        await waitFor(() => expect(tabs(c)[1]).toBe("Activities 6 of 17"));
+        expect([builds.runs, builds.decodes], "no choice runs the body again or decodes a payload").toEqual(mounted);
     });
 });

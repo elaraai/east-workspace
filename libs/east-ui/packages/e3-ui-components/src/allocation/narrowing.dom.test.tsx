@@ -9,7 +9,9 @@
  * Table's rows, the Chooser's resources — while fits, loads and issues read
  * every lane and resource. A source with nothing chosen reads no key. Rows
  * are virtualised, so whole sets are measured by what the panes hold: the
- * resource pane's extent (36px a row) and the Table's folded band heads.
+ * resource pane's extent (36px a row) and the Table's folded band heads. A
+ * filter change builds nothing again: the board's body runs no more, and no
+ * payload is decoded (#1354).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -18,13 +20,14 @@ import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { pathText } from "../platform/record-paging.test-utils.js";
-import { act, allocationHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { act, allocationHarness, mount, programOf, settle, slot } from "./harness.test-utils.js";
+import { countBuilds } from "../shared/builds.test-utils.js";
 
 const h = allocationHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
 /** An example mounted over a store of its own, where each source's state is kept. */
-async function open(example: { fn: { toIR(): unknown } }) {
+async function open(example: Parameters<typeof mount>[0]) {
     const store = new UIStore(); StateRuntime.initializeStore(store);
     const r = mount(example); await settle();
     return { c: r.container, store };
@@ -270,5 +273,21 @@ describe("the Timeline, narrowed", () => {
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
         await waitFor(() => expect(banner()).toBeNull());
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
+    });
+});
+
+describe("a filter change rebuilds no builder (#1354)", () => {
+    test("a choice on the rail builds the board no more: the lanes, the resource rows and the summary follow it over the payload it mounted with", async () => {
+        const builds = countBuilds("Allocation", programOf(ex.allocationKilnYard));
+        const { c, store } = await open(builds.program);
+        await waitFor(() => expect(cards(c)).toHaveLength(26));
+        const mounted = [builds.runs, builds.decodes];
+        expect(Math.min(...mounted)).toBeGreaterThan(0);
+        await narrow(store, "allocationKilnYard", "lanes", "area", ["North"]);
+        await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
+        await narrow(store, "allocationKilnYard", "resources", "group", ["Bulk"]);
+        await waitFor(() => expect(resourceCount(c)).toBe(2));
+        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·2 of 33 resources"));
+        expect([builds.runs, builds.decodes], "no choice runs the body again or decodes a payload").toEqual(mounted);
     });
 });

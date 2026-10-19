@@ -63,7 +63,7 @@ export type Choice = Where extends Map<string, infer C> ? C : never;
  * @param example - The example
  * @returns Its container, its store and its unmount
  */
-export async function open(example: { fn: { toIR(): unknown } }) {
+export async function open(example: Parameters<typeof mount>[0]) {
     const store = new UIStore(); StateRuntime.initializeStore(store);
     const mounted = mount(example); await settle();
     return { container: mounted.container, store, unmount: mounted.unmount };

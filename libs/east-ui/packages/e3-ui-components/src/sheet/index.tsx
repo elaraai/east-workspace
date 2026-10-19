@@ -78,7 +78,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { StringType, StructType, equalFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget,
@@ -175,6 +175,24 @@ const stringEqual = equalFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const readinessEqual = equalFor(SheetBatchReadinessType);
 const printString = printFor(StringType);
+/** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
+const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
+
+/**
+ * The narrowing a live source serves as it stands (#1354); `undefined` for any
+ * other arm, or while it cannot be read — the paging says why, as it reads.
+ *
+ * @param source - The rows' windowed source, if any
+ * @returns Its narrowing, as text
+ */
+function narrowingOfSource(source: { query?: (() => string) | undefined } | undefined): string | undefined {
+    if (source?.query === undefined) return undefined;
+    try {
+        return source.query();
+    } catch {
+        return undefined;
+    }
+}
 
 /** A view's hover title, worded by the existing Sheet message table. */
 function viewTitle(view: SheetSavedView, words: SheetWords): string {
@@ -629,9 +647,19 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const inflight = useRef(new InFlight());
 
     // ── The row source: inline rows, or the paged driver ──────────────────
-    // Either windowed arm: `paged`, or `pinned` naming its snapshot — the one
-    // the driver follows through changes, and the session edits.
-    const pagedSource = windowedSourceOf(value.rows);
+    // Any windowed arm: `paged`; `pinned` naming its snapshot — the one the
+    // driver follows through changes, and the session edits; or `live`, the
+    // slice's `rows` source, naming its narrowing too (#1354). A live source
+    // keeps its id under every narrowing, so the sheet names each narrowing's
+    // rows apart, by the source and the narrowing together: its paging, its key
+    // search and its scroll take a new narrowing as the new result it is, as they
+    // did when a narrowing named its own source (#1345), and the session edits
+    // the record whatever the narrowing. The narrowing is read as it stands: the
+    // slice's reactivity above re-renders the sheet when a choice moves it.
+    const windowed = windowedSourceOf(value.rows);
+    const narrowedBy = narrowingOfSource(windowed);
+    const pagedSource = useMemo(() => (windowed === undefined || narrowedBy === undefined ? windowed
+        : { ...windowed, id: printNarrowedSource({ source: windowed.id, narrowing: narrowedBy }) }), [windowed, narrowedBy]);
     const decodedRows = useMemo<readonly SheetRowValue[] | undefined>(
         () => (data.rows.type === "inline" ? (data.rows.value as readonly SheetRowValue[]) : undefined),
         [data.rows],

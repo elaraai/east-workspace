@@ -77,12 +77,12 @@ import {
     Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType, ScheduleEventRefType,
 } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
-import type { PlanPagedSourceValue } from "../use-plan-paging.js";
+import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 
 /** The payload's `blocks` seam, decoded: the resources' rows over a window, every kind's drafts in place. */
 export type PlanEventBlocksValue = ValueTypeOf<typeof PlanEventBlocksType>;
@@ -345,8 +345,14 @@ export function usePlanEventRoot(
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
-            // The snapshot of `data` itself (#1199): its own revision, which new rows over it leave.
-            snapshot: () => latest.current.src?.revision?.() ?? none,
+            // The snapshot of `data` itself (#1199): its own revision — and a live source's narrowing with it, whose
+            // rows a key search's answer names (#1354) — which new rows over it leave.
+            snapshot: () => {
+                const src = latest.current.src;
+                return src === undefined ? none : snapshotOf(src) ?? none;
+            },
+            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
+            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
@@ -417,7 +423,7 @@ export function usePlanEventRoot(
     const rowsOf = useCallback((root: PlanRootValue): PlanRootValue["rows"] => {
         if (composed !== undefined) return variant("pinned", composed) as PlanRootValue["rows"];
         if (inline !== undefined) return variant("inline", inline) as PlanRootValue["rows"];
-        if (wrapped !== undefined) return variant(root.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"];
+        if (wrapped !== undefined) return variant(windowedArm(root.rows), wrapped) as PlanRootValue["rows"];
         return root.rows;
     }, [composed, inline, wrapped]);
     const active = lead !== undefined;
