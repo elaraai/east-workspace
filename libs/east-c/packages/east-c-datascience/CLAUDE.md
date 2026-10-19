@@ -1,15 +1,16 @@
 # east-c-datascience
 
-east-py-datascience's platform functions on the C runtime (OR-Tools, XGBoost),
-one family at a time and whole, under east-py-datascience's own compliance
-suites. C++17 over east-c's C API; built with `-DEAST_C_DATASCIENCE=ON`.
+east-py-datascience's platform functions on the C runtime (OR-Tools, XGBoost,
+the neural networks stated as data), one family at a time and whole, under
+east-py-datascience's own compliance suites. C++17 over east-c's C API; built
+with `-DEAST_C_DATASCIENCE=ON`.
 
 ## Commands
 
 ```bash
 make fetch-ortools                            # once: the pinned OR-Tools release
 make build EAST_C_DATASCIENCE=ON              # from libs/east-c
-make test-east-c-datascience                  # the GoogleOr and XGBoost suites (export them first)
+make test-east-c-datascience                  # the GoogleOr, XGBoost and NeuralNet suites (export them first)
 ```
 
 ## Rules
@@ -32,6 +33,14 @@ make test-east-c-datascience                  # the GoogleOr and XGBoost suites 
   `E3XGBQ01` container). Its python twin is
   `east_py_datascience/xgboost/_blob.py`; change both together, and regenerate
   `test/fixtures/xgboost_interchange.json` (its script says how).
+- **The neural-network specification is the contract.** `src/nn/` implements
+  `libs/east-py/packages/east-py-datascience/docs/neural-networks.md` — its
+  shapes, conventions and the wording of its refusals — and nothing torch
+  happens to do. A new operation or a changed convention is a change to that
+  document first, then to both interpreters (`_torch.py` there, `interp.cc`
+  here), then to `test/nn.spec.ts`, which both runners must pass; a change to
+  the numerics means regenerating `test/nn.reference.generated.ts` there.
+  `nn_train` is not here by design: training stays in torch.
 - **Nothing downloads at build time.** XGBoost's archive is checked in under
   `third_party/` with its SHA-256; OR-Tools comes from an install the fetch
   script pins. Match `libs/east-py/uv.lock`'s versions, so a blob written at

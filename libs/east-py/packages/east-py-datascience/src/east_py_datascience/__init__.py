@@ -90,6 +90,7 @@ from east_py_datascience.ngboost.ngboost_impl import (
     ngboost_predict_dist,
     ngboost_train_regressor,
 )
+from east_py_datascience.nn import nn_impl, nn_init, nn_run, nn_train
 from east_py_datascience.optimization import (
     optimization_impl,
     optimization_iterative,
@@ -255,6 +256,7 @@ platform = [
     *xgboost_impl,
     *lightgbm_impl,
     *ngboost_impl,
+    *nn_impl,
     *shap_impl,
     *torch_impl,
     *gp_impl,
@@ -308,6 +310,9 @@ __all__ = [
     "ngboost_predict",
     "ngboost_predict_dist",
     "ngboost_train_regressor",
+    "nn_init",
+    "nn_run",
+    "nn_train",
     "optimization_iterative",
     "optimization_iterative_grouped",
     "optimization_iterative_incremental",

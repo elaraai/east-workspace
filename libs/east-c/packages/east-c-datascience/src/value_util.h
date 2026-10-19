@@ -55,6 +55,23 @@ EvalResult platform_call(EastValue **args, size_t num_args, EastType **input_typ
     }
 }
 
+/* As platform_call, for a body that also reads its declared input types. */
+using BodyTyped = EvalResult (*)(EastValue **args, size_t num_args, EastType **input_types,
+                                 size_t num_input_types, EastType *output_type);
+
+template <BodyTyped body>
+EvalResult platform_call_typed(EastValue **args, size_t num_args, EastType **input_types,
+                               size_t num_input_types, EastType *output_type)
+{
+    try {
+        return body(args, num_args, input_types, num_input_types, output_type);
+    } catch (const std::exception &e) {
+        return eval_error(e.what());
+    } catch (...) {
+        return eval_error("platform function failed");
+    }
+}
+
 /* A type with its Recursive wrappers taken off. */
 inline EastType *unwrap(EastType *t)
 {
@@ -393,6 +410,15 @@ inline EastValue *integer_vector(const std::vector<int64_t> &xs)
     EastValue *v = east_vector_new_uninit(&east_integer_type, xs.size());
     if (!v) throw Error("out of memory");
     if (!xs.empty()) std::memcpy(v->data.vector.data, xs.data(), xs.size() * sizeof(int64_t));
+    return v;
+}
+
+inline EastValue *boolean_vector(const std::vector<uint8_t> &xs)
+{
+    EastValue *v = east_vector_new(&east_boolean_type, xs.size());
+    bool *data = static_cast<bool *>(v->data.vector.data);
+    for (size_t k = 0; k < xs.size(); k++)
+        data[k] = xs[k] != 0;
     return v;
 }
 

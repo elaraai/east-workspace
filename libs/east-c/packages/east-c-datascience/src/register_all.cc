@@ -17,6 +17,7 @@ void register_google_or_cpsat(PlatformRegistry *reg);
 void register_google_or_routing(PlatformRegistry *reg);
 void register_google_or_graph(PlatformRegistry *reg);
 void register_xgboost(PlatformRegistry *reg);
+void register_nn(PlatformRegistry *reg);
 } // namespace east_ds
 
 extern "C" void east_datascience_register_google_or(PlatformRegistry *reg)
@@ -32,10 +33,16 @@ extern "C" void east_datascience_register_xgboost(PlatformRegistry *reg)
     east_ds::register_xgboost(reg);
 }
 
+extern "C" void east_datascience_register_nn(PlatformRegistry *reg)
+{
+    east_ds::register_nn(reg);
+}
+
 extern "C" void east_datascience_register_all(PlatformRegistry *reg)
 {
     east_datascience_register_google_or(reg);
     east_datascience_register_xgboost(reg);
+    east_datascience_register_nn(reg);
 }
 
 extern "C" const char *east_datascience_ortools_version(void)

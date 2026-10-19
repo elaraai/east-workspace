@@ -9,6 +9,7 @@ specs export run here unchanged.
 |---|---|---|
 | Google OR-Tools | `google_or_cpsat_solve`, `google_or_cpsat_solve_all`, `google_or_linear_solve` (Glop, SCIP, HiGHS by the same backend ids), `google_or_routing_solve`, `google_or_min_cost_flow`, `google_or_max_flow`, `google_or_assignment`, `google_or_min_cost_assignment` | OR-Tools' C++ API, the model built straight from the East values |
 | XGBoost | `xgboost_train_regressor`, `xgboost_train_classifier`, `xgboost_train_quantile`, `xgboost_predict`, `xgboost_predict_class`, `xgboost_predict_proba`, `xgboost_predict_quantile` | XGBoost's C API; the model blob is XGBoost's own UBJSON model, so a model trained on one runner predicts on the other |
+| NeuralNet | `nn_init`, `nn_run` (`nn_train` stays in torch) | A CPU interpreter in IEEE double of the networks east-py-datascience states as data (`libs/east-py/packages/east-py-datascience/docs/neural-networks.md`): every operation of the specification, forward only; attention over key lists; a network's plan and its weights kept between calls |
 
 ## Build
 
@@ -54,7 +55,11 @@ it is not (multi-worker CP-SAT), and tolerance where floating point may differ
 (a model trained on each runner from the same data and seed). The XGBoost
 suite also predicts from model blobs the python runner trained and wrote
 (`test/fixtures/xgboost_interchange.json`), and must answer what that runner
-answered.
+answered. The neural-network suite holds every operation to the
+specification's shapes and conventions, and the two reference networks (a
+transformer over ragged grouped sequences, a conditioned 1-D U-Net:
+`test/nn.reference.generated.ts`, written by python from hand-written torch)
+to torch's outputs within 2e-3, their integer outputs exactly.
 
 ## Layout
 
@@ -67,4 +72,10 @@ answered.
 - `src/google_or_*.cc` — the OR-Tools family, one file per solver.
 - `src/xgboost.cc` — the XGBoost family, the categorical encoding and the
   blob forms.
+- `src/nn/` — the neural-network family: `tensor.h` a dense tensor of one
+  element type with broadcasting walks, `plan.h/.cc` a `NetType` value
+  resolved and checked (the twin of python's `_plan.py`), `interp.h/.cc` the
+  CPU interpreter of every operation and the parameter initialisations,
+  `nn.cc` the East boundary (`nn_init`, `nn_run`) and the plan and weight
+  caches.
 - `third_party/` — XGBoost's release archive, pinned by SHA-256.

@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import re
 
-from east import ArrayType, DictType, East, FloatType, StringType, StructType, coerce_to
 from east.runtime._compiler_eastc import profile_finish, profile_start
+
+from east import ArrayType, DictType, East, FloatType, StringType, StructType, coerce_to
 from east.runtime.platform import platform_functions
 from east.types.values import EastDict
 

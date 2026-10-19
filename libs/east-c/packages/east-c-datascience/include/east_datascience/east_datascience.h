@@ -27,6 +27,10 @@ void east_datascience_register_google_or(PlatformRegistry *reg);
  * xgboost_predict_proba, xgboost_predict_quantile. */
 void east_datascience_register_xgboost(PlatformRegistry *reg);
 
+/* The neural-network family (#1357): nn_init and nn_run, the CPU interpreter
+ * of docs/neural-networks.md; training stays in torch (east-py-datascience). */
+void east_datascience_register_nn(PlatformRegistry *reg);
+
 /* Every family. */
 void east_datascience_register_all(PlatformRegistry *reg);
 

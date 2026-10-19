@@ -14,6 +14,41 @@
  * @packageDocumentation
  */
 
+// NeuralNet - networks as East data, run by torch and by east-c (#1357)
+export {
+    NeuralNet,
+    NeuralNetTypes,
+    nn_init,
+    nn_train,
+    nn_run,
+    nnOpType,
+    NetType,
+    TensorType,
+    IntegerTensorType,
+    BooleanTensorType,
+    NnValueType,
+    NnBatchType,
+    NnWeightsType,
+    NnDTypeType,
+    NnInputSpecType,
+    NnInitType,
+    NnParamSpecType,
+    NnMaskType,
+    NnReduceType,
+    NnPadModeType,
+    NnGeluType,
+    NnConstantType,
+    NnStepsType,
+    NnDeviceType,
+    NnRunConfigType,
+    NnOptimizerType,
+    NnScheduleType,
+    NnPrecisionType,
+    NnTrainConfigType,
+    NnTrainHistoryType,
+    NnTrainResultType,
+} from "./nn/nn.js";
+
 // MADS - Derivative-free optimization
 export {
     MADS,

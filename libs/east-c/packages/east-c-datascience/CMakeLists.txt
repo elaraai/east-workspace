@@ -60,6 +60,9 @@ add_library(east-c-datascience
     src/google_or_routing.cc
     src/google_or_graph.cc
     src/xgboost.cc
+    src/nn/plan.cc
+    src/nn/interp.cc
+    src/nn/nn.cc
     src/register_all.cc
 )
 target_include_directories(east-c-datascience PUBLIC include)

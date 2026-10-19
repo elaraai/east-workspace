@@ -82,7 +82,7 @@ test-east-c-std: build
 # The suites east-py-datascience exports (`make -C libs/east-py test-export`,
 # into EAST_DATASCIENCE_IR_DIR) that east-c-datascience implements: each
 # family moves whole, so a family's suite runs here unchanged.
-DATASCIENCE_SUITES := GoogleOr_platform_functions XGBoost_platform_functions
+DATASCIENCE_SUITES := GoogleOr_platform_functions XGBoost_platform_functions NeuralNet_platform_functions
 
 ## Run the data-science compliance suites (needs a build with EAST_C_DATASCIENCE=ON)
 test-east-c-datascience:
