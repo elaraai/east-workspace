@@ -12,9 +12,10 @@
  * Ported verbatim from east-node-std's src/random/xorshift128.ts
  * (libs/east-node/packages/east-node-std/src/random/xorshift128.ts): a seed
  * must give the stream east-node-std gives, bit for bit, which
- * test/random.spec.ts checks. That includes its state being a `bigint` that
- * `next` never masks to 64 bits, so the stream is east-node-std's rather than
- * a 64-bit xorshift128+'s; change it here only together with east-node-std.
+ * test/random.spec.ts checks — and east-node-std's is every runtime's, a
+ * 64-bit xorshift128+ (every sum and shift wraps at 64 bits, as the C and
+ * python runtimes' uint64 arithmetic wraps); change it here only together
+ * with east-node-std.
  */
 
 import RNG, { type SeedType } from "./rng.js";
@@ -45,14 +46,15 @@ export default class XorShift128RNG extends RNG {
      * Generate next random number in [0, 1)
      */
     next(): number {
-        // xorshift128+ algorithm
+        // xorshift128+ over 64-bit words, as east-node-std's (its comment says why)
+        const MASK64 = 0xFFFFFFFFFFFFFFFFn;
         let s1 = this.state0;
         const s0 = this.state1;
-        const result = s0 + s1;
+        const result = (s0 + s1) & MASK64;
 
         this.state0 = s0;
-        s1 ^= s1 << 23n;
-        this.state1 = s1 ^ s0 ^ (s1 >> 17n) ^ (s0 >> 26n);
+        s1 ^= (s1 << 23n) & MASK64;
+        this.state1 = (s1 ^ s0 ^ (s1 >> 17n) ^ (s0 >> 26n)) & MASK64;
 
         // Convert to [0, 1) range
         // Use upper 53 bits for double precision

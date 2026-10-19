@@ -20,12 +20,14 @@ export default (random: RNG, mu = 0, sigma = 1) => {
     return () => {
         let x: number, y: number, r: number;
 
+        // The first draw of the pair, a pair on the unit circle rejected: what
+        // east-node-std (and every other runtime) returns from the same stream.
         do {
             x = random.next() * 2 - 1;
             y = random.next() * 2 - 1;
             r = x * x + y * y;
-        } while (!r || r > 1);
+        } while (r <= 0 || r >= 1);
 
-        return mu + sigma * y * Math.sqrt((-2 * Math.log(r)) / r);
+        return mu + sigma * x * Math.sqrt((-2 * Math.log(r)) / r);
     };
 };

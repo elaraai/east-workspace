@@ -59,8 +59,9 @@ requests; this file is the record of behaviour. Changes land under
   the Random suite every runtime replays. What changed: east-node-std's
   generator wraps at 64 bits as XorShift128+ does (it let a shifted word grow
   past 64 bits, parting from the other runtimes at the second draw), and its
-  `random_normal` returns the polar method's first draw, as the others do;
-  and the normal draw's logarithm on every runtime is one algorithm (fdlibm's,
+  `random_normal` returns the polar method's first draw, as the others do
+  (east-web-std, which ports east-node-std's generator, follows both); and
+  the normal draw's logarithm on every runtime is one algorithm (fdlibm's,
   the one behind V8's `Math.log`) rather than the host's libm, which rounds a
   few inputs in a thousand differently from one host to the next. So a seeded
   east-node program draws a different sequence from this release, and a seeded
