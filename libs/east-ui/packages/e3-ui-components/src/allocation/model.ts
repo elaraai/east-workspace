@@ -77,6 +77,9 @@ export interface AllocationDomain {
     copyDay: (day: Day) => Day;
     /** Whether two bins are the same: a bin unlike the committed day's is a draft. */
     sameBin: (a: Bin, b: Bin) => boolean;
+    /** A bin as bytes, and back: what the app's bin form reads and writes (`inspector.bin`). */
+    encodeBin: (bin: Bin) => Uint8Array;
+    decodeBin: (bytes: Uint8Array) => Bin;
     /** An event's starting values, decoded from the payload's `initial`. */
     decodeValues: (bytes: Uint8Array) => unknown;
     /** Bin values as bytes: what the app's columns read. */
@@ -115,12 +118,15 @@ export function allocationDomain(valuesType: EastTypeValue): AllocationDomain {
     const daysType = AllocationDaysTypeFor(values);
     const encodeDay = encodeBeast2For(dayType), decodeDay = decodeBeast2For(dayType);
     const contextType = AllocationCheckContextTypeFor(values);
+    const binType = AllocationBinTypeFor(values);
     const domain: AllocationDomain = {
         values, dayType, daysType,
         decodeDays: decodeBeast2For(daysType) as unknown as (bytes: Uint8Array) => Days,
         encodeDays: encodeBeast2For(daysType) as unknown as (days: Days) => Uint8Array,
         copyDay: day => decodeDay(encodeDay(day as never)) as unknown as Day,
-        sameBin: equalFor(AllocationBinTypeFor(values)) as unknown as AllocationDomain["sameBin"],
+        sameBin: equalFor(binType) as unknown as AllocationDomain["sameBin"],
+        encodeBin: encodeBeast2For(binType) as unknown as AllocationDomain["encodeBin"],
+        decodeBin: decodeBeast2For(binType) as unknown as AllocationDomain["decodeBin"],
         decodeValues: decodeBeast2For(values),
         encodeValues: encodeBeast2For(values) as (v: unknown) => Uint8Array,
         blankValues: () => defaultValue(values),

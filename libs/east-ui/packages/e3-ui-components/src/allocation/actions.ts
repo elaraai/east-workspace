@@ -14,7 +14,7 @@
 import { SortedMap, none, some, variant } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { AllocationEditing } from "./editing.js";
-import { compareString, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Day, type Selection } from "./model.js";
+import { compareFloat, compareString, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Day, type Selection } from "./model.js";
 
 /**
  * What a drag onto a resource carries of a bin (A39, A73): a link's part, or
@@ -42,8 +42,17 @@ export interface AllocationCommands {
     remove(id: string): void;
     /** Reverts a bin (A76): a committed one back as the day holds it; a new one's event back to Events. */
     revert(id: string): void;
-    /** Unlinks one part of a bin (A68): its quantity on that resource is unallocated again. */
-    unlink(id: string, resource: string): void;
+    /** Unlinks one part of a bin (A68), or every part with no resource named (the inspector's Unlink, A56): what it held there is unallocated again. */
+    unlink(id: string, resource?: string): void;
+    /**
+     * Sets a bin's quantity (A57, A75: the inspector's quantity field): a bin
+     * wholly on one resource stays wholly there; a split or partly allocated
+     * bin keeps its parts, its remainder changing, and never holds less than
+     * they take.
+     */
+    setQuantity(id: string, quantity: number): boolean;
+    /** Takes a bin as the app's bin form wrote it (`inspector={{ bin }}`): one transaction, as every gesture is (A75). */
+    edit(id: string, bin: Bin): boolean;
     /** Moves a bin to a lane slot, after the slot's bins by a minute each (A37); its resource never changes. */
     move(id: string, lane: string, at: Date): boolean;
     /**
@@ -189,8 +198,29 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
             return done;
         },
         unlink(id, resource) {
-            if (plan.bins.get(id)?.parts.has(resource) !== true) return;
-            if (write("Unlink", "remove", next => { next.bins.get(id)!.parts.delete(resource); })) select({ type: "bin", id });
+            const bin = plan.bins.get(id);
+            if (bin === undefined || (resource === undefined ? bin.parts.size === 0 : !bin.parts.has(resource))) return;
+            if (write("Unlink", "remove", next => {
+                const parts = next.bins.get(id)!.parts;
+                if (resource === undefined) parts.clear(); else parts.delete(resource);
+            })) select({ type: "bin", id });
+        },
+        setQuantity(id, quantity) {
+            const bin = plan.bins.get(id);
+            if (bin === undefined || bin.event.type === "none" || !Number.isFinite(quantity) || compareFloat(quantity, 0) < 0 || compareFloat(quantity, bin.quantity) === 0) return false;
+            const parts = partsOf(bin);
+            const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
+            if (!whole && compareFloat(quantity, parts.reduce((n, p) => n + p.quantity, 0)) < 0) return false;
+            return write("Edit bin", "typed", next => {
+                const into = next.bins.get(id)!;
+                into.quantity = quantity;
+                if (whole) into.parts.set(parts[0]!.key, quantity);
+            });
+        },
+        edit(id, bin) {
+            const was = plan.bins.get(id);
+            if (was === undefined || domain.sameBin(was, bin)) return false;
+            return write("Edit bin", "typed", next => { next.bins.set(id, bin); });
         },
         restore(id, lane, at, resource) {
             const held = editing.held;

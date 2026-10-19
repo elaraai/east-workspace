@@ -29,7 +29,23 @@ default — Details through `FieldForm`, or a state's or a transition's own,
 and Issues; what is selected, per open flow, `selection.ts`; the open flow's
 issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
 parts, and
-keeps its slot recipes there too, the canvas's and the inspector's. The segment strip
+keeps its slot recipes there too, the canvas's and the inspector's. The
+Allocation's renderer (`src/allocation/`, #1319) registers against its
+`Allocation` tag and renders in its `BuilderFrame` the same way: its frame,
+toolbar and day sessions (`index.tsx`, `toolbar.tsx`, `editing.ts`), the
+Timeline (`timeline.tsx`) and the Table (`table.tsx`) over one drag grammar
+and verdict (`drag.ts`), the app's fit called by name (`fit.ts`), its
+commands (`actions.ts`), its Library (`library.tsx`) and its Inspector
+(`inspector.tsx`, #1331) — the end pane: Details (a refused drop's note, the
+drop list while a drag or a pick is under way, else the selection, else the
+summary) and Issues, on the shared inspector's head and sections, `FieldForm`
+(the lane's segments and the time's stepper drawn through `renderControl`),
+the Chooser laid in the pane and the meter, its words and figures pure in
+`inspector-model.ts`. Every edit there is one of the board's commands, a draft
+of the day's session until Save; an explicit inspection opens Details, and a
+selection a command makes keeps the tab. A drop a cell's veto refuses never
+reaches a drag target's `onDrag`: its `onRefuse` hears it, which is how the
+refusal's note reaches the inspector (A40). The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
 toolbars share, are `src/shared/schedule/segments.tsx`.
 The time parts the Plan shares with the Calendar are in `src/shared/time/`

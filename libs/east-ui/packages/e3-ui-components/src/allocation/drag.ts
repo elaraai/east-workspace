@@ -512,20 +512,30 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     // The drop, checked again through the command (A35).
     const live = useRef({ scene, ranks, onRefuse });
     live.current = { scene, ranks, onRefuse };
-    const config = useMemo((): DragTargetConfig => ({
-        id: surface, sources: [libraries.events, libraries.resources], kinds: { add: true, move: true, remove: false, resize: false, trash: false },
-        onDrag: (event: DragEventValue) => {
-            const g = gripOfEvent(event);
-            const target = event.type === "move" ? targetOf(event.value.to) : event.type === "add" ? targetOf(event.value.into) : undefined;
-            if (g === undefined || target === undefined) return false;
-            const now = live.current;
-            const drop = verdictOf(now.scene, g, target, now.ranks);
-            if (drop.pending) { deferred.current = { grip: g, target }; return true; }
-            if (!drop.allowed) { now.onRefuse(drop.refusal); return false; }
-            now.onRefuse(undefined);
-            return drop.run?.() ?? false;
-        },
-    }), [surface, libraries, gripOfEvent]);
+    const config = useMemo((): DragTargetConfig => {
+        const targetOfEvent = (event: DragEventValue) => event.type === "move" ? targetOf(event.value.to) : event.type === "add" ? targetOf(event.value.into) : undefined;
+        return {
+            id: surface, sources: [libraries.events, libraries.resources], kinds: { add: true, move: true, remove: false, resize: false, trash: false },
+            onDrag: (event: DragEventValue) => {
+                const g = gripOfEvent(event), target = targetOfEvent(event);
+                if (g === undefined || target === undefined) return false;
+                const now = live.current;
+                const drop = verdictOf(now.scene, g, target, now.ranks);
+                if (drop.pending) { deferred.current = { grip: g, target }; return true; }
+                if (!drop.allowed) { now.onRefuse(drop.refusal); return false; }
+                now.onRefuse(undefined);
+                return drop.run?.() ?? false;
+            },
+            // A drop a target's veto refused never reaches `onDrag`: its reason is the inspector's note all the same (A40).
+            onRefuse: (event: DragEventValue) => {
+                const g = gripOfEvent(event), target = targetOfEvent(event);
+                if (g === undefined || target === undefined) return;
+                const now = live.current;
+                const drop = verdictOf(now.scene, g, target, now.ranks);
+                if (!drop.allowed && !drop.pending && drop.refusal !== undefined) now.onRefuse(drop.refusal);
+            },
+        };
+    }, [surface, libraries, gripOfEvent]);
     useDragTarget(enabled ? config : null);
     return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, ranks, verdict: judge(true), peek: judge(false), gripOfPayload, gripOfEvent };
 }

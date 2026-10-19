@@ -23,6 +23,7 @@ import {
 import { StatusDisplay } from "../components/StatusDisplay.js";
 import { allocationCommands } from "./actions.js";
 import { placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
+import { useAllocationInspector } from "./inspector.js";
 import { useAllocationLibrary, type Pick } from "./library.js";
 import { useAllocationFit } from "./fit.js";
 import { useAllocationData } from "./data.js";
@@ -60,6 +61,10 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const [pick, setPick] = useState<Pick>();
     // A booking with no free slot left (A36): its banner, until the next gesture.
     const [notice, setNotice] = useState<Refusal>();
+    // A refused drop's reason (A40): it adds no banner; the inspector shows it at its top until the next action.
+    const [refusal, setRefusal] = useState<Refusal>();
+    // The bin whose resource Chooser is open in the inspector (A8, A21, A64).
+    const [chooser, setChooser] = useState<string>();
     // Selecting follows the selection (A12); a selection a command makes after a drop follows it softly.
     const [follow, setFollow] = useState<TimelineFollow>({ nonce: 0, soft: false });
     const select = useCallback((next: Selection | undefined, soft = false) => {
@@ -67,12 +72,18 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         setLink(undefined);
         setPick(undefined);
         setNotice(undefined);
+        setRefusal(undefined);
+        setChooser(undefined);
         if (next !== undefined) setFollow(before => ({ nonce: before.nonce + 1, soft }));
     }, []);
-    const selectLink = useCallback((next: SelectedLink) => { select({ type: "bin", id: next.bin }); setLink(next); }, [select]);
+    // The inspector's open tab (A55): an explicit inspection opens Details; a selection a command makes keeps it (A8).
+    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${key}.inspector.tab`, { tab: "details" });
+    const inspect = useCallback((next: Selection | undefined, soft = false) => {
+        select(next, soft);
+        if (next !== undefined) setInspectorTab({ tab: "details" });
+    }, [select, setInspectorTab]);
+    const selectLink = useCallback((next: SelectedLink) => { inspect({ type: "bin", id: next.bin }); setLink(next); }, [inspect]);
     const [error, setError] = useState<string>();
-    // A refused drop's reason (A40): it adds no banner; the inspector (#1331) shows it at its top until the next action.
-    const [_refusal, setRefusal] = useState<Refusal>();
     // The narrowing chooses which lanes, resources and events show, read from the slice itself (#1336, #1339); fits, checks and totals read every one.
     const lanesShown = useNarrowed(value, "lanes", value.lanes);
     const resourcesShown = useNarrowed(value, "resources", value.resources);
@@ -88,7 +99,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // Another day: its own selection, pick and refusal.
     const dayEpoch = window.day.getTime();
-    useEffect(() => { setSelection(undefined); setLink(undefined); setPick(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); }, [dayEpoch]);
+    useEffect(() => { setSelection(undefined); setLink(undefined); setPick(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); setChooser(undefined); }, [dayEpoch]);
     // Another layout closes the selected link (A7), and shows the selection there.
     useEffect(() => { setLink(undefined); setFollow(before => before.nonce === 0 ? before : { nonce: before.nonce + 1, soft: false }); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
@@ -179,24 +190,32 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         value, context, day: window.day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
         tab: libraryTab.tab, onTab: tab => setLibraryTab({ tab }), onVerdict: runVerdict,
         shown: { events: eventsSource, resources: resourcesSource },
-        // A9: an event card picks it, again unpicks it; a selected free slot or reservation stays selected.
+        // A9: an event card picks it, again unpicks it; a selected free slot or reservation stays selected. A pick's fits are Details' (A34).
         onEvent: grip => {
             const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "event" ? pick.kind === "event" && pick.event === grip.event : pick.kind === "removed" && pick.bin === grip.bin);
             const keep = selection?.type === "slot" || (selection?.type === "bin" && plan.bins.get(selection.id)?.event.type === "none") ? selection : undefined;
-            setSelection(keep); setLink(undefined); setNotice(undefined);
+            setSelection(keep); setLink(undefined); setNotice(undefined); setRefusal(undefined); setChooser(undefined);
             setPick(same ? undefined : grip);
+            if (!same) setInspectorTab({ tab: "details" });
         },
         // A9: a resource card picks it for the selected free slot; otherwise it selects the resource, or unselects it.
         onResource: resource => {
             if (selection?.type === "slot") { setPick(pick?.kind === "resource" && pick.resource === resource ? undefined : { kind: "resource", resource }); return; }
-            select(selection?.type === "resource" && selection.key === resource ? undefined : { type: "resource", key: resource });
+            inspect(selection?.type === "resource" && selection.key === resource ? undefined : { type: "resource", key: resource });
         },
         // A10: an Allocated card selects the event's first bin, and highlights every bin of it; again, it clears.
         onAllocated: (event, bins) => {
             if (pick?.kind === "bins" && pick.event === event) { select(undefined); return; }
-            select({ type: "bin", id: bins[0]! });
+            inspect({ type: "bin", id: bins[0]! });
             if (bins.length > 1) setPick({ kind: "bins", event });
         },
+    });
+    // The Inspector (A55–A64): the end pane, its edits the same commands, its fits the same answers.
+    const end = useAllocationInspector({
+        value, domain, context, day: window.day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
+        without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, events: eventsShown.keys },
+        refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
+        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key,
     });
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();
@@ -208,22 +227,24 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         const asked = selectedBin === undefined ? undefined : placeAsk(plan, { kind: "port", bin: selectedBin });
         if (asked !== undefined) askFit(asked.ask);
     }, [selectedBin, plan, askFit]);
-    const onIssues = () => revealPane("Inspector");
+    // The issues chip opens Inspector › Issues (A64).
+    const onIssues = () => { setInspectorTab({ tab: "issues" }); revealPane("Inspector"); };
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
-        onClearFocus: () => { setSelection(undefined); setLink(undefined); }, nouns });
+        onClearFocus: () => { setSelection(undefined); setLink(undefined); setChooser(undefined); }, nouns });
     const published = editing.held?.status.type === "published";
     const notStarted = !data.loading && data.error === undefined && editing.held === undefined && plan.bins.size === 0;
     return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
         <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={(data.loading && data.error === undefined) || narrowing.some(n => !n.ready && n.loading)} toolbar={toolbar}
-            start={start} onKeyDown={event => {
+            start={start} end={end} onKeyDown={event => {
             // The keys, never while typing (A6).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
             if (action !== undefined && !value.settings.readOnly && !published) { event.preventDefault(); onAction(action); }
             else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.step(event.key === "[" ? -1 : 1); }
-            // Esc clears the pick, else the selection (A6).
+            // Esc closes the inspector's Chooser, else clears the pick, else the selection (A6).
+            else if (event.key === "Escape" && chooser !== undefined) setChooser(undefined);
             else if (event.key === "Escape" && pick !== undefined) setPick(undefined);
             else if (event.key === "Escape") { setSelection(undefined); setLink(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); }
             // Delete unlinks the selected link, else removes the selected bin (A6, A68).
@@ -251,10 +272,10 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
                         held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleEvents={eventsShown.keys}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
-                        editable={commands.canEdit()} select={select} choose={id => { select({ type: "bin", id }); revealPane("Inspector"); }} follow={follow}
+                        editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={window.day} plan={plan} held={editing.held}
-                        sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={select} follow={follow}
+                        sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked}
                         visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleEvents={eventsShown.keys} clearFilters={clearFilters} />}
             </Box>

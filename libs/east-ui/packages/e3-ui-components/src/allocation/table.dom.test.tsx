@@ -11,11 +11,13 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
+import { variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { act, allocationHarness, mount, settle, slot, TUE } from "./harness.test-utils.js";
-import { dayKey } from "./model.js";
+import { dayKey, type FitResult } from "./model.js";
+import { RESERVE_PROBE } from "./table.js";
 
 const h = allocationHarness();
 const at = (hh: number, mm: number) => new Date(Date.UTC(2027, 4, 11, hh, mm));
@@ -181,8 +183,9 @@ describe("the Chooser on a cell (A48, A49)", () => {
         expect(allocated![0]).toBe("Allocated");
         expect(list.line("LD-2206")).toBe("in B-2 05:35 on K-304 · +1 more");
         expect(list.option("LD-2206").getAttribute("aria-disabled")).toBe("true");
-        // No resource, no question: the free row's events are not the fit's to judge.
-        expect(h.fits.calls.get("yard_fit") ?? 0).toBe(0);
+        // No resource, no question: the free row's events are not the fit's to judge. The one question asked is the slot's own, its
+        // row selected: what the inspector reserves it on (A60).
+        expect((h.fits.history as FitResult[]).map(answer => answer.ask)).toEqual([variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 })]);
         await press(list.option("LD-2231"));
         const booked = c.querySelector<HTMLElement>('[data-allocation-row="bin:N1"]')!;
         expect(cells(booked).slice(0, 4)).toEqual(["00:15", "B-1", "LD-2231BRK · R2 · spec MC12", "21 m³"]);

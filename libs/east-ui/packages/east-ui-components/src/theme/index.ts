@@ -73,6 +73,7 @@ import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
 import { timeNavigatorSlotRecipe } from "./slot-recipes/timeNavigator.js";
 import { rosterBuilderSlotRecipe } from "./slot-recipes/rosterBuilder.js";
 import { allocationBuilderSlotRecipe } from "./slot-recipes/allocationBuilder.js";
+import { allocationInspectorSlotRecipe } from "./slot-recipes/allocationInspector.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { schematicSlotRecipe } from "./slot-recipes/schematic.js";
 import { flowchartSlotRecipe } from "./slot-recipes/flowchart.js";
@@ -215,6 +216,7 @@ const config = defineConfig({
             calendar:        calendarSlotRecipe,
             rosterBuilder:   rosterBuilderSlotRecipe,
             allocationBuilder: allocationBuilderSlotRecipe,
+            allocationInspector: allocationInspectorSlotRecipe,
             timeNavigator:   timeNavigatorSlotRecipe,
             schematic:       schematicSlotRecipe,
             flowchart:       flowchartSlotRecipe,

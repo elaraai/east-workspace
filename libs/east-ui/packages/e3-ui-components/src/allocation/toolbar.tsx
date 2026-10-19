@@ -37,16 +37,17 @@ export function statusWord(held: Day | undefined, plan: Day): "Not started" | "D
 /** `1 issue`, `3 issues`. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/**
- * The issues the chip counts — warning and danger, never neutral or info
- * (A64) — and its words (A81): `2 overlaps · 1 over max · show them`, with
- * `· warnings only, Save still works` when every one is an under-min warning.
- */
-export function issueSummary(issues: readonly Issue[]): { count: number; label: string; tip: string; aria: string } {
-    const counted = issues.filter(i => i.tone.type === "warning" || i.tone.type === "danger");
+/** The issues the chip, the Issues tab and the summary count: warning and danger, never neutral or info (A64). */
+export function countedIssues(issues: readonly Issue[]): Issue[] {
+    return issues.filter(i => i.tone.type === "warning" || i.tone.type === "danger");
+}
+
+/** What the counted issues are, each kind's count (A63, A81): `2 overlaps`, `1 over max`; the app's, `N more`. */
+export function issueParts(issues: readonly Issue[]): string[] {
+    const counted = countedIssues(issues);
     const n = (kind: Issue["kind"]["type"]) => counted.filter(i => i.kind.type === kind).length;
     const custom = counted.filter(i => i.kind.type === "custom");
-    const parts = [
+    return [
         n("unlinked") > 0 ? `${n("unlinked")} not linked` : "",
         n("unallocated") > 0 ? `${n("unallocated")} partly allocated` : "",
         n("overlap") > 0 ? plural(n("overlap"), "overlap") : "",
@@ -54,6 +55,16 @@ export function issueSummary(issues: readonly Issue[]): { count: number; label: 
         n("under") > 0 ? `${n("under")} under min` : "",
         custom.length > 0 ? `${custom.length} more` : "",
     ].filter(p => p !== "");
+}
+
+/**
+ * The issues the chip counts — warning and danger, never neutral or info
+ * (A64) — and its words (A81): `2 overlaps · 1 over max · show them`, with
+ * `· warnings only, Save still works` when every one is an under-min warning.
+ */
+export function issueSummary(issues: readonly Issue[]): { count: number; label: string; tip: string; aria: string } {
+    const counted = countedIssues(issues);
+    const parts = issueParts(issues);
     const warningsOnly = counted.length > 0 && counted.every(i => i.kind.type === "under");
     return {
         count: counted.length, label: plural(counted.length, "issue"),
