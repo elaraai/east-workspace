@@ -9,10 +9,10 @@
  * A network is a value of {@link NetType}: its inputs, its parameters, the
  * sub-networks it holds, its nodes in dependency order and the outputs it
  * names. Its weights are a `Dict<String, TensorType>` stored like any other
- * dataset. {@link nn_init} draws weights, {@link nn_train} trains them with
- * torch on the python runtime, and {@link nn_run} runs the network on the
- * python runtime (CPU or GPU) or natively on the C runtime
- * (`east-c-datascience`, CPU): one definition, the same answers to tolerance.
+ * dataset. {@link nn_init} draws weights, {@link nn_train} trains them and
+ * {@link nn_run} runs the network, on the python runtime (torch) or on the C
+ * runtime (`east-c-datascience`, on libtorch), CPU or CUDA by the torch build
+ * linked: one definition, the same kernels, the same answers.
  *
  * The specification both interpreters follow — every operation's shapes and
  * conventions — is `docs/neural-networks.md` in this package.
@@ -276,7 +276,7 @@ export const NetType = RecursiveType(self => StructType({
 // Running and training
 // ============================================================================
 
-/** Where to run: `cpu`; `cuda`; `auto`, CUDA when torch finds it else the CPU. The C runtime is the CPU, and refuses `cuda`. */
+/** Where to run: `cpu`; `cuda`; `auto`, CUDA when the runtime's torch build finds a GPU, else the CPU. `cuda` is an error without one. */
 export const NnDeviceType = VariantType({ cpu: NullType, cuda: NullType, auto: NullType });
 
 /** {@link nn_run}'s configuration: the device, the seed of the random operations, whether dropout is on. */
@@ -343,7 +343,7 @@ export const NnTrainResultType = StructType({
 /** Draw a network's weights from a seed: every weight it reaches, by name. */
 export const nn_init = East.platform("nn_init", [NetType, IntegerType], NnWeightsType);
 
-/** Train a network's weights with torch on the python runtime. */
+/** Train a network's weights with torch, on either runtime. */
 export const nn_train = East.platform(
     "nn_train",
     [NetType, NnWeightsType, ArrayType(NnBatchType), ArrayType(NnBatchType), NnTrainConfigType],
@@ -399,9 +399,8 @@ export const NeuralNet = {
      * Draw a network's weights.
      *
      * Every weight the network reaches is drawn in sorted name order from a
-     * generator seeded with `seed`, as each parameter's `init` says:
-     * deterministic for a seed on one runtime; the shapes and the non-random
-     * initialisations the same on both.
+     * generator seeded with `seed`, as each parameter's `init` says: the same
+     * weights for a seed on either runtime.
      *
      * @param net - The network
      * @param seed - The generator's seed
@@ -427,7 +426,7 @@ export const NeuralNet = {
     init: nn_init,
 
     /**
-     * Train a network's weights with torch (the python runtime).
+     * Train a network's weights with torch, on either runtime.
      *
      * Each epoch runs every batch once in training mode, minimising the scalar
      * output `config.loss` by AdamW under the schedule; the `validation`
@@ -463,8 +462,8 @@ export const NeuralNet = {
      *
      * Only the nodes those outputs need are evaluated. The network is
      * prepared once per distinct value and weights, so a program calling it
-     * thousands of times pays for the forward pass alone. On the C runtime the
-     * device must be `cpu` or `auto`.
+     * thousands of times pays for the forward pass alone. `cuda` needs a torch
+     * build with CUDA and a GPU on the host; `auto` falls back to the CPU.
      *
      * @param net - The network
      * @param weights - Its weights, by name

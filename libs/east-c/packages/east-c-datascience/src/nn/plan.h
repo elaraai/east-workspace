@@ -9,7 +9,7 @@
 #ifndef EAST_DATASCIENCE_NN_PLAN_H
 #define EAST_DATASCIENCE_NN_PLAN_H
 
-#include "tensor.h"
+#include "dtype.h"
 
 #include <east/values.h>
 

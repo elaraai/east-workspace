@@ -8,11 +8,12 @@ include ../../paths.mk
 .PHONY: build rebuild clean install-cli \
         unit test test-east-c test-east-c-std test-east-c-datascience test-all \
         leak-check leak-check-std leak-check-all bench-cli \
-        help lint format ensure-clang-format fetch-ortools
+        help lint format ensure-clang-format fetch-ortools fetch-libtorch
 
 # east-c-datascience (packages/east-c-datascience: OR-Tools and XGBoost) is
 # built on request: `make build EAST_C_DATASCIENCE=ON`, after `make
-# fetch-ortools` has put the pinned OR-Tools release at build-deps/or-tools.
+# fetch-ortools` has put the pinned OR-Tools release at build-deps/or-tools and
+# `make fetch-libtorch` the pinned libtorch at build-deps/libtorch.
 # Off, the build is the C runtime, std and the CLI alone.
 EAST_C_DATASCIENCE ?= OFF
 
@@ -34,6 +35,10 @@ build:
 ## (build-deps/or-tools, gitignored; the script verifies its SHA-256)
 fetch-ortools:
 	@./scripts/fetch-ortools.sh
+
+## Fetch the pinned libtorch release east-c-datascience's neural networks run on (build-deps/libtorch)
+fetch-libtorch:
+	@./scripts/fetch-libtorch.sh
 
 ## Clean and rebuild
 rebuild: clean build
@@ -82,12 +87,12 @@ test-east-c-std: build
 # The suites east-py-datascience exports (`make -C libs/east-py test-export`,
 # into EAST_DATASCIENCE_IR_DIR) that east-c-datascience implements: each
 # family moves whole, so a family's suite runs here unchanged.
-DATASCIENCE_SUITES := GoogleOr_platform_functions XGBoost_platform_functions NeuralNet_platform_functions
+DATASCIENCE_SUITES := GoogleOr_platform_functions XGBoost_platform_functions NeuralNet_platform_functions NeuralNet_training
 
 ## Run the data-science compliance suites (needs a build with EAST_C_DATASCIENCE=ON)
 test-east-c-datascience:
 	@test -x build/packages/east-c-datascience/test_datascience_compliance || { \
-		echo "Error: no east-c-datascience build: run make build EAST_C_DATASCIENCE=ON (after make fetch-ortools)"; exit 1; }
+		echo "Error: no east-c-datascience build: run make build EAST_C_DATASCIENCE=ON (after make fetch-ortools fetch-libtorch)"; exit 1; }
 	@fail=0; for suite in $(DATASCIENCE_SUITES); do \
 		echo "── $$suite ──────────────────────────────────────────"; \
 		./build/packages/east-c-datascience/test_datascience_compliance "$(EAST_DATASCIENCE_IR_DIR)/$$suite.json" || fail=1; \
@@ -183,6 +188,7 @@ help:
 	@echo ""
 	@echo "  build          - Build native C libraries (cmake); EAST_C_DATASCIENCE=ON adds east-c-datascience"
 	@echo "  fetch-ortools  - Fetch the pinned OR-Tools release east-c-datascience links (build-deps/or-tools)"
+	@echo "  fetch-libtorch - Fetch the pinned libtorch release its neural networks run on (build-deps/libtorch)"
 	@echo "  rebuild        - Clean and rebuild"
 	@echo "  clean          - Remove build directory"
 	@echo "  install-cli    - Install east-c CLI to ~/.local/bin"

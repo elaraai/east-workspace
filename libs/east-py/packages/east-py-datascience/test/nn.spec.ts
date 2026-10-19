@@ -8,7 +8,8 @@
  * docs/neural-networks.md held to its stated shapes and conventions, nn_init
  * and nn_run, the specification's refusals, and the two reference families
  * (test/nn.reference.generated.ts) held to what hand-written torch answered —
- * on both runners: the python interpreter and east-c-datascience.
+ * on both runners, the python interpreter and east-c-datascience, which run on
+ * the same torch kernels.
  */
 import { variant, some, none, type BlockBuilder, type NullType, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
@@ -627,7 +628,7 @@ describeEast("NeuralNet platform functions", test => {
             const out = $.let(NeuralNet.run(net, weights, b, names, cfg));
             for (const [name, want] of family.outputs) {
                 if (want.type === "float") {
-                    expectFloat($, out, name, want.value.shape, want.value.data as Float64Array, 2e-3);
+                    expectFloat($, out, name, want.value.shape, want.value.data as Float64Array, 1e-4);
                 } else if (want.type === "integer") {
                     expectInteger($, out, name, want.value.shape, want.value.data as BigInt64Array);
                 }

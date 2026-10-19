@@ -313,7 +313,7 @@ NetType = RecursiveType(
 # ============================================================================
 
 NnDeviceType = VariantType([("cpu", NullType), ("cuda", NullType), ("auto", NullType)])
-"""Where to run: ``auto`` is CUDA when torch finds it, else the CPU; the C runtime is the CPU."""
+"""Where to run: ``auto`` is CUDA when the runtime's torch build finds a GPU, else the CPU; ``cuda`` is an error without one."""
 
 NnRunConfigType = StructType([("device", NnDeviceType), ("seed", IntegerType), ("training", BooleanType)])
 """``nn_run``'s configuration: the device, the seed of the random operations, whether dropout is on."""

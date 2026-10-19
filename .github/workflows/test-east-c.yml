@@ -289,7 +289,7 @@ jobs:
         run: ctest --test-dir build-asan --output-on-failure
 
   # east-c-datascience: east-py-datascience's platform functions on this
-  # runtime (OR-Tools, XGBoost), built on request (-DEAST_C_DATASCIENCE=ON)
+  # runtime (OR-Tools, XGBoost, the neural networks on libtorch), built on request (-DEAST_C_DATASCIENCE=ON)
   # against the pinned prebuilt OR-Tools release and the vendored XGBoost
   # source, then held to the same suites east-py-datascience runs — the IR
   # the export job wrote. Linux only: the one platform the pinned OR-Tools
@@ -313,6 +313,13 @@ jobs:
           key: or-tools-${{ hashFiles('libs/east-c/scripts/fetch-ortools.sh') }}
       - name: Fetch OR-Tools
         run: make -C libs/east-c fetch-ortools
+      - name: Cache libtorch
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/libtorch
+          key: libtorch-${{ hashFiles('libs/east-c/scripts/fetch-libtorch.sh') }}
+      - name: Fetch libtorch (the pinned CPU build)
+        run: make -C libs/east-c fetch-libtorch
 
       - name: Build east-c with east-c-datascience
         run: make -C libs/east-c build EAST_C_DATASCIENCE=ON

@@ -4,11 +4,12 @@ A neural network is a value of `NetType`: its inputs, its parameters, the
 sub-networks it holds, its nodes in dependency order and the outputs it names.
 Weights are a `Dict<String, TensorType>` like any other dataset. Three platform
 functions run it — `nn_init`, `nn_train`, `nn_run` — on the python runtime
-(torch, CPU or GPU) and, for `nn_init` and `nn_run`, on the C runtime
-(`east-c-datascience`, CPU). This document is the specification both
-interpreters are written to: the types, every operation's shapes and
-conventions, and what each function does, so that a network built once gives
-the same answers wherever it runs, within floating-point tolerance.
+(torch) and on the C runtime (`east-c-datascience`, on libtorch, PyTorch's C++
+library), on the CPU or on CUDA by the torch build each is linked against.
+This document is the specification both interpreters are written to: the
+types, every operation's shapes and conventions, and what each function does,
+so that a network built once gives the same answers wherever it runs. Both
+interpreters call the same ATen kernels, so they agree to rounding.
 
 The TypeScript types live in `src/nn/nn.ts` (`NeuralNet.Types`), the python
 twins in `east_py_datascience/nn/types.py`; `test/nn.spec.ts` holds every
@@ -93,9 +94,10 @@ Casts: integer → float exactly up to 2⁵³; float → integer truncates towar
 zero (a non-finite float is an error); boolean → integer or float gives 0 and
 1; integer or float → boolean is `≠ 0`.
 
-Float arithmetic is IEEE double on the C runtime and single on torch (`bf16`
-inside `nn_train` when configured): two runners agree to tolerance, not bit
-for bit. Integer arithmetic is 64-bit, exact, and the same on both.
+Float arithmetic is IEEE single on both runtimes (`bf16` inside `nn_train`
+when configured), through the same torch kernels; a float tensor at rest is
+f64 East data and is converted at the boundary. Integer arithmetic is 64-bit
+and exact.
 
 ## 3. Shapes and broadcasting
 
@@ -222,9 +224,9 @@ index of the maximum. `cummax`/`cummin` are the running maximum/minimum.
     integer `[Tq + 1]` non-decreasing from 0, `keys` integer `[ptr[Tq]]` with
     every entry in `0 .. Tk-1`; query `i` attends to `keys[ptr[i] .. ptr[i+1])`.
 
-  A query with no allowed key outputs zeros. Where a mask is structured the
-  python interpreter may evaluate it blockwise rather than through a dense
-  `Tq × Tk` mask; the answer is the same.
+  A query with no allowed key outputs zeros. Where a mask is structured an
+  interpreter may evaluate it blockwise rather than through a dense `Tq × Tk`
+  mask (python does, for sorted segment ids); the answer is the same.
 - `rotary { x, positions, heads, base }` — `x` `[…, T, d]`, `positions`
   integer `[…, T]`, `dh = d/heads` even: per head the halves `x₁ = x[:dh/2]`,
   `x₂ = x[dh/2:]` turn by `θᵢ = positions · base^(−2i/dh)` (`i` in
@@ -266,9 +268,9 @@ a generator seeded with `seed`: `zeros`, `ones`, `constant c`; `normal σ`;
 `xavier_normal` `N(0, 2/(fan_in + fan_out))`, `kaiming_uniform`
 `U(±√(6/fan_in))`, `kaiming_normal` `N(0, 2/fan_in)`, with `fan_in =
 shape[1]·∏shape[2:]` and `fan_out = shape[0]·∏shape[2:]` for rank ≥ 2, both
-`shape[0]` for rank 1, 1 for rank 0. The draws are deterministic for a seed on
-one runner; torch's and east-c's generators differ, so the two runners agree
-on every shape and on the non-random initialisations, not on random values.
+`shape[0]` for rank 1, 1 for rank 0. Both runtimes draw from torch's CPU
+generator seeded with `seed`, in the same order and precision, so a seed gives
+the same weights on either.
 
 ### `nn_train(net, weights, batches, validation_batches, config) → result`
 
@@ -291,7 +293,7 @@ NnTrainResultType = StructType({
 })
 ```
 
-Python only. Each epoch runs every batch once, in order, in training mode
+On both runtimes. Each epoch runs every batch once, in order, in training mode
 (dropout on): the output `loss` — a float rank-0 tensor — is minimised by
 AdamW over the trainable weights, gradients clipped to `clip_norm` when given,
 the learning rate following `schedule` per step over `epochs × batches` steps
@@ -305,7 +307,9 @@ epochs without improvement stop training. `history` has one entry per epoch
 run; `weights` are the best epoch's (`best_epoch`, 1-based). `precision: bf16`
 runs the forward pass under autocast with f32 master weights. `recompute`
 names modules whose calls are recomputed in the backward pass instead of
-keeping their activations.
+keeping their activations; the python interpreter honours it, the C runtime
+accepts it and keeps the activations (a memory choice, never a different
+answer).
 
 ### `nn_run(net, weights, batch, outputs, config) → outputs`
 
@@ -320,8 +324,8 @@ the network's declaration, a weight's shape against its parameter's.
 
 Both runners keep a network's prepared form between calls, keyed by the
 network and its weights, so a program calling `nn_run` thousands of times with
-one model prepares it once. The C runtime runs on the CPU; a `cuda` device is
-an error there (`auto` is the CPU).
+one model prepares it once. `cuda` is an error on a runtime whose torch build
+has no CUDA or whose host has no GPU; `auto` falls back to the CPU.
 
 ## 6. Errors
 

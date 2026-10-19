@@ -197,8 +197,8 @@ def nn_init(net: EastStruct, seed: int) -> EastDict:
 
     Every weight the network reaches — its own parameters, each called
     module's under the call's prefix — in sorted name order from a generator
-    seeded with ``seed``: deterministic for a seed, the shapes and the
-    non-random initialisations the same on every runner.
+    seeded with ``seed``: the same weights for a seed on either runner, which
+    draw from torch's CPU generator alike.
 
     Args:
         net: ``NetType`` (``EastStruct``) - the network.

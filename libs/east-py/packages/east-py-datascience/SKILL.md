@@ -10,10 +10,10 @@ ML models, Bayesian and causal inference, simulation, preprocessing and
 explainability. This is the platform's **Reason** layer — a model earns its
 place by improving a decision (a forecast or optimisation that feeds a
 `decision`), so wire its outputs toward one. The functions run on the python
-runtime, and the Google OR-Tools and XGBoost families and `NeuralNet`'s
-`init`/`run` on the C runtime too (`east-c-datascience`, the same names, types
-and results): an e3 task needs a python runner, or an east-c runner for those
-(see Related skills).
+runtime, and the Google OR-Tools, XGBoost and NeuralNet families on the C
+runtime too (`east-c-datascience`, the same names, types and results; the
+networks on libtorch, training included): an e3 task needs a python runner, or
+an east-c runner for those (see Related skills).
 
 ## Before writing code — search the example index
 
@@ -96,8 +96,8 @@ Task → What do you need?
     ├─ NeuralNet — a network as East data (NetType: inputs, params, modules, nodes in dependency order, outputs;
     │   the operations of docs/neural-networks.md: gather/embedding_bag/segment ops, linear/einsum/conv1d/norms,
     │   element-wise, axis reductions, attention with none/causal/segments/key_sets masks, rotary, dropout, call, loop)
-    │   → .init(net, seed) weights · .train(net, weights, batches, validation, config) torch, GPU or CPU ·
-    │     .run(net, weights, batch, outputs, config) on the python runtime or natively on east-c (CPU) — for a
+    │   → .init(net, seed) weights · .train(net, weights, batches, validation, config) · .run(net, weights,
+    │     batch, outputs, config), each on the python runtime or on east-c (libtorch), CPU or CUDA — for a
     │     transformer over ragged grouped sequences, a conditioned U-Net, any architecture a fixed one cannot state
     ├─ GP (Gaussian process regression) → .train() · .predict(), .predictStd()
     ├─ MAPIE (conformal prediction)
@@ -266,13 +266,11 @@ For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 - **e3** — **required to run these**: they need the python runtime, so wrap each
   call in an `e3.task` with a python runner (`{ runner: { runtime: 'east-py',
   platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py
-  from the project's `.venv`, no `uv run` wrapper needed). The GoogleOr and
-  XGBoost families and `NeuralNet.init`/`NeuralNet.run` also run on the C
-  runtime (`{ runner: { runtime: 'east-c', platforms: ['east-c-std',
-  'east-c-datascience'] } }`, an east-c built with them): a task moves by
-  changing its runner and nothing else — train a network with
-  `NeuralNet.train` on a python task, run it with `NeuralNet.run` on an east-c
-  one. Nothing runs on the Node runtime.
+  from the project's `.venv`, no `uv run` wrapper needed). The GoogleOr,
+  XGBoost and NeuralNet families also run on the C runtime (`{ runner: {
+  runtime: 'east-c', platforms: ['east-c-std', 'east-c-datascience'] } }`, an
+  east-c built with them, the networks on libtorch): a task moves by changing
+  its runner and nothing else. Nothing runs on the Node runtime.
 - **east** — the language for objective functions, configs and results.
 - **east-py** — the python runtime: East values as plain python data, eager
   methods, and the `@East.platform_function` on-ramp the direct calls live in.

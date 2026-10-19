@@ -4,14 +4,14 @@ C port of the East language runtime. Four packages:
 
 - `packages/east-c/` — Core runtime (types, values, IR, compiler, builtins, serialization).
 - `packages/east-c-std/` — Standard platform functions (console, fs, path, crypto, time, random, fetch, test).
-- `packages/east-c-datascience/` — east-py-datascience's platform functions on this runtime, family by family (Google OR-Tools, XGBoost, and `nn_init`/`nn_run` of the networks stated as data), in C++ over the C API; built on request (`EAST_C_DATASCIENCE=ON`) against a prebuilt OR-Tools (`scripts/fetch-ortools.sh`) and the vendored XGBoost source, and held to east-py-datascience's own exported suites. See its `CLAUDE.md`.
+- `packages/east-c-datascience/` — east-py-datascience's platform functions on this runtime, family by family (Google OR-Tools, XGBoost, the neural networks stated as data on libtorch), in C++ over the C API; built on request (`EAST_C_DATASCIENCE=ON`) against a prebuilt OR-Tools (`scripts/fetch-ortools.sh`), a prebuilt libtorch (`scripts/fetch-libtorch.sh`) and the vendored XGBoost source, and held to east-py-datascience's own exported suites. See its `CLAUDE.md`.
 - `packages/east-c-cli/` — Native C CLI binary source **and** the npm launcher `@elaraai/east-c-cli`. The same directory carries both: CMake builds the binary; `package.json` + `bin/east-c.mjs` are the npm-side launcher that resolves a per-platform binary (`@elaraai/east-c-cli-<target>`) via `require.resolve` and spawns it. Per-platform packages are generated at release time, not committed. See `docs/npm-runner-distribution.md`.
 
 ## Commands
 
 ```bash
 make build    # Build the runtime, std and the CLI
-make build EAST_C_DATASCIENCE=ON  # … and east-c-datascience (after make fetch-ortools)
+make build EAST_C_DATASCIENCE=ON  # … and east-c-datascience (after make fetch-ortools fetch-libtorch)
 make unit     # Run the ctest gates (no exported IR needed)
 make test     # Gates + both compliance suites
 make test-east-c-datascience  # The data-science suites (make -C libs/east-py test-export first)

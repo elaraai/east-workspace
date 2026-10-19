@@ -26,6 +26,14 @@ if(EXISTS "${EAST_ORTOOLS_PREFIX}/lib/cmake/ortools")
     list(APPEND CMAKE_PREFIX_PATH "${EAST_ORTOOLS_PREFIX}")
 endif()
 find_package(ortools CONFIG REQUIRED)
+
+# libtorch (PyTorch's C++ distribution): the neural-network family runs on its
+# kernels, CPU or CUDA by the build linked, from an install scripts/fetch-libtorch.sh
+# pins by SHA-256 (nothing downloads here).
+set(EAST_LIBTORCH_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/../../build-deps/libtorch" CACHE PATH
+    "Where libtorch is installed (scripts/fetch-libtorch.sh)")
+list(APPEND CMAKE_PREFIX_PATH "${EAST_LIBTORCH_PREFIX}")
+find_package(Torch CONFIG REQUIRED)
 message(STATUS "east-c-datascience: OR-Tools ${ORTOOLS_VERSION} (${ortools_DIR})")
 
 # ── XGBoost ───────────────────────────────────────────────────────────
@@ -61,7 +69,7 @@ add_library(east-c-datascience
     src/google_or_graph.cc
     src/xgboost.cc
     src/nn/plan.cc
-    src/nn/interp.cc
+    src/nn/torch_interp.cc
     src/nn/nn.cc
     src/register_all.cc
 )
@@ -69,7 +77,12 @@ target_include_directories(east-c-datascience PUBLIC include)
 target_include_directories(east-c-datascience SYSTEM PRIVATE
     ${xgboost_SOURCE_DIR}/include
     ${xgboost_SOURCE_DIR}/dmlc-core/include)
-target_link_libraries(east-c-datascience PUBLIC east-c PRIVATE ortools::ortools xgboost)
+target_link_libraries(east-c-datascience PUBLIC east-c PRIVATE ortools::ortools xgboost ${TORCH_LIBRARIES})
+separate_arguments(EAST_TORCH_CXX_FLAGS UNIX_COMMAND "${TORCH_CXX_FLAGS}")
+target_compile_options(east-c-datascience PRIVATE ${EAST_TORCH_CXX_FLAGS})
+set_target_properties(east-c-datascience PROPERTIES
+    BUILD_RPATH "${EAST_LIBTORCH_PREFIX}/lib"
+    INSTALL_RPATH "${EAST_LIBTORCH_PREFIX}/lib")
 target_compile_definitions(east-c-datascience PRIVATE
     EAST_DATASCIENCE_ORTOOLS_VERSION="${ORTOOLS_VERSION}"
     EAST_DATASCIENCE_XGBOOST_VERSION="${EAST_XGBOOST_VERSION}")

@@ -8,7 +8,7 @@ with `-DEAST_C_DATASCIENCE=ON`.
 ## Commands
 
 ```bash
-make fetch-ortools                            # once: the pinned OR-Tools release
+make fetch-ortools fetch-libtorch             # once: the pinned OR-Tools and libtorch releases
 make build EAST_C_DATASCIENCE=ON              # from libs/east-c
 make test-east-c-datascience                  # the GoogleOr, XGBoost and NeuralNet suites (export them first)
 ```
@@ -35,12 +35,14 @@ make test-east-c-datascience                  # the GoogleOr, XGBoost and Neural
   `test/fixtures/xgboost_interchange.json` (its script says how).
 - **The neural-network specification is the contract.** `src/nn/` implements
   `libs/east-py/packages/east-py-datascience/docs/neural-networks.md` — its
-  shapes, conventions and the wording of its refusals — and nothing torch
-  happens to do. A new operation or a changed convention is a change to that
-  document first, then to both interpreters (`_torch.py` there, `interp.cc`
-  here), then to `test/nn.spec.ts`, which both runners must pass; a change to
-  the numerics means regenerating `test/nn.reference.generated.ts` there.
-  `nn_train` is not here by design: training stays in torch.
+  shapes, conventions and the wording of its refusals — on libtorch, the
+  kernels the python interpreter runs on, never a hand-written kernel. A new
+  operation or a changed convention is a change to that document first, then
+  to both interpreters (`_torch.py` there, `torch_interp.cc` here), then to
+  `test/nn.spec.ts`, which both runners must pass; a change to the numerics
+  means regenerating `test/nn.reference.generated.ts` there. libtorch is
+  pinned at the torch version of `libs/east-py/uv.lock`
+  (`scripts/fetch-libtorch.sh`); move both together.
 - **Nothing downloads at build time.** XGBoost's archive is checked in under
   `third_party/` with its SHA-256; OR-Tools comes from an install the fetch
   script pins. Match `libs/east-py/uv.lock`'s versions, so a blob written at

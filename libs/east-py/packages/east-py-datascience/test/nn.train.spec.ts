@@ -4,8 +4,8 @@
  */
 
 /**
- * nn_train (east-workspace#1357): training stays in torch, so this suite runs
- * on the python runtime only (east-c's suite list leaves it out).
+ * nn_train (east-workspace#1357): on both runners — the python interpreter and
+ * east-c-datascience on libtorch, the same optimiser and kernels.
  */
 import { variant, some, none } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";

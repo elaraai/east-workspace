@@ -46,7 +46,7 @@ When using a git dependency in `pyproject.toml`:
 | **XGBoost** | `xgboost` | xgboost (a model blob is XGBoost's own UBJSON model; cloudpickle reads blobs an earlier release wrote) |
 | **LightGBM** | `lightgbm` | lightgbm, cloudpickle |
 | **NGBoost** | `ngboost` | ngboost, cloudpickle |
-| **NeuralNet** | `torch` | torch (`nn_train` and the python `nn_run`; `nn_init`/`nn_run` also run on the C runtime with no python at all) |
+| **NeuralNet** | `torch` | torch (the C runtime runs the same functions on libtorch, no python at all) |
 | **GP** | `gp` | scikit-learn, cloudpickle |
 | **Shap** | `shap` | shap, cloudpickle |
 | **MAPIE** | `mapie` | mapie, cloudpickle |
@@ -109,7 +109,7 @@ const optimize = East.function([], MADS.Types.ResultType, $ => {
 | **XGBoost** | Gradient boosting with XGBoost — on the python and the C runtimes (`east-c-datascience`); a model trained on either predicts on the other | Regression, classification, quantile regression, feature importance, fast training |
 | **LightGBM** | Fast gradient boosting with leaf-wise growth | Large datasets, high cardinality features, faster than XGBoost on big data |
 | **NGBoost** | Natural gradient boosting with uncertainty | Probabilistic predictions, confidence intervals, uncertainty quantification |
-| **NeuralNet** | A network as East data (`NetType`), trained by torch and run by torch or natively by `east-c-datascience` — `docs/neural-networks.md` is the specification | Transformers over ragged grouped sequences (segment and key-set attention, rotary, embedding bags, probabilistic heads, decoding as a `loop`), conditioned 1-D U-Nets (FiLM, flow matching, Heun and SDE samplers, monotone outputs), any architecture stated from the operation set |
+| **NeuralNet** | A network as East data (`NetType`), trained and run by torch on the python runtime or by libtorch on the C runtime (`east-c-datascience`), CPU or CUDA — `docs/neural-networks.md` is the specification | Transformers over ragged grouped sequences (segment and key-set attention, rotary, embedding bags, probabilistic heads, decoding as a `loop`), conditioned 1-D U-Nets (FiLM, flow matching, Heun and SDE samplers, monotone outputs), any architecture stated from the operation set |
 | **GP** | Gaussian Process regression | Small datasets, uncertainty quantification, Bayesian optimization surrogate |
 | **MAPIE** | Conformal prediction intervals | Prediction intervals, prediction sets, uncertainty quantification |
 
