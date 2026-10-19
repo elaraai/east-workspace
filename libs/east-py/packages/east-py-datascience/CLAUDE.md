@@ -60,9 +60,7 @@ See [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conven
 - **XGBoost** (`xgboost/`) — gradient boosting (regression, classification, quantile).
 - **LightGBM** (`lightgbm/`) — fast gradient boosting with leaf-wise growth.
 - **NGBoost** (`ngboost/`) — probabilistic gradient boosting with uncertainty.
-- **Torch** (`torch/`) — neural networks with PyTorch (MLP).
 - **NeuralNet** (`nn/`) — a network as East data (#1357): `types.py` the East types (twins of `src/nn/nn.ts`), `_plan.py` the resolution, element-type inference and refusals of `docs/neural-networks.md` (the specification both runners follow), `_torch.py` the torch interpreter (f32, differentiable, blockwise attention for sorted segment masks), `nn_impl.py` the platform functions `nn_init`/`nn_train`/`nn_run` with the plan and weight caches. `tests/nn_families.py` holds the two reference families as `NetType` values and as hand-written torch, `tests/test_nn_reference.py` proves the interpreter against them, and `tests/fixtures/make_nn_reference.py` writes `test/nn.reference.generated.ts` — the families, their weights and torch's outputs as East literals, which `test/nn.spec.ts` holds both runners to. Regenerate it when a family, the interpreter's numerics or the init change (`uv run --package elaraai-east-py-datascience python tests/fixtures/make_nn_reference.py`). A change to an operation's semantics is a change to the specification first, then to both interpreters (`east-c-datascience/src/nn/`).
-- **Lightning** (`lightning/`) — PyTorch Lightning (MLP, autoencoder, conv1d, sequential, transformer); the torch classes live in `_models.py`, imported lazily so the package never loads torch at import.
 - **GP** (`gp/`) — Gaussian Process regression.
 
 ### Bayesian inference

@@ -46,10 +46,8 @@ When using a git dependency in `pyproject.toml`:
 | **XGBoost** | `xgboost` | xgboost (a model blob is XGBoost's own UBJSON model; cloudpickle reads blobs an earlier release wrote) |
 | **LightGBM** | `lightgbm` | lightgbm, cloudpickle |
 | **NGBoost** | `ngboost` | ngboost, cloudpickle |
-| **Torch** | `torch` | torch, cloudpickle |
 | **NeuralNet** | `torch` | torch (`nn_train` and the python `nn_run`; `nn_init`/`nn_run` also run on the C runtime with no python at all) |
 | **GP** | `gp` | scikit-learn, cloudpickle |
-| **Lightning** | `lightning` | torch, pytorch-lightning, cloudpickle |
 | **Shap** | `shap` | shap, cloudpickle |
 | **MAPIE** | `mapie` | mapie, cloudpickle |
 | **ALNS** | `alns` | alns |
@@ -111,9 +109,7 @@ const optimize = East.function([], MADS.Types.ResultType, $ => {
 | **XGBoost** | Gradient boosting with XGBoost — on the python and the C runtimes (`east-c-datascience`); a model trained on either predicts on the other | Regression, classification, quantile regression, feature importance, fast training |
 | **LightGBM** | Fast gradient boosting with leaf-wise growth | Large datasets, high cardinality features, faster than XGBoost on big data |
 | **NGBoost** | Natural gradient boosting with uncertainty | Probabilistic predictions, confidence intervals, uncertainty quantification |
-| **Torch** | Neural networks with PyTorch | MLP regression/classification, deep learning, custom architectures |
 | **NeuralNet** | A network as East data (`NetType`), trained by torch and run by torch or natively by `east-c-datascience` — `docs/neural-networks.md` is the specification | Transformers over ragged grouped sequences (segment and key-set attention, rotary, embedding bags, probabilistic heads, decoding as a `loop`), conditioned 1-D U-Nets (FiLM, flow matching, Heun and SDE samplers, monotone outputs), any architecture stated from the operation set |
-| **Lightning** | PyTorch Lightning neural networks | MLP, autoencoder, conv1d, sequential, transformer architectures |
 | **GP** | Gaussian Process regression | Small datasets, uncertainty quantification, Bayesian optimization surrogate |
 | **MAPIE** | Conformal prediction intervals | Prediction intervals, prediction sets, uncertainty quantification |
 
@@ -207,7 +203,7 @@ See [LICENSE.md](LICENSE.md) for full details.
   - [east-py-std](https://pypi.org/project/east-py-std/): Console, FileSystem, Fetch, Crypto, Time, Path, Random
   - [east-py-io](https://pypi.org/project/east-py-io/): SQLite, PostgreSQL, MySQL, MongoDB, Redis, S3, FTP, SFTP, XLSX, XML, compression
   - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
-  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
+  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, GP, neural networks as data run by torch or east-c), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
 
 - **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
   - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs

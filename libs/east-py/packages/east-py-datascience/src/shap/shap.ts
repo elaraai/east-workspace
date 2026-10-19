@@ -168,7 +168,7 @@ export const TreeModelBlobType = VariantType({
 
 /**
  * Any model blob type - accepts any model for kernel explainer.
- * Includes all tree-based models plus NGBoost, GP, Torch, and sklearn models.
+ * Includes all tree-based models plus NGBoost, GP, and sklearn models.
  */
 export const AnyModelBlobType = VariantType({
     // Tree-based
@@ -215,13 +215,6 @@ export const AnyModelBlobType = VariantType({
         data: BlobType,
         n_features: IntegerType,
         kernel_type: StringType,
-    }),
-    // Torch
-    torch_mlp: StructType({
-        data: BlobType,
-        n_features: IntegerType,
-        hidden_layers: ArrayType(IntegerType),
-        output_dim: IntegerType,
     }),
     // Sklearn scalers (for compatibility with SklearnModelBlobType)
     standard_scaler: StructType({
@@ -413,7 +406,7 @@ export const shap_tree_explainer_create = East.platform(
 /**
  * Create a SHAP KernelExplainer for any model.
  *
- * Works with any model that has a predict method (NGBoost, GP, Torch, etc.).
+ * Works with any model that has a predict method (NGBoost, GP, etc.).
  * Requires background data for computing expected values.
  *
  * @param model - Any model blob
@@ -545,7 +538,7 @@ export const Shap = {
     /**
      * Create a SHAP KernelExplainer for any model.
      *
-     * Works with any model (NGBoost, GP, Torch, etc.). Requires background
+     * Works with any model (NGBoost, GP, etc.). Requires background
      * data for computing expected values.
      *
      * @example

@@ -61,15 +61,6 @@ from east_py_datascience.lightgbm.lightgbm_impl import (
     lightgbm_train_classifier,
     lightgbm_train_regressor,
 )
-from east_py_datascience.lightning import lightning_impl
-from east_py_datascience.lightning.lightning_impl import (
-    lightning_decode,
-    lightning_decode_conditional,
-    lightning_encode,
-    lightning_generate_sequence,
-    lightning_predict,
-    lightning_train,
-)
 from east_py_datascience.mads import mads_impl
 from east_py_datascience.mads.mads import (
     mads_optimize,
@@ -182,15 +173,6 @@ from east_py_datascience.sklearn.sklearn import (
     sklearn_standard_scaler_fit,
     sklearn_standard_scaler_transform,
 )
-from east_py_datascience.torch import torch_impl
-from east_py_datascience.torch.torch_impl import (
-    torch_mlp_decode,
-    torch_mlp_encode,
-    torch_mlp_predict,
-    torch_mlp_predict_multi,
-    torch_mlp_train,
-    torch_mlp_train_multi,
-)
 from east_py_datascience.types import (
     ClassificationAverageType,
     ClassificationMetricResultsType,
@@ -258,9 +240,7 @@ platform = [
     *ngboost_impl,
     *nn_impl,
     *shap_impl,
-    *torch_impl,
     *gp_impl,
-    *lightning_impl,
     *mapie_impl,
     *alns_impl,
     *optimization_impl,
@@ -288,12 +268,6 @@ __all__ = [
     "lightgbm_predict_proba",
     "lightgbm_train_classifier",
     "lightgbm_train_regressor",
-    "lightning_decode",
-    "lightning_decode_conditional",
-    "lightning_encode",
-    "lightning_generate_sequence",
-    "lightning_predict",
-    "lightning_train",
     "linear_solve",
     "linear_solve_columns",
     "mads_optimize",
@@ -385,12 +359,6 @@ __all__ = [
     "sklearn_split",
     "sklearn_standard_scaler_fit",
     "sklearn_standard_scaler_transform",
-    "torch_mlp_decode",
-    "torch_mlp_encode",
-    "torch_mlp_predict",
-    "torch_mlp_predict_multi",
-    "torch_mlp_train",
-    "torch_mlp_train_multi",
     "xgboost_predict",
     "xgboost_predict_class",
     "xgboost_predict_proba",
@@ -408,9 +376,7 @@ __all__ = [
     "lightgbm_impl",
     "ngboost_impl",
     "shap_impl",
-    "torch_impl",
     "gp_impl",
-    "lightning_impl",
     "mapie_impl",
     "alns_impl",
     "optimization_impl",

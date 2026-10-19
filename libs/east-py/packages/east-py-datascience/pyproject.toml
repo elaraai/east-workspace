@@ -45,15 +45,9 @@ shap = [
 ]
 torch = [
     "torch>=2.4.0",
-    "cloudpickle>=3.0.0",
 ]
 gp = [
     "scikit-learn>=1.4.0,<1.6.0",
-    "cloudpickle>=3.0.0",
-]
-lightning = [
-    "torch>=2.4.0",
-    "pytorch-lightning>=2.2.0",
     "cloudpickle>=3.0.0",
 ]
 mapie = [
@@ -96,7 +90,6 @@ all = [
     "ngboost>=0.5.0",
     "shap>=0.45.0",
     "torch>=2.4.0",
-    "pytorch-lightning>=2.2.0",
     "mapie>=1.2.0",
     "alns>=6.0.0",
     "ortools>=9.9",
@@ -154,7 +147,7 @@ disallow_untyped_defs = false
 
 # External optional dependencies - no stubs or incomplete stubs
 [[tool.mypy.overrides]]
-module = ["numpy", "numpy.*", "scipy", "scipy.*", "sklearn", "sklearn.*", "PyNomad", "optuna", "optuna.*", "simanneal", "skl2onnx", "skl2onnx.*", "onnxruntime", "cloudpickle", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*", "ngboost", "ngboost.*", "shap", "shap.*", "torch", "torch.*", "pytorch_lightning", "pytorch_lightning.*", "lightning", "lightning.*", "onnx", "onnx.*", "mapie", "mapie.*", "alns", "alns.*", "ortools", "ortools.*", "pymc", "pymc.*", "arviz", "arviz.*", "pytensor", "pytensor.*", "dowhy", "dowhy.*", "econml", "econml.*", "PyALE", "PyALE.*", "statsmodels", "statsmodels.*", "pandas", "pandas.*", "matplotlib", "matplotlib.*"]
+module = ["numpy", "numpy.*", "scipy", "scipy.*", "sklearn", "sklearn.*", "PyNomad", "optuna", "optuna.*", "simanneal", "skl2onnx", "skl2onnx.*", "onnxruntime", "cloudpickle", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*", "ngboost", "ngboost.*", "shap", "shap.*", "torch", "torch.*", "onnx", "onnx.*", "mapie", "mapie.*", "alns", "alns.*", "ortools", "ortools.*", "pymc", "pymc.*", "arviz", "arviz.*", "pytensor", "pytensor.*", "dowhy", "dowhy.*", "econml", "econml.*", "PyALE", "PyALE.*", "statsmodels", "statsmodels.*", "pandas", "pandas.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true
 
 # Libraries whose public names are assembled at import time (lazy or star

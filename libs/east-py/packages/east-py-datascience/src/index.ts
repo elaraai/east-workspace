@@ -244,22 +244,6 @@ export {
     StringVectorType,
 } from "./shap/shap.js";
 
-// Torch - PyTorch neural networks
-export {
-    Torch,
-    torch_mlp_train,
-    torch_mlp_predict,
-    TorchTypes,
-    TorchActivationType,
-    TorchLossType,
-    TorchOptimizerType,
-    TorchMLPConfigType,
-    TorchTrainConfigType,
-    TorchTrainResultType,
-    TorchTrainOutputType,
-    TorchModelBlobType,
-} from "./torch/torch.js";
-
 // GP - Gaussian Process regression
 export {
     GP,
@@ -306,23 +290,6 @@ export {
     PyMCObservedFitType,
     PyMCModelBlobType,
 } from "./pymc/pymc.js";
-
-// Lightning - PyTorch Lightning neural networks
-export {
-    Lightning,
-    lightning_train,
-    lightning_predict,
-    lightning_encode,
-    lightning_decode,
-    LightningTypes,
-    LightningOutputType,
-    LightningArchitectureType,
-    LightningEpochCallbackType,
-    LightningConfigType,
-    LightningResultType,
-    LightningModelBlobType,
-    Tensor3DBoolType,
-} from "./lightning/lightning.js";
 
 // MAPIE - Conformal prediction intervals
 export {

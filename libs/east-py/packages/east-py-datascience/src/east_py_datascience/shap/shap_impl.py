@@ -213,16 +213,6 @@ def _get_predict_fn(model, model_type: str, categorical_features=None, categoric
         X_np = X.values if hasattr(X, "values") else X
         return apply_categorical(X_np, categorical_features, "shap_kernel_explainer", categorical_n)
 
-    if model_type == "torch_mlp":
-        import torch
-
-        def predict_torch(X):
-            model.eval()
-            with torch.no_grad():
-                output = model(torch.tensor(X, dtype=torch.float32)).numpy()
-            return output.flatten() if output.shape[1] == 1 else output
-
-        return predict_torch
     if model_type == "regressor_chain":
         # Multi-target: explain the first target
         def predict_first_target(X):
@@ -304,16 +294,7 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
         n_features = int(model_data["n_features"])
     else:
         # Standard model blobs
-        deserialized = deserialize(model_data["data"])
-        # Handle Torch model package format (dict with "model" key)
-        if (
-            model_type == "torch_mlp"
-            and isinstance(deserialized, dict)
-            and "model" in deserialized
-        ):
-            model = deserialized["model"]
-        else:
-            model = deserialized
+        model = deserialize(model_data["data"])
         n_features = int(model_data["n_features"])
 
         # Extract categorical_n from xgboost model blobs
@@ -341,7 +322,7 @@ def shap_kernel_explainer_create(
     supports all model types in ``AnyModelBlobType``, including:
 
     - XGBoost / LightGBM regressors and classifiers.
-    - Torch MLP, NGBoost, Gaussian Process.
+    - NGBoost, Gaussian Process.
     - MAPIE regressor/classifier wrappers (any base model, including
       LightGBM).
     - MAPIE uncertainty predictors (``mapie_interval_width``,

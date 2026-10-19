@@ -123,188 +123,7 @@ NGBoostDistributionType = VariantType(
 Cases: ``normal`` (default), ``lognormal`` (strictly positive targets).
 """
 
-# Torch activation function type
-TorchActivationType = VariantType(
-    [
-        ("relu", NullType),
-        ("tanh", NullType),
-        ("sigmoid", NullType),
-        ("leaky_relu", NullType),
-    ]
-)
-"""Hidden-layer activation function for the Torch MLP.
 
-Cases: ``relu`` (default), ``tanh``, ``sigmoid``, ``leaky_relu``.
-"""
-
-# Torch loss function type
-TorchLossType = VariantType(
-    [
-        ("mse", NullType),
-        ("mae", NullType),
-        ("cross_entropy", NullType),
-        ("kl_div", NullType),
-        ("bce", NullType),
-        ("bce_with_logits", NullType),
-    ]
-)
-"""Training loss function for the Torch MLP.
-
-Cases: ``mse`` (default), ``mae``, ``cross_entropy``, ``kl_div``,
-``bce`` (binary cross-entropy with sigmoid), ``bce_with_logits``
-(numerically stable combined sigmoid + BCE).
-"""
-
-# Torch optimizer type
-TorchOptimizerType = VariantType(
-    [
-        ("adam", NullType),
-        ("sgd", NullType),
-        ("adamw", NullType),
-        ("rmsprop", NullType),
-    ]
-)
-"""Parameter update rule for the Torch MLP.
-
-Cases: ``adam`` (default), ``sgd``, ``adamw`` (Adam with decoupled weight
-decay), ``rmsprop``.
-"""
-
-# Torch output activation type
-TorchOutputActivationType = VariantType(
-    [
-        ("none", NullType),
-        ("softmax", NullType),
-        ("sigmoid", NullType),
-    ]
-)
-"""Output-layer activation for the Torch MLP.
-
-Cases: ``none`` (default - raw logits/regression), ``softmax``
-(multinomial probabilities), ``sigmoid`` (independent binary probabilities).
-"""
-
-# Per-row output constraint type
-RowConstraintType = VariantType(
-    [
-        # Independent binary outputs (sigmoid), optionally masked
-        (
-            "binary",
-            StructType(
-                [
-                    ("mask", OptionType(ArrayType(BooleanType))),  # User-specified mask
-                    (
-                        "data_mask",
-                        OptionType(ArrayType(BooleanType)),
-                    ),  # Data-derived static mask
-                ]
-            ),
-        ),
-        # Mutually exclusive - at most one position active (softmax)
-        (
-            "mutex",
-            StructType(
-                [
-                    ("mask", OptionType(ArrayType(BooleanType))),  # User-specified mask
-                    ("allow_none", OptionType(BooleanType)),
-                    (
-                        "data_mask",
-                        OptionType(ArrayType(BooleanType)),
-                    ),  # Data-derived static mask
-                ]
-            ),
-        ),
-        # At most N positions active
-        (
-            "at_most",
-            StructType(
-                [
-                    ("max_count", IntegerType),
-                    ("mask", OptionType(ArrayType(BooleanType))),  # User-specified mask
-                    (
-                        "data_mask",
-                        OptionType(ArrayType(BooleanType)),
-                    ),  # Data-derived static mask
-                ]
-            ),
-        ),
-    ]
-)
-"""Per-row structural constraint applied to the Torch MLP output layer.
-
-Cases: ``binary`` ``{mask, data_mask}`` (independent sigmoid outputs per
-position; both masks optional - positions where either mask is ``False`` are
-forced to zero), ``mutex`` ``{mask, allow_none, data_mask}`` (softmax over
-active positions - at most one position on; ``allow_none`` permits the
-all-zero state), ``at_most`` ``{max_count, mask, data_mask}`` (top-K
-sigmoid selection; at most ``max_count`` positions active).
-"""
-
-# Positive weight type for class imbalance handling
-PosWeightType = VariantType(
-    [
-        ("scalar", FloatType),  # Single weight applied to all outputs
-        (
-            "per_output",
-            ArrayType(FloatType),
-        ),  # Per-output weights (length = output_dim)
-    ]
-)
-"""Positive-class weight for BCE loss in the Torch MLP (class-imbalance correction).
-
-Cases: ``scalar`` (single ``Float`` weight applied to every output),
-``per_output`` (``Array<Float>`` of length ``output_dim`` - one weight per
-output position).
-"""
-
-# Prior regularization configuration
-PriorConfigType = StructType(
-    [
-        ("values", ArrayType(FloatType)),  # Prior probabilities per output
-        ("weight", FloatType),  # Lambda weight for MSE regularization
-    ]
-)
-"""Prior regularization for the Torch MLP output layer.
-
-Adds an MSE penalty pulling predictions toward prior probabilities.
-Fields: ``values`` (``Array<Float>`` - prior probability per output
-position), ``weight`` (lambda controlling penalty strength).
-"""
-
-# Per-sample constraints configuration
-SampleConstraintsConfigType = StructType(
-    [
-        # Per-sample boolean masks: (n_samples, n_rows, n_cols)
-        # True = allowed, False = masked (output forced to 0/-inf)
-        ("masks", OptionType(ArrayType(ArrayType(ArrayType(BooleanType))))),
-        # Per-sample positive weights: (n_samples, output_dim)
-        ("pos_weights", OptionType(ArrayType(ArrayType(FloatType)))),
-        # Per-sample prior values: (n_samples, output_dim)
-        ("priors", OptionType(ArrayType(ArrayType(FloatType)))),
-    ]
-)
-"""Per-sample override for output-layer constraints in the Torch MLP.
-
-Allows each training sample to carry its own constraint state.
-Fields: ``masks`` (``Option<Array<Array<Array<Boolean>>>>`` shape
-``[n_samples][n_rows][n_cols]`` - ``True`` = allowed, ``False`` = masked),
-``pos_weights`` (``Option<Array<Array<Float>>>`` shape
-``[n_samples][output_dim]`` - per-sample BCE positive weights),
-``priors`` (``Option<Array<Array<Float>>>`` shape
-``[n_samples][output_dim]`` - per-sample prior values for regularization).
-"""
-
-# Constrained output configuration
-ConstrainedOutputConfigType = StructType(
-    [
-        ("row_constraints", ArrayType(RowConstraintType)),
-    ]
-)
-"""Structural constraint applied to every row of the Torch MLP output.
-
-Fields: ``row_constraints`` (``Array<RowConstraintType>`` - one entry per
-output row defining the constraint kind and optional masks for that row).
-"""
 
 # GMM covariance type
 GMMCovarianceType = VariantType(
@@ -684,43 +503,6 @@ Fields: ``confidence_level`` (default 0.95 - symmetric interval width
 around the point prediction).
 """
 
-# Torch MLP configuration
-TorchMLPConfigType = StructType(
-    [
-        ("hidden_layers", ArrayType(IntegerType)),  # e.g., [64, 32]
-        ("activation", OptionType(TorchActivationType)),  # default relu
-        ("output_activation", OptionType(TorchOutputActivationType)),  # default none
-        ("dropout", OptionType(FloatType)),  # default 0.0
-        ("output_dim", OptionType(IntegerType)),  # default 1
-    ]
-)
-"""Architecture configuration for the Torch MLP.
-
-Fields: ``hidden_layers`` (``Array<Integer>`` e.g. ``[64, 32]``),
-``activation`` (default ``relu``), ``output_activation`` (default
-``none``), ``dropout`` (default 0.0), ``output_dim`` (default 1).
-"""
-
-# Torch training configuration
-TorchTrainConfigType = StructType(
-    [
-        ("epochs", OptionType(IntegerType)),  # default 100
-        ("batch_size", OptionType(IntegerType)),  # default 32
-        ("learning_rate", OptionType(FloatType)),  # default 0.001
-        ("loss", OptionType(TorchLossType)),  # default mse
-        ("optimizer", OptionType(TorchOptimizerType)),  # default adam
-        ("early_stopping", OptionType(IntegerType)),  # patience, 0 = disabled
-        ("validation_split", OptionType(FloatType)),  # default 0.2
-        ("random_state", OptionType(IntegerType)),  # for reproducibility
-    ]
-)
-"""Training loop configuration for the Torch MLP.
-
-Fields: ``epochs`` (default 100), ``batch_size`` (default 32),
-``learning_rate`` (default 0.001), ``loss`` (default ``mse``),
-``optimizer`` (default ``adam``), ``early_stopping`` (patience in epochs;
-0 = disabled), ``validation_split`` (default 0.2), ``random_state``.
-"""
 
 # GP configuration
 GPConfigType = StructType(
@@ -1347,277 +1129,6 @@ Fields: ``feature_names`` (``Array<String>``), ``importances``
 feature, present when computed).
 """
 
-# Torch training result
-TorchTrainResultType = StructType(
-    [
-        ("train_losses", VectorType(FloatType)),  # Training loss per epoch
-        ("val_losses", VectorType(FloatType)),  # Validation loss per epoch
-        ("best_epoch", IntegerType),  # Best epoch (for early stopping)
-    ]
-)
-"""Training diagnostics from ``torch_train``.
-
-Fields: ``train_losses`` / ``val_losses`` (``Vector<Float>`` - loss per
-epoch), ``best_epoch`` (epoch index of lowest validation loss, used for
-early-stopping recovery).
-"""
-
-# ============================================================================
-# Lightning Types
-# ============================================================================
-
-# Lightning output mode - determines loss function
-LightningOutputType = VariantType(
-    [
-        # Regression: MSE loss, no activation
-        ("regression", NullType),
-        # Binary: BCE loss, sigmoid activation
-        (
-            "binary",
-            StructType(
-                [
-                    ("pos_weight", OptionType(VectorType(FloatType))),
-                ]
-            ),
-        ),
-        # Multiclass: CrossEntropy loss, softmax activation
-        (
-            "multiclass",
-            StructType(
-                [
-                    ("n_classes", IntegerType),
-                    ("class_weights", OptionType(VectorType(FloatType))),
-                ]
-            ),
-        ),
-        # Multi-head categorical: N independent CrossEntropy heads
-        (
-            "multi_head",
-            StructType(
-                [
-                    ("n_heads", IntegerType),
-                    ("n_classes_per_head", IntegerType),
-                    ("class_weights", OptionType(MatrixType(FloatType))),  # (n_heads, n_classes)
-                ]
-            ),
-        ),
-    ]
-)
-"""Output head type for a Lightning model - determines loss and final activation.
-
-Cases: ``regression`` (MSE loss, no activation), ``binary`` ``{pos_weight}``
-(BCE loss with sigmoid; ``pos_weight`` is a ``Vector<Float>`` per output
-for class-imbalance correction), ``multiclass`` ``{n_classes, class_weights}``
-(CrossEntropy with softmax; ``class_weights`` is ``Option<Vector<Float>>``),
-``multi_head`` ``{n_heads, n_classes_per_head, class_weights}`` (N
-independent CrossEntropy heads; ``class_weights`` is
-``Option<Matrix<Float>>`` shape ``n_heads x n_classes``).
-"""
-
-# Lightning architecture
-LightningArchitectureType = VariantType(
-    [
-        (
-            "mlp",
-            StructType(
-                [
-                    ("hidden_layers", ArrayType(IntegerType)),
-                ]
-            ),
-        ),
-        (
-            "autoencoder",
-            StructType(
-                [
-                    ("encoder_layers", ArrayType(IntegerType)),
-                    ("latent_dim", IntegerType),
-                    ("decoder_layers", ArrayType(IntegerType)),
-                ]
-            ),
-        ),
-        (
-            "conv1d",
-            StructType(
-                [
-                    ("n_channels", IntegerType),
-                    ("sequence_length", IntegerType),
-                    ("conv_channels", ArrayType(IntegerType)),
-                    ("kernel_size", IntegerType),
-                    ("latent_dim", IntegerType),
-                    ("condition_dim", OptionType(IntegerType)),
-                ]
-            ),
-        ),
-        (
-            "sequential",
-            StructType(
-                [
-                    ("n_channels", IntegerType),
-                    ("sequence_length", IntegerType),
-                    ("hidden_size", IntegerType),
-                    ("n_layers", IntegerType),
-                    ("cell_type", VariantType([("lstm", NullType), ("gru", NullType)])),
-                    ("latent_dim", IntegerType),
-                    ("bidirectional", BooleanType),
-                    ("condition_dim", OptionType(IntegerType)),
-                ]
-            ),
-        ),
-        (
-            "transformer",
-            StructType(
-                [
-                    ("n_channels", IntegerType),
-                    ("sequence_length", IntegerType),
-                    ("d_model", IntegerType),
-                    ("n_attention_heads", IntegerType),
-                    ("n_layers", IntegerType),
-                    ("d_ff", OptionType(IntegerType)),
-                    ("latent_dim", IntegerType),
-                    ("condition_dim", OptionType(IntegerType)),
-                ]
-            ),
-        ),
-    ]
-)
-"""Network architecture for a Lightning model.
-
-Cases: ``mlp`` ``{hidden_layers}`` (standard multi-layer perceptron),
-``autoencoder`` ``{encoder_layers, latent_dim, decoder_layers}``
-(encoder-decoder with a bottleneck), ``conv1d`` ``{n_channels,
-sequence_length, conv_channels, kernel_size, latent_dim, condition_dim}``
-(1D convolutional autoencoder), ``sequential`` ``{n_channels,
-sequence_length, hidden_size, n_layers, cell_type, latent_dim,
-bidirectional, condition_dim}`` (LSTM/GRU autoencoder), ``transformer``
-``{n_channels, sequence_length, d_model, n_attention_heads, n_layers, d_ff,
-latent_dim, condition_dim}`` (attention-based autoencoder). ``condition_dim``
-and ``d_ff`` are ``Option<Integer>``; ``cell_type`` is a ``lstm``/``gru``
-variant.
-"""
-
-# Lightning epoch callback: (epoch, train_loss, val_loss) -> void
-LightningEpochCallbackType = FunctionType([IntegerType, FloatType, FloatType], NullType)
-"""East function type ``(Integer, Float, Float) -> Null`` called after each training epoch.
-
-Signature: ``(epoch, train_loss, val_loss) -> Null``.
-"""
-
-# Lightning training configuration
-LightningConfigType = StructType(
-    [
-        ("architecture", LightningArchitectureType),
-        ("output", LightningOutputType),
-        ("learning_rate", OptionType(FloatType)),  # default 1e-3
-        ("max_epochs", OptionType(IntegerType)),  # default 100
-        ("patience", OptionType(IntegerType)),  # early stopping, default 10
-        ("batch_size", OptionType(IntegerType)),  # default 32
-        ("dropout", OptionType(FloatType)),  # default 0.1
-        ("gradient_clip", OptionType(FloatType)),  # default 1.0
-        ("weight_decay", OptionType(FloatType)),  # L2 regularization, default 0
-        ("random_state", OptionType(IntegerType)),  # for reproducibility
-        ("epoch_callback", OptionType(LightningEpochCallbackType)),  # called each epoch
-    ]
-)
-"""Full training configuration for a PyTorch Lightning model.
-
-Fields: ``architecture`` (network shape), ``output`` (loss and activation
-head), ``learning_rate`` (default 1e-3), ``max_epochs`` (default 100),
-``patience`` (early-stopping patience, default 10), ``batch_size``
-(default 32), ``dropout`` (default 0.1), ``gradient_clip`` (default 1.0),
-``weight_decay`` (L2 regularization, default 0), ``random_state``,
-``epoch_callback`` (``Option<LightningEpochCallbackType>`` called after
-each epoch with ``epoch``, ``train_loss``, ``val_loss``).
-"""
-
-# Lightning model blob - single "lightning" variant case (mirrors the unified
-# ModelBlobType "lightning" case; defined here to satisfy top-to-bottom eval)
-LightningModelBlobType = VariantType(
-    [
-        (
-            "lightning",
-            StructType(
-                [
-                    ("data", BlobType),  # pickle serialized state_dict + hparams
-                    ("n_features", IntegerType),
-                    ("output_dim", IntegerType),
-                    ("architecture_type", StringType),  # "mlp" or "autoencoder"
-                    ("output_type", StringType),  # "regression", "binary", "multiclass", "multi_head"
-                    ("latent_dim", OptionType(IntegerType)),  # for autoencoder only
-                ]
-            ),
-        ),
-    ]
-)
-"""Serialized Lightning model blob returned by ``lightning_train``.
-
-Single case ``lightning``: ``data`` (pickle-serialized ``state_dict`` +
-hparams), ``n_features`` (input dimension), ``output_dim`` (output
-dimension), ``architecture_type`` (``"mlp"`` or ``"autoencoder"``),
-``output_type`` (``"regression"``, ``"binary"``, ``"multiclass"``, or
-``"multi_head"``), ``latent_dim`` (``Option<Integer>`` - bottleneck size,
-autoencoder only).
-"""
-
-# Lightning training result
-LightningResultType = StructType(
-    [
-        ("model", LightningModelBlobType),  # Serialized model (state_dict + hparams)
-        ("train_loss", FloatType),
-        ("val_loss", FloatType),
-        ("best_epoch", IntegerType),
-    ]
-)
-"""Training result from ``lightning_train``.
-
-Fields: ``model`` (serialized ``LightningModelBlobType``),
-``train_loss`` / ``val_loss`` (final epoch losses), ``best_epoch``
-(epoch index of the best checkpoint).
-"""
-
-# Group-based weights for Lightning (binary or multi_head)
-GroupWeightsType = StructType(
-    [
-        # Weights variant - shape depends on output type
-        (
-            "weights",
-            VariantType(
-                [
-                    # For binary: pos_weight vector per group [n_groups][output_dim]
-                    ("binary", ArrayType(ArrayType(FloatType))),
-                    # For multi_head: class_weight matrix per group [n_groups][n_heads][n_classes]
-                    ("multi_head", ArrayType(ArrayType(ArrayType(FloatType)))),
-                ]
-            ),
-        ),
-        # Group index per sample: [n_samples]
-        ("sample_groups", ArrayType(IntegerType)),
-    ]
-)
-"""Group-conditioned positive/class weights for Lightning binary and multi-head models.
-
-Different sample groups (e.g. cohorts or time windows) can receive
-different loss weights to handle heterogeneous class imbalance.
-Fields: ``weights`` (variant - ``binary``: ``Array<Array<Float>>`` shape
-``[n_groups][output_dim]``; ``multi_head``: ``Array<Array<Array<Float>>>``
-shape ``[n_groups][n_heads][n_classes]``), ``sample_groups``
-(``Array<Integer>`` - zero-based group index per training sample).
-"""
-
-# Lightning sequence generation configuration
-LightningGenerateConfigType = StructType(
-    [
-        ("n_steps", IntegerType),  # Number of steps to generate
-        ("temperature", FloatType),  # 0.0 = argmax, > 0 = scaled sampling
-        ("return_probs", BooleanType),  # If true, return probabilities instead of samples
-    ]
-)
-"""Configuration for autoregressive sequence generation with a Lightning model.
-
-Fields: ``n_steps`` (number of generation steps), ``temperature``
-(softmax temperature - 0.0 = argmax/greedy, >0 = scaled sampling),
-``return_probs`` (when ``True`` returns softmax probabilities instead of
-sampled token indices).
-"""
 
 # GP prediction result (with uncertainty)
 GPPredictResultType = StructType(
@@ -1872,18 +1383,6 @@ ModelBlobType = VariantType(
                 ]
             ),
         ),
-        # PyTorch models (cloudpickle serialized)
-        (
-            "torch_mlp",
-            StructType(
-                [
-                    ("data", BlobType),
-                    ("n_features", IntegerType),
-                    ("hidden_layers", ArrayType(IntegerType)),
-                    ("output_dim", IntegerType),
-                ]
-            ),
-        ),
         # RegressorChain (cloudpickle serialized)
         (
             "regressor_chain",
@@ -1907,20 +1406,6 @@ ModelBlobType = VariantType(
                     ("data", BlobType),
                     ("n_features", IntegerType),
                     ("kernel_type", StringType),  # kernel name for reference
-                ]
-            ),
-        ),
-        # Lightning models (state_dict + hparams serialized)
-        (
-            "lightning",
-            StructType(
-                [
-                    ("data", BlobType),  # pickle serialized state_dict + hparams
-                    ("n_features", IntegerType),
-                    ("output_dim", IntegerType),
-                    ("architecture_type", StringType),  # "mlp" or "autoencoder"
-                    ("output_type", StringType),  # "regression", "binary", "multiclass", "multi_head"
-                    ("latent_dim", OptionType(IntegerType)),  # for autoencoder only
                 ]
             ),
         ),
@@ -1948,11 +1433,9 @@ encoders), ``scipy_interp_1d`` / ``scipy_kde`` (cloudpickle SciPy objects),
 / ``lightgbm_classifier`` (cloudpickle LightGBM), ``ngboost_regressor``
 (cloudpickle NGBoost ``{data, distribution, n_features}``),
 ``shap_tree_explainer`` / ``shap_kernel_explainer`` (cloudpickle SHAP
-explainers), ``torch_mlp`` (cloudpickle PyTorch MLP ``{data, n_features,
-hidden_layers, output_dim}``), ``regressor_chain`` (cloudpickle
+explainers), ``regressor_chain`` (cloudpickle
 RegressorChain ``{data, n_features, n_targets, base_estimator_type}``),
 ``gp_regressor`` (cloudpickle GP ``{data, n_features, kernel_type}``),
-``lightning`` (pickle state_dict + hparams, see ``LightningModelBlobType``),
 ``gaussian_mixture`` (cloudpickle GMM ``{data, n_features, n_components}``).
 """
 
@@ -2008,26 +1491,6 @@ Cases: ``scipy_interp_1d`` ``{data, kind}``, ``scipy_kde``
 ``{data, metadata}`` (both cloudpickle-serialized).
 """
 
-TorchModelBlobType = VariantType(
-    [
-        (
-            "torch_mlp",
-            StructType(
-                [
-                    ("data", BlobType),
-                    ("n_features", IntegerType),
-                    ("hidden_layers", ArrayType(IntegerType)),
-                    ("output_dim", IntegerType),
-                ]
-            ),
-        ),
-    ]
-)
-"""Serialized PyTorch model blob returned by ``torch_mlp_train``.
-
-Single case ``torch_mlp``: ``data`` (cloudpickle), ``n_features``,
-``hidden_layers`` (``Array<Integer>``), ``output_dim``.
-"""
 
 ShapModelBlobType = VariantType(
     [
@@ -2319,17 +1782,6 @@ AnyModelBlobType = VariantType(
             ),
         ),
         (
-            "torch_mlp",
-            StructType(
-                [
-                    ("data", BlobType),
-                    ("n_features", IntegerType),
-                    ("hidden_layers", ArrayType(IntegerType)),
-                    ("output_dim", IntegerType),
-                ]
-            ),
-        ),
-        (
             "standard_scaler",
             StructType([("onnx", BlobType), ("n_features", IntegerType)]),
         ),
@@ -2435,7 +1887,7 @@ AnyModelBlobType = VariantType(
 """SHAP KernelExplainer input union - every supported model type (mirrors
 shap.ts ``AnyModelBlobType``).
 
-Adds NGBoost / GP / Torch / sklearn / MAPIE-uncertainty cases on top of the
+Adds NGBoost / GP / sklearn / MAPIE-uncertainty cases on top of the
 tree-based and MAPIE conformal cases, so any trained model can be explained
 model-agnostically via the kernel explainer.
 """
@@ -2533,27 +1985,6 @@ __all__ = [
     "ShapResultType",
     "TreeExplainerConfigType",
     "FeatureImportanceType",
-    # Torch Types
-    "TorchActivationType",
-    "TorchOutputActivationType",
-    "TorchLossType",
-    "TorchOptimizerType",
-    "RowConstraintType",
-    "ConstrainedOutputConfigType",
-    "PosWeightType",
-    "PriorConfigType",
-    "SampleConstraintsConfigType",
-    "TorchMLPConfigType",
-    "TorchTrainConfigType",
-    "TorchTrainResultType",
-    # Lightning Types
-    "LightningOutputType",
-    "LightningArchitectureType",
-    "LightningEpochCallbackType",
-    "LightningConfigType",
-    "LightningResultType",
-    "GroupWeightsType",
-    "LightningGenerateConfigType",
     # RegressorChain Types
     "RegressorChainBaseConfigType",
     "RegressorChainConfigType",
@@ -2581,7 +2012,6 @@ __all__ = [
     "LightGBMModelBlobType",
     "GPModelBlobType",
     "ScipyModelBlobType",
-    "TorchModelBlobType",
     "ShapModelBlobType",
     "NGBoostModelBlobType",
     "SklearnModelBlobType",
