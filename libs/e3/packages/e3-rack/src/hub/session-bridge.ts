@@ -173,14 +173,15 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
         .map((session) => socketRequest(session.dataSocket, 'POST', '/v1/logs/tee', {
           bearer: session.dataToken, requestType: SessionLogsType, body, responseType: BooleanType, timeoutMs: 1000,
         })));
-    }, (err: unknown) => {
-      buffer.chunks.unshift(...chunks);
-      buffer.bytes += chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk.data), 0);
-      throw err;
     });
+    // A batch whose flush fails is not kept: the rack is told its lines were
+    // not stored and posts them again, so keeping them too would write them
+    // twice once the session answers.
     buffer.pending = pending;
-    try { await pending; } finally { if (buffer.pending === pending) buffer.pending = undefined; }
-    if (buffer.chunks.length === 0 && buffer.pending === undefined) this.logs.delete(key);
+    try { await pending; } finally {
+      if (buffer.pending === pending) buffer.pending = undefined;
+      if (buffer.chunks.length === 0 && buffer.pending === undefined) this.logs.delete(key);
+    }
   }
 
   private async mint(context: LeaseContext, hash: string, upload?: SessionUpload): Promise<Capability> {

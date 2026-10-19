@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { IntegerType, compareFor, type ValueTypeOf } from '@elaraai/east';
 import { processOwner, type StorageBackend } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
-import { HubAttemptType, type CapacitySnapshot, type CreateLease, type SessionEvent } from '../protocol/control.js';
+import { CreateLeaseResultType, HubAttemptType, type CapacitySnapshot, type CreateLease, type SessionEvent } from '../protocol/control.js';
 import type { RackLeaseResult } from '../protocol/task-envelope.js';
 import { startSessionDataServer } from './session-data-server.js';
 import { RackHubUnavailableError } from './connect.js';
@@ -82,6 +82,11 @@ export interface RackSessionOptions {
   e3Version?: string;
 }
 
+// One listener for every open session of this process, however many runs an
+// API server keeps attached: the sessions it closes as the process ends.
+const openSessions = new Set<RackSession>();
+const closeOpenSessions = () => { for (const session of openSessions) void session.close(); };
+
 /**
  * Keeps a run attached to the hub and serves its repository through a private
  * socket. A lost hub ends every pending wait; this session never reconnects
@@ -101,7 +106,6 @@ export class RackSession {
   private snapshot: CapacitySnapshot = { racks: [], queued: 0n, mine: { pending: 0n, claimed: 0n } };
   private readonly tee = new Map<string, Set<(stream: 'stdout' | 'stderr', data: string) => void>>();
   private loop?: Promise<void>;
-  private readonly beforeExit = () => { void this.close(); };
 
   private constructor(private readonly client: HubClient, readonly sessionId: string, readonly repoAlias: string,
     private readonly data: Awaited<ReturnType<typeof startSessionDataServer>>) {}
@@ -126,7 +130,8 @@ export class RackSession {
       const initial = await client.events(opened.sessionId, 0n, 0);
       session.snapshot = initial.capacity;
       session.loop = session.poll();
-      process.once('beforeExit', session.beforeExit);
+      if (openSessions.size === 0) process.on('beforeExit', closeOpenSessions);
+      openSessions.add(session);
       return session;
     } catch (err) {
       if (session !== undefined) await client.closeSession(session.sessionId).catch(() => {});
@@ -154,10 +159,29 @@ export class RackSession {
    * @returns An ordered subscription to the lease
    */
   async createLease(request: LeaseRequest): Promise<LeaseHandle> {
+    return (await this.subscribe((sessionId) => this.client.createLease(sessionId, request)))!;
+  }
+
+  /**
+   * Attaches to identical work already queued or held, which costs the racks
+   * no further capacity, and queues nothing otherwise: how a run spills work
+   * locally when the racks are full, without first offering it to them.
+   * @param request - Current task/unit event and rack shape
+   * @returns An ordered subscription, or null when no such work is queued
+   */
+  attachLease(request: LeaseRequest): Promise<LeaseHandle | null> {
+    return this.subscribe(async (sessionId) => {
+      const attached = await this.client.attachLease(sessionId, request);
+      return attached.type === 'some' ? attached.value : null;
+    });
+  }
+
+  private async subscribe(ask: (sessionId: string) => Promise<ValueTypeOf<typeof CreateLeaseResultType> | null>): Promise<Handle | null> {
     if (this.lost || this.closing !== undefined) throw new RackHubUnavailableError('Rack session is closed or its hub is unreachable');
     this.creating++;
     try {
-      const created = await this.client.createLease(this.sessionId, request);
+      const created = await ask(this.sessionId);
+      if (created === null) return null;
       const handle = new Handle(created.leaseId, created.attached, created.attempt.type === 'some' ? created.attempt.value : null, (handle) => this.unsubscribe(handle));
       const handles = this.handles.get(created.leaseId) ?? new Set();
       handles.add(handle); this.handles.set(created.leaseId, handles);
@@ -241,7 +265,8 @@ export class RackSession {
   /** Unregisters first, stops polling and removes the private data endpoint once. */
   close(): Promise<void> {
     return this.closing ??= (async () => {
-      process.off('beforeExit', this.beforeExit);
+      openSessions.delete(this);
+      if (openSessions.size === 0) process.off('beforeExit', closeOpenSessions);
       await this.client.closeSession(this.sessionId).catch(() => {});
       this.abort.abort();
       await this.loop;

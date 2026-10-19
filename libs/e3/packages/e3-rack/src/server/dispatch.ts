@@ -24,7 +24,7 @@
  */
 
 import { inputsHash as computeInputsHash } from '@elaraai/e3-core';
-import { OptionType, StringType, equalFor } from '@elaraai/east';
+import { IntegerType, OptionType, StringType, compareFor, equalFor } from '@elaraai/east';
 import { LEASE_MIN_AGENT, agentVersionAtLeast, type RackHeartbeatRequest, type RackRegistration } from '../protocol/index.js';
 import type { RackDispatch, RackLease, RackLeaseStatus } from '../lease/rack-dispatch.js';
 import {
@@ -44,6 +44,10 @@ import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordin
  * approval): the reported and approved boot ids differ. Both-none is NOT
  * pending — a freshly enrolled rack adopts its first boot on first
  * heartbeat. Enrollment is unhealthy until that heartbeat authorizes work.
+ * @param registration - The rack's registration
+ * @returns Whether its latest boot awaits approval
+ * @example
+ * const quarantined = policy.requireStartApproval && bootPendingApproval(rack);
  */
 export function bootPendingApproval(registration: RackRegistration): boolean {
   const { lastBootId, approvedBootId } = registration;
@@ -184,7 +188,7 @@ export class StoreRackDispatch implements RackDispatch {
     return racks.filter(
       (rack) =>
         rack.healthy &&
-        rack.capacity > 0n &&
+        compareFor(IntegerType)(rack.capacity, 0n) > 0 &&
         rack.lastSeenAt.getTime() >= cutoff &&
         (filter.tier === undefined || rack.tiers.includes(filter.tier)) &&
         !(requireApproval && bootPendingApproval(rack)) &&

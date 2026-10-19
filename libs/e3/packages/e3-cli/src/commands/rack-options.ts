@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { loadPolicy, type RackPlacementEvent } from '@elaraai/e3-rack';
+import type { OpenRackRunnerOptions, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
 
 /** Rack flags shared by dataflow run and watch. */
 export interface RackFlags {
@@ -25,10 +25,23 @@ export function refuseRemoteRack(repo: string, flags: RackFlags): void {
 export async function rackEnabled(repo: string, flags: RackFlags): Promise<boolean> {
   if (flags.rackOnly) return true;
   if (flags.rack !== undefined) return flags.rack;
-  try { return (await loadPolicy(repo)).enabled; } catch (error) {
+  try {
+    // The rack package is loaded only once a policy may enable it.
+    const { loadPolicy } = await import('@elaraai/e3-rack');
+    return (await loadPolicy(repo)).enabled;
+  } catch (error) {
     console.warn(`Rack policy: ${error instanceof Error ? error.message : String(error)}; running locally`);
     return false;
   }
+}
+
+/**
+ * Opens a run's rack attachment, loading the rack package for it: a command
+ * that runs nothing on a rack never loads the hub, its routes or its TLS.
+ */
+export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunnerHandle> {
+  const { openRackRunner } = await import('@elaraai/e3-rack');
+  return openRackRunner(options);
 }
 
 /** Prints task placement; existing split progress already describes units. */

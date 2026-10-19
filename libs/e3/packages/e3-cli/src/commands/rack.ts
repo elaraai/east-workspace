@@ -6,17 +6,22 @@
 import { unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Command } from 'commander';
-import { DateTimeType, none, printFor, some, variant } from '@elaraai/east';
-import { E3_RACK_VERSION, HubClient, RackHubUnavailableError, agentVersionAtLeast, bundledE3Version, connectHub,
-  loadPolicy, policyPath, readHubLock, removeRule, savePolicy, setEnabled, setMode, setRule,
-  type HubConfig, type RackComputeSize, type RackPolicy } from '@elaraai/e3-rack';
-import { runHub } from '@elaraai/e3-rack/hub-main';
+import { DateTimeType, IntegerType, StringType, compareFor, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import type { HubClient, HubConfig, RackComputeSize, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
 
+// The rack package, with its hub, routes and TLS, is loaded by the command
+// that needs it: every other e3 command, and shell completion, starts
+// without it.
+type RackLib = typeof import('@elaraai/e3-rack');
+const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
+
 type Status = Awaited<ReturnType<HubClient['status']>>;
-interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean }
+interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
 interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
+const equalString = equalFor(StringType);
+const compareInteger = compareFor(IntegerType);
 function sizeOf(text: string): RackComputeSize {
   if (!sizes.some((size) => size === text)) throw new Error(`Unknown compute size '${text}'; choose ${sizes.join(', ')}`);
   return text as RackComputeSize;
@@ -44,7 +49,13 @@ async function configured(client: HubClient, flags: ConfigFlags): Promise<HubCon
   if (flags.idleExit !== undefined) config.idleExitMinutes = BigInt(integer(flags.idleExit, '--idle-exit', 0, 35000));
   if (flags.advertiseUrl !== undefined) config.advertiseUrl = some(flags.advertiseUrl);
   if (flags.tls !== undefined) config.tls = flags.tls;
-  return Object.values(flags).some((value) => value !== undefined) ? client.setConfig(config) : config;
+  const changed = [flags.listen, flags.allow, flags.idleExit, flags.advertiseUrl, flags.tls].some((value) => value !== undefined);
+  return changed ? client.setConfig(config) : config;
+}
+
+/** Whether a rack's boots after its first need approval, as the hub applies it, set when the flag says. */
+function security(client: HubClient, flags: ConfigFlags): Promise<RackSecurityPolicy> {
+  return flags.requireApproval === undefined ? client.getSecurityPolicy() : client.setSecurityPolicy({ requireStartApproval: flags.requireApproval });
 }
 
 function listenerLine(listener: Status['rackListener']): string {
@@ -54,18 +65,30 @@ function listenerLine(listener: Status['rackListener']): string {
   return `up ${listener.value.origin}${pin.type === 'some' ? ` (certificate SHA-256 ${pin.value})` : ''}`;
 }
 
-function printFleet(status: Status): void {
+function approvalLine(policy: RackSecurityPolicy): string {
+  return `Boot approval: ${policy.requireStartApproval ? 'required after each reboot (e3 rack approve <rack>)' : 'not required'}`;
+}
+
+/** The one rack a name picks out: its id, its label, or an unambiguous id prefix. */
+function findRack(status: Status, name: string): Status['racks'][number] {
+  const exact = status.racks.find((rack) => equalString(rack.rackId, name));
+  const matches = exact === undefined ? status.racks.filter((rack) => equalString(rack.label, name) || rack.rackId.startsWith(name)) : [exact];
+  if (matches.length !== 1) throw new Error(matches.length === 0 ? `No rack '${name}'` : `Ambiguous rack '${name}': ${matches.map((rack) => rack.rackId).join(', ')}`);
+  return matches[0]!;
+}
+
+function printFleet(lib: RackLib, status: Status): void {
   if (status.racks.length === 0) { console.log('No enrolled racks. Run: e3 rack enroll --listen <address>:7331'); return; }
   console.log('LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  STATE');
   for (const rack of status.racks) {
-    const capacity = status.capacity.racks.find((entry) => entry.rackId === rack.rackId);
-    const bundled = bundledE3Version(rack.agentVersion);
+    const capacity = status.capacity.racks.find((entry) => equalString(entry.rackId, rack.rackId));
+    const bundled = lib.bundledE3Version(rack.agentVersion);
     const state = rack.lastBootId.type === 'none' ? 'enrolled-not-started'
       : capacity?.pendingApproval ? 'pending-approval'
-      : !rack.healthy || rack.capacity <= 0n ? 'unavailable' : !capacity?.healthy ? 'stale'
+      : !rack.healthy || compareInteger(rack.capacity, 0n) <= 0 ? 'unavailable' : !capacity?.healthy ? 'stale'
       : rack.tiers.length === 0 ? 'no-runtimes'
       : bundled === null ? 'incompatible: bundled e3 unknown'
-        : !agentVersionAtLeast(bundled, E3_RACK_VERSION) ? `incompatible: agent e3 ${bundled} < project e3 ${E3_RACK_VERSION}` : 'ready';
+        : !lib.agentVersionAtLeast(bundled, lib.E3_RACK_VERSION) ? `incompatible: agent e3 ${bundled} < project e3 ${lib.E3_RACK_VERSION}` : 'ready';
     console.log(`${rack.label}  ${rack.rackId.slice(0, 12)}  ${rack.tiers.join(',')}  ${Number(capacity?.busy ?? 0n)}/${Number(rack.capacity)}  ${rack.agentVersion}  ${bundled ?? '?'}  ${printFor(DateTimeType)(rack.lastSeenAt)}  ${state}`);
   }
 }
@@ -80,36 +103,48 @@ function printPolicy(policy: RackPolicy): void {
 export function createRackCommand(): Command {
   const rack = new Command('rack').description('Manage this machine\'s rack hub and task routing');
   rack.command('status').description('Show the running hub, fleet, sessions and queue without starting it').action(guarded(async () => {
-    const client = new HubClient();
+    const lib = await rackLib();
+    const client = new lib.HubClient();
     let status: Status;
     try { status = await client.status(); } catch (error) {
-      try { await connectHub({ spawn: false, timeoutMs: 1000 }); } catch (connectError) {
-        if (connectError instanceof RackHubUnavailableError) { console.log('no rack hub running'); return; }
+      try { await lib.connectHub({ spawn: false, timeoutMs: 1000 }); } catch (connectError) {
+        if (connectError instanceof lib.RackHubUnavailableError) { console.log('no rack hub running'); return; }
         throw connectError;
       }
       throw error;
     }
-    const lock = await readHubLock(); const config = await client.getConfig();
+    const lock = await lib.readHubLock(); const config = await client.getConfig();
     console.log(`Hub: pid ${Number(status.hello.pid)}, e3 ${status.hello.version}, protocol ${Number(status.hello.protocol)}, uptime ${lock === null ? '?' : Math.round((Date.now() - lock.startedAt.getTime()) / 1000)}s, idle-exit ${Number(config.idleExitMinutes)} min`);
     console.log(`Listener: ${listenerLine(status.rackListener)}`);
-    printFleet(status);
+    console.log(approvalLine(await client.getSecurityPolicy()));
+    printFleet(lib, status);
     console.log(`Sessions: ${status.sessions.length}`);
     for (const session of status.sessions) console.log(`  ${session.label}  ${session.repoAlias}  ${session.workspace}  ${Number(session.pending)} pending / ${Number(session.claimed)} claimed  e3 ${session.e3Version}`);
     console.log(`Queue: ${Number(status.capacity.queued)} pending`);
   }));
-  rack.command('list').description('List enrolled racks and compatible capacity').action(guarded(async () => printFleet(await (await connectHub()).status())));
+  rack.command('list').description('List enrolled racks and compatible capacity').action(guarded(async () => {
+    const lib = await rackLib();
+    printFleet(lib, await (await lib.connectHub()).status());
+  }));
   rack.command('remove').argument('<rackId|label>').description('Revoke a rack; its active work falls back locally').action(guarded(async (name: string) => {
-    const client = await connectHub(); const status = await client.status();
-    const exact = status.racks.find((rack) => rack.rackId === name);
-    const matches = exact === undefined ? status.racks.filter((rack) => rack.label === name || rack.rackId.startsWith(name)) : [exact];
-    if (matches.length !== 1) throw new Error(matches.length === 0 ? `No rack '${name}'` : `Ambiguous rack '${name}': ${matches.map((rack) => rack.rackId).join(', ')}`);
-    await client.removeRack(matches[0]!.rackId);
-    console.log(`Removed ${matches[0]!.label}; its active leases fall back locally.`);
+    const lib = await rackLib();
+    const client = await lib.connectHub(); const found = findRack(await client.status(), name);
+    await client.removeRack(found.rackId);
+    console.log(`Removed ${found.label}; its active leases fall back locally.`);
+  }));
+  rack.command('approve').argument('<rackId|label>').description('Admit the boot a rack last reported, which a reboot under --require-approval quarantines').action(guarded(async (name: string) => {
+    const lib = await rackLib();
+    const client = await lib.connectHub(); const found = findRack(await client.status(), name);
+    if (found.lastBootId.type === 'none') throw new Error(`${found.label} has not started; enrollment admits its first boot`);
+    const approved = await client.approveRack(found.rackId, found.lastBootId.value);
+    const policy = await client.getSecurityPolicy();
+    console.log(`Approved the boot ${approved.label} last reported.${policy.requireStartApproval ? '' : ' Boot approval is not required; e3 rack config --require-approval turns it on.'}`);
   }));
   rack.command('stop').description('Stop the shared hub and cancel its leases').action(guarded(async () => {
+    const lib = await rackLib();
     // Stop is the remedy for a control-protocol mismatch. Its stable empty
     // request must remain usable without negotiating a compatible session.
-    const client = new HubClient();
+    const client = new lib.HubClient();
     try { await client.stop(); } catch (error) {
       if (error instanceof Error && 'code' in error && ['ENOENT', 'ECONNREFUSED'].includes(String(error.code))) {
         console.log('no rack hub running'); return;
@@ -118,12 +153,15 @@ export function createRackCommand(): Command {
     }
     // A stop reply precedes listener shutdown. Wait until the owned process
     // has removed its lock so an immediate status sees the completed stop.
-    for (let n = 0; n < 250 && await readHubLock() !== null; n++) await delay(20);
-    if (await readHubLock() !== null) throw new Error('Rack hub is still stopping; inspect e3 rack status');
+    for (let n = 0; n < 250 && await lib.readHubLock() !== null; n++) await delay(20);
+    if (await lib.readHubLock() !== null) throw new Error('Rack hub is still stopping; inspect e3 rack status');
     console.log('rack hub stopped');
   }));
   rack.command('hub').description('Run the shared hub in the foreground').option('--idle-exit <min>', 'Exit after this many idle minutes; 0 disables idle exit')
-    .action(guarded((flags: ConfigFlags) => runHub(['--foreground', ...(flags.idleExit === undefined ? [] : ['--idle-exit', flags.idleExit])])));
+    .action(guarded(async (flags: ConfigFlags) => {
+      const { runHub } = await import('@elaraai/e3-rack/hub-main');
+      await runHub(['--foreground', ...(flags.idleExit === undefined ? [] : ['--idle-exit', flags.idleExit])]);
+    }));
   rack.command('config').description('Show or update the shared hub configuration')
     .option('--listen <host:port>', 'Bind the rack listener: the loopback behind a tunnel, or a private address').option('--no-listen', 'Disable the rack listener')
     .option('--allow <ip,...>', 'Admit rack requests only from these IP addresses; required for plain HTTP').option('--no-allow', 'Remove the IP restriction')
@@ -131,11 +169,16 @@ export function createRackCommand(): Command {
     .option('--advertise-url <url>', 'The origin racks reach the hub at (a relay, tunnel or TLS terminator); every rack and data URL is built on it')
     .option('--tls', 'Serve the listener over HTTPS with the hub\'s own certificate, which racks pin (the default)')
     .option('--no-tls', 'Serve plain HTTP, for a TLS terminator in front of the hub; loopback or private addresses with --allow only')
+    .option('--require-approval', 'Quarantine a rack after each reboot until e3 rack approve admits the boot it reports')
+    .option('--no-require-approval', 'Admit every boot of an enrolled rack, the default')
     .action(guarded(async (flags: ConfigFlags) => {
-      const client = await connectHub();
+      const lib = await rackLib();
+      const client = await lib.connectHub();
       const config = await configured(client, flags);
+      const policy = await security(client, flags);
       console.log(`Listen: ${config.listen.type === 'some' ? `${config.listen.value.host}:${Number(config.listen.value.port)}` : 'off'}`);
       console.log(`TLS: ${config.tls ? 'on' : 'off'}\nAllow: ${config.allow.join(', ') || 'all'}\nIdle-exit: ${Number(config.idleExitMinutes)} min\nAdvertise URL: ${config.advertiseUrl.type === 'some' ? config.advertiseUrl.value : 'listener origin'}`);
+      console.log(approvalLine(policy));
       console.log(`Listener: ${listenerLine((await client.status()).rackListener)}`);
     }));
   rack.command('enroll').description('Print a single-use token for interactive enrollment inside a prepared rack worker VM')
@@ -145,7 +188,8 @@ export function createRackCommand(): Command {
     .option('--no-wait', 'Print the enrollment handoff and return')
     .addHelpText('after', '\nConfigure worker resources, runtime tiers and GPU allocation on the rack host. Enrollment does not start an agent or authorize task execution.')
     .action(guarded(async (flags: ConfigFlags & { label?: string; ttl: string; wait: boolean }) => {
-      const client = await connectHub({ log: console.log });
+      const lib = await rackLib();
+      const client = await lib.connectHub({ log: console.log });
       const config = await configured(client, flags);
       if (config.listen.type === 'none') throw new Error('Configure a reachable address: e3 rack enroll --listen <address>:7331');
       const before = new Set((await client.status()).racks.map((rack) => rack.rackId));
@@ -158,10 +202,10 @@ export function createRackCommand(): Command {
       if (!flags.wait) return;
       while (Date.now() < mint.expiresAt.getTime()) {
         const status = await client.status();
-        const enrolled = status.racks.find((rack) => !before.has(rack.rackId) && (flags.label === undefined || rack.label === flags.label));
+        const enrolled = status.racks.find((rack) => !before.has(rack.rackId) && (flags.label === undefined || equalString(rack.label, flags.label)));
         if (enrolled !== undefined) {
           console.log(`New registration observed: ${enrolled.label} (${enrolled.rackId}). Check the worker's enrollment result; this does not confirm activation or task readiness.`);
-          printFleet(status); return;
+          printFleet(lib, status); return;
         }
         await delay(Math.min(2000, Math.max(1, mint.expiresAt.getTime() - Date.now())));
       }
@@ -180,6 +224,7 @@ export function createRackCommand(): Command {
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
     .addHelpText('after', '\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
+      const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
       const words = [...args]; const repoArg = defaultRepoArg(words[0] !== undefined && !verbs.includes(words[0]) ? words.shift() : undefined);
       if (/^https?:\/\//.test(repoArg)) throw new Error('The rack policy belongs to a local repository');
@@ -187,19 +232,19 @@ export function createRackCommand(): Command {
       const arity = action === 'set' ? 2 : action === 'unset' || action === 'mode' ? 1 : 0;
       if (!verbs.includes(action) || words.length !== arity) throw new Error('Use e3 rack policy --help for policy actions and arguments');
       if (action === 'reset') {
-        await unlink(policyPath(repo)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+        await unlink(lib.policyPath(repo)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
         console.log('Rack policy reset.'); return;
       }
-      let policy = await loadPolicy(repo);
+      let policy = await lib.loadPolicy(repo);
       if (action === 'set') {
         if (words[1] !== 'rack' && words[1] !== 'local') throw new Error('Target must be rack or local');
-        policy = setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),
+        policy = lib.setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),
           timeoutMinutes: flags.timeout === undefined ? undefined : integer(flags.timeout, '--timeout'), allowHostCoupled: flags.allowHostAccess });
-      } else if (action === 'unset') policy = removeRule(policy, words[0]!);
-      else if (action === 'enable' || action === 'disable') policy = setEnabled(policy, action === 'enable');
+      } else if (action === 'unset') policy = lib.removeRule(policy, words[0]!);
+      else if (action === 'enable' || action === 'disable') policy = lib.setEnabled(policy, action === 'enable');
       else if (action === 'mode') {
         if (words[0] !== 'auto' && words[0] !== 'opt-in') throw new Error('Mode must be opt-in or auto');
-        policy = setMode(policy, words[0] === 'auto' ? 'auto' : 'optIn');
+        policy = lib.setMode(policy, words[0] === 'auto' ? 'auto' : 'optIn');
       } else if (action === 'defaults') {
         policy = { ...policy,
           ...(flags.size === undefined ? {} : { defaultSize: variant(sizeOf(flags.size), null) }),
@@ -209,7 +254,7 @@ export function createRackCommand(): Command {
           ...(flags.retryTaskFailuresLocally === undefined ? {} : { retryTaskFailuresLocally: flags.retryTaskFailuresLocally }),
         };
       }
-      if (action !== 'show') await savePolicy(repo, policy);
+      if (action !== 'show') await lib.savePolicy(repo, policy);
       printPolicy(policy);
     }));
   return rack;

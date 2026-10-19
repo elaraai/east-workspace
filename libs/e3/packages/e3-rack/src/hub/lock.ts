@@ -7,7 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DateTimeType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, type ValueTypeOf } from '@elaraai/east';
+import { DateTimeType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, type ValueTypeOf } from '@elaraai/east';
+import { ExecutionOwnerType, type ExecutionOwner } from '@elaraai/e3-types';
 import { atomicWriteFile, isProcessAlive, processOwner } from '@elaraai/e3-core';
 import { ensureRackHome, HUB_LOCK_FILE, hubSocketPath, rackHome } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
@@ -26,7 +27,24 @@ const encodeLock = encodeBeast2For(HubLockType);
 const decodeLock = decodeBeast2For(HubLockType);
 const compareTicket = compareFor(IntegerType);
 const compareOwner = compareFor(StringType);
+const sameProcess = equalFor(ExecutionOwnerType);
+const printProcess = printFor(ExecutionOwnerType);
 const PREFIX = '.hub-claim-';
+/**
+ * How long one election trusts an answer about a claimant's liveness. On
+ * macOS each answer spawns `sysctl` and `ps`, and every contender reads every
+ * claim on every 20 ms poll: a dozen contenders asking afresh each time outran
+ * the election's own deadline there.
+ */
+const LIVENESS_TTL_MS = 1000;
+
+/** Test seams of {@link acquireHubLock}: a contender's identity and its liveness probe. */
+export interface AcquireHubLockOptions {
+  /** The contender's process identity; this process's unless given, as a test racing contenders of distinct identities gives it. */
+  owner?: ExecutionOwner;
+  /** Whether a claimant's process is alive; e3-core's process liveness unless given. */
+  alive?: (claimant: ExecutionOwner) => Promise<boolean>;
+}
 
 /** A held hub lock; its release removes only files belonging to this holder. */
 export interface HeldHubLock {
@@ -66,18 +84,33 @@ export async function readHubLock(home = rackHome()): Promise<HubLock | null> {
  * published whole once the election is won, and is never observed empty.
  *
  * @param home - Private rack home
+ * @param options - Test seams: the contender's identity and its liveness probe
  * @returns Ownership, or null when another live contender/holder wins
  * @throws {Error} When a claim cannot be read or startup exceeds ten seconds
  * @example
  * const lock = await acquireHubLock();
  * if (lock !== null) await lock.release();
  */
-export async function acquireHubLock(home = rackHome()): Promise<HeldHubLock | null> {
+export async function acquireHubLock(home = rackHome(), options: AcquireHubLockOptions = {}): Promise<HeldHubLock | null> {
   ensureRackHome(home);
-  const alive = (owner: HubLock) => isProcessAlive(Number(owner.pid), Number(owner.pidStartTime), owner.bootId);
+  const owner = options.owner ?? await processOwner();
+  const probe = options.alive ?? ((claimant: ExecutionOwner) => isProcessAlive(Number(claimant.pid), Number(claimant.pidStartTime), claimant.bootId));
+  // A claim of this process needs no asking; another claimant's answer holds
+  // for LIVENESS_TTL_MS, so an election asks after each once in a while, not
+  // once per claim per poll.
+  const answered = new Map<string, { at: number; alive: boolean }>();
+  const alive = async (lock: HubLock): Promise<boolean> => {
+    const claimant: ExecutionOwner = { pid: lock.pid, pidStartTime: lock.pidStartTime, bootId: lock.bootId };
+    if (sameProcess(claimant, owner)) return true;
+    const key = printProcess(claimant);
+    const known = answered.get(key);
+    if (known !== undefined && Date.now() - known.at < LIVENESS_TTL_MS) return known.alive;
+    const result = await probe(claimant);
+    answered.set(key, { at: Date.now(), alive: result });
+    return result;
+  };
   const existing = await readHubLock(home);
   if (existing !== null && await alive(existing)) return null;
-  const owner = await processOwner();
   const record: HubLock = {
     ...owner, ownerId: randomUUID(), version: E3_RACK_VERSION, protocol: BigInt(HUB_PROTOCOL),
     controlSocket: hubSocketPath(home), startedAt: new Date(),

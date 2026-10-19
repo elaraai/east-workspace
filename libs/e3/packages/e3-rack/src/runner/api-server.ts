@@ -3,8 +3,29 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { DataflowRunnerFactory } from '@elaraai/e3-api-server';
+import type { Budget, StorageBackend, TaskRunner } from '@elaraai/e3-core';
 import { openRackRunner } from './rack-runner.js';
+
+/**
+ * What the server lends one dataflow run: e3-api-server's
+ * `DataflowRunnerLease`, declared here so this package needs nothing of the
+ * server, whose optional peer it is.
+ */
+export interface DataflowRunnerLease {
+  /** Runs the tasks and units in this run. */
+  runner: TaskRunner;
+  /** Adds remote capacity to the orchestrator's width, without enlarging its local budget. */
+  extraConcurrency: number;
+  /** Releases the attachment once, on success, failure, cancellation or failed start. */
+  close(): Promise<void>;
+}
+
+/**
+ * The server's `dataflowRunner` option: e3-api-server's
+ * `DataflowRunnerFactory`, structurally, given the server's own backend and
+ * budget; undefined or a thrown error uses the server's local runner.
+ */
+export type DataflowRunnerFactory = (repoPath: string, workspace: string, context: { storage: StorageBackend; budget: Budget }) => Promise<DataflowRunnerLease | undefined>;
 
 /** Configures labels and an optional isolated home for server attachments. */
 export interface DataflowRackOptions {

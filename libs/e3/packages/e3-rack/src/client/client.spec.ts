@@ -13,12 +13,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Hono } from 'hono';
 import { some, variant } from '@elaraai/east';
 import { LocalStorage, repoInit, uuidv7 } from '@elaraai/e3-core';
-import { sendSuccess } from '@elaraai/e3-api-server/beast2';
+import { sendSuccess } from '../server/beast2.js';
 import { connectHub, RackHubOutdatedError, RackHubUnavailableError } from './connect.js';
 import { HubClient } from './hub-client.js';
 import { RackSession } from './session.js';
 import { closeSocketServer, serveOnSocket } from './local-http.js';
 import { EmptyType, HubHelloType } from '../protocol/control.js';
+import { HUB_PROTOCOL } from '../version.js';
 import { hubSocketPath } from '../paths.js';
 import { readHubLock } from '../hub/lock.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
@@ -76,7 +77,7 @@ it('cold-starts the published hub entry, logs startup and shares it across three
 
 it('drains an older protocol, refuses a newer one and leaves its sessions alone', async () => {
   const path = await home();
-  let protocol = 0n; let drains = 0;
+  let protocol = BigInt(HUB_PROTOCOL) - 1n; let drains = 0;
   const app = new Hono();
   app.post('/v1/hello', () => sendSuccess(HubHelloType, { version: '1.0.0', protocol, pid: BigInt(process.pid), draining: false }));
   app.post('/v1/drain', () => { drains++; return sendSuccess(EmptyType, {}); });
@@ -84,7 +85,7 @@ it('drains an older protocol, refuses a newer one and leaves its sessions alone'
   cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
   await assert.rejects(connectHub({ home: path }), (err: unknown) => err instanceof RackHubOutdatedError && /older.*exit once idle/.test(err.message));
   assert.equal(drains, 1);
-  protocol = 2n;
+  protocol = BigInt(HUB_PROTOCOL) + 1n;
   await assert.rejects(connectHub({ home: path }), (err: unknown) => err instanceof RackHubOutdatedError && /newer/.test(err.message));
   assert.equal(drains, 1);
 });

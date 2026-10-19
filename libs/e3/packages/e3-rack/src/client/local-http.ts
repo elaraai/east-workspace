@@ -34,6 +34,13 @@ export interface SocketRequestOptions {
 }
 
 /**
+ * How long a listener lets a request's body take to arrive: a data URL's whole
+ * fifteen minutes, with a minute to spare. Node's default, five minutes, would
+ * cut a large upload over a slow link short of the time its URL grants.
+ */
+export const REQUEST_BODY_TIMEOUT_MS = 16 * 60_000;
+
+/**
  * Starts an HTTP listener on a private Unix socket or Windows named pipe.
  * The caller must hold ownership before removing any stale socket.
  * @param app - Local HTTP application
@@ -43,7 +50,7 @@ export interface SocketRequestOptions {
  * const server = await serveOnSocket(app, socketPath);
  */
 export async function serveOnSocket(app: Hono, path: string): Promise<Server> {
-  const server = createAdaptorServer({ fetch: app.fetch });
+  const server = createAdaptorServer({ fetch: app.fetch, serverOptions: { requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
   if (!(server instanceof Server)) throw new Error('Local rack transport requires HTTP/1');
   try {
     await new Promise<void>((resolve, reject) => {

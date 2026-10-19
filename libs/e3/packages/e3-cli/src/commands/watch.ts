@@ -35,8 +35,8 @@ import { loadPackageFile } from './load-package.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './workspace.js';
 import { formatSize } from '../format.js';
-import { openRackRunner, type RackRunnerHandle } from '@elaraai/e3-rack';
-import { rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
+import type { RackRunnerHandle } from '@elaraai/e3-rack';
+import { openRack, rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
 
 interface WatchOptions extends BudgetFlags, RackFlags {
   start?: boolean;
@@ -69,7 +69,7 @@ export async function watchCommand(
   options: WatchOptions
 ): Promise<void> {
   refuseRemoteRack(repoArg, options);
-  if ((options.rack !== undefined || options.rackOnly) && !options.start) exitError('--rack requires --start for e3 watch');
+  if ((options.rack === true || options.rackOnly) && !options.start) exitError('--rack requires --start for e3 watch');
   const repoPath = await openRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
   const schema = schemaPolicy(options.schema);
@@ -219,8 +219,8 @@ export async function watchCommand(
       if (!rackOpened) {
         rackOpened = true;
         if (await rackEnabled(repoPath, options)) {
-          rack = await openRackRunner({ repoPath, workspace, storage, budget, label: `e3 watch ${workspace} (pid ${process.pid})`,
-            rackOnly: options.rackOnly, onPlacement: printRackPlacement, log: console.log });
+          rack = await openRack({ repoPath, workspace, storage, budget, label: `e3 watch ${workspace} (pid ${process.pid})`,
+            rackOnly: options.rackOnly, signal, onPlacement: printRackPlacement, log: console.log });
           console.log(`Rack: ${rack.describe()}`);
         }
       } else await rack?.refreshSlots();
@@ -340,9 +340,14 @@ export async function watchCommand(
   // Install handlers before the first run so a rack claim during the initial
   // deploy receives the same cancellation and session cleanup as later runs.
   const cleanup = () => {
-    if (stopping) return;
+    if (stopping) {
+      // A second signal stops at once: the run's abort was requested, and the
+      // hub's sweep ends a session its process left.
+      console.log('\nStopping now.');
+      process.exit(130);
+    }
     stopping = true;
-    console.log('\nStopping watch...');
+    console.log('\nStopping watch... (a second signal stops at once)');
     for (const watcher of watchers.values()) watcher.close();
     if (debounceTimer !== null) clearTimeout(debounceTimer);
     currentAbortController?.abort();

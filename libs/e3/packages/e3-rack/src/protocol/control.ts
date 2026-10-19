@@ -37,6 +37,8 @@ export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringT
 export const HubAttemptType = StructType({ executionId: StringType, startedAt: DateTimeType });
 /** Attaches to a lease, replaying its current attempt through the event stream. */
 export const CreateLeaseResultType = StructType({ leaseId: StringType, attached: BooleanType, attempt: OptionType(HubAttemptType) });
+/** The attach-only answer: the lease attached to, or none when no identical work is queued or held. */
+export const AttachLeaseResultType = OptionType(CreateLeaseResultType);
 /** Reports a committed lease transition to every subscribing session. */
 export const SessionEventType = StructType({ seq: IntegerType, event: VariantType({
   claimed: StructType({ leaseId: StringType, rackId: StringType, rackLabel: StringType, attempt: HubAttemptType }),

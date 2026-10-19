@@ -58,7 +58,6 @@
     "@elaraai/e3-types": "workspace:*",
     "@hono/node-server": "^1.13.0",
     "hono": "^4.6.0",
-    "@elaraai/e3-api-server": "workspace:*",
     "@elaraai/e3": "workspace:*"
   },
   "peerDependencies": {

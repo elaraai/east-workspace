@@ -5,6 +5,7 @@
 
 import type { RackLeaseAttempt, RackLeaseResult } from '../protocol/task-envelope.js';
 import type { RackLeaseRecord, RackLeaseStore } from '../lease/lease-store.js';
+import type { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 
 /**
  * Rotates claim priority across session owners while retaining FIFO per owner.
@@ -16,10 +17,10 @@ import type { RackLeaseRecord, RackLeaseStore } from '../lease/lease-store.js';
 export class FairLeaseStore implements RackLeaseStore {
   private lastOwner: string | undefined;
   /**
-   * @param store - Conditional lease persistence
+   * @param store - The hub's in-memory lease persistence, whose queue is read in place
    * @param owner - Resolves the current session owner, including takeover
    */
-  constructor(private readonly store: RackLeaseStore, private readonly owner: (lease: RackLeaseRecord) => string) {}
+  constructor(private readonly store: InMemoryRackLeaseStore, private readonly owner: (lease: RackLeaseRecord) => string) {}
 
   put(record: RackLeaseRecord) { return this.store.put(record); }
   get(repo: string, id: string) { return this.store.get(repo, id); }
@@ -37,11 +38,12 @@ export class FairLeaseStore implements RackLeaseStore {
     return claimed;
   }
 
-  async listClaimable(tiers: string[], now: number, limit: number): Promise<RackLeaseRecord[]> {
+  listClaimable(tiers: string[], now: number, limit: number): Promise<RackLeaseRecord[]> {
     // Limiting before grouping would let one large session hide every other
-    // owner. The hub's store is in memory and its queue is already bounded.
-    const candidates = await this.store.listClaimable(tiers, now, Number.MAX_SAFE_INTEGER);
-    const groups = new Map<string, RackLeaseRecord[]>();
+    // owner, so the whole queue is read, in place: an agent polls it every
+    // 250 ms. Only the leases chosen are copied out.
+    const candidates = this.store.peekClaimable(tiers, now);
+    const groups = new Map<string, Readonly<RackLeaseRecord>[]>();
     for (const lease of candidates) {
       const id = this.owner(lease);
       const group = groups.get(id) ?? [];
@@ -52,7 +54,7 @@ export class FairLeaseStore implements RackLeaseStore {
     const next = this.lastOwner === undefined ? 0 : owners.findIndex((id) => id > this.lastOwner!);
     const offset = next < 0 ? 0 : next;
     const order = [...owners.slice(offset), ...owners.slice(0, offset)];
-    const result: RackLeaseRecord[] = [];
+    const result: Readonly<RackLeaseRecord>[] = [];
     for (let round = 0; result.length < limit; round++) {
       let added = false;
       for (const id of order) {
@@ -62,6 +64,6 @@ export class FairLeaseStore implements RackLeaseStore {
       }
       if (!added) break;
     }
-    return result;
+    return Promise.resolve(result.map((lease) => structuredClone(lease) as RackLeaseRecord));
   }
 }

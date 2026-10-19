@@ -95,10 +95,13 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     // reproduced by a stock guest. Keep these settings on the standard body.
     if (request.options.env !== undefined || request.options.uid !== undefined || request.options.gid !== undefined ||
       (request.options.extraEnv !== undefined && Object.keys(request.options.extraEnv).length > 0)) return runLocal('host-process-settings');
-    const racks = compatibleRacks(session.capacity(), verdict.tier);
-    if (racks.length === 0) return runLocal(`no-rack-for-tier:${verdict.tier}`);
+    if (compatibleRacks(session.capacity(), verdict.tier).length === 0) return runLocal(`no-rack-for-tier:${verdict.tier}`);
     const canSpill = () => policy.spill && !options.rackOnly && localIdle(request);
-    const free = racks.reduce((sum, rack) => sum + Number(rack.capacity) - Number(rack.busy), 0) - Number(session.capacity().queued);
+    // The compatible slots free in the latest snapshot, less the work already queued for them.
+    const freeSlots = () => {
+      const snapshot = session.capacity();
+      return compatibleRacks(snapshot, verdict.tier).reduce((sum, rack) => sum + Number(rack.capacity) - Number(rack.busy), 0) - Number(snapshot.queued);
+    };
     try {
       const hashes = await taskClosure(request.storage, request.repo, request.taskHash, request.task,
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
@@ -112,10 +115,15 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           : { ...common, mode: 'unit', unit: splitUnitToWire(request.unit) },
         workspace: options.workspace, taskName: placement.taskName, e3Version: E3_RACK_VERSION, closure };
       if (request.options.signal?.aborted) return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
-      handle = await session.createLease({ eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size });
-      // Attach before spilling: identical work already held by the rack costs
-      // no additional capacity and must remain shared between local runs.
-      if (!handle.attached && free <= 0 && canSpill()) return await runLocal('spill');
+      const lease = { eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size };
+      if (freeSlots() <= 0 && canSpill()) {
+        // The racks are full. Identical work already queued or held costs them
+        // no further capacity, so attach to it; anything else runs locally now,
+        // without first queuing a lease a rack could claim before the spill.
+        const attached = await session.attachLease(lease);
+        if (attached === null) return await runLocal('spill');
+        handle = attached;
+      } else handle = await session.createLease(lease);
       const claimWait = Number(policy.claimTimeoutSeconds) * 1000;
       let claimDeadline = Date.now() + claimWait;
       let executionDeadline: number | undefined;
@@ -152,23 +160,41 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         }
         if (update.kind === 'lost') return await runLocal(`fallback:${update.reason}`);
         if (update.kind === 'cancelled') {
-          return await stop('cancelled', 'Rack work was cancelled');
+          // This session left the lease: by the run's abort, or by closing
+          // under a run that was not aborted, whose work then finishes locally.
+          if (request.options.signal?.aborted) return await stop('cancelled', 'cancelled: e3 left the rack execution because the run was aborted');
+          return await runLocal('fallback:rack session closed');
         }
         const result = update.result;
         if (update.attempt === null) return await runLocal('fallback:missing-attempt');
-        const cancelled = result.cancelled === true;
-        const timedOut = /timed?\s*out/i.test(result.error ?? '');
-        const taskFailed = result.state === 'failed' || (result.state === undefined && (result.exitCode ?? 0) > 0);
-        const state = cancelled || timedOut ? 'error' : result.state ?? (result.status === 'success' ? 'success' : taskFailed ? 'failed' : 'error');
+        const attempt = update.attempt;
+        const duration = () => Date.now() - request.ids.startTime;
+        const peak = result.peakBytes !== undefined ? { peakBytes: result.peakBytes } : {};
+        if (result.cancelled === true) {
+          // To e3-core a cancelled result is its own abort's: the task goes back
+          // to pending, and a loop that was not aborted launches it again at
+          // once. Only this run's abort is one. A rack that stopped the attempt
+          // for a reason of its own did not run it, and the work runs locally.
+          if (!request.options.signal?.aborted) return await runLocal(`fallback:${result.error ?? 'the rack stopped the attempt'}`);
+          return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state: 'error', outputHash: null,
+            exitCode: result.exitCode ?? null, duration: duration(), error: result.error ?? null, cancelled: true, ...peak };
+        }
+        const state = result.state ?? (result.status === 'success' ? 'success' : (result.exitCode ?? 0) > 0 ? 'failed' : 'error');
         if (state === 'success') {
           if (result.outputHash === undefined || !await touchReachable(request.storage, request.repo, [result.outputHash])) return await runLocal('fallback:incomplete-output');
-        } else if (!cancelled && !timedOut && (!taskFailed || policy.retryTaskFailuresLocally)) {
-          return await runLocal(`fallback:${result.error ?? 'rack execution failed'}`);
+          return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: result.outputHash,
+            exitCode: 0, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
         }
-        return { inputsHash: request.ids.inHash, executionId: update.attempt.executionId, cached: false,
-          state, outputHash: state === 'success' ? result.outputHash! : null, exitCode: state === 'success' ? 0 : result.exitCode ?? null,
-          duration: Date.now() - request.ids.startTime, error: result.error ?? null, cancelled,
-          ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }) };
+        // e3-core, which the rack ran, records its own timeout as an error whose
+        // message begins `timed out:` (as an abort's begins `cancelled:`). The
+        // task would use its time up again here, so that error stands. Any
+        // other error is the rack's, and the work runs locally; a task's own
+        // failure is its verdict, whatever its message mentions, unless the
+        // policy retries failures locally.
+        const timedOut = state === 'error' && /^timed out:/.test(result.error ?? '');
+        if (state === 'error' ? !timedOut : policy.retryTaskFailuresLocally) return await runLocal(`fallback:${result.error ?? 'rack execution failed'}`);
+        return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: null,
+          exitCode: result.exitCode ?? null, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
       }
     } catch (error) {
       if (leavingRack) throw error;

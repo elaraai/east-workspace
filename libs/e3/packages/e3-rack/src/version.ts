@@ -8,4 +8,4 @@ import { E3_RELEASE } from '@elaraai/e3-types';
 /** The lockstep release whose repository formats this session reads. */
 export const E3_RACK_VERSION: string = E3_RELEASE;
 /** The hub/session protocol this release implements; negotiated exactly. */
-export const HUB_PROTOCOL = 1;
+export const HUB_PROTOCOL = 2;

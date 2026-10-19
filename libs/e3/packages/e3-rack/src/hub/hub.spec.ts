@@ -23,8 +23,11 @@ import { socketRequest } from '../client/local-http.js';
 import { startSessionDataServer } from '../client/session-data-server.js';
 import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
-import { CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubConfigType,
+import { ResponseType } from '@elaraai/e3-types';
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
+import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
+import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
@@ -156,6 +159,52 @@ it('takes over acknowledged uploads and cancels a shared lease only after its la
   assert.equal((await f.fetch(target.value.url, { method: 'PUT', body: bytes })).status, 404);
   assert.equal((await agent.complete(grant, { taskName: 'task', status: 'success', outputHash: hash })).disposition.type, 'discarded');
   assert.equal(await f.storage.objects.exists(f.repo, hash), true);
+});
+
+it('attaches to identical work already queued without queuing, and queues nothing for work no session holds', async () => {
+  const f = await fixture();
+  const first = await f.session(); const second = await f.session();
+  const attach = (session: { sessionId: string }) => socketRequest(f.socket, 'POST', `/v1/sessions/${session.sessionId}/leases/attach`, {
+    requestType: CreateLeaseType, body: { eventJson: JSON.stringify(event()), tier: 'node', computeSize: 'large' }, responseType: AttachLeaseResultType,
+  });
+  assert.equal((await attach(second)).type, 'none');
+  assert.equal((await f.status()).capacity.queued, 0n, 'an attach-only request queues nothing');
+  const created = await first.create(event());
+  const attached = await attach(second);
+  assert(attached.type === 'some');
+  assert.equal(attached.value.leaseId, created.leaseId); assert.equal(attached.value.attached, true);
+  const status = await f.status();
+  assert.equal(status.capacity.queued, 1n);
+  assert.equal(status.sessions.find((session) => session.sessionId === second.sessionId)?.pending, 1n, 'the attached session subscribes to the lease');
+});
+
+it('quarantines a rebooted rack until its boot is approved, only while the policy requires it', async () => {
+  const f = await fixture();
+  const agent = await f.agent();
+  const policy = () => socketRequest(f.socket, 'GET', '/v1/security', { responseType: RackSecurityPolicyType });
+  assert.deepEqual(await policy(), { requireStartApproval: false });
+  const reboot = async (bootId: string) => {
+    const response = await agent.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId, cacheBytes: 0n });
+    assert.equal(response.status, 200);
+    const reply = decodeBeast2For(ResponseType(RackHeartbeatResponseType))(new Uint8Array(await response.arrayBuffer()));
+    assert(reply.type === 'success'); return reply.value;
+  };
+  const pending = async () => (await f.status()).capacity.racks[0]!.pendingApproval;
+  // Without the policy a reboot is admitted as the first boot was.
+  assert.equal((await reboot('second-boot')).pendingApproval, false); assert.equal(await pending(), false);
+  await socketRequest(f.socket, 'POST', '/v1/security', { requestType: RackSecurityPolicyType, body: { requireStartApproval: true }, responseType: RackSecurityPolicyType });
+  assert.deepEqual(await policy(), { requireStartApproval: true });
+  assert.equal(await pending(), true, 'the reboot since the approved boot is quarantined');
+  const rack = (await f.status()).racks[0]!;
+  const approve = (bootId: string) => socketRequest(f.socket, 'POST', `/v1/racks/${rack.rackId}/approve`, { requestType: ApproveRackType, body: { bootId }, responseType: RackRegistrationType });
+  await assert.rejects(approve('stale-boot'), /rebooted; refresh before approving/);
+  assert.deepEqual((await approve('second-boot')).approvedBootId, some('second-boot'));
+  assert.equal(await pending(), false);
+  // The rack boots again, as itself: quarantined until that boot is approved; then it is leased work.
+  assert.equal((await reboot(agent.bootId)).pendingApproval, true); assert.equal(await pending(), true);
+  await approve(agent.bootId); assert.equal(await pending(), false);
+  const session = await f.session(); await session.create(event());
+  assert(await agent.claim());
 });
 
 it('does not deduplicate across repositories or e3 releases and expires abandoned sessions', async () => {

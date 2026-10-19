@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { LocalTaskRunner, type Budget, type LocalTaskRunnerOptions, type StorageBackend, type TaskRunner } from '@elaraai/e3-core';
 import { connectHub } from '../client/connect.js';
 import { RackSession } from '../client/session.js';
-import { loadPolicy, type RackPolicy } from '../routing/policy.js';
+import { loadPolicy, policyTargetsRack, type RackPolicy } from '../routing/policy.js';
 import { compatibleRacks } from './capacity.js';
 import { createRackBody, type RackPlacementEvent } from './rack-body.js';
 
@@ -35,6 +35,8 @@ export interface OpenRackRunnerOptions {
   settings?: Omit<LocalTaskRunnerOptions, 'body'>;
   /** Overrides the user-wide private state home for an isolated deployment. */
   home?: string;
+  /** Ends the wait for the hub and for capacity when the run is aborted. */
+  signal?: AbortSignal;
   /** Receives hub startup messages. */
   log?: (line: string) => void;
 }
@@ -71,25 +73,34 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
   let description = 'No healthy compatible rack; running locally';
   try {
     const policy = options.policy ?? await loadPolicy(options.repoPath);
-    const client = await connectHub({ home: options.home, log: options.log });
+    // A policy that selects no task for a rack needs no session: nothing it
+    // routes would wait for one.
+    if (!policyTargetsRack(policy)) {
+      return { runner: local, rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally', refreshSlots: () => Promise.resolve(0), close: () => Promise.resolve() };
+    }
+    const client = await connectHub({ home: options.home, log: options.log, signal: options.signal });
     session = await RackSession.open(client, options);
     const attached = session;
+    let enrolled = 0;
     const refreshSlots = async () => {
       try {
         const capacity = await attached.refreshCapacity();
         const racks = compatibleRacks(capacity);
+        enrolled = capacity.racks.length;
         slots = racks.reduce((sum, rack) => sum + Number(rack.capacity), 0);
         description = racks.length > 0 ? racks.map((rack) => `${rack.label} (${Number(rack.capacity)} slots, e3 ${rack.bundledE3.type === 'some' ? rack.bundledE3.value : 'unknown'})`).join(', ')
           : capacity.racks.length === 0 ? 'No connected rack; running locally'
             : `No healthy compatible rack; running locally (${capacity.racks.map((rack) => `${rack.label}: ${rack.pendingApproval ? 'boot needs approval' : !rack.healthy ? 'unhealthy' : rack.bundledE3.type === 'none' ? 'bundled e3 version missing' : `e3 ${rack.bundledE3.value} is incompatible`}`).join(', ')})`;
-      } catch (error) { slots = 0; description = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; }
+      } catch (error) { slots = 0; enrolled = 0; description = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; }
       return slots;
     };
+    // Waits for an enrolled rack to report healthy, up to the deadline. With
+    // none enrolled there is nothing to wait for: one appears by enrollment.
     const deadline = Date.now() + Math.max(0, options.waitForRackMs ?? 10000);
     do {
       await refreshSlots();
-      if (slots > 0 || attached.hubLost || Date.now() >= deadline) break;
-      await delay(Math.min(250, deadline - Date.now()));
+      if (slots > 0 || enrolled === 0 || attached.hubLost || options.signal?.aborted === true || Date.now() >= deadline) break;
+      await delay(Math.min(250, deadline - Date.now()), undefined, { signal: options.signal }).catch(() => {});
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
       body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly, onPlacement: options.onPlacement }) });

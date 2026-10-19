@@ -83,6 +83,9 @@ export type CompleteDisposition = 'recorded' | 'idempotent' | 'discarded';
  *
  * @param taskHash - The task's content hash
  * @param inputsHash - Hash of the resolved input set
+ * @returns `{taskHash}#{inputsHash}#{uuidv7}`: a fresh id, which sorts after every earlier lease of the task
+ * @example
+ * const leaseId = makeLeaseId(taskHash, inputsHash);
  */
 export function makeLeaseId(taskHash: string, inputsHash: string): string {
   return `${taskHash}#${inputsHash}#${uuidv7()}`;
@@ -90,6 +93,12 @@ export function makeLeaseId(taskHash: string, inputsHash: string): string {
 
 /**
  * The key prefix all leases for a task identity share.
+ *
+ * @param taskHash - The task's content hash
+ * @param inputsHash - Hash of the resolved input set
+ * @returns `{taskHash}#{inputsHash}#`
+ * @example
+ * const ofTask = ids.filter((id) => id.startsWith(leaseIdPrefix(taskHash, inputsHash)));
  */
 export function leaseIdPrefix(taskHash: string, inputsHash: string): string {
   return `${taskHash}#${inputsHash}#`;
@@ -101,6 +110,9 @@ export function leaseIdPrefix(taskHash: string, inputsHash: string): string {
  *
  * @param record - The stored lease
  * @param nowMs - Current epoch ms
+ * @returns Whether a claim would take it
+ * @example
+ * const candidates = records.filter((record) => isClaimable(record, Date.now()));
  */
 export function isClaimable(record: RackLeaseRecord, nowMs: number): boolean {
   return (

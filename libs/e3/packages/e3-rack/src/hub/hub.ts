@@ -14,7 +14,7 @@ import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { IntegerType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { inputsHash, isObjectHash, isProcessAlive } from '@elaraai/e3-core';
-import { decodeBody, sendSuccess } from '@elaraai/e3-api-server/beast2';
+import { decodeBody, sendSuccess } from '../server/beast2.js';
 import { FileMachineIdentityStore } from '../identity/file-identity-store.js';
 import { generateEnrollmentToken } from '../identity/machine-identity.js';
 import { FileRackRegistry } from '../registry/file-rack-registry.js';
@@ -22,13 +22,13 @@ import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
-import { RackRegistrationType } from '../protocol/registration.js';
+import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
-import { ApproveRackType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
-import { closeSocketServer, RackHubError, serveOnSocket } from '../client/local-http.js';
+import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
 import { rackHome, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { certificateSha256 } from '../tls/tls.js';
@@ -158,10 +158,15 @@ export class RackHub {
         advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
+      // The rack listener binds before the control socket answers: a client
+      // that connects to a hub starting in the background, and enrolls at
+      // once, finds the listener up or down with its reason, never still
+      // binding. A bind that fails leaves the listener down and the control
+      // socket up, so e3 rack config can still change it.
+      await this.bindRack();
       const socket = hubSocketPath(this.home);
       if (process.platform !== 'win32') await unlink(socket).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err; });
       this.control = await serveOnSocket(this.controlApp(), socket);
-      await this.bindRack();
       this.sweeper = setInterval(() => { void this.sweep().catch((err: unknown) => this.options.log?.(`rack sweep: ${messageOf(err)}`)); }, this.options.sweepMs ?? 5000);
       this.sweeper.unref();
       this.options.log?.(`rack hub started (pid ${process.pid}, e3 ${E3_RACK_VERSION})`);
@@ -225,9 +230,13 @@ export class RackHub {
       await this.bridge.discardWrites(lease.repo, lease.leaseId, lease.targets ?? []);
       const event = await this.claimedEvent(lease);
       if (event.type === 'claimed') {
-        await this.bridge.attempts.logs.append(lease.repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId,
-          'stdout', `e3: running on rack ${event.value.rackLabel} (lease ${lease.leaseId})\n`);
-        await this.bridge.attempts.logs.flush?.(lease.repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId);
+        // A line of the attempt's log, best effort: the claim stands, and its
+        // grant is answered, whether or not the session stored the line.
+        try {
+          await this.bridge.attempts.logs.append(lease.repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId,
+            'stdout', `e3: running on rack ${event.value.rackLabel} (lease ${lease.leaseId})\n`);
+          await this.bridge.attempts.logs.flush?.(lease.repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId);
+        } catch (error) { this.options.log?.(`rack lease ${lease.leaseId}: its first log line was not stored: ${messageOf(error)}`); }
       }
       this.publish(sub, event);
     } else if (signal.kind === 'completed' && signal.disposition === 'recorded') {
@@ -238,7 +247,8 @@ export class RackHub {
     }
   }
 
-  private async submit(session: Session, request: ValueTypeOf<typeof CreateLeaseType>): Promise<ValueTypeOf<typeof CreateLeaseResultType>> {
+  /** Attaches the session to identical work already queued or held, or queues the work; attach-only queues nothing. */
+  private async submit(session: Session, request: ValueTypeOf<typeof CreateLeaseType>, attachOnly: boolean): Promise<ValueTypeOf<typeof CreateLeaseResultType> | null> {
     if (this.draining) throw new RackHubError('draining', 'Rack hub is draining');
     const value: unknown = JSON.parse(request.eventJson);
     if (!isLeaseEventV2(value)) throw new Error('Expected a v2 rack lease');
@@ -262,6 +272,7 @@ export class RackHub {
       return { leaseId: existing.leaseId, attached: true,
         attempt: existing.attempt === undefined ? none : some({ executionId: existing.attempt.executionId, startedAt: new Date(existing.attempt.startedAtMs) }) };
     }
+    if (attachOnly) return null;
     if (this.subscriptions.size >= 16384) throw new RackHubError('capacity', 'Rack hub queue is full');
     const lease = await this.dispatch.createLease(event, request.tier, request.computeSize);
     this.subscriptions.set(lease.leaseId, { repo: session.alias, id: lease.leaseId, key, version: session.registration.e3Version, owner: session.id, subscribers: new Set([session.id]), claimants: new Set() });
@@ -295,11 +306,13 @@ export class RackHub {
   }
 
   private async capacity(sessionId?: string): Promise<CapacitySnapshot> {
-    const active: RackLeaseRecord[] = [];
+    const active: Readonly<RackLeaseRecord>[] = [];
     let pending = 0; let claimed = 0;
     for (const sub of this.subscriptions.values()) {
       if (sub.endedAt !== undefined) continue;
-      const lease = await this.leases.get(sub.repo, sub.id);
+      // Read in place: a copy of every live lease on every poll reply would
+      // cost the hub its time.
+      const lease = this.backend.peek(sub.repo, sub.id);
       if (lease === null || !nonterminal(lease)) continue;
       active.push(lease);
       if (sessionId !== undefined && sub.subscribers.has(sessionId)) { if (lease.status === 'pending') pending++; else claimed++; }
@@ -341,7 +354,17 @@ export class RackHub {
     }));
     app.post('/v1/sessions/:id/leases', async (c) => {
       const request = await decodeBody(c, CreateLeaseType);
-      return this.mutations.run(async () => sendSuccess(CreateLeaseResultType, await this.submit(this.session(c.req.param('id')), request)));
+      return this.mutations.run(async () => sendSuccess(CreateLeaseResultType, (await this.submit(this.session(c.req.param('id')), request, false))!));
+    });
+    // Attaches to identical work already queued or held, which costs the racks
+    // no further capacity, and queues nothing otherwise: how a full fleet is
+    // spilled without first offering it the work.
+    app.post('/v1/sessions/:id/leases/attach', async (c) => {
+      const request = await decodeBody(c, CreateLeaseType);
+      return this.mutations.run(async () => {
+        const attached = await this.submit(this.session(c.req.param('id')), request, true);
+        return sendSuccess(AttachLeaseResultType, attached === null ? none : some(attached));
+      });
     });
     app.post('/v1/sessions/:id/leases/:leaseId/cancel', (c) => this.mutations.run(async () => sendSuccess(CancelLeaseResultType, {
       status: await this.unsubscribe(this.session(c.req.param('id')), c.req.param('leaseId')),
@@ -382,6 +405,16 @@ export class RackHub {
         return sendSuccess(HubConfigType, this.config);
       });
     });
+    // Whether a rack's boots after its first need approval before it is leased
+    // work: e3 rack config --require-approval, and e3 rack approve.
+    app.get('/v1/security', async () => sendSuccess(RackSecurityPolicyType, await this.registry.getRackSecurityPolicy() ?? { requireStartApproval: false }));
+    app.post('/v1/security', async (c) => {
+      const policy = await decodeBody(c, RackSecurityPolicyType);
+      return this.mutations.run(async () => {
+        await this.registry.putRackSecurityPolicy(policy);
+        return sendSuccess(RackSecurityPolicyType, policy);
+      });
+    });
     app.post('/v1/enroll', async (c) => {
       const request = await decodeBody(c, HubEnrollType);
       if (this.listener.type !== 'up' || this.config.listen.type === 'none') throw new Error('Configure a reachable rack listener before enrollment');
@@ -402,7 +435,7 @@ export class RackHub {
       const removed = await this.coordinator.run('@rack', id, () => this.registry.deleteRack(id));
       await this.identity.deleteRackTokens(id);
       for (const sub of this.subscriptions.values()) {
-        const lease = await this.leases.get(sub.repo, sub.id);
+        const lease = this.backend.peek(sub.repo, sub.id);
         if (lease?.status === 'claimed' && lease.claimedBy === id) await this.lose(sub, 'rack deregistered');
       }
       return sendSuccess(RemoveRackResultType, { removed });
@@ -441,7 +474,7 @@ export class RackHub {
     const app = new Hono();
     app.use('/api/rack/*', async (c, next) => {
       const address = normalizedAddress(getConnInfo(c).remote.address ?? '');
-      if (this.config.allow.length > 0 && !this.config.allow.some((allowed) => normalizedAddress(allowed) === address)) return c.text('Rack address is not allowed', 403);
+      if (this.config.allow.length > 0 && !this.config.allow.some((allowed) => equalString(normalizedAddress(allowed), address))) return c.text('Rack address is not allowed', 403);
       await this.bridge.origin.run(new URL(c.req.url).origin, next);
     });
     app.route('/', this.bridge.dataRoutes());
@@ -466,8 +499,9 @@ export class RackHub {
       if (this.config.tls) {
         const tls = await loadHubCertificate(this.home);
         pin = certificateSha256(tls.certificatePem);
-        created = createAdaptorServer({ fetch: app.fetch, createServer: createHttpsServer, serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem } });
-      } else created = createAdaptorServer({ fetch: app.fetch });
+        created = createAdaptorServer({ fetch: app.fetch, createServer: createHttpsServer,
+          serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem, requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
+      } else created = createAdaptorServer({ fetch: app.fetch, serverOptions: { requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
       if (!(created instanceof Server) && !(created instanceof HttpsServer)) throw new Error('Rack listener requires HTTP/1');
       const listening = server = created;
       await new Promise<void>((resolve, reject) => {

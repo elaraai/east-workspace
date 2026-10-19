@@ -18,7 +18,7 @@ import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
 import { pinnedFetch } from '../tls/tls.js';
-import { DEFAULT_RACK_POLICY, setMode, type RackPolicy } from '../routing/policy.js';
+import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import type { RackPlacementEvent } from './rack-body.js';
 
@@ -92,9 +92,22 @@ it('keeps unselected tasks local and refreshes a previously empty fleet', async 
   assert.equal((await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' })).state, 'success');
   assert(f.placements.some((event) => event.where === 'local' && event.reason === 'no-rack-for-tier:node'));
   await f.agent(); assert.equal(await rack.refreshSlots(), 1);
-  const unselected = await f.open({ policy: DEFAULT_RACK_POLICY });
+  const unselected = await f.open({ policy: setRule(DEFAULT_RACK_POLICY, 'other_*', 'rack') });
   assert.equal((await unselected.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length', force: true })).state, 'success');
   assert(f.placements.some((event) => event.where === 'local' && event.reason === 'not-selected'));
+});
+
+it('starts at once with no rack enrolled, and opens no session under a policy that selects no task for a rack', async () => {
+  const f = await fixture();
+  const started = Date.now();
+  const unenrolled = await f.open({ waitForRackMs: 5000 });
+  assert(Date.now() - started < 1000, 'nothing to wait for without an enrolled rack');
+  assert.equal(unenrolled.rackSlots, 0); assert.match(unenrolled.describe(), /No connected rack/);
+  const unselected = await f.open({ policy: DEFAULT_RACK_POLICY, waitForRackMs: 5000 });
+  assert(Date.now() - started < 1000); assert.match(unselected.describe(), /selects no task for a rack/);
+  assert.equal((await f.client.status()).sessions.length, 1, 'the unselected policy opened no session');
+  assert.equal((await unselected.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' })).state, 'success');
+  assert.equal(f.budget.peak, 1);
 });
 
 for (const failure of [
@@ -103,6 +116,11 @@ for (const failure of [
   { state: 'failed' as const, exitCode: -1, error: 'runner killed by signal', retry: false, expected: 'failed' },
   { state: 'failed' as const, exitCode: 7, error: 'task refused input', retry: true, expected: 'success' },
   { state: 'error' as const, exitCode: -1, error: 'timed out: e3 stopped the runner', retry: true, expected: 'error' },
+  // An infrastructure error that mentions a timeout is the rack's, not the task's time used up
+  { state: 'error' as const, exitCode: -1, error: 'connect ETIMEDOUT 10.0.0.2:7331', retry: false, expected: 'success' },
+  // A task's own failure is its verdict whatever its message mentions, unless the policy retries failures locally
+  { state: 'failed' as const, exitCode: 1, error: 'fetch timed out after 30 s', retry: false, expected: 'failed' },
+  { state: 'failed' as const, exitCode: 1, error: 'fetch timed out after 30 s', retry: true, expected: 'success' },
 ]) it(`classifies ${failure.error} (retry=${failure.retry}) as ${failure.expected}`, async () => {
   const f = await fixture(); const agent = await f.agent();
   const policy: RackPolicy = { ...f.policy, retryTaskFailuresLocally: failure.retry };
@@ -143,6 +161,7 @@ it('spills distinct work locally when full, while rackOnly waits for the same ra
   const spilling = await f.open();
   assert.equal((await spilling.runner.execute(f.storage, f.hash, extra, { taskName: 'length' })).state, 'success');
   assert(f.placements.some((event) => event.where === 'local' && event.reason === 'spill'));
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'a spill queues no lease a rack could claim first');
   const waiting = await f.open({ rackOnly: true });
   let finished = false;
   const pending = waiting.runner.execute(f.storage, f.hash, extra, { taskName: 'length', force: true }).then((value) => { finished = true; return value; });
@@ -151,6 +170,19 @@ it('spills distinct work locally when full, while rackOnly waits for the same ra
   await agent.execute(grant); assert.equal((await firstRun).state, 'success');
   assert.equal((await agent.runOne())?.status, 'success');
   assert.equal((await pending).state, 'success');
+});
+
+it('runs locally when the rack stops an attempt the run did not abort, instead of launching it again', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open();
+  const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+  const run = await orchestrator.start(f.storage, f.repo, 'dev', { runner: rack.runner, width: f.budget.cores + rack.rackSlots });
+  const grant = await agent.claim(); assert(grant);
+  await agent.complete(grant, { taskName: 'length', status: 'failed', state: 'error', cancelled: true, error: 'the agent is draining' });
+  await orchestrator.wait(run);
+  assert.equal((await orchestrator.getStatus(run)).state, 'completed');
+  assert.equal(f.placements.filter((event) => event.where === 'rack').length, 1, 'offered to the rack once, not again after its stop');
+  assert(f.placements.some((event) => event.where === 'local' && event.reason.includes('draining')));
+  assert.equal(f.budget.peak, 1);
 });
 
 it('cancels a claimed dataflow and makes the next heartbeat stop its rack execution', async () => {

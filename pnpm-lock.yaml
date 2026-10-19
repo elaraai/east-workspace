@@ -334,9 +334,6 @@ importers:
       '@elaraai/e3':
         specifier: workspace:*
         version: link:../e3
-      '@elaraai/e3-api-server':
-        specifier: workspace:*
-        version: link:../e3-api-server
       '@elaraai/e3-core':
         specifier: workspace:*
         version: link:../e3-core

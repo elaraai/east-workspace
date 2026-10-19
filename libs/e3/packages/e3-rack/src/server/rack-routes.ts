@@ -37,7 +37,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Context, Next } from 'hono';
 import { rackBodyLimit } from './body-limit.js';
 import { mapBounded } from './bounded.js';
-import { BooleanType, none, some, variant } from '@elaraai/east';
+import { BooleanType, IntegerType, StringType, compareFor, equalFor, none, some, variant } from '@elaraai/east';
 import { isObjectHash, uuidv7, type LogStore } from '@elaraai/e3-core';
 import {
   RackEnrollRequestType,
@@ -67,7 +67,7 @@ import {
   type RackStorageResponse,
   type RackWriteTarget,
 } from '../protocol/index.js';
-import { sendSuccess, sendError, decodeBody } from '@elaraai/e3-api-server/beast2';
+import { sendSuccess, sendError, decodeBody } from './beast2.js';
 import { updateRack, type RackRegistry } from '../registry/rack-registry.js';
 import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
@@ -188,6 +188,9 @@ const DEFAULT_LEASE_WINDOW_MS = 20_000;
  *  on DynamoDB on-demand; the held API-Lambda invocation dominates cost
  *  either way). */
 const DEFAULT_POLL_INTERVAL_MS = 250;
+
+const equalString = equalFor(StringType);
+const compareInteger = compareFor(IntegerType);
 
 function unauthorized(message: string): Response {
   return new Response(
@@ -433,9 +436,9 @@ export function createRackRoutes(
         policyCheckedAt = Date.now();
       }
       const quarantined = requireStartApproval
-        && !(currentRack.approvedBootId.type === 'some' && currentRack.approvedBootId.value === bootId);
+        && !(currentRack.approvedBootId.type === 'some' && equalString(currentRack.approvedBootId.value, bootId));
 
-      if (!quarantined && currentRack.healthy && currentRack.capacity > 0n
+      if (!quarantined && currentRack.healthy && compareInteger(currentRack.capacity, 0n) > 0
         && currentRack.lastSeenAt.getTime() >= now() - DEFAULT_HEALTHY_WINDOW_MS) {
         const candidates = await leaseStore.listClaimable(tiers, now(), 10);
         for (const candidate of candidates) {
@@ -450,11 +453,11 @@ export function createRackRoutes(
             settingsStore.getRack(rackId), settingsStore.getRackSecurityPolicy(),
           ]);
           if (claimRack === null) return unauthorized('Rack is deregistered');
-          if (signal.aborted || !claimRack.healthy || claimRack.capacity <= 0n
+          if (signal.aborted || !claimRack.healthy || compareInteger(claimRack.capacity, 0n) <= 0
             || claimRack.lastSeenAt.getTime() < now() - DEFAULT_HEALTHY_WINDOW_MS
             || leaseRefusal(claimRack.agentVersion) !== null
             || (security?.requireStartApproval === true
-              && !(claimRack.approvedBootId.type === 'some' && claimRack.approvedBootId.value === bootId))) return null;
+              && !(claimRack.approvedBootId.type === 'some' && equalString(claimRack.approvedBootId.value, bootId)))) return null;
           if (options?.canClaim !== undefined && !(await options.canClaim(claimRack, current))) return null;
           // A task or unit lease's claim runs an attempt, which the cloud
           // records: the rack cannot (#214)
@@ -548,7 +551,7 @@ export function createRackRoutes(
     const security = await settingsStore.getRackSecurityPolicy();
     const pendingApproval =
       security?.requireStartApproval === true &&
-      (approvedBootId.type !== 'some' || approvedBootId.value !== heartbeat.bootId);
+      (approvedBootId.type !== 'some' || !equalString(approvedBootId.value, heartbeat.bootId));
 
     // Rotation offer (D12): only the rack's CURRENT token ages into an
     // offer — a pending successor was just activated by the middleware

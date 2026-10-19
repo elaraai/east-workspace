@@ -12,14 +12,18 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Hono } from 'hono';
-import { StringType, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
-import { decodeBody, sendError, sendSuccess } from '@elaraai/e3-api-server/beast2';
+import { BooleanType, StringType, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
+import type { ExecutionOwner } from '@elaraai/e3-types';
+import { processOwner } from '@elaraai/e3-core';
+import { decodeBody, sendError, sendSuccess } from '../server/beast2.js';
 import { acquireHubLock, HubLockType, readHubLock } from './lock.js';
 import { defaultHubConfig, listenerProblem, loadHubConfig, saveHubConfig, validateHubConfig, wildcardHost } from './config.js';
 import { FairLeaseStore } from './fair-lease-store.js';
+import { SessionLeaseCoordinator, SessionProxyStorageBridge } from './session-bridge.js';
 import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import { makeLeaseId, type RackLeaseRecord } from '../lease/lease-store.js';
-import { closeSocketServer, RackHubError, serveOnSocket, socketRequest, socketStream } from '../client/local-http.js';
+import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket, socketRequest, socketStream } from '../client/local-http.js';
+import { SessionLogsType } from '../protocol/session-data.js';
 import { HUB_CONFIG_FILE, HUB_LOCK_FILE, sessionSocketPath } from '../paths.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -78,6 +82,24 @@ it('publishes one whole hub lock and recovers a stale owner under simultaneous c
   }
 });
 
+it('asks after a contender\'s liveness once in a while during an election, never once per claim per poll', async () => {
+  const path = await home();
+  const self = await processOwner();
+  // Twelve contenders of distinct identities, each liveness answer costing
+  // about what a macOS answer does, which spawns sysctl and ps.
+  const contenders: ExecutionOwner[] = Array.from({ length: 12 }, (_, n) => ({ ...self, pid: 100_000n + BigInt(n) }));
+  let probes = 0;
+  const alive = async () => { probes++; await delay(15); return true; };
+  const started = Date.now();
+  const acquired = await Promise.all(contenders.map((owner) => acquireHubLock(path, { owner, alive })));
+  const elapsed = Date.now() - started;
+  const winners = acquired.filter((lock) => lock !== null);
+  assert.equal(winners.length, 1);
+  cleanup.push(() => winners[0]!.release());
+  assert(probes <= contenders.length * contenders.length, `${probes} liveness answers for ${contenders.length} contenders`);
+  assert(elapsed < 3000, `the election took ${elapsed} ms`);
+});
+
 it('elects one hub across processes and recovers its lock after an ungraceful exit', async () => {
   const path = await home();
   const module = new URL('./lock.js', import.meta.url).href;
@@ -113,6 +135,7 @@ it('serves typed and raw data over a private socket with deadlines and cancellat
   app.get('/bytes', () => new Response(new Uint8Array([1, 2, 3])));
   const server = await serveOnSocket(app, path);
   cleanup.push(() => closeSocketServer(server, path));
+  assert.equal(server.requestTimeout, REQUEST_BODY_TIMEOUT_MS, "a request body may take a data URL's whole lifetime to arrive");
   if (process.platform !== 'win32') assert.equal((await stat(path)).mode & 0o777, 0o600);
   assert.equal(await socketRequest(path, 'POST', '/echo', { requestType: StringType, body: 'hello', responseType: StringType }), 'hello');
   await assert.rejects(socketRequest(path, 'GET', '/error', { responseType: StringType }), /test error/);
@@ -125,6 +148,38 @@ it('serves typed and raw data over a private socket with deadlines and cancellat
   const chunks: Buffer[] = [];
   for await (const chunk of response) chunks.push(Buffer.from(chunk as Uint8Array));
   assert.deepEqual(Buffer.concat(chunks), Buffer.from([1, 2, 3]));
+});
+
+it('drops a log batch whose flush the session refused, so the rack\'s re-post is written once', async () => {
+  const path = sessionSocketPath(await home());
+  const app = new Hono();
+  const batches: string[][] = [];
+  let refusals = 1;
+  app.post('/v1/logs', async (c) => {
+    const request = await decodeBody(c, SessionLogsType);
+    if (refusals-- > 0) return c.text('session busy', 503);
+    batches.push(request.chunks.map((chunk) => chunk.data));
+    return sendSuccess(BooleanType, true);
+  });
+  const server = await serveOnSocket(app, path);
+  cleanup.push(() => closeSocketServer(server, path));
+  const leases = new InMemoryRackLeaseStore();
+  const taskHash = 'a'.repeat(64); const inputsHash = 'b'.repeat(64);
+  await leases.put({
+    leaseId: makeLeaseId(taskHash, inputsHash), repo: 'repo', workspace: 'dev', taskHash, inputsHash, tier: 'node', status: 'claimed',
+    claimedBy: 'rack', createdAtMs: 0, attempt: { executionId: 'run', startedAtMs: 0 },
+    event: { version: 2, workspace: 'dev', taskName: 'task', closure: { hashes: [] }, runnerEvent: { mode: 'task', repo: 'repo', launchId: 'launch', taskHash, inputHashes: [], timeoutMs: 1000 } },
+  });
+  const coordinator = new SessionLeaseCoordinator();
+  const bridge = new SessionProxyStorageBridge({ leases, coordinator, session: () => ({ dataSocket: path, dataToken: 'token' }), owner: await processOwner(), advertiseOrigin: () => undefined });
+  const post = (line: string) => coordinator.run('repo', 'lease', async () => {
+    await bridge.attempts.logs.append('repo', taskHash, inputsHash, 'run', 'stdout', line);
+    await bridge.attempts.logs.flush!('repo', taskHash, inputsHash, 'run');
+  });
+  await assert.rejects(post('first\n'), /session busy/);
+  await post('first\n'); // the rack, told its lines were not stored, posts them again
+  await post('second\n');
+  assert.deepEqual(batches, [['first\n'], ['second\n']]);
 });
 
 it('rotates claims across owners even when one session fills the oldest queue positions', async () => {

@@ -227,3 +227,16 @@ export function setEnabled(policy: RackPolicy, enabled: boolean): RackPolicy { r
  * const next = setMode(policy, 'auto');
  */
 export function setMode(policy: RackPolicy, mode: 'optIn' | 'auto'): RackPolicy { return { ...decode(encode(policy)), mode: variant(mode, null) }; }
+
+/**
+ * Whether the policy can select any task for a rack: automatic selection of
+ * unmatched tasks, or a rule whose target is a rack. A run under a policy
+ * that cannot opens no rack session, and waits for no rack.
+ * @param policy - The run's policy
+ * @returns Whether a task could be routed to a rack
+ * @example
+ * if (policyTargetsRack(policy)) rack = await openRackRunner(options);
+ */
+export function policyTargetsRack(policy: RackPolicy): boolean {
+  return policy.mode.type === 'auto' || policy.rules.some((rule) => rule.target.type === 'rack');
+}

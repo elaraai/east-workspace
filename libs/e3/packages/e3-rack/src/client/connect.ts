@@ -35,6 +35,8 @@ export interface ConnectHubOptions {
   log?: (line: string) => void;
   /** Uses a specific private home, useful for isolated hosts/tests. */
   home?: string;
+  /** Ends the wait for the hub when the caller's run is aborted. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -78,6 +80,7 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
   let spawned = false;
   let last = 'hub did not answer';
   while (Date.now() < deadline) {
+    if (options.signal?.aborted === true) throw new RackHubUnavailableError('Rack hub connection was abandoned: the run was aborted');
     try {
       const hello = await client.hello(Math.max(1, Math.min(1000, deadline - Date.now())));
       const order = compareFor(IntegerType)(hello.protocol, BigInt(HUB_PROTOCOL));
@@ -102,7 +105,7 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
         spawned = true;
       }
     }
-    await delay(Math.max(1, Math.min(100, deadline - Date.now())));
+    await delay(Math.max(1, Math.min(100, deadline - Date.now())), undefined, { signal: options.signal }).catch(() => {});
   }
   throw new RackHubUnavailableError(`Rack hub unavailable: ${last}. See ${join(home, HUB_LOG_FILE)}`);
 }

@@ -93,7 +93,9 @@ eligible; fenced, draining or unhealthy workers publish zero capacity and show
 `unavailable`. Existing work can still finish during drain. Only heartbeats
 refresh readiness: lease polling cannot keep an old capacity report alive.
 After 45 seconds without a heartbeat the worker stops counting as available.
-Source boot approval, when required, remains a separate gate from worker resume.
+Source boot approval, when required, remains a separate gate from worker resume:
+`e3 rack config --require-approval` quarantines a rack after each reboot until
+`e3 rack approve <rack>` admits the boot it reports; enrollment admits the first.
 
 Independent agents belong to separate worker VMs, each with its own identity,
 encrypted configuration and host-enforced resource allocation. Whole GPUs are
@@ -265,8 +267,9 @@ orchestrator width includes compatible rack capacity.
 Concurrent sessions of the same canonical repository and e3 release can share
 one lease. Cancelling one subscriber leaves the others running; cancelling
 the last stops the lease. An interrupted remote attempt and its local retry
-have distinct execution records. Timeouts and cancellation are not retried
-locally. Task failures are returned unless the policy explicitly enables
+have distinct execution records. The task's timeout and the run's own
+cancellation are not retried locally; an attempt the rack stopped on its own
+is. Task failures are returned unless the policy explicitly enables
 `--retry-task-failures-locally`; infrastructure failures fall back locally.
 
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
@@ -300,20 +303,23 @@ e3 rack status                         # does not start an absent hub
 e3 rack list
 e3 task logs . dev.train_model --follow
 e3 rack remove workshop                # revoke this rack's credential
+e3 rack config --require-approval      # quarantine each reboot until approved
+e3 rack approve workshop               # admit the boot this rack last reported
 e3 rack stop                           # stop the shared hub
 ```
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and client must have compatible
-control schemas (currently protocol 1 exactly); incompatible clients receive
+control schemas (currently protocol 2 exactly); incompatible clients receive
 an explicit diagnostic. Agents must report a bundled e3 version at least as
 new as the project's. Stop and restart the hub after an incompatible upgrade.
 
 A hub that `e3 dataflow run` starts exits after 15 idle minutes, while a run
-waits only 10 seconds for a rack and fixes its parallelism as it starts; an
-agent reconnecting after the hub exits backs off for up to 30 seconds. For a
-hub racks can always reach, run `e3 rack hub` as a service, or set
-`e3 rack config --idle-exit 0`.
+waits up to 10 seconds for an enrolled rack to report healthy and fixes its
+parallelism as it starts; with no rack enrolled, or a policy that selects no
+task for a rack, it starts at once. An agent reconnecting after the hub exits
+backs off for up to 30 seconds. For a hub racks can always reach, run
+`e3 rack hub` as a service, or set `e3 rack config --idle-exit 0`.
 
 A rack reads and writes each object through a data URL that lasts 15 minutes,
 and a transfer may take all of it; an object is at most 5 GiB. Over a slow

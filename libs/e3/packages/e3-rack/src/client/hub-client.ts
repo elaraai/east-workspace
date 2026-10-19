@@ -5,10 +5,10 @@
 
 import { none, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
-import { ApproveRackType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
-import { RackRegistrationType } from '../protocol/registration.js';
+import { RackRegistrationType, RackSecurityPolicyType, type RackSecurityPolicy } from '../protocol/registration.js';
 import { socketRequest } from './local-http.js';
 
 /**
@@ -42,6 +42,14 @@ export class HubClient {
   approveRack(id: string, bootId: string): Promise<ValueTypeOf<typeof RackRegistrationType>> {
     return socketRequest(this.socketPath, 'POST', `/v1/racks/${encodeURIComponent(id)}/approve`, { requestType: ApproveRackType, body: { bootId }, responseType: RackRegistrationType });
   }
+  /** Reads whether a rack's boots after its first need approval before it is leased work. */
+  getSecurityPolicy(): Promise<RackSecurityPolicy> {
+    return socketRequest(this.socketPath, 'GET', '/v1/security', { responseType: RackSecurityPolicyType });
+  }
+  /** Sets whether a rack's boots after its first need approval; a rack already admitted keeps its approved boot. */
+  setSecurityPolicy(policy: RackSecurityPolicy): Promise<RackSecurityPolicy> {
+    return socketRequest(this.socketPath, 'POST', '/v1/security', { requestType: RackSecurityPolicyType, body: policy, responseType: RackSecurityPolicyType });
+  }
   /** Reads the effective hub configuration. */
   getConfig(): Promise<HubConfig> { return socketRequest(this.socketPath, 'GET', '/v1/config', { responseType: HubConfigType }); }
   /** Persists configuration and rebinds a changed rack listener. */
@@ -61,6 +69,10 @@ export class HubClient {
   /** Submits or attaches to a task/unit lease of the session's repository. */
   createLease(id: string, request: CreateLease): Promise<ValueTypeOf<typeof CreateLeaseResultType>> {
     return socketRequest(this.socketPath, 'POST', `${this.path(id)}/leases`, { requestType: CreateLeaseType, body: request, responseType: CreateLeaseResultType });
+  }
+  /** Attaches to identical work already queued or held, or answers none; it queues nothing. */
+  attachLease(id: string, request: CreateLease): Promise<ValueTypeOf<typeof AttachLeaseResultType>> {
+    return socketRequest(this.socketPath, 'POST', `${this.path(id)}/leases/attach`, { requestType: CreateLeaseType, body: request, responseType: AttachLeaseResultType });
   }
   /** Unsubscribes one session; only its final subscription cancels the lease. */
   cancelLease(id: string, leaseId: string): Promise<ValueTypeOf<typeof CancelLeaseResultType>> {

@@ -38,6 +38,34 @@ export class InMemoryRackLeaseStore implements RackLeaseStore {
     return Promise.resolve(structuredClone(this.records.get(this.key(repo, id)) ?? null));
   }
 
+  /**
+   * Reads a lease without copying it: for a count or a status check, never
+   * for a change, and not kept past the next transition. A copy per read is
+   * what {@link get} is for.
+   * @param repo - The lease's repository
+   * @param id - The lease
+   * @returns The store's own record, or null
+   * @example
+   * if (leases.peek(repo, id)?.status === 'claimed') busy++;
+   */
+  peek(repo: string, id: string): Readonly<RackLeaseRecord> | null {
+    return this.records.get(this.key(repo, id)) ?? null;
+  }
+
+  /**
+   * The leases an agent with these tiers could claim now, oldest first,
+   * without copying them: the same caution as {@link peek}.
+   * @param tiers - The tiers the agent runs
+   * @param now - The time, in ms since the epoch
+   * @returns The store's own records
+   * @example
+   * const queued = leases.peekClaimable(['node'], Date.now()).length;
+   */
+  peekClaimable(tiers: readonly string[], now: number): ReadonlyArray<Readonly<RackLeaseRecord>> {
+    return [...this.records.values()].filter((r) => tiers.includes(r.tier) && isClaimable(r, now))
+      .sort((a, b) => a.createdAtMs - b.createdAtMs || a.leaseId.localeCompare(b.leaseId));
+  }
+
   findByTask(repo: string, taskHash: string, inputsHash: string): Promise<RackLeaseRecord | null> {
     const prefix = leaseIdPrefix(taskHash, inputsHash);
     const records = [...this.records.values()].filter((r) => r.repo === repo && r.leaseId.startsWith(prefix)
@@ -47,8 +75,7 @@ export class InMemoryRackLeaseStore implements RackLeaseStore {
   }
 
   listClaimable(tiers: string[], now: number, limit: number): Promise<RackLeaseRecord[]> {
-    return Promise.resolve([...this.records.values()].filter((r) => tiers.includes(r.tier) && isClaimable(r, now))
-      .sort((a, b) => a.createdAtMs - b.createdAtMs || a.leaseId.localeCompare(b.leaseId)).slice(0, limit).map((r) => structuredClone(r)));
+    return Promise.resolve(this.peekClaimable(tiers, now).slice(0, limit).map((r) => structuredClone(r) as RackLeaseRecord));
   }
 
   claim(repo: string, id: string, rackId: string, deadline: number, attempt?: RackLeaseAttempt): Promise<RackLeaseRecord | null> {

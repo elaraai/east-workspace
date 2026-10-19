@@ -145,6 +145,8 @@ export interface RackFunctionResult {
  *
  * @param event - The lease's event
  * @returns Whether it is a function lease
+ * @example
+ * const attempt = isFunctionLease(lease.event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
  */
 export function isFunctionLease(event: RackLeaseEvent): boolean {
   return event.runnerEvent.mode === 'run-detached';
@@ -156,6 +158,8 @@ export function isFunctionLease(event: RackLeaseEvent): boolean {
  *
  * @param event - The lease's event
  * @returns The object's hash
+ * @example
+ * const leaseId = makeLeaseId(leaseTaskHash(event), inputsHash(leaseInputs(event)));
  */
 export function leaseTaskHash(event: RackLeaseEvent): string {
   const run = event.runnerEvent;
@@ -168,6 +172,8 @@ export function leaseTaskHash(event: RackLeaseEvent): string {
  *
  * @param event - The lease's event
  * @returns The inputs
+ * @example
+ * const inHash = inputsHash(leaseInputs(event));
  */
 export function leaseInputs(event: RackLeaseEvent): string[] {
   const run = event.runnerEvent;
@@ -185,6 +191,8 @@ export function leaseInputs(event: RackLeaseEvent): string[] {
  *
  * @param event - The lease's event
  * @returns What the attempt's records say
+ * @example
+ * const status = variant('success', { ...common, unit: leaseRecordsUnit(event) });
  */
 export function leaseRecordsUnit(event: RackLeaseEvent): boolean {
   const run = event.runnerEvent;
@@ -197,6 +205,9 @@ export function leaseRecordsUnit(event: RackLeaseEvent): boolean {
  *
  * @param event - The lease's event
  * @returns The run, or undefined
+ * @example
+ * const run = leaseRun(lease.event);
+ * if (run !== undefined) await wake(lease.repo, run);
  */
 export function leaseRun(event: RackLeaseEvent): RunnerRun | undefined {
   const run = event.runnerEvent;
@@ -209,6 +220,8 @@ export function leaseRun(event: RackLeaseEvent): RunnerRun | undefined {
  *
  * @param event - The event, as the lease store holds it
  * @returns Whether it is one
+ * @example
+ * if (!isLeaseEventV2(lease.event)) return forbidden('no work this build runs');
  */
 export function isLeaseEventV2(event: unknown): event is RackLeaseEvent {
   if (typeof event !== 'object' || event === null) return false;

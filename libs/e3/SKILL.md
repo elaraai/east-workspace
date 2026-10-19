@@ -92,9 +92,9 @@ What do you need?
 | `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
 | `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
 | `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
-| `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity. ❗ Rack flags require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
-| `e3 rack status\|list\|remove <id-or-label>\|stop` | Inspect fleet, revoke a rack or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
-| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown. ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
+| `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity; a second Ctrl-C stops the watch at once. ❗ `--rack` and `--rack-only` require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
+| `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
+| `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls] [--require-approval\|--no-require-approval]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown; `--require-approval` quarantines a rack after each reboot until `e3 rack approve` admits it (enrollment admits the first boot). ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
 
 The local process owns graph planning, repository and cache. After a cache
 miss, eligible plain task, map and merge bodies can execute on the rack; input
@@ -194,14 +194,16 @@ companion PR #254, separately from the original main protocol pin.
 
 Policy is `<repo>/rack/policy.beast2`; hub state is `~/.e3/rack` (or
 `E3_RACK_HOME`). A hub `dataflow run` starts exits after 15 idle minutes, and a
-run waits only 10 seconds for a rack: run `e3 rack hub` as a service, or set
-`--idle-exit 0`, for a hub racks can always reach. A data URL lasts 15 minutes,
-which a transfer may use whole; an object is at most 5 GiB. The control schema
-currently requires protocol 1 exactly.
+run waits up to 10 seconds for an enrolled rack to report healthy (with none
+enrolled, or a policy that selects no task for a rack, it starts at once): run
+`e3 rack hub` as a service, or set `--idle-exit 0`, for a hub racks can always
+reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
+at most 5 GiB. The control schema currently requires protocol 2 exactly.
 Agents must report bundled e3 at least the project's release. Infrastructure
-failure falls back locally with a separate execution attempt; cancellation
-and timeout never do. One cancelled subscriber does not stop work shared by
-other sessions of the same canonical repository and e3 release.
+failure falls back locally with a separate execution attempt, as does an
+attempt the rack stopped on its own; the run's own cancellation and the task's
+timeout never do. One cancelled subscriber does not stop work shared by other
+sessions of the same canonical repository and e3 release.
 
 **Programmatic attachment** (`@elaraai/e3-rack`)
 

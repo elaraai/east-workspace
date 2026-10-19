@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import { ArrayType, BooleanType, StringType, decodeBeast2For, encodeBeast2For, equalFor } from '@elaraai/east';
 import { atomicWriteFile, isObjectHash, transferStagingPath, touchReachable, type StorageBackend } from '@elaraai/e3-core';
 import type { ExecutionOwner } from '@elaraai/e3-types';
-import { decodeBody, sendSuccess } from '@elaraai/e3-api-server/beast2';
+import { decodeBody, sendSuccess } from '../server/beast2.js';
 import { ensureRackHome, rackHome, sessionSocketPath } from '../paths.js';
 import { InMemoryLeaseCoordinator } from '../lease/coordinator.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
