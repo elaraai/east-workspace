@@ -20,8 +20,10 @@
  * - **overlay** — its rail stays in the flow, so main never moves; opened,
  *   the pane floats over main from its edge, full height — never so wide
  *   that less than 48px of main shows beside it ({@link MIN_SCRIM},
- *   {@link paneWidths}). Esc closes it and returns the focus to its rail,
- *   and one overlay pane is open at a time;
+ *   {@link paneWidths}). Esc closes it and returns the focus to its rail —
+ *   but a layer open in it that takes Esc itself, marked `data-escape-layer`
+ *   (a Chooser laid in a pane), closes first — and one overlay pane is open
+ *   at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
  *   pinned panes, the start pane placed first; overlaid otherwise, and at
  *   560px and narrower always ({@link placePanes}). The width is the frame's
@@ -468,11 +470,14 @@ export function BuilderFrame(props: BuilderFrameProps) {
 
     // Esc closes the open overlay pane before anything else in the frame hears it. A drag's
     // Esc is the drag's, and a layer portaled out of the frame's regions — a popover, a menu —
-    // takes its own, as it does with the key already handled.
+    // takes its own, as it does with the key already handled; so does a layer laid in a region
+    // that takes Esc itself and says so (`data-escape-layer`: a Chooser laid in a pane).
     const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "Escape" || event.defaultPrevented || dragging || openOverlay === undefined) return;
         const region = event.target instanceof Element ? event.target.closest("[data-frame-slot]") : null;
         if (region === null || region.closest("[data-builder-frame]") !== rootRef.current) return;
+        const layer = (event.target as Element).closest("[data-escape-layer]");
+        if (layer !== null && region.contains(layer)) return;
         event.preventDefault();
         event.stopPropagation();
         railFocus.current = openOverlay;

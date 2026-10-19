@@ -72,7 +72,11 @@ export interface ChooserProps {
     placeholder: string;
     /** An option chosen: its key. */
     onChoose: (key: string) => void;
-    /** Esc in the search box. In a popover the popover closes on Esc itself; this is for a Chooser laid in a pane. */
+    /**
+     * Esc in the search box. In a popover the popover closes on Esc itself; this is for a Chooser laid in a pane. Given it,
+     * the Chooser takes Esc itself and marks its root `data-escape-layer`, so a `BuilderFrame` overlay pane it lies in
+     * leaves the key to it.
+     */
     onClose?: (() => void) | undefined;
     /** Where it sits: in a popover (the default), or laid in a pane with its own border. */
     surface?: "popover" | "inline";
@@ -128,7 +132,8 @@ export const Chooser = memo(function Chooser({ sections, placeholder, onChoose, 
         }
     };
     return (
-        <Box css={styles.root} data-chooser="">
+        // Given `onClose`, it takes Esc itself, and says so: a frame's overlay pane it is laid in leaves the key to it.
+        <Box css={styles.root} data-chooser="" data-escape-layer={onClose !== undefined ? "" : undefined}>
             <Box css={styles.search}>
                 <chakra.label css={styles.searchBox}>
                     <Box as="span" css={styles.searchIcon}><FontAwesomeIcon icon={faMagnifyingGlass} /></Box>

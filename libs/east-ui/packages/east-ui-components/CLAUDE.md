@@ -242,7 +242,10 @@ component, nothing in east-ui.
   (`MIN_SCRIM`), so a 48px strip of main always shows beside it, as a
   phone's drawer leaves one (`paneWidths`, a pure function: on a 324px
   phone Studio's palette and inspector are each 232px). Esc closes it before
-  anything else in the frame hears it, and puts the focus on its rail; one
+  anything else in the frame hears it, and puts the focus on its rail — but
+  a layer open in it that takes Esc itself and says so, `data-escape-layer`
+  (the shared Chooser laid in a pane, given `onClose`), closes first, as a
+  popover portaled out of the frame does; one
   overlay pane is open at a time. `auto` (the default): pinned while main
   keeps `minMain` beside the pinned panes, the start pane placed first;
   overlaid otherwise, and always at 560px and narrower — the frame's own

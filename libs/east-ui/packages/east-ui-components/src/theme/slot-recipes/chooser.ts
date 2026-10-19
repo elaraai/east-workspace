@@ -173,6 +173,8 @@ export const chooserSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             whiteSpace: "nowrap",
             overflow: "hidden",
+            // Its words end in an ellipsis where a narrow pane cuts them, never mid-letter at the edge.
+            "& > span": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
         },
     },
     variants: {

@@ -125,10 +125,15 @@ describe("the Chooser", () => {
         expect(screen.getAllByRole("option").map((o) => o.textContent?.slice(0, 7))).toEqual(["LD-2201"]);
     });
 
-    test("A48 — Esc in a Chooser laid in a pane closes it", () => {
+    test("A48 — Esc in a Chooser laid in a pane closes it: it takes the key itself and says so (`data-escape-layer`), which a frame's overlay pane leaves to it", () => {
         const onClose = vi.fn();
         const { input } = mount(RESOURCE_CELL, vi.fn(), onClose);
+        expect(document.querySelector("[data-chooser]")!.hasAttribute("data-escape-layer")).toBe(true);
         fireEvent.keyDown(input, { key: "Escape" });
         expect(onClose).toHaveBeenCalledOnce();
+        cleanup();
+        // In a popover the popover takes Esc: the Chooser claims nothing.
+        mount(RESOURCE_CELL);
+        expect(document.querySelector("[data-chooser]")!.hasAttribute("data-escape-layer")).toBe(false);
     });
 });
