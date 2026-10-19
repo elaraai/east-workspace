@@ -64,7 +64,7 @@ libs/
 ├── east-web/            # Browser platform — east-web-std (east-node-std's API, for a page's workers)
 ├── east-c/              # C runtime (CMake)
 ├── east-py/             # Python runtime + datascience + I/O (uv workspace)
-├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-api-tests, e3-web (e3 in a browser)
+├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-rack (rack protocol, shared hub and rack task runner), e3-api-tests, e3-web (e3 in a browser)
 ├── east-ui/             # UI components — east-ui, east-ui-components, e3-ui, e3-ui-components, e3-ui-cli, showcases, east-ui-extension (VS Code extension)
 ├── east-plugin/         # Shared agent plugin runtime — the skill catalog (symlinked from libs), the example index, hooks, MCP search server, the assembler; east-claude-plugin/ and east-codex-plugin/ are the two hosts' plugin sources
 └── east-claude-plugin/  # Claude Code plugin source — manifest, hook/MCP entry points, install scripts (east-codex-plugin/ is Codex's)

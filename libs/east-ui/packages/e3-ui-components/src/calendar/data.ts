@@ -4,7 +4,7 @@
  */
 
 /** Tracked Schedule reads over the author-selected window. */
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { DateTimeType, compareFor, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing } from "../shared/schedule/editing.js";
@@ -42,8 +42,14 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     // A pending or failed replacement is not a partial/empty result. Publish
     // scheduled rows, backlog and their time geometry together when ready.
     if (result.ok && !result.value.loading) { held.current = result.value; heldRange.current = range; }
-    return { ...held.current, range: heldRange.current, ready: held.current !== EMPTY,
-        loading: result.ok && result.value.loading, error: result.ok ? undefined : String(result.error) };
+    const complete = held.current;
+    const completeRange = heldRange.current;
+    const loading = result.ok && result.value.loading;
+    const error = result.ok ? undefined : String(result.error);
+    // Intermediate page arrivals advance the tracked read, but do not change
+    // the displayed window. Keep its identity until there is something to show.
+    return useMemo(() => ({ ...complete, range: completeRange, ready: complete !== EMPTY, loading, error }),
+        [complete, completeRange, loading, error]);
 }
 
 /** Named resource rows, preserving the author's declaration order. */

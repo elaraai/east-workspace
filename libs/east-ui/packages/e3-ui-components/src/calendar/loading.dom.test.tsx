@@ -3,17 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  */
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { DateTimeType, SetType, StringType, variant, type EastIR } from "@elaraai/east";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../platform/index.js";
 import { countWholeReads, recordPaging } from "../platform/record-paging.test-utils.js";
 import { act, calendarHarness, card, event, mount, settle, slot, width, WORKSPACE } from "./harness.test-utils.js";
+import * as views from "./views.js";
 const h = calendarHarness();
 const platforms = getRegisteredPlatformImplementations();
 afterEach(() => clearPagedApi());
 for (const mainWidth of [900, 390]) test(`Calendar waits for scheduled and backlog pages before revealing its frame at ${mainWidth}px`, async () => {
+    const renderView = vi.spyOn(views, "CalendarViews");
     const reads = countWholeReads(h.cache);
     initializeRecordApi(reads.serve(h.memory), h.cache, WORKSPACE);
     const days = (ex.calendarJobsByDay.keyFn.toIR() as EastIR<[StringType, typeof ex.CalendarJob], SetType<DateTimeType>>).compile(platforms);
@@ -39,14 +41,17 @@ for (const mainWidth of [900, 390]) test(`Calendar waits for scheduled and backl
     expect(container.querySelector('[data-builder-loading]')).not.toBeNull();
     expect(slot(container, "body").hasAttribute("inert")).toBe(true);
     expect(slot(container, "body").getAttribute("aria-hidden")).toBe("true");
+    const pendingRenders = renderView.mock.calls.length;
     await act(async () => { releaseDays(); }); await settle();
     expect(frame.getAttribute("aria-busy")).toBe("true");
     expect(slot(container, "body").getAttribute("aria-hidden")).toBe("true");
+    expect(renderView).toHaveBeenCalledTimes(pendingRenders);
     await act(async () => { releaseBacklog(); }); await settle();
     expect(container.querySelector('[data-builder-frame]')).toBe(frame);
     expect(frame.getAttribute("aria-busy")).toBe("false");
     expect(slot(container, "main").firstElementChild!.firstElementChild).toBe(canvas);
     expect(container.querySelector('[data-builder-loading]')).toBeNull();
+    expect(renderView.mock.calls.length).toBeGreaterThan(pendingRenders);
     expect((mainWidth < 480 ? card : event)(container, "job", "job1")).not.toBeNull();
     expect(reads.paths.filter(p => p === "records.calendar_jobs")).toEqual([]);
 });

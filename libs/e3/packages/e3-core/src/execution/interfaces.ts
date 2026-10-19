@@ -28,6 +28,10 @@ export interface TaskExecuteOptions {
   /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
    *  to stderr. Runtime-only: never affects the task hash or caching. */
   verbose?: boolean;
+  /** The task's name in the dataflow graph, for labelling remote work.
+   *  Runtime-only: never hashed or part of the execution cache. Absent for
+   *  executions outside a dataflow unless their caller supplies it. */
+  taskName?: string;
   /** AbortSignal for cancellation. A dataflow run another process took up —
    *  its store refused a write as that process's — aborts it with a
    *  `DataflowSupersededError` as its reason: a runner whose executions that

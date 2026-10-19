@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Publishes the @elaraai/* npm packages, skipping any that are already on npm
 // at the current version. Makes retry-after-partial-failure safe without requiring
-// manual cherry-pick.
+// manual cherry-pick. A package whose dependency failed to publish is not
+// published either: it would install for no one (a new package name that
+// cannot accept trusted publishing yet, e.g. @elaraai/e3-rack before
+// scripts/bootstrap-e3-rack-npm.mjs, fails, and e3-cli, which depends on it,
+// must not go out without it). A re-run after the fix publishes both.
 //
 // Usage: publish-npm.mjs <tag> [--dry-run] [--registry <url>]
 //   <tag>            "beta" | "latest"
@@ -45,8 +49,9 @@ const PKGS = [
   'libs/e3/packages/e3/package.json',
   'libs/e3/packages/e3-api-client/package.json',
   'libs/e3/packages/e3-core/package.json',
-  'libs/e3/packages/e3-cli/package.json',
   'libs/e3/packages/e3-api-server/package.json',
+  'libs/e3/packages/e3-rack/package.json',
+  'libs/e3/packages/e3-cli/package.json',
   'libs/e3/packages/e3-api-tests/package.json',
   'libs/e3/packages/e3-web/package.json',
   'libs/east-ui/packages/east-ui/package.json',
@@ -89,6 +94,15 @@ function publish(pkgDir) {
 let failed = 0;
 let published = 0;
 let skipped = 0;
+// The names that did not publish at this version, whose dependents are held back.
+const unpublished = new Set();
+
+// The workspace packages a package needs installed: its dependencies and its
+// required peers (an optional peer is the consumer's choice).
+function required(pkg) {
+  const peers = Object.keys(pkg.peerDependencies ?? {}).filter((name) => pkg.peerDependenciesMeta?.[name]?.optional !== true);
+  return [...Object.keys(pkg.dependencies ?? {}), ...peers];
+}
 
 for (const rel of PKGS) {
   const manifestPath = path.join(repoRoot, rel);
@@ -104,12 +118,21 @@ for (const rel of PKGS) {
     continue;
   }
 
+  const missingDependencies = required(pkg).filter((name) => unpublished.has(name));
+  if (missingDependencies.length > 0) {
+    console.error(`  HELD BACK: ${pkg.name}@${pkg.version} needs ${missingDependencies.join(', ')}, which did not publish`);
+    unpublished.add(pkg.name);
+    failed++;
+    continue;
+  }
+
   // A package whose manifest names files it does not hold was never built,
   // and would install with no code. Refused here, so the release and its
   // verdaccio dry-run, which drives this script, both fail on it.
   const missing = missingEntryPoints(pkgDir, pkg);
   if (missing.length > 0) {
     console.error(`  NOT BUILT: ${pkg.name}@${pkg.version} lacks the entry points its manifest names: ${missing.join(', ')}`);
+    unpublished.add(pkg.name);
     failed++;
     continue;
   }
@@ -117,6 +140,7 @@ for (const rel of PKGS) {
   console.log(`  publish: ${pkg.name}@${pkg.version}${DRY_RUN ? ' (dry run)' : ''}`);
   if (!publish(pkgDir)) {
     console.error(`  FAILED: ${pkg.name}@${pkg.version}`);
+    unpublished.add(pkg.name);
     failed++;
   } else {
     published++;

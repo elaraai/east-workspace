@@ -211,6 +211,7 @@ cat > "$PROJ/package.json" <<EOF
     "@elaraai/east-node-cli": "$VERSION",
     "@elaraai/e3-cli": "$VERSION",
     "@elaraai/e3-core": "$VERSION",
+    "@elaraai/e3-rack": "$VERSION",
     "@elaraai/e3-ui-cli": "$VERSION",
     "@elaraai/east": "$VERSION",
     "@elaraai/east-node-std": "$VERSION",
@@ -265,6 +266,24 @@ for plugin in east-claude-plugin:.claude-plugin east-codex-plugin:.codex-plugin;
   echo "$listing" | grep -q '^package/skills/east-contribute/SKILL.md$' || { echo "missing the plugin-native skills"; exit 1; }
   echo ok
 done
+# Exercise the installed rack package, including the entries consumed by cloud.
+# Source-tree imports cannot catch a missing packaged file or workspace:* rewrite.
+# hub-main starts a daemon, so it is deliberately not imported as a library.
+cat > "$PROJ/rack-package-smoke.mjs" <<'SMOKE'
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const manifest = JSON.parse(readFileSync(new URL('node_modules/@elaraai/e3-rack/package.json', import.meta.url), 'utf8'));
+assert.equal(manifest.version, process.argv[2]);
+for (const [name, version] of Object.entries({ ...manifest.dependencies, ...manifest.peerDependencies })) {
+  if (name.startsWith('@elaraai/')) assert.equal(version, manifest.version, name);
+}
+for (const suffix of ['', '/protocol', '/server', '/testing']) {
+  await import(`@elaraai/e3-rack${suffix}`);
+  console.log(`  import @elaraai/e3-rack${suffix}: ok`);
+}
+SMOKE
+( cd "$PROJ" && node rack-package-smoke.mjs "$VERSION" )
 if [ -n "$JOB_LAUNCHER" ]; then
   # e3-core as a user installs it: its optionalDependency brought the job
   # launcher, and a runner it spawns is the launcher's child — inside its job.
