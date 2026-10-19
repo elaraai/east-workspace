@@ -1,0 +1,9 @@
+{
+  "version": "2.10.0",
+  "url": "https://download.pytorch.org/libtorch/{variant}/libtorch-shared-with-deps-{version}%2B{variant}.zip",
+  "variants": {
+    "cpu": {
+      "sha256": "c5bf8efda9224a2d971b19d1ef6cf3ba6fee8ab53e69c49427db003d1d300496"
+    }
+  }
+}

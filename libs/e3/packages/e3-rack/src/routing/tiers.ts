@@ -7,7 +7,7 @@ import { STOCK_PLATFORMS_BY_RUNNER } from '@elaraai/e3';
 import type { RunnerValue } from '@elaraai/e3-types';
 
 /** Stock runtime images available to rack agents. */
-export type RackTier = 'node' | 'py' | 'py-datascience' | 'c';
+export type RackTier = 'node' | 'py' | 'py-datascience' | 'c' | 'c-datascience';
 /** A stable reason an execution stays on the local host. */
 export type IneligibleReason = 'no-task-name' | 'not-selected' | 'environment' | 'custom-runner'
   | `non-stock-platform:${string}` | `host-coupled:${string}` | 'unscannable';
@@ -26,7 +26,7 @@ export function rackTierFor(runner: RunnerValue): { tier: RackTier } | { ineligi
   if (unknown !== undefined) return { ineligible: `non-stock-platform:${unknown}` };
   switch (runner.type) {
     case 'east_node': return { tier: 'node' };
-    case 'east_c': return { tier: 'c' };
+    case 'east_c': return { tier: runner.value.platforms.includes('east-c-datascience') ? 'c-datascience' : 'c' };
     case 'east_py': return { tier: runner.value.platforms.includes('east-py-datascience') ? 'py-datascience' : 'py' };
   }
 }

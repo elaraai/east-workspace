@@ -1,0 +1,34 @@
+{
+  "name": "@elaraai/east-c-datascience",
+  "version": "1.0.94",
+  "description": "The data-science platform functions for the east-c runner (OR-Tools, XGBoost, neural networks on libtorch), as a package the runner opens at run time. Pulls the per-platform libraries (@elaraai/east-c-datascience-<target>) beside @elaraai/east-c-cli; `east-c-datascience fetch-libtorch` adds the pinned libtorch.",
+  "bin": {
+    "east-c-datascience": "bin/east-c-datascience.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-c/packages/east-c-datascience"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "runtime",
+    "native",
+    "or-tools",
+    "xgboost",
+    "libtorch"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "BUSL-1.1",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

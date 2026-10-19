@@ -141,10 +141,13 @@ if(WIN32)
 endif()
 
 # east-c-datascience: east-py-datascience's platform functions on this runtime
-# (OR-Tools, XGBoost), a C++ package built on request. It links a prebuilt
-# OR-Tools install (scripts/fetch-ortools.sh) and builds XGBoost from its
-# checked-in release archive; the CLI registers it as `east-c-datascience`.
-option(EAST_C_DATASCIENCE "Build east-c-datascience (OR-Tools and XGBoost platform functions)" OFF)
+# (OR-Tools, XGBoost, the neural networks on libtorch), a C++ package built on
+# request as shared libraries the CLI opens at run time for
+# `-p east-c-datascience` (packages/east-c-cli/src/package_loader.c). It links
+# a prebuilt OR-Tools install (scripts/fetch-ortools.sh), a prebuilt libtorch
+# (scripts/fetch-libtorch.sh) and builds XGBoost from its checked-in release
+# archive. The CLI itself is built the same with or without it.
+option(EAST_C_DATASCIENCE "Build east-c-datascience (the OR-Tools, XGBoost and neural-network platform functions, as loadable libraries)" OFF)
 if(EAST_C_DATASCIENCE)
     enable_language(CXX)
 endif()

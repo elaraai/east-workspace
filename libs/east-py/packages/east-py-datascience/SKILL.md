@@ -268,9 +268,10 @@ For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
   platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py
   from the project's `.venv`, no `uv run` wrapper needed). The GoogleOr,
   XGBoost and NeuralNet families also run on the C runtime (`{ runner: {
-  runtime: 'east-c', platforms: ['east-c-std', 'east-c-datascience'] } }`, an
-  east-c built with them, the networks on libtorch): a task moves by changing
-  its runner and nothing else. Nothing runs on the Node runtime.
+  runtime: 'east-c', platforms: ['east-c-std', 'east-c-datascience'] } }`, the
+  package `@elaraai/east-c-datascience` beside the runner, the networks on
+  libtorch): a task moves by changing its runner and nothing else. Nothing runs
+  on the Node runtime.
 - **east** — the language for objective functions, configs and results.
 - **east-py** — the python runtime: East values as plain python data, eager
   methods, and the `@East.platform_function` on-ramp the direct calls live in.

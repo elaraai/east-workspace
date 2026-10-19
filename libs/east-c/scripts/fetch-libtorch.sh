@@ -10,19 +10,21 @@
 #   EAST_LIBTORCH_ARCHIVE=/path/libtorch.zip scripts/fetch-libtorch.sh   # an archive already fetched
 #
 # The version matches the torch python pins (libs/east-py/uv.lock), so a
-# network trained on one runner runs on the other on the same kernels. Only
-# the CPU build's hash is pinned here: a CUDA build is chosen by
-# EAST_LIBTORCH_VARIANT (cu126, cu128, ...) and must be given its SHA-256,
-# which the script prints after a first download so it can be pinned by the
-# caller (a CI secret, a Makefile variable).
+# network trained on one runner runs on the other on the same kernels. The
+# builds pinned are those in libtorch-pins.json; another variant
+# (EAST_LIBTORCH_VARIANT=cu126, ...) must be given its SHA-256, which the
+# script prints after a first download so it can be pinned there.
 set -euo pipefail
 
-VERSION="2.10.0"
-VARIANT="${EAST_LIBTORCH_VARIANT:-cpu}"
-# libtorch-shared-with-deps-2.10.0+cpu.zip, Linux x86_64
-CPU_SHA256="c5bf8efda9224a2d971b19d1ef6cf3ba6fee8ab53e69c49427db003d1d300496"
-
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The pins — the version and each variant's SHA-256 — are libtorch-pins.json
+# beside this script, which the npm package's fetch (packages/east-c-datascience/
+# npm/fetch-libtorch.mjs) reads too, so a build and an install take one build.
+PINS="$here/libtorch-pins.json"
+VERSION="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$PINS")"
+VARIANT="${EAST_LIBTORCH_VARIANT:-cpu}"
+PINNED_SHA256="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["variants"].get(sys.argv[2], {}).get("sha256", ""))' "$PINS" "$VARIANT")"
+
 prefix="${1:-$here/../build-deps/libtorch}"
 stamp="$prefix/.east-libtorch-$VERSION-$VARIANT"
 
@@ -36,11 +38,7 @@ if [ -f "$stamp" ]; then
     exit 0
 fi
 
-if [ "$VARIANT" = "cpu" ]; then
-    expected="$CPU_SHA256"
-else
-    expected="${EAST_LIBTORCH_SHA256:-}"
-fi
+expected="${PINNED_SHA256:-${EAST_LIBTORCH_SHA256:-}}"
 
 archive="${EAST_LIBTORCH_ARCHIVE:-}"
 tmp="$(mktemp -d)"

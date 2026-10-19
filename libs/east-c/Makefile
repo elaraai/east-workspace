@@ -8,7 +8,7 @@ include ../../paths.mk
 .PHONY: build rebuild clean install-cli \
         unit test test-east-c test-east-c-std test-east-c-datascience test-all \
         leak-check leak-check-std leak-check-all bench-cli \
-        help lint format ensure-clang-format fetch-ortools fetch-libtorch
+        help lint format ensure-clang-format fetch-ortools fetch-libtorch stage-datascience check-datascience-floor
 
 # east-c-datascience (packages/east-c-datascience: OR-Tools and XGBoost) is
 # built on request: `make build EAST_C_DATASCIENCE=ON`, after `make
@@ -88,6 +88,18 @@ test-east-c-std: build
 # into EAST_DATASCIENCE_IR_DIR) that east-c-datascience implements: each
 # family moves whole, so a family's suite runs here unchanged.
 DATASCIENCE_SUITES := GoogleOr_platform_functions XGBoost_platform_functions NeuralNet_platform_functions NeuralNet_training
+
+## Stage east-c-datascience as the npm package ships it (build/stage-datascience/lib:
+## the two libraries and every library they load; needs a build with
+## EAST_C_DATASCIENCE=ON)
+stage-datascience:
+	@./scripts/stage-datascience.sh build build/stage-datascience
+
+## Hold every staged file, and the binary, to the runner's glibc floor. Passes
+## for a build on the floor (an AlmaLinux 9 container, as the release builds);
+## a build on a newer host fails it by the host's own libstdc++ and libgomp.
+check-datascience-floor: stage-datascience
+	@node ../../scripts/check-glibc-floor.mjs build/stage-datascience/lib build/packages/east-c-cli/east-c
 
 ## Run the data-science compliance suites (needs a build with EAST_C_DATASCIENCE=ON)
 test-east-c-datascience:

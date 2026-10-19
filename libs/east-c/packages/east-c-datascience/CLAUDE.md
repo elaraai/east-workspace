@@ -3,7 +3,9 @@
 east-py-datascience's platform functions on the C runtime (OR-Tools, XGBoost,
 the neural networks stated as data), one family at a time and whole, under
 east-py-datascience's own compliance suites. C++17 over east-c's C API; built
-with `-DEAST_C_DATASCIENCE=ON`.
+with `-DEAST_C_DATASCIENCE=ON` as two shared libraries the CLI opens at run
+time (`libeast-c-datascience`; `libeast-c-nn`, the libtorch half), published
+beside the runner as `@elaraai/east-c-datascience` (+ `-linux-x64`).
 
 ## Commands
 
@@ -11,9 +13,24 @@ with `-DEAST_C_DATASCIENCE=ON`.
 make fetch-ortools fetch-libtorch             # once: the pinned OR-Tools and libtorch releases
 make build EAST_C_DATASCIENCE=ON              # from libs/east-c
 make test-east-c-datascience                  # the GoogleOr, XGBoost and NeuralNet suites (export them first)
+make stage-datascience                        # what the npm package ships (build/stage-datascience/lib)
+make check-datascience-floor                  # … every file held to the glibc floor (a build on it: AlmaLinux 9)
 ```
 
 ## Rules
+
+- **The library links none of east-c.** Its `east_*` calls bind to the runtime
+  the binary exports when it is opened (`east-c-cli/src/package_loader.c`), so
+  one runtime lives in the process; everything but the C surface in `include/`
+  is hidden. A new entry point goes in that header with `EAST_DS_API`, and
+  the loader resolves it by name. Anything torch goes in `libeast-c-nn`
+  (`src/nn/`), behind the stubs of `nn_stub.cc`, so OR-Tools and XGBoost work
+  without libtorch installed.
+- **Every shipped library holds the floor.** The release builds on AlmaLinux 9
+  (glibc 2.34, GCC 11); a prebuilt library comes from an archive built there
+  (`scripts/fetch-ortools.sh`), and `scripts/check-glibc-floor.mjs` over the
+  staged `lib/` is the gate. libtorch is pinned in `scripts/libtorch-pins.json`
+  and fetched at install, never published.
 
 - **A family moves whole.** Every function of east-py-datascience's family,
   with its names, types and semantics — `google_or_linear_solve` picks the

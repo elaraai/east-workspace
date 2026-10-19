@@ -56,6 +56,7 @@ it('maps only each runtime’s own stock platforms to a rack tier', () => {
   assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['east-py-std', 'east-py-io'], decode })), { tier: 'py' });
   assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['east-py-datascience'], decode })), { tier: 'py-datascience' });
   assert.deepEqual(rackTierFor(variant('east_c', { platforms: ['east-c-std'], decode })), { tier: 'c' });
+  assert.deepEqual(rackTierFor(variant('east_c', { platforms: ['east-c-std', 'east-c-datascience'], decode })), { tier: 'c-datascience' });
   assert.deepEqual(rackTierFor(variant('east_node', { platforms: ['east-py-std'], decode })), { ineligible: 'non-stock-platform:east-py-std' });
   assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['mine'], decode })), { ineligible: 'non-stock-platform:mine' });
   assert.deepEqual(rackTierFor(variant('custom', { command: ['mine'] })), { ineligible: 'custom-runner' });

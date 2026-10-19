@@ -736,17 +736,96 @@ jobs:
           if-no-files-found: error
 
   # ────────────────────────────────────────────────────────────────────────
+  # 5a. publish-c-datascience: the east-c-datascience libraries for linux-x64
+  #     (@elaraai/east-c-datascience-linux-x64): libeast-c-datascience and
+  #     libeast-c-nn, which the east-c binary opens at run time, with every
+  #     library they load. Built on the runner's glibc floor — an AlmaLinux 9
+  #     container: glibc 2.34, GCC 11's libstdc++ — against OR-Tools'
+  #     almalinux-9 archive and the pinned libtorch, staged by
+  #     libs/east-c/scripts/stage-datascience.sh, held to the floor file by
+  #     file, and packed for publish-c-npm. libtorch itself is fetched at
+  #     install, never published (several hundred MB).
+  # ────────────────────────────────────────────────────────────────────────
+  publish-c-datascience:
+    needs: [prepare, verify-version]
+    runs-on: ubuntu-latest
+    container: almalinux:9
+    steps:
+      - name: Install build deps
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc gcc-c++ cmake make git tar gzip unzip python3 binutils findutils which
+          dnf clean all
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - name: Set up Node (the floor check, npm pack)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache OR-Tools
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/or-tools
+          key: or-tools-${{ hashFiles('libs/east-c/scripts/fetch-ortools.sh') }}
+      - name: Fetch OR-Tools
+        run: make -C libs/east-c fetch-ortools
+      - name: Cache libtorch
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/libtorch
+          key: libtorch-${{ hashFiles('libs/east-c/scripts/libtorch-pins.json') }}
+      - name: Fetch libtorch (the pinned CPU build)
+        run: make -C libs/east-c fetch-libtorch
+      - name: Build east-c with east-c-datascience
+        working-directory: libs/east-c
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DEAST_C_DATASCIENCE=ON
+          cmake --build . -j$(nproc)
+      - name: Stage the libraries
+        run: libs/east-c/scripts/stage-datascience.sh libs/east-c/build stage-datascience
+      # Every shipped library, and the binary built here beside them, within
+      # the floor the published runner holds (glibc 2.34; GCC 11's libstdc++).
+      - name: glibc and libstdc++ floor
+        run: node scripts/check-glibc-floor.mjs stage-datascience/lib libs/east-c/build/packages/east-c-cli/east-c
+      - name: Stage per-platform npm package
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          STAGE_NPM="east-c-datascience-linux-x64-${VERSION}"
+          mkdir -p "$STAGE_NPM"
+          cp -r stage-datascience/lib "$STAGE_NPM/lib"
+          cp libs/east-c/packages/east-c-datascience/npm/fetch-libtorch.mjs "$STAGE_NPM/"
+          cp libs/east-c/scripts/libtorch-pins.json "$STAGE_NPM/"
+          cp libs/east-c/packages/east-c-datascience/LICENSE.md "$STAGE_NPM/"
+          node scripts/emit-east-c-platform-manifest.mjs \
+            --package datascience --target linux-x64 --version "$VERSION" \
+            --out "$STAGE_NPM/package.json"
+          node scripts/emit-east-c-platform-readme.mjs \
+            --package datascience --target linux-x64 --version "$VERSION" \
+            --out "$STAGE_NPM/README.md"
+          ( cd "$STAGE_NPM" && npm pack --pack-destination .. )
+          ls -la elaraai-east-c-datascience-*.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c-npm-datascience-linux-x64
+          path: elaraai-east-c-datascience-*.tgz
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────────────────────
   # 5b. publish-c-npm: publishes the @elaraai/east-c-cli launcher + the 5
-  #     per-platform packages (@elaraai/east-c-cli-<target>) to npm with
-  #     provenance. The 5 .tgz tarballs are downloaded as artifacts from
-  #     publish-c-native; the launcher is pnpm-published from source.
+  #     per-platform packages (@elaraai/east-c-cli-<target>), and
+  #     @elaraai/east-c-datascience + its linux-x64 package, to npm with
+  #     provenance. The .tgz tarballs are downloaded as artifacts from
+  #     publish-c-native and publish-c-datascience; the two meta packages are
+  #     pnpm-published from source.
   #
   #     Trusted publishing must be configured per package name in the npm
   #     UI before this job's first non-dry run — see scripts/bootstrap-
   #     east-c-npm.mjs and libs/east-c/docs/npm-runner-distribution.md.
   # ────────────────────────────────────────────────────────────────────────
   publish-c-npm:
-    needs: [prepare, publish-c-native, validate-release]
+    needs: [prepare, publish-c-native, publish-c-datascience, validate-release]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -815,6 +894,43 @@ jobs:
           DRY=${{ inputs.dry_run && '--dry-run' || '' }}
           if [ -z "$DRY" ] && npm view "@elaraai/east-c-cli@${VERSION}" version >/dev/null 2>&1; then
             echo "  skip: @elaraai/east-c-cli@${VERSION} already on npm"
+            exit 0
+          fi
+          pnpm publish --access public --provenance --tag "$TAG" --no-git-checks $DRY
+      # east-c-datascience: the linux-x64 package from publish-c-datascience,
+      # then the meta package with that optionalDependency injected, as the
+      # launcher above. Trusted publishing must be configured for both names
+      # first (scripts/bootstrap-east-c-npm.mjs claims them).
+      - name: Publish the east-c-datascience per-platform package
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.npm_tag }}"
+          DRY=${{ inputs.dry_run && '--dry-run' || '' }}
+          TGZ="./c-npm/elaraai-east-c-datascience-linux-x64-${VERSION}.tgz"
+          if [ ! -f "$TGZ" ]; then
+            echo "::error::Missing artifact $TGZ"
+            exit 1
+          fi
+          NAME="@elaraai/east-c-datascience-linux-x64"
+          if [ -z "$DRY" ] && npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "  skip: ${NAME}@${VERSION} already on npm"
+            exit 0
+          fi
+          echo "  publish: ${NAME}@${VERSION} ← ${TGZ}"
+          npm publish "$TGZ" --access public --provenance --tag "$TAG" $DRY
+      - name: Inject east-c-datascience optionalDependencies (not committed)
+        run: |
+          node scripts/inject-east-c-platform-deps.mjs \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --package datascience
+      - name: Publish @elaraai/east-c-datascience
+        working-directory: libs/east-c/packages/east-c-datascience
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.npm_tag }}"
+          DRY=${{ inputs.dry_run && '--dry-run' || '' }}
+          if [ -z "$DRY" ] && npm view "@elaraai/east-c-datascience@${VERSION}" version >/dev/null 2>&1; then
+            echo "  skip: @elaraai/east-c-datascience@${VERSION} already on npm"
             exit 0
           fi
           pnpm publish --access public --provenance --tag "$TAG" --no-git-checks $DRY

@@ -23,8 +23,13 @@ PREFIX="${1:-${HERE}/../build-deps/or-tools}"
 
 case "$(uname -s)-$(uname -m)" in
     Linux-x86_64)
-        ASSET="or-tools_amd64_ubuntu-24.04_cpp_v${BUILD}.tar.gz"
-        SHA256="6f389320672cee00b78aacefb2bde33fef0bb988c3b2735573b9fffd1047fbda"
+        # The AlmaLinux 9 build: glibc 2.34 and GCC 11's libstdc++
+        # (GLIBCXX_3.4.29), the floor the published runner holds
+        # (scripts/check-glibc-floor.mjs), so the libraries the package ships
+        # load wherever the runner does — Debian 12's node:22-slim included.
+        # Its libraries sit under lib64/.
+        ASSET="or-tools_amd64_almalinux-9_cpp_v${BUILD}.tar.gz"
+        SHA256="269f46be850a30dee9390f01a909a0155788b028e7e0340631e1a48763f1181e"
         ;;
     *)
         echo "fetch-ortools: no pinned OR-Tools ${VERSION} archive for $(uname -s)-$(uname -m)." >&2

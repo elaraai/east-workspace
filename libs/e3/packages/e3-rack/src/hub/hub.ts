@@ -255,7 +255,7 @@ export class RackHub {
     const runner = decodeRunnerEvent(value.runnerEvent);
     if (runner.mode !== 'task' && runner.mode !== 'unit') throw new Error('Local rack delegation supports tasks and units only');
     if (value.environment !== undefined) throw new Error('Local rack environments are not supported');
-    if (!['node', 'py', 'py-datascience', 'c', 'full'].includes(request.tier) || !['serverless', 'small', 'medium', 'large', 'xlarge'].includes(request.computeSize)) throw new Error('Invalid rack tier or compute size');
+    if (!['node', 'py', 'py-datascience', 'c', 'c-datascience', 'full'].includes(request.tier) || !['serverless', 'small', 'medium', 'large', 'xlarge'].includes(request.computeSize)) throw new Error('Invalid rack tier or compute size');
     const closure = value.closure;
     if ('hashes' in closure) {
       if (!Array.isArray(closure.hashes) || closure.hashes.length > 512 || !closure.hashes.every((hash) => typeof hash === 'string' && isObjectHash(hash))) throw new Error('Invalid inline closure');

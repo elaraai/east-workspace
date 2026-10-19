@@ -25,7 +25,7 @@ export type RackSecurityPolicy = ValueTypeOf<typeof RackSecurityPolicyType>;
 /**
  * One enrolled rack agent, as recorded in the rack registry at enrollment
  * and refreshed by heartbeats. `tiers` uses the runner-tier vocabulary
- * (node | py | py-datascience | c | full — see #57): only tasks whose tier
+ * (node | py | py-datascience | c | c-datascience | full — see #57): only tasks whose tier
  * the rack has actually built are routed to it.
  *
  * Boot identity (D12, #90): `lastBootId` is what the agent most recently

@@ -8,7 +8,7 @@
 
 ## Build
 
-Requires CMake 3.16+ and a C11 compiler.
+Requires CMake 3.24+ and a C11 compiler.
 
 ```bash
 make build    # From libs/east-c/
@@ -31,7 +31,7 @@ See [`docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFI
 ./build/packages/east-c-cli/east-c run program.beast2 --input '"hello"'
 ```
 
-The CLI loads the standard platform from `east-c-std` by default. Custom platform functions can be linked at build time.
+The CLI carries the standard platform (`-p east-c-std`, or `std`). The data-science platform — OR-Tools, XGBoost and the neural networks on libtorch — is a package the binary opens at run time (`-p east-c-datascience`, or `datascience`): the npm package `@elaraai/east-c-datascience`, installed beside `@elaraai/east-c-cli`, which the launcher points the binary at; a binary run without the launcher finds it through `EAST_C_PACKAGE_PATH`, beside itself in a flat `node_modules`, or under `/usr/local/lib/east-c` (`src/package_loader.c`). `east-c version -p east-c-datascience` says whether it is installed, where, and with which libtorch. The binary exports the runtime for such packages, so they link none of it.
 
 ### Running a unit (`exec`)
 

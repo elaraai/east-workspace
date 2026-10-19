@@ -5,12 +5,14 @@
 /* nn_init, nn_run and nn_train on the C runtime (docs/neural-networks.md §5):
  * the East boundary of the libtorch interpreter, and the caches that keep a
  * network's plan and its prepared weights between calls. */
+#include "nn_entry.h"
 #include "plan.h"
 #include "torch_interp.h"
 
 #include "../value_util.h"
 
 #include <ATen/CPUGeneratorImpl.h>
+#include <torch/version.h>
 
 #include <algorithm>
 #include <cstring>
@@ -418,13 +420,31 @@ EvalResult nn_train(EastValue **args, size_t, EastType **, size_t, EastType *out
     return eval_ok(r.build());
 }
 
-} // namespace
-
-void register_nn(PlatformRegistry *reg)
+/* The libtorch this library runs on, for `east-c version`. */
+const char *torch_text()
 {
-    platform_registry_add(reg, "nn_init", platform_call_typed<nn_init>, false);
-    platform_registry_add(reg, "nn_run", platform_call_typed<nn_run>, false);
-    platform_registry_add(reg, "nn_train", platform_call_typed<nn_train>, false);
+    static const std::string text = [] {
+        std::string s = "libtorch " TORCH_VERSION;
+        if (!at::hasCUDA()) return s + " (CPU build)";
+        int64_t n = torch::cuda::is_available() ? (int64_t)torch::cuda::device_count() : 0;
+        return s + " (CUDA build, " + std::to_string(n) + " device" + (n == 1 ? "" : "s") + ")";
+    }();
+    return text.c_str();
 }
 
+} // namespace
+
 } // namespace east_ds
+
+/* The table libeast-c-datascience's stubs forward to (nn_entry.h). */
+extern "C" const EastNnEntry *east_nn_entry(void)
+{
+    static const EastNnEntry entry = {
+        EAST_NN_ENTRY_ABI,
+        east_ds::platform_call_typed<east_ds::nn_init>,
+        east_ds::platform_call_typed<east_ds::nn_run>,
+        east_ds::platform_call_typed<east_ds::nn_train>,
+        east_ds::torch_text,
+    };
+    return &entry;
+}

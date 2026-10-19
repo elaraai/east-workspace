@@ -132,7 +132,7 @@ configuration, East body and every executable program (including dict merge
 and fold combine). It does not depend on a map unit running first. Custom
 commands/environments/platforms and unscannable bodies remain local. The host
 guard rejects file, environment and network dependencies unless deliberately
-overridden per rule. Images are node, py, py-datascience, c and full; claims
+overridden per rule. Images are node, py, py-datascience, c, c-datascience and full; claims
 also enforce health, approval and the lease's bundled-e3 version floor.
 
 ## Execution semantics

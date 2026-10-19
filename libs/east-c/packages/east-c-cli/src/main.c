@@ -13,9 +13,7 @@
 #include <east/type_of_type.h>
 #include <east/ir_normalize.h>
 #include <east_std/east_std.h>
-#ifdef EAST_HAS_DATASCIENCE
-#include <east_datascience/east_datascience.h>
-#endif
+#include "package_loader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -567,25 +565,22 @@ static bool is_std_package(const char *name)
     return strcmp(name, "east-c-std") == 0 || strcmp(name, "std") == 0;
 }
 
-/* east-c-datascience: the data-science platform functions (OR-Tools, XGBoost),
- * in a build configured with -DEAST_C_DATASCIENCE=ON. */
+/* east-c-datascience: the data-science platform functions (OR-Tools, XGBoost,
+ * the neural networks on libtorch), a library this binary opens when a program
+ * names the package (package_loader.c). */
 static bool is_datascience_package(const char *name)
 {
     return strcmp(name, "east-c-datascience") == 0 || strcmp(name, "datascience") == 0;
 }
 
 /* The platform packages this runner knows, as its messages list them. */
-#ifdef EAST_HAS_DATASCIENCE
 #define AVAILABLE_PACKAGES                                                                         \
-    "east-c-std (or shorthand: std), east-c-datascience (or shorthand: datascience)"
-#else
-#define AVAILABLE_PACKAGES                                                                         \
-    "east-c-std (or shorthand: std); east-c-datascience needs a build with "                       \
-    "-DEAST_C_DATASCIENCE=ON"
-#endif
+    "east-c-std (or shorthand: std), east-c-datascience (or shorthand: datascience; installed "    \
+    "beside the runner — `east-c version -p east-c-datascience` says whether it is)"
 
 /* Registers one named package's platform functions. False for a package this
- * runner does not know, with the message in `err`. */
+ * runner does not know, or one that is not installed, with the message in
+ * `err`. */
 static bool register_package(PlatformRegistry *platform, const char *name, char *err,
                              size_t err_len)
 {
@@ -593,12 +588,12 @@ static bool register_package(PlatformRegistry *platform, const char *name, char 
         east_std_register_all(platform);
         return true;
     }
-#ifdef EAST_HAS_DATASCIENCE
     if (is_datascience_package(name)) {
-        east_datascience_register_all(platform);
+        const EastDatasciencePackage *ds = east_package_datascience(err, err_len);
+        if (!ds) return false;
+        ds->register_all(platform);
         return true;
     }
-#endif
     snprintf(err, err_len, "Unknown platform package: %s (available: " AVAILABLE_PACKAGES ")",
              name);
     return false;
@@ -609,7 +604,7 @@ static bool register_package(PlatformRegistry *platform, const char *name, char 
 static bool register_platform_packages(PlatformRegistry *platform, const char **packages,
                                        int num_packages)
 {
-    char err[512];
+    char err[4096];
     for (int i = 0; i < num_packages; i++) {
         if (!register_package(platform, packages[i], err, sizeof(err))) {
             fprintf(stderr, "Error: %s\n", err);
@@ -1020,7 +1015,7 @@ static bool exec_registries(const EastUnit *unit, BuiltinRegistry **builtins_out
                             PlatformRegistry **platform_out)
 {
     PlatformRegistry *platform = platform_registry_new();
-    char err[512];
+    char err[4096];
     for (size_t i = 0; i < unit->num_platforms; i++) {
         if (!register_package(platform, unit->platforms[i], err, sizeof(err))) {
             east_builtin_error(err);
@@ -1708,20 +1703,22 @@ static int cmd_version(const char **packages, int num_packages)
                 printf("  east-c-std %s (%zu platform functions)\n", EAST_RUNTIME_VERSION,
                        fn_count);
                 platform_registry_free(tmp);
-#ifdef EAST_HAS_DATASCIENCE
             } else if (is_datascience_package(packages[i])) {
+                char err[4096];
+                const EastDatasciencePackage *ds = east_package_datascience(err, sizeof err);
+                if (!ds) {
+                    printf("  east-c-datascience: %s\n", err);
+                    continue;
+                }
                 PlatformRegistry *tmp = platform_registry_new();
-                east_datascience_register_all(tmp);
+                ds->register_all(tmp);
                 size_t fn_count =
                     hashmap_count(tmp->functions) + hashmap_count(tmp->generic_functions);
                 printf("  east-c-datascience %s (%zu platform functions; OR-Tools %s, XGBoost "
-                       "%s)\n",
-                       EAST_RUNTIME_VERSION, fn_count, east_datascience_ortools_version(),
-                       east_datascience_xgboost_version());
+                       "%s; %s)\n    %s\n",
+                       ds->version(), fn_count, ds->ortools_version(), ds->xgboost_version(),
+                       ds->nn_state(), ds->path);
                 platform_registry_free(tmp);
-#endif
-            } else if (is_datascience_package(packages[i])) {
-                printf("  east-c-datascience: not in this build (cmake -DEAST_C_DATASCIENCE=ON)\n");
             } else {
                 printf("  %s: not available\n", packages[i]);
             }
@@ -1770,8 +1767,10 @@ static void print_usage(const char *prog)
             "\n"
             "Options:\n"
             "  -p, --package PACKAGE   Platform package: std (east-c-std), or datascience\n"
-            "                          (east-c-datascience: OR-Tools and XGBoost, in a build\n"
-            "                          configured with -DEAST_C_DATASCIENCE=ON)\n"
+            "                          (east-c-datascience: OR-Tools, XGBoost and the neural\n"
+            "                          networks, installed beside the runner as\n"
+            "                          @elaraai/east-c-datascience, or found through\n"
+            "                          EAST_C_PACKAGE_PATH)\n"
             "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
             "  -o, --output FILE       Output file for result\n"
             "      --decode MODE       How collection inputs are read: lazy (the default)\n"
@@ -1787,6 +1786,8 @@ static void print_usage(const char *prog)
             "                          source location (run and exec)\n"
             "\n"
             "Environment:\n"
+            "  EAST_C_PACKAGE_PATH       Directories holding a package's library (PATH-style),\n"
+            "                            searched instead of the installed packages\n"
             "  EAST_PROFILE=1            Profile as --profile does, without the flag\n"
             "  EAST_PROFILE_INTERVAL=N   While profiling, print the profile so far every\n"
             "                            N seconds\n"

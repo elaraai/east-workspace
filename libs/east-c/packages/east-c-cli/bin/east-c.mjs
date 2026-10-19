@@ -20,6 +20,7 @@
 
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const require = createRequire(import.meta.url);
@@ -52,7 +53,25 @@ try {
     process.exit(1);
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), { stdio: 'inherit' });
+// The data-science package (@elaraai/east-c-datascience, installed beside
+// this one) is a library the binary opens for `-p east-c-datascience`. Point
+// the binary at it — from here, then from the project, a layout that keeps it
+// out of this package's reach (pnpm's can) — unless the caller already has.
+// Absent, the binary says so when a program names the package.
+const env = { ...process.env };
+if (!env.EAST_C_PACKAGE_PATH) {
+    const dsPkg = `@elaraai/east-c-datascience-${key}`;
+    for (const from of [import.meta.url, pathToFileURL(join(process.cwd(), 'package.json')).href]) {
+        try {
+            env.EAST_C_PACKAGE_PATH = join(dirname(createRequire(from).resolve(`${dsPkg}/package.json`)), 'lib');
+            break;
+        } catch {
+            /* not installed from here */
+        }
+    }
+}
+
+const result = spawnSync(binPath, process.argv.slice(2), { stdio: 'inherit', env });
 if (result.error) {
     console.error(`east-c: failed to run ${binPath}: ${result.error.message}`);
     process.exit(1);

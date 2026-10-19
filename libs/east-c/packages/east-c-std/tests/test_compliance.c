@@ -15,10 +15,11 @@
 #include <east/type_of_type.h>
 #include <east/compat.h>
 #include <east_std/east_std.h>
-/* Built a second time as east-c-datascience's runner, which registers that
- * package beside std (packages/east-c-datascience/CMakeLists.txt). */
+/* Built a second time as east-c-datascience's runner, which opens that package
+ * as the CLI does — the build tree's library, or the one EAST_C_PACKAGE_PATH
+ * names — and registers it beside std (packages/east-c-datascience/CMakeLists.txt). */
 #ifdef EAST_COMPLIANCE_DATASCIENCE
-#include <east_datascience/east_datascience.h>
+#include "package_loader.h"
 #endif
 
 #include <stdio.h>
@@ -209,7 +210,15 @@ static int run_suite(void *arg)
     PlatformRegistry *platform = platform_registry_new();
     east_std_register_all(platform);
 #ifdef EAST_COMPLIANCE_DATASCIENCE
-    east_datascience_register_all(platform);
+    {
+        char err[4096];
+        const EastDatasciencePackage *ds = east_package_datascience(err, sizeof err);
+        if (!ds) {
+            fprintf(stderr, "%s\n", err);
+            exit(1);
+        }
+        ds->register_all(platform);
+    }
 #endif
 
     /* Override test harness functions (east_std stubs don't run tests) */

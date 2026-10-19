@@ -33,9 +33,12 @@ export type EastNodePlatform =
   | '@elaraai/east-node-std'
   | '@elaraai/east-node-io';
 
-/** Stock platforms shipped by `@elaraai/east-c-cli` runner. `east-c-datascience`
- *  is east-py-datascience's families on the C runtime (OR-Tools, XGBoost): a
- *  build of east-c configured with them, which the published runner carries. */
+/** Stock platforms shipped for the `@elaraai/east-c-cli` runner. `east-c-std`
+ *  is in the binary; `east-c-datascience` — east-py-datascience's families on
+ *  the C runtime (OR-Tools, XGBoost, the neural networks on libtorch) — is the
+ *  package `@elaraai/east-c-datascience`, installed beside the runner, which
+ *  the binary opens when a program names it (the `east-c-datascience` Docker
+ *  tier carries both). */
 export type EastCPlatform =
   | 'east-c-std'
   | 'east-c-datascience';
@@ -145,13 +148,14 @@ export const STOCK_PLATFORM_FAMILIES: ReadonlyArray<ReadonlyArray<string>> = [
 ];
 
 /**
- * Lists the stock platform packages each runtime's published image carries.
+ * Lists the stock platform packages each runtime's published images carry
+ * (`east-py-datascience` and `east-c-datascience` on their own tiers).
  * Rack routing uses these names to refuse project-specific platform packages.
  */
 export const STOCK_PLATFORMS_BY_RUNNER = {
   east_node: ['@elaraai/east-node-std', '@elaraai/east-node-io'],
   east_py: ['east-py-std', 'east-py-io', 'east-py-datascience'],
-  east_c: ['east-c-std'],
+  east_c: ['east-c-std', 'east-c-datascience'],
 } as const;
 
 /**

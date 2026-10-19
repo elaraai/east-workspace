@@ -271,3 +271,90 @@ be a manual one without `--provenance`.
    default path). `LocalTaskRunner` prepends the nearest `node_modules/.bin`
    to spawned tasks' PATH so bare `east-node` / `east-c` resolve via the
    project's installed devDeps without `npm exec` ceremony.
+
+## east-c-datascience: a platform package beside the runner
+
+The data-science platform (OR-Tools, XGBoost, the neural networks on
+libtorch) is not in the runner binary: its libraries weigh more than the
+runner many times over, and libtorch more than npm will take. It is a
+**package the binary opens at run time**, delivered the same way as the
+runner, so a project adds it as a dependency and nothing else changes.
+
+### What the binary does
+
+`east-c-cli/src/package_loader.c`: for `-p east-c-datascience` the binary
+opens `libeast-c-datascience.so`, resolves the C surface of
+`east_datascience/east_datascience.h` by name, checks the library was built
+for its own east-c version (another is refused, naming both), and registers
+the functions. The library links **none of east-c**: the binary links the
+whole runtime and exports it (`LINK_LIBRARY_OVERRIDE WHOLE_ARCHIVE`,
+`ENABLE_EXPORTS`, third-party archives excluded), so the library binds to the
+one runtime in the process. Where it looks, in order:
+
+1. `EAST_C_PACKAGE_PATH` — directories (PATH-style); set, nothing else is
+   searched. The launcher sets it to the installed per-platform package's
+   `lib/`.
+2. Beside the binary: `../east-c-datascience-<target>/lib/` (a flat
+   `node_modules`).
+3. `/usr/local/lib/east-c/east-c-datascience/lib/` — what the Docker tier
+   links the installed package to, since it runs the binary without the
+   launcher.
+4. The build tree: `../east-c-datascience/`.
+
+Absent, `east-c version -p east-c-datascience` reports it (and how to install
+it, and the directories searched), and `run`/`exec` refuse before reading
+anything. The neural-network family is a second library beside the first,
+`libeast-c-nn.so`, which links libtorch and is opened by the first `nn_*`
+call: OR-Tools and XGBoost work without libtorch, and an `nn_*` call without
+it fails naming the fetch.
+
+### Packages
+
+- **`@elaraai/east-c-datascience`** — the meta package, like the launcher:
+  no libraries; the `east-c-datascience` command (`fetch-libtorch`, `path`);
+  `optionalDependencies` on the per-platform package, injected at publish
+  (`scripts/inject-east-c-platform-deps.mjs --package datascience`).
+- **`@elaraai/east-c-datascience-linux-x64`** — generated at release
+  (`emit-east-c-platform-manifest.mjs --package datascience`): `lib/` with
+  the two libraries and every library they load, staged by
+  `libs/east-c/scripts/stage-datascience.sh` (OR-Tools' libraries under the
+  sonames they are loaded by, XGBoost's OpenMP runtime; about 30 MB packed),
+  `fetch-libtorch.mjs` and `libtorch-pins.json`, and a `postinstall` that
+  fetches libtorch into `libtorch/` beside `lib/` — verified by SHA-256,
+  only the libraries `libeast-c-nn` loads, never failing the install
+  (`EAST_LIBTORCH=skip` skips it). linux-x64 only: the one platform the
+  pinned OR-Tools and libtorch builds exist for.
+
+Both names are claimed by `scripts/bootstrap-east-c-npm.mjs` (it publishes
+them when the datascience tarball is among the artifacts) and then published
+by `release.yml`'s `publish-c-npm` with provenance, as the launcher's are.
+
+### The floor
+
+The libraries are built in an **AlmaLinux 9** container (glibc 2.34, GCC 11:
+`GLIBCXX_3.4.29`, `CXXABI_1.3.13`) — the runner's own floor — against
+OR-Tools' `almalinux-9` archive, whose libraries need exactly that, and
+`scripts/check-glibc-floor.mjs` holds every staged file to it
+(`release.yml`'s `publish-c-datascience`, `test-east-c.yml`'s
+`package-east-c-datascience`). So the package loads wherever the runner
+does, `node:22-slim` (Debian 12, glibc 2.36) included. libtorch's own floor
+(glibc 2.29, `GLIBCXX_3.4.26`) is below it.
+
+### The tier
+
+`docker/images/Dockerfile.east-c-datascience`, FROM `east-c` as
+`east-py-datascience` is FROM `east-py`: the package installed beside the
+runner, libtorch fetched, the package linked at `/usr/local/lib/east-c`,
+and the layer ends with `east-c version -p east-c-datascience` naming both.
+e3 routes a task whose runner lists `east-c-datascience` to the
+`c-datascience` tier (`STOCK_PLATFORMS_BY_RUNNER`, `rackTierFor`).
+
+### Acceptance
+
+`test-east-c.yml`: `package-east-c-datascience` builds and stages in the
+AlmaLinux 9 container and packs the four packages; `install-east-c-datascience`
+installs them from the tarballs in a clean `node:22-slim`, runs
+`east-c version -p east-c-datascience`, and replays the GoogleOr and XGBoost
+suites through the installed libraries (with the compliance runner built
+beside them, pointed by `EAST_C_PACKAGE_PATH`), then fetches libtorch and
+replays the NeuralNet suites.
