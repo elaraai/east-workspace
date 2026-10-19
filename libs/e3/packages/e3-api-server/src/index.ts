@@ -10,7 +10,7 @@
  * Stateless design - clients poll /status endpoint to track execution progress.
  */
 
-export { createServer, type ServerConfig, type Server } from './server.js';
+export { createServer, type ServerConfig, type Server, type DataflowRunnerFactory, type DataflowRunnerLease, type DataflowRunnerContext } from './server.js';
 export { ApiTypes } from './types.js';
 
 // How `ServerConfig.budget` settings resolve, for an embedder that checks them
@@ -43,4 +43,3 @@ export { conditionalHeaders, etagOf, etagMatches, sendNotModified, workspaceStat
 // Errors, answered as every route answers them: what a host's own routes
 // answer with, so they answer as upstream's do
 export { errorToVariant, errorToHttpStatus, sendJsonError, sendUpgradePending } from './errors.js';
-

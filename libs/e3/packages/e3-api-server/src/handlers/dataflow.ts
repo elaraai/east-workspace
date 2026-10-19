@@ -30,6 +30,7 @@ import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { conditionalHeaders, sendNotModified, workspaceStatusTag } from '../conditional.js';
 import { errorToVariant } from '../errors.js';
 import { sendLockRefusal, stoppingRunBefore } from '../stopping-run.js';
+import type { DataflowRunnerLease, OpenDataflowRunner } from '../dataflow-runner.js';
 import {
   WorkspaceStatusResultType,
   DataflowGraphType,
@@ -227,9 +228,15 @@ export async function startDataflow(
   stateStore: ExecutionStateStore,
   repoPath: string,
   workspace: string,
-  options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean }
+  options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean; dataflowRunner?: OpenDataflowRunner }
 ): Promise<Response> {
   let stopping = false;
+  let lease: DataflowRunnerLease | undefined;
+  const close = async () => {
+    const owned = lease;
+    lease = undefined;
+    try { await owned?.close(); } catch (error) { console.error('Dataflow runner cleanup failed:', error); }
+  };
   try {
     // A host's own orchestrator may take a lock named for whatever it is
     // given, and a lock's name may hold the `#` and `~` no workspace's may.
@@ -237,20 +244,36 @@ export async function startDataflow(
     // Asked before the start as well as after a refusal (sendLockRefusal).
     stopping = await stoppingRunBefore(storage, stateStore, repoPath, workspace);
 
+    try {
+      lease = await options.dataflowRunner?.(repoPath, workspace);
+      if (lease !== undefined && (!Number.isSafeInteger(lease.extraConcurrency) || lease.extraConcurrency < 0)) {
+        throw new RangeError('Dataflow runner extraConcurrency must be a non-negative integer');
+      }
+    } catch (error) {
+      await close();
+      console.warn('Dataflow runner unavailable; running locally:', error);
+    }
+
     // Start execution via orchestrator (acquires lock internally). The loop
     // keeps `width` tasks and units in flight, and the runner decides which
     // of them spawn.
-    await orchestrator.start(storage, repoPath, workspace, {
-      runner: options.runner,
-      ...(options.width !== undefined && { width: options.width }),
+    const run = await orchestrator.start(storage, repoPath, workspace, {
+      runner: lease?.runner ?? options.runner,
+      ...(lease !== undefined ? { width: (options.width ?? 4) + lease.extraConcurrency }
+        : options.width !== undefined ? { width: options.width } : {}),
       force: options.force,
       filter: options.filter,
       verbose: options.verbose,
     });
 
+    // Only hosts opting into an in-process attachment wait here. A portable
+    // cloud orchestrator may finish elsewhere and never exposes such a lease.
+    if (lease !== undefined) void orchestrator.wait(run).then(close, close);
+
     // How the run ends is in its state, which a poll reads.
     return sendSuccessWithStatus(NullType, null, 202);
   } catch (err) {
+    await close();
     if (err instanceof WorkspaceLockError) return sendLockRefusal(NullType, err, stopping, storage, stateStore, repoPath, workspace);
     return sendError(NullType, errorToVariant(err));
   }

@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-api-server",
-  "version": "1.0.93",
+  "version": "1.0.94",
   "type": "module",
   "description": "East Execution Engine API Server - HTTP server exposing e3-core operations",
   "main": "dist/src/index.js",
@@ -67,7 +67,13 @@
     "hono": "^4.6.0"
   },
   "peerDependencies": {
+    "@elaraai/e3-rack": "workspace:*",
     "@elaraai/east": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@elaraai/e3-rack": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

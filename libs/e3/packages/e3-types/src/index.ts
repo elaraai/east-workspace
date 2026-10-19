@@ -295,6 +295,10 @@ export {
 // Wire format constants
 export { BEAST2_CONTENT_TYPE } from './constants.js';
 
+// The BEAST2 request and answer envelopes over the standard Request and
+// Response, which every host's routes answer with
+export { decodeBeast2Request, beast2Success, beast2Error, type Beast2AnswerOptions } from './beast2-http.js';
+
 // API wire types (shared between e3-api-client and e3-api-server)
 export {
   // Error types
