@@ -497,7 +497,7 @@ jobs:
               import { pipeline } from "node:stream/promises";
               import { Readable } from "node:stream";
               const p = JSON.parse(fs.readFileSync("../libs/east-c/scripts/libtorch-pins.json", "utf8"));
-              const url = p.url.replace("{variant}", "cpu").replace("{version}", p.version);
+              const url = p.url.replaceAll("{variant}", "cpu").replaceAll("{version}", p.version);
               const res = await fetch(url);
               if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
               await pipeline(Readable.fromWeb(res.body), fs.createWriteStream("../libtorch-zip/libtorch.zip"));

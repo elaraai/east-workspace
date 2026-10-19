@@ -226,7 +226,7 @@ export async function fetchLibtorch(options = {}) {
     try {
         let archive = options.archive;
         if (!archive) {
-            const url = pins.url.replace('{variant}', variant).replace('{version}', pins.version);
+            const url = pins.url.replaceAll('{variant}', variant).replaceAll('{version}', pins.version);
             console.error(`east-c-datascience: fetching libtorch ${pins.version} (${variant}) from ${url}`);
             archive = join(scratch, 'libtorch.zip');
             const { sha256, bytes } = await download(url, archive);
