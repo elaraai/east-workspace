@@ -62,10 +62,12 @@ requests; this file is the record of behaviour. Changes land under
   `random_normal` returns the polar method's first draw, as the others do
   (east-web-std, which ports east-node-std's generator, follows both); and
   the normal draw's logarithm on every runtime is one algorithm (fdlibm's,
-  the one behind V8's `Math.log`) rather than the host's libm, which rounds a
-  few inputs in a thousand differently from one host to the next. So a seeded
-  east-node program draws a different sequence from this release, and a seeded
-  east-py or east-c program a normal differing in its last bit now and then.
+  carried in TypeScript, C and python) rather than the host's — libm rounds a
+  few inputs in a thousand differently from one host to the next, and V8's
+  `Math.log`, the same algorithm, differs between its x64 and arm64 builds. So
+  a seeded east-node program draws a different sequence from this release, and
+  a seeded east-py or east-c program a normal differing in its last bit now
+  and then.
   *Migration:* a result that depends on the old draws is recomputed; nothing
   stored by e3 changes.
 
