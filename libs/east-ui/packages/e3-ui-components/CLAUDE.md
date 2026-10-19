@@ -122,10 +122,14 @@ component a source so each one's hooks keep their order, and the builder gives
 its own words for a narrowing that failed; a tab over several sources — the
 Sheet's Rows tab over its templates lists, the Calendar's templates — is
 `sourcesTab`, each card following its own source (#1343, #1345). A read that
-lands in many settles — a window over an interval index is some fifty-five key
-searches — runs in a component of its own that hands the frame what it read only
-when that moves, as the Calendar's `CalendarDataReader` does: a tracked read in
-the frame re-renders the whole frame at every settle (#1343). The Calendar reads
+lands in many settles — a window over several sources' interval indexes, each
+some fifty-five key searches that land as one burst a source (#1360) — runs in a
+component of its own that hands the frame what it read only when that moves, as
+the Calendar's `CalendarDataReader` does: a tracked read in the frame re-renders
+the whole frame at every settle (#1343). The paging runtime applies each
+search's answer as it lands, and re-fires the burst's readers once its last
+member is done: the searches of one source's rows launched in one turn. A
+window re-fires as it lands, so rows appear as they arrive. The Calendar reads
 one date window across its event sources (#1343): the first event source holding
 a range leads, its range editor the time navigator's Range panel and every event
 source's range out of the rail; navigation writes the window into each, and a
@@ -188,7 +192,9 @@ staff, whatever people the indexed visibility query hides.
 
 Keep page eviction enabled and independent of sessions. `PagedRuntime` retains
 at most 24 decoded windows; record Slice retains 32 windows capped at 2,048 rows
-each. Never raise those bounds or pin every page to make Save or a scan finish.
+each, and the bounds of at most 1,024 landed searches a revision, so a read
+again asks only the searches still pending (#1360). Never raise those bounds or
+pin every page to make Save or a scan finish.
 Use the shared session's bounded primary-read batches and retain only confirmed
 facts at the committed revision. Save membership checks also accumulate facts
 at one revision. Partial provider pages must resume within their bounded window.

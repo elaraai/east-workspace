@@ -132,6 +132,36 @@ test("indexed binding survives serialization, scopes reads, and follows the deco
     runtime.clear();
 });
 
+test("each indexed source builds its handle once, however often it is read (#1360)", async () => {
+    // A window over an interval index is some fifty-five searches, each a read of
+    // its source: each read once built the index's window type again and looked
+    // its handle up by that type's structure.
+    const runtime = new PagedRuntime();
+    const service = server("A");
+    runtime.initialize(service.api, "ws");
+    const build = runtime.buildHandle.bind(runtime);
+    const built: (string | null)[] = [];
+    runtime.buildHandle = (type, path, selector, shape) => { built.push(selector.index); return build(type, path, selector, shape); };
+    const handle = East.compile(program, platform(runtime))();
+    const read = async () => {
+        await ready(() => handle.revision());
+        await ready(() => handle.seek("by_skill", variant("key", '"b"')));
+        await ready(() => handle.page("by_skill", 0n, 2n));
+        await ready(() => handle.total("by_skill"));
+    };
+    await read();
+    assert.deepEqual(built, [null, "by_skill", "by_skill", "by_skill"],
+        "each method's source is built as it is first read: the revision's over the record's own rows, the search's, the page's and the total's over the index's");
+    await read();
+    await read();
+    assert.equal(built.length, 4, "read again, nothing is built");
+    runtime.clear();
+    runtime.initialize(service.api, "ws");
+    await ready(() => handle.revision());
+    assert.deepEqual(built.slice(4), [null], "a clear drops them with the windows, so the next read builds again");
+    runtime.clear();
+});
+
 test("covering-only binding reads and counts without primary segments; unsupported declarations fail early", async () => {
     const runtime = new PagedRuntime();
     const service = server("cover");

@@ -64,6 +64,7 @@ const encodeRows = encodeBeast2For(ArrayType(IntegerType));
 function virtualSource(size: bigint, ranges: Map<string, { row: bigint; count: bigint }>) {
     let revision: option<string> = some("A");
     let pending = false;
+    let held: readonly string[] = [];
     let failure: Error | undefined;
     let trim = 2048n;
     const seeks: Query[] = [];
@@ -74,7 +75,7 @@ function virtualSource(size: bigint, ranges: Map<string, { row: bigint; count: b
         seek(_index, query) {
             seeks.push(query);
             if (failure) throw failure;
-            if (pending) return none;
+            if (pending || (query.type === "key" && held.includes(query.value))) return none;
             const range = query.type === "key" ? ranges.get(query.value)
                 : query.type === "range" ? { row: parseInteger(query.value.from[0]!), count: parseInteger(query.value.to[0]!) - parseInteger(query.value.from[0]!) }
                     : undefined;
@@ -90,7 +91,9 @@ function virtualSource(size: bigint, ranges: Map<string, { row: bigint; count: b
         },
     };
     return { reader, seeks, pages, pending(value: boolean) { pending = value; }, failure(error?: Error) { failure = error; },
-        revision(value: option<string>) { revision = value; }, trim(value: bigint) { trim = value; } };
+        revision(value: option<string>) { revision = value; }, trim(value: bigint) { trim = value; },
+        /** Keep these key searches pending, every other one answered. */
+        hold(...keys: string[]) { held = keys; } };
 }
 const union: RecordSlicePlan = { index: "by_status", queries: [variant("key", '"b"'), variant("key", '"a"')] };
 
@@ -131,6 +134,27 @@ test("a trillion-row source needs two searches and five row reads for a cross-ra
     assert.deepEqual(source.pages.map(page => page.limit), [2n, 3n]);
     assert.equal(source.seeks.length, 2);
     assert.equal(unwrap(engine.page(union, 0n, 1_000_000_000n)).length, 2048, "an oversized request stays bounded");
+});
+
+test("a selection read again asks its source only for the searches still pending; another revision asks them all again (#1360)", () => {
+    // A window over an interval index is some fifty-five searches, which land one
+    // by one: a read while some are pending never asks again for one that landed.
+    const source = virtualSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 60n, count: 20n }]]));
+    const engine = new RecordSliceSource(source.reader);
+    source.hold('"b"');
+    assert.deepEqual(engine.resolve(union), none);
+    assert.deepEqual(source.seeks, [variant("key", '"b"'), variant("key", '"a"')]);
+    assert.deepEqual(engine.resolve(union), none);
+    assert.deepEqual(source.seeks.slice(2), [variant("key", '"b"')], "the landed search is not asked again");
+    source.hold();
+    assert.equal(unwrap(engine.resolve(union)).total, 30n);
+    assert.deepEqual(source.seeks.slice(3), [variant("key", '"b"')]);
+    assert.deepEqual(unwrap(engine.seek(union, variant("key", '"a"'))), { found: true, row: 0n, count: 10n },
+        "a key search the selection has asked is answered from it");
+    assert.equal(source.seeks.length, 4);
+    source.revision(some("B"));
+    assert.equal(unwrap(engine.resolve(union)).total, 30n);
+    assert.deepEqual(source.seeks.slice(4), [variant("key", '"b"'), variant("key", '"a"')], "another revision asks every search again");
 });
 
 test("pending requests, failures and revision changes cannot produce partial counts or stale windows", () => {

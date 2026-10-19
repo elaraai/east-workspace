@@ -123,6 +123,24 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
         if (subs) for (const cb of [...subs]) cb();
     }
 
+    /**
+     * Notify several channels as one (#1360): every channel's version moves
+     * first, then each subscriber is called once, however many of the
+     * channels it reads — a reader of a window's fifty-five searches runs
+     * again once as they land together, not once a search.
+     *
+     * @param keys - The channels
+     */
+    protected notifyAll(keys: Iterable<string>): void {
+        const subscribers = new Set<() => void>();
+        for (const key of keys) {
+            this.keyVersions.set(key, (this.keyVersions.get(key) ?? 0) + 1);
+            const subs = this.keySubscribers.get(key);
+            if (subs) for (const cb of subs) subscribers.add(cb);
+        }
+        for (const cb of subscribers) cb();
+    }
+
     // ----- channel registry + latest-wins latch ----------------------------
 
     protected entry(key: string): E {

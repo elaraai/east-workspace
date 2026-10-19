@@ -895,3 +895,117 @@ describe("PagedRuntime — key search (#574)", () => {
         assert.equal(g.finds.length, 1);
     });
 });
+
+describe("PagedRuntime — a burst of searches settles as one (#1360)", () => {
+    // A window over an interval index is some fifty-five searches launched in
+    // one pass: its reader re-fires once when they have all landed, not once a
+    // search, and a read meanwhile sees each answer as it lands.
+    const KeyedType = toEastTypeValue(DictType(StringType, Row));
+    const BY_STATUS: PagedSelector = { index: "by_status", join: false };
+    const seekOf = (runtime: PagedRuntime, selector: PagedSelector = NO_INDEX) => {
+        const seek = handleOf(runtime, KeyedType, opsPath, "pinned", selector).seek;
+        assert.ok(seek.type === "some", "the source must declare the capability");
+        return (prefix: string) => seek.value(variant("prefix", prefix));
+    };
+    const keyOf = (prefix: string, selector: PagedSelector = NO_INDEX) =>
+        pagedSeekKey(ws, opsPath, R1, toFindQuery(variant("prefix", prefix), selector), selector);
+
+    test("searches of one source launched together re-fire their reader once, when the last lands, every version moved", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        const seek = seekOf(runtime);
+        const prefixes = ["ka", "kb", "kc"];
+        // One reader of all three, as a window's reader is of its searches.
+        const seen: number[][] = [];
+        const reader = () => { seen.push(prefixes.map((prefix) => runtime.getKeyVersion(keyOf(prefix)))); };
+        for (const prefix of prefixes) runtime.subscribe(keyOf(prefix), reader);
+        for (const prefix of prefixes) assert.equal(seek(prefix).type, "none");
+        assert.equal(g.finds.length, 3);
+
+        g.releaseFind(true, 0, 1);
+        g.releaseFind(true, 1, 1);
+        await settle();
+        assert.deepEqual(seen, [], "no reader re-fires while its burst is in flight");
+        assert.deepEqual(seek("ka"), some({ found: true, row: 0n, count: 1n }), "an answer is read as it lands");
+
+        g.releaseFind(false, 2, 0);
+        await settle();
+        assert.deepEqual(seen, [[1, 1, 1]], "once, after every channel's version has moved");
+    });
+
+    test("a burst with a failed member re-fires once, the failure read as it was", async () => {
+        const g = gatedApi();
+        const runtime = await known(new TestPagedRuntime(), g.api);
+        const seek = seekOf(runtime);
+        let fired = 0;
+        const reader = () => { fired += 1; };
+        for (const prefix of ["ka", "kb"]) runtime.subscribe(keyOf(prefix), reader);
+        seek("ka");
+        seek("kb");
+
+        g.failFind(serverError("internal"));
+        await settle();
+        assert.equal(fired, 0);
+        g.releaseFind(true, 4, 2);
+        await settle();
+        assert.equal(fired, 1);
+        assert.throws(() => seek("ka"), /internal/);
+        assert.deepEqual(seek("kb"), some({ found: true, row: 4n, count: 2n }));
+    });
+
+    test("a member a move drops still ends its burst: what the burst answered re-fires", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        const seek = seekOf(runtime);
+        let fired = 0;
+        const reader = () => { fired += 1; };
+        for (const prefix of ["ka", "kb"]) runtime.subscribe(keyOf(prefix), reader);
+        seek("ka");
+        seek("kb");
+
+        g.releaseFind(true, 0, 1);
+        await settle();
+        g.move(R2);
+        g.releaseFind(true, 1, 1);   // R1's answer, dropped
+        await settle();
+        assert.equal(fired, 1, "the burst ended with its dropped member");
+        assert.equal(seek("ka").type, "none", "R1's answers are never read under R2");
+        assert.deepEqual(g.finds.at(-1), { prefix: "ka", hash: R2 });
+    });
+
+    test("a search of other rows launched in the same turn re-fires on its own", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        const fired = { primary: 0, index: 0 };
+        runtime.subscribe(keyOf("kb"), () => { fired.primary += 1; });
+        runtime.subscribe(keyOf("ka", BY_STATUS), () => { fired.index += 1; });
+        // A Save's confirmation reads the record's own rows; the index is other rows.
+        seekOf(runtime)("kb");
+        seekOf(runtime, BY_STATUS)("ka");
+        assert.deepEqual(g.finds, [{ prefix: "kb", hash: R1 }, { prefix: "ka", index: "by_status", hash: R1 }]);
+
+        g.releaseFind(true, 3, 1);
+        await settle();
+        assert.deepEqual(fired, { primary: 1, index: 0 }, "the record's rows never wait on the index's burst");
+        g.releaseFind(true, 0, 2);
+        await settle();
+        assert.deepEqual(fired, { primary: 1, index: 1 });
+    });
+
+    test("a window still re-fires as it lands, beside another in flight", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        const fired = { first: 0, second: 0 };
+        runtime.subscribe(pagedWindowKey(ws, opsPath, R1, 0, 2), () => { fired.first += 1; });
+        runtime.subscribe(pagedWindowKey(ws, opsPath, R1, 2, 2), () => { fired.second += 1; });
+        callPage(runtime, 0n, 2n);
+        callPage(runtime, 2n, 2n);
+
+        g.release([{ id: "a", v: 1.0 }], 4);
+        await settle();
+        assert.deepEqual(fired, { first: 1, second: 0 }, "a sheet's rows appear as they arrive");
+        g.release([{ id: "c", v: 3.0 }], 4);
+        await settle();
+        assert.deepEqual(fired, { first: 1, second: 1 });
+    });
+});

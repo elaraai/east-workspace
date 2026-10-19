@@ -36,7 +36,10 @@ export interface RecordSliceRuns {
 }
 
 const printQueries = printFor(ArrayType(SeekQueryType));
+const printQuery = printFor(SeekQueryType);
 const MAX_CACHED_RUNS = 128;
+/** Searches whose bounds are kept per revision; a window over an interval index is some fifty-five. */
+const MAX_LANDED_SEARCHES = 1024;
 const MAX_CACHED_PAGES = 32;
 const MAX_PAGE_ROWS = 2048n;
 
@@ -52,13 +55,16 @@ function cache<K, V>(map: Map<K, V>, key: K, value: V, cap: number): void {
  * provider owns asynchronous requests, cancellation, errors and retries.
  * Partial and completed windows share the same bounded cache per revision.
  * Partial windows resume after the last completed provider page, so eviction
- * cannot make a long sequence of short pages restart indefinitely.
+ * cannot make a long sequence of short pages restart indefinitely. A search's
+ * bounds are kept once they land, per revision, so a selection read again
+ * while some of its searches are pending asks the source only for those.
  *
  * @typeParam T - An entry; its contents are opaque to this adapter.
  */
 export class RecordSliceSource<T> {
     private revision: string | undefined;
     private readonly resolved = new Map<string, RecordSliceRuns>();
+    private readonly landed = new Map<string, Range>();
     private readonly pages = new Map<RecordSliceRuns, Map<string, { rows: T[]; complete: boolean }>>();
     private pageCount = 0;
 
@@ -70,11 +76,22 @@ export class RecordSliceSource<T> {
         const next = revision.type === "some" ? revision.value : undefined;
         if (next !== this.revision) {
             this.resolved.clear();
+            this.landed.clear();
             this.pages.clear();
             this.pageCount = 0;
             this.revision = next;
         }
         return next;
+    }
+
+    /** One search's bounds: kept once they land, so a read again asks the source only while they are pending. */
+    private search(index: string, query: Query): option<Range> {
+        const key = `${index}:${printQuery(query)}`;
+        const known = this.landed.get(key);
+        if (known !== undefined) return some(known);
+        const range = this.reader.seek(index, query);
+        if (range.type === "some") cache(this.landed, key, range.value, MAX_LANDED_SEARCHES);
+        return range;
     }
 
     /**
@@ -99,7 +116,7 @@ export class RecordSliceSource<T> {
             // Start independent requests together; never wait for the first
             // request before starting the next selected value's search.
             for (const query of plan.queries) {
-                const range = this.reader.seek(plan.index, query);
+                const range = this.search(plan.index, query);
                 if (range.type === "none") pending = true;
                 else ranges.push(range.value);
             }
@@ -185,7 +202,7 @@ export class RecordSliceSource<T> {
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
         const result = resolved.value;
-        const searched = this.reader.seek(result.index, query);
+        const searched = this.search(result.index, query);
         if (this.current() !== result.revision || searched.type === "none") return none;
         const queryStart = searched.value.row;
         const queryEnd = queryStart + searched.value.count;
