@@ -57,6 +57,27 @@ describe("the board's frame", () => {
         expect(picker.textContent).toContain("Published · Draft · Not started");
     });
 
+    test("A2 — read a day at a time, the picker marks each day of the month it browses to, the month read as one run of keys", async () => {
+        const { container } = mount(ex.allocationWindowed); await settle();
+        await press(toolbar(container).getByRole("button", { name: "Choose plan day" }));
+        const picker = within(document.body).getByRole("dialog");
+        const marks = () => [...picker.querySelectorAll("[data-time-day]")].map(d => d.querySelector("[data-state]")?.getAttribute("data-state"));
+        // May's weeks, Mon 26 Apr to Sun 6 Jun: published to Mon 10, the draft on Tue 11, not started from Wed 12.
+        expect(marks()).toEqual([...Array(15).fill("published"), "draft", ...Array(26).fill("empty")]);
+        // April's, Mon 29 Mar to Sun 2 May, every day published: 35 days, more than the runtime keeps windows of, read a window a day.
+        const before = h.paging.requests.length;
+        const history = () => h.paging.requests.slice(before).filter(r => r.startsWith("records.kiln_plan_history "));
+        fireEvent.click(within(picker).getByRole("button", { name: "Previous month" }));
+        // Counted before anything waits on a timer: reads that evict each other never stop asking, and their landings starve every timer.
+        for (let i = 0; i < 100; i++) await Promise.resolve();
+        expect(history().length).toBeLessThanOrEqual(2);
+        await settle();
+        expect(marks()).toEqual(Array(35).fill("published"));
+        // One search for the month's run of keys, and one page of it.
+        expect(history().filter(r => r.includes(" seek ")).length).toBe(1);
+        expect(history().filter(r => r.includes(" page "))).toEqual([expect.stringMatching(/ page \d+\+35$/)]);
+    });
+
     test("A3 — a day with no entry is Not started, under the banner `Day not started`", async () => {
         const { container } = mount(ex.allocationKilnYard); await settle();
         expect(container.textContent).not.toContain("Day not started");
