@@ -196,7 +196,12 @@ dynamically typed at the boundary. See `pyproject.toml`.
   `cd libs/east && make test-export`)
   through east-c; `test_compliance_eager.py` + `eager_replay.py` replay the
   same corpus through the python surface, builtin by builtin, gated by an
-  exact `KNOWN_DIFFS` pin that only ratchets down.
+  exact `KNOWN_DIFFS` pin that only ratchets down. A test named `… (x86-64)`
+  pins an answer only x86-64 gives (a native library's own floating point,
+  such as the bytes of an XGBoost fit); the east-c, east-py and east-node
+  harnesses skip it on another architecture, reported as `[-]`, outside the
+  counts (east-web-std's, which may run in a browser, cannot tell the
+  architecture and runs every test).
 - **Conformance** (`tests/conformance/`) — `build(print(IR)) ≡ IR` under
   east-c's normalizer for the corpus and for the exported examples
   (`EAST_EXAMPLES_IR_DIR`, the checkout's `tmp/east-examples-ir`, from

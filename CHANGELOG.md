@@ -86,6 +86,13 @@ requests; this file is the record of behaviour. Changes land under
   UBJSON blob on both runners, byte for byte; the XGBoost suite holds both to
   the blob the python runner wrote.
 
+### The test harnesses
+
+- **A test named `… (x86-64)` pins an answer only x86-64 gives** — a native
+  library's own floating point, such as the bytes of an XGBoost fit. The
+  east-c, east-py and east-node harnesses skip it on another architecture,
+  reported as `[-]` outside the passed and failed counts.
+
 ### e3
 
 - `STOCK_PLATFORMS_BY_RUNNER.east_c` lists `east-c-datascience`, and rack

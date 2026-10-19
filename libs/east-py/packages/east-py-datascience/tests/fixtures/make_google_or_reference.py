@@ -3,11 +3,15 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 """Write ``test/google_or.reference.generated.ts``: what the python runner
-answers for the generated workloads ``test/google_or.spec.ts`` holds both
-runners to — the W1-shaped LP in columns (500 variables, answered whole;
-33,526 variables, its objective, two sequential weighted checksums over its
-assignments and sampled assignments) on HiGHS, and the W1-shaped assignment
-models (50, 300 and 600 decisions) on CP-SAT with one seeded worker.
+answers for the workloads ``test/google_or.spec.ts`` holds both runners to —
+the exact LP on each backend (its vertex to the last bit of the backend's own
+arithmetic), the W1-shaped LP in columns (500 variables, answered whole, on
+Glop, HiGHS and SCIP; 33,526 variables, its objective, two sequential
+weighted checksums over its assignments and sampled assignments, on HiGHS),
+and the W1-shaped assignment models (50, 300 and 600 decisions) on CP-SAT
+with one seeded worker. Each assignment model's optimum is proved unique
+here (its solutions at the optimum enumerated), so the pinned assignment is
+the one every host's search ends at.
 
 Run from this package::
 
@@ -38,7 +42,14 @@ from east_py_datascience.google_or.cpsat import (
     CpSatObjectiveType,
     cpsat_solve,
 )
-from east_py_datascience.google_or.linear import LinearSolverType, linear_solve_columns
+from east_py_datascience.google_or.linear import (
+    LinearConstraintDefType,
+    LinearSolverType,
+    LinearTermType,
+    LinearVarType,
+    linear_solve,
+    linear_solve_columns,
+)
 
 OUT = Path(__file__).resolve().parents[2] / "test" / "google_or.reference.generated.ts"
 
@@ -106,15 +117,55 @@ def lp_columns(n: int, seed: int) -> EastStruct:
     )
 
 
-def highs_config() -> EastStruct:
+def exact_lp() -> EastStruct:
+    """The spec's EXACT_LP: maximise 3x + 2y with x + y ≤ 4, x and y in [0, 3] — x = 3, y = 1, 11."""
+
+    def var(name: str) -> EastStruct:
+        return EastStruct(
+            {"name": name, "lower_bound": 0.0, "upper_bound": 3.0, "is_integer": False}
+        )
+
+    def term(name: str, c: float) -> EastStruct:
+        return EastStruct({"var": name, "coeff": c})
+
     return EastStruct(
         {
-            "solver": some(variant("highs", None, LinearSolverType)),
+            "variables": EastArray(LinearVarType, [var("x"), var("y")]),
+            "constraints": EastArray(
+                LinearConstraintDefType,
+                [
+                    EastStruct(
+                        {
+                            "terms": EastArray(LinearTermType, [term("x", 1.0), term("y", 1.0)]),
+                            "lower_bound": -1e20,
+                            "upper_bound": 4.0,
+                        }
+                    )
+                ],
+            ),
+            "objective": EastStruct(
+                {
+                    "terms": EastArray(LinearTermType, [term("x", 3.0), term("y", 2.0)]),
+                    "maximize": True,
+                }
+            ),
+        }
+    )
+
+
+def linear_config(backend: str) -> EastStruct:
+    return EastStruct(
+        {
+            "solver": some(variant(backend, None, LinearSolverType)),
             "max_time_seconds": none,
             "relative_gap_limit": none,
             "hints": none,
         }
     )
+
+
+def highs_config() -> EastStruct:
+    return linear_config("highs")
 
 
 def weighted_sum(values: np.ndarray, modulus: int) -> float:
@@ -132,7 +183,9 @@ def assignment_model(n: int, seed: int) -> EastStruct:
     r = Stream(seed)
     M = 5
     cap = (13 * n + 9) // 10
-    int_vars = [EastStruct({"name": f"load{m}", "lower_bound": 0, "upper_bound": cap}) for m in range(M)]
+    int_vars = [
+        EastStruct({"name": f"load{m}", "lower_bound": 0, "upper_bound": cap}) for m in range(M)
+    ]
     bool_vars, constraints, obj_terms, weights = [], [], [], []
 
     def term(var: str, c: int) -> EastStruct:
@@ -143,7 +196,9 @@ def assignment_model(n: int, seed: int) -> EastStruct:
             "linear",
             EastStruct(
                 {
-                    "expr": EastStruct({"terms": EastArray(CpSatLinearTermType, terms), "constant": 0}),
+                    "expr": EastStruct(
+                        {"terms": EastArray(CpSatLinearTermType, terms), "constant": 0}
+                    ),
                     "op": variant(op, None, CpSatComparisonType),
                     "rhs": rhs,
                 }
@@ -158,7 +213,7 @@ def assignment_model(n: int, seed: int) -> EastStruct:
             name = f"x{i}_{m}"
             bool_vars.append(EastStruct({"name": name}))
             terms.append(term(name, 1))
-            obj_terms.append(term(name, r.draw(1, 20)))
+            obj_terms.append(term(name, r.draw(1, 200000)))
         constraints.append(linear(terms, "equal", 1))
     for m in range(M):
         terms = [term(f"x{i}_{m}", weights[i]) for i in range(n)]
@@ -180,6 +235,59 @@ def assignment_model(n: int, seed: int) -> EastStruct:
             ),
         }
     )
+
+
+def optima(model: EastStruct, optimum: float, limit: int = 2) -> int:
+    """How many assignments of `model` attain `optimum`, up to `limit`: the
+    model again in CP-SAT with its objective held to the optimum, its solutions
+    enumerated (one worker, the search run to its end)."""
+    from ortools.sat.python import cp_model
+
+    m = cp_model.CpModel()
+    v: dict = {}
+    for iv in model["int_vars"]:
+        v[iv["name"]] = m.new_int_var(int(iv["lower_bound"]), int(iv["upper_bound"]), iv["name"])
+    for bv in model["bool_vars"]:
+        v[bv["name"]] = m.new_bool_var(bv["name"])
+
+    def expr(e: EastStruct):
+        return sum(int(t["coeff"]) * v[t["var"]] for t in e["terms"]) + int(e["constant"])
+
+    for c in model["constraints"]:
+        assert c.type == "linear", c.type
+        lin = c.value
+        e, rhs = expr(lin["expr"]), int(lin["rhs"])
+        op = lin["op"].type
+        if op == "equal":
+            m.add(e == rhs)
+        elif op == "not_equal":
+            m.add(e != rhs)
+        elif op == "less_equal":
+            m.add(e <= rhs)
+        else:
+            m.add(e >= rhs)
+    objective = model["objective"].value
+    assert objective.type == "minimize", objective.type
+    m.add(expr(objective.value) == int(round(optimum)))
+
+    class Stop(cp_model.CpSolverSolutionCallback):
+        def __init__(self) -> None:
+            super().__init__()
+            self.count = 0
+
+        def on_solution_callback(self) -> None:
+            self.count += 1
+            if self.count >= limit:
+                self.stop_search()
+
+    solver = cp_model.CpSolver()
+    solver.parameters.enumerate_all_solutions = True
+    solver.parameters.num_workers = 1
+    solver.parameters.max_time_in_seconds = 600
+    stop = Stop()
+    status = solver.solve(m, stop)
+    assert status == cp_model.OPTIMAL or stop.count >= limit, solver.status_name(status)
+    return stop.count
 
 
 def one_worker_config() -> EastStruct:
@@ -213,39 +321,92 @@ def main() -> None:
         "// East literals: both runners are held to them.\n\n",
     ]
 
-    small = linear_solve_columns(lp_columns(500, 7), highs_config())
-    assert small["status"].type == "optimal", small["status"]
-    values = small["values"].to_numpy()
+    exact = {}
+    for backend in ("glop", "highs", "scip"):
+        result = linear_solve(exact_lp(), linear_config(backend))
+        assert result["status"].type == "optimal", (backend, result["status"])
+        exact[backend] = (
+            result["objective_value"].value,
+            result["assignments"]["x"],
+            result["assignments"]["y"],
+        )
     parts.append(
-        "/** The 500-variable LP on HiGHS: its objective and every assignment. */\n"
-        f"export const lpSmall = {{\n    objective: {ts_float(small['objective_value'].value)},\n"
-        f"    values: new Float64Array([{', '.join(ts_float(float(v)) for v in values)}]),\n}};\n\n"
+        "/** The exact LP (3x + 2y, x + y ≤ 4, x and y in [0, 3]) on each backend: its objective\n"
+        " *  and its vertex to the last bit of the backend's own arithmetic. */\n"
+        "export const lpExact = {\n"
+        + "".join(
+            f"    {b}: {{ objective: {ts_float(o)}, x: {ts_float(x)}, y: {ts_float(y)} }},\n"
+            for b, (o, x, y) in exact.items()
+        )
+        + "};\n\n"
     )
+
+    for backend, name in (("highs", "lpSmall"), ("glop", "lpSmallGlop"), ("scip", "lpSmallScip")):
+        small = linear_solve_columns(lp_columns(500, 7), linear_config(backend))
+        assert small["status"].type == "optimal", (backend, small["status"])
+        values = small["values"].to_numpy()
+        parts.append(
+            f"/** The 500-variable LP on {backend}: its objective and every assignment. */\n"
+            f"export const {name} = {{\n    objective: {ts_float(small['objective_value'].value)},\n"
+            f"    values: new Float64Array([{', '.join(ts_float(float(v)) for v in values)}]),\n}};\n\n"
+        )
 
     large = linear_solve_columns(lp_columns(33526, 7), highs_config())
     assert large["status"].type == "optimal", large["status"]
     values = large["values"].to_numpy()
-    sample = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946, 17711, 28657, 33525]
+    sample = [
+        0,
+        1,
+        2,
+        3,
+        5,
+        8,
+        13,
+        21,
+        34,
+        55,
+        89,
+        144,
+        233,
+        377,
+        610,
+        987,
+        1597,
+        2584,
+        4181,
+        6765,
+        10946,
+        17711,
+        28657,
+        33525,
+    ]
     parts.append(
         "/** The 33,526-variable LP on HiGHS: its objective, two weighted checksums over its\n"
         " *  assignments in index order (weights (7919·i mod 7) + 1 and (7919·i mod 101) + 1), and\n"
         " *  sampled assignments. */\n"
         f"export const lpLarge = {{\n    variables: {len(values)}n,\n    objective: {ts_float(large['objective_value'].value)},\n"
         f"    checksum7: {ts_float(weighted_sum(values, 7))},\n    checksum101: {ts_float(weighted_sum(values, 101))},\n"
-        "    sample: [" + ", ".join(f"[{i}n, {ts_float(float(values[i]))}]" for i in sample) + "] as Array<[bigint, number]>,\n};\n\n"
+        "    sample: ["
+        + ", ".join(f"[{i}n, {ts_float(float(values[i]))}]" for i in sample)
+        + "] as Array<[bigint, number]>,\n};\n\n"
     )
 
     for n in (50, 300, 600):
-        result = cpsat_solve(assignment_model(n, 3), one_worker_config())
+        model = assignment_model(n, 3)
+        result = cpsat_solve(model, one_worker_config())
         assert result["status"].type == "optimal", (n, result["status"])
+        count = optima(model, result["objective_value"].value)
+        assert count == 1, f"the {n}-decision model has more than one optimum; widen the costs"
         assignments: EastDict = result["assignments"]
         entries = ", ".join(f'["{k}", {int(v)}n]' for k, v in assignments.items())
         parts.append(
-            f"/** The assignment model of {n} decisions on CP-SAT, one worker, seed 1: its optimum and every assignment. */\n"
+            f"/** The assignment model of {n} decisions on CP-SAT, one worker, seed 1: its optimum (unique, proved) and every assignment. */\n"
             f"export const assignment{n} = {{\n    objective: {ts_float(result['objective_value'].value)},\n"
             f"    assignments: new Map<string, bigint>([{entries}]),\n}};\n\n"
         )
-        print(f"assignment {n}: objective {result['objective_value'].value}, solve {result['solve_time']:.3f} s")
+        print(
+            f"assignment {n}: objective {result['objective_value'].value} (unique), solve {result['solve_time']:.3f} s"
+        )
 
     OUT.write_text("".join(parts))
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")

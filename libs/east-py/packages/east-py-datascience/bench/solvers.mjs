@@ -123,7 +123,7 @@ function cpsatModel(n, seed) {
         for (let m = 0; m < M; m++) {
             bool_vars.push({ name: `x${i}_${m}` });
             terms.push({ var: `x${i}_${m}`, coeff: 1n });
-            objTerms.push({ var: `x${i}_${m}`, coeff: BigInt(r.int(1, 20)) });
+            objTerms.push({ var: `x${i}_${m}`, coeff: BigInt(r.int(1, 200000)) });
         }
         constraints.push(variant('linear', { expr: { terms, constant: 0n }, op: variant('equal', null), rhs: 1n }));
     }

@@ -967,9 +967,11 @@ describeEast("XGBoost platform functions", (test) => {
         });
     });
 
-    test("a seeded single-threaded fit writes the blob the python runner wrote, byte for byte", $ => {
+    test("a seeded single-threaded fit writes the blob the python runner wrote, byte for byte (x86-64)", $ => {
         // The same 48 rows, the same seed, one thread: the library's UBJSON model
         // of the same trees — the blob itself is equal, and so every prediction.
+        // The bytes are x86-64's: the library's own floating point differs on
+        // arm64 (CI's macOS leg), so the harness skips this test there.
         const X = $.let(East.Matrix.fromArray(FIXTURE.fit.X));
         const config = $.let({
             n_estimators: some(BigInt(FIXTURE.fit.config.n_estimators)),

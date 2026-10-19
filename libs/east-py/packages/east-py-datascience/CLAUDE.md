@@ -7,7 +7,9 @@ TypeScript + Python package:
 - `src/east_py_datascience/` — Python source (platform function
   implementations).
 - `test/` — TypeScript export-only specs (`*.spec.ts`); their IR is what
-  the Python side runs.
+  the Python side runs. A test named `… (x86-64)` pins an answer only x86-64
+  gives (XGBoost's fit, whose floating point is the library's own); the
+  east-c, east-py and east-node harnesses skip it on another architecture.
 - `tests/` — `test_compliance.py`, a pytest wrapper that replays that IR
   (one subprocess per IR file, through east-py's core runner).
 

@@ -144,7 +144,9 @@ const weightedSum = East.function([VectorType(FloatType), IntegerType], FloatTyp
  * A CP-SAT assignment of `n` decisions over 5 slots: a boolean a (decision,
  * slot), each decision in exactly one slot; a slot's load — the weighted sum
  * of its decisions, weights 1..9 — an integer variable bounded by the
- * capacity ⌈1.3n⌉; a cost in 1..20 a boolean plus 2 a unit of load plus a
+ * capacity ⌈1.3n⌉; a cost in 1..200,000 a boolean (a range wide enough that each
+ * model's optimum is unique, which the reference generator proves — so one seeded
+ * worker answers the same assignment on every host) plus 2 a unit of load plus a
  * constant of 7, minimised.
  */
 const generatedAssignment = East.function([IntegerType, IntegerType], CpSatModelType, ($, n, seed) => {
@@ -173,7 +175,7 @@ const generatedAssignment = East.function([IntegerType, IntegerType], CpSatModel
             const name = $.let(boolName(i, m));
             $(boolVars.pushLast({ name }));
             $(terms.pushLast({ var: name, coeff: 1n }));
-            $(objTerms.pushLast({ var: name, coeff: draw($, 1n, 20n) }));
+            $(objTerms.pushLast({ var: name, coeff: draw($, 1n, 200000n) }));
         });
         $(constraints.pushLast(variant('linear', { expr: { terms, constant: 0n }, op: variant('equal', null), rhs: 1n })));
     });
@@ -788,25 +790,27 @@ describeEast("GoogleOr platform functions", (test) => {
         $(Assert.equal(result.assignments.get("x").add(result.assignments.get("y")), 10n));
     });
 
-    test("linear answers an LP's status, objective and solution exactly on every backend", $ => {
-        // Maximize 3x + 2y with x + y ≤ 4, x ≤ 3, y ≤ 3: one vertex, x = 3, y = 1.
-        const model = $.let({
-            variables: [
-                { name: "x", lower_bound: 0.0, upper_bound: 3.0, is_integer: false },
-                { name: "y", lower_bound: 0.0, upper_bound: 3.0, is_integer: false },
-            ],
-            constraints: [
-                {
-                    terms: [{ var: "x", coeff: 1.0 }, { var: "y", coeff: 1.0 }],
-                    lower_bound: -1e20,
-                    upper_bound: 4.0,
-                },
-            ],
-            objective: {
-                terms: [{ var: "x", coeff: 3.0 }, { var: "y", coeff: 2.0 }],
-                maximize: true,
+    // Maximize 3x + 2y with x + y ≤ 4, x ≤ 3, y ≤ 3: one vertex, x = 3, y = 1.
+    const EXACT_LP = {
+        variables: [
+            { name: "x", lower_bound: 0.0, upper_bound: 3.0, is_integer: false },
+            { name: "y", lower_bound: 0.0, upper_bound: 3.0, is_integer: false },
+        ],
+        constraints: [
+            {
+                terms: [{ var: "x", coeff: 1.0 }, { var: "y", coeff: 1.0 }],
+                lower_bound: -1e20,
+                upper_bound: 4.0,
             },
-        }, LinearModelType);
+        ],
+        objective: {
+            terms: [{ var: "x", coeff: 3.0 }, { var: "y", coeff: 2.0 }],
+            maximize: true,
+        },
+    };
+
+    test("linear answers an LP's status, objective and solution exactly on every backend", $ => {
+        const model = $.let(EXACT_LP, LinearModelType);
 
         for (const backend of ['glop', 'highs', 'scip'] as const) {
             const config = $.let({
@@ -822,6 +826,25 @@ describeEast("GoogleOr platform functions", (test) => {
             // generated LPs below hold bit for bit
             $(Assert.less(result.assignments.get("x").subtract(3.0).abs(), East.value(1e-9)));
             $(Assert.less(result.assignments.get("y").subtract(1.0).abs(), East.value(1e-9)));
+        }
+    });
+
+    test("linear answers an LP's assignments as the python runner answers them, bit for bit, on every backend", $ => {
+        // The vertex to the last bit of each backend's own arithmetic: python's
+        // answers pinned per backend (google_or.reference.generated.ts).
+        const model = $.let(EXACT_LP, LinearModelType);
+        for (const backend of ['glop', 'highs', 'scip'] as const) {
+            const pinned = ref.lpExact[backend];
+            const config = $.let({
+                solver: some(variant(backend, null)),
+                max_time_seconds: none,
+                relative_gap_limit: none,
+                hints: none,
+            }, LinearConfigType);
+            const result = $.let(GoogleOr.linearSolve(model, config));
+            $(Assert.equal(result.status, variant('optimal', null)));
+            $(Assert.equal(result.objective_value, some(pinned.objective)));
+            $(Assert.equal(result.assignments, new Map([["x", pinned.x], ["y", pinned.y]])));
         }
     });
 
@@ -1085,6 +1108,27 @@ describeEast("GoogleOr platform functions", (test) => {
         $(Assert.equal(result.wall_time.greaterEqual(result.build_time.add(result.solve_time)), true));
     });
 
+    for (const [backend, label, pinned] of [
+        ['glop', 'Glop', ref.lpSmallGlop],
+        ['scip', 'SCIP', ref.lpSmallScip],
+    ] as const) {
+        test(`linear columns answer a generated 500-variable LP identically on ${label}`, $ => {
+            const model = $.let(generatedLp(500n, 7n));
+            const config = $.let({
+                solver: some(variant(backend, null)),
+                max_time_seconds: none,
+                relative_gap_limit: none,
+                hints: none,
+            }, LinearColumnsConfigType);
+            const result = $.let(GoogleOr.linearSolveColumns(model, config));
+
+            $(Assert.equal(result.status, variant('optimal', null)));
+            $(Assert.equal(result.objective_value, some(pinned.objective)));
+            // every assignment, bit for bit
+            $(Assert.equal(result.values, pinned.values));
+        });
+    }
+
     test("linear columns answer a generated 33,526-variable LP identically on HiGHS", $ => {
         const model = $.let(generatedLp(ref.lpLarge.variables, 7n));
         const config = $.let({
@@ -1157,7 +1201,7 @@ describeEast("GoogleOr platform functions", (test) => {
 
     for (const [gapName, gapConfig, within] of [
         ['relative', { relative_gap_limit: some(0.1), absolute_gap_limit: none }, (objective: FloatExpr, bound: FloatExpr) => objective.subtract(bound).lessEqual(objective.abs().multiply(0.1).add(1e-9))],
-        ['absolute', { relative_gap_limit: none, absolute_gap_limit: some(50.0) }, (objective: FloatExpr, bound: FloatExpr) => objective.subtract(bound).lessEqual(East.value(50.0 + 1e-9))],
+        ['absolute', { relative_gap_limit: none, absolute_gap_limit: some(100000.0) }, (objective: FloatExpr, bound: FloatExpr) => objective.subtract(bound).lessEqual(East.value(100000.0 + 1e-9))],
     ] as const) {
         test(`cpsat under a time limit answers within the configured ${gapName} gap`, $ => {
             // Optimal or feasible, the model's constraints hold at the answer, its

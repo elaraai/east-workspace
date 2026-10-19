@@ -39,6 +39,8 @@ make test-all          # gates + both
 
 # Run a single compliance test (the checkout's export, from libs/east-c)
 ./build/packages/east-c/test_compliance ../../tmp/east-test-ir/Array.json
+# A test named "… (x86-64)" pins an answer only x86-64 gives (a native
+# library's own floating point); the harness skips it elsewhere, as [-]
 
 # ASan/LSan over the whole corpus — the oracle for any lifetime change
 REBUILD=1 make leak-check-all

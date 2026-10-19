@@ -102,6 +102,23 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_null());
 }
 
+/* A test named "… (x86-64)" pins an answer only x86-64 gives (a native
+ * library's own floating point, such as the bytes of an XGBoost fit); the
+ * east-c, east-py and east-node harnesses skip it on another architecture,
+ * as [-], outside the counts. */
+#if defined(__x86_64__) || defined(_M_X64)
+#define HARNESS_X86_64 1
+#else
+#define HARNESS_X86_64 0
+#endif
+
+static int pins_x86_64(const char *name)
+{
+    static const char suffix[] = " (x86-64)";
+    size_t n = strlen(name), m = sizeof(suffix) - 1;
+    return n >= m && strcmp(name + n - m, suffix) == 0;
+}
+
 static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_types,
                             size_t num_input_types, EastType *output_type)
 {
@@ -110,6 +127,11 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
     const char *name = "";
     if (num_args > 0 && args[0] && args[0]->kind == EAST_VAL_STRING) {
         name = args[0]->data.string.data;
+    }
+
+    if (!HARNESS_X86_64 && pins_x86_64(name)) {
+        printf("  [-] %s (an x86-64 answer; skipped on this architecture)\n", name);
+        return eval_ok(east_null());
     }
 
     g_tests_run++;
