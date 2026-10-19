@@ -116,7 +116,8 @@ for (const theme of ["light", "dark"] as const) {
         expect([widths[0], widths[1], widths[3], widths[4], widths[6], widths[7]]).toEqual([84, 64, 64, 72, 144, 128]);
         expect(await head.evaluate(el => [...el.children].filter(c => c.scrollWidth > c.clientWidth).map(c => c.textContent))).toEqual([]);
         expect(await head.evaluate(el => [getComputedStyle(el.children[3]!).textOverflow, el.children[3]!.getAttribute("title")])).toEqual(["ellipsis", "Vol"]);
-        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("3 of 3 bays·33 of 33 kilns");
+        // Nothing narrowed: the summary names no source (#1358).
+        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]')).toHaveCount(0);
         // The bands: the yard's shifts, folded to their heads.
         for (let i = 0; i < 3; i++) {
             const unfolded = table.locator("[data-allocation-band][aria-expanded=true]").first();
@@ -126,6 +127,14 @@ for (const theme of ["light", "dark"] as const) {
         expect(await table.locator("[data-allocation-band]").evaluateAll(els => els.map(e => e.textContent))).toEqual([
             "Night207 bins · 13 free · 208 m³ · collapsed", "Day shift4013 bins · 27 free · 208 m³ · collapsed", "Evening206 bins · 14 free · 140 m³ · collapsed",
         ]);
+        // A bay's area chosen through its chip, live on a frame wide enough for every chip: the summary counts the bays in the yard's word.
+        await page.setViewportSize({ width: 2800, height: 1200 });
+        await size(page, entry, 2400);
+        await entry.locator('[data-frame-slot="toolbar"] [data-record-slice-source="lanes"][data-record-slice-field="area"]').first().click();
+        await page.getByRole("button", { name: "North 2" }).click();
+        await page.keyboard.press("Escape");
+        await settled(page);
+        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("2 of 3 bays");
     });
 
     test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main (${theme}) @narrow`, async ({ page }) => {

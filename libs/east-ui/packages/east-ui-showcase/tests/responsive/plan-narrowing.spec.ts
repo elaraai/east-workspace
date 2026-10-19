@@ -20,13 +20,19 @@
  *
  * The window is every event source's: the date navigator's Range panel, its
  * arrows and the horizon brush each write it into the jobs' source and the
- * shifts' alike, and the rail's summary counts each kind's events in it — in
- * the toolbar's row, or, the row short of room, in the rail's editor, which
- * keeps it (ruled 18 Oct, #1340).
+ * shifts' alike, and the rail counts each kind's events in it: the toolbar's
+ * summary while the window hides some, or, the row short of room, the rail's
+ * editor — the jobs in their heading, the shifts, which have no field of the
+ * rail's, in the line under the fields (#1340, #1358).
+ *
+ * The Filters popover counts each source in its heading — the total, or `N of
+ * M` while narrowed — on the heading's line, and no line repeats a count or
+ * names a source a narrowing hides nothing of (#1358).
  */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
 import { PLAN_EVENT_EXAMPLES, openExample, rowSel, sizePlanFrame } from "./plan-page";
+import { expectSourceCounts } from "./record-counts";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
 
@@ -81,28 +87,77 @@ async function openTab(page: Page, start: Locator, name: RegExp): Promise<void> 
 }
 
 /**
- * Waits for the rail's summary to count the jobs and the shifts as given: in
- * the toolbar's row, or — the row short of room, the summary folded after
- * every step of the rail — in the rail's editor, which keeps it.
+ * Waits for the rail to count the jobs and the shifts in the window as given,
+ * each `[shown, total]` — both held by the window, so narrowed — where it gives
+ * them ({@link expectSourceCounts}).
  */
-async function expectCounts(page: Page, frame: Locator, jobs: string, shifts: string): Promise<void> {
-    const inRow = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]');
-    const folded = await inRow.count() === 0;
-    if (folded) {
-        await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
-        await expect(page.getByRole("dialog")).toHaveCount(1);
-    }
-    const summary = folded ? page.getByRole("dialog").locator("[data-record-slices-summary]") : inRow.first();
-    await expect(summary.locator('[data-record-slice-source="job"]')).toHaveText(`${jobs} print job events`);
-    await expect(summary.locator('[data-record-slice-source="shift"]')).toHaveText(`${shifts} crew shift events`);
-    if (folded) {
-        await page.keyboard.press("Escape");
-        await expect(page.getByRole("dialog")).toHaveCount(0);
-        await settled(page);
-    }
+async function expectCounts(page: Page, frame: Locator, jobs: readonly [number, number], shifts: readonly [number, number]): Promise<void> {
+    await expectSourceCounts(page, frame, RAIL, {
+        job: { shown: jobs[0], total: jobs[1], narrowed: true, noun: "print job events" },
+        shift: { shown: shifts[0], total: shifts[1], narrowed: true, noun: "crew shift events" },
+    });
 }
 
+/** Each source heading the rail's sources get in its editor, by source: its heading's own count, as a Library tab counts — the total, or `N of M` while narrowed. */
+const HEADINGS: Readonly<Record<string, RegExp>> = {
+    job: /^22 of 30$/, presses: /^6$/, customers: /^16$/, jobTemplates: /^4$/, stopTemplates: /^2$/,
+    shiftTemplates: /^3$/, platesTemplates: /^1$/, bindingTemplates: /^1$/, deliveryTemplates: /^1$/,
+};
+
+/**
+ * The rail's editor as it counts its sources (#1358): each source heading's
+ * count, and whether it sits on its heading's line inside the popover; and
+ * the sources a line under the fields counts, each with its `N of M`.
+ */
+const editorCounts = (dialog: Locator) => dialog.evaluate((popover) => {
+    const box = popover.getBoundingClientRect();
+    const heads = [...popover.querySelectorAll("[data-slice-group^='source:']")].map((head) => {
+        const count = head.querySelector("[data-rail-group-count]");
+        const b = head.getBoundingClientRect(), c = count?.getBoundingClientRect();
+        return {
+            source: head.getAttribute("data-slice-group")!.slice("source:".length),
+            count: (count?.textContent ?? "").replace(/\s+/g, " ").trim(),
+            // On its heading's line, and inside the popover.
+            placed: c !== undefined && c.width > 0 && c.top >= b.top - 0.5 && c.bottom <= b.bottom + 0.5 && c.left >= box.left - 0.5 && c.right <= box.right + 0.5,
+        };
+    });
+    const line = [...popover.querySelectorAll("[data-record-slices-summary] [data-record-slice-source]")].map((el) => ({
+        source: el.getAttribute("data-record-slice-source")!,
+        said: (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+    }));
+    return { heads, line };
+});
+
 for (const theme of ["light", "dark"] as const) {
+    test(`the Filters popover counts each source in its heading, on its line — the total, or N of M while narrowed — and a line under the fields names only what no heading counts and a narrowing hides rows of (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
+        const frame = frameOf(entry);
+        // A phone's frame: the rail folds into its one trigger, whose editor heads each source's fields.
+        await sizePlanFrame(page, entry, 390);
+        await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toHaveCount(1);
+        await expect.poll(async () => (await editorCounts(dialog)).heads.every((head) => head.count !== "")).toBe(true);
+        const { heads, line } = await editorCounts(dialog);
+        // Every source with fields is headed, each with its count on its own line.
+        expect(heads.map((head) => head.source).sort()).toEqual(Object.keys(HEADINGS).sort());
+        for (const head of heads) {
+            expect(head.count, head.source).toMatch(HEADINGS[head.source]!);
+            expect(head.placed, `${head.source}'s count on its heading's line, inside the popover`).toBe(true);
+        }
+        // No count twice, and none saying nothing: the line names only sources no heading counts, each hiding rows.
+        for (const named of line) {
+            expect(heads.some((head) => head.source === named.source), `${named.source} counted in its heading and the line`).toBe(false);
+            const counted = named.said.match(/^([\d,]+) of ([\d,]+) /);
+            expect(counted, `${named.source}'s count, landed: ${named.said}`).not.toBeNull();
+            const [shown, total] = counted!.slice(1).map((n) => Number(n.replace(/,/g, "")));
+            expect(shown!, `${named.said}: a narrowing hides rows of it`).toBeLessThan(total!);
+        }
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+    });
+
     test(`the one rail stands at every width, nothing leaving the toolbar, every source's field in it but the window's dates (${theme})`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
@@ -176,7 +231,7 @@ for (const theme of ["light", "dark"] as const) {
         const frame = frameOf(entry);
         const nav = frame.locator("[data-time-navigation=plan]");
         // The axis's four weeks, 5 October to 2 November: every scheduled job and every shift, the backlog's eight jobs outside it.
-        await expectCounts(page, frame, "22 of 30", "24 of 24");
+        await expectCounts(page, frame, [22, 30], [24, 24]);
         // The Range panel, the jobs' start: the last seven days, noon on the 13th to noon on the 20th, written into the
         // shifts' source exactly as the jobs' holds it — the canvas draws the eight days they touch.
         await nav.locator("[data-time-trigger]").click();
@@ -185,7 +240,7 @@ for (const theme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape");
         await expect(page.locator("[role=dialog][data-state=open]")).toHaveCount(0);
         await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 13)));
-        await expectCounts(page, frame, "9 of 30", "9 of 24");
+        await expectCounts(page, frame, [9, 30], [9, 24]);
         // The navigator's arrows, two days on: its eight whole days from the 15th to the 23rd, in both sources.
         for (let step = 0; step < 2; step++) {
             await nav.locator("[data-time-trigger]").click();
@@ -193,7 +248,7 @@ for (const theme of ["light", "dark"] as const) {
             await expect(page.locator("[role=dialog][data-state=open]")).toHaveCount(0);
         }
         await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 15)));
-        await expectCounts(page, frame, "8 of 30", "6 of 24");
+        await expectCounts(page, frame, [8, 30], [6, 24]);
         // The brush: the lens's body slid three days on, the 18th to the 26th, committed once on release into both sources.
         const track = frame.locator('[data-slot="horizon"] [data-brush-track]');
         await track.scrollIntoViewIfNeeded();
@@ -211,6 +266,6 @@ for (const theme of ["light", "dark"] as const) {
         await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 15)));
         await page.mouse.up();
         await expect(nav).toHaveAttribute("data-time-anchor", String(Date.UTC(2026, 9, 18)));
-        await expectCounts(page, frame, "6 of 30", "4 of 24");
+        await expectCounts(page, frame, [6, 30], [4, 24]);
     });
 }

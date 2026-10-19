@@ -4,11 +4,11 @@
  */
 
 /** Record narrowing controls on the existing Slice popover and toolbar ladder. */
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
-import { DateTimeType, IntegerType, FloatType, parseFor, printFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
@@ -16,6 +16,7 @@ import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip 
 import { SliceRangeEditor, type SliceRangeKind } from "../range/editor.js";
 import { ResolutionSeg, type ResolutionTag } from "../range/index.js";
 import { useFormatters, type Formatters } from "../../format/index.js";
+import { narrowedCount } from "../../collections/library/count.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { enableRecordSlicePersistence } from "../../platform/slice/record.js";
 import type { SlicePersistMode } from "../../platform/slice/index.js";
@@ -80,19 +81,81 @@ function sourceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefi
     return label === label.toLocaleUpperCase(locale) ? label : label.toLocaleLowerCase(locale);
 }
 
+/** Whether a narrowed count is under its record's total: what a narrowing hides rows of. */
+const lessCount = lessFor(IntegerType);
+
+/** One source's exact counts as a summary reads them: each `none` while it is read; or that they could not be read. */
+type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint> } | { ok: false };
+
 /**
- * A narrowing over several records' counts on one line, each exact and each
- * pending on its own: `2 of 3 lanes · 21 of 33 resources`.
+ * The sources a narrowing hides rows of, counted on one line (#1358):
+ * `2 of 30 print job events · 6 of 16 customers`, each exact; nothing while
+ * none does. A count still being read is left out until it lands, so pending
+ * is never a zero; one that could not be read says so, with its source's
+ * Retry.
+ *
+ * @param slices - The product's handle
+ * @param nouns - The host's noun counting each source, by its name
+ * @param except - Sources counted elsewhere — each in its heading in the rail's editor — and so not on this line
  */
-export function RecordSlicesSummary({ slices, nouns }: { slices: Product; nouns?: Readonly<Record<string, string>> | undefined }) {
+export function RecordSlicesSummary({ slices, nouns, except }: {
+    slices: Product; nouns?: Readonly<Record<string, string>> | undefined; except?: readonly string[] | undefined;
+}) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
     const { locale } = useFormatters();
+    // The sources it counts, kept while the product and the sources skipped are the same: `except` is keyed by its names.
+    const skipped = except?.join("\u0000") ?? "";
+    const parts = useMemo(() => {
+        const skip = new Set(skipped === "" ? [] : skipped.split("\u0000"));
+        return slices.parts.filter(part => !skip.has(part.source));
+    }, [slices.parts, skipped]);
+    // Each source read on its own: one failing leaves the others counted.
+    const read = useCallback(() => parts.map((part): SourceCounts => {
+        try { return { ok: true, count: part.slice.count(), total: part.slice.total() }; } catch { return { ok: false }; }
+    }), [parts]);
+    const { result } = useTrackedEvaluation(read);
+    const named: ({ part: Part; failed: true } | { part: Part; failed: false; count: bigint; total: bigint })[] = [];
+    if (result.ok) {
+        parts.forEach((part, i) => {
+            const counts = result.value[i]!;
+            if (!counts.ok) named.push({ part, failed: true });
+            else if (counts.count.type === "some" && counts.total.type === "some" && lessCount(counts.count.value, counts.total.value)) {
+                named.push({ part, failed: false, count: counts.count.value, total: counts.total.value });
+            }
+        });
+    }
+    if (named.length === 0) return null;
     return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="">
-        {slices.parts.map((part, i) => <Fragment key={part.source}>
+        {named.map((shown, i) => <Fragment key={shown.part.source}>
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
-            <span data-record-slice-source={part.source}><RecordSliceSummary slice={part.slice} noun={sourceNoun(part, nouns, locale)} /></span>
+            <span data-record-slice-source={shown.part.source}>{shown.failed
+                ? <RecordSliceFailure slice={shown.part.slice} message="Could not load count" />
+                : <SliceCountSummary count={shown.count} total={shown.total} noun={sourceNoun(shown.part, nouns, locale)} />}</span>
         </Fragment>)}
     </Box>;
+}
+
+/**
+ * A source's count at its heading in the rail's editor (#1358), as a Library
+ * tab counts it: the total while nothing narrows the source, `2 of 30` while
+ * its narrowing is in force; a skeleton while a count it needs is read, and
+ * its source's Retry when one could not be.
+ */
+function RecordSourceCount({ slice }: { slice: Bind }) {
+    useSliceReactivity(slice.key);
+    const styles = useSlotRecipe({ key: "sliceEdit" })();
+    const words = useFormatters();
+    const read = useCallback(() => ({ count: slice.count(), total: slice.total() }), [slice]);
+    const { result } = useTrackedEvaluation(read);
+    if (!result.ok) return <RecordSliceFailure slice={slice} message="Could not load count" />;
+    const narrowing = slice.read().where.size > 0;
+    const { count, total } = result.value;
+    const shown = narrowing ? count : total;
+    if (total.type === "none" || shown.type === "none") {
+        return <Box as="span" role="status" aria-busy="true"><Skeleton as="span" css={styles.choicePending} aria-label="Count loading" /></Box>;
+    }
+    const said = narrowedCount(words, Number(shown.value), Number(total.value), narrowing);
+    return <Box as="span" role="status" aria-busy="false">{typeof said === "number" ? words.number(said) : said}</Box>;
 }
 
 function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnType<typeof useFormatters>): { hint?: string; disabled: boolean } {
@@ -336,10 +399,12 @@ function productPreset(slices: Product): string | undefined {
 /**
  * Toolbar items for a narrowing over several records (`Slice.bindRecords`):
  * one rail, each source's field chips in source order, the presets over
- * them, one Clear all and one summary counting each source. A source's icon
- * marks its fields' chips; folded, with fields from more than one source,
- * the editor heads each source's fields with its name and icon, then the
- * presets with `Presets` (#1339).
+ * them, one Clear all, and one summary naming the sources a narrowing hides
+ * rows of (#1358). A source's icon marks its fields' chips; folded, with
+ * fields from more than one source, the editor heads each source's fields
+ * with its name, its icon and its count — the total, or `N of M` while
+ * narrowed — then the presets with `Presets` (#1339, #1358); a line under the
+ * fields names what no heading counts that a narrowing hides rows of.
  *
  * @param slices - The product's handle; undefined mounts nothing
  * @param options - Persistence for every part, the noun counting and, without a label of its own, heading each source (by its name), the affordances, and fields to leave out (as `source.field`)
@@ -363,12 +428,17 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
     const presets = affordances.includes("presets") && (slices?.presets.length ?? 0) > 0;
     const kinds = [...byKind.keys(), ...(presets ? ["presets"] : [])];
     // Fields from more than one source are headed by their source; the presets, over them all, by their own.
-    const headed = new Set(entries.map(entry => entry.part.source)).size > 1;
-    const summary = slices !== undefined && affordances.includes("summary") ? <RecordSlicesSummary slices={slices} nouns={options.nouns} /> : undefined;
+    const headings = [...new Set(entries.map(entry => entry.part.source))];
+    const headed = headings.length > 1;
+    // Counted as the summary affordance asks (#1358): in the editor, each headed source in its heading, and what no
+    // heading counts on a line under the fields; on the toolbar, every source a narrowing hides rows of.
+    const counted = slices !== undefined && affordances.includes("summary");
+    const summary = counted ? <RecordSlicesSummary slices={slices} nouns={options.nouns} /> : undefined;
+    const status = counted ? <RecordSlicesSummary slices={slices} nouns={options.nouns} except={headed ? headings : []} /> : undefined;
     const items = useSliceRailItems(slices === undefined ? undefined : {
         version, activeCount: slices.parts.reduce((count, part) => count + part.slice.read().where.size, 0),
         clear: () => { slices.clearAll(); },
-        status: summary,
+        status,
         describe: kind => {
             const entry = byKind.get(kind);
             if (entry === undefined) {
@@ -381,7 +451,8 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
                 { "data-record-slice-source": entry.part.source, "data-record-slice-field": entry.field.fieldId });
             const icon = sourceIcon(entry.part);
             return { ...field, ...(icon === undefined ? {} : { icon }),
-                ...(headed ? { group: { key: `source:${entry.part.source}`, label: sourceHeading(entry.part, options.nouns), icon } } : {}) };
+                ...(headed ? { group: { key: `source:${entry.part.source}`, label: sourceHeading(entry.part, options.nouns), icon,
+                    ...(counted ? { count: <RecordSourceCount slice={entry.part.slice} /> } : {}) } } : {}) };
         },
         renderEditor: kind => {
             const entry = byKind.get(kind);

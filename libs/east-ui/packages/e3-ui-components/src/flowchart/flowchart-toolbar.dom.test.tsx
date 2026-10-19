@@ -18,7 +18,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { act, render, cleanup } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import {
@@ -89,7 +89,8 @@ const field = (fieldId: string, label: string, hints: readonly string[]): Field 
 
 /**
  * The `flows` source's part, over the shared store: its name searched, its
- * lane chosen from its hints — what the rail mounts. Nothing narrows it here.
+ * lane chosen from its hints — what the rail mounts; 20 flows, 7 of them
+ * while a choice narrows it.
  */
 function flowsPart(): Bind {
     initializeStore(new UIStore());
@@ -113,7 +114,7 @@ function flowsPart(): Bind {
         choose: (id, values) => choose(id, values.length === 0 ? undefined : variant("values", values)),
         range: (id, from, to) => choose(id, variant("range", { from, to })), prefix: (id, value) => choose(id, variant("prefix", value)),
         clear: (id) => choose(id, undefined), clearAll,
-        count: () => some(20n), countWhere: () => some(20n), total: () => some(20n), domain: () => none, suggest: () => none,
+        count: () => some(read().where.size === 0 ? 20n : 7n), countWhere: () => some(7n), total: () => some(20n), domain: () => none, suggest: () => none,
         values: (id) => config.fields.find((f) => f.fieldId === id)!.values.map((value) => ({ ...value, selected: false, count: some(3n), error: none })),
         replaces: () => [], togglePreset: () => null, setResolution: (resolution) => write({ ...read(), resolution }), retry: () => null,
         readEntry: () => some(none), contains: () => some(false),
@@ -220,7 +221,10 @@ describe("the Flowchart's toolbar items (#1245)", () => {
         expect(container.querySelector("[data-toolbar-item='freshness'] [data-flowchart-freshness]")!.textContent).toBe("scans-2026.09");
         expect([...container.querySelectorAll("[data-toolbar-item='record-slices'] [data-record-slice-field]")].map((chip) => chip.getAttribute("data-record-slice-field")))
             .toEqual(["name", "lane"]);
-        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("20 of 20 flows");
+        // Nothing narrows the flows: the summary names no source; a narrowing that hides some of them names them, counted (#1358).
+        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")).toBeNull();
+        act(() => { getStore().write("flowchart.toolbar.ladder.flows", encodeState({ where: new Map([["lane", variant("values", [printText("intake")])]]), preset: none, resolution: none })); });
+        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("7 of 20 flows");
     });
 
     test("a narrowing row folds the rail first, in its order, then its summary; then the freshness chip goes, LR · TD folds into its chip, find state into its icon, and last LR · TD into find state's popover (FB9, #1346)", () => {

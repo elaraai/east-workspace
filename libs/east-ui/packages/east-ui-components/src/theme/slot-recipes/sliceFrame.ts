@@ -21,7 +21,8 @@
  *     that trigger opens (`railSections` / `railSection` /
  *     `railSectionCaption` / `railSectionBody`, its head's `railActiveCount`),
  *     a group's caption over its fields (`railGroupHead` / `railGroupIcon` /
- *     `railGroupLabel`, #1339).
+ *     `railGroupLabel`, #1339) and its count at the caption's end
+ *     (`railGroupCount`, #1358).
  *     The standalone `Slice.Rail` stacks its row (`railRow`) over its brush
  *     strip (`brushStack`) and legend in `railStack`.
  *
@@ -40,7 +41,7 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
         "frameAffordanceIcon",
         "railCluster", "railAffordance", "railTrigger",
         "railAccordion", "railAccordionTrigger", "railAccordionLabel", "railAccordionState", "railAccordionContent",
-        "railGroupHead", "railGroupIcon", "railGroupLabel",
+        "railGroupHead", "railGroupIcon", "railGroupLabel", "railGroupCount",
         "railSections", "railSection", "railSectionCaption", "railSectionBody", "railActiveCount",
         "railStack", "railRow", "brushStack",
         "frameBody", "frameFooter", "frameFooterStat", "frameFooterDelta",
@@ -200,6 +201,10 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             color: "fg.subtle", minWidth: "0", "&:first-child": { paddingTop: "{spacing.1}" } },
         railGroupIcon: { ...fontAwesomeSize("10px"), display: "inline-flex", flexShrink: "0" },
         railGroupLabel: { textStyle: "nav.eyebrow", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        // Its count at the caption's end (#1358), as a Library tab's count is drawn after its name: lighter,
+        // near-untracked tabular figures in the caption's quiet ink, kept whole while the name ellipsizes.
+        railGroupCount: { textStyle: "nav.eyebrow", fontWeight: "500", letterSpacing: "0.04em", fontVariantNumeric: "tabular-nums",
+            marginLeft: "auto", flexShrink: "0", whiteSpace: "nowrap" },
         railSections: {
             display: "flex",
             flexDirection: "column",

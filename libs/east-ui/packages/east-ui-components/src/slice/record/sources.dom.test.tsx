@@ -6,10 +6,11 @@
 
 /**
  * The rail over several records (#1336): one rail, each source's chips in
- * source order, one summary counting each source, one Clear all, presets over
- * every source — over decoded wire values and the shared store; and how it
- * names its sources (#1339): each source's heading and icon. The product's
- * own algebra runs on real indexes in e3-ui-components' `record-sources.spec.ts`.
+ * source order, one summary naming the sources a narrowing hides rows of
+ * (#1358), one Clear all, presets over every source — over decoded wire
+ * values and the shared store; and how it names its sources (#1339): each
+ * source's heading, its icon and its count (#1358). The product's own algebra
+ * runs on real indexes in e3-ui-components' `record-sources.spec.ts`.
  */
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
@@ -85,19 +86,24 @@ function part(key: string, fields: Field[], presets: { id: string; name: string;
 /** How a source names itself in the fixture: its label and its icon's name. */
 type Named = Partial<Record<"lanes" | "resources", { label?: string; icon?: string; cover?: boolean }>>;
 
-/** The yard: lanes by area, resources by group, and one preset over both — the product's functions as the East ones run. */
-function fixture(store = new UIStore(), named: Named = {}) {
+/**
+ * The yard: lanes by area, resources by group, and one preset over both — the product's functions as the East ones run;
+ * and, given `crews`, crews with no field of the rail's, narrowed as a host's window narrows a Plan's shifts.
+ */
+function fixture(store = new UIStore(), named: Named = {}, crews = false) {
     initializeStore(store);
     const north = { id: "north", name: "North, halls" };
     const lanes = part("yard.lanes", [field("area", "Area", ["North", "South"]), ...(named.lanes?.cover === true ? [field("cover", "Cover", ["Covered", "Open"])] : [])],
         [{ ...north, where: new Map([["area", variant("values", ['"North"'])]]) }]);
     const kilns = part("yard.resources", [field("group", "Kiln group", ["Hall A", "Hall B", "Bulk"])],
         [{ ...north, where: new Map([["group", variant("values", ['"Hall A"', '"Hall B"'])]]) }]);
+    const shifts = part("yard.crews", [], []);
     const naming = (source: keyof Named) => ({
         label: named[source]?.label === undefined ? none : some(named[source].label),
         icon: named[source]?.icon === undefined ? none : some({ prefix: "fas", name: named[source].icon, label: none, style: none }),
     });
-    const parts = [{ source: "lanes", ...naming("lanes"), slice: lanes }, { source: "resources", ...naming("resources"), slice: kilns }];
+    const parts = [{ source: "lanes", ...naming("lanes"), slice: lanes }, { source: "resources", ...naming("resources"), slice: kilns },
+        ...(crews ? [{ source: "crews", label: none, icon: none, slice: shifts }] : [])];
     const product: Product = { key: "yard", parts, presets: [north],
         clearAll: vi.fn(() => { for (const p of parts) p.slice.clearAll(); return null; }),
         togglePreset: vi.fn((id: string) => {
@@ -110,8 +116,23 @@ function fixture(store = new UIStore(), named: Named = {}) {
             return null;
         }),
     };
-    return { lanes, kilns, product };
+    return { lanes, kilns, shifts, product };
 }
+
+/** Narrows the lanes to the north and the kilns to the bulk kilns: 7 of 20 each, as the fixture counts. */
+function narrowBoth(f: ReturnType<typeof fixture>) {
+    f.lanes.choose("area", ['"North"']);
+    f.kilns.choose("group", ['"Bulk"']);
+}
+
+/** Opens the folded rail's editor. */
+async function openEditor(): Promise<HTMLElement> {
+    await userEvent.setup().click(screen.getByRole("button", { name: /^Filters:/ }));
+    return screen.findByRole("dialog");
+}
+
+/** The count a source's heading carries in the editor. */
+const headingCount = (dialog: HTMLElement, source: string) => dialog.querySelector<HTMLElement>(`[data-slice-group="source:${source}"] [data-rail-group-count]`);
 
 /** The yard's nouns, the host's. */
 const NOUNS = { lanes: "lanes", resources: "kilns" };
@@ -129,19 +150,16 @@ const show = (product: Product, props: { folded?: boolean; persist?: "session"; 
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); resetSlicePersistence(); window.sessionStorage.clear(); });
 
-test("one rail holds each source's fields in source order, then the presets; one summary counts each source", () => {
+test("one rail holds each source's fields in source order, then the presets; the summary names no source while a narrowing hides none of its rows (#1358)", () => {
     const f = fixture();
     show(f.product);
     const chips = [...document.querySelectorAll<HTMLElement>("[data-record-slice-field]")];
     expect(chips.map(chip => [chip.dataset.recordSliceSource, chip.dataset.recordSliceField])).toEqual([["lanes", "area"], ["resources", "group"]]);
-    const summary = document.querySelector<HTMLElement>("[data-record-slices-summary]")!;
-    expect(summary.textContent).toBe("20 of 20 lanes·20 of 20 kilns");
-    expect([...summary.querySelectorAll<HTMLElement>("[data-record-slice-source]")].map(part => part.dataset.recordSliceSource)).toEqual(["lanes", "resources"]);
-    expect(within(summary).getAllByRole("status")).toHaveLength(2);
+    expect(document.querySelector("[data-record-slices-summary]")).toBeNull();
     expect(screen.getByRole("button", { name: "North, halls" })).toBeTruthy();
 });
 
-test("a choice through one source's chip writes only that source's key; the summary counts each source alone", async () => {
+test("a choice through one source's chip writes only that source's key; the summary names that source alone, counted (#1358)", async () => {
     const f = fixture();
     show(f.product);
     const before = getStore().read("yard.resources");
@@ -150,18 +168,53 @@ test("a choice through one source's chip writes only that source's key; the summ
     await user.click(await screen.findByRole("button", { name: "North 3" }));
     expect(f.lanes.read().where.get("area")).toEqual(variant("values", ['"North"']));
     expect(getStore().read("yard.resources")).toBe(before);
-    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes·20 of 20 kilns"));
+    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")?.textContent).toBe("7 of 20 lanes"));
+    const summary = document.querySelector<HTMLElement>("[data-record-slices-summary]")!;
+    expect([...summary.querySelectorAll<HTMLElement>("[data-record-slice-source]")].map(part => part.dataset.recordSliceSource)).toEqual(["lanes"]);
+    expect(within(summary).getAllByRole("status")).toHaveLength(1);
 });
 
-test("a pending count is pending in its own source only, never a zero", () => {
+test("a count still being read is left out of the summary, never a zero; folded, its source's heading shows it loading (#1358)", async () => {
     const f = fixture();
+    narrowBoth(f);
     f.kilns.count.mockImplementation(() => { trackKey("network"); return none; });
     show(f.product);
-    const summary = document.querySelector<HTMLElement>("[data-record-slices-summary]")!;
-    const [lanes, kilns] = [...summary.querySelectorAll<HTMLElement>("[data-record-slice-source]")];
-    expect(within(lanes!).queryByLabelText("Count loading")).toBeNull();
-    expect(within(kilns!).getByLabelText("Count loading")).toBeTruthy();
-    expect(within(kilns!).getByRole("status").getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes");
+    cleanup();
+    show(f.product, { folded: true });
+    const dialog = await openEditor();
+    expect(headingCount(dialog, "lanes")!.textContent).toBe("7 of 20");
+    const kilns = headingCount(dialog, "resources")!;
+    expect(within(kilns).getByLabelText("Count loading")).toBeTruthy();
+    expect(within(kilns).getByRole("status").getAttribute("aria-busy")).toBe("true");
+});
+
+test("folded, each source's heading carries its count, as a Library tab counts — the total, N of M while narrowed — and no line repeats them (#1358)", async () => {
+    const f = fixture();
+    show(f.product, { folded: true });
+    const dialog = await openEditor();
+    expect([headingCount(dialog, "lanes")!.textContent, headingCount(dialog, "resources")!.textContent]).toEqual(["20", "20"]);
+    act(() => { f.lanes.choose("area", ['"North"']); });
+    await waitFor(() => expect(headingCount(dialog, "lanes")!.textContent).toBe("7 of 20"));
+    expect(headingCount(dialog, "resources")!.textContent).toBe("20");
+    // Every source is headed, so no line under the fields counts any.
+    expect(dialog.querySelector("[data-record-slices-summary]")).toBeNull();
+});
+
+test("a source no heading counts keeps its count in one line under the fields while a narrowing hides rows of it; the toolbar's summary names it too (#1358)", async () => {
+    const f = fixture(new UIStore(), {}, true);
+    // The crews narrowed as a host's window narrows a Plan's shifts: no field of the rail's holds it.
+    act(() => { f.shifts.write({ where: new Map([["start", variant("values", ['"Night"'])]]), preset: none, resolution: none }); });
+    show(f.product);
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 crews");
+    cleanup();
+    show(f.product, { folded: true });
+    const dialog = await openEditor();
+    expect(dialog.querySelectorAll("[data-slice-group^='source:']")).toHaveLength(2);
+    expect(dialog.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 crews");
+    // A narrowing that hides none of its rows names it nowhere.
+    act(() => { f.shifts.count.mockImplementation(() => { trackKey("network"); return some(20n); }); f.shifts.retry(); });
+    await waitFor(() => expect(dialog.querySelector("[data-record-slices-summary]")).toBeNull());
 });
 
 test("Clear all and a preset over both sources each land in one render; a later choice in one source deactivates the preset", async () => {
@@ -204,7 +257,8 @@ test("the folded editor holds every source's field, each section naming its sour
     expect(triggers.map(trigger => `${trigger.dataset.recordSliceSource}.${trigger.dataset.recordSliceField}`)).toEqual(["lanes.area", "resources.group"]);
     await user.click(within(dialog).getByRole("button", { name: "Kiln group" }));
     expect(dialog.querySelector('[data-record-slice-editor="group"]')!.getAttribute("data-record-slice-source")).toBe("resources");
-    expect(within(dialog).getAllByRole("status")).toHaveLength(2);
+    // Each source counted once, in its heading.
+    expect([...dialog.querySelectorAll("[data-rail-group-count]")].map(count => within(count as HTMLElement).getByRole("status").textContent)).toEqual(["20", "20"]);
 });
 
 test("persistence restores each source from its own key", () => {
@@ -220,18 +274,19 @@ test("persistence restores each source from its own key", () => {
     expect(f.lanes.read().where.size).toBe(0);
 });
 
-test("a failed count offers Retry, which retries that source alone", async () => {
+test("a failed count offers Retry, which retries that source alone; read again, it hides nothing and the summary names no source (#1358)", async () => {
     const f = fixture();
     let failing = true;
     f.kilns.count.mockImplementation(() => { trackKey("network"); if (failing) throw new Error("offline"); return some(20n); });
     show(f.product);
     const kilns = document.querySelector<HTMLElement>('[data-record-slices-summary] [data-record-slice-source="resources"]')!;
     expect(within(kilns).getByRole("alert").textContent).toContain("Could not load count");
+    expect(document.querySelector('[data-record-slices-summary] [data-record-slice-source="lanes"]')).toBeNull();
     failing = false;
     await userEvent.setup().click(within(kilns).getByRole("button", { name: "Retry" }));
     expect(f.kilns.retry).toHaveBeenCalledTimes(1);
     expect(f.lanes.retry).not.toHaveBeenCalled();
-    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 lanes·20 of 20 kilns"));
+    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")).toBeNull());
 });
 
 test("folded, the editor heads each source's fields with its name and its icon, then the presets with Presets; the keys move between the fields alone", async () => {
@@ -241,8 +296,9 @@ test("folded, the editor heads each source's fields with its name and its icon, 
     await user.click(screen.getByRole("button", { name: /^Filters:/ }));
     const dialog = await screen.findByRole("dialog");
     const heads = [...dialog.querySelectorAll<HTMLElement>("[data-slice-group]")];
-    // A source's label names it; without one, the host's noun does.
-    expect(heads.map(head => [head.dataset.sliceGroup, head.textContent])).toEqual([["source:lanes", "Bays"], ["source:resources", "kilns"], ["presets", "Presets"]]);
+    // A source's label names it; without one, the host's noun does. Each source's count follows its name; the presets have none.
+    expect(heads.map(head => [head.dataset.sliceGroup, head.querySelector("[data-rail-group-label]")!.textContent])).toEqual([["source:lanes", "Bays"], ["source:resources", "kilns"], ["presets", "Presets"]]);
+    expect(heads.map(head => head.querySelector("[data-rail-group-count]")?.textContent ?? null)).toEqual(["20", "20", null]);
     expect(heads.map(head => head.querySelector("svg")?.getAttribute("data-icon") ?? null)).toEqual(["warehouse", "fire", null]);
     // Each heads its own fields: the next section after it is its source's.
     expect(heads.map(head => (head.nextElementSibling as HTMLElement).dataset.sliceSection)).toEqual(["field:lanes.area", "field:resources.group", "presets"]);
@@ -261,25 +317,32 @@ test("wide, each field carries its source's icon; a source with none keeps the r
     expect(icon("Kiln group")).toBe("filter");
 });
 
-test("fields from one source are not headed", async () => {
+test("fields from one source are not headed: the line under them names each source a narrowing hides rows of (#1358)", async () => {
     const f = fixture(new UIStore(), { lanes: { label: "Bays", icon: "warehouse" }, resources: { label: "Kilns" } });
     show(f.product, { folded: true, excludeFields: ["resources.group"] });
-    await userEvent.setup().click(screen.getByRole("button", { name: /^Filters:/ }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await openEditor();
     expect([...dialog.querySelectorAll("[data-slice-section]")].map(section => (section as HTMLElement).dataset.sliceSection)).toEqual(["field:lanes.area", "presets"]);
     expect(dialog.querySelectorAll("[data-slice-group]")).toHaveLength(0);
+    expect(dialog.querySelector("[data-record-slices-summary]")).toBeNull();
+    act(() => { f.lanes.choose("area", ['"North"']); });
+    await waitFor(() => expect(dialog.querySelector("[data-record-slices-summary]")?.textContent).toBe("7 of 20 lanes"));
 });
 
 test("the summary counts a source in the host's noun, else its label as running text writes it, else its name", () => {
-    const f = fixture(new UIStore(), { lanes: { label: "Bays" }, resources: { label: "SKU" } });
-    show(f.product, { nouns: null });
-    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 bays·20 of 20 SKU");
+    const named = fixture(new UIStore(), { lanes: { label: "Bays" }, resources: { label: "SKU" } });
+    narrowBoth(named);
+    show(named.product, { nouns: null });
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 bays·7 of 20 SKU");
     cleanup();
-    show(fixture().product, { nouns: null });
-    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 lanes·20 of 20 resources");
+    const bare = fixture();
+    narrowBoth(bare);
+    show(bare.product, { nouns: null });
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes·7 of 20 resources");
     cleanup();
-    show(fixture(new UIStore(), { lanes: { label: "Bays" } }).product);
-    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("20 of 20 lanes·20 of 20 kilns");
+    const nouned = fixture(new UIStore(), { lanes: { label: "Bays" } });
+    narrowBoth(nouned);
+    show(nouned.product);
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes·7 of 20 kilns");
 });
 
 test("a source with several fields is headed once, over its first; its fields stay in order under it", async () => {

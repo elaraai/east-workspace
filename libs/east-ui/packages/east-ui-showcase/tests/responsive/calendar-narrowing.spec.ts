@@ -12,8 +12,9 @@
  * kinds' start, which is the one date window, the time navigator's and never
  * a field of the rail.
  *
- * Each source narrows its own places alone, and the rail's summary counts
- * each in its own words: the machines' Area narrows the Resources layout's
+ * Each source narrows its own places alone, and the rail counts each in its
+ * own words — the summary the sources a narrowing hides rows of, the folded
+ * editor each source in its heading (#1358): the machines' Area narrows the Resources layout's
  * machine columns; a templates record's group, the Templates tab, `Templates
  * 5 of 6`; the people's Team, the Technicians tab, `Technicians 2 of 3`, and
  * the people's columns; and a production status, the production events and
@@ -23,6 +24,7 @@
  */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
+import { expectSourceCounts, type SourceCount } from "./record-counts";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
 
@@ -67,26 +69,19 @@ const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate((rai
 /** What each element says, its whitespace folded. */
 const said = (els: Locator) => els.evaluateAll((nodes) => nodes.map((node) => (node.textContent ?? "").replace(/\s+/g, " ").trim()));
 
+/** The nouns the operations calendar counts its sources in. */
+const NOUNS = { job: "production events", jobTemplates: "production templates", machines: "machines", people: "people" } as const;
+
 /**
- * Waits for the rail's summary to count each part as given: in the toolbar's
- * row, or — the row short of room, the summary folded after every step of the
- * rail — in the rail's editor, which keeps it (ruled 18 Oct, #1340).
+ * A source's count: what it shows of its total, and whether a narrowing is in force on it — an event kind's always, its
+ * window. The rail gives it in the toolbar's summary or, folded, in the editor's heading ({@link expectSourceCounts}).
  */
-async function expectSummary(page: Page, frame: Locator, parts: readonly string[]): Promise<void> {
-    const inRow = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]');
-    const folded = await inRow.count() === 0;
-    if (folded) {
-        await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
-        await expect(page.getByRole("dialog")).toHaveCount(1);
-    }
-    const summary = folded ? page.getByRole("dialog").locator("[data-record-slices-summary]") : inRow.first();
-    for (const part of parts) await expect(summary, part).toContainText(part);
-    if (folded) {
-        await page.keyboard.press("Escape");
-        await expect(page.getByRole("dialog")).toHaveCount(0);
-        await settled(page);
-    }
-}
+const counted = (source: keyof typeof NOUNS, shown: number, total: number, narrowed: boolean): [string, SourceCount] =>
+    [source, { shown, total, narrowed, noun: NOUNS[source] }];
+
+/** Waits for the rail to count each source as given. */
+const expectSummary = (page: Page, frame: Locator, counts: readonly [string, SourceCount][]) =>
+    expectSourceCounts(page, frame, RAIL, Object.fromEntries(counts));
 
 /** The library's tabs as they read: those on its row, then those its row folded into its menu. */
 async function tabs(page: Page, start: Locator): Promise<string[]> {
@@ -137,29 +132,29 @@ for (const theme of ["light", "dark"] as const) {
         };
         const columns = () => said(frame.locator("[data-calendar-resource-title]"));
         // The week of 1 Oct: six of the ten production events, every template, machine and person.
-        await expectSummary(page, frame, ["6 of 10 production events", "2 of 2 production templates", "4 of 4 machines", "3 of 3 people"]);
+        await expectSummary(page, frame, [counted("job", 6, 10, true), counted("jobTemplates", 2, 2, false), counted("machines", 4, 4, false), counted("people", 3, 3, false)]);
         await expect.poll(() => tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
         // The machines' Area: the machine columns the Resources layout draws, and no tab.
         await layout("Resources");
         await expect.poll(columns).toEqual(expect.arrayContaining(["Press 1", "Press 2", "Lathe 1", "Lathe 2", "A. Ash", "B. Birch", "C. Cedar"]));
         await choose("machines", "area", /^Press shop/);
-        await expectSummary(page, frame, ["2 of 4 machines"]);
+        await expectSummary(page, frame, [counted("machines", 2, 4, true)]);
         await expect.poll(async () => (await columns()).filter((title) => title.startsWith("Lathe"))).toEqual([]);
         await expect.poll(columns).toEqual(expect.arrayContaining(["Press 1", "Press 2", "A. Ash", "B. Birch", "C. Cedar"]));
         await expect.poll(() => tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 3"]);
         // The people's Team: the Technicians tab, which names the people's source, and the people's columns.
         await choose("people", "team", /^Maintenance/);
-        await expectSummary(page, frame, ["2 of 3 people"]);
+        await expectSummary(page, frame, [counted("people", 2, 3, true)]);
         await expect.poll(async () => (await columns()).filter((title) => title === "B. Birch")).toEqual([]);
         await layout("Calendar");
         await expect.poll(() => tabs(page, start)).toEqual(["Templates 6", "Backlog 4", "Technicians 2 of 3"]);
         // The job templates' group: the Templates tab alone.
         await choose("jobTemplates", "group", /^Fabrication/);
-        await expectSummary(page, frame, ["1 of 2 production templates", "6 of 10 production events"]);
+        await expectSummary(page, frame, [counted("jobTemplates", 1, 2, true), counted("job", 6, 10, true)]);
         await expect.poll(() => tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 4", "Technicians 2 of 3"]);
         // A production status: the production events in the window, and the Backlog — emptied, it says so.
         await choose("job", "status", /^active/i);
-        await expectSummary(page, frame, ["1 of 10 production events"]);
+        await expectSummary(page, frame, [counted("job", 1, 10, true)]);
         await expect.poll(() => tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 0 of 4", "Technicians 2 of 3"]);
         await start.locator('[role="tab"]', { hasText: /^Backlog/ }).click();
         await settled(page);
@@ -168,7 +163,7 @@ for (const theme of ["light", "dark"] as const) {
         // Its Clear filters clears the status and keeps the window, and every other source's choice.
         await emptied.getByRole("button", { name: "Clear filters" }).click();
         await settled(page);
-        await expectSummary(page, frame, ["6 of 10 production events", "1 of 2 production templates", "2 of 4 machines", "2 of 3 people"]);
+        await expectSummary(page, frame, [counted("job", 6, 10, true), counted("jobTemplates", 1, 2, true), counted("machines", 2, 4, true), counted("people", 2, 3, true)]);
         await expect.poll(() => tabs(page, start)).toEqual(["Templates 5 of 6", "Backlog 4", "Technicians 2 of 3"]);
         await start.locator('[role="tab"]', { hasText: /^Templates/ }).click();
         await settled(page);

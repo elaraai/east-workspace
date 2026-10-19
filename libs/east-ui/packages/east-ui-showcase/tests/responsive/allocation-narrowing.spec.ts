@@ -7,8 +7,9 @@
  * over the bays', the kilns' and the loads' records, in both layouts, at every
  * width with nothing leaving the toolbar; an Area chosen through it narrows the
  * Table's rows and the Timeline's lane columns; its summary counts each source
- * on one line in the shared count's type; folded on a phone, its editor heads
- * each source's fields — two, three, one — with the source's name and icon (A95); wide, each chip
+ * a narrowing hides rows of on one line in the shared count's type, and names
+ * none while none is (#1358); folded on a phone, its editor heads each source's
+ * fields — two, three, one — with the source's name, icon and count (A95, #1358); wide, each chip
  * carries its source's icon; and the Library follows the rail, each narrowed
  * tab counting what it shows (A91–A99).
  */
@@ -68,28 +69,34 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
-    test(`an Area chosen through the rail narrows the Table's rows and the Timeline's lanes; the summary counts each source (${theme}) @desktop`, async ({ page }) => {
+    test(`an Area chosen through the rail narrows the Table's rows and the Timeline's lanes; the summary counts each source a narrowing hides rows of (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: WIDE_PAGE, height: 1200 });
         const entry = await open(page, "allocationTable", theme);
         await size(page, entry, WIDE);
         const frame = entry.locator("[data-allocation-frame]").first();
         const table = frame.locator("[data-allocation-table]");
         const lanes = () => table.locator("[data-allocation-row] > span:nth-child(2)").allTextContents();
-        await expect(summary(frame)).toHaveText("3 of 3 lanes·33 of 33 resources·27 of 27 events");
+        // Nothing narrowed: the summary names no source.
+        await expect(frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]')).toHaveCount(0);
         expect(new Set(await lanes())).toEqual(new Set(["B-1", "B-2", "B-3"]));
-        // The summary: each source's count in the shared count's type, on one line, the dot between them quieter.
+        await frame.locator('[data-frame-slot="toolbar"] [data-record-slice-source="lanes"][data-record-slice-field="area"]').first().click();
+        await page.getByRole("button", { name: "North 2" }).click();
+        await page.keyboard.press("Escape");
+        await settled(page);
+        await expect(summary(frame)).toHaveText("2 of 3 lanes");
+        // A second source narrowed: each count in the shared count's type, on one line, the dot between them quieter.
+        await frame.locator('[data-frame-slot="toolbar"] [data-record-slice-source="resources"][data-record-slice-field="group"]').first().click();
+        await page.getByRole("button", { name: /^Hall A/ }).first().click();
+        await page.keyboard.press("Escape");
+        await settled(page);
+        await expect(summary(frame)).toHaveText("2 of 3 lanes·10 of 33 resources");
         const type = await summary(frame).evaluate(el => {
             const counts = [...el.querySelectorAll("[role=status]")], gap = el.querySelector("[aria-hidden]")!;
             const s = getComputedStyle(counts[0]!), g = getComputedStyle(gap);
             return { mono: /mono/i.test(s.fontFamily), size: s.fontSize, numerals: s.fontVariantNumeric, gap: g.color,
                 counts: counts.length, oneLine: new Set(counts.map(c => Math.round(c.getBoundingClientRect().top))).size === 1 };
         });
-        expect(type).toEqual({ mono: true, size: "11px", numerals: "tabular-nums", gap: await token(page, "fg-subtle"), counts: 3, oneLine: true });
-        await frame.locator('[data-frame-slot="toolbar"] [data-record-slice-source="lanes"][data-record-slice-field="area"]').first().click();
-        await page.getByRole("button", { name: "North 2" }).click();
-        await page.keyboard.press("Escape");
-        await settled(page);
-        await expect(summary(frame)).toHaveText("2 of 3 lanes·33 of 33 resources·27 of 27 events");
+        expect(type).toEqual({ mono: true, size: "11px", numerals: "tabular-nums", gap: await token(page, "fg-subtle"), counts: 2, oneLine: true });
         expect(new Set(await lanes())).toEqual(new Set(["B-1", "B-2"]));
         await expect(table.locator('[data-allocation-row="bin:3101"]')).toHaveCount(0);
         await frame.getByRole("radio", { name: "Timeline", exact: true }).first().click(); await settled(page);
@@ -99,7 +106,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     });
 
-    test(`folded on a phone, the rail's editor heads each source's field with its name and icon, then the presets; its summary (${theme}) @narrow`, async ({ page }) => {
+    test(`folded on a phone, the rail's editor heads each source's field with its name, icon and count, then the presets; no line repeats a count (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         const entry = await open(page, "allocationTable", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -108,23 +115,30 @@ for (const theme of ["light", "dark"] as const) {
         await expect(editor.locator("[data-slice-section]")).toHaveCount(7);
         expect(await editor.locator("[data-slice-section] [data-record-slice-source]").evaluateAll(els => els.map(el => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`)))
             .toEqual(["lanes.area", "lanes.cover", "resources.group", "resources.max", "resources.name", "events.spec"]);
-        await expect(editor.locator("[data-record-slices-summary]")).toHaveText("3 of 3 lanes·33 of 33 resources·27 of 27 events");
-        // A95: each heading the small mono caps in the quiet ink, the board's noun for its source, its icon 10px and centred on its name, over its own field.
+        // Every source is headed with its count: no line under the fields repeats one (#1358).
+        await expect(editor.locator("[data-record-slices-summary]")).toHaveCount(0);
+        // A95: each heading the small mono caps in the quiet ink, the board's noun for its source, its icon 10px and centred on its name, over its own field;
+        // its count at the heading's end on the name's line, lighter, in tabular figures (#1358).
         const heads = await editor.evaluate(root => [...root.querySelectorAll<HTMLElement>("[data-slice-group]")].map(head => {
-            const label = head.lastElementChild!, s = getComputedStyle(label), svg = head.querySelector("svg"), l = label.getBoundingClientRect();
-            const i = svg?.getBoundingClientRect(), pad = getComputedStyle(head).paddingTop;
+            const label = head.querySelector<HTMLElement>("[data-rail-group-label]")!, s = getComputedStyle(label), svg = head.querySelector("svg"), l = label.getBoundingClientRect();
+            const i = svg?.getBoundingClientRect(), pad = getComputedStyle(head).paddingTop, h = head.getBoundingClientRect();
+            const count = head.querySelector<HTMLElement>("[data-rail-group-count]"), cs = count === null ? null : getComputedStyle(count), c = count?.getBoundingClientRect();
             return { key: head.dataset.sliceGroup, text: label.textContent, caps: s.textTransform, mono: /mono/i.test(s.fontFamily), size: s.fontSize, weight: s.fontWeight, color: s.color,
                 icon: svg?.getAttribute("data-icon") ?? null, iconBox: i === undefined ? null : [Math.round(i.width), Math.round(i.height)],
                 centred: i === undefined || Math.abs((i.top + i.height / 2) - (l.top + l.height / 2)) <= 1, gap: i === undefined ? null : Math.round(l.left - i.right), pad,
-                heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection };
+                heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection,
+                count: count === null ? null : count.textContent,
+                countType: cs === null ? null : [/mono/i.test(cs.fontFamily), cs.fontSize, cs.fontWeight, cs.color, cs.fontVariantNumeric],
+                countPlaced: c === undefined || (Math.abs((c.top + c.height / 2) - (l.top + l.height / 2)) <= 1 && c.left >= l.right && c.right <= h.right + 0.5) };
         }));
         const subtle = await token(page, "fg-subtle");
-        expect(heads.map(h => [h.key, h.text, h.icon, h.heads])).toEqual([
-            ["source:lanes", "lanes", "warehouse", "field:lanes.area"], ["source:resources", "resources", "fire", "field:resources.group"],
-            ["source:events", "events", "truck", "field:events.spec"], ["presets", "Presets", null, "presets"]]);
+        expect(heads.map(h => [h.key, h.text, h.icon, h.heads, h.count])).toEqual([
+            ["source:lanes", "lanes", "warehouse", "field:lanes.area", "3"], ["source:resources", "resources", "fire", "field:resources.group", "33"],
+            ["source:events", "events", "truck", "field:events.spec", "27"], ["presets", "Presets", null, "presets", null]]);
         for (const h of heads) {
             expect([h.caps, h.mono, h.size, h.weight, h.color, h.centred], h.key).toEqual(["uppercase", true, "9.5px", "600", subtle, true]);
             if (h.icon !== null) expect([h.iconBox, h.gap], h.key).toEqual([[10, 10], 6]);
+            if (h.count !== null) expect([h.countType, h.countPlaced], h.key).toEqual([[true, "9.5px", "500", subtle, "tabular-nums"], true]);
         }
         // The first heading sits at the editor's top; each later one 12px under the field before it.
         expect(heads.map(h => h.pad)).toEqual(["4px", "12px", "12px", "12px"]);
@@ -166,7 +180,7 @@ for (const theme of ["light", "dark"] as const) {
         await choose("events", "spec", /^MC12/);
         await expect(start.locator('[role="tab"]')).toHaveText(["Events 3 of 27", "Resources 10 of 33"]);
         await expect(frame.locator("[data-allocation-timeline] [data-allocation-card]")).toHaveCount(1);
-        await expect(summary(frame)).toHaveText("3 of 3 lanes·10 of 33 resources·3 of 27 events");
+        await expect(summary(frame)).toHaveText("10 of 33 resources·3 of 27 events");
         await start.getByRole("button", { name: "Collapse Library" }).click(); await settled(page);
         expect(await start.evaluate(el => [el.querySelector("[data-dock-badge]")!.textContent, el.querySelector("[data-dock-mark]")?.getAttribute("aria-label") ?? null])).toEqual(["10", null]);
         await start.getByRole("button", { name: "Expand Library" }).click(); await settled(page);

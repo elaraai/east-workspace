@@ -153,8 +153,9 @@ its `flows` source (#1346), Calendar event kinds read its interval queries, and
 Roster reads the selected staff identities for visibility only. No filtering
 over resident record rows, private Slice, full scan for options or user-facing
 index picker. The shared summary is authoritative N of M original records; do
-not add a competing local count. Search Records remains primary-key
-navigation, not Slice field search.
+not add a competing local count. It names only the sources a narrowing hides
+rows of, and the Filters editor counts each source in its heading (#1358).
+Search Records remains primary-key navigation, not Slice field search.
 
 Calendar preserves overlap `[from, to)`, including carry-in events, whole-window
 spans, overnight/multi-day events and instants at the lower boundary, once by

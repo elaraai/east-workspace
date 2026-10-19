@@ -597,9 +597,11 @@ export const planPrintDeliveryTemplatesByGroup = e3.recordIndex("plan_print_deli
  * window once, the jobs by their stock too, their backlog with them; the
  * presses by hall, on the canvas and in the Choosers; the customers by
  * district, in their tab; and each templates record, in the Events tab. Its
- * summary counts each source in its own words. The window is the jobs' and
- * the shifts' range together: the toolbar's dates, the resolution and the
- * horizon brush write both. Links connect the plates,
+ * summary names each source a narrowing hides rows of, in its own words, and
+ * folded, its Filters popover heads each source's fields with its count
+ * (#1358). The window is the jobs' and the shifts' range together: the
+ * toolbar's dates, the resolution and the horizon brush write both. Links
+ * connect the plates,
  * printing, binding and dispatch. Delivery readiness holds Save for an
  * invalid pallet count, while the drop veto explains a press in service.
  */

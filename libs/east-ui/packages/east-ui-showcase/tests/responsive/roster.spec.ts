@@ -492,13 +492,15 @@ for (const theme of ['light', 'dark'] as const) {
         expect(chips.map(chip => chip.field)).toEqual(ROSTER_FIELDS);
         expect(chips.map(chip => chip.icon)).toEqual([...Array(6).fill('user'), 'list-check']);
     });
-    test(`a Skill chosen through the rail's search narrows the People tab, and the summary counts each source (${theme}) @desktop`, async ({ page }) => {
+    test(`a Skill chosen through the rail's search narrows the People tab, and the summary names only the source it hides rows of (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: WIDE_PAGE, height: 1200 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
         await size(page, entry, WIDE);
-        const summary = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first();
+        const summary = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]');
         const start = frame.locator('[data-frame-slot="start"]');
-        await expect(summary).toHaveText('69 of 69 people·17 of 17 activities');
+        // Nothing narrowed: the summary names no source (#1358).
+        await expect(frame.locator(RAIL).first()).toBeVisible();
+        await expect(summary).toHaveCount(0);
         // Skill offers its search: typing finds the skill among the staff's, and choosing it narrows the people.
         await frame.locator(`${RAIL} [data-record-slice-source="people"][data-record-slice-field="skills"]`).first().click();
         const search = page.locator('[data-record-slice-editor="skills"]:visible').getByRole('combobox');
@@ -506,8 +508,8 @@ for (const theme of ['light', 'dark'] as const) {
         await page.getByRole('option', { name: /^unload/ }).click();
         await page.keyboard.press('Escape');
         await settled(page);
-        // 22 of the staff hold Unloading.
-        await expect(summary).toHaveText('22 of 69 people·17 of 17 activities');
+        // 22 of the staff hold Unloading; the activities, which nothing narrows, go unnamed.
+        await expect(summary).toHaveText('22 of 69 people');
         // The People tab counts what the rail leaves it. The 272px pane folds its third tab, Positions, into the row's menu, which keeps its count.
         await expect(start.locator('[role="tab"]')).toHaveText(['People 22 of 69', 'Activities 17']);
         await start.getByRole('button', { name: '1 more tab', exact: true }).click();
@@ -548,18 +550,20 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 69');
         await expect(people.locator('[data-library-empty]')).toHaveCount(0);
     });
-    test(`folded on a phone, the rail's editor heads each source's fields with its noun and icon, then the presets (${theme}) @narrow`, async ({ page }) => {
+    test(`folded on a phone, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
         await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
         const editor = page.getByRole('dialog');
         expect(await editor.locator('[data-slice-section] [data-record-slice-source]').evaluateAll(els => els.map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`)))
             .toEqual(ROSTER_FIELDS);
+        // Both sources are headed with their counts, so no line under the fields repeats one (#1358).
+        await expect(editor.locator('[data-record-slices-summary]')).toHaveCount(0);
         const heads = await editor.evaluate(root => [...root.querySelectorAll<HTMLElement>('[data-slice-group]')].map(head => ({
-            key: head.dataset.sliceGroup, text: head.lastElementChild!.textContent, icon: head.querySelector('svg')?.getAttribute('data-icon') ?? null,
-            heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection })));
-        expect(heads.map(h => [h.key, h.text, h.icon, h.heads])).toEqual([
-            ['source:people', 'people', 'user', 'field:people.team'], ['source:activities', 'activities', 'list-check', 'field:activities.group'], ['presets', 'Presets', null, 'presets']]);
+            key: head.dataset.sliceGroup, text: head.querySelector('[data-rail-group-label]')!.textContent, icon: head.querySelector('svg')?.getAttribute('data-icon') ?? null,
+            count: head.querySelector('[data-rail-group-count]')?.textContent ?? null, heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection })));
+        expect(heads.map(h => [h.key, h.text, h.icon, h.count, h.heads])).toEqual([
+            ['source:people', 'people', 'user', '69', 'field:people.team'], ['source:activities', 'activities', 'list-check', '17', 'field:activities.group'], ['presets', 'Presets', null, null, 'presets']]);
         const box = (await editor.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(390);

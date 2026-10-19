@@ -22,10 +22,10 @@
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { useMemo } from "react";
-import { render, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, render, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
-import { IntegerType, StringType, StructType, toEastTypeValue, variant, some, none } from "@elaraai/east";
+import { IntegerType, StringType, StructType, printFor, toEastTypeValue, variant, some, none } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import {
     system, formatters, EditSession, editingMessages, UIStore, Toolbar, type HistoryBarProps,
@@ -271,7 +271,8 @@ function needs(forms: ReadonlyMap<string, number>): number {
 describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
     test("they are one row in §7.1's order: the rail's chips, the fold toggle, the date navigator, the resolution; at the end the rail's summary and the history (PB20)", () => {
         row.px = 4000;
-        const { container } = render(<ChakraProvider value={system}><Harness parts={everything()} /></ChakraProvider>);
+        const parts = everything();
+        const { container } = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
         expect([...stateOf(container).keys()]).toEqual(["record-slices", "record-summary", "groups", "time-navigation", "resolution", "history"]);
         const end = [...container.querySelectorAll("[data-toolbar-item][data-toolbar-end]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(end).toEqual(["record-summary"]);
@@ -280,8 +281,10 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
             .map((el) => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`);
         expect(chips).toEqual(["rows.owner", "rows.hall"]);
         expect(container.querySelector("[data-toolbar-item='time-navigation'] [data-time-navigation='plan']")).not.toBeNull();
-        // The summary counts the rows in the window in the Plan's words.
-        expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("2 of 2 rows");
+        // The window holds every row: the summary names none; a narrowing that hides some names them, in the Plan's words (#1358).
+        expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("");
+        act(() => { parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]); });
+        expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("1 of 2 rows");
         // A Plan approves and rejects nothing (#1260): no review item, no batch verbs.
         expect(container.querySelector('[data-toolbar-item="review"], [data-review-batch]')).toBeNull();
         // The history item leaves the session's error to the frame's banners.
@@ -312,15 +315,17 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(within(popover).getByRole("radiogroup", { name: "Resolution" }).getAttribute("data-plan-seg")).toBe("compact-resolution");
     });
 
-    test("the rail's summary folds after every step of the rail; its Filters editor keeps the count (#1340)", async () => {
-        // The rail at its icon, the summary folded: the Plan's own items at their widest.
+    test("the rail's summary folds after every step of the rail; its Filters editor keeps the count of what a narrowing hides (#1340, #1358)", async () => {
+        // The rail at its icon, the summary folded: the Plan's own items at their widest; an owner chosen.
         const folded = new Map([["record-slices", 4], ["record-summary", 1], ["groups", 0], ["time-navigation", 0], ["resolution", 0], ["history", 0]]);
         row.px = needs(folded);
-        const { container } = render(<ChakraProvider value={system}><Harness parts={everything()} /></ChakraProvider>);
+        const parts = everything();
+        parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]);
+        const { container } = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
         expect(stateOf(container)).toEqual(folded);
         await userEvent.setup().click(container.querySelector("[data-toolbar-item='record-slices'] [data-slot='railTrigger']")!);
         const editor = await screen.findByRole("dialog");
-        expect(editor.querySelector("[data-record-slices-summary]")!.textContent).toBe("2 of 2 rows");
+        expect(editor.querySelector("[data-record-slices-summary]")!.textContent).toBe("1 of 2 rows");
     });
 
     test("on a seekable source the key search follows the rail and its summary; it folds to its icon after them, before the history (PB21)", () => {

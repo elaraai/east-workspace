@@ -84,12 +84,12 @@ describe("the Calendar's one window (#1343)", () => {
         expect(screen.getByRole("dialog").querySelector('[data-record-slice-editor="start"][data-record-slice-source="job"]')).not.toBeNull();
     });
 
-    test("the summary counts each source; an event kind's own window holds its count", async () => {
+    test("the summary names each source a narrowing hides rows of: an event kind's own window holds its count; a source it hides nothing of is not named (#1358)", async () => {
         const { container } = await open(ex.calendarOperations);
         const summary = slot(container, "toolbar").querySelector("[data-record-slices-summary]")!;
         expect(summary.querySelector('[data-record-slice-source="job"]')?.textContent).toBe("6 of 10 production events");
-        expect(summary.querySelector('[data-record-slice-source="machines"]')?.textContent).toBe("4 of 4 machines");
-        expect(summary.querySelector('[data-record-slice-source="jobTemplates"]')?.textContent).toBe("2 of 2 production templates");
+        expect(summary.querySelector('[data-record-slice-source="machines"]')).toBeNull();
+        expect(summary.querySelector('[data-record-slice-source="jobTemplates"]')).toBeNull();
     });
 });
 

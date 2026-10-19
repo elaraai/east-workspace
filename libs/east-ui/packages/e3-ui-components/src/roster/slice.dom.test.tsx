@@ -24,7 +24,8 @@ test("an external write to the people source narrows the board by original keys 
     expect(assignment(container, "s37")).not.toBeNull();
     expect(container.querySelectorAll("[data-roster-assignment]:not([data-request])")).toHaveLength(1);
     expect([...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"))).toEqual(total);
-    expect(slot(container, "toolbar").querySelector("[data-record-slices-summary]")?.textContent).toBe("1 of 69 people·17 of 17 activities");
+    // The summary names the people alone: the activities' rows are all shown (#1358).
+    expect(slot(container, "toolbar").querySelector("[data-record-slices-summary]")?.textContent).toBe("1 of 69 people");
     expect(indexPages().length).toBeGreaterThan(0);
     expect(indexPages().every(r => / index roster_staff_by_name page /.test(r))).toBe(true);
 });

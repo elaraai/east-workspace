@@ -36,7 +36,7 @@ const FREE = "slot:B-1|2027-05-11T00:15:00.000";
 
 describe("the board's nouns (#1338)", () => {
     test("the Table's heads, its placeholders, chips and chevrons speak the yard's words", async () => {
-        const { c } = await open();
+        const { c, store } = await open();
         expect([...c.querySelector("[data-allocation-table-head]")!.children].map(e => e.textContent))
             .toEqual(["Time", "Bay", "Delivery", "Vol", "Spec", "Kiln", "Load", "Status"]);
         const free = row(c, FREE);
@@ -54,7 +54,15 @@ describe("the board's nouns (#1338)", () => {
         expect(chooser.querySelector("input")!.getAttribute("placeholder")).toBe("Find a kiln");
         expect(within(document.body).getByText("Kiln · B-3 01:55")).toBeTruthy();
         expect(slot(c, "footer").querySelector("[data-allocation-legend=bin]")!.textContent).toBe("Delivery or kiln");
-        await waitFor(() => expect(slot(c, "toolbar").querySelector("[data-record-slices-summary]")!.textContent).toBe("3 of 3 bays·33 of 33 kilns"));
+        // The narrowing's summary, in the yard's nouns: each source a narrowing hides rows of (#1358).
+        for (const [source, field, value] of [["lanes", "area", "North"], ["resources", "group", "Hall A"]] as const) {
+            const at = `ex.allocationLabels.${source}`;
+            const state = decodeBeast2For(RecordSliceStateType)(store.read(at)!);
+            await act(async () => { store.write(at, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none,
+                where: new Map([[field, variant("values", [printFor(StringType)(value)])]]) })); });
+            await settle();
+        }
+        await waitFor(() => expect(slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent).toBe("2 of 3 bays·10 of 33 kilns"));
     });
 
     test("the Timeline's heads and tooltips, and a refused drag's caption", async () => {

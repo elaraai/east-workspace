@@ -17,7 +17,7 @@ import { describe, test, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { StringType, printFor, variant, some, none } from "@elaraai/east";
 import { system, UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
@@ -355,6 +355,8 @@ describe("Plan paged source (P-c)", () => {
         const part = recordPart({ key: "plan.paged.chrome.rows", strings: [{
             id: "hall", label: "Hall", hints: ["Hall A", "Hall B"], values: Array.from({ length: 600 }, (_x, i) => (i % 2 === 0 ? "Hall A" : "Hall B")),
         }] });
+        // Hall A: every other row of the six hundred.
+        part.choose("hall", [printFor(StringType)("Hall A")]);
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),
@@ -371,8 +373,8 @@ describe("Plan paged source (P-c)", () => {
         await screen.findByText("R1");
 
         expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
-        // The summary counts the record's rows — all six hundred — whatever has landed of the canvas's windows.
-        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("600 of 600 rows");
+        // The summary counts the record's rows — Hall A's three hundred of six hundred — whatever has landed of the canvas's windows.
+        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("300 of 600 rows");
         // How much of the canvas has landed is the footer's transport line.
         expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toContain("200 loaded of 600");
     });

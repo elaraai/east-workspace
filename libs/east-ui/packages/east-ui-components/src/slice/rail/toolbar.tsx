@@ -30,7 +30,7 @@ export interface SliceRailDescriptor {
     group?: SliceRailGroup;
 }
 
-/** A heading in the rail's editor over the affordances of one group: its name, and its icon when it has one. */
+/** A heading in the rail's editor over the affordances of one group: its name, its icon when it has one, and its count. */
 export interface SliceRailGroup {
     /** Its identity: consecutive affordances of one key share one heading. */
     key: string;
@@ -38,6 +38,8 @@ export interface SliceRailGroup {
     label: string;
     /** Its icon, before its name. */
     icon?: IconProp | undefined;
+    /** What it counts, at the heading's end: a source's rows, as a Library tab counts them (`6`, `2 of 30`, #1358). */
+    count?: ReactNode | undefined;
 }
 
 /** Presentation callbacks supplied by a local or record Slice adapter. */
@@ -52,7 +54,7 @@ export interface SliceRailModel {
     /** Direct editor bodies use one shared accordion, without nested field triggers. */
     renderEditor?: (kind: string) => ReactNode;
     clear?: () => void;
-    /** Complete status retained inside the editor when its toolbar item folds away. */
+    /** Status the editor keeps under its fields, as its toolbar item folds away: the counts no group's heading carries. */
     status?: ReactNode;
 }
 
@@ -75,7 +77,8 @@ function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly
             return <Fragment key={kind}>
                 {headed && <Box css={styles.railGroupHead} data-slice-group={group.key}>
                     {group.icon !== undefined && <Box as="span" css={styles.railGroupIcon} aria-hidden="true"><FontAwesomeIcon icon={group.icon} /></Box>}
-                    <Box as="span" css={styles.railGroupLabel}>{group.label}</Box>
+                    <Box as="span" css={styles.railGroupLabel} data-rail-group-label="">{group.label}</Box>
+                    {group.count !== undefined && <Box as="span" css={styles.railGroupCount} data-rail-group-count="">{group.count}</Box>}
                 </Box>}
                 <Accordion.Item value={kind} data-slice-section={kind}>
                     <Accordion.ItemTrigger css={styles.railAccordionTrigger} title={label}

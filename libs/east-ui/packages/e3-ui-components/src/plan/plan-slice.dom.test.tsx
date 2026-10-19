@@ -288,8 +288,9 @@ describe("Plan chrome tracks the slice store (#611)", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(recordSlices("plan.summary.chrome", [{ source: "rows", slice: part }], ["summary"])),
         }), "plan-611-summary");
-        const summary = () => container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent;
-        expect(summary()).toBe("2 of 2 rows");
+        const summary = () => container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")?.textContent;
+        // The window holds both rows: the summary names none (#1358).
+        expect(summary()).toBeUndefined();
 
         // The window to now, W27 – 12 August: the W36 row leaves it.
         act(() => {

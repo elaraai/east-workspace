@@ -126,7 +126,8 @@ describe("the Library follows the rail (A98)", () => {
         expect(where(store, "allocationKilnYard", "resources").size).toBe(0);
         expect([...where(store, "allocationKilnYard", "lanes").keys()]).toEqual(["area"]);
         await waitFor(() => expect(tabs(c)).toEqual(["Events 27", "Resources 33"]));
-        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·33 of 33 resources·27 of 27 events"));
+        // The summary names the lanes alone: the resources' narrowing is cleared, and the events never narrowed (#1358).
+        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes"));
     });
 
     test("a tab's search finds among what the rail shows, and its empty search counts what shows", async () => {
@@ -181,7 +182,7 @@ describe("an events source (A99)", () => {
         await narrow(store, "allocationTable", "events", "spec", ["MC12"]);
         await waitFor(() => expect(tableRow(c, "bin:3101")).toBeNull());
         expect(await folded(c)).toEqual({ rows: 55, bins: 1, free: 54 });
-        await waitFor(() => expect(summary(c)).toBe("3 of 3 lanes·33 of 33 resources·3 of 27 events"));
+        await waitFor(() => expect(summary(c)).toBe("3 of 27 events"));
     });
 
     test("the event Chooser offers the events the narrowing shows: a free row's Book here, and no Allocated event it hides", async () => {
@@ -264,7 +265,7 @@ describe("several indexes on a source", () => {
         await press(openBay);
         expect([...where(store, "allocationKilnYard", "lanes").keys()]).toEqual(["cover"]);
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-2"]));
-        await waitFor(() => expect(summary(c)).toBe("1 of 3 lanes·33 of 33 resources·27 of 27 events"));
+        await waitFor(() => expect(summary(c)).toBe("1 of 3 lanes"));
     });
 
     test("a kiln group and a range of max, one index on group then max: the board and the Resources tab show the four Hall A kilns of 24 m³", async () => {
