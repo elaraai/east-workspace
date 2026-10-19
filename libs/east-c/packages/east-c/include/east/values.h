@@ -372,6 +372,11 @@ void east_set_release_contents(EastValue *set);
 EastValue *east_dict_new(EastType *key_type, EastType *val_type);
 EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, size_t capacity);
 void east_dict_set(EastValue *dict, EastValue *key, EastValue *val);
+/* As east_dict_set, for pairs that arrive in key order — a hint, not a
+ * requirement: any order gives the same dict, but a dict built from a sorted
+ * sequence loads its tree in a pass, up to 10× faster than set by set. What a
+ * platform function answering thousands of keyed results calls. */
+void east_dict_load(EastValue *dict, EastValue *key, EastValue *val);
 EastValue *east_dict_get(EastValue *dict, EastValue *key);
 bool east_dict_has(EastValue *dict, EastValue *key);
 /* One search for a keyed read: whether `key` is present, and its value

@@ -296,6 +296,12 @@ add_executable(test_small_collections tests/test_small_collections.c)
 target_link_libraries(test_small_collections east-c)
 add_test(NAME small_collections COMMAND test_small_collections)
 
+# east_dict_load gate: a dict loaded in key order (the tree's bulk load past
+# the small collection) is the dict set pair by pair, in any order.
+add_executable(test_dict_load tests/test_dict_load.c)
+target_link_libraries(test_dict_load east-c)
+add_test(NAME dict_load COMMAND test_dict_load)
+
 # GC pacing + pure-data untracking gate (issue #437): full collections must be
 # paced on old-generation growth (a fixed interval is quadratic while building
 # a large live structure — CPython bpo-4074), and containers whose type cannot

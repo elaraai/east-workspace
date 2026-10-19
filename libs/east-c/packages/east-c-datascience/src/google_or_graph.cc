@@ -21,15 +21,43 @@ using operations_research::SimpleLinearSumAssignment;
 using operations_research::SimpleMaxFlow;
 using operations_research::SimpleMinCostFlow;
 
+/* The times a result carries: the build's (the call's entry to the solver's
+ * start), the solver's, and the whole call's, taken when the result is built. */
+struct Times {
+    Clock::time_point t0;
+    double build_time;
+    double solve_time;
+};
+
+/* The build's and the solver's times around one solve: `solve` is called
+ * between them. */
+template <typename Solve>
+auto timed(Clock::time_point t0, Times *times, Solve solve) -> decltype(solve())
+{
+    times->t0 = t0;
+    times->build_time = seconds_since(t0);
+    Clock::time_point t1 = now();
+    auto st = solve();
+    times->solve_time = seconds_since(t1);
+    return st;
+}
+
+void set_times(StructBuilder &r, const Times &times)
+{
+    r.set("build_time", east_float(times.build_time));
+    r.set("solve_time", east_float(times.solve_time));
+    r.set("wall_time", east_float(seconds_since(times.t0)));
+}
+
 /* A flow result: the status, the objective and the per-arc flows. */
 EvalResult flow_result(EastType *out, const char *fn, const char *total_field, const char *tag,
-                       int64_t total, const std::vector<int64_t> &flows, double wall_time)
+                       int64_t total, const std::vector<int64_t> &flows, const Times &times)
 {
     StructBuilder r(out, fn);
     r.set("status", status(field_type(out, "status", fn), tag));
     r.set(total_field, east_integer(total));
     r.set("flows", integer_array(field_type(out, "flows", fn), flows, fn));
-    r.set("wall_time", east_float(wall_time));
+    set_times(r, times);
     return eval_ok(r.build());
 }
 
@@ -55,19 +83,19 @@ EvalResult min_cost_flow(EastValue **args, size_t num_args, EastType *out)
     for (size_t i = 0; i < supplies.size(); i++)
         smcf.SetNodeSupply(static_cast<int>(i), supplies[i]);
 
-    SimpleMinCostFlow::Status st = smcf.Solve();
-    double wall_time = seconds_since(t0);
+    Times times;
+    SimpleMinCostFlow::Status st = timed(t0, &times, [&] { return smcf.Solve(); });
     if (st == SimpleMinCostFlow::OPTIMAL || st == SimpleMinCostFlow::FEASIBLE) {
         std::vector<int64_t> flows(static_cast<size_t>(smcf.NumArcs()));
         for (size_t i = 0; i < flows.size(); i++)
             flows[i] = smcf.Flow(static_cast<int>(i));
         return flow_result(out, fn, "total_cost",
                            st == SimpleMinCostFlow::OPTIMAL ? "optimal" : "feasible",
-                           smcf.OptimalCost(), flows, wall_time);
+                           smcf.OptimalCost(), flows, times);
     }
     return flow_result(out, fn, "total_cost",
                        st == SimpleMinCostFlow::INFEASIBLE ? "infeasible" : "not_solved", 0, {},
-                       wall_time);
+                       times);
 }
 
 EvalResult max_flow(EastValue **args, size_t num_args, EastType *out)
@@ -88,15 +116,15 @@ EvalResult max_flow(EastValue **args, size_t num_args, EastType *out)
         smf.AddArcWithCapacity(static_cast<int>(start_nodes[i]), static_cast<int>(end_nodes[i]),
                                capacities[i]);
 
-    SimpleMaxFlow::Status st = smf.Solve(source, sink);
-    double wall_time = seconds_since(t0);
+    Times times;
+    SimpleMaxFlow::Status st = timed(t0, &times, [&] { return smf.Solve(source, sink); });
     if (st == SimpleMaxFlow::OPTIMAL) {
         std::vector<int64_t> flows(static_cast<size_t>(smf.NumArcs()));
         for (size_t i = 0; i < flows.size(); i++)
             flows[i] = smf.Flow(static_cast<int>(i));
-        return flow_result(out, fn, "total_flow", "optimal", smf.OptimalFlow(), flows, wall_time);
+        return flow_result(out, fn, "total_flow", "optimal", smf.OptimalFlow(), flows, times);
     }
-    return flow_result(out, fn, "total_flow", "not_solved", 0, {}, wall_time);
+    return flow_result(out, fn, "total_flow", "not_solved", 0, {}, times);
 }
 
 /* An assignment result: the status, the total and the matched pairs. */
@@ -105,7 +133,7 @@ struct Match {
 };
 
 EvalResult assignment_result(EastType *out, const char *fn, const char *tag, int64_t total,
-                             const std::vector<Match> &matches, double wall_time)
+                             const std::vector<Match> &matches, const Times &times)
 {
     EastType *matches_t = field_type(out, "assignments", fn);
     EastType *match_t = element_type(matches_t, fn);
@@ -121,8 +149,14 @@ EvalResult assignment_result(EastType *out, const char *fn, const char *tag, int
     r.set("status", status(field_type(out, "status", fn), tag));
     r.set("total_cost", east_integer(total));
     r.set("assignments", array_value);
-    r.set("wall_time", east_float(wall_time));
+    set_times(r, times);
     return eval_ok(r.build());
+}
+
+/* A result answered before any solve: the build's time is the call's so far. */
+Times unsolved(Clock::time_point t0)
+{
+    return Times{t0, seconds_since(t0), 0.0};
 }
 
 EvalResult assignment(EastValue **args, size_t num_args, EastType *out)
@@ -132,7 +166,7 @@ EvalResult assignment(EastValue **args, size_t num_args, EastType *out)
     Clock::time_point t0 = now();
     EastValue *costs = field(args[0], "costs", fn);
     size_t num_workers = length(costs, fn);
-    if (num_workers == 0) return assignment_result(out, fn, "optimal", 0, {}, seconds_since(t0));
+    if (num_workers == 0) return assignment_result(out, fn, "optimal", 0, {}, unsolved(t0));
 
     SimpleLinearSumAssignment solver;
     for (size_t worker = 0; worker < num_workers; worker++) {
@@ -142,8 +176,8 @@ EvalResult assignment(EastValue **args, size_t num_args, EastType *out)
                                   as_integer(at(row, task), fn));
     }
 
-    SimpleLinearSumAssignment::Status st = solver.Solve();
-    double wall_time = seconds_since(t0);
+    Times times;
+    SimpleLinearSumAssignment::Status st = timed(t0, &times, [&] { return solver.Solve(); });
     if (st == SimpleLinearSumAssignment::OPTIMAL) {
         std::vector<Match> matches;
         int64_t total = 0;
@@ -152,11 +186,11 @@ EvalResult assignment(EastValue **args, size_t num_args, EastType *out)
             total += cost;
             matches.push_back({worker, solver.RightMate(worker), cost});
         }
-        return assignment_result(out, fn, "optimal", total, matches, wall_time);
+        return assignment_result(out, fn, "optimal", total, matches, times);
     }
     return assignment_result(
         out, fn, st == SimpleLinearSumAssignment::INFEASIBLE ? "infeasible" : "not_solved", 0, {},
-        wall_time);
+        times);
 }
 
 EvalResult min_cost_assignment(EastValue **args, size_t num_args, EastType *out)
@@ -207,7 +241,7 @@ EvalResult min_cost_assignment(EastValue **args, size_t num_args, EastType *out)
             if (c < 0) throw Error(msg(fn, "task_capacity entries must be non-negative."));
     }
 
-    if (num_workers == 0) return assignment_result(out, fn, "optimal", 0, {}, seconds_since(t0));
+    if (num_workers == 0) return assignment_result(out, fn, "optimal", 0, {}, unsolved(t0));
 
     /* Node layout: source 0 | workers [1, task_base) | tasks [task_base, sink) | sink */
     int task_base = static_cast<int>(1 + num_workers);
@@ -233,19 +267,18 @@ EvalResult min_cost_assignment(EastValue **args, size_t num_args, EastType *out)
     smcf.SetNodeSupply(0, num_workers);
     smcf.SetNodeSupply(sink, -num_workers);
 
-    SimpleMinCostFlow::Status st = smcf.Solve();
-    double wall_time = seconds_since(t0);
+    Times times;
+    SimpleMinCostFlow::Status st = timed(t0, &times, [&] { return smcf.Solve(); });
     if (st == SimpleMinCostFlow::OPTIMAL || st == SimpleMinCostFlow::FEASIBLE) {
         std::vector<Match> matches;
         for (size_t i = 0; i < arc_ids.size(); i++)
             if (smcf.Flow(arc_ids[i]) > 0)
                 matches.push_back({arc_workers[i], arc_tasks[i], arc_costs[i]});
         return assignment_result(out, fn, st == SimpleMinCostFlow::OPTIMAL ? "optimal" : "feasible",
-                                 smcf.OptimalCost(), matches, wall_time);
+                                 smcf.OptimalCost(), matches, times);
     }
-    return assignment_result(out, fn,
-                             st == SimpleMinCostFlow::INFEASIBLE ? "infeasible" : "not_solved", 0,
-                             {}, wall_time);
+    return assignment_result(
+        out, fn, st == SimpleMinCostFlow::INFEASIBLE ? "infeasible" : "not_solved", 0, {}, times);
 }
 
 } // namespace

@@ -12,7 +12,7 @@
  * Note: These tests require the ortools library to be installed in the Python environment.
  * Install with: pip install ortools
  */
-import { East, variant, some, none } from "@elaraai/east";
+import { East, variant, some, none, ArrayType, BooleanType, DictType, FloatType, IntegerType, StringType, StructType, VectorType, type FloatExpr, type IntegerExpr } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import {
     GoogleOr,
@@ -20,6 +20,11 @@ import {
     CpSatConfigType,
     CpSatModelColumnsType,
     CpSatColumnsConfigType,
+    CpSatIntVarType,
+    CpSatBoolVarType,
+    CpSatIntervalVarType,
+    CpSatLinearTermType,
+    CpSatConstraintType,
     RoutingModelType,
     RoutingConfigType,
     LinearModelType,
@@ -31,6 +36,201 @@ import * as cpsatEx from "./google_or.cpsat.examples.js";
 import * as routingEx from "./google_or.routing.examples.js";
 import * as linearEx from "./google_or.linear.examples.js";
 import * as graphEx from "./google_or.graph.examples.js";
+import * as ref from "./google_or.reference.generated.js";
+
+// ============================================================================
+// Generated workloads: W1-shaped models, built in East from a Park–Miller
+// stream (x ← x·48271 mod (2³¹−1)), so both runners build the same model and
+// tests/fixtures/make_google_or_reference.py builds it in python to pin the
+// answers (google_or.reference.generated.ts).
+// ============================================================================
+
+/**
+ * An LP in columns of `n` continuous variables: supply rows (8 variables a row,
+ * strided, bounded above), demand rows (6 a row, bounded below), period rows
+ * (50 a row, bounded above) and resource rows (120 a row, strided, bounded
+ * above) — four terms a variable, every variable bounded in [0, 1..5] or
+ * unbounded above, a cost in 1..10, minimised.
+ */
+const generatedLp = East.function([IntegerType, IntegerType], LinearModelColumnsType, ($, n, seed) => {
+    const x = $.let(seed);
+    const draw = ($b: typeof $, lo: bigint, hi: bigint) => {
+        $b.assign(x, x.multiply(48271n).modulo(2147483647n));
+        return x.modulo(hi - lo + 1n).add(lo);
+    };
+    const S = $.let(n.add(7n).divide(8n));
+    const D = $.let(n.add(5n).divide(6n));
+    const P = $.let(n.add(49n).divide(50n));
+    const R = $.let(n.add(119n).divide(120n));
+
+    const varLower = $.let(East.value([], ArrayType(FloatType)));
+    const varUpper = $.let(East.value([], ArrayType(FloatType)));
+    const varInteger = $.let(East.value([], ArrayType(BooleanType)));
+    const objective = $.let(East.value([], ArrayType(FloatType)));
+    $.for(East.Array.range(0n, n), ($, k) => {
+        $(varLower.pushLast(0.0));
+        const ub = $.let(draw($, 1n, 5n).toFloat());
+        $(varUpper.pushLast(k.modulo(3n).equal(0n).ifElse(() => East.value(Infinity), () => ub)));
+        $(varInteger.pushLast(false));
+        $(objective.pushLast(draw($, 1n, 10n).toFloat()));
+    });
+
+    const rowLower = $.let(East.value([], ArrayType(FloatType)));
+    const rowUpper = $.let(East.value([], ArrayType(FloatType)));
+    const rowPtr = $.let(East.value([0n], ArrayType(IntegerType)));
+    const colIx = $.let(East.value([], ArrayType(IntegerType)));
+    const coeff = $.let(East.value([], ArrayType(IntegerType)).map(($, v) => v.toFloat()));
+    const terms = $.let(0n);
+    const term = ($b: typeof $, k: IntegerExpr) => {
+        $b.if(k.less(n), ($c) => {
+            $c(colIx.pushLast(k));
+            $c(coeff.pushLast(1.0));
+            $c.assign(terms, terms.add(1n));
+        });
+    };
+    // supply: k = s + S·j
+    $.for(East.Array.range(0n, S), ($, s) => {
+        $(rowLower.pushLast(East.value(-Infinity)));
+        $(rowUpper.pushLast(draw($, 20n, 40n).toFloat()));
+        $.for(East.Array.range(0n, 8n), ($, j) => term($, $.let(s.add(S.multiply(j)))));
+        $(rowPtr.pushLast(terms));
+    });
+    // demand: k = 6d + j
+    $.for(East.Array.range(0n, D), ($, d) => {
+        $(rowLower.pushLast(draw($, 1n, 3n).toFloat()));
+        $(rowUpper.pushLast(East.value(Infinity)));
+        $.for(East.Array.range(0n, 6n), ($, j) => term($, $.let(d.multiply(6n).add(j))));
+        $(rowPtr.pushLast(terms));
+    });
+    // period: k = 50p + j
+    $.for(East.Array.range(0n, P), ($, p) => {
+        $(rowLower.pushLast(East.value(-Infinity)));
+        $(rowUpper.pushLast(draw($, 100n, 200n).toFloat()));
+        $.for(East.Array.range(0n, 50n), ($, j) => term($, $.let(p.multiply(50n).add(j))));
+        $(rowPtr.pushLast(terms));
+    });
+    // resource: k = q + R·j
+    $.for(East.Array.range(0n, R), ($, q) => {
+        $(rowLower.pushLast(East.value(-Infinity)));
+        $(rowUpper.pushLast(draw($, 200n, 400n).toFloat()));
+        $.for(East.Array.range(0n, 120n), ($, j) => term($, $.let(q.add(R.multiply(j)))));
+        $(rowPtr.pushLast(terms));
+    });
+    return {
+        var_lower: East.Vector.fromArray(varLower),
+        var_upper: East.Vector.fromArray(varUpper),
+        var_integer: East.Vector.fromArray(varInteger),
+        row_lower: East.Vector.fromArray(rowLower),
+        row_upper: East.Vector.fromArray(rowUpper),
+        row_ptr: East.Vector.fromArray(rowPtr),
+        col_ix: East.Vector.fromArray(colIx),
+        coeff: East.Vector.fromArray(coeff),
+        objective: East.Vector.fromArray(objective),
+        maximize: false,
+    };
+});
+
+/** Σ values[i] · ((7919·i mod modulus) + 1), in index order — one IEEE
+ *  operation after another on both runners, so a single differing bit shows. */
+const weightedSum = East.function([VectorType(FloatType), IntegerType], FloatType, ($, values, modulus) => {
+    const acc = $.let(0.0);
+    $.for(East.Array.range(0n, values.length()), ($, i) => {
+        $.assign(acc, acc.add(values.get(i).multiply(i.multiply(7919n).modulo(modulus).add(1n).toFloat())));
+    });
+    return acc;
+});
+
+/**
+ * A CP-SAT assignment of `n` decisions over 5 slots: a boolean a (decision,
+ * slot), each decision in exactly one slot; a slot's load — the weighted sum
+ * of its decisions, weights 1..9 — an integer variable bounded by the
+ * capacity ⌈1.3n⌉; a cost in 1..20 a boolean plus 2 a unit of load plus a
+ * constant of 7, minimised.
+ */
+const generatedAssignment = East.function([IntegerType, IntegerType], CpSatModelType, ($, n, seed) => {
+    const x = $.let(seed);
+    const draw = ($b: typeof $, lo: bigint, hi: bigint) => {
+        $b.assign(x, x.multiply(48271n).modulo(2147483647n));
+        return x.modulo(hi - lo + 1n).add(lo);
+    };
+    const M = 5n;
+    const cap = $.let(n.multiply(13n).add(9n).divide(10n));
+    const intVars = $.let(East.value([], ArrayType(CpSatIntVarType)));
+    const boolVars = $.let(East.value([], ArrayType(CpSatBoolVarType)));
+    const constraints = $.let(East.value([], ArrayType(CpSatConstraintType)));
+    const objTerms = $.let(East.value([], ArrayType(CpSatLinearTermType)));
+    const weights = $.let(East.value([], ArrayType(IntegerType)));
+    const slotName = (m: IntegerExpr) => East.value("load").concat(East.print(m));
+    const boolName = (i: IntegerExpr, m: IntegerExpr) =>
+        East.value("x").concat(East.print(i)).concat("_").concat(East.print(m));
+    $.for(East.Array.range(0n, M), ($, m) => {
+        $(intVars.pushLast({ name: slotName(m), lower_bound: 0n, upper_bound: cap }));
+    });
+    $.for(East.Array.range(0n, n), ($, i) => {
+        $(weights.pushLast(draw($, 1n, 9n)));
+        const terms = $.let(East.value([], ArrayType(CpSatLinearTermType)));
+        $.for(East.Array.range(0n, M), ($, m) => {
+            const name = $.let(boolName(i, m));
+            $(boolVars.pushLast({ name }));
+            $(terms.pushLast({ var: name, coeff: 1n }));
+            $(objTerms.pushLast({ var: name, coeff: draw($, 1n, 20n) }));
+        });
+        $(constraints.pushLast(variant('linear', { expr: { terms, constant: 0n }, op: variant('equal', null), rhs: 1n })));
+    });
+    $.for(East.Array.range(0n, M), ($, m) => {
+        const terms = $.let(East.value([], ArrayType(CpSatLinearTermType)));
+        $.for(East.Array.range(0n, n), ($, i) => {
+            $(terms.pushLast({ var: boolName(i, m), coeff: weights.get(i) }));
+        });
+        $(terms.pushLast({ var: slotName(m), coeff: -1n }));
+        $(constraints.pushLast(variant('linear', { expr: { terms, constant: 0n }, op: variant('equal', null), rhs: 0n })));
+        $(objTerms.pushLast({ var: slotName(m), coeff: 2n }));
+    });
+    return {
+        int_vars: intVars,
+        bool_vars: boolVars,
+        interval_vars: East.value([], ArrayType(CpSatIntervalVarType)),
+        constraints,
+        objective: some(variant('minimize', { terms: objTerms, constant: 7n })),
+    };
+});
+
+/** Whether an assignment satisfies every linear constraint of a CP-SAT model,
+ *  and the model's objective at it — both recomputed in East, so an answer
+ *  under a limit is checked against the model, not the solver. */
+const evaluateModel = East.function(
+    [CpSatModelType, DictType(StringType, IntegerType)],
+    StructType({ satisfied: BooleanType, objective: FloatType }),
+    ($, model, assignments) => {
+        const satisfied = $.let(true);
+        $.for(model.constraints, ($, c) => {
+            $.if(c.hasTag('linear'), ($) => {
+                const lin = $.let(c.unwrap('linear'));
+                const sum = $.let(lin.expr.constant);
+                $.for(lin.expr.terms, ($, t) => {
+                    $.assign(sum, sum.add(t.coeff.multiply(assignments.get(t.var))));
+                });
+                const holds = $.let(lin.op.match({
+                    equal: () => sum.equal(lin.rhs),
+                    not_equal: () => sum.notEqual(lin.rhs),
+                    less_equal: () => sum.lessEqual(lin.rhs),
+                    greater_equal: () => sum.greaterEqual(lin.rhs),
+                }));
+                $.if(holds.not(), ($) => { $.assign(satisfied, false); });
+            });
+        });
+        const objective = $.let(0n);
+        const expr = $.let(model.objective.unwrap().match({
+            minimize: ($, e) => e,
+            maximize: ($, e) => e,
+        }));
+        $.assign(objective, expr.constant);
+        $.for(expr.terms, ($, t) => {
+            $.assign(objective, objective.add(t.coeff.multiply(assignments.get(t.var))));
+        });
+        return { satisfied, objective: objective.toFloat() };
+    },
+);
 
 describeEast("GoogleOr platform functions", (test) => {
 
@@ -608,7 +808,7 @@ describeEast("GoogleOr platform functions", (test) => {
             },
         }, LinearModelType);
 
-        for (const backend of ['glop', 'highs'] as const) {
+        for (const backend of ['glop', 'highs', 'scip'] as const) {
             const config = $.let({
                 solver: some(variant(backend, null)),
                 max_time_seconds: none,
@@ -618,8 +818,42 @@ describeEast("GoogleOr platform functions", (test) => {
             const result = $.let(GoogleOr.linearSolve(model, config));
             $(Assert.equal(result.status, variant('optimal', null)));
             $(Assert.equal(result.objective_value, some(11.0)));
+            // the vertex to an ulp: a backend's own last bit is the same on every runner, which the
+            // generated LPs below hold bit for bit
             $(Assert.less(result.assignments.get("x").subtract(3.0).abs(), East.value(1e-9)));
             $(Assert.less(result.assignments.get("y").subtract(1.0).abs(), East.value(1e-9)));
+        }
+    });
+
+    test("linear takes infinite bounds as ±1e20 and ±Infinity alike, on every backend", $ => {
+        // Maximize x + 2y: x ≤ 4 and y ≤ 3 (rows bounded above only), x + y ≥ 1
+        // (bounded below only), x and y unbounded above: x = 4, y = 3, 10 — the
+        // same whether the open side is spelled ±1e20 or ±Infinity.
+        for (const inf of [1e20, Infinity]) {
+            const model = $.let({
+                variables: [
+                    { name: "x", lower_bound: 0.0, upper_bound: inf, is_integer: false },
+                    { name: "y", lower_bound: 0.0, upper_bound: inf, is_integer: false },
+                ],
+                constraints: [
+                    { terms: [{ var: "x", coeff: 1.0 }], lower_bound: -inf, upper_bound: 4.0 },
+                    { terms: [{ var: "y", coeff: 1.0 }], lower_bound: -inf, upper_bound: 3.0 },
+                    { terms: [{ var: "x", coeff: 1.0 }, { var: "y", coeff: 1.0 }], lower_bound: 1.0, upper_bound: inf },
+                ],
+                objective: { terms: [{ var: "x", coeff: 1.0 }, { var: "y", coeff: 2.0 }], maximize: true },
+            }, LinearModelType);
+            for (const backend of ['glop', 'highs', 'scip'] as const) {
+                const config = $.let({
+                    solver: some(variant(backend, null)),
+                    max_time_seconds: none,
+                    relative_gap_limit: none,
+                    hints: none,
+                }, LinearConfigType);
+                const result = $.let(GoogleOr.linearSolve(model, config));
+                $(Assert.equal(result.status, variant('optimal', null)));
+                $(Assert.equal(result.objective_value, some(10.0)));
+                $(Assert.equal(result.assignments, new Map([["x", 4.0], ["y", 3.0]])));
+            }
         }
     });
 
@@ -824,6 +1058,179 @@ describeEast("GoogleOr platform functions", (test) => {
         $(Assert.equal(result.status, variant('optimal', null)));
         $(Assert.equal(result.total_cost, 140n));
         $(Assert.equal(result.flows, [15n, 5n, 15n, 5n]));
+    });
+
+
+    // ========================================================================
+    // Generated workloads (W1-shaped): both runners held to python's answers
+    // ========================================================================
+
+    test("linear columns answer a generated 500-variable LP identically on HiGHS", $ => {
+        const model = $.let(generatedLp(500n, 7n));
+        const config = $.let({
+            solver: some(variant('highs', null)),
+            max_time_seconds: none,
+            relative_gap_limit: none,
+            hints: none,
+        }, LinearColumnsConfigType);
+        const result = $.let(GoogleOr.linearSolveColumns(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.objective_value, some(ref.lpSmall.objective)));
+        // every assignment, bit for bit
+        $(Assert.equal(result.values, ref.lpSmall.values));
+        // the three times: the build before the solver, the solver's own, the whole call
+        $(Assert.equal(result.build_time.greaterEqual(0.0), true));
+        $(Assert.greater(result.solve_time, East.value(0.0)));
+        $(Assert.equal(result.wall_time.greaterEqual(result.build_time.add(result.solve_time)), true));
+    });
+
+    test("linear columns answer a generated 33,526-variable LP identically on HiGHS", $ => {
+        const model = $.let(generatedLp(ref.lpLarge.variables, 7n));
+        const config = $.let({
+            solver: some(variant('highs', null)),
+            max_time_seconds: none,
+            relative_gap_limit: none,
+            hints: none,
+        }, LinearColumnsConfigType);
+        const result = $.let(GoogleOr.linearSolveColumns(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.values.length(), ref.lpLarge.variables));
+        $(Assert.equal(result.objective_value, some(ref.lpLarge.objective)));
+        // every assignment, bit for bit: two sequential weighted checksums and a sample
+        $(Assert.equal(weightedSum(result.values, 7n), ref.lpLarge.checksum7));
+        $(Assert.equal(weightedSum(result.values, 101n), ref.lpLarge.checksum101));
+        for (const [i, v] of ref.lpLarge.sample) {
+            $(Assert.equal(result.values.get(i), v));
+        }
+    });
+
+    for (const [n, pinned] of [[50n, ref.assignment50], [300n, ref.assignment300], [600n, ref.assignment600]] as const) {
+        test(`cpsat on one worker answers a generated assignment of ${n} decisions identically`, $ => {
+            const model = $.let(generatedAssignment(n, 3n));
+            const config = $.let({
+                max_time_seconds: some(60.0),
+                num_workers: some(1n),
+                log_search_progress: none,
+                seed: some(1n),
+                max_solutions: none,
+                relative_gap_limit: none,
+                absolute_gap_limit: none,
+                hints: none,
+            }, CpSatConfigType);
+            const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+            $(Assert.equal(result.status, variant('optimal', null)));
+            $(Assert.equal(result.objective_value, some(pinned.objective)));
+            $(Assert.equal(result.best_bound, some(pinned.objective)));
+            $(Assert.equal(result.assignments, pinned.assignments));
+            $(Assert.equal(result.build_time.greaterEqual(0.0), true));
+            $(Assert.greater(result.solve_time, East.value(0.0)));
+            $(Assert.equal(result.wall_time.greaterEqual(result.build_time.add(result.solve_time)), true));
+        });
+    }
+
+    test("cpsat on several workers answers a generated model's optimum, satisfying its constraints", $ => {
+        // Whichever optimum eight workers land on: optimal, the pinned objective,
+        // the bound at it, and an assignment the model's constraints hold at.
+        const model = $.let(generatedAssignment(300n, 3n));
+        const config = $.let({
+            max_time_seconds: some(60.0),
+            num_workers: some(8n),
+            log_search_progress: none,
+            seed: some(5n),
+            max_solutions: none,
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatConfigType);
+        const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.objective_value, some(ref.assignment300.objective)));
+        $(Assert.equal(result.best_bound, some(ref.assignment300.objective)));
+        const evaluated = $.let(evaluateModel(model, result.assignments));
+        $(Assert.equal(evaluated.satisfied, true));
+        $(Assert.equal(evaluated.objective, result.objective_value.unwrap()));
+    });
+
+    for (const [gapName, gapConfig, within] of [
+        ['relative', { relative_gap_limit: some(0.1), absolute_gap_limit: none }, (objective: FloatExpr, bound: FloatExpr) => objective.subtract(bound).lessEqual(objective.abs().multiply(0.1).add(1e-9))],
+        ['absolute', { relative_gap_limit: none, absolute_gap_limit: some(50.0) }, (objective: FloatExpr, bound: FloatExpr) => objective.subtract(bound).lessEqual(East.value(50.0 + 1e-9))],
+    ] as const) {
+        test(`cpsat under a time limit answers within the configured ${gapName} gap`, $ => {
+            // Optimal or feasible, the model's constraints hold at the answer, its
+            // objective is the recomputed one, within the gap of the solver's own
+            // bound, and within the gap of the optimum python found.
+            const model = $.let(generatedAssignment(600n, 3n));
+            const config = $.let({
+                max_time_seconds: some(2.0),
+                num_workers: some(8n),
+                log_search_progress: none,
+                seed: some(5n),
+                max_solutions: none,
+                hints: none,
+                ...gapConfig,
+            }, CpSatConfigType);
+            const result = $.let(GoogleOr.cpsatSolve(model, config));
+
+            $(Assert.equal(result.status.hasTag('optimal').or(() => result.status.hasTag('feasible')), true));
+            const evaluated = $.let(evaluateModel(model, result.assignments));
+            $(Assert.equal(evaluated.satisfied, true));
+            const objective = $.let(result.objective_value.unwrap());
+            const bound = $.let(result.best_bound.unwrap());
+            $(Assert.equal(evaluated.objective, objective));
+            $(Assert.equal(within(objective, bound), true));
+            $(Assert.equal(objective.greaterEqual(ref.assignment600.objective - 1e-9), true));
+            $(Assert.equal(within(objective, East.value(ref.assignment600.objective)), true));
+        });
+    }
+
+    test("cpsat refuses a seed outside the solver's 32-bit range, on every form", $ => {
+        const model = $.let({
+            int_vars: [{ name: "x", lower_bound: 0n, upper_bound: 10n }],
+            bool_vars: [],
+            interval_vars: [],
+            constraints: [],
+            objective: none,
+        }, CpSatModelType);
+        const config = $.let({
+            max_time_seconds: none,
+            num_workers: none,
+            log_search_progress: none,
+            seed: some(4294967296n),
+            max_solutions: none,
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatConfigType);
+        $(Assert.throws(GoogleOr.cpsatSolve(model, config), /google_or_cpsat_solve: seed 4294967296 is outside the solver's 32-bit range \(-2147483648 \.\. 2147483647\)/));
+        $(Assert.throws(GoogleOr.cpsatSolveAll(model, config), /google_or_cpsat_solve_all: seed 4294967296 is outside the solver's 32-bit range/));
+
+        const columns = $.let({
+            var_lower: new BigInt64Array([0n]),
+            var_upper: new BigInt64Array([10n]),
+            row_lower: new BigInt64Array([]),
+            row_upper: new BigInt64Array([]),
+            row_ptr: new BigInt64Array([0n]),
+            col_ix: new BigInt64Array([]),
+            coeff: new BigInt64Array([]),
+            objective: none,
+            names: none,
+            interval_vars: [],
+            constraints: [],
+        }, CpSatModelColumnsType);
+        const columnsConfig = $.let({
+            max_time_seconds: none,
+            num_workers: none,
+            log_search_progress: none,
+            seed: some(-2147483649n),
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, CpSatColumnsConfigType);
+        $(Assert.throws(GoogleOr.cpsatSolveColumns(columns, columnsConfig), /google_or_cpsat_solve_columns: seed -2147483649 is outside the solver's 32-bit range/));
     });
 
 }, { exportOnly: true });

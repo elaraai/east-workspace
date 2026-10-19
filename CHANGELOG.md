@@ -26,6 +26,30 @@ requests; this file is the record of behaviour. Changes land under
   so the libraries load on the runner's glibc floor (2.34).
 - `EAST_C_PACKAGE_PATH` names the directories a package library is looked for
   in, instead of the installed packages.
+- `east_dict_load` (the C API): `east_dict_set` for pairs arriving in key
+  order, loading a large dict's tree in a pass — what a platform function
+  answering thousands of keyed results calls.
+
+### east-py-datascience and east-c-datascience (the solver family)
+
+- **Every solver result carries `build_time` and `solve_time` beside
+  `wall_time`**, in seconds, defined the same way for every solver on both
+  runners: the call's entry to the solver's start, inside the solver, and the
+  whole call (so what is left is the write-back). A `google_or_cpsat_solve_all`
+  entry carries them on its last solution, 0 on the others. The CP-SAT results
+  (`CpSatResultType`, `CpSatColumnsResultType`) gain `best_bound`, the
+  solver's proven bound on the objective, present when `optimal` or
+  `feasible`. *Wire:* the result struct types gain fields, so a value stored
+  under the old types (a task output kept in a dataset) is re-run, not read;
+  nothing stored by e3 itself changes.
+- A CP-SAT `seed` outside the solver's 32-bit range is refused, with the same
+  message, on both runners (python set it unchecked).
+- The exact-LP parity test runs SCIP beside Glop and HiGHS, with infinite
+  bounds spelled `±1e20` and `±Infinity` alike; generated W1-shaped workloads
+  (a 500- and a 33,526-variable LP, assignment models of 50, 300 and 600
+  decisions) hold both runners to one answer, bit for bit.
+- `bench/solvers.mjs` (east-py-datascience) measures the three times of each
+  solver call on both runners at the requirements' sizes.
 
 ### e3
 

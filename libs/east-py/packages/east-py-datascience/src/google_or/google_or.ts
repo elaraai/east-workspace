@@ -196,11 +196,27 @@ export const CpSatConfigType = StructType({
     hints: OptionType(ArrayType(CpSatHintType)),
 });
 
-/** CP-SAT solution result. */
+/**
+ * CP-SAT solution result.
+ *
+ * Every solver result carries three times, in seconds, defined the same way
+ * for every solver on every runner: `build_time`, from the call's entry to the
+ * solver's start (reading the model, building the solver's own); `solve_time`,
+ * inside the solver; and `wall_time`, the whole call, entry to the result
+ * built — so `wall_time − build_time − solve_time` is the write-back. A
+ * `google_or_cpsat_solve_all` entry carries them on its last solution, 0 on
+ * the others.
+ */
 export const CpSatResultType = StructType({
     status: GoogleOrStatusType,
     objective_value: OptionType(FloatType),
+    /** The solver's proven bound on the objective (the objective itself when
+     *  `optimal`), present when `optimal` or `feasible`: an answer under a time
+     *  or gap limit is within the configured gap of it. */
+    best_bound: OptionType(FloatType),
     assignments: DictType(StringType, IntegerType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -259,12 +275,15 @@ export const CpSatColumnsConfigType = StructType({
 });
 
 /** A columnar CP-SAT solution: the variables' values by index, beside the
- *  status, objective and wall time of {@link CpSatResultType}. `values` is
+ *  status, objective, bound and times of {@link CpSatResultType}. `values` is
  *  empty unless the status is `optimal` or `feasible`. */
 export const CpSatColumnsResultType = StructType({
     status: GoogleOrStatusType,
     objective_value: OptionType(FloatType),
+    best_bound: OptionType(FloatType),
     values: VectorType(IntegerType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -328,11 +347,13 @@ export const RoutingRouteType = StructType({
     distance: IntegerType,
 });
 
-/** Vehicle routing result. */
+/** Vehicle routing result; its times as {@link CpSatResultType} defines them. */
 export const RoutingResultType = StructType({
     status: GoogleOrStatusType,
     total_distance: IntegerType,
     routes: ArrayType(RoutingRouteType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -408,11 +429,13 @@ export const LinearConfigType = StructType({
     hints: OptionType(ArrayType(LinearHintType)),
 });
 
-/** LP/MIP result. */
+/** LP/MIP result; its times as {@link CpSatResultType} defines them. */
 export const LinearResultType = StructType({
     status: GoogleOrStatusType,
     objective_value: OptionType(FloatType),
     assignments: DictType(StringType, FloatType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -462,12 +485,14 @@ export const LinearColumnsConfigType = StructType({
 });
 
 /** A columnar LP/MIP solution: the variables' values by index, beside the
- *  status, objective and wall time of {@link LinearResultType}. `values` is
+ *  status, objective and times of {@link LinearResultType}. `values` is
  *  empty unless the status is `optimal` or `feasible`. */
 export const LinearColumnsResultType = StructType({
     status: GoogleOrStatusType,
     objective_value: OptionType(FloatType),
     values: VectorType(FloatType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -484,11 +509,13 @@ export const MinCostFlowInputType = StructType({
     supplies: ArrayType(IntegerType),
 });
 
-/** Min-cost flow result. */
+/** Min-cost flow result; its times as {@link CpSatResultType} defines them. */
 export const MinCostFlowResultType = StructType({
     status: GoogleOrStatusType,
     total_cost: IntegerType,
     flows: ArrayType(IntegerType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -501,11 +528,13 @@ export const MaxFlowInputType = StructType({
     sink: IntegerType,
 });
 
-/** Max-flow result. */
+/** Max-flow result; its times as {@link CpSatResultType} defines them. */
 export const MaxFlowResultType = StructType({
     status: GoogleOrStatusType,
     total_flow: IntegerType,
     flows: ArrayType(IntegerType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -521,11 +550,13 @@ export const AssignmentMatchType = StructType({
     cost: IntegerType,
 });
 
-/** Assignment result. */
+/** Assignment result; its times as {@link CpSatResultType} defines them. */
 export const AssignmentResultType = StructType({
     status: GoogleOrStatusType,
     total_cost: IntegerType,
     assignments: ArrayType(AssignmentMatchType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 
@@ -546,7 +577,7 @@ export const MinCostAssignmentInputType = StructType({
     task_capacity: OptionType(ArrayType(IntegerType)),
 });
 
-/** Sparse bipartite assignment result. */
+/** Sparse bipartite assignment result; its times as {@link CpSatResultType} defines them. */
 export const MinCostAssignmentResultType = StructType({
     status: GoogleOrStatusType,
     /** The minimised objective: matched arc costs plus the `unassigned_penalty`
@@ -555,6 +586,8 @@ export const MinCostAssignmentResultType = StructType({
     total_cost: IntegerType,
     /** Matched pairs only — unassigned workers are omitted. */
     assignments: ArrayType(AssignmentMatchType),
+    build_time: FloatType,
+    solve_time: FloatType,
     wall_time: FloatType,
 });
 

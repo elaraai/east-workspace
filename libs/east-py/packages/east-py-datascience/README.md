@@ -149,6 +149,19 @@ npm run test      # Run test suite
 npm run lint      # Check code quality
 ```
 
+The solver family's overhead on each runner is measured by
+`bench/solvers.mjs`: W1-shaped models at the sizes the requirements name — a
+33,526-variable LP and an 840,000-term LP, in columns and named, and
+assignment models of 50, 300 and 600 decisions — solved through the platform
+functions on east-c and on east-py, each result's `build_time`, `solve_time`
+and `wall_time` read off and printed (`node bench/solvers.mjs <outdir>
+[--runner east-c|east-py|both]`; needs a built package, the east-c build tree
+or `east-c` on PATH, and `uv` for east-py). The generated workloads the
+compliance suite holds both runners to are `test/google_or.spec.ts`'s own
+East functions, with python's answers in `test/google_or.reference.generated.ts`
+(`uv run --package elaraai-east-py-datascience python
+tests/fixtures/make_google_or_reference.py`).
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

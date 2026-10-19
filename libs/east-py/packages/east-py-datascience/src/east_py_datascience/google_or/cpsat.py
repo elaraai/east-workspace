@@ -378,16 +378,22 @@ CpSatResultType = StructType(
     [
         ("status", GoogleOrStatusType),
         ("objective_value", OptionType(FloatType)),
+        ("best_bound", OptionType(FloatType)),
         ("assignments", DictType(StringType, IntegerType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
 """Result returned by ``google_or_cpsat_solve`` and ``google_or_cpsat_solve_all``.
 
 Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
-(``Option<Float>`` — present when feasible or optimal), ``assignments``
+(``Option<Float>`` — present when feasible or optimal), ``best_bound``
+(``Option<Float>`` — the solver's proven bound on the objective, the objective
+itself when optimal; present when feasible or optimal, so an answer under a
+time or gap limit is within the configured gap of it), ``assignments``
 (``Dict<String, Integer>`` mapping variable names to their integer values),
-``wall_time`` (``Float`` seconds).
+``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 # --- The columnar form ---
@@ -459,13 +465,16 @@ CpSatColumnsResultType = StructType(
     [
         ("status", GoogleOrStatusType),
         ("objective_value", OptionType(FloatType)),
+        ("best_bound", OptionType(FloatType)),
         ("values", VectorType(IntegerType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
 """Result returned by ``google_or_cpsat_solve_columns``: the variables' values
 by index (``Vector<Integer>``, empty unless ``optimal`` or ``feasible``)
-beside the ``status``, ``objective_value`` and ``wall_time`` of
+beside the ``status``, ``objective_value``, ``best_bound`` and the times of
 ``CpSatResultType``."""
 
 
@@ -603,13 +612,17 @@ def _status_tag(status_code: "CpSolverStatus") -> str:
 
 
 def _build_model_and_solve(
+    fn: str,
+    start_time: float,
     model_data: EastStruct,
     config: EastStruct,
     solution_callback: Any = None,
-) -> tuple[Any, dict[str, Any], "CpSolverStatus", float]:
+) -> tuple[Any, dict[str, Any], "CpSolverStatus", float, float]:
     """Build a CP-SAT model from declarative data and solve it.
 
-    Returns (solver, vars_by_name, status_code, wall_time).
+    Returns (solver, vars_by_name, status_code, build_time, solve_time):
+    ``build_time`` from ``start_time`` (the platform call's entry) to the
+    solver's start, ``solve_time`` inside the solver.
     """
     from ortools.sat.python import cp_model
 
@@ -689,7 +702,12 @@ def _build_model_and_solve(
 
     seed = config["seed"].unwrap_or(None)
     if seed is not None:
-        solver.parameters.random_seed = int(seed)
+        seed = int(seed)
+        if not -2**31 <= seed < 2**31:
+            raise RuntimeError(
+                f"{fn}: seed {seed} is outside the solver's 32-bit range (-2147483648 .. 2147483647)"
+            )
+        solver.parameters.random_seed = seed
 
     rel_gap = config["relative_gap_limit"].unwrap_or(None)
     if rel_gap is not None:
@@ -699,17 +717,18 @@ def _build_model_and_solve(
     if abs_gap is not None:
         solver.parameters.absolute_gap_limit = float(abs_gap)
 
-    # Solve
-    start_time = time.perf_counter()
+    # Solve: the build ends where the solver starts
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     if solution_callback is not None:
         solver.parameters.enumerate_all_solutions = True
         solution_callback.set_vars(vars_by_name)
         status_code = solver.solve(model, solution_callback)
     else:
         status_code = solver.solve(model)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
-    return solver, vars_by_name, status_code, wall_time
+    return solver, vars_by_name, status_code, build_time, solve_time
 
 
 def _extract_assignments(solver: Any, vars_by_name: dict[str, Any]) -> EastDict:
@@ -785,8 +804,7 @@ def cpsat_solve(
         ``infeasible``, ``not_solved``, or ``model_invalid``),
         ``objective_value`` (``Option<Float>`` - present when feasible or
         optimal), ``assignments`` (``Dict<String, Integer>`` - variable
-        name to value for all int/bool vars), ``wall_time`` (``Float``
-        seconds).
+        name to value for all int/bool vars), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -794,22 +812,28 @@ def cpsat_solve(
     _check_google_or_support()
     from ortools.sat.python import cp_model
 
-    solver, vars_by_name, status_code, wall_time = _build_model_and_solve(
-        model_data, config
+    start_time = time.perf_counter()
+    solver, vars_by_name, status_code, build_time, solve_time = _build_model_and_solve(
+        "google_or_cpsat_solve", start_time, model_data, config
     )
 
     assignments: EastDict = EastDict(StringType, IntegerType)
     obj_value: EastVariant = none
+    best_bound: EastVariant = none
     if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         assignments = _extract_assignments(solver, vars_by_name)
         obj_value = some(float(solver.objective_value))
+        best_bound = some(float(solver.best_objective_bound))
 
     return EastStruct(
         {
             "status": variant(_status_tag(status_code), None, GoogleOrStatusType),
             "objective_value": obj_value,
+            "best_bound": best_bound,
             "assignments": assignments,
-            "wall_time": wall_time,
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
         }
     )
 
@@ -878,7 +902,10 @@ def cpsat_solve_all(
                     {
                         "status": variant("feasible", None, GoogleOrStatusType),
                         "objective_value": some(float(self.objective_value)),
+                        "best_bound": none,
                         "assignments": assignments,
+                        "build_time": 0.0,
+                        "solve_time": 0.0,
                         "wall_time": 0.0,
                     }
                 )
@@ -887,8 +914,9 @@ def cpsat_solve_all(
 
     callback = SolutionCollector()
 
-    solver, vars_by_name, status_code, wall_time = _build_model_and_solve(
-        model_data, config, solution_callback=callback
+    start_time = time.perf_counter()
+    solver, vars_by_name, status_code, build_time, solve_time = _build_model_and_solve(
+        "google_or_cpsat_solve_all", start_time, model_data, config, solution_callback=callback
     )
     # Re-solve with callback if we haven't collected solutions yet
     if not solutions and status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -898,21 +926,27 @@ def cpsat_solve_all(
                 {
                     "status": variant(_status_tag(status_code), None, GoogleOrStatusType),
                     "objective_value": some(float(solver.objective_value)),
+                    "best_bound": none,
                     "assignments": _extract_assignments(solver, vars_by_name),
-                    "wall_time": wall_time,
+                    "build_time": 0.0,
+                    "solve_time": 0.0,
+                    "wall_time": 0.0,
                 }
             )
         )
 
-    # Update wall_time on the last solution
+    # The last solution carries the call's times and the solver's bound
     if solutions:
         last = solutions[-1]
         solutions[-1] = EastStruct(
             {
                 "status": last.get("status"),
                 "objective_value": last.get("objective_value"),
+                "best_bound": some(float(solver.best_objective_bound)),
                 "assignments": last.get("assignments"),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -955,7 +989,7 @@ def cpsat_solve_columns(
         ``CpSatColumnsResultType`` (``EastStruct``): ``status``,
         ``objective_value`` (``Option<Float>``), ``values`` (``Vector<Integer>``
         - every variable's value by index when feasible or optimal, else
-        empty), ``wall_time`` (``Float`` seconds).
+        empty), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -966,6 +1000,9 @@ def cpsat_solve_columns(
     """
     _check_google_or_support()
     from ortools.sat.python import cp_model
+
+    fn = "google_or_cpsat_solve_columns"
+    start_time = time.perf_counter()
 
     fn = "google_or_cpsat_solve_columns"
 
@@ -1066,7 +1103,12 @@ def cpsat_solve_columns(
         solver.parameters.log_search_progress = bool(log_progress)
     seed = config["seed"].unwrap_or(None)
     if seed is not None:
-        solver.parameters.random_seed = int(seed)
+        seed = int(seed)
+        if not -2**31 <= seed < 2**31:
+            raise RuntimeError(
+                f"{fn}: seed {seed} is outside the solver's 32-bit range (-2147483648 .. 2147483647)"
+            )
+        solver.parameters.random_seed = seed
     rel_gap = config["relative_gap_limit"].unwrap_or(None)
     if rel_gap is not None:
         solver.parameters.relative_gap_limit = float(rel_gap)
@@ -1074,25 +1116,31 @@ def cpsat_solve_columns(
     if abs_gap is not None:
         solver.parameters.absolute_gap_limit = float(abs_gap)
 
-    start_time = time.perf_counter()
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     status_code = solver.solve(model)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     values = np.zeros(0, dtype=np.int64)
     obj_value: EastVariant = none
+    best_bound: EastVariant = none
     if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         # The solution read back whole: the response's values, the columnar
         # variables first, in index order
         solution = solver.response_proto.solution
         values = np.fromiter(solution, dtype=np.int64, count=len(solution))[:n_vars]
         obj_value = some(float(solver.objective_value))
+        best_bound = some(float(solver.best_objective_bound))
 
     return EastStruct(
         {
             "status": variant(_status_tag(status_code), None, GoogleOrStatusType),
             "objective_value": obj_value,
+            "best_bound": best_bound,
             "values": EastVector(IntegerType, values),
-            "wall_time": wall_time,
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
         }
     )
 

@@ -10,12 +10,18 @@
 #include "ortools/sat/cp_model.h"
 #include "ortools/sat/cp_model.pb.h"
 #include "ortools/sat/cp_model_solver.h"
+#include "ortools/sat/cp_model_utils.h"
+
+#include "absl/container/flat_hash_map.h"
 #include "ortools/sat/model.h"
 #include "ortools/sat/sat_parameters.pb.h"
 #include "ortools/util/time_limit.h"
 
 #include <atomic>
+#include <cstdint>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -27,10 +33,13 @@ using namespace east_ds;
 using operations_research::Domain;
 using operations_research::sat::BoolVar;
 using operations_research::sat::CpModelBuilder;
+using operations_research::sat::CpModelProto;
+using operations_research::sat::CpObjectiveProto;
 using operations_research::sat::CpSolverResponse;
 using operations_research::sat::CpSolverStatus;
 using operations_research::sat::IntervalVar;
 using operations_research::sat::IntVar;
+using operations_research::sat::LinearConstraintProto;
 using operations_research::sat::LinearExpr;
 using operations_research::sat::SatParameters;
 
@@ -42,18 +51,75 @@ struct Named {
     IntervalVar iv;
 };
 
-/* The model as it is built: the builder, and its variables by name. */
+/* The model as it is built: the builder, and its variables by name. The names
+ * are views into the East model, which lives for the call: nothing is copied
+ * per variable or per term, and the answer's names are these views. */
 struct Build {
     const char *fn;
     CpModelBuilder model;
-    std::unordered_map<std::string, Named> vars;
+    absl::flat_hash_map<std::string_view, Named> vars;
 
     const Named &lookup(EastValue *name_value) const
     {
-        std::string name(as_string(name_value, fn));
+        std::string_view name = as_string(name_value, fn);
         auto it = vars.find(name);
-        if (it == vars.end()) throw Error(msg(fn, "unknown variable '" + name + "'"));
+        if (it == vars.end()) throw Error(msg(fn, "unknown variable '" + std::string(name) + "'"));
         return it->second;
+    }
+
+    /* The proto's index of a variable in a linear expression: an integer or a
+     * boolean. */
+    int index_of(EastValue *name_value) const
+    {
+        const Named &v = lookup(name_value);
+        if (v.kind == Named::INT) return v.i.index();
+        if (v.kind == Named::BOOL) return v.b.index();
+        throw Error(msg(fn, "interval variable '" + std::string(as_string(name_value, fn)) +
+                                "' cannot appear in a linear expression"));
+    }
+
+    /* A linear expression's terms written into a proto's vars and coeffs — a
+     * linear constraint's or the objective's — and its constant answered. The
+     * hot path of every model: nothing is built per term but the proto's
+     * entries, as the python runner's builder writes them. */
+    template <typename Proto> int64_t write_terms(EastValue *expr, Proto *proto) const
+    {
+        EastValue *terms = field(expr, "terms", fn);
+        size_t n = length(terms, fn);
+        proto->mutable_vars()->Reserve(static_cast<int>(n));
+        proto->mutable_coeffs()->Reserve(static_cast<int>(n));
+        for (size_t i = 0; i < n; i++) {
+            EastValue *term = at(terms, i);
+            proto->add_vars(index_of(field(term, "var", fn)));
+            proto->add_coeffs(as_integer(field(term, "coeff", fn), fn));
+        }
+        return as_integer(field(expr, "constant", fn), fn);
+    }
+
+    /* sum(terms) + constant in `domain`: the constant moves to the domain, as
+     * the builder moves it. */
+    void add_linear(EastValue *expr, const Domain &domain)
+    {
+        LinearConstraintProto *lin = model.MutableProto()->add_constraints()->mutable_linear();
+        int64_t constant = write_terms(expr, lin);
+        operations_research::sat::FillDomainInProto(
+            constant == 0 ? domain : domain.AdditionWith(Domain(-constant)), lin);
+    }
+
+    /* The objective, minimised or maximised (negated under a scaling factor of
+     * −1, as the builder writes a maximisation). */
+    void set_objective(EastValue *expr, bool maximize)
+    {
+        CpObjectiveProto *obj = model.MutableProto()->mutable_objective();
+        int64_t constant = write_terms(expr, obj);
+        if (maximize) {
+            for (int i = 0; i < obj->coeffs_size(); i++)
+                obj->set_coeffs(i, -obj->coeffs(i));
+            obj->set_offset(static_cast<double>(-constant));
+            obj->set_scaling_factor(-1.0);
+        } else {
+            obj->set_offset(static_cast<double>(constant));
+        }
     }
 
     /* A variable in a linear expression: an integer or a boolean. */
@@ -86,22 +152,6 @@ struct Build {
         return v.iv;
     }
 
-    /* sum(coeff_i * var_i) + constant */
-    LinearExpr linear(EastValue *expr) const
-    {
-        LinearExpr result;
-        EastValue *terms = field(expr, "terms", fn);
-        for (size_t i = 0, n = length(terms, fn); i < n; i++) {
-            EastValue *term = at(terms, i);
-            LinearExpr var = expr_of(field(term, "var", fn));
-            var *= as_integer(field(term, "coeff", fn), fn);
-            result += var;
-        }
-        int64_t constant = as_integer(field(expr, "constant", fn), fn);
-        if (constant != 0) result += LinearExpr(constant);
-        return result;
-    }
-
     LinearExpr sum_of(EastValue *names) const
     {
         LinearExpr result;
@@ -115,7 +165,7 @@ struct Build {
     {
         for (size_t i = 0, n = length(interval_vars, fn); i < n; i++) {
             EastValue *v = at(interval_vars, i);
-            std::string name(as_string(field(v, "name", fn), fn));
+            std::string_view name = as_string(field(v, "name", fn), fn);
             LinearExpr start = expr_of(field(v, "start", fn));
             LinearExpr size = expr_of(field(v, "size", fn));
             LinearExpr end = expr_of(field(v, "end", fn));
@@ -125,9 +175,10 @@ struct Build {
                 if (p.kind != Named::BOOL)
                     throw Error(msg(fn, "'" + std::string(as_string(present, fn)) +
                                             "' is not a boolean variable"));
-                iv = model.NewOptionalIntervalVar(start, size, end, p.b).WithName(name);
+                iv =
+                    model.NewOptionalIntervalVar(start, size, end, p.b).WithName(std::string(name));
             } else {
-                iv = model.NewIntervalVar(start, size, end).WithName(name);
+                iv = model.NewIntervalVar(start, size, end).WithName(std::string(name));
             }
             Named named{Named::INTERVAL, IntVar(), BoolVar(), iv};
             vars[name] = named;
@@ -145,19 +196,20 @@ struct Build {
         const char *tag = case_of(constraint, fn);
         EastValue *data = payload(constraint);
         if (std::strcmp(tag, "linear") == 0) {
-            LinearExpr expr = linear(field(data, "expr", fn));
             int64_t rhs = as_integer(field(data, "rhs", fn), fn);
             const char *op = case_of(field(data, "op", fn), fn);
+            Domain domain;
             if (std::strcmp(op, "equal") == 0)
-                model.AddEquality(expr, rhs);
+                domain = Domain(rhs);
             else if (std::strcmp(op, "not_equal") == 0)
-                model.AddNotEqual(expr, rhs);
+                domain = Domain(rhs).Complement();
             else if (std::strcmp(op, "less_equal") == 0)
-                model.AddLessOrEqual(expr, rhs);
+                domain = Domain(std::numeric_limits<int64_t>::min(), rhs);
             else if (std::strcmp(op, "greater_equal") == 0)
-                model.AddGreaterOrEqual(expr, rhs);
+                domain = Domain(rhs, std::numeric_limits<int64_t>::max());
             else
                 throw Error(msg(fn, std::string("unknown comparison '") + op + "'"));
+            add_linear(field(data, "expr", fn), domain);
         } else if (std::strcmp(tag, "bool_or") == 0 || std::strcmp(tag, "bool_and") == 0) {
             std::vector<BoolVar> literals;
             EastValue *lits = field(data, "literals", fn);
@@ -258,8 +310,14 @@ SatParameters sat_params(EastValue *config, const char *fn)
         params.set_num_workers(static_cast<int>(as_integer(v, fn)));
     if (EastValue *v = some_value(field(config, "log_search_progress", fn), fn))
         params.set_log_search_progress(as_boolean(v, fn));
-    if (EastValue *v = some_value(field(config, "seed", fn), fn))
-        params.set_random_seed(static_cast<int>(as_integer(v, fn)));
+    if (EastValue *v = some_value(field(config, "seed", fn), fn)) {
+        int64_t seed = as_integer(v, fn);
+        if (seed < INT32_MIN || seed > INT32_MAX)
+            throw Error(msg(fn, "seed " + std::to_string(seed) +
+                                    " is outside the solver's 32-bit range (-2147483648 .. "
+                                    "2147483647)"));
+        params.set_random_seed(static_cast<int>(seed));
+    }
     if (EastValue *v = some_value(field(config, "relative_gap_limit", fn), fn))
         params.set_relative_gap_limit(as_float(v, fn));
     if (EastValue *v = some_value(field(config, "absolute_gap_limit", fn), fn))
@@ -268,8 +326,9 @@ SatParameters sat_params(EastValue *config, const char *fn)
 }
 
 /* One solution's assignments, every int and bool variable, in C++ data: the
- * observer may run off the calling thread, and East values are built on it. */
-using Assignments = std::vector<std::pair<std::string, int64_t> >;
+ * observer may run off the calling thread, and East values are built on it.
+ * Sorted by name, so the dict loads them in its own order (east_dict_load). */
+using Assignments = std::vector<std::pair<std::string_view, int64_t> >;
 
 Assignments assignments_of(const CpSolverResponse &response, const Build &build)
 {
@@ -281,6 +340,8 @@ Assignments assignments_of(const CpSolverResponse &response, const Build &build)
         else if (v.kind == Named::BOOL)
             out.emplace_back(name, SolutionBooleanValue(response, v.b) ? 1 : 0);
     }
+    std::sort(out.begin(), out.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
     return out;
 }
 
@@ -289,50 +350,47 @@ Assignments assignments_of(const CpSolverResponse &response, const Build &build)
  * finds, up to `max_solutions`. */
 struct Solved {
     CpSolverResponse response;
-    double wall_time;
+    double build_time; /* the call's entry to the solver's start */
+    double solve_time; /* inside the solver */
     std::vector<std::pair<Assignments, double> > collected; /* assignments, objective */
 };
 
-Solved build_and_solve(const char *fn, EastValue *model_data, EastValue *config, bool enumerate,
-                       size_t max_solutions)
+Solved build_and_solve(const char *fn, Clock::time_point t0, EastValue *model_data,
+                       EastValue *config, bool enumerate, size_t max_solutions)
 {
     Build build{fn, CpModelBuilder(), {}};
 
     EastValue *int_vars = field(model_data, "int_vars", fn);
+    EastValue *bool_vars = field(model_data, "bool_vars", fn);
+    build.vars.reserve(length(int_vars, fn) + length(bool_vars, fn));
     for (size_t i = 0, n = length(int_vars, fn); i < n; i++) {
         EastValue *v = at(int_vars, i);
-        std::string name(as_string(field(v, "name", fn), fn));
+        std::string_view name = as_string(field(v, "name", fn), fn);
         int64_t lb = as_integer(field(v, "lower_bound", fn), fn);
         int64_t ub = as_integer(field(v, "upper_bound", fn), fn);
-        Named named{Named::INT, build.model.NewIntVar(Domain(lb, ub)).WithName(name), BoolVar(),
-                    IntervalVar()};
+        Named named{Named::INT, build.model.NewIntVar(Domain(lb, ub)), BoolVar(), IntervalVar()};
         build.vars[name] = named;
     }
-    EastValue *bool_vars = field(model_data, "bool_vars", fn);
     for (size_t i = 0, n = length(bool_vars, fn); i < n; i++) {
-        std::string name(as_string(field(at(bool_vars, i), "name", fn), fn));
-        Named named{Named::BOOL, IntVar(), build.model.NewBoolVar().WithName(name), IntervalVar()};
+        std::string_view name = as_string(field(at(bool_vars, i), "name", fn), fn);
+        Named named{Named::BOOL, IntVar(), build.model.NewBoolVar(), IntervalVar()};
         build.vars[name] = named;
     }
     build.add_intervals(field(model_data, "interval_vars", fn));
     build.add_constraints(field(model_data, "constraints", fn));
 
     if (EastValue *objective = some_value(field(model_data, "objective", fn), fn)) {
-        LinearExpr expr = build.linear(payload(objective));
-        if (is_case(objective, "minimize", fn))
-            build.model.Minimize(expr);
-        else
-            build.model.Maximize(expr);
+        build.set_objective(payload(objective), !is_case(objective, "minimize", fn));
     }
 
     /* A partial hint: unknown names and interval variables skipped, a name
      * given twice collapsed to its last value. */
     if (EastValue *hints = some_value(field(config, "hints", fn), fn)) {
-        std::vector<std::pair<std::string, int64_t> > order;
-        std::unordered_map<std::string, size_t> index;
+        std::vector<std::pair<std::string_view, int64_t> > order;
+        std::unordered_map<std::string_view, size_t> index;
         for (size_t i = 0, n = length(hints, fn); i < n; i++) {
             EastValue *h = at(hints, i);
-            std::string name(as_string(field(h, "var", fn), fn));
+            std::string_view name = as_string(field(h, "var", fn), fn);
             int64_t value = as_integer(field(h, "value", fn), fn);
             auto it = index.find(name);
             if (it == index.end()) {
@@ -371,32 +429,55 @@ Solved build_and_solve(const char *fn, EastValue *model_data, EastValue *config,
     }
     model.Add(operations_research::sat::NewSatParameters(params));
 
-    Clock::time_point t0 = now();
+    result.build_time = seconds_since(t0);
+    Clock::time_point t1 = now();
     result.response = operations_research::sat::SolveCpModel(build.model.Build(), &model);
-    result.wall_time = seconds_since(t0);
+    result.solve_time = seconds_since(t1);
     if (!enumerate || (result.collected.empty() && solved(result.response.status())))
         result.collected.emplace_back(assignments_of(result.response, build),
                                       result.response.objective_value());
     return result;
 }
 
-/* A CpSatResultType value of the declared type. */
+/* The times a result carries: the build's, the solver's, and the whole call's
+ * — the last taken when the result is built, so the write-back is in it. A
+ * solution of solve_all that is not the last carries none. */
+struct Times {
+    Clock::time_point t0;
+    double build_time;
+    double solve_time;
+    bool carried;
+};
+
+/* A CpSatResultType value of the declared type. `bound` is the solver's
+ * best objective bound, carried when `assignments` is. */
 EastValue *result_struct(EastType *result_t, const char *fn, const char *status_tag,
-                         const Assignments *assignments, double objective, double wall_time)
+                         const Assignments *assignments, double objective, const double *bound,
+                         const Times &times)
 {
     EastType *status_t = field_type(result_t, "status", fn);
     EastType *objective_t = field_type(result_t, "objective_value", fn);
+    EastType *bound_t = field_type(result_t, "best_bound", fn);
     EastType *assignments_t = field_type(result_t, "assignments", fn);
     EastValue *dict_value = dict(assignments_t, fn);
-    if (assignments)
-        for (const auto &[name, value] : *assignments)
-            dict_put(dict_value, string(name), east_integer(value));
+    if (assignments) {
+        for (const auto &[name, value] : *assignments) {
+            EastValue *k = east_string_len(name.data(), name.size());
+            EastValue *v = east_integer(value);
+            east_dict_load(dict_value, k, v);
+            east_value_release(k);
+            east_value_release(v);
+        }
+    }
     StructBuilder r(result_t, fn);
     r.set("status", status(status_t, status_tag));
     r.set("objective_value",
           assignments ? some(objective_t, east_float(objective)) : none(objective_t));
+    r.set("best_bound", bound ? some(bound_t, east_float(*bound)) : none(bound_t));
     r.set("assignments", dict_value);
-    r.set("wall_time", east_float(wall_time));
+    r.set("build_time", east_float(times.carried ? times.build_time : 0.0));
+    r.set("solve_time", east_float(times.carried ? times.solve_time : 0.0));
+    r.set("wall_time", east_float(times.carried ? seconds_since(times.t0) : 0.0));
     return r.build();
 }
 
@@ -404,33 +485,40 @@ EvalResult cpsat_solve(EastValue **args, size_t num_args, EastType *out)
 {
     const char *fn = "google_or_cpsat_solve";
     if (num_args != 2) throw Error(msg(fn, "takes a model and a config"));
-    Solved result = build_and_solve(fn, args[0], args[1], false, 0);
+    Clock::time_point t0 = now();
+    Solved result = build_and_solve(fn, t0, args[0], args[1], false, 0);
     CpSolverStatus st = result.response.status();
+    double bound = result.response.best_objective_bound();
     return eval_ok(result_struct(out, fn, status_tag(st),
                                  solved(st) ? &result.collected[0].first : nullptr,
-                                 result.collected[0].second, result.wall_time));
+                                 result.collected[0].second, solved(st) ? &bound : nullptr,
+                                 Times{t0, result.build_time, result.solve_time, true}));
 }
 
 EvalResult cpsat_solve_all(EastValue **args, size_t num_args, EastType *out)
 {
     const char *fn = "google_or_cpsat_solve_all";
     if (num_args != 2) throw Error(msg(fn, "takes a model and a config"));
+    Clock::time_point t0 = now();
     int64_t max_solutions = 100;
     if (EastValue *v = some_value(field(args[1], "max_solutions", fn), fn))
         max_solutions = as_integer(v, fn);
-    Solved result = build_and_solve(fn, args[0], args[1], true,
+    Solved result = build_and_solve(fn, t0, args[0], args[1], true,
                                     max_solutions < 0 ? 0 : static_cast<size_t>(max_solutions));
     EastType *result_t = element_type(out, fn);
     EastValue *results = array(out, fn, result.collected.size());
     /* Every solution the observer collected is `feasible`; the one the solver
      * answered with instead (none observed, the fallback) carries its status.
-     * The last carries the whole solve's time, the rest 0. */
+     * The last carries the call's times and the solver's bound, the rest 0 and
+     * none. */
     bool from_observer = !(result.collected.size() == 1 && solved(result.response.status()));
+    double bound = result.response.best_objective_bound();
     for (size_t i = 0; i < result.collected.size(); i++) {
         bool last = i + 1 == result.collected.size();
         const char *tag = from_observer ? "feasible" : status_tag(result.response.status());
         push(results, result_struct(result_t, fn, tag, &result.collected[i].first,
-                                    result.collected[i].second, last ? result.wall_time : 0.0));
+                                    result.collected[i].second, last ? &bound : nullptr,
+                                    Times{t0, result.build_time, result.solve_time, last}));
     }
     return eval_ok(results);
 }
@@ -442,10 +530,12 @@ EvalResult cpsat_solve_columns(EastValue **args, size_t num_args, EastType *out)
 {
     const char *fn = "google_or_cpsat_solve_columns";
     if (num_args != 2) throw Error(msg(fn, "takes a model and a config"));
+    Clock::time_point t0 = now();
     EastValue *model_data = args[0];
     EastValue *config = args[1];
     EastType *status_t = field_type(out, "status", fn);
     EastType *objective_t = field_type(out, "objective_value", fn);
+    EastType *bound_t = field_type(out, "best_bound", fn);
 
     std::vector<int64_t> var_lower = vector_integers(field(model_data, "var_lower", fn), fn);
     std::vector<int64_t> var_upper = vector_integers(field(model_data, "var_upper", fn), fn);
@@ -469,12 +559,19 @@ EvalResult cpsat_solve_columns(EastValue **args, size_t num_args, EastType *out)
     std::vector<IntVar> vars(n_vars);
     for (size_t i = 0; i < n_vars; i++)
         vars[i] = build.model.NewIntVar(Domain(var_lower[i], var_upper[i]));
+    /* The rows straight into the proto. */
+    CpModelProto *proto = build.model.MutableProto();
     for (size_t r = 0; r < n_rows; r++) {
-        LinearExpr expr;
-        for (int64_t k = row_ptr[r]; k < row_ptr[r + 1]; k++)
-            expr += LinearExpr::Term(vars[static_cast<size_t>(col_ix[static_cast<size_t>(k)])],
-                                     coeff[static_cast<size_t>(k)]);
-        build.model.AddLinearConstraint(expr, Domain(row_lower[r], row_upper[r]));
+        LinearConstraintProto *lin = proto->add_constraints()->mutable_linear();
+        int count = static_cast<int>(row_ptr[r + 1] - row_ptr[r]);
+        lin->mutable_vars()->Reserve(count);
+        lin->mutable_coeffs()->Reserve(count);
+        for (int64_t k = row_ptr[r]; k < row_ptr[r + 1]; k++) {
+            lin->add_vars(vars[static_cast<size_t>(col_ix[static_cast<size_t>(k)])].index());
+            lin->add_coeffs(coeff[static_cast<size_t>(k)]);
+        }
+        lin->add_domain(row_lower[r]);
+        lin->add_domain(row_upper[r]);
     }
 
     if (EastValue *objective = some_value(field(model_data, "objective", fn), fn)) {
@@ -483,13 +580,14 @@ EvalResult cpsat_solve_columns(EastValue **args, size_t num_args, EastType *out)
             throw Error(msg(fn, "the objective has " + std::to_string(obj.size()) +
                                     " coefficients but there are " + std::to_string(n_vars) +
                                     " variables"));
-        LinearExpr expr;
-        for (size_t i = 0; i < n_vars; i++)
-            if (obj[i] != 0) expr += LinearExpr::Term(vars[i], obj[i]);
-        if (as_boolean(field(objective, "maximize", fn), fn))
-            build.model.Maximize(expr);
-        else
-            build.model.Minimize(expr);
+        bool maximize = as_boolean(field(objective, "maximize", fn), fn);
+        CpObjectiveProto *obj_proto = proto->mutable_objective();
+        for (size_t i = 0; i < n_vars; i++) {
+            if (obj[i] == 0) continue;
+            obj_proto->add_vars(vars[i].index());
+            obj_proto->add_coeffs(maximize ? -obj[i] : obj[i]);
+        }
+        if (maximize) obj_proto->set_scaling_factor(-1.0);
     }
 
     /* The named constraints and intervals, over the variables `names` names. */
@@ -500,9 +598,10 @@ EvalResult cpsat_solve_columns(EastValue **args, size_t num_args, EastType *out)
         if (count != n_vars)
             throw Error(msg(fn, "names has " + std::to_string(count) + " entries but there are " +
                                     std::to_string(n_vars) + " variables"));
+        build.vars.reserve(n_vars);
         for (size_t i = 0; i < n_vars; i++) {
             Named named{Named::INT, vars[i], BoolVar(), IntervalVar()};
-            build.vars[std::string(as_string(at(names, i), fn))] = named;
+            build.vars[as_string(at(names, i), fn)] = named;
         }
     } else if (length(interval_vars, fn) > 0 || length(constraints, fn) > 0) {
         throw Error(
@@ -534,26 +633,33 @@ EvalResult cpsat_solve_columns(EastValue **args, size_t num_args, EastType *out)
 
     operations_research::sat::Model model;
     model.Add(operations_research::sat::NewSatParameters(sat_params(config, fn)));
-    Clock::time_point t0 = now();
+    double build_time = seconds_since(t0);
+    Clock::time_point t1 = now();
     CpSolverResponse response = operations_research::sat::SolveCpModel(build.model.Build(), &model);
-    double wall_time = seconds_since(t0);
+    double solve_time = seconds_since(t1);
 
     std::vector<int64_t> values;
     EastValue *objective_value = nullptr;
+    EastValue *best_bound = nullptr;
     if (solved(response.status())) {
         values.resize(n_vars);
         for (size_t i = 0; i < n_vars; i++)
             values[i] = SolutionIntegerValue(response, vars[i]);
         objective_value = some(objective_t, east_float(response.objective_value()));
+        best_bound = some(bound_t, east_float(response.best_objective_bound()));
     } else {
         objective_value = none(objective_t);
+        best_bound = none(bound_t);
     }
 
     StructBuilder r(out, fn);
     r.set("status", status(status_t, status_tag(response.status())));
     r.set("objective_value", objective_value);
+    r.set("best_bound", best_bound);
     r.set("values", integer_vector(values));
-    r.set("wall_time", east_float(wall_time));
+    r.set("build_time", east_float(build_time));
+    r.set("solve_time", east_float(solve_time));
+    r.set("wall_time", east_float(seconds_since(t0)));
     return eval_ok(r.build());
 }
 

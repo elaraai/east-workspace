@@ -76,6 +76,8 @@ EvalResult linear_solve(EastValue **args, size_t num_args, EastType *out)
         r.set("status", status(status_t, "model_invalid"));
         r.set("objective_value", none(objective_t));
         r.set("assignments", dict(assignments_t, FN));
+        r.set("build_time", east_float(seconds_since(t0)));
+        r.set("solve_time", east_float(0.0));
         r.set("wall_time", east_float(seconds_since(t0)));
         return eval_ok(r.build());
     }
@@ -160,8 +162,11 @@ EvalResult linear_solve(EastValue **args, size_t num_args, EastType *out)
         if (!hint.empty()) solver->SetHint(std::move(hint));
     }
 
+    /* The build ends where the solver starts. */
+    double build_time = seconds_since(t0);
+    Clock::time_point t1 = now();
     MPSolver::ResultStatus result_status = solver->Solve(params);
-    double wall_time = seconds_since(t0);
+    double solve_time = seconds_since(t1);
 
     EastValue *assignments = dict(assignments_t, FN);
     EastValue *objective_value = nullptr;
@@ -177,7 +182,9 @@ EvalResult linear_solve(EastValue **args, size_t num_args, EastType *out)
     r.set("status", status(status_t, status_tag(result_status)));
     r.set("objective_value", objective_value);
     r.set("assignments", assignments);
-    r.set("wall_time", east_float(wall_time));
+    r.set("build_time", east_float(build_time));
+    r.set("solve_time", east_float(solve_time));
+    r.set("wall_time", east_float(seconds_since(t0)));
     return eval_ok(r.build());
 }
 
@@ -226,6 +233,8 @@ EvalResult linear_solve_columns(EastValue **args, size_t num_args, EastType *out
         r.set("status", status(status_t, "model_invalid"));
         r.set("objective_value", none(objective_t));
         r.set("values", float_vector({}));
+        r.set("build_time", east_float(seconds_since(t0)));
+        r.set("solve_time", east_float(0.0));
         r.set("wall_time", east_float(seconds_since(t0)));
         return eval_ok(r.build());
     }
@@ -276,8 +285,10 @@ EvalResult linear_solve_columns(EastValue **args, size_t num_args, EastType *out
         if (!hint.empty()) solver->SetHint(std::move(hint));
     }
 
+    double build_time = seconds_since(t0);
+    Clock::time_point t1 = now();
     MPSolver::ResultStatus result_status = solver->Solve(params);
-    double wall_time = seconds_since(t0);
+    double solve_time = seconds_since(t1);
 
     std::vector<double> values;
     EastValue *objective_value = nullptr;
@@ -294,7 +305,9 @@ EvalResult linear_solve_columns(EastValue **args, size_t num_args, EastType *out
     r.set("status", status(status_t, status_tag(result_status)));
     r.set("objective_value", objective_value);
     r.set("values", float_vector(values));
-    r.set("wall_time", east_float(wall_time));
+    r.set("build_time", east_float(build_time));
+    r.set("solve_time", east_float(solve_time));
+    r.set("wall_time", east_float(seconds_since(t0)));
     return eval_ok(r.build());
 }
 

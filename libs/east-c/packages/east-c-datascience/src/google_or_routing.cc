@@ -159,15 +159,20 @@ EvalResult routing_solve(EastValue **args, size_t num_args, EastType *out)
     if (EastValue *max_time = some_value(field(config, "max_time_seconds", FN), FN))
         params.mutable_time_limit()->set_seconds(static_cast<int64_t>(as_float(max_time, FN)));
 
+    /* The build ends where the solver starts. */
+    double build_time = seconds_since(t0);
+    Clock::time_point t1 = now();
     const Assignment *solution = routing.SolveWithParameters(params);
-    double wall_time = seconds_since(t0);
+    double solve_time = seconds_since(t1);
 
     if (!solution) {
         StructBuilder r(out, FN);
         r.set("status", status(status_t, "not_solved"));
         r.set("total_distance", east_integer(0));
         r.set("routes", array(routes_t, FN));
-        r.set("wall_time", east_float(wall_time));
+        r.set("build_time", east_float(build_time));
+        r.set("solve_time", east_float(solve_time));
+        r.set("wall_time", east_float(seconds_since(t0)));
         return eval_ok(r.build());
     }
 
@@ -211,7 +216,9 @@ EvalResult routing_solve(EastValue **args, size_t num_args, EastType *out)
     r.set("status", status(status_t, tag));
     r.set("total_distance", east_integer(total_distance));
     r.set("routes", routes);
-    r.set("wall_time", east_float(wall_time));
+    r.set("build_time", east_float(build_time));
+    r.set("solve_time", east_float(solve_time));
+    r.set("wall_time", east_float(seconds_since(t0)));
     return eval_ok(r.build());
 }
 

@@ -165,6 +165,8 @@ LinearResultType = StructType(
         ("status", GoogleOrStatusType),
         ("objective_value", OptionType(FloatType)),
         ("assignments", DictType(StringType, FloatType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -173,7 +175,7 @@ LinearResultType = StructType(
 Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
 (``Option<Float>`` — present when feasible or optimal), ``assignments``
 (``Dict<String, Float>`` mapping variable names to solution values),
-``wall_time`` (``Float`` seconds).
+``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 LinearModelColumnsType = StructType(
@@ -229,12 +231,14 @@ LinearColumnsResultType = StructType(
         ("status", GoogleOrStatusType),
         ("objective_value", OptionType(FloatType)),
         ("values", VectorType(FloatType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
 """Result returned by ``google_or_linear_solve_columns``: the variables' values
 by index (``Vector<Float>``, empty unless ``optimal`` or ``feasible``) beside
-the ``status``, ``objective_value`` and ``wall_time`` of ``LinearResultType``.
+the ``status``, ``objective_value`` and the times of ``LinearResultType``.
 """
 
 
@@ -319,7 +323,7 @@ def linear_solve(
         ``infeasible``, or ``not_solved``), ``objective_value``
         (``Option<Float>`` - present when feasible or optimal),
         ``assignments`` (``Dict<String, Float>`` - variable name to solution
-        value), ``wall_time`` (``Float`` seconds).
+        value), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -342,13 +346,15 @@ def linear_solve(
     solver = pywraplp.Solver.CreateSolver(solver_id)
 
     if solver is None:
-        wall_time = time.perf_counter() - start_time
+        build_time = time.perf_counter() - start_time
         return EastStruct(
             {
                 "status": variant("model_invalid", None, GoogleOrStatusType),
                 "objective_value": none,
                 "assignments": EastDict(StringType, FloatType),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": 0.0,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -421,9 +427,11 @@ def linear_solve(
         if hint_vars:
             solver.SetHint(hint_vars, hint_values)
 
-    # Solve
+    # Solve: the build ends where the solver starts
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     result_status = solver.Solve(params)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     # Map status
     status_map = {
@@ -449,7 +457,9 @@ def linear_solve(
             "status": status,
             "objective_value": obj_value,
             "assignments": assignments,
-            "wall_time": wall_time,
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
         }
     )
 
@@ -514,7 +524,7 @@ def linear_solve_columns(
         ``LinearColumnsResultType`` (``EastStruct``): ``status``,
         ``objective_value`` (``Option<Float>``), ``values`` (``Vector<Float>``
         - every variable's value by index when feasible or optimal, else
-        empty), ``wall_time`` (``Float`` seconds).
+        empty), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools, scipy) is not
@@ -572,11 +582,14 @@ def linear_solve_columns(
     solver_id = _detect_solver_id(solver_opt, has_integers)
     solver = pywraplp.Solver.CreateSolver(solver_id)
     if solver is None:
+        build_time = time.perf_counter() - start_time
         return EastStruct(
             {
                 "status": variant("model_invalid", None, GoogleOrStatusType),
                 "objective_value": none,
                 "values": EastVector(FloatType, np.zeros(0, dtype=np.float64)),
+                "build_time": build_time,
+                "solve_time": 0.0,
                 "wall_time": time.perf_counter() - start_time,
             }
         )
@@ -618,8 +631,10 @@ def linear_solve_columns(
     if rel_gap is not None:
         params.SetDoubleParam(params.RELATIVE_MIP_GAP, float(rel_gap))
 
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     result_status = solver.Solve(params)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     status_map = {
         pywraplp.Solver.OPTIMAL: "optimal",
@@ -642,7 +657,9 @@ def linear_solve_columns(
             "status": variant(status_tag, None, GoogleOrStatusType),
             "objective_value": obj_value,
             "values": EastVector(FloatType, values),
-            "wall_time": wall_time,
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
         }
     )
 
