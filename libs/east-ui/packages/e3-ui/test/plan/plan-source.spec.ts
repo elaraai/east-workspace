@@ -67,12 +67,13 @@ describeEast("Plan over the row-source contract (#567)", (test) => {
     });
 }, { platformFns: TestImpl });
 
-/** What a refusal of a lookalike says: the contract, every field in its order at its type. */
+/** What a refusal of a lookalike says: the contract, every field in its order at its type, and its two variants. */
 const NAMES_THE_CONTRACT = new RegExp(
     "^Error: Plan: a paged source is a platform bind's handle \\(Data\\.bindPaged\\) — " +
     "`\\{ id: String, page: \\(Integer, Integer\\) → Option<C>, total: \\(\\) → Option<Integer>, " +
     "seek: Option<\\(SeekQuery\\) → Option<SeekRange>>, revision: \\(\\) → Option<String>, " +
     "refresh: \\(Option<String>\\) → Null \\}`, its fields in that order at those types, " +
+    "the same with `query: \\(\\) → String` after them \\(a rail's narrowed source, Slice\\.rows\\), " +
     "or the same without `revision` and `refresh`");
 
 describe("the Plan against the shared contracts", () => {
