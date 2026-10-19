@@ -22,13 +22,13 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowDown, faChevronDown, faChevronUp, faCircleExclamation, faGripVertical, faInbox, faLink, faLinkSlash, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { variant, type SortedMap, type option } from "@elaraai/east";
-import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { Chooser, VirtualRows, formatDatePattern, type ChooserSection } from "@elaraai/east-ui-components/internal";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
 import { eventChoices, resourceChoices, type ChoiceWords } from "./choices.js";
-import { gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
+import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty } from "./narrowed.js";
@@ -85,22 +85,6 @@ interface Open { row: string; side: "event" | "resource" }
 
 /** One flattened line of the virtualised Table: a band's head, or a row. */
 type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow };
-
-/** A drop cell's veto and caption: the board's one verdict, as the Timeline's are (§10). */
-function dropOptions(drag: AllocationDrag, target: Target) {
-    return {
-        veto: (candidate: DragEventValue) => { const grip = drag.gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
-        options: {
-            accepts: (payload: DragPayload) => drag.gripOfPayload(payload) !== undefined,
-            caption: (_coord: unknown, payload: DragPayload) => {
-                const grip = drag.gripOfPayload(payload);
-                if (grip === undefined) return undefined;
-                const verdict = drag.verdict(grip, target);
-                return { text: verdict.caption, warn: verdict.warn };
-            },
-        },
-    };
-}
 
 /**
  * The Table (see the module docs).
@@ -246,11 +230,11 @@ function Row(args: RowProps) {
     const ghost = useMemo(() => <MoveGhost styles={styles} label={label} />, [styles, label]);
     const chipAt = useMemo(() => drag.enabled && row.kind === "bin" && row.bin !== undefined ? gripCoord(drag.surface, { kind: "body", bin: row.bin }) : null, [drag.enabled, drag.surface, row.kind, row.bin]);
     const chip = useDragEventChip(chipAt, ghost, false, label);
-    // A free row's event cell takes a bin to its slot; a reserved row's, a bin into the reservation (A37, A38).
+    // A free row's event cell takes a bin to its slot; a reserved row's, a bin into the reservation (A37, A38): each the board's one drop target (§10).
     const takes = row.kind !== "bin";
-    const event = dropOptions(drag, { kind: "lane", lane: row.lane, at: row.slotAt, card: row.kind === "reserved" ? row.bin : undefined, table: true });
+    const event = dropTarget(drag, { kind: "lane", lane: row.lane, at: row.slotAt, card: row.kind === "reserved" ? row.bin : undefined, table: true });
     const eventDrop = useDropCell(drag.enabled && takes ? laneCoord(drag.surface, row.lane, row.slotAt, row.kind === "reserved" ? row.bin : undefined, true) : null, false, event.veto, undefined, event.options);
-    const resource = dropOptions(drag, { kind: "cell", row: row.key });
+    const resource = dropTarget(drag, { kind: "cell", row: row.key });
     const resourceDrop = useDropCell(drag.enabled ? resourceCellCoord(drag.surface, row.key) : null, false, resource.veto, undefined, resource.options);
     // What the cells say while something is dragged, or an event picked (A11, A32, A45): the board's one verdict, asked nothing here.
     const subject = drag.subject, dragging = drag.grip !== undefined;

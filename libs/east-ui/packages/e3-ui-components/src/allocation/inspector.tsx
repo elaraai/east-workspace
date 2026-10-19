@@ -26,13 +26,13 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { DateTimeType, FloatType, StringType, StructType, variant, type SortedMap, type ValueTypeOf, type option } from "@elaraai/east";
 import { Fields, UIComponentType, type FieldSpecValue } from "@elaraai/east-ui";
-import { BannerView, EastChakraComponent, FieldForm, useDropCell, useTrackedEvaluation, type BuilderFrameDock, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
+import { BannerView, EastChakraComponent, FieldForm, useDropCell, useTrackedEvaluation, type BuilderFrameDock } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
-import { landing, placeAsk, rowCoord, type AllocationDrag, type Grip, type Refusal, type Target } from "./drag.js";
+import { dropTarget, landing, placeAsk, rowCoord, type AllocationDrag, type Grip, type Refusal, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
 import {
     CHECKING, alternativesOf, bannersOf, batchLine, binCode, binStatus, bookOptions, dropHeadOf, factsOf, fixLabel, groupLine, issueGroups, matesOf,
@@ -191,22 +191,6 @@ function Banners({ styles, banners }: { styles: Styles; banners: readonly Inspec
     </Box>)}</>;
 }
 
-/** A drop cell's veto and caption: the board's one verdict, as the Timeline's and the Table's are (§10). */
-function dropOptions(drag: AllocationDrag, target: Target) {
-    return {
-        veto: (candidate: DragEventValue) => { const grip = drag.gripOfEvent(candidate); return grip !== undefined && drag.verdict(grip, target).allowed; },
-        options: {
-            accepts: (payload: DragPayload) => drag.gripOfPayload(payload) !== undefined,
-            caption: (_coord: unknown, payload: DragPayload) => {
-                const grip = drag.gripOfPayload(payload);
-                if (grip === undefined) return undefined;
-                const verdict = drag.verdict(grip, target);
-                return { text: verdict.caption, warn: verdict.warn };
-            },
-        },
-    };
-}
-
 /**
  * The drop list (A34, A86): what is dragged or picked, the three best fits as
  * drop targets — each a Book while a pick waits for its click — and the
@@ -236,10 +220,14 @@ function DropList({ subject, dragging, ...part }: Part & { subject: Grip; draggi
     </>;
 }
 
-/** A fit in the drop list: a drop target as its resource's row is (A26), and with a pick its Book (A34). */
+/**
+ * A fit in the drop list: a drop target as its resource's row is (A26) — the
+ * board's one drop target, so a drag resting on it draws the resource's links
+ * and marks its bins as its row does (A29, A65) — and with a pick its Book (A34).
+ */
 function DropRow({ args, styles, target, rank, name, why, book }: Part & { target: Extract<Target, { kind: "resource" }>; rank: number; name: string; why: string; book: boolean }) {
     const { drag } = args;
-    const { veto, options } = dropOptions(drag, target);
+    const { veto, options } = dropTarget(drag, target);
     const ref = useDropCell(drag.enabled ? rowCoord(drag.surface, target.resource) : null, false, veto, undefined, options);
     return <Box ref={ref} css={styles.dropRow} data-allocation-drop-row={target.resource}>
         <Box as="span" css={styles.dropRank}>{rank}</Box>
