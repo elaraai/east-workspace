@@ -18,17 +18,19 @@
  * shows and saying so, with Clear filters, when the rail leaves it none. A Save
  * that moves a job out of its kind's narrowing says so in the footer, and the
  * jobs are never read whole. The event kinds' functions hold their own source
- * alone (#1343), and a window read through the interval indexes lands its key
- * searches re-rendering the readers alone, never the frame.
+ * alone (#1343), a source's methods share one descriptor (#1352), and a window
+ * read through the interval indexes lands its key searches re-rendering the
+ * readers alone, never the frame.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import {
-    DateTimeType, East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant,
-    type ValueTypeOf,
+    DateTimeType, East, Expr, IRType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, isRef, none, printFor, some, variant,
+    type StructType, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceStateType, Slice, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
+import { EAST_IR_SYMBOL } from "@elaraai/east/internal";
+import { RecordSliceBindType, RecordSliceStateType, Slice, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -44,6 +46,8 @@ Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out *
 
 /** The rail's key: the example's, each source's state kept under `${KEY}.${source}`. */
 const KEY = "ex.planPrintWorks";
+/** Where a decoded or compiled East function keeps its captured values: the runtime's registered symbol. */
+const CAPTURES = Symbol.for("east.captures");
 const compareString = compareFor(StringType);
 const text = printFor(StringType);
 const time = printFor(DateTimeType);
@@ -397,6 +401,39 @@ describe("the event kinds' functions hold their own source alone (#1343, #1344)"
         for (const source of ["job", "shift", "presses", "jobTemplates"]) {
             expect(encodeKeys(long.narrowed.get(source)!), source).toEqual(encodeKeys(short.narrowed.get(source)!));
         }
+    });
+
+    test("a source's methods share one descriptor: a payload writes it once, and a decode makes the one every method reads (#1352)", () => {
+        const make = East.function([], undefined, () => Slice.bindRecords(`${KEY}.descriptor`, {
+            job: { source: Data.bindPaged(ex.planPrintJobs, { indexes: [ex.planPrintJobsByStockTime] }), fields: { stock: { label: "Stock" } } },
+        }));
+        const Slices = Expr.type(make).output;
+        const platform = getRegisteredPlatformImplementations();
+        const made = East.compile(make, platform)();
+        const decoded = decodeBeast2For(Slices, { platform })(encodeBeast2For(Slices)(made)) as typeof made;
+        type Part = typeof made.sources.job;
+        /** Every method of a source, its narrowed data's among them. */
+        const methods = (part: Part): unknown[] => [
+            ...Object.entries(RecordSliceBindType.fields).filter(([, type]) => type.type === "Function").map(([name]) => (part as Record<string, unknown>)[name]),
+            part.pageWhere, part.data.page, part.data.total, part.data.revision, part.data.refresh,
+            ...(part.data.seek.type === "some" ? [part.data.seek.value] : []),
+        ];
+        /** What a function captures, by name. */
+        const capturesOf = (fn: unknown) => (fn as Record<symbol, Record<string, variant<"value" | "boxed", unknown>>>)[CAPTURES]!;
+        /** The descriptors a source's methods capture. */
+        const descriptors = (part: Part) => new Set(methods(part).flatMap((fn) => Object.values(capturesOf(fn)).map((held) => held.value).filter(isRef)));
+        expect(methods(decoded.sources.job).length).toBeGreaterThan(20);
+        expect(descriptors(made.sources.job).size).toBe(1);
+        expect(descriptors(decoded.sources.job).size, "one descriptor, decoded once, read by every method").toBe(1);
+        // Written once: the source is its descriptor and its methods' bodies, under four descriptors' worth of bytes, where a
+        // descriptor for each method was some twenty-five. The descriptor's type is the one its methods' IR declares.
+        const first = methods(made.sources.job)[0];
+        const ir = (first as Record<symbol, unknown>)[EAST_IR_SYMBOL] as ValueTypeOf<typeof IRType>;
+        if (ir.type !== "Function") throw new Error("a source's method is a function");
+        const held = ir.value.captures.find((variable) => isRef(capturesOf(first)[variable.value.name]!.value))!;
+        const descriptorBytes = encodeBeast2For(held.value.type, { codec: "none" })(capturesOf(first)[held.value.name]!.value).length;
+        const sourceBytes = encodeBeast2For((Slices.fields.sources as StructType).fields.job!, { codec: "none" })(made.sources.job).length;
+        expect(sourceBytes).toBeLessThan(4 * descriptorBytes);
     });
 });
 

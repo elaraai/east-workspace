@@ -5,9 +5,9 @@
 
 /** Serializable record Slice handles over the shared UI store. */
 import {
-    East, StringType, IntegerType, FunctionType, OptionType, fromEastTypeValue,
-    encodeBeast2For, decodeBeast2For, printFor, printType, some, none, variant,
-    type EastType, type EastTypeValue, type ExprType, type ValueTypeOf, type option,
+    East, StringType, IntegerType, FunctionType, OptionType, RefType, StructType, fromEastTypeValue,
+    encodeBeast2For, decodeBeast2For, printFor, printType, ref, some, none, variant,
+    type EastType, type EastTypeValue, type ExprType, type ValueTypeOf, type option, type ref as Ref,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import {
@@ -45,6 +45,8 @@ function name<T extends object>(cache: WeakMap<T, string>, value: T, print: (val
 interface BindingEntry {
     controller: RecordSliceController;
     descriptor: Descriptor;
+    /** The descriptor every method of the binding captures: one Ref, so a payload writes it once and back-references it from each (#1352). */
+    shared: Ref<{ key: string; source: RecordSliceBinding; config: Config; initial: State }>;
     handles: Map<string, Record<string, unknown>>;
     methods?: Record<string, unknown>;
     factories: Map<string, (...args: never[]) => unknown>;
@@ -53,6 +55,11 @@ interface BindingEntry {
 // compiled handles or source caches. Serialization carries a complete descriptor
 // so a decoded handle also works without re-running its original bind.
 const bindings = new WeakMap<UIStoreInterface, Map<string, BindingEntry>>();
+
+/** The descriptor's East type over a source of type `source`: what one binding's methods share, in a Ref. */
+function descriptorType(source: EastType) {
+    return StructType({ key: StringType, source, config: RecordSliceConfigType, initial: RecordSliceStateType });
+}
 // Gestures read the same query outside a tracked evaluation. They may reuse
 // an active reader's scan, but these weak references never keep its rows alive
 // after that reader changes query or unmounts. Even the lookup keys are bounded.
@@ -98,7 +105,7 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!,
         metadata?.type === "Struct" ? metadata : undefined);
     if (!store.has(key)) controller.write(initial);
-    entry = { controller, descriptor, handles: new Map(), factories: new Map() };
+    entry = { controller, descriptor, shared: ref({ key, source, config, initial }), handles: new Map(), factories: new Map() };
     entries.set(identity, entry);
     if (entries.size > 64) entries.delete(entries.keys().next().value!);
     return entry;
@@ -165,15 +172,21 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
                     // interprets functions as authoring callbacks; it cannot lift
                     // a compiled handle. The returned closure serializes its real
                     // source, so decoding in another host uses that host's runtime.
-                    const descriptorTypes = [StringType, types[0]!, RecordSliceConfigType, RecordSliceStateType];
-                    if (capture !== undefined) descriptorTypes.push(RecordSliceWhereType);
+                    // Every method captures the binding's one descriptor Ref (#1352):
+                    // a payload writes it once and back-references it from the
+                    // others, and a decode makes one descriptor they all read.
+                    const parts: EastType[] = [RefType(descriptorType(types[0]!))];
+                    if (capture !== undefined) parts.push(RecordSliceWhereType);
                     const primitive = RecordSlicePrimitives[name] as unknown as (...args: unknown[]) => ExprType<EastType>;
-                    factory = East.compile(East.function(descriptorTypes, FunctionType(inputs, output), (_$, ...descriptor) =>
-                        East.function(inputs, output, (_$, ...params) =>
-                            primitive(types, ...descriptor, ...params))), platforms()) as (...args: never[]) => unknown;
+                    factory = East.compile(East.function(parts, FunctionType(inputs, output), (_$, shared, ...where) =>
+                        East.function(inputs, output, ($, ...params) => {
+                            const descriptor = $.let((shared as unknown as { get(): ExprType<EastType> }).get()) as unknown as
+                                { key: unknown; source: unknown; config: unknown; initial: unknown };
+                            return primitive(types, descriptor.key, descriptor.source, descriptor.config, descriptor.initial, ...where, ...params);
+                        })), platforms()) as (...args: never[]) => unknown;
                     entry.factories.set(name, factory);
                 }
-                const values: unknown[] = [...entry.descriptor];
+                const values: unknown[] = [entry.shared];
                 if (capture !== undefined) values.push(capture);
                 return factory(...values as never[]);
             };
