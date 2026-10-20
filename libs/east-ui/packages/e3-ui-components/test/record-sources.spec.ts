@@ -14,7 +14,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { East, Expr, decodeBeast2For, equalFor, encodeBeast2For, none, some, variant, type option } from "@elaraai/east";
+import { East, Expr, decodeBeast2For, equalFor, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { RecordSliceStateType, RecordSlicesChromeType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
@@ -42,22 +42,6 @@ const Yard = Expr.type(yard);
 const program = East.function([], Yard, $ => $.return(yard));
 const resources = East.function([], Expr.type(Slice.rows(yard, "resources")), $ => $.return(Slice.rows(yard, "resources")));
 const chrome = East.function([], RecordSlicesChromeType, $ => $.return(recordSlicesChrome({ slice: yard })));
-
-/**
- * Reads until the read is answered: a read that is not launches what it waits
- * on — the revision, then the searches and windows — and e3 answers it.
- *
- * @param read - The read
- * @returns What it answered
- */
-async function ready<T>(read: () => option<T>): Promise<T> {
-    for (let attempt = 0; attempt < 12; attempt++) {
-        const value = read();
-        if (value.type === "some") return value.value;
-        await h.settle();
-    }
-    assert.fail("the read was not answered");
-}
 
 /** Whether a request names the bays or the kilns. */
 const ofYard = (request: E3Request) => request.dataset === `records.${bays.name}` || request.dataset === `records.${kilns.name}`;
@@ -88,11 +72,11 @@ test("its parts are record Slices under `${key}.${source}`, in source order, eac
     assert.deepEqual(slice.parts.map(part => [part.label, part.icon]), [
         [some("Bays"), some({ prefix: "fas", name: "warehouse", label: none, style: none })], [none, none],
     ]);
-    assert.deepEqual((await ready(() => slice.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"]);
+    assert.deepEqual((await h.ready(() => slice.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"]);
     const rows = East.compile(resources, here.implementations)();
     const every = [...(await h.read(kilns)).keys()];
     assert.equal(every.length, 33);
-    assert.deepEqual((await ready(() => rows.page(0n, 40n))).map(row => row.key), every, "every kiln, in key order");
+    assert.deepEqual((await h.ready(() => rows.page(0n, 40n))).map(row => row.key), every, "every kiln, in key order");
     assert.equal(wholeReads(), 0);
     here.runtime.clear();
 });
@@ -101,19 +85,19 @@ test("a choice in one source leaves the other's stored state and counts exactly 
     const here = host();
     const slice = here.create();
     const [lanes, kilnPart] = slice.parts.map(part => part.slice);
-    assert.equal(await ready(() => kilnPart!.count()), 33n);
+    assert.equal(await h.ready(() => kilnPart!.count()), 33n);
     const before = here.store.read("test.yard.resources");
     lanes!.choose("area", ['"North"']);
     assert.ok(equalFor(RecordSliceStateType)(decodeBeast2For(RecordSliceStateType)(here.store.read("test.yard.resources")!), decodeBeast2For(RecordSliceStateType)(before!)));
     assert.deepEqual(here.store.read("test.yard.resources"), before, "the other part's stored bytes are untouched");
-    assert.equal(await ready(() => lanes!.count()), 2n);
-    assert.equal(await ready(() => kilnPart!.count()), 33n, "a lane choice never reaches a kiln count");
+    assert.equal(await h.ready(() => lanes!.count()), 2n);
+    assert.equal(await h.ready(() => kilnPart!.count()), 33n, "a lane choice never reaches a kiln count");
     kilnPart!.choose("group", ['"Large"', '"Bulk"']);
-    assert.equal(await ready(() => kilnPart!.count()), 6n);
-    assert.equal(await ready(() => lanes!.count()), 2n);
+    assert.equal(await h.ready(() => kilnPart!.count()), 6n);
+    assert.equal(await h.ready(() => lanes!.count()), 2n);
     const changed = here.create();
-    assert.deepEqual((await ready(() => changed.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2"]);
-    assert.deepEqual((await ready(() => changed.sources.resources.data.page(0n, 10n))).map(row => row.key),
+    assert.deepEqual((await h.ready(() => changed.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2"]);
+    assert.deepEqual((await h.ready(() => changed.sources.resources.data.page(0n, 10n))).map(row => row.key),
         ["K-601", "K-602", "K-501", "K-502", "K-503", "K-504"], "in the group index's order: Bulk before Large, each group's kilns by key");
     const reads = h.requests().filter(ofYard);
     assert.ok(reads.length > 0);
@@ -132,8 +116,8 @@ test("a preset over several sources lands in every part at once; a later choice 
     assert.deepEqual(presets(), [some("north"), some("north")]);
     assert.deepEqual(lanes!.read().where.get("area"), variant("values", ['"North"']));
     assert.deepEqual(kilnPart!.read().where.get("group"), variant("values", ['"Hall A"', '"Hall B"']));
-    assert.equal(await ready(() => lanes!.count()), 2n);
-    assert.equal(await ready(() => kilnPart!.count()), 19n);
+    assert.equal(await h.ready(() => lanes!.count()), 2n);
+    assert.equal(await h.ready(() => kilnPart!.count()), 19n);
     slice.togglePreset("north");
     assert.deepEqual(presets(), [none, none], "toggled while every part has it, it clears every part");
     assert.deepEqual(slice.parts.map(part => part.slice.read().where.size), [0, 0]);
@@ -176,9 +160,9 @@ test("the handle and its chrome survive serialization; the decoded product's fun
     assert.deepEqual(decoded.parts.map(part => part.slice.key), ["test.yard.lanes", "test.yard.resources"]);
     // A source reads its narrowing when its rows are read (#1354): a decoded
     // one reads the decoder's store, never the narrowing it was encoded under.
-    assert.deepEqual((await ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"], "a decoded source reads the decoder's narrowing");
+    assert.deepEqual((await h.ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"], "a decoded source reads the decoder's narrowing");
     decoded.parts[0]!.slice.choose("area", ['"South"']);
-    assert.deepEqual((await ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-3"], "a choice in the decoder narrows the decoded source's rows");
+    assert.deepEqual((await h.ready(() => decoded.sources.lanes.data.page(0n, 10n))).map(row => row.key), ["B-3"], "a choice in the decoder narrows the decoded source's rows");
     assert.deepEqual(decodeBeast2For(RecordSliceStateType)(here.store.read("test.yard.lanes")!).where.get("area"), variant("values", ['"North"']), "the encoding host's narrowing stays its own");
     decoded.togglePreset("halls");
     const stored = (store: UIStore) => decodeBeast2For(RecordSliceStateType)(store.read("test.yard.resources")!);

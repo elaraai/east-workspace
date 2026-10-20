@@ -18,7 +18,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
     DateTimeType, East, Expr, OptionType, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
-    type option, type ValueTypeOf,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceWhereType, bindRecord } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
@@ -47,22 +47,6 @@ const printWhere = printFor(RecordSliceWhereType);
 /** The pages, or the searches, of a record asked of the test's workspace so far. */
 const pagesOf = (record: { readonly name: string }) => h.requests("page", `records.${record.name}`);
 const findsOf = (record: { readonly name: string }) => h.requests("find", `records.${record.name}`);
-
-/**
- * Reads until the read is answered: a read that is not launches what it waits
- * on — the revision, then the window or the search — and e3 answers it.
- *
- * @param read - The read
- * @returns What it answered
- */
-async function ready<T>(read: () => option<T>): Promise<T> {
-    for (let attempt = 0; attempt < 8; attempt++) {
-        const value = read();
-        if (value.type === "some") return value.value;
-        await h.settle();
-    }
-    assert.fail("the read was not answered");
-}
 
 /**
  * A paging runtime over e3's paging API, following each dataset through a
@@ -108,16 +92,16 @@ test("indexed binding survives serialization, scopes reads, and follows the deco
     assert.throws(() => East.compile(program, runtime.indexed.platform(new Set()))(), /not declared in manifest/);
     assert.equal(decoded.defaultIndex, "primary");
     assert.equal(decoded.page("primary", 0n, 3n).type, "none");
-    const primary = await ready(() => decoded.page("primary", 0n, 3n));
+    const primary = await h.ready(() => decoded.page("primary", 0n, 3n));
     assert.deepEqual(primary.map(row => row.key), ["p1", "p2", "p3"], "a row with no skills remains present once");
     assert.ok(rowEqual(primary[1]!.row, some({ name: "Abe", skills: new Set<string>() })));
     assert.deepEqual(primary[0]!.value, none);
     assert.deepEqual(decoded.total("primary"), some(3n));
-    const index = await ready(() => decoded.page("by_skill", 1n, 2n));
+    const index = await h.ready(() => decoded.page("by_skill", 1n, 2n));
     assert.deepEqual(index.map(row => [row.ik, row.key]), [[variant("by_skill", "b"), "p1"], [variant("by_skill", "b"), "p3"]]);
     assert.deepEqual(index[0]!.value, some(null));
     const R1 = await hashOf(people.path);
-    assert.deepEqual(await ready(() => decoded.seek("by_skill", variant("key", '"b"'))),
+    assert.deepEqual(await h.ready(() => decoded.seek("by_skill", variant("key", '"b"'))),
         { found: true, row: 1n, count: 2n });
     assert.deepEqual(findsOf(people).map(request => [request.query.get("index"), request.query.get("key"), request.query.get("hash")]),
         [["by_skill", '"b"', R1]], "the search is the skills index's, pinned to the revision");
@@ -133,7 +117,7 @@ test("indexed binding survives serialization, scopes reads, and follows the deco
     await h.settle();
     assert.deepEqual(decoded.revision(), some(R2));
     assert.equal(decoded.page("primary", 0n, 3n).type, "none", "no old revision's rows are returned as current");
-    const next = await ready(() => decoded.page("primary", 0n, 3n));
+    const next = await h.ready(() => decoded.page("primary", 0n, 3n));
     assert.ok(rowEqual(next[1]!.row, some({ name: "Abel", skills: new Set<string>() })));
     assert.equal(pagesOf(people).at(-1)?.query.get("hash"), R2);
     runtime.clear();
@@ -149,10 +133,10 @@ test("each indexed source builds its handle once, however often it is read (#136
     runtime.buildHandle = (type, path, selector, shape) => { built.push(selector.index); return build(type, path, selector, shape); };
     const handle = East.compile(program, platform(runtime))();
     const read = async () => {
-        await ready(() => handle.revision());
-        await ready(() => handle.seek("by_skill", variant("key", '"b"')));
-        await ready(() => handle.page("by_skill", 0n, 2n));
-        await ready(() => handle.total("by_skill"));
+        await h.ready(() => handle.revision());
+        await h.ready(() => handle.seek("by_skill", variant("key", '"b"')));
+        await h.ready(() => handle.page("by_skill", 0n, 2n));
+        await h.ready(() => handle.total("by_skill"));
     };
     await read();
     assert.deepEqual(built, [null, "by_skill", "by_skill", "by_skill"],
@@ -162,7 +146,7 @@ test("each indexed source builds its handle once, however often it is read (#136
     assert.equal(built.length, 4, "read again, nothing is built");
     runtime.clear();
     runtime.initialize(api, h.workspace);
-    await ready(() => handle.revision());
+    await h.ready(() => handle.revision());
     assert.deepEqual(built.slice(4), [null], "a clear drops them with the windows, so the next read builds again");
     runtime.clear();
 });
@@ -171,8 +155,8 @@ test("covering-only binding reads and counts without primary segments", async ()
     const { runtime } = newRuntime();
     const handle = East.compile(coverProgram, platform(runtime))();
     assert.equal(handle.defaultIndex, "by_name");
-    assert.deepEqual(await ready(() => handle.total("primary")), 3n);
-    const window = await ready(() => handle.page(handle.defaultIndex, 0n, 2n));
+    assert.deepEqual(await h.ready(() => handle.total("primary")), 3n);
+    const window = await h.ready(() => handle.page(handle.defaultIndex, 0n, 2n));
     assert.deepEqual(window.map(row => row.row), [none, none]);
     const pages = pagesOf(people);
     assert.ok(pages.length > 0);
@@ -208,32 +192,32 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     const otherSlice = bindRecord("test.names", otherSource, { search: "name" });
     const otherHandle = East.compile(East.function([], Expr.type(otherSlice), () => otherSlice), implementations)();
     assert.equal(otherHandle.sourceId, handle.sourceId, "different index lists share the record's save gate");
-    assert.equal(await ready(() => handle.count()), 2n);
-    assert.equal(await ready(() => handle.total()), 3n);
-    assert.equal(await ready(() => handle.countWhere(new Map([["skills", variant("values", ['"a"'])]]))), 1n);
-    assert.equal(await ready(() => handle.count()), 2n, "counting a saved query never changes the current narrowing");
-    assert.deepEqual((await ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1", "p3"]);
+    assert.equal(await h.ready(() => handle.count()), 2n);
+    assert.equal(await h.ready(() => handle.total()), 3n);
+    assert.equal(await h.ready(() => handle.countWhere(new Map([["skills", variant("values", ['"a"'])]]))), 1n);
+    assert.equal(await h.ready(() => handle.count()), 2n, "counting a saved query never changes the current narrowing");
+    assert.deepEqual((await h.ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1", "p3"]);
     assert.deepEqual(handle.config.fields.map(field => [field.fieldId, field.kind, field.set]), [["name", "string", false], ["skills", "string", true]]);
     const bytes = encodeBeast2For(Narrowed)(handle);
     assert.equal(handle.readEntry("p2").type, "none", "an unloaded primary read remains pending");
-    const outside = await ready(() => handle.readEntry("p2"));
+    const outside = await h.ready(() => handle.readEntry("p2"));
     assert.equal(outside.type, "some", "a filtered-out row is not a deletion");
     assert.ok(outside.type === "some" && equalFor(Person)(decodeBeast2For(Person)(outside.value), { name: "Abe", skills: new Set<string>() }));
-    assert.deepEqual(await ready(() => handle.readEntry("missing")), none, "absence needs a confirmed primary seek");
+    assert.deepEqual(await h.ready(() => handle.readEntry("missing")), none, "absence needs a confirmed primary seek");
     assert.ok(pagesOf(people).filter(request => !request.query.has("index")).every(request => request.query.get("limit") === "1"),
         "confirmation reads one entry, never the whole record");
     const captured = handle.read().where;
-    assert.equal(await ready(() => handle.contains(captured, "p1")), true, "membership includes a Set row once regardless of its other keys");
-    assert.equal(await ready(() => handle.contains(captured, "p2")), false, "a present row outside the query is distinguished from a missing page");
-    assert.equal(await ready(() => handle.contains(captured, "p3")), true, "membership does not depend on a resident page");
-    assert.equal(await ready(() => handle.contains(captured, "missing")), false);
+    assert.equal(await h.ready(() => handle.contains(captured, "p1")), true, "membership includes a Set row once regardless of its other keys");
+    assert.equal(await h.ready(() => handle.contains(captured, "p2")), false, "a present row outside the query is distinguished from a missing page");
+    assert.equal(await h.ready(() => handle.contains(captured, "p3")), true, "membership does not depend on a resident page");
+    assert.equal(await h.ready(() => handle.contains(captured, "missing")), false);
     assert.ok(stringEqual(handle.data.query(), printWhere(captured)), "`query` names the narrowing the rows serve");
     handle.choose("skills", ['"a"']);
     const changed = create();
     assert.equal(changed, handle, "the bind returns its binding's one handle, whatever the narrowing (#1354)");
     assert.ok(stringEqual(handle.data.query(), printWhere(handle.read().where)), "`query` moves with the narrowing");
     assert.ok(!stringEqual(handle.data.query(), printWhere(captured)));
-    assert.deepEqual((await ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1"], "a handle bound before the choice reads the narrowing as it stands");
+    assert.deepEqual((await h.ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1"], "a handle bound before the choice reads the narrowing as it stands");
     assert.ok(revisionEqual(handle.data.revision(), some(await hashOf(people.path))), "a narrowing never moves the revision a Save confirms against");
     assert.equal(changed.read().where.get("skills")?.type, "values");
     assert.throws(() => changed.choose("skills", ['"a"', '"b"']), /Choose one/);
@@ -241,11 +225,11 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     changed.prefix("name", "Ab");
     const names = create();
     assert.deepEqual([...names.read().where.keys()], ["name"], "an incompatible choice replaces the old narrowing");
-    assert.deepEqual((await ready(() => names.data.page(0n, 10n))).map(row => row.key), ["p2"]);
+    assert.deepEqual((await h.ready(() => names.data.page(0n, 10n))).map(row => row.key), ["p2"]);
     changed.clearAll();
     const all = create();
-    assert.deepEqual((await ready(() => all.data.page(0n, 10n))).map(row => row.key), ["p1", "p2", "p3"], "clearing includes empty Set rows exactly once");
-    const suggestions = await ready(() => all.suggest("name", "A"));
+    assert.deepEqual((await h.ready(() => all.data.page(0n, 10n))).map(row => row.key), ["p1", "p2", "p3"], "clearing includes empty Set rows exactly once");
+    const suggestions = await h.ready(() => all.suggest("name", "A"));
     assert.deepEqual(suggestions.map(value => value.label), ["Abe", "Ada", "Amy"]);
     assert.deepEqual(suggestions.map(value => value.count), [some(1n), some(1n), some(1n)]);
     // Another host: a runtime over another workspace, whose people another session renamed.
@@ -262,22 +246,22 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     assert.ok(stringEqual(decoded.data.id, handle.data.id), "the source's id names no narrowing, so a payload written under one serves under every other");
     // The decoder's store is seeded from the declared initial narrowing, and
     // the decoded source reads it there, never the narrowing it was encoded under.
-    const rows = await ready(() => decoded.data.page(0n, 10n));
+    const rows = await h.ready(() => decoded.data.page(0n, 10n));
     assert.deepEqual(rows.map(row => row.key), ["p1", "p3"]);
     assert.deepEqual(rows.map(row => row.row.type === "some" ? row.row.value.name : ""), ["Ada Moss", "Amy Moss"]);
-    assert.deepEqual(await ready(() => decoded.data.revision()), otherRevision);
+    assert.deepEqual(await h.ready(() => decoded.data.revision()), otherRevision);
     decoded.choose("skills", ['"a"']);
     assert.ok(stringEqual(decoded.data.query(), printWhere(decoded.read().where)));
-    assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["p1"], "a decoded source reads the decoder's narrowing as it stands");
+    assert.deepEqual((await h.ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["p1"], "a decoded source reads the decoder's narrowing as it stands");
     assert.ok(revisionEqual(decoded.data.revision(), some(otherRevision)));
-    const confirmed = await ready(() => decoded.readEntry("p2"));
+    const confirmed = await h.ready(() => decoded.readEntry("p2"));
     assert.ok(confirmed.type === "some" && equalFor(Person)(decodeBeast2For(Person)(confirmed.value), { name: "Abe Moss", skills: new Set<string>() }), "decoded confirmation uses the new host");
     assert.equal(decoded.sourceId, handle.sourceId, "narrowing does not change editing identity");
-    assert.equal(await ready(() => decoded.countWhere(new Map([["name", variant("prefix", "Abe M")]]))), 1n,
+    assert.equal(await h.ready(() => decoded.countWhere(new Map([["name", variant("prefix", "Abe M")]]))), 1n,
         "saved-query counts survive serialization and use the decoder's data");
-    assert.equal(await ready(() => decoded.contains(decoded.read().where, "p1")), true, "membership survives serialization");
+    assert.equal(await h.ready(() => decoded.contains(decoded.read().where, "p1")), true, "membership survives serialization");
     decoded.togglePreset("a");
-    assert.equal(await ready(() => decoded.count()), 1n);
+    assert.equal(await h.ready(() => decoded.count()), 1n);
     runtime.clear();
     another.clear();
 });
@@ -309,31 +293,31 @@ test("interval Slice pages and counts overlapping original records once, includi
     const implementations = slicePlatform(runtime);
     const create = East.compile(program, implementations);
     const handle = create();
-    assert.equal(await ready(() => handle.count()), 4n);
+    assert.equal(await h.ready(() => handle.count()), 4n);
     assert.equal(pagesOf(events).length, 0, "counts use bounds alone");
-    const first = await ready(() => handle.data.page(0n, 2n));
-    const next = await ready(() => handle.data.page(2n, 2n));
+    const first = await h.ready(() => handle.data.page(0n, 2n));
+    const next = await h.ready(() => handle.data.page(2n, 2n));
     const keys = [...first, ...next].map(row => row.key).sort(compareFor(StringType));
     assert.deepEqual(keys, ["carry", "inside", "instant-at-from", "span"]);
     assert.ok([...first, ...next].every(row => row.row.type === "some"));
     const captured = handle.read().where;
     for (const key of rows.keys()) {
-        assert.equal(await ready(() => handle.contains(captured, key)), keys.includes(key), `indexed membership preserves overlap for ${key}`);
+        assert.equal(await h.ready(() => handle.contains(captured, key)), keys.includes(key), `indexed membership preserves overlap for ${key}`);
     }
     const print = printFor(OptionType(DateTimeType));
-    assert.deepEqual(await ready(() => handle.domain("start")), {
+    assert.deepEqual(await h.ready(() => handle.domain("start")), {
         from: print(rows.get("span")!.start), to: print(rows.get("starts-at-to")!.start),
     }, "range domain skips Unset and internal carry-in entries");
-    assert.equal(await ready(() => handle.total()), 9n);
+    assert.equal(await h.ready(() => handle.total()), 9n);
     handle.clear("status");
     handle.range("start", print(some(from)), print(some(to)));
     const allStatuses = create();
-    assert.equal(await ready(() => allStatuses.count()), 5n, "an unprefixed overlap still includes carry-in");
+    assert.equal(await h.ready(() => allStatuses.count()), 5n, "an unprefixed overlap still includes carry-in");
     assert.ok(findsOf(events).some(request => request.query.get("index") === "by_time"), "an overlap of every status searches the time index");
     handle.choose("start", [print(none)]);
     const backlog = create();
-    assert.equal(await ready(() => backlog.count()), 1n);
-    assert.deepEqual((await ready(() => backlog.data.page(0n, 2n))).map(row => row.key), ["backlog"]);
+    assert.equal(await h.ready(() => backlog.count()), 1n);
+    assert.deepEqual((await h.ready(() => backlog.data.page(0n, 2n))).map(row => row.key), ["backlog"]);
     assert.equal(h.requests("read", `records.${events.name}`).length, 0, "the record is never read whole");
     runtime.clear();
 });

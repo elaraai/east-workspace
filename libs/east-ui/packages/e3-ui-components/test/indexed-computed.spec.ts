@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { East, Expr, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
+import { East, Expr, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { Data } from "@elaraai/e3-ui/internal";
 import { bindRecord } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
@@ -45,22 +45,6 @@ const pages = () => h.requests("page", `records.${flows.name}`);
 /** How many times the flows were read whole. */
 const wholeReads = () => h.requests("read", `records.${flows.name}`).length;
 
-/**
- * Reads until the read is answered: a read that is not launches what it waits
- * on — the revision, then the searches and windows — and e3 answers it.
- *
- * @param read - The read
- * @returns What it answered
- */
-async function ready<T>(read: () => option<T>): Promise<T> {
-    for (let attempt = 0; attempt < 12; attempt++) {
-        const result = read();
-        if (result.type === "some") return result.value;
-        await h.settle();
-    }
-    assert.fail("the computed-index read was not answered");
-}
-
 /** A paging runtime over e3's paging API in the test's workspace, the platform a record Slice runs on over it, and the slice. */
 function fixture() {
     const { cache } = h.cache();
@@ -87,17 +71,17 @@ test("named computed fields retain their types and use bounded exact, range and 
         assert.deepEqual(handle.config.fields.map(field => [field.fieldId, field.kind, field.set]), [
             ["description", "string", false], ["stateCount", "integer", false], ["lane", "string", true], ["owner", "string", true],
         ]);
-        assert.equal(await ready(() => handle.total()), 4n);
-        assert.deepEqual(await ready(() => handle.domain("stateCount")), { from: "0", to: "3" });
+        assert.equal(await h.ready(() => handle.total()), 4n);
+        assert.deepEqual(await h.ready(() => handle.domain("stateCount")), { from: "0", to: "3" });
         handle.choose("stateCount", ["1"]);
-        assert.deepEqual((await ready(() => f.create().data.page(0n, 10n))).map(row => row.key), ["b", "c"]);
+        assert.deepEqual((await h.ready(() => f.create().data.page(0n, 10n))).map(row => row.key), ["b", "c"]);
         handle.togglePreset("large-inbound");
-        assert.equal(await ready(() => handle.count()), 1n);
-        assert.deepEqual((await ready(() => f.create().data.page(0n, 10n))).map(row => row.key), ["a"]);
-        assert.deepEqual(await ready(() => handle.domain("stateCount")), { from: "1", to: "3" });
+        assert.equal(await h.ready(() => handle.count()), 1n);
+        assert.deepEqual((await h.ready(() => f.create().data.page(0n, 10n))).map(row => row.key), ["a"]);
+        assert.deepEqual(await h.ready(() => handle.domain("stateCount")), { from: "1", to: "3" });
         assert.equal(handle.sourceId, flows.name);
         const asked = h.requests().length;
-        await ready(() => handle.count());
+        await h.ready(() => handle.count());
         assert.equal(h.requests().length, asked, "repeat counts reuse revision-pinned bounds");
         assert.equal(wholeReads(), 0);
         assert.ok(pages().every(request => Number(request.query.get("limit")) <= 10));
@@ -108,16 +92,16 @@ test("computed membership deduplicates per record, searches nested values, survi
     const f = fixture();
     try {
         const handle = f.create();
-        assert.deepEqual((await ready(() => handle.suggest("lane", "lo"))).map(value => [value.label, value.count]), [["load", some(2n)]]);
+        assert.deepEqual((await h.ready(() => handle.suggest("lane", "lo"))).map(value => [value.label, value.count]), [["load", some(2n)]]);
         handle.choose("lane", ['"load"']);
         const captured = handle.read().where;
-        const ids = (await ready(() => f.create().data.page(0n, 10n))).map(row => row.key);
+        const ids = (await h.ready(() => f.create().data.page(0n, 10n))).map(row => row.key);
         assert.deepEqual(ids, ["a", "b"], "two load states in a flow still give it one list entry");
         assert.throws(() => handle.choose("lane", ['"load"', '"review"']), /Choose one/);
         assert.throws(() => handle.prefix("lane", "lo"), /exact value/);
-        assert.equal(await ready(() => handle.contains(captured, "a")), true);
-        assert.equal(await ready(() => handle.contains(captured, "c")), false);
-        assert.equal((await ready(() => handle.readEntry("c"))).type, "some");
+        assert.equal(await h.ready(() => handle.contains(captured, "a")), true);
+        assert.equal(await h.ready(() => handle.contains(captured, "c")), false);
+        assert.equal((await h.ready(() => handle.readEntry("c"))).type, "some");
         const saved = encodeBeast2For(Slice)(f.create());
         StateRuntime.initializeStore(new UIStore());
         const decoded = decodeBeast2For(Slice, { platform: f.platform })(saved);
@@ -125,25 +109,25 @@ test("computed membership deduplicates per record, searches nested values, survi
         // initial narrowing, and the decoded source reads its narrowing there
         // when its rows are read, never the one it was encoded under (#1354).
         assert.equal(decoded.read().where.size, 0);
-        assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b", "c", "d"]);
+        assert.deepEqual((await h.ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b", "c", "d"]);
         decoded.choose("lane", ['"load"']);
-        assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b"]);
+        assert.deepEqual((await h.ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b"]);
         // Another session moves flow a off the load lane, and the source is told the state it committed.
         const changed = await h.read(flows);
         changed.set("a", { description: "Inbound", states: [step("review")] });
         await h.patch(flows, changed);
         const committed = await stateHash();
         decoded.data.refresh(some(committed));
-        await ready(() => revisionEqual(decoded.data.revision(), some(committed)) ? some(null) : none);
-        assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["b"]);
-        assert.equal(await ready(() => decoded.countWhere(captured)), 1n);
-        assert.equal(await ready(() => decoded.contains(captured, "a")), false);
-        assert.equal((await ready(() => decoded.readEntry("a"))).type, "some", "leaving the index never means the primary flow was deleted");
+        await h.ready(() => revisionEqual(decoded.data.revision(), some(committed)) ? some(null) : none);
+        assert.deepEqual((await h.ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["b"]);
+        assert.equal(await h.ready(() => decoded.countWhere(captured)), 1n);
+        assert.equal(await h.ready(() => decoded.contains(captured, "a")), false);
+        assert.equal((await h.ready(() => decoded.readEntry("a"))).type, "some", "leaving the index never means the primary flow was deleted");
         decoded.clear("lane");
         decoded.choose("owner", [".none"]);
-        assert.equal(await ready(() => decoded.count()), 2n);
+        assert.equal(await h.ready(() => decoded.count()), 2n);
         decoded.clearAll();
-        assert.equal(await ready(() => decoded.count()), 4n, "empty graphs survive an unfiltered view");
+        assert.equal(await h.ready(() => decoded.count()), 4n, "empty graphs survive an unfiltered view");
         assert.equal(wholeReads(), 0);
     } finally { f.runtime.clear(); }
 });
@@ -158,18 +142,18 @@ test("scalar computed keys infer controls from their index types and support cov
         assert.deepEqual(handle.config.fields.map(field => [field.fieldId, field.kind, field.set]), [
             ["label", "string", false], ["size", "integer", false], ["decisionOwner", "string", true],
         ]);
-        assert.equal(await ready(() => handle.total()), 4n);
+        assert.equal(await h.ready(() => handle.total()), 4n);
         handle.prefix("label", "In");
-        const page = await ready(() => create().data.page(0n, 10n));
+        const page = await h.ready(() => create().data.page(0n, 10n));
         assert.deepEqual(page.map(row => row.key), ["a", "b"]);
         assert.ok(page.every(row => row.row.type === "none"));
-        assert.deepEqual((await ready(() => handle.suggest("label", "In"))).map(value => [value.label, value.count]), [["Inbound", some(2n)]]);
-        assert.deepEqual(await ready(() => handle.domain("size")), { from: "0", to: "3" });
+        assert.deepEqual((await h.ready(() => handle.suggest("label", "In"))).map(value => [value.label, value.count]), [["Inbound", some(2n)]]);
+        assert.deepEqual(await h.ready(() => handle.domain("size")), { from: "0", to: "3" });
         handle.choose("size", ["1"]);
-        assert.deepEqual((await ready(() => create().data.page(0n, 10n))).map(row => row.key), ["b", "c"]);
+        assert.deepEqual((await h.ready(() => create().data.page(0n, 10n))).map(row => row.key), ["b", "c"]);
         handle.choose("decisionOwner", ['.some "team-a"']);
-        assert.deepEqual((await ready(() => create().data.page(0n, 10n))).map(row => row.key), ["a"]);
-        assert.equal(await ready(() => handle.count()), 1n);
+        assert.deepEqual((await h.ready(() => create().data.page(0n, 10n))).map(row => row.key), ["a"]);
+        assert.equal(await h.ready(() => handle.count()), 1n);
         assert.equal(wholeReads(), 0);
     } finally { f.runtime.clear(); }
 });

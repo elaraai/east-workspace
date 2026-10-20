@@ -472,6 +472,42 @@ export const planLinkDeliveries = e3.record("plan_link_deliveries", DictType(Str
 export const planLinkDeliveriesPatch = e3.mutation.patch(planLinkDeliveries);
 
 // ============================================================================
+// Jobs of the Plan's specs' own: a kind in lanes, and a resource by its case
+// ============================================================================
+
+/** A job in a lane, with a status: one record the Plan's specs draw as tiles, as bars and as marks. */
+export const PrintLaneJob = StructType({
+    title: StringType,
+    start: DateTimeType,
+    end: DateTimeType,
+    press: OptionType(StringType),
+    lane: StringType,
+    status: VariantType({ fine: NullType, late: NullType }),
+});
+
+/** Three lane jobs in the first week: two on Press A1 in its AM and PM lanes, one late; one late on Press A2. */
+export const planRowsLaneJobs = e3.record("plan_rows_lane_jobs", DictType(StringType, PrintLaneJob), new Map([
+    ["L-1", { title: "Proofs", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T08:00:00Z"), press: some("a1"), lane: "pm", status: variant("fine", null) }],
+    ["L-2", { title: "Plates", start: new Date("2026-10-06T09:00:00Z"), end: new Date("2026-10-06T10:00:00Z"), press: some("a1"), lane: "am", status: variant("late", null) }],
+    ["L-3", { title: "Wash-up", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T07:00:00Z"), press: some("a2"), lane: "am", status: variant("late", null) }],
+]));
+
+/** The lane jobs' patch door. */
+export const planRowsLaneJobsPatch = e3.mutation.patch(planRowsLaneJobs);
+
+/** A job on a press or in a bay — a resource field whose case names the kind. */
+export const PrintOnJob = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, on: VariantType({ press: StringType, bay: StringType }) });
+
+/** One job on Press A1, and one in Bay A1: two kinds of resource with the same key. */
+export const planRowsOnJobs = e3.record("plan_rows_on_jobs", DictType(StringType, PrintOnJob), new Map([
+    ["O-1", { title: "On the press", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T08:00:00Z"), on: variant("press", "a1") }],
+    ["O-2", { title: "In the bay", start: new Date("2026-10-06T09:00:00Z"), end: new Date("2026-10-06T10:00:00Z"), on: variant("bay", "a1") }],
+]));
+
+/** The press-or-bay jobs' patch door. */
+export const planRowsOnJobsPatch = e3.mutation.patch(planRowsOnJobs);
+
+// ============================================================================
 // The print works' finishing and dispatch records (#1200)
 // ============================================================================
 

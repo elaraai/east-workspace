@@ -139,6 +139,43 @@ export const planWindowJobsUnscheduled = e3.recordIndex("plan_window_jobs_unsche
 });
 
 // ============================================================================
+// Print runs of the windows spec's own: a day that fills a page
+// ============================================================================
+
+/**
+ * Print runs on a press, filed as the jobs are: the windows spec commits a
+ * day of runs that fills a whole page of their day index, and one on the next
+ * day, so a window of the first day reads the page after it to find where the
+ * day ends. Empty until the spec commits them.
+ */
+export const planWindowRuns = e3.record("plan_window_runs", DictType(StringType, PrintJob), new Map());
+
+/** The runs' patch door: the spec's commit goes through it. */
+export const planWindowRunsPatch = e3.mutation.patch(planWindowRuns);
+
+/** The runs by the days each touches (`Schedule.days`), as the jobs are. */
+export const planWindowRunsByDay = e3.recordIndex("plan_window_runs_by_day", planWindowRuns, {
+    keys: East.function([StringType, PrintJob], SetType(DateTimeType), ($, _id, job) => {
+        const days = $.const(Schedule.days);
+        const filed = $.let(new Set<Date>(), SetType(DateTimeType));
+        $.match(job.start, {
+            some: ($2, start) => {
+                $2.match(job.end, { some: ($3, end) => { $3.assign(filed, days(start, end)); } });
+            },
+        });
+        return filed;
+    }),
+});
+
+/** The runs with no start, by when they are due (`Schedule.unscheduled`), as the jobs are. */
+export const planWindowRunsUnscheduled = e3.recordIndex("plan_window_runs_unscheduled", planWindowRuns, {
+    keys: East.function([StringType, PrintJob], SetType(OptionType(DateTimeType)), ($, _id, job) => {
+        const unscheduled = $.const(Schedule.unscheduled);
+        return unscheduled(job.start, job.due);
+    }),
+});
+
+// ============================================================================
 // planWindows — a Plan read a window at a time (§9.11)
 // ============================================================================
 

@@ -4,15 +4,14 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DateTimeType, DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, none, some, variant, type EastTypeValue } from "@elaraai/east";
-import type { PlatformFunction } from "@elaraai/east/internal";
+import { ArrayType, DateTimeType, DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, none, some, variant } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Data, Roster } from "@elaraai/e3-ui";
-import { Func, Record, RosterAuthorTabType, RosterPayloadType, buildRosterTab, createRosterPayload, funcBindPlatformFn, type RosterProps } from "@elaraai/e3-ui/internal";
-import { memoryRecords } from "../schedule/memory-records.js";
+import { Func, Record, RosterAuthorTabType, RosterPayloadType, buildRosterTab, createRosterPayload, type RosterProps } from "@elaraai/e3-ui/internal";
+import { refusingPlatform } from "../refusing-platform.js";
 import { warehouseConfig } from "./warehouse.js";
 import * as ex from "./roster.examples.js";
 describeEast("Roster — inline bound examples", test => {
@@ -25,7 +24,7 @@ test("Roster is one tag; BuilderFrame, Builder and View are not part of its deve
         const weeks = $.let(Record.bind(ex.rosterWeeks, [ex.rosterWeeksPatch]));
         return createRosterPayload({ weeks, people: [], groups: warehouseConfig.groups, shifts: warehouseConfig.shifts, rules: { rest: 12 } });
     });
-    const value = East.compile(fn, memoryRecords(new Map([[ex.rosterWeeks.name, ex.rosterWeeks.default]])))();
+    const value = East.compile(fn, refusingPlatform)();
     assert.equal(value.sourceId, ex.rosterWeeks.name); assert.equal(value.rules.rest, 12); assert.equal(value.rules.skill, true);
     assert.equal(value.library.length, 0); assert.equal(value.inspector.type, "none");
     assert.equal("frame" in value, false); assert.equal("children" in value, false);
@@ -78,7 +77,7 @@ test("an app's tab follows the source it names; a source the slice lacks is refu
     for (const sources of [{ people: { source: staffSource() } }, { activities: { source: activitySource() } }, { people: { source: staffSource() }, activities: { source: activitySource() } }]) {
         assert.doesNotThrow(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.roster", sources as never) }, library: [Roster.library.people(), Roster.library.activities()] })));
     }
-    const bare = East.compile(payload(() => ({})), memoryRecords(new Map([[ex.rosterWeeks.name, ex.rosterWeeks.default]])))();
+    const bare = East.compile(payload(() => ({})), refusingPlatform)();
     assert.deepEqual([bare.slice.type, bare.narrowed.people.type, bare.narrowed.activities.type, bare.activities], ["none", "none", "none", []]);
 });
 
@@ -96,11 +95,6 @@ test("Roster.activities reads a keyed record in its order: each skill with its g
         /Roster.activities: activities must be a Dict keyed by String/);
 });
 
-/** `Func.bind`, in memory: a handle that names its function and is never called here. */
-const memoryFunctions: PlatformFunction[] = [funcBindPlatformFn.implement((_handleType: EastTypeValue) => (nameArg: unknown) => ({
-    call: () => null, read: () => none, status: () => variant("idle", null), error: () => none, pending: () => false, cancel: () => null,
-    binding: { name: nameArg as string },
-}))];
 /** A payload built over the warehouse's weeks with `fit` bound to the e3.function given. */
 const boundTo = (fn: unknown) => East.function([], RosterPayloadType, $ => {
     const weeks = $.let(Record.bind(ex.rosterWeeks, [ex.rosterWeeksPatch]));
@@ -109,9 +103,8 @@ const boundTo = (fn: unknown) => East.function([], RosterPayloadType, $ => {
 });
 
 test("R2 — `fit` is optional: without it the payload names no fit, and the Roster offers no Find fix; with it, its e3.function by name", () => {
-    const records = memoryRecords(new Map([[ex.rosterWeeks.name, ex.rosterWeeks.default]]));
-    assert.deepEqual(East.compile(payload(() => ({})), records)().fit, none);
-    assert.deepEqual(East.compile(boundTo(ex.rosterStaffFit), [...records, ...memoryFunctions])().fit, some({ name: "roster_staff_fit" }));
+    assert.deepEqual(East.compile(payload(() => ({})), refusingPlatform)().fit, none);
+    assert.deepEqual(East.compile(boundTo(ex.rosterStaffFit), refusingPlatform)().fit, some({ name: "roster_staff_fit" }));
 });
 
 test("the tag refuses a `fit` that is no Func.bind of an e3.function from Roster.Types.FitRequest to Roster.Types.FitResult, naming what it asks or answers", () => {

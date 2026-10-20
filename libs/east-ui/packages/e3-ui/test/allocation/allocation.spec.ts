@@ -5,16 +5,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, isTypeEqual, none, some, variant, type EastTypeValue,
+    ArrayType, DictType, East, IntegerType, StringType, StructType, fromEastTypeValue, isTypeEqual, none, some, variant,
 } from "@elaraai/east";
-import type { PlatformFunction } from "@elaraai/east/internal";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Allocation, type AllocationProps } from "@elaraai/e3-ui";
-import { AllocationPayloadType, Data, Func, Record, createAllocationPayload, funcBindPlatformFn } from "@elaraai/e3-ui/internal";
-import { memoryRecords } from "../schedule/memory-records.js";
-import { Bay, BinValues, TimberLoad, yardArrivals, yardBayRows, yardKilns, yardLanes, yardPlans } from "./kiln-yard.js";
+import { AllocationPayloadType, Data, Func, Record, createAllocationPayload } from "@elaraai/e3-ui/internal";
+import { refusingPlatform } from "../refusing-platform.js";
+import { Bay, BinValues, TimberLoad, yardArrivals, yardBayRows, yardKilns, yardLanes } from "./kiln-yard.js";
 import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
@@ -26,12 +25,9 @@ describeEast("Allocation — inline bound examples", test => {
     });
 }, { platformFns: TestImpl });
 
-/** `Func.bind`, in memory: a handle that names its function and is never called here. */
-const memoryFunctions: PlatformFunction[] = [funcBindPlatformFn.implement((_handleType: EastTypeValue) => (nameArg: unknown) => ({
-    call: () => null, read: () => none, status: () => variant("idle", null), error: () => none, pending: () => false, cancel: () => null,
-    binding: { name: nameArg as string },
-}))];
-const platform = [...memoryRecords(new Map([[ex.kilnPlans.name, yardPlans]])), ...memoryFunctions];
+// The tag is built against a platform whose every binding refuses to read: what
+// its payload reads of e3 — the plans, as bytes — e3-ui-components' allocation
+// payload spec reads on e3 itself.
 
 /** The kiln yard's payload, built by the tag over the module's records. */
 function payloadWith(overrides: Partial<AllocationProps<typeof BinValues>> = {}) {
@@ -49,7 +45,7 @@ function payloadWith(overrides: Partial<AllocationProps<typeof BinValues>> = {})
             ...overrides,
         });
     });
-    return East.compile(fn, platform)();
+    return East.compile(fn, refusingPlatform)();
 }
 
 test("Allocation is one tag: BuilderFrame, Builder and View are not part of its developer API, and its payload holds no UI", () => {
@@ -66,19 +62,6 @@ test("Allocation is one tag: BuilderFrame, Builder and View are not part of its 
     assert.ok(value.settings.horizon.before.type === "days" && value.settings.horizon.before.value === 3);
     assert.ok(value.settings.horizon.after.type === "days" && value.settings.horizon.after.value === 10);
     assert.equal(value.rules.under, true);
-});
-
-test("the app's bin values cross as bytes: the plans, an event's starting values and a column's text", () => {
-    const value = payloadWith();
-    const plans = decodeBeast2For(Allocation.Types.Days(BinValues))(value.read());
-    assert.equal(plans.size, 3);
-    const day = [...plans.values()][1]!;
-    assert.equal(day.bins.size, 26);
-    const start = decodeBeast2For(BinValues)(value.initial("LD-2231"));
-    assert.deepEqual([start.specBooked, start.gradeBooked, start.gradeMeasured], ["MC12", "R", "R2"]);
-    const bin = day.bins.get("3113")!;
-    const text = value.columns[0]!.text(encodeBeast2For(BinValues)(bin.values));
-    assert.equal(text, "booked MC08 · measured MC22");
 });
 
 test("a fit bound over other bin values is refused at build, naming both types", () => {
