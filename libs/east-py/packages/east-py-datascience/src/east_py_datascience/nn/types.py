@@ -89,9 +89,9 @@ NnInitType = VariantType(
 """How ``nn_init`` draws a parameter: ``normal`` is the standard deviation, ``uniform`` the bound of ``(-b, b)``."""
 
 NnParamSpecType = StructType(
-    [("shape", ArrayType(IntegerType)), ("init", NnInitType), ("trainable", BooleanType)]
+    [("shape", ArrayType(IntegerType)), ("init", NnInitType), ("trainable", BooleanType), ("decay", FloatType)]
 )
-"""A parameter: its shape, its initialisation and whether training moves it."""
+"""A parameter: its shape, its initialisation, whether training moves it, and its multiplier of the optimiser's weight decay."""
 
 NnMaskType = VariantType(
     [
@@ -364,29 +364,43 @@ NnOptimizerType = VariantType(
         )
     ]
 )
+NnScheduleUnitType = VariantType([("step", NullType), ("epoch", NullType)])
+"""What a schedule counts: every optimiser step, or each epoch."""
+
 NnScheduleType = VariantType(
     [
         ("constant", NullType),
-        ("warmup_cosine", StructType([("warmup_steps", IntegerType), ("min_lr", FloatType)])),
-        ("warmup_linear", StructType([("warmup_steps", IntegerType)])),
+        (
+            "warmup_cosine",
+            StructType([("warmup_steps", IntegerType), ("min_lr", FloatType), ("unit", NnScheduleUnitType)]),
+        ),
+        ("warmup_linear", StructType([("warmup_steps", IntegerType), ("unit", NnScheduleUnitType)])),
     ]
 )
+NnValidationType = StructType([("value", StringType), ("weight", OptionType(StringType))])
+"""What early stopping reads: Σ value / Σ weight over the validation batches (weight 1 per batch when ``none``)."""
+
+NnEmaType = StructType([("decay", FloatType), ("warmup", BooleanType)])
+"""An exponential moving average of the weights: its decay, warmed up as ``min(decay, (1 + s)/(10 + s))`` when asked."""
+
 NnPrecisionType = VariantType([("f32", NullType), ("bf16", NullType)])
 
 NnTrainConfigType = StructType(
     [
         ("loss", StringType),
-        ("validation", OptionType(StringType)),
+        ("validation", OptionType(NnValidationType)),
         ("optimizer", NnOptimizerType),
         ("schedule", NnScheduleType),
         ("clip_norm", OptionType(FloatType)),
-        ("ema_decay", OptionType(FloatType)),
+        ("ema", OptionType(NnEmaType)),
+        ("shuffle", BooleanType),
         ("epochs", IntegerType),
         ("patience", OptionType(IntegerType)),
         ("precision", NnPrecisionType),
         ("seed", IntegerType),
         ("device", NnDeviceType),
         ("recompute", SetType(StringType)),
+        ("progress", OptionType(IntegerType)),
     ]
 )
 """``nn_train``'s configuration (spec §5)."""
@@ -411,15 +425,18 @@ __all__ = [
     "NnBatchType",
     "NnDTypeType",
     "NnDeviceType",
+    "NnEmaType",
     "NnInitType",
     "NnInputSpecType",
     "NnMaskType",
     "NnParamSpecType",
     "NnRotaryType",
     "NnRunConfigType",
+    "NnScheduleUnitType",
     "NnTrainConfigType",
     "NnTrainHistoryType",
     "NnTrainResultType",
+    "NnValidationType",
     "NnValueType",
     "NnWeightsType",
     "TensorType",

@@ -14,7 +14,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from east import coerce_to, some, variant  # noqa: E402
+from east import coerce_to, none, some, variant  # noqa: E402
 from east.types.types import ArrayType  # noqa: E402
 from east_py_datascience.nn import nn_init, nn_run, nn_train  # noqa: E402
 from east_py_datascience.nn.types import NnBatchType, NnTrainConfigType  # noqa: E402
@@ -156,13 +156,13 @@ def test_nn_train_lowers_the_unet_loss():
     batches = coerce_to([fam.unet_batch(seed=s) for s in (1, 2, 3)], ArrayType(NnBatchType))
     config = coerce_to(
         {
-            "loss": "loss", "validation": some("loss"),
+            "loss": "loss", "validation": some({"value": "loss", "weight": none}),
             "optimizer": variant("adamw", {"lr": 3e-3, "beta1": 0.9, "beta2": 0.999, "eps": 1e-8, "weight_decay": 0.01}),
-            "schedule": variant("warmup_cosine", {"warmup_steps": 3, "min_lr": 1e-4}),
-            "clip_norm": some(1.0), "ema_decay": some(0.9),
+            "schedule": variant("warmup_cosine", {"warmup_steps": 3, "min_lr": 1e-4, "unit": variant("step", None)}),
+            "clip_norm": some(1.0), "ema": some({"decay": 0.9, "warmup": False}), "shuffle": False,
             "epochs": 6, "patience": some(10),
             "precision": variant("f32", None), "seed": 0, "device": variant("cpu", None),
-            "recompute": {"unet"},
+            "recompute": {"unet"}, "progress": none,
         },
         NnTrainConfigType,
     )
@@ -173,3 +173,41 @@ def test_nn_train_lowers_the_unet_loss():
     assert 1 <= int(result["best_epoch"]) <= 6
     assert set(result["weights"].keys()) == set(weights.keys())
     assert history[-1][3] < history[0][3] and history[-1][3] >= 1e-4  # the cosine decays toward min_lr
+
+
+def test_the_shuffle_is_the_specified_permutation():
+    """Fisher–Yates on SplitMix64 from `seed + epoch × 0x9E3779B97F4A7C15` (spec §5), pinned for three seeds."""
+    from east_py_datascience.nn.nn_impl import shuffle_order
+
+    assert shuffle_order(0, 1, 10) == [8, 7, 6, 5, 3, 9, 2, 4, 1, 0]
+    assert shuffle_order(0, 2, 10) == [4, 1, 6, 8, 0, 5, 2, 3, 7, 9]
+    assert shuffle_order(42, 1, 10) == [2, 3, 9, 7, 5, 8, 6, 4, 0, 1]
+    assert shuffle_order(42, 2, 10) == [9, 6, 7, 5, 3, 1, 4, 2, 0, 8]
+    assert shuffle_order(-7, 1, 10) == [7, 9, 6, 5, 1, 3, 0, 8, 2, 4]
+    assert shuffle_order(-7, 2, 10) == [4, 2, 9, 7, 3, 0, 6, 8, 1, 5]
+    assert shuffle_order(5, 1, 1) == [0] and shuffle_order(5, 1, 0) == []
+
+
+def test_progress_writes_a_line_every_n_steps_and_per_epoch(capsys):
+    net = fam.east_net(fam.unet_net())
+    weights = nn_init(net, 17)
+    fam.unet_weights_override(weights)
+    batches = coerce_to([fam.unet_batch(seed=s) for s in (1, 2, 3)], ArrayType(NnBatchType))
+    config = coerce_to(
+        {
+            "loss": "loss", "validation": some({"value": "loss", "weight": none}),
+            "optimizer": variant("adamw", {"lr": 3e-3, "beta1": 0.9, "beta2": 0.999, "eps": 1e-8, "weight_decay": 0.0}),
+            "schedule": variant("constant", None),
+            "clip_norm": none, "ema": none, "shuffle": True,
+            "epochs": 2, "patience": none,
+            "precision": variant("f32", None), "seed": 0, "device": variant("cpu", None),
+            "recompute": set(), "progress": some(2),
+        },
+        NnTrainConfigType,
+    )
+    nn_train(net, weights, batches, batches, config)
+    lines = capsys.readouterr().err.strip().splitlines()
+    steps = [line for line in lines if " step " in line]
+    epochs = [line for line in lines if "/2 loss " in line]
+    assert [line.split()[4] for line in steps] == ["2/6", "4/6", "6/6"]
+    assert len(epochs) == 2 and epochs[0].startswith("nn_train: epoch 1/2 loss ") and " validation " in epochs[0] and epochs[0].endswith(" lr 0.003")

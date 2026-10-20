@@ -118,6 +118,27 @@ requests; this file is the record of behaviour. Changes land under
   (2.4 million pairs) about 260 MB, against the dense path's 4.6 GB of scores
   (9.2 GB with the softmax).
 
+### east-py-datascience and east-c-datascience (the neural networks: training)
+
+- **Weight decay per parameter**: `NnParamSpecType` gains `decay`, the
+  parameter's multiplier of the optimiser's `weight_decay` (1 the full decay,
+  0 none), and `nn_train` groups the trainable weights by it (one AdamW group
+  per distinct value) on both runners; the field is required.
+- **`nn_train`'s configuration** (`NnTrainConfigType`): `validation` is now
+  an option of `{ value, weight }`, monitored as Σ value / Σ weight over the
+  validation batches (the weight a rank-0 output; 1 per batch when `none`,
+  the mean as before); `ema_decay` becomes `ema: Option<{ decay, warmup }>`,
+  the warm-up `min(decay, (1 + s)/(10 + s))` after `s` steps; `shuffle` runs
+  each epoch's batches in a seeded permutation of its own (Fisher–Yates on
+  SplitMix64, stated in the specification, the same on both runners); the
+  `warmup_cosine` and `warmup_linear` schedules take a `unit`, `step` or
+  `epoch`; `progress: Option<Integer>` writes a line to stderr every so many
+  steps and per epoch, on both runners. The validation pass draws from a
+  generator seeded afresh each pass, so every pass sees the same noise; the
+  batches stay on the host and move to the device one at a time; and the C
+  runtime now honours `recompute` (a module's call recomputed in the backward
+  pass, its draws replayed) as the python runtime does.
+
 ### The test harnesses
 
 - **A test named `… (x86-64)` pins an answer only x86-64 gives** — a native

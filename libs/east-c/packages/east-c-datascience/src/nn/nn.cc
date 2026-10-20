@@ -356,8 +356,11 @@ nn::TrainConfig train_config(EastValue *config, const char *fn)
 {
     nn::TrainConfig c;
     c.loss = std::string(as_string(field(config, "loss", fn), fn));
-    if (EastValue *v = some_value(field(config, "validation", fn), fn))
-        c.validation = std::string(as_string(v, fn));
+    if (EastValue *v = some_value(field(config, "validation", fn), fn)) {
+        c.validation = std::string(as_string(field(v, "value", fn), fn));
+        if (EastValue *w = some_value(field(v, "weight", fn), fn))
+            c.validation_weight = std::string(as_string(w, fn));
+    }
     EastValue *optimizer = field(config, "optimizer", fn);
     EastValue *adamw = payload(optimizer);
     c.lr = as_float(field(adamw, "lr", fn), fn);
@@ -371,20 +374,26 @@ nn::TrainConfig train_config(EastValue *config, const char *fn)
         c.warmup_steps = as_integer(field(payload(schedule), "warmup_steps", fn), fn);
         if (c.schedule == "warmup_cosine")
             c.min_lr = as_float(field(payload(schedule), "min_lr", fn), fn);
+        c.per_epoch = std::string(case_of(field(payload(schedule), "unit", fn), fn)) == "epoch";
     }
     if (EastValue *v = some_value(field(config, "clip_norm", fn), fn))
         c.clip_norm = as_float(v, fn);
-    if (EastValue *v = some_value(field(config, "ema_decay", fn), fn))
-        c.ema_decay = as_float(v, fn);
+    if (EastValue *v = some_value(field(config, "ema", fn), fn)) {
+        c.ema_decay = as_float(field(v, "decay", fn), fn);
+        c.ema_warmup = as_boolean(field(v, "warmup", fn), fn);
+    }
+    c.shuffle = as_boolean(field(config, "shuffle", fn), fn);
     c.epochs = as_integer(field(config, "epochs", fn), fn);
     if (EastValue *v = some_value(field(config, "patience", fn), fn))
         c.patience = as_integer(v, fn);
     c.bf16 = std::string(case_of(field(config, "precision", fn), fn)) == "bf16";
-    c.seed = (uint64_t)as_integer(field(config, "seed", fn), fn);
+    c.seed = as_integer(field(config, "seed", fn), fn);
     c.device = device_of(field(config, "device", fn), fn);
     EastValue *recompute = field(config, "recompute", fn);
     for (size_t k = 0, n = east_set_len(recompute); k < n; k++)
         c.recompute.insert(std::string(as_string(east_set_at(recompute, k), fn)));
+    if (EastValue *v = some_value(field(config, "progress", fn), fn))
+        c.progress = as_integer(v, fn);
     return c;
 }
 
@@ -397,9 +406,9 @@ EvalResult nn_train(EastValue **args, size_t, EastType **, size_t, EastType *out
     Tensors weights = weights_of_dict(args[1], fn, nullptr);
     std::vector<Tensors> batches, validation;
     for (size_t k = 0, n = length(args[2], fn); k < n; k++)
-        batches.push_back(batch_of_dict(at(args[2], k), fn, config.device));
+        batches.push_back(batch_of_dict(at(args[2], k), fn, torch::kCPU));
     for (size_t k = 0, n = length(args[3], fn); k < n; k++)
-        validation.push_back(batch_of_dict(at(args[3], k), fn, config.device));
+        validation.push_back(batch_of_dict(at(args[3], k), fn, torch::kCPU));
     nn::TrainResult result = nn::train(*plan, weights, batches, validation, config, fn);
 
     EastType *weights_type = field_type(output_type, "weights", fn);

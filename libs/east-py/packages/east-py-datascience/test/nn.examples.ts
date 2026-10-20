@@ -14,8 +14,8 @@ export const nnInit = example({
         const net = $.let({
             inputs: new Map([["x", { dtype: variant("float", null), rank: 2n }]]),
             params: new Map([
-                ["w", { shape: [3n, 2n], init: variant("xavier_uniform", null), trainable: true }],
-                ["b", { shape: [3n], init: variant("zeros", null), trainable: true }],
+                ["w", { shape: [3n, 2n], init: variant("xavier_uniform", null), trainable: true, decay: 1.0 }],
+                ["b", { shape: [3n], init: variant("zeros", null), trainable: true, decay: 1.0 }],
             ]),
             modules: new Map(),
             nodes: [{ name: "y", op: variant("linear", { x: "x", weight: "w", bias: some("b") }) }],
@@ -43,10 +43,10 @@ export const nnRun = example({
         const net = $.let({
             inputs: new Map([["x", { dtype: variant("float", null), rank: 2n }]]),
             params: new Map([
-                ["w1", { shape: [2n, 2n], init: variant("xavier_uniform", null), trainable: true }],
-                ["b1", { shape: [2n], init: variant("zeros", null), trainable: true }],
-                ["w2", { shape: [1n, 2n], init: variant("xavier_uniform", null), trainable: true }],
-                ["b2", { shape: [1n], init: variant("zeros", null), trainable: true }],
+                ["w1", { shape: [2n, 2n], init: variant("xavier_uniform", null), trainable: true, decay: 1.0 }],
+                ["b1", { shape: [2n], init: variant("zeros", null), trainable: true, decay: 1.0 }],
+                ["w2", { shape: [1n, 2n], init: variant("xavier_uniform", null), trainable: true, decay: 1.0 }],
+                ["b2", { shape: [1n], init: variant("zeros", null), trainable: true, decay: 1.0 }],
             ]),
             modules: new Map(),
             nodes: [
@@ -91,7 +91,7 @@ export const nnTrain = example({
                 ["x", { dtype: variant("float", null), rank: 2n }],
                 ["target", { dtype: variant("float", null), rank: 2n }],
             ]),
-            params: new Map([["w", { shape: [1n, 1n], init: variant("constant", 0.1), trainable: true }]]),
+            params: new Map([["w", { shape: [1n, 1n], init: variant("constant", 0.1), trainable: true, decay: 1.0 }]]),
             modules: new Map(),
             nodes: [
                 { name: "pred", op: variant("linear", { x: "x", weight: "w", bias: none }) },
@@ -114,13 +114,15 @@ export const nnTrain = example({
             optimizer: variant("adamw", { lr: 0.05, beta1: 0.9, beta2: 0.999, eps: 1e-8, weight_decay: 0.0 }),
             schedule: variant("constant", null),
             clip_norm: none,
-            ema_decay: none,
+            ema: none,
+            shuffle: false,
             epochs: 60n,
             patience: none,
             precision: variant("f32", null),
             seed: 0n,
             device: variant("cpu", null),
             recompute: new Set<string>(),
+            progress: none,
         }, NeuralNet.Types.NnTrainConfigType);
 
         const result = $.let(NeuralNet.train(net, NeuralNet.init(net, 0n), [batch], [], config));

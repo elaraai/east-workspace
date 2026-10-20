@@ -33,10 +33,11 @@ struct ParamSpec {
     std::string init;
     double init_arg = 0.0;
     bool trainable = true;
+    double decay = 1.0; /* the multiplier of the optimiser's weight decay */
     bool operator==(const ParamSpec &o) const
     {
         return shape == o.shape && init == o.init && init_arg == o.init_arg &&
-               trainable == o.trainable;
+               trainable == o.trainable && decay == o.decay;
     }
     bool operator!=(const ParamSpec &o) const
     {

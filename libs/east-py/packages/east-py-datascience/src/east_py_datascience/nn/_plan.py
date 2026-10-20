@@ -118,6 +118,7 @@ class ParamSpec:
     init: str
     init_arg: float | None
     trainable: bool
+    decay: float = 1.0
 
 
 @dataclass
@@ -204,6 +205,7 @@ def _build(data: dict[str, Any], fn: str, parent: Plan | None) -> Plan:
             init_tag,
             None if init_arg is None else float(init_arg),
             bool(spec["trainable"]),
+            float(spec["decay"]),
         )
     plan = Plan(inputs, params, {}, [], dict(data["outputs"]), parent)
     for name, module in data["modules"].items():

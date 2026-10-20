@@ -23,7 +23,8 @@ NnInputSpecType = StructType({ dtype: NnDTypeType, rank: IntegerType })
 NnInitType      = VariantType({ zeros, ones, constant: FloatType, normal: FloatType /* std */,
                                 uniform: FloatType /* bound: U(-b, b) */, xavier_uniform, xavier_normal,
                                 kaiming_uniform, kaiming_normal })
-NnParamSpecType = StructType({ shape: ArrayType(IntegerType), init: NnInitType, trainable: BooleanType })
+NnParamSpecType = StructType({ shape: ArrayType(IntegerType), init: NnInitType, trainable: BooleanType,
+                               decay: FloatType /* the multiplier of the optimiser's weight_decay */ })
 
 TensorType        = StructType({ shape: ArrayType(IntegerType), data: VectorType(FloatType) })    // row-major
 IntegerTensorType = StructType({ shape: ArrayType(IntegerType), data: VectorType(IntegerType) })
@@ -332,15 +333,21 @@ the same weights on either.
 
 ```ts
 NnDeviceType = VariantType({ cpu: NullType, cuda: NullType, auto: NullType })   // auto: cuda when available
+NnScheduleUnitType = VariantType({ step: NullType, epoch: NullType })
 NnTrainConfigType = StructType({
-  loss: StringType, validation: OptionType(StringType),
+  loss: StringType,
+  validation: OptionType(StructType({ value: StringType, weight: OptionType(StringType) })),
   optimizer: VariantType({ adamw: StructType({ lr, beta1, beta2, eps, weight_decay: FloatType }) }),
-  schedule: VariantType({ constant: NullType, warmup_cosine: StructType({ warmup_steps: IntegerType, min_lr: FloatType }),
-                          warmup_linear: StructType({ warmup_steps: IntegerType }) }),
-  clip_norm: OptionType(FloatType), ema_decay: OptionType(FloatType),
+  schedule: VariantType({ constant: NullType,
+                          warmup_cosine: StructType({ warmup_steps: IntegerType, min_lr: FloatType, unit: NnScheduleUnitType }),
+                          warmup_linear: StructType({ warmup_steps: IntegerType, unit: NnScheduleUnitType }) }),
+  clip_norm: OptionType(FloatType),
+  ema: OptionType(StructType({ decay: FloatType, warmup: BooleanType })),
+  shuffle: BooleanType,
   epochs: IntegerType, patience: OptionType(IntegerType),
   precision: VariantType({ f32: NullType, bf16: NullType }), seed: IntegerType, device: NnDeviceType,
   recompute: SetType(StringType),
+  progress: OptionType(IntegerType),
 })
 NnTrainResultType = StructType({
   weights: NnWeightsType,
@@ -349,23 +356,55 @@ NnTrainResultType = StructType({
 })
 ```
 
-On both runtimes. Each epoch runs every batch once, in order, in training mode
-(dropout on): the output `loss` — a float rank-0 tensor — is minimised by
-AdamW over the trainable weights, gradients clipped to `clip_norm` when given,
-the learning rate following `schedule` per step over `epochs × batches` steps
-(`warmup_linear` rises from 0 over `warmup_steps` then holds; `warmup_cosine`
-rises then decays by a cosine to `min_lr`). With `ema_decay` an exponential
-moving average of the weights is kept, evaluated and returned instead of the
-raw weights. After each epoch the `validation` output, when named, is averaged
-over `validation_batches` in evaluation mode; the monitored value is the
-validation when there is one, else the epoch's mean loss, and `patience`
-epochs without improvement stop training. `history` has one entry per epoch
-run; `weights` are the best epoch's (`best_epoch`, 1-based). `precision: bf16`
-runs the forward pass under autocast with f32 master weights. `recompute`
-names modules whose calls are recomputed in the backward pass instead of
-keeping their activations; the python interpreter honours it, the C runtime
-accepts it and keeps the activations (a memory choice, never a different
-answer).
+On both runtimes, the same way:
+
+- **Epochs and steps.** Each epoch runs every batch once in training mode
+  (dropout on), one optimiser step each: in order, or with `shuffle` in the
+  epoch's own permutation (below). The output `loss` — a float rank-0 tensor —
+  is minimised by AdamW over the trainable weights, gradients clipped to
+  `clip_norm` when given.
+- **Weight decay per parameter.** The trainable weights form one AdamW
+  parameter group per distinct `decay` of their parameters (§1), each group's
+  decoupled weight decay `weight_decay × decay`: `decay: 1` the optimiser's
+  own, `0` none.
+- **The schedule** sets the learning rate before each step (`unit: step`, over
+  `epochs × batches` steps) or before each epoch (`unit: epoch`, over `epochs`),
+  by the index `i` of the step or epoch from 0: `warmup_linear` rises as
+  `lr·(i + 1)/warmup_steps` over `warmup_steps` of its unit then holds;
+  `warmup_cosine` rises the same way then decays by a cosine to `min_lr` over
+  what is left. The history records the rate of the epoch's last step.
+- **The shuffle.** With `shuffle`, epoch `e` (from 1) runs the batches in the
+  permutation Fisher–Yates draws over the indices `0 .. n−1` from SplitMix64
+  seeded with the state `seed + e × 0x9E3779B97F4A7C15` (`seed` as unsigned
+  64-bit), in unsigned 64-bit arithmetic: for `i` from `n−1` down to 1, the
+  next output `z` (state `+= 0x9E3779B97F4A7C15`; `z = state`; `z = (z ⊕ (z ≫ 30))
+  × 0xBF58476D1CE4E5B9`; `z = (z ⊕ (z ≫ 27)) × 0x94D049BB133111EB`; `z ⊕= z ≫ 31`)
+  swaps positions `i` and `z mod (i + 1)`. The same permutation on both runners.
+- **The average.** With `ema` an exponential moving average of the weights is
+  kept, moved after each step as `ema ← d·ema + (1 − d)·w` with `d = decay`,
+  or when `warmup` `d = min(decay, (1 + s)/(10 + s))` with `s` the steps taken
+  before that one (0 at the first); it is evaluated and returned instead of
+  the raw weights.
+- **Validation.** After each epoch, when `validation` is given, the output
+  `value` is summed over `validation_batches` in evaluation mode and divided
+  by the sum of the rank-0 output `weight` (1 per batch when `none`, so a mean
+  of the values; a sum of 0 is an error); the random operations of each pass
+  draw from a generator seeded afresh with `seed`, so every pass sees the same
+  noise. The monitored value is the validation when there is one, else the
+  epoch's mean loss, and `patience` epochs without improvement stop training.
+- **Batches** are decoded on the host and each moves to the device as its step
+  (or its validation pass) comes, so the device holds one batch at a time
+  however many there are.
+- `history` has one entry per epoch run; `weights` are the best epoch's
+  (`best_epoch`, 1-based). `precision: bf16` runs the forward pass under
+  autocast with f32 master weights (`float64` tensors are left alone).
+  `recompute` names modules whose calls are recomputed in the backward pass
+  instead of keeping their activations, on both runtimes (a memory choice,
+  never a different answer: the recomputation replays the call's draws).
+- **Progress.** With `progress: some(n)` the runtime writes a line to stderr
+  every `n` steps — `nn_train: epoch E step S/T loss L` — and one per epoch —
+  `nn_train: epoch E/N loss L validation V lr R` (`V` the value or `none`),
+  floats printed as python prints them.
 
 ### `nn_run(net, weights, batch, outputs, config) → outputs`
 

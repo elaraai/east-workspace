@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import sys
 from collections import OrderedDict
 from typing import Any
 
@@ -273,31 +274,83 @@ def nn_run(net: EastStruct, weights: EastDict, batch: EastDict, outputs: EastArr
 # ============================================================================
 
 
-def _learning_rate(schedule: tuple[str, Any], lr: float, step: int, total: int) -> float:
+_MASK64 = (1 << 64) - 1
+_GAMMA = 0x9E3779B97F4A7C15
+
+
+def shuffle_order(seed: int, epoch: int, n: int) -> list[int]:
+    """The epoch's permutation of the batch indices (spec §5): Fisher–Yates
+    driven by SplitMix64 from the state ``seed + epoch × 0x9E3779B97F4A7C15``,
+    in unsigned 64-bit arithmetic, so both runners agree without torch."""
+    state = ((seed & _MASK64) + epoch * _GAMMA) & _MASK64
+    order = list(range(n))
+    for i in range(n - 1, 0, -1):
+        state = (state + _GAMMA) & _MASK64
+        z = state
+        z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
+        z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK64
+        z ^= z >> 31
+        j = z % (i + 1)
+        order[i], order[j] = order[j], order[i]
+    return order
+
+
+def _learning_rate(schedule: tuple[str, Any], lr: float, index: int, total: int) -> float:
+    """The rate at `index` of `total` units of the schedule (steps, or epochs)."""
     tag, payload = schedule
     if tag == "constant":
         return lr
     warmup = int(payload["warmup_steps"])
-    if step < warmup:
-        return lr * (step + 1) / warmup
+    if index < warmup:
+        return lr * (index + 1) / warmup
     if tag == "warmup_linear":
         return lr
     min_lr = float(payload["min_lr"])
     span = max(total - warmup, 1)
-    progress = min((step - warmup) / span, 1.0)
+    progress = min((index - warmup) / span, 1.0)
     return min_lr + (lr - min_lr) * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
-def _mean_scalar(interpreter: Interpreter, plan: Plan, weights: dict[str, Any], batches: list[dict[str, Any]],
-                 operand: str, what: str, fn: str, autocast: Any) -> float:
-    total = 0.0
-    for inputs in batches:
-        with autocast():
-            value = interpreter.run(plan, weights, inputs, [operand])[operand]
-        if value.dim() != 0:
-            raise NnError(f"{fn}: the {what} output must be a scalar, got rank {value.dim()}")
-        total += float(value.detach().cpu())
-    return total / len(batches)
+def _ema_decay(ema: dict[str, Any], steps_before: int) -> float:
+    """The average's decay after `steps_before` steps: `min(d, (1 + s)/(10 + s))` when warming up."""
+    decay = float(ema["decay"])
+    if ema["warmup"]:
+        return min(decay, (1.0 + steps_before) / (10.0 + steps_before))
+    return decay
+
+
+def _scalar(value: Any, what: str, fn: str) -> float:
+    if value.dim() != 0:
+        raise NnError(f"{fn}: the {what} output must be a scalar, got rank {value.dim()}")
+    return float(value.detach().cpu())
+
+
+def _validate(
+    plan: Plan, weights: dict[str, Any], batches: list[dict[str, Any]], validation: dict[str, Any], device: Any,
+    seed: int, fn: str, autocast: Any,
+) -> float:
+    """Σ value / Σ weight over the validation batches in evaluation mode, the
+    draws from a generator seeded afresh with `seed` (so every pass sees the
+    same noise); each batch moved to the device as its turn comes."""
+    import torch
+
+    generator = torch.Generator(device=device).manual_seed(int(seed))
+    evaluator = Interpreter(fn, device, False, generator)
+    value_operand = plan.outputs[validation["value"]]
+    weight_operand = None if validation["weight"] is None else plan.outputs[validation["weight"]]
+    operands = [value_operand] if weight_operand is None or weight_operand == value_operand else [value_operand, weight_operand]
+    total_value = 0.0
+    total_weight = 0.0
+    with torch.no_grad():
+        for batch in batches:
+            inputs = {name: t.to(device) for name, t in batch.items()}
+            with autocast():
+                values = evaluator.run(plan, weights, inputs, operands)
+            total_value += _scalar(values[value_operand], "validation", fn)
+            total_weight += 1.0 if weight_operand is None else _scalar(values[weight_operand], "validation weight", fn)
+    if total_weight == 0.0:
+        raise NnError(f"{fn}: the validation weights sum to 0")
+    return total_value / total_weight
 
 
 @platform_function(
@@ -310,13 +363,16 @@ def nn_train(
 ) -> EastStruct:
     """Train a network's weights with torch (spec §5).
 
-    Each epoch runs every batch once in training mode, minimising the scalar
-    output ``config.loss`` by AdamW under the schedule, with gradient clipping
-    and an exponential moving average of the weights when asked; the
-    ``validation`` output, averaged over ``validation_batches`` in evaluation
-    mode, drives early stopping with ``patience``. Answers the best epoch's
-    weights (the EMA's when kept), one history entry per epoch run, and the
-    best epoch.
+    Each epoch runs every batch once — in order, or in the epoch's seeded
+    permutation with ``shuffle`` — in training mode, minimising the scalar
+    output ``config.loss`` by AdamW under the schedule, each parameter's weight
+    decay scaled by its ``decay``, with gradient clipping and an exponential
+    moving average of the weights (warmed up when asked); the ``validation``
+    value, summed over ``validation_batches`` and divided by the summed
+    weights in evaluation mode, drives early stopping with ``patience``.
+    Batches stay on the host and move to the device one at a time. Answers the
+    best epoch's weights (the EMA's when kept), one history entry per epoch
+    run, and the best epoch.
 
     Args:
         net: ``NetType`` (``EastStruct``) - the network.
@@ -339,14 +395,19 @@ def nn_train(
     loss_out = cfg["loss"]
     if loss_out not in plan.outputs:
         raise NnError(f"{fn}: unknown output '{loss_out}'")
-    validation_out = cfg["validation"]
-    if validation_out is not None and validation_out not in plan.outputs:
-        raise NnError(f"{fn}: unknown output '{validation_out}'")
+    validation = cfg["validation"]
+    if validation is not None:
+        for name in (validation["value"], validation["weight"]):
+            if name is not None and name not in plan.outputs:
+                raise NnError(f"{fn}: unknown output '{name}'")
     if len(batches) == 0:
         raise NnError(f"{fn}: there are no batches")
     epochs = int(cfg["epochs"])
     if epochs < 1:
         raise NnError(f"{fn}: epochs must be at least 1")
+    progress = cfg["progress"]
+    if progress is not None and int(progress) < 1:
+        raise NnError(f"{fn}: progress must be at least 1")
 
     specs = collect_weights(plan, fn)
     params = prepare_weights(plan, _decode_weights(weights), device, fn, trainable=True)
@@ -355,24 +416,32 @@ def nn_train(
         raise NnError(f"{fn}: the network has no trainable parameters")
     _, opt = cfg["optimizer"]
     lr = float(opt["lr"])
+    # one parameter group per distinct decay multiplier, in sorted name order
+    groups: dict[float, list[Any]] = {}
+    for n in sorted(specs):
+        if specs[n].trainable:
+            groups.setdefault(specs[n].decay, []).append(params[n])
     optimizer = torch.optim.AdamW(
-        trainable, lr=lr, betas=(float(opt["beta1"]), float(opt["beta2"])), eps=float(opt["eps"]),
-        weight_decay=float(opt["weight_decay"]),
+        [{"params": ps, "weight_decay": float(opt["weight_decay"]) * decay} for decay, ps in groups.items()],
+        lr=lr, betas=(float(opt["beta1"]), float(opt["beta2"])), eps=float(opt["eps"]),
     )
     clip = cfg["clip_norm"]
-    ema_decay = cfg["ema_decay"]
-    ema = {n: p.detach().clone() for n, p in params.items()} if ema_decay is not None else None
-    train_batches = [_batch_tensors(b, device, fn) for b in batches]
-    val_batches = [_batch_tensors(b, device, fn) for b in validation_batches]
+    ema_cfg = cfg["ema"]
+    ema = {n: p.detach().clone() for n, p in params.items()} if ema_cfg is not None else None
+    host = torch.device("cpu")
+    train_batches = [_batch_tensors(b, host, fn) for b in batches]
+    val_batches = [_batch_tensors(b, host, fn) for b in validation_batches]
+    schedule = cfg["schedule"]
+    per_epoch = schedule[0] != "constant" and schedule[1]["unit"][0] == "epoch"
     total_steps = epochs * len(train_batches)
     bf16 = cfg["precision"][0] == "bf16"
 
     def autocast() -> Any:
         return torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16)
 
-    generator = torch.Generator(device=device).manual_seed(int(cfg["seed"]))
+    seed = int(cfg["seed"])
+    generator = torch.Generator(device=device).manual_seed(seed)
     trainer = Interpreter(fn, device, True, generator, frozenset(cfg["recompute"]))
-    evaluator = Interpreter(fn, device, False, generator)
     loss_operand = plan.outputs[loss_out]
 
     history: list[dict[str, Any]] = []
@@ -385,10 +454,17 @@ def nn_train(
     current_lr = lr
     for epoch in range(1, epochs + 1):
         total_loss = 0.0
-        for inputs in train_batches:
-            current_lr = _learning_rate(cfg["schedule"], lr, step, total_steps)
+        if per_epoch:
+            current_lr = _learning_rate(schedule, lr, epoch - 1, epochs)
             for group in optimizer.param_groups:
                 group["lr"] = current_lr
+        order = shuffle_order(seed, epoch, len(train_batches)) if cfg["shuffle"] else range(len(train_batches))
+        for index in order:
+            if not per_epoch:
+                current_lr = _learning_rate(schedule, lr, step, total_steps)
+                for group in optimizer.param_groups:
+                    group["lr"] = current_lr
+            inputs = {name: t.to(device) for name, t in train_batches[index].items()}
             with autocast():
                 loss = trainer.run(plan, params, inputs, [loss_operand])[loss_operand]
             if loss.dim() != 0:
@@ -398,22 +474,28 @@ def nn_train(
             if clip is not None:
                 torch.nn.utils.clip_grad_norm_(trainable, float(clip))
             optimizer.step()
-            step += 1
             if ema is not None:
+                d = _ema_decay(ema_cfg, step)
                 with torch.no_grad():
                     for n, p in params.items():
-                        ema[n].mul_(float(ema_decay)).add_(p.detach(), alpha=1.0 - float(ema_decay))
-            total_loss += float(loss.detach().cpu())
+                        ema[n].mul_(d).add_(p.detach(), alpha=1.0 - d)
+            step += 1
+            loss_value = float(loss.detach().cpu())
+            total_loss += loss_value
+            if progress is not None and step % int(progress) == 0:
+                sys.stderr.write(f"{fn}: epoch {epoch} step {step}/{total_steps} loss {loss_value!r}\n")
         mean_loss = total_loss / len(train_batches)
         evaluated = ema if ema is not None else {n: p.detach() for n, p in params.items()}
-        validation = None
-        if validation_out is not None and val_batches:
-            with torch.no_grad():
-                validation = _mean_scalar(
-                    evaluator, plan, evaluated, val_batches, plan.outputs[validation_out], "validation", fn, autocast
-                )
-        history.append({"epoch": epoch, "loss": mean_loss, "validation": validation, "learning_rate": current_lr})
-        monitored = validation if validation is not None else mean_loss
+        validated = None
+        if validation is not None and val_batches:
+            validated = _validate(plan, evaluated, val_batches, validation, device, seed, fn, autocast)
+        history.append({"epoch": epoch, "loss": mean_loss, "validation": validated, "learning_rate": current_lr})
+        if progress is not None:
+            sys.stderr.write(
+                f"{fn}: epoch {epoch}/{epochs} loss {mean_loss!r} validation "
+                f"{'none' if validated is None else repr(validated)} lr {current_lr!r}\n"
+            )
+        monitored = validated if validated is not None else mean_loss
         if monitored < best_value or best_weights is None:
             if monitored < best_value:
                 stale = 0
@@ -451,4 +533,4 @@ def nn_train(
 
 nn_impl = platform_functions(__name__)
 
-__all__ = ["nn_impl", "nn_init", "nn_run", "nn_train"]
+__all__ = ["nn_impl", "nn_init", "nn_run", "nn_train", "shuffle_order"]

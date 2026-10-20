@@ -31,7 +31,8 @@ torch::ScalarType scalar_type_of(DType d);
 class Interpreter
 {
   public:
-    Interpreter(std::string fn, torch::Device device, bool training, uint64_t seed);
+    Interpreter(std::string fn, torch::Device device, bool training, uint64_t seed,
+                std::set<std::string> recompute = {});
 
     /* The tensors the operands name, given the batch's inputs (checked against
      * the plan) and the prepared weights. */
@@ -59,11 +60,19 @@ class Interpreter
      * from the interpreter's seeded CPU generator. */
     torch::Tensor random(const std::vector<int64_t> &shape, bool normal);
 
+    /* A recomputed call (§5, recompute): the module run again in the backward
+     * pass from its inputs and weights, its draws replayed. */
+    Value recomputed_call(const Plan &module, const Node &nd, const Tensors &bound,
+                          const std::string &sub_prefix, const std::vector<std::string> &outputs,
+                          const std::vector<std::string> &operands);
+
     std::string fn_;
     torch::Device device_;
     bool training_;
     torch::Generator generator_;
+    std::set<std::string> recompute_;
     const Tensors *weights_ = nullptr;
+    friend struct RecomputeFn;
 };
 
 /* Every weight the plan reaches, moved to `device` as f32 and checked against
@@ -79,19 +88,28 @@ torch::Tensor init_tensor(const ParamSpec &spec, torch::Generator &generator,
 
 struct TrainConfig {
     std::string loss;
-    std::optional<std::string> validation;
+    /* The validation: Σ value / Σ weight over the validation batches (§5). */
+    std::optional<std::string> validation, validation_weight;
     double lr = 1e-3, beta1 = 0.9, beta2 = 0.999, eps = 1e-8, weight_decay = 0.0;
     std::string schedule = "constant";
     int64_t warmup_steps = 0;
     double min_lr = 0.0;
+    bool per_epoch = false; /* the schedule's unit: epochs rather than steps */
     std::optional<double> clip_norm, ema_decay;
+    bool ema_warmup = false;
+    bool shuffle = false;
     int64_t epochs = 1;
     std::optional<int64_t> patience;
     bool bf16 = false;
-    uint64_t seed = 0;
+    int64_t seed = 0;
     torch::Device device = torch::kCPU;
     std::set<std::string> recompute;
+    std::optional<int64_t> progress;
 };
+
+/* The epoch's permutation of `n` batch indices (§5): Fisher–Yates on SplitMix64
+ * from the state `seed + epoch × 0x9E3779B97F4A7C15`, unsigned 64-bit. */
+std::vector<int64_t> shuffle_order(int64_t seed, int64_t epoch, int64_t n);
 
 struct HistoryEntry {
     int64_t epoch;

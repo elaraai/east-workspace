@@ -95,8 +95,14 @@ export const NnInitType = VariantType({
     kaiming_normal: NullType,
 });
 
-/** A parameter: its shape, its initialisation and whether training moves it. */
-export const NnParamSpecType = StructType({ shape: ArrayType(IntegerType), init: NnInitType, trainable: BooleanType });
+/**
+ * A parameter: its shape, its initialisation, whether training moves it, and
+ * `decay`, its multiplier of the optimiser's `weight_decay` (1 the full decay,
+ * 0 none: biases, norms and embeddings usually take 0).
+ */
+export const NnParamSpecType = StructType({
+    shape: ArrayType(IntegerType), init: NnInitType, trainable: BooleanType, decay: FloatType,
+});
 
 /**
  * Which keys each query of an `attention` may attend to: `none` every key;
@@ -315,38 +321,52 @@ export const NnOptimizerType = VariantType({
     adamw: StructType({ lr: FloatType, beta1: FloatType, beta2: FloatType, eps: FloatType, weight_decay: FloatType }),
 });
 
-/** The learning-rate schedule over every step: `constant`; `warmup_linear` (rises over `warmup_steps`, then holds); `warmup_cosine` (rises, then decays by a cosine to `min_lr`). */
+/** What a schedule counts: `step` (every optimiser step, over `epochs × batches`) or `epoch` (the rate set at each epoch's start, over `epochs`). */
+export const NnScheduleUnitType = VariantType({ step: NullType, epoch: NullType });
+
+/** The learning-rate schedule: `constant`; `warmup_linear` (rises over `warmup_steps` of its `unit`, then holds); `warmup_cosine` (rises, then decays by a cosine to `min_lr`). */
 export const NnScheduleType = VariantType({
     constant: NullType,
-    warmup_cosine: StructType({ warmup_steps: IntegerType, min_lr: FloatType }),
-    warmup_linear: StructType({ warmup_steps: IntegerType }),
+    warmup_cosine: StructType({ warmup_steps: IntegerType, min_lr: FloatType, unit: NnScheduleUnitType }),
+    warmup_linear: StructType({ warmup_steps: IntegerType, unit: NnScheduleUnitType }),
 });
+
+/** What early stopping and the history read: the output `value`, summed over the validation batches and divided by the sum of `weight` (a rank-0 output; 1 per batch when `none`). */
+export const NnValidationType = StructType({ value: StringType, weight: OptionType(StringType) });
+
+/** An exponential moving average of the weights: its `decay`, and whether it warms up (`min(decay, (1 + s)/(10 + s))` after `s` steps). */
+export const NnEmaType = StructType({ decay: FloatType, warmup: BooleanType });
 
 /** The forward pass's precision while training: `f32`, or `bf16` under autocast with f32 master weights. */
 export const NnPrecisionType = VariantType({ f32: NullType, bf16: NullType });
 
 /**
- * {@link nn_train}'s configuration: the scalar output `loss` minimised, the
- * output `validation` early stopping reads (averaged over the validation
- * batches in evaluation mode; the training loss when `none`), the optimiser
- * and schedule, `clip_norm` and `ema_decay` (options), `epochs`, `patience`
- * (epochs without improvement before stopping; `none` never stops early),
- * `precision`, `seed`, `device`, and `recompute`, the modules whose calls are
- * recomputed in the backward pass instead of keeping their activations.
+ * {@link nn_train}'s configuration: the scalar output `loss` minimised; the
+ * `validation` early stopping reads (a value and a weight output, Σ value /
+ * Σ weight over the validation batches in evaluation mode; the training loss
+ * when `none`); the optimiser and schedule; `clip_norm` and `ema` (options);
+ * `shuffle`, whether each epoch runs the batches in a seeded permutation of
+ * its own; `epochs`; `patience` (epochs without improvement before stopping;
+ * `none` never stops early); `precision`, `seed`, `device`; `recompute`, the
+ * modules whose calls are recomputed in the backward pass instead of keeping
+ * their activations; and `progress`, a line on stderr every so many steps and
+ * per epoch (`none` is silent).
  */
 export const NnTrainConfigType = StructType({
     loss: StringType,
-    validation: OptionType(StringType),
+    validation: OptionType(NnValidationType),
     optimizer: NnOptimizerType,
     schedule: NnScheduleType,
     clip_norm: OptionType(FloatType),
-    ema_decay: OptionType(FloatType),
+    ema: OptionType(NnEmaType),
+    shuffle: BooleanType,
     epochs: IntegerType,
     patience: OptionType(IntegerType),
     precision: NnPrecisionType,
     seed: IntegerType,
     device: NnDeviceType,
     recompute: SetType(StringType),
+    progress: OptionType(IntegerType),
 });
 
 /** One epoch of {@link nn_train}: its number (1-based), mean loss, validation value when measured, and the learning rate at its last step. */
@@ -408,7 +428,10 @@ export const NeuralNetTypes = {
     NnDeviceType,
     NnRunConfigType,
     NnOptimizerType,
+    NnScheduleUnitType,
     NnScheduleType,
+    NnValidationType,
+    NnEmaType,
     NnPrecisionType,
     NnTrainConfigType,
     NnTrainHistoryType,
@@ -441,8 +464,8 @@ export const NeuralNet = {
      * const net = $.let({
      *     inputs: new Map([["x", { dtype: variant("float", null), rank: 2n }]]),
      *     params: new Map([
-     *         ["w", { shape: [3n, 2n], init: variant("xavier_uniform", null), trainable: true }],
-     *         ["b", { shape: [3n], init: variant("zeros", null), trainable: true }],
+     *         ["w", { shape: [3n, 2n], init: variant("xavier_uniform", null), trainable: true, decay: 1.0 }],
+     *         ["b", { shape: [3n], init: variant("zeros", null), trainable: true, decay: 0.0 }],
      *     ]),
      *     modules: new Map(),
      *     nodes: [{ name: "y", op: variant("linear", { x: "x", weight: "w", bias: some("b") }) }],
@@ -457,10 +480,13 @@ export const NeuralNet = {
     /**
      * Train a network's weights with torch, on either runtime.
      *
-     * Each epoch runs every batch once in training mode, minimising the scalar
-     * output `config.loss` by AdamW under the schedule; the `validation`
-     * output, averaged over the validation batches, drives early stopping.
-     * Answers the best epoch's weights, the history and the best epoch.
+     * Each epoch runs every batch once (in order, or in a seeded permutation
+     * of its own with `shuffle`) in training mode, minimising the scalar
+     * output `config.loss` by AdamW under the schedule, each parameter's
+     * weight decay scaled by its `decay`; the `validation` value, summed over
+     * the validation batches and divided by the summed weights, drives early
+     * stopping. Answers the best epoch's weights, the history and the best
+     * epoch.
      *
      * @param net - The network, with a rank-0 float output to minimise
      * @param weights - The starting weights ({@link nn_init}'s, or a checkpoint)
@@ -475,10 +501,10 @@ export const NeuralNet = {
      *     loss: "loss", validation: none,
      *     optimizer: variant("adamw", { lr: 0.01, beta1: 0.9, beta2: 0.999, eps: 1e-8, weight_decay: 0.0 }),
      *     schedule: variant("constant", null),
-     *     clip_norm: some(1.0), ema_decay: none,
+     *     clip_norm: some(1.0), ema: none, shuffle: false,
      *     epochs: 50n, patience: none,
      *     precision: variant("f32", null), seed: 0n, device: variant("cpu", null),
-     *     recompute: new Set<string>(),
+     *     recompute: new Set<string>(), progress: none,
      * }, NeuralNet.Types.NnTrainConfigType);
      * const result = $.let(NeuralNet.train(net, NeuralNet.init(net, 0n), batches, [], config));
      * // result.history.get(49n).loss is below result.history.get(0n).loss

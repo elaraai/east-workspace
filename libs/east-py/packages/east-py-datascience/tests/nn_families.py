@@ -50,8 +50,8 @@ def spec(dtype: str, rank: int) -> dict[str, Any]:
     return {"dtype": variant(dtype, None), "rank": rank}
 
 
-def param(shape: list[int], init: str, arg: float | None = None, trainable: bool = True) -> dict[str, Any]:
-    return {"shape": shape, "init": variant(init, arg), "trainable": trainable}
+def param(shape: list[int], init: str, arg: float | None = None, trainable: bool = True, decay: float = 1.0) -> dict[str, Any]:
+    return {"shape": shape, "init": variant(init, arg), "trainable": trainable, "decay": decay}
 
 
 def node(name: str, operation: Any) -> dict[str, Any]:

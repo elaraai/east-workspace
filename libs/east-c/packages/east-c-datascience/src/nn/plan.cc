@@ -745,6 +745,7 @@ std::shared_ptr<Plan> build(EastValue *data, const std::string &fn_s, const Plan
         if (ps.init == "constant" || ps.init == "normal" || ps.init == "uniform")
             ps.init_arg = as_float(payload(init), fn);
         ps.trainable = as_boolean(field(spec, "trainable", fn), fn);
+        ps.decay = as_float(field(spec, "decay", fn), fn);
         plan->params[str_of(east_dict_key_at(params, i), fn)] = ps;
     }
     EastValue *outputs = field(data, "outputs", fn);

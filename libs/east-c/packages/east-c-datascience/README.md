@@ -122,7 +122,11 @@ selection, time-grid and rotary families: `test/nn.reference.generated.ts`,
 written by python from hand-written torch) to torch's outputs within 1e-4 and
 their integer outputs exactly, the `segments` and `key_sets` attention paths
 to the dense mask's answer within 1e-5, and `nn_train` to its history, early
-stopping and EMA.
+stopping, its EMA and warm-up, one AdamW step with a weight decay per
+parameter group as torch's optimiser takes it, the weights after an epoch in
+the seeded shuffle's order (`test/nn.train.reference.generated.ts`, the python
+runner's answer), the weighted validation, the epoch-stepped schedules and a
+recomputed module's training.
 
 ## Layout
 

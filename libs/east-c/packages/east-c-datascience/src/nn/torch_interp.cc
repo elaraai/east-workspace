@@ -14,6 +14,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <set>
 
 namespace east_ds::nn
@@ -224,9 +225,10 @@ torch::ScalarType scalar_type_of(DType d)
     return torch::kFloat32;
 }
 
-Interpreter::Interpreter(std::string fn, torch::Device device, bool training, uint64_t seed)
+Interpreter::Interpreter(std::string fn, torch::Device device, bool training, uint64_t seed,
+                         std::set<std::string> recompute)
     : fn_(std::move(fn)), device_(device), training_(training),
-      generator_(at::detail::createCPUGenerator(seed))
+      generator_(at::detail::createCPUGenerator(seed)), recompute_(std::move(recompute))
 {
 }
 
@@ -902,11 +904,179 @@ Interpreter::Value Interpreter::call(const Plan &plan, const Node &nd, Env &env,
         if (!operand) throw bad("the module has no output '" + out + "'");
         operands.push_back(*operand);
     }
-    Tensors values = eval(*module, bound, prefix + nd.s("prefix") + ".", operands);
+    std::string sub_prefix = prefix + nd.s("prefix") + ".";
+    if (training_ && recompute_.count(nd.s("module")) && torch::GradMode::is_enabled())
+        return recomputed_call(*module, nd, bound, sub_prefix, outputs, operands);
+    Tensors values = eval(*module, bound, sub_prefix, operands);
     Value result;
     result.many = true;
     for (size_t k = 0; k < outputs.size(); k++)
         result.several[outputs[k]] = values.at(operands[k]);
+    return result;
+}
+
+/* A module's call as one autograd node: the forward runs it without a graph
+ * and keeps its inputs and weights; the backward runs it again with a graph,
+ * from the same generator state, and differentiates (torch.utils.checkpoint's
+ * non-reentrant form, for one call). */
+struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
+    struct Closure {
+        Interpreter *self;
+        const Plan *module;
+        std::string prefix;
+        std::vector<std::string> input_names, weight_names, operands;
+        Tensors bound_fixed; /* the inputs that take no gradient */
+        torch::Tensor rng_state;
+    };
+    static std::mutex mutex;
+    static std::map<int64_t, std::shared_ptr<Closure> > closures;
+    static int64_t next_id;
+
+    static torch::autograd::variable_list run(Closure &c,
+                                              const torch::autograd::variable_list &inputs,
+                                              const torch::autograd::variable_list &weights)
+    {
+        Tensors bound = c.bound_fixed;
+        for (size_t k = 0; k < c.input_names.size(); k++)
+            bound[c.input_names[k]] = inputs[k];
+        Tensors substituted = *c.self->weights_;
+        for (size_t k = 0; k < c.weight_names.size(); k++)
+            substituted[c.weight_names[k]] = weights[k];
+        const Tensors *saved = c.self->weights_;
+        c.self->weights_ = &substituted;
+        torch::Tensor state = c.self->generator_.get_state();
+        c.self->generator_.set_state(c.rng_state);
+        Tensors values;
+        try {
+            values = c.self->eval(*c.module, bound, c.prefix, c.operands);
+        } catch (...) {
+            c.self->weights_ = saved;
+            c.self->generator_.set_state(state);
+            throw;
+        }
+        c.self->weights_ = saved;
+        c.self->generator_.set_state(state);
+        torch::autograd::variable_list out;
+        for (const std::string &operand : c.operands)
+            out.push_back(values.at(operand));
+        return out;
+    }
+
+    /* The tensors come as a TensorList: the only sequence the Function
+     * machinery reads its differentiable inputs from. */
+    static torch::autograd::variable_list forward(torch::autograd::AutogradContext *ctx, int64_t id,
+                                                  int64_t n_inputs, at::TensorList tensors)
+    {
+        std::shared_ptr<Closure> c;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            c = closures.at(id);
+        }
+        c->rng_state = c->self->generator_.get_state();
+        torch::autograd::variable_list inputs(tensors.begin(), tensors.begin() + n_inputs),
+            weights(tensors.begin() + n_inputs, tensors.end());
+        torch::autograd::variable_list out;
+        {
+            torch::NoGradGuard no_grad;
+            out = run(*c, inputs, weights);
+        }
+        ctx->saved_data["id"] = id;
+        ctx->saved_data["n_inputs"] = n_inputs;
+        ctx->save_for_backward(torch::autograd::variable_list(tensors.begin(), tensors.end()));
+        return out;
+    }
+
+    static torch::autograd::variable_list backward(torch::autograd::AutogradContext *ctx,
+                                                   torch::autograd::variable_list grad_outputs)
+    {
+        int64_t id = ctx->saved_data["id"].toInt(), n_inputs = ctx->saved_data["n_inputs"].toInt();
+        std::shared_ptr<Closure> c;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            c = closures.at(id);
+            closures.erase(id);
+        }
+        torch::autograd::variable_list saved = ctx->get_saved_variables();
+        torch::autograd::variable_list leaves, inputs, weights;
+        for (size_t k = 0; k < saved.size(); k++) {
+            torch::Tensor t = saved[k].detach();
+            if (saved[k].requires_grad()) t.requires_grad_(true);
+            leaves.push_back(t);
+            ((int64_t)k < n_inputs ? inputs : weights).push_back(t);
+        }
+        torch::autograd::variable_list outputs;
+        {
+            torch::AutoGradMode grad(true);
+            outputs = run(*c, inputs, weights);
+        }
+        torch::autograd::variable_list wanted, grads_in;
+        for (size_t k = 0; k < outputs.size(); k++)
+            if (outputs[k].requires_grad() && grad_outputs[k].defined()) {
+                wanted.push_back(outputs[k]);
+                grads_in.push_back(grad_outputs[k]);
+            }
+        torch::autograd::variable_list differentiable;
+        std::vector<size_t> at;
+        for (size_t k = 0; k < leaves.size(); k++)
+            if (leaves[k].requires_grad()) {
+                differentiable.push_back(leaves[k]);
+                at.push_back(k);
+            }
+        torch::autograd::variable_list grads(leaves.size() + 2);
+        if (!wanted.empty() && !differentiable.empty()) {
+            torch::autograd::variable_list g = torch::autograd::grad(
+                wanted, differentiable, grads_in, /*retain_graph=*/false, /*create_graph=*/false,
+                /*allow_unused=*/true);
+            for (size_t k = 0; k < at.size(); k++)
+                grads[2 + at[k]] = g[k];
+        }
+        return grads;
+    }
+};
+std::mutex RecomputeFn::mutex;
+std::map<int64_t, std::shared_ptr<RecomputeFn::Closure> > RecomputeFn::closures;
+int64_t RecomputeFn::next_id = 0;
+
+Interpreter::Value Interpreter::recomputed_call(const Plan &module, const Node &nd,
+                                                const Tensors &bound, const std::string &sub_prefix,
+                                                const std::vector<std::string> &outputs,
+                                                const std::vector<std::string> &operands)
+{
+    auto c = std::make_shared<RecomputeFn::Closure>();
+    c->self = this;
+    c->module = &module;
+    c->prefix = sub_prefix;
+    c->operands = operands;
+    torch::autograd::variable_list tensors;
+    for (const auto &kv : bound) {
+        if (kv.second.requires_grad()) {
+            c->input_names.push_back(kv.first);
+            tensors.push_back(kv.second);
+        } else {
+            c->bound_fixed[kv.first] = kv.second;
+        }
+    }
+    int64_t n_inputs = (int64_t)tensors.size();
+    std::map<std::string, ParamSpec> specs;
+    collect_weights(module, fn_, sub_prefix, specs);
+    for (const auto &kv : specs) {
+        auto it = weights_->find(kv.first);
+        if (it == weights_->end())
+            throw Error(fn_ + ": the weights have no parameter '" + kv.first + "'");
+        c->weight_names.push_back(kv.first);
+        tensors.push_back(it->second);
+    }
+    int64_t id;
+    {
+        std::lock_guard<std::mutex> lock(RecomputeFn::mutex);
+        id = RecomputeFn::next_id++;
+        RecomputeFn::closures[id] = c;
+    }
+    torch::autograd::variable_list out = RecomputeFn::apply(id, n_inputs, at::TensorList(tensors));
+    Value result;
+    result.many = true;
+    for (size_t k = 0; k < outputs.size(); k++)
+        result.several[outputs[k]] = out[k];
     return result;
 }
 
@@ -1025,14 +1195,24 @@ Tensor init_tensor(const ParamSpec &spec, torch::Generator &generator, const std
 namespace
 {
 
-double learning_rate(const TrainConfig &c, int64_t step, int64_t total)
+/* The rate at `index` of `total` units of the schedule (steps, or epochs). */
+double learning_rate(const TrainConfig &c, int64_t index, int64_t total)
 {
     if (c.schedule == "constant") return c.lr;
-    if (step < c.warmup_steps) return c.lr * (double)(step + 1) / (double)c.warmup_steps;
+    if (index < c.warmup_steps) return c.lr * (double)(index + 1) / (double)c.warmup_steps;
     if (c.schedule == "warmup_linear") return c.lr;
     int64_t span = std::max<int64_t>(total - c.warmup_steps, 1);
-    double progress = std::min((double)(step - c.warmup_steps) / (double)span, 1.0);
+    double progress = std::min((double)(index - c.warmup_steps) / (double)span, 1.0);
     return c.min_lr + (c.lr - c.min_lr) * 0.5 * (1.0 + std::cos(M_PI * progress));
+}
+
+/* The average's decay after `steps_before` steps: min(d, (1 + s)/(10 + s)) warming up. */
+double ema_decay(const TrainConfig &c, int64_t steps_before)
+{
+    double d = *c.ema_decay;
+    if (c.ema_warmup)
+        return std::min(d, (1.0 + (double)steps_before) / (10.0 + (double)steps_before));
+    return d;
 }
 
 struct Autocast {
@@ -1052,7 +1232,71 @@ struct Autocast {
     bool on_;
 };
 
+double scalar_of(const Tensor &value, const std::string &what, const std::string &fn)
+{
+    if (value.dim() != 0)
+        throw Error(fn + ": the " + what + " output must be a scalar, got rank " +
+                    std::to_string(value.dim()));
+    return value.detach().to(torch::kCPU).item<double>();
+}
+
+Tensors to_device(const Tensors &batch, torch::Device device)
+{
+    Tensors out;
+    for (const auto &kv : batch)
+        out[kv.first] = kv.second.to(device);
+    return out;
+}
+
+/* Σ value / Σ weight over the validation batches in evaluation mode, the draws
+ * from a generator seeded afresh with the seed, each batch moved to the device
+ * as its turn comes (§5). */
+double validate(const Plan &plan, const Tensors &weights, const std::vector<Tensors> &batches,
+                const TrainConfig &c, const std::string &fn)
+{
+    torch::NoGradGuard no_grad;
+    Interpreter evaluator(fn, c.device, false, (uint64_t)c.seed);
+    const std::string &value_operand = *plan.output(*c.validation);
+    const std::string *weight_operand =
+        c.validation_weight ? plan.output(*c.validation_weight) : nullptr;
+    std::vector<std::string> operands = {value_operand};
+    if (weight_operand && *weight_operand != value_operand) operands.push_back(*weight_operand);
+    double total_value = 0.0, total_weight = 0.0;
+    for (const Tensors &batch : batches) {
+        Tensors inputs = to_device(batch, c.device);
+        Tensors values;
+        {
+            Autocast autocast(c.device, c.bf16);
+            values = evaluator.run(plan, weights, inputs, operands);
+        }
+        total_value += scalar_of(values.at(value_operand), "validation", fn);
+        total_weight +=
+            weight_operand ? scalar_of(values.at(*weight_operand), "validation weight", fn) : 1.0;
+    }
+    if (total_weight == 0.0) throw Error(fn + ": the validation weights sum to 0");
+    return total_value / total_weight;
+}
+
 } // namespace
+
+std::vector<int64_t> shuffle_order(int64_t seed, int64_t epoch, int64_t n)
+{
+    const uint64_t gamma = 0x9E3779B97F4A7C15ULL;
+    uint64_t state = (uint64_t)seed + (uint64_t)epoch * gamma;
+    std::vector<int64_t> order(n);
+    for (int64_t i = 0; i < n; i++)
+        order[i] = i;
+    for (int64_t i = n - 1; i > 0; i--) {
+        state += gamma;
+        uint64_t z = state;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+        z ^= z >> 31;
+        int64_t j = (int64_t)(z % (uint64_t)(i + 1));
+        std::swap(order[i], order[j]);
+    }
+    return order;
+}
 
 TrainResult train(const Plan &plan, const Tensors &weights, const std::vector<Tensors> &batches,
                   const std::vector<Tensors> &validation, const TrainConfig &config,
@@ -1060,46 +1304,72 @@ TrainResult train(const Plan &plan, const Tensors &weights, const std::vector<Te
 {
     const std::string *loss_operand = plan.output(config.loss);
     if (!loss_operand) throw Error(fn + ": unknown output '" + config.loss + "'");
-    const std::string *validation_operand = nullptr;
-    if (config.validation) {
-        validation_operand = plan.output(*config.validation);
-        if (!validation_operand) throw Error(fn + ": unknown output '" + *config.validation + "'");
-    }
+    if (config.validation && !plan.output(*config.validation))
+        throw Error(fn + ": unknown output '" + *config.validation + "'");
+    if (config.validation_weight && !plan.output(*config.validation_weight))
+        throw Error(fn + ": unknown output '" + *config.validation_weight + "'");
     if (batches.empty()) throw Error(fn + ": there are no batches");
     if (config.epochs < 1) throw Error(fn + ": epochs must be at least 1");
+    if (config.progress && *config.progress < 1) throw Error(fn + ": progress must be at least 1");
 
     std::map<std::string, ParamSpec> specs;
     collect_weights(plan, fn, "", specs);
     Tensors params = prepare_weights(plan, weights, config.device, fn, true);
     std::vector<Tensor> trainable;
+    // one parameter group per distinct decay multiplier, in sorted name order
+    std::map<double, std::vector<Tensor> > by_decay;
+    std::vector<double> decays;
     for (const auto &kv : specs)
-        if (kv.second.trainable) trainable.push_back(params.at(kv.first));
+        if (kv.second.trainable) {
+            trainable.push_back(params.at(kv.first));
+            if (!by_decay.count(kv.second.decay)) decays.push_back(kv.second.decay);
+            by_decay[kv.second.decay].push_back(params.at(kv.first));
+        }
     if (trainable.empty()) throw Error(fn + ": the network has no trainable parameters");
-    torch::optim::AdamW optimizer(trainable, torch::optim::AdamWOptions(config.lr)
-                                                 .betas(std::make_tuple(config.beta1, config.beta2))
-                                                 .eps(config.eps)
-                                                 .weight_decay(config.weight_decay));
+    std::vector<torch::optim::OptimizerParamGroup> groups;
+    for (double decay : decays) {
+        auto options = std::make_unique<torch::optim::AdamWOptions>(config.lr);
+        options->betas(std::make_tuple(config.beta1, config.beta2))
+            .eps(config.eps)
+            .weight_decay(config.weight_decay * decay);
+        groups.emplace_back(by_decay.at(decay), std::move(options));
+    }
+    torch::optim::AdamW optimizer(groups, torch::optim::AdamWOptions(config.lr)
+                                              .betas(std::make_tuple(config.beta1, config.beta2))
+                                              .eps(config.eps)
+                                              .weight_decay(config.weight_decay));
     std::optional<Tensors> ema;
     if (config.ema_decay) {
         ema = Tensors();
         for (const auto &kv : params)
             (*ema)[kv.first] = kv.second.detach().clone();
     }
-    int64_t total_steps = config.epochs * (int64_t)batches.size();
-    Interpreter trainer(fn, config.device, true, config.seed);
-    Interpreter evaluator(fn, config.device, false, config.seed);
+    int64_t n_batches = (int64_t)batches.size();
+    int64_t total_steps = config.epochs * n_batches;
+    Interpreter trainer(fn, config.device, true, (uint64_t)config.seed, config.recompute);
 
     TrainResult result;
     double best_value = INF;
     std::optional<Tensors> best;
     int64_t stale = 0, step = 0;
     double current_lr = config.lr;
+    auto set_lr = [&](double lr) {
+        current_lr = lr;
+        for (auto &group : optimizer.param_groups())
+            static_cast<torch::optim::AdamWOptions &>(group.options()).lr(lr);
+    };
     for (int64_t epoch = 1; epoch <= config.epochs; epoch++) {
         double total_loss = 0.0;
-        for (const Tensors &inputs : batches) {
-            current_lr = learning_rate(config, step, total_steps);
-            for (auto &group : optimizer.param_groups())
-                static_cast<torch::optim::AdamWOptions &>(group.options()).lr(current_lr);
+        if (config.per_epoch) set_lr(learning_rate(config, epoch - 1, config.epochs));
+        std::vector<int64_t> order;
+        if (config.shuffle)
+            order = shuffle_order(config.seed, epoch, n_batches);
+        else
+            for (int64_t i = 0; i < n_batches; i++)
+                order.push_back(i);
+        for (int64_t index : order) {
+            if (!config.per_epoch) set_lr(learning_rate(config, step, total_steps));
+            Tensors inputs = to_device(batches[index], config.device);
             Tensor loss;
             {
                 Autocast autocast(config.device, config.bf16);
@@ -1112,16 +1382,21 @@ TrainResult train(const Plan &plan, const Tensors &weights, const std::vector<Te
             loss.backward();
             if (config.clip_norm) torch::nn::utils::clip_grad_norm_(trainable, *config.clip_norm);
             optimizer.step();
-            step++;
             if (ema) {
                 torch::NoGradGuard no_grad;
-                double d = *config.ema_decay;
+                double d = ema_decay(config, step);
                 for (auto &kv : params)
                     (*ema)[kv.first].mul_(d).add_(kv.second.detach(), 1.0 - d);
             }
-            total_loss += loss.detach().to(torch::kCPU).item<double>();
+            step++;
+            double loss_value = loss.detach().to(torch::kCPU).item<double>();
+            total_loss += loss_value;
+            if (config.progress && step % *config.progress == 0)
+                fprintf(stderr, "%s: epoch %lld step %lld/%lld loss %s\n", fn.c_str(),
+                        (long long)epoch, (long long)step, (long long)total_steps,
+                        python_float(loss_value).c_str());
         }
-        double mean_loss = total_loss / (double)batches.size();
+        double mean_loss = total_loss / (double)n_batches;
         Tensors evaluated;
         if (ema)
             evaluated = *ema;
@@ -1129,24 +1404,14 @@ TrainResult train(const Plan &plan, const Tensors &weights, const std::vector<Te
             for (const auto &kv : params)
                 evaluated[kv.first] = kv.second.detach();
         std::optional<double> validated;
-        if (validation_operand && !validation.empty()) {
-            torch::NoGradGuard no_grad;
-            double total = 0.0;
-            for (const Tensors &inputs : validation) {
-                Tensor value;
-                {
-                    Autocast autocast(config.device, config.bf16);
-                    value = evaluator.run(plan, evaluated, inputs, {*validation_operand})
-                                .at(*validation_operand);
-                }
-                if (value.dim() != 0)
-                    throw Error(fn + ": the validation output must be a scalar, got rank " +
-                                std::to_string(value.dim()));
-                total += value.to(torch::kCPU).item<double>();
-            }
-            validated = total / (double)validation.size();
-        }
+        if (config.validation && !validation.empty())
+            validated = validate(plan, evaluated, validation, config, fn);
         result.history.push_back({epoch, mean_loss, validated, current_lr});
+        if (config.progress)
+            fprintf(stderr, "%s: epoch %lld/%lld loss %s validation %s lr %s\n", fn.c_str(),
+                    (long long)epoch, (long long)config.epochs, python_float(mean_loss).c_str(),
+                    validated ? python_float(*validated).c_str() : "none",
+                    python_float(current_lr).c_str());
         double monitored = validated ? *validated : mean_loss;
         if (monitored < best_value || !best) {
             if (monitored < best_value)

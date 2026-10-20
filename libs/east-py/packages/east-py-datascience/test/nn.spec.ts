@@ -41,7 +41,7 @@ const bt = (shape: number[], data: boolean[]) =>
     variant("boolean", { shape: shape.map(BigInt), data: new Uint8ClampedArray(data.map(b => b ? 1 : 0)) });
 const tensor = (shape: number[], data: number[]) => ({ shape: shape.map(BigInt), data: new Float64Array(data) });
 const param = (shape: number[], init = variant("ones", null) as ValueTypeOf<typeof NeuralNet.Types.NnInitType>) =>
-    ({ shape: shape.map(BigInt), init, trainable: true });
+    ({ shape: shape.map(BigInt), init, trainable: true, decay: 1.0 });
 
 /** A network of one node `y`, from inputs (and params) through `op`, after `pre`. */
 const net1 = (
