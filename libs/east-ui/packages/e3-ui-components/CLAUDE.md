@@ -360,6 +360,28 @@ month and timeline rows, are held to it in both themes by paint-order checks
 (`elementFromPoint`, the probed layer taking the pointer) in the responsive
 suite.
 
+### Tests run on e3 itself
+
+A renderer test that reads, pages, saves or calls does so on e3 itself, never
+a stand-in that answers at once and says what the test wrote (#1375). Each test
+file starts e3-web in its own process (`src/e3-web.test-utils.ts`). It deploys
+the package of the e3-ui example modules the file names, made by e3-ui's
+examples' package step (`@elaraai/e3-ui/examples-package`, as the showcase's
+package is), and each test gets a workspace copied from it.
+`src/e3-web-mount.test-utils.tsx` mounts an example as the showcase does:
+`E3Provider` over the test's workspace, `ReactiveDatasetProvider`, and the
+example's reads loaded first and polled while it shows.
+
+- **Counting.** What a test counts it reads from the request log (`h.requests`).
+- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`).
+- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`).
+- **Waiting.** `settle()` waits until no request is in flight and React has flushed. e3's client retries a lost answer under the same idempotency key, and a backoff between its tries is a timer `settle()` cannot see, so a test waits for what the user sees then.
+
+A jsdom test runs under `vitest.setup.ts`, which gives bytes one realm, as a
+browser page has. e3-ui-components declares no e3 SDK. A definition a test
+needs, such as a patch door another session writes through or a checked door
+that refuses, goes into the e3-ui example module it belongs to.
+
 ### Required evidence before reporting completion
 
 - Run examples through the actual e3-ui dispatcher and e3-web bindings. Check

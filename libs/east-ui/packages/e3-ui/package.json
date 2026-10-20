@@ -24,6 +24,10 @@
     "./examples/*": {
       "types": "./dist/test/*.examples.d.ts",
       "default": "./dist/test/*.examples.js"
+    },
+    "./examples-package": {
+      "types": "./dist/test/examples-package.d.ts",
+      "default": "./dist/test/examples-package.js"
     }
   },
   "files": [
@@ -31,6 +35,7 @@
     "dist/test/**/*.examples.*",
     "dist/test/roster/warehouse.*",
     "dist/test/allocation/kiln-yard.*",
+    "dist/test/examples-package.*",
     "!dist/**/*.spec.*",
     "README.md",
     "CONTRIBUTING.md",

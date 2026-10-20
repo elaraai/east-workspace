@@ -1070,6 +1070,9 @@ importers:
       '@elaraai/e3-ui':
         specifier: workspace:*
         version: link:../e3-ui
+      '@elaraai/e3-web':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-web
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east

@@ -12,6 +12,9 @@ export default defineConfig({
         globals: true,
         environment: "node",
         include: ["src/**/*.test.{ts,tsx}"],
+        // One realm for bytes in a DOM test, before East loads (#1375): e3-web
+        // runs in a test's process, and Node's ports make Node's bytes.
+        setupFiles: ["./vitest.setup.ts"],
         // One deadline for every test, well above the slowest. On a hosted
         // runner the heaviest builder tests take 13–24 s (a file's first test
         // also pays its cold import and first render, the Plan's (#1177) all
