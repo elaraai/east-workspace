@@ -201,6 +201,23 @@ describe('export_', () => {
     assert.strictEqual(decodeBeast2For(StringType)(entries.get('release.beast2')!), E3_RELEASE);
   });
 
+  it('exports a record declared with no initial value with its ref unassigned, carrying no value and no source', async () => {
+    const customers = record('customers', DictType(StringType, IntegerType));
+    const zipPath = path.join(tempDir, 'unassigned-record.zip');
+    await export_(package_('seeded', '1.0.0', customers), zipPath);
+
+    const entries = await readZip(zipPath);
+    const ref = decodeBeast2For(StringType)(entries.get('packages/seeded/1.0.0.beast2')!);
+    const pkg = decodePackageObject(entries.get(`objects/${ref.slice(0, 2)}/${ref.slice(2)}.beast2`)!);
+    assert.strictEqual(pkg.data.refs.get('records/customers')?.type, 'unassigned', 'no value travels in the package');
+    assert.strictEqual(pkg.sources.size, 0, 'and no file is named');
+    assert.ok(pkg.records.has('customers'), 'the record is declared');
+    const records = (pkg.data.structure.value as Map<string, any>).get('records');
+    const leaf = (records.value as Map<string, any>).get('customers');
+    assert.strictEqual(leaf.type, 'value');
+    assert.strictEqual(leaf.value.writable, false);
+  });
+
   it('produces identical output for same package', async () => {
     const myInput = input('name', StringType, variant('value', 'world'));
     const pkg = package_('deterministic', '1.0.0', myInput);

@@ -45,6 +45,7 @@ import { startCommand } from './commands/start.js';
 import { runCommand } from './commands/run.js';
 import { callCommand } from './commands/call.js';
 import { mutateCommand } from './commands/mutate.js';
+import { seedCommand } from './commands/seed.js';
 import { historyCommand } from './commands/history.js';
 import { compactCommand } from './commands/compact.js';
 import { reindexCommand } from './commands/reindex.js';
@@ -386,6 +387,21 @@ program
   .option(...JOBS)
   .option(...MEMORY)
   .action(mutateCommand);
+
+// ---------------------------------------------------------------------------
+// seed — a record's first state, from a beast2 file, for a record declared
+// with no initial value
+// ---------------------------------------------------------------------------
+program
+  .command('seed')
+  .description("Commit a record's first state from a .beast2 file, as its $init: for a record declared with no initial value, which is unassigned until then (local repositories)")
+  .argument('<repo>', 'Repository path')
+  .argument('<record>', 'Record name')
+  .argument('<file>', "A .beast2 file of the record's type, taken in as a deploy takes a file source in: never read whole, never modified")
+  .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .option(...JOBS)
+  .option(...MEMORY)
+  .action(seedCommand);
 
 // ---------------------------------------------------------------------------
 // history — a record's commit history (newest first)

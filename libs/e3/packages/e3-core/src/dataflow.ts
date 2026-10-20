@@ -154,9 +154,14 @@ export interface DataflowResult {
   failed: number;
   /** Number of tasks skipped due to upstream failure */
   skipped: number;
+  /** Number of tasks left waiting on an unassigned input, and of their
+   *  dependents, which the run went on without: they run once the input is
+   *  assigned */
+  waiting: number;
   /** Number of tasks re-executed due to input changes */
   reexecuted: number;
-  /** Per-task results */
+  /** Per-task results: the tasks that ran, were served from the cache,
+   *  failed or were skipped; a task left waiting is in none */
   tasks: TaskExecutionResult[];
   /** Total duration in milliseconds */
   duration: number;
@@ -195,6 +200,9 @@ export interface DataflowOptions {
   onTaskInvalidated?: (taskName: string, reason: string) => void;
   /** Callback when a task is deferred due to inconsistent input versions */
   onTaskDeferred?: (taskName: string, conflictPath: string) => void;
+  /** Callback when a task is left waiting on an unassigned input, and for
+   *  each of its dependents, naming the inputs each waits on */
+  onTaskWaiting?: (taskName: string, inputs: string[]) => void;
 }
 
 // =============================================================================

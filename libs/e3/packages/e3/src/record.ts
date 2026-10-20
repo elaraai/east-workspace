@@ -33,13 +33,20 @@ export const recordsTree: DataTreeDef = {
  * Defines a record — a root dataset written only through mutations.
  *
  * Creates a dataset at `.records.${name}` with `writable: false` (so raw
- * `e3 set` / `Data.write` is rejected) and a required initial value (deploy
- * writes it as the genesis commit, so a record is never unassigned).
+ * `e3 set` / `Data.write` is rejected). With an initial value, deploy writes
+ * it as the genesis commit (`$init`). Without one the record is **unassigned**
+ * until its first state is committed from outside — a host's file intake, or
+ * `e3 seed` — which is then its `$init`: the deploy writes no commit for it,
+ * its dependents wait as they wait on an unset input — a run leaves them
+ * waiting, and goes on without them — and a mutation on it is refused until
+ * it holds a state. So a record whose first state is data that arrives after
+ * the deploy never runs its dependents on an empty value first.
  *
  * @typeParam T - The East type of the record state
  * @param name - Record name (used as path segment in the tree)
  * @param type - East type of the record state
- * @param initialValue - Required initial state (the genesis commit)
+ * @param initialValue - The initial state, the genesis commit; omitted for a
+ *   record whose first state is committed from outside
  * @returns A RecordDef, usable anywhere a dataset is plus as a mutation target
  *
  * @example
@@ -47,12 +54,15 @@ export const recordsTree: DataTreeDef = {
  * import { DictType, StringType } from '@elaraai/east';
  *
  * const orders = record('orders', DictType(StringType, OrderType), new Map());
+ * // Unassigned until its first state is committed: `e3 seed` from a beast2
+ * // file, or a host's file intake
+ * const customers = record('customers', DictType(StringType, CustomerType));
  * ```
  */
 export function record<Name extends string, T extends EastType>(
   name: Name,
   type: T,
-  initialValue: ValueTypeOf<T>,
+  initialValue?: ValueTypeOf<T>,
 ): RecordDef<T, [ variant<"field", "records">, variant<"field", Name> ]> {
   return {
     kind: 'dataset',
@@ -60,7 +70,7 @@ export function record<Name extends string, T extends EastType>(
     name,
     path: [variant('field', 'records'), variant('field', name)],
     type,
-    default: initialValue,
+    ...(initialValue !== undefined && { default: initialValue }),
     writable: false,
     mutations: {},
     indexes: {},

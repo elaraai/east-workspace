@@ -50,8 +50,15 @@ export type DataflowExecutionStatus = 'running' | 'completed' | 'failed' | 'canc
 
 /**
  * Status of an individual task within an execution.
+ *
+ * `waiting` is a task the run left waiting on an unassigned input — an input
+ * nothing has set, a record declared with no initial value whose first state
+ * is not yet committed, or the output of a task waiting on one — which the
+ * run passes over and the rest of the run goes on without. It goes back to
+ * `pending` once the input is assigned while the run is in flight, or when a
+ * run that yielded resumes.
  */
-export type TaskStatus = 'pending' | 'ready' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'deferred';
+export type TaskStatus = 'pending' | 'ready' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'deferred' | 'waiting';
 
 // =============================================================================
 // Task State
@@ -615,6 +622,11 @@ export const ExecutionStateSummaryType = StructType({
   failed: IntegerType,
   /** Number of tasks skipped due to upstream failure */
   skipped: IntegerType,
+  /** Number of tasks left waiting on an unassigned input, and of their
+   *  dependents: the tasks whose status is `waiting` ({@link TaskStatus}),
+   *  which the state counts nowhere else, so a store that keeps the summary
+   *  beside the state counts them as it writes it */
+  waiting: IntegerType,
   /** The run's status ({@link DataflowExecutionStatus}) */
   status: StringType,
   /** When the run ended */
@@ -648,11 +660,27 @@ export function lastEventSeq(state: Pick<DataflowExecutionState, 'events' | 'eve
 }
 
 /**
+ * The tasks a run's state holds `waiting` ({@link TaskStatus}): those left
+ * waiting on an unassigned input, and their dependents.
+ *
+ * @param state - The run's state
+ * @returns How many
+ */
+export function waitingTaskCount(state: Pick<DataflowExecutionState, 'tasks'>): bigint {
+  let waiting = 0n;
+  for (const task of state.tasks.values()) {
+    if (task.status === 'waiting') waiting++;
+  }
+  return waiting;
+}
+
+/**
  * The summary of a run's state ({@link ExecutionStateSummaryType}).
  *
  * @param state - The run's state
  * @returns Its summary: its last event's sequence number is the last event's
- *   own ({@link lastEventSeq}), however the event was recorded; and no cancel
+ *   own ({@link lastEventSeq}), however the event was recorded; its waiting
+ *   tasks counted from its tasks ({@link waitingTaskCount}); and no cancel
  *   requested, since the state records none — a run a cancel stops in place
  *   ends `cancelled`
  */
@@ -664,6 +692,7 @@ export function executionStateSummary(state: DataflowExecutionState): ExecutionS
     cached: state.cached,
     failed: state.failed,
     skipped: state.skipped,
+    waiting: waitingTaskCount(state),
     status: state.status,
     completedAt: state.completedAt,
     error: state.error,

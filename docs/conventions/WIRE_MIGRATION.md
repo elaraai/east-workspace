@@ -144,6 +144,33 @@ Each wire changed under this rule, with the kind it is.
   outputs against the type the package declares, as `UITaskPreview` does,
   still reads them, and one holding `App`, `Pages` or `Route` fails as it
   renders: the `nav_*` platform functions they call are gone.
+- **e3-types' `RecordPlanType` gains `unassigned` and `unassign`, and the run
+  summaries `waiting` (#1363)** — stored state, while a deploy runs. A record
+  plan is a deploy's answer for a record declared with no initial value:
+  `unassigned` for one the workspace does not hold, which the deploy leaves
+  unassigned for its first state to be committed, and `unassign` for one the
+  `reset` policy sends back to unassigned, having no initial value to reset it
+  to. A deploy also reports its plans through the lock it holds, for a watcher
+  to read (`LockProgressType`'s `deployment`: a `DeployProgressType` whose
+  records are `RecordDeployStateType`, each naming its plan), and a server's
+  deploy job carries them in its status (`WorkspaceDeployStatusType`), so a
+  lock store keeps a plan for as long as a deploy runs. Both cases are named
+  to sort after every case before them, so their tags are the last: a plan an
+  earlier release wrote reads as itself, since a header whose variant holds
+  the first cases of the asked type's reads as it, and no upgrade step is
+  shipped; an earlier release refuses one this release wrote, naming both
+  types, as it refuses any form it does not read. A package may now carry a
+  record whose ref is `unassigned` — package-borne, with no type changed: a
+  release before this one deploys such a package with the record declared and
+  never minted, so a package declaring a record with no initial value is
+  deployed by this release or later. A run leaves a task whose input is
+  unassigned waiting, and its dependents with it, rather than fail: a task
+  status, `waiting`, which the execution state holds as a string, so its form
+  does not change, and no event, since a run's events are stored. The run
+  summaries gain `waiting` — e3-types' `ExecutionStateSummaryType`, which a
+  store derives from the task statuses, and the API's
+  `DataflowExecutionSummaryType` and `DataflowResultType` — which no store
+  keeps in those types' forms, so no upgrade step is shipped.
 - **e3-types' `ApiExecutionStatusType` gains `stopping` (#1286)** — neither
   package-borne nor stored: the dataflow poll's answer, for a run asked to stop
   that has not yet stopped. The case is named to sort after every case before

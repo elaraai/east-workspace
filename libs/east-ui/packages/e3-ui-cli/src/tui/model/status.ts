@@ -136,7 +136,10 @@ export function recordDeployCell(record: RecordDeployState, g: Glyphs): StatusCe
             return { glyph: g.quarter, tone: 'info', word: `building ${index}`, detail: `${build} of ${builds}` };
         }
         case 'done': {
-            const done: Record<typeof action.type, string> = { mint: 'minted', keep: 'kept', migrate: 'migrated', reset: 'reset', drop: 'dropped', refused: 'refused' };
+            const done: Record<typeof action.type, string> = {
+                mint: 'minted', keep: 'kept', migrate: 'migrated', reset: 'reset', unassign: 'unassigned', drop: 'dropped', refused: 'refused',
+                unassigned: 'unassigned',
+            };
             return { glyph: g.dot, tone: 'pos', word: done[action.type], detail: '' };
         }
     }

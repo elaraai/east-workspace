@@ -203,3 +203,12 @@ export function exitError(message: string): never {
   console.error(`Error: ${message}`);
   process.exit(1);
 }
+
+/**
+ * The actor a command's commits record: `cli:` and the user running it.
+ *
+ * @returns The actor
+ */
+export function actor(): string {
+  return `cli:${process.env.USER ?? process.env.USERNAME ?? 'unknown'}`;
+}

@@ -40,7 +40,8 @@ export interface ExecutionStatus {
   completed: string[];
   /** Tasks currently running */
   running: string[];
-  /** Tasks waiting to run */
+  /** Tasks waiting to run: those not yet launched, deferred, or left waiting
+   *  on an unassigned input */
   pending: string[];
   /** Tasks that failed */
   failed: string[];
@@ -141,6 +142,15 @@ export interface OrchestratorStartOptions {
   onTaskInvalidated?: (taskName: string, reason: string) => void;
   /** Called when a task is deferred due to inconsistent input versions */
   onTaskDeferred?: (taskName: string, conflictPath: string) => void;
+  /**
+   * Called when a task is left waiting on an unassigned input — one nothing
+   * has set, or a record whose first state is not yet committed — and once
+   * for each of its dependents, which wait with it, naming the inputs each
+   * waits on as keypaths. The run goes on without them: they run once the
+   * input is assigned, in this run if that happens while it is in flight,
+   * else in the next.
+   */
+  onTaskWaiting?: (taskName: string, inputs: string[]) => void;
   /**
    * Polled by the execution loop (before each launch and each wait).
    * Return true to checkpoint: the loop stops launching, resets in-flight
@@ -322,6 +332,7 @@ export function stateToStatus(state: DataflowExecutionState): ExecutionStatus {
       case 'pending':
       case 'ready':
       case 'deferred':
+      case 'waiting':
         pending.push(name);
         break;
       case 'failed':

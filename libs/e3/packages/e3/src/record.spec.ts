@@ -69,6 +69,15 @@ describe('e3.record / e3.mutation.reduce', () => {
     assert.ok(counter.deps.has(recordsTree));
   });
 
+  it('record() with no initial value declares a record that is unassigned until its first state is committed', () => {
+    const customers = record('customers', DictType(StringType, IntegerType));
+    assert.strictEqual(customers.recordKind, 'record');
+    assert.ok(!('default' in customers), 'no initial value rides the package');
+    assert.strictEqual(customers.writable, false);
+    const pkg = package_('c', '1.0.0', customers);
+    assert.ok(pkg.records.customers, 'declared on the package');
+  });
+
   it('mutation.reduce() derives the extra arg types from the reducer signature', () => {
     const counter = record('counter', IntegerType, 0n);
     const increment = mutation.reduce(

@@ -31,7 +31,7 @@ import {
   workspaceRecordMutate,
   type MutationResult,
 } from '@elaraai/e3-api-client';
-import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { actor, parseRepoLocation, formatError, exitError } from '../utils.js';
 import { encodeArg } from './call.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
@@ -42,10 +42,6 @@ function parseMutationSpec(spec: string): { record: string; mutation: string } {
     throw new Error(`Invalid mutation specifier '${spec}'. Expected '<record>.<mutation>'.`);
   }
   return { record: spec.slice(0, dot), mutation: spec.slice(dot + 1) };
-}
-
-function actor(): string {
-  return `cli:${process.env.USER ?? process.env.USERNAME ?? 'unknown'}`;
 }
 
 /**

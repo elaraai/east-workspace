@@ -279,11 +279,13 @@ export {
   datasetAdoptObject,
   datasetAdoptKnown,
   datasetSetStored,
+  deliveryAdoptStored,
   adoptProgressToIntakeFile,
   type DatasetAdoptObjectOptions,
   type DatasetAdoptProgress,
   type DatasetAdoptResult,
   type DatasetTaken,
+  type DeliveryAdoptStoredOptions,
   type ObjectAdoptResult,
 } from './dataset-adopt.js';
 
@@ -412,9 +414,11 @@ export {
   // Result types (TypeScript-only)
   type InitializeResult,
   type PrepareTaskResult,
+  type PrepareTaskWaiting,
   type TaskExecuteResult,
   type TaskCompletedResult,
   type TaskFailedResult,
+  type TasksWaitingResult,
   type FinalizeResult,
   // Step functions, and the refusals a start makes before anything runs
   checkDataflowStart,
@@ -429,6 +433,8 @@ export {
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
+  stepTasksWaiting,
+  waitingTasks,
   stepIsComplete,
   stepFinalize,
   stepCancel,

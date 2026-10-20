@@ -10,10 +10,13 @@
  * A package declares the migrations that carry a record from one type, or one
  * set of values, to the next. A workspace records the ones its state has had
  * applied, by name, in the `$schema` slot of the record's ref. A deploy
- * compares the two. A record the workspace does not hold is minted; one at
- * the end of the package's chain is kept; one partway along it is migrated
- * by the steps it has not applied; anything else is refused, or reset under
- * the `reset` policy. The steps run as tasks before the deploy writes a ref,
+ * compares the two. A record the workspace does not hold is minted from the
+ * package's initial value, or, declared with none, left unassigned until its
+ * first state is committed; one at the end of the package's chain is kept;
+ * one partway along it is migrated by the steps it has not applied; anything
+ * else is refused, or, under the `reset` policy, reset to the package's
+ * initial value, or unassigned again when it declares none. The steps run as
+ * tasks before the deploy writes a ref,
  * so one that fails leaves the workspace as it was, and a deploy run again is
  * served the steps that finished from the execution cache.
  *
@@ -55,7 +58,7 @@ export interface RecordDeployment {
   /** The record's ref path. */
   path: string;
   /** The hash of the package's initial value; absent for a record the
-   *  package does not declare. */
+   *  package does not declare, or declares with no initial value. */
   initial?: string;
   /** The ref the workspace holds; absent for a record it does not. */
   prior?: RecordRef;
@@ -84,7 +87,9 @@ export function typeChange(held: EastTypeValue, declared: EastTypeValue): string
  *
  * @remarks
  * For a record the package declares:
- * - the workspace does not hold it: `mint`;
+ * - the workspace does not hold it: `mint`, from the package's initial value;
+ *   or `unassigned`, when the package declares none: nothing is written, and
+ *   the record holds no state until its first is committed;
  * - it has applied the whole chain and its type is the package's: `keep`;
  * - it has applied the whole chain and its type is not the package's: refused,
  *   the type changed with no migration;
@@ -94,9 +99,11 @@ export function typeChange(held: EastTypeValue, declared: EastTypeValue): string
  * - it has applied anything else: refused, since an applied migration was
  *   renamed, reordered or removed, or the package is older than the workspace.
  *
- * Under `reset` a record the other rules refuse is reset instead, and under
- * `fail` one with steps to run is refused. A record the workspace holds and
- * the package does not declare is dropped only when the deploy allows it.
+ * Under `reset` a record the other rules refuse is reset instead — `reset`, to
+ * the package's initial value, or `unassign`, for a record declared with none,
+ * to unassigned, for its first state to be committed again — and under `fail`
+ * one with steps to run is refused. A record the workspace holds and the
+ * package does not declare is dropped only when the deploy allows it.
  *
  * Types compare by their structure ({@link isTypeValueStructurallyEqual}): the
  * package deployed and this one are two builds, which can give a recursive
@@ -129,22 +136,37 @@ export async function planRecordDeployments(
     declared.add(path);
     const initial = pkg.data.refs.get(path);
     const type = recordLeafType(pkg.data.structure, path);
-    if (initial?.type !== 'value' || type === undefined) continue; // a record always has an initial value
+    if (type === undefined) continue;
     const chain = recordObject.migrations.map((step) => step.name);
-    const deployment = { path, initial: initial.value.hash, chain, steps: [], indexes: [...recordObject.indexes.keys()] };
+    // A record declared with no initial value has an unassigned ref in the
+    // package, and holds no state until its first is committed from outside
+    const deployment = {
+      path,
+      ...(initial?.type === 'value' && { initial: initial.value.hash }),
+      chain,
+      steps: [],
+      indexes: [...recordObject.indexes.keys()],
+    };
 
     const held = prior?.records.get(path);
     if (held === undefined) {
-      deployments.push({ ...deployment, plan: { record: path, action: variant('mint', null) } });
+      const action = initial?.type === 'value' ? variant('mint', null) : variant('unassigned', null);
+      deployments.push({ ...deployment, plan: { record: path, action } });
       continue;
     }
-    const fix = policy === 'reset' ? '' : ' Deploy with --schema=reset to reset it to the package\'s initial value.';
+    const fix = policy === 'reset' ? ''
+      : initial?.type === 'value'
+        ? ' Deploy with --schema=reset to reset it to the package\'s initial value.'
+        : ' Deploy with --schema=reset to unassign it, for its first state to be committed again: the package declares no initial value.';
+    // Under `reset`, a record declared with no initial value has none to reset
+    // to: it goes back to unassigned, and the plan says so
     const refuse = (reason: string): RecordDeployment => ({
       ...deployment,
       prior: held.ref,
       plan: {
         record: path,
-        action: policy === 'reset' ? variant('reset', { reason }) : variant('refused', { reason: `${reason}${fix}` }),
+        action: policy !== 'reset' ? variant('refused', { reason: `${reason}${fix}` })
+          : initial?.type === 'value' ? variant('reset', { reason }) : variant('unassign', { reason }),
       },
     });
 
@@ -321,7 +343,9 @@ export async function runRecordMigrations(
  *
  * @param deployments - What the deploy decided for each record
  * @param migrated - The states {@link runRecordMigrations} left
- * @returns One commit per record the deploy mints, keeps, migrates or resets
+ * @returns One commit per record the deploy mints, keeps, migrates, resets or
+ *   unassigns; none for one it leaves unassigned, whose ref the package's
+ *   refs write
  */
 export function recordDeployCommits(
   deployments: readonly RecordDeployment[],
@@ -334,7 +358,9 @@ export function recordDeployCommits(
       case 'keep': commits.push({ kind: 'keep', path, prior: prior!, deployed: action.value.deploy }); break;
       case 'migrate': commits.push({ kind: 'migrate', path, prior: prior!, steps: migrated.get(path)!, applied: chain }); break;
       case 'reset': commits.push({ kind: 'reset', path, prior: prior!, state: initial!, applied: chain }); break;
-      case 'drop': case 'refused': break;
+      // A record declared with no initial value goes back to unassigned
+      case 'unassign': commits.push({ kind: 'unassign', path, prior: prior! }); break;
+      case 'drop': case 'refused': case 'unassigned': break;
     }
   }
   return commits;

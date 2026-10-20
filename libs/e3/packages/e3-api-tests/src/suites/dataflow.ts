@@ -6,11 +6,12 @@
 /**
  * Dataflow execution test suite.
  *
- * Tests: start, execute (blocking), poll for completion, logs, and failures.
- * A failing task fails in East, which every server runs: it is recorded
- * `failed`, exit code 1, with its message in its stderr log. One case runs a
- * command, a custom task's, which a server that runs no commands records
- * `error` ({@link TestContext.commands}).
+ * Tests: start, execute (blocking), poll for completion, logs, failures, and
+ * a task left waiting on an input nothing has set. A failing task fails in
+ * East, which every server runs: it is recorded `failed`, exit code 1, with
+ * its message in its stderr log. One case runs a command, a custom task's,
+ * which a server that runs no commands records `error`
+ * ({@link TestContext.commands}).
  */
 
 import { describe, it } from 'node:test';
@@ -52,6 +53,7 @@ import {
   createFailingDiamondPackageZip,
   createWideParallelPackageZip,
   createSlowDiamondPackageZip,
+  createPartialPackageZip,
 } from '../fixtures.js';
 import { MALFORMED_WORKSPACE_NAMES, assertDataflowSucceeded, describeDataflowResult, refusedAsWorkspaceName } from '../assertions.js';
 import { waitFor } from '../cli.js';
@@ -167,6 +169,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withGraph = withDeployed(setup, createDiamondPackageZip, 'graph-pkg', 'graph-ws');
   const withLogPag = withDeployed(setup, createLoggingPackageZip, 'logpag-pkg', 'logpag-ws');
   const withEvtPag = withDeployed(setup, createDiamondPackageZip, 'evtpag-pkg', 'evtpag-ws');
+  const withPartial = withDeployed(setup, createPartialPackageZip, 'partial-pkg', 'partial-ws');
 
   describe('dataflow', { concurrency: false }, () => {
     describe('simple execution', { concurrency: false }, () => {
@@ -905,6 +908,38 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           `Diamond consistency violated: merge=${mergeValue} is not divisible by 5 ` +
           `(expected x*5 for consistent x, got mixed versions)`
         );
+      });
+    });
+
+    // An input nothing has set: the tasks over it wait, and the run goes on
+    // without them.
+    describe('an input nothing has set', { concurrency: false }, () => {
+      it('leaves the tasks over it waiting and completes without them, and runs them once it is set', async (t) => {
+        const ctx = await withPartial(t);
+        const opts = await ctx.opts();
+
+        // double runs; sum, over the unset b, waits, and report, over sum, with it
+        const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'partial-ws', {}, opts);
+        assertDataflowSucceeded(result, 'a task left waiting fails nothing');
+        assert.deepStrictEqual([result.executed, result.waiting, result.failed, result.skipped], [1n, 2n, 0n, 0n]);
+        assert.deepStrictEqual(result.tasks.map((task) => [task.name, task.state.type]), [['double', 'success']], 'a task left waiting has no event');
+        const status = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'partial-ws', opts);
+        assert.deepStrictEqual(
+          ['double', 'sum', 'report'].map((name) => [name, status.tasks.find((task) => task.name === name)?.status.type]),
+          [['double', 'up-to-date'], ['sum', 'waiting'], ['report', 'waiting']],
+        );
+        const polled = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'partial-ws', { limit: 0 }, opts);
+        assert.strictEqual(polled.status.type, 'completed');
+        assert.strictEqual(polled.summary.type === 'some' ? polled.summary.value.waiting : null, 2n, 'the poll\'s summary counts them');
+
+        // b set, the next run runs them
+        await datasetSet(ctx.config.baseUrl, ctx.repoName, 'partial-ws', [variant('field', 'inputs'), variant('field', 'b')], encodeBeast2For(IntegerType)(2n), opts);
+        const next = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'partial-ws', {}, opts);
+        assertDataflowSucceeded(next, 'the next run');
+        assert.deepStrictEqual([next.waiting, next.failed], [0n, 0n]);
+        const reportPath = [variant('field', 'tasks'), variant('field', 'report'), variant('field', 'output')];
+        const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'partial-ws', reportPath, opts);
+        assert.strictEqual(decodeBeast2For(IntegerType)(data), 4n, 'report = (a + b) + 1 = 4');
       });
     });
 

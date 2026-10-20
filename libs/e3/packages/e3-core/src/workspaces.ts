@@ -509,7 +509,9 @@ export interface WorkspaceDeployOptions {
   /**
    * What the deploy does with a record it cannot keep as it is: run the
    * migrations the workspace has not applied (`migrate`), refuse to run any
-   * (`fail`), or reset it to the package's initial value (`reset`).
+   * (`fail`), or reset it to the package's initial value (`reset`) — a record
+   * declared with no initial value going back to unassigned, for its first
+   * state to be committed again.
    *
    * @defaultValue 'migrate'
    */
@@ -543,7 +545,10 @@ export interface WorkspaceDeployOptions {
   plan?: boolean;
   /**
    * Called once per record the deploy touches, with what it decided: `mint`,
-   * `keep`, `migrate`, `reset`, `drop` or `refused`.
+   * `keep`, `migrate`, `reset`, `drop`, `refused`; `unassign` for a record
+   * declared with no initial value that the `reset` policy sends back to
+   * unassigned; or `unassigned` for one the workspace does not hold, which is
+   * left for its first state to be committed.
    *
    * @remarks
    * Called before the deploy writes anything, and before it refuses: a
@@ -824,16 +829,17 @@ export async function workspaceDeployWith(
     // The state each record holds once the refs are written, which its
     // indexes are built over: the package's initial value for a record minted
     // or reset, the workspace's for one kept, and its last step's for one
-    // migrated. A plan migrates nothing, and plans a migrated record's
-    // indexes over the initial value, which names no index, as the migrated
-    // state will not.
+    // migrated. A plan migrates nothing: a migrated record's state is not
+    // stored yet (`null`), and names no index, so a plan says every index the
+    // package declares is built, as the deploy will build them — whether or
+    // not the package declares an initial value.
     const deploymentAt = new Map(deployments.map((deployment) => [deployment.path, deployment]));
-    const stateOf = (migrated: ReadonlyMap<string, ReadonlyArray<{ state: string }>>) => (path: string): string | undefined => {
+    const stateOf = (migrated: ReadonlyMap<string, ReadonlyArray<{ state: string }>>) => (path: string): string | null | undefined => {
       const deployment = deploymentAt.get(path);
       if (deployment === undefined) return undefined;
       switch (deployment.plan.action.type) {
         case 'keep': return deployment.prior!.hash;
-        case 'migrate': return migrated.get(path)?.at(-1)?.state ?? deployment.initial;
+        case 'migrate': return migrated.get(path)?.at(-1)?.state ?? null;
         case 'mint': case 'reset': return deployment.initial;
         default: return undefined;
       }
@@ -935,9 +941,12 @@ export async function workspaceDeployWith(
 
         // Commit what was decided for each record: a minted one's `$init`, a
         // kept one's history with a `$deploy` commit when the package changed,
-        // a migrated one's `$migrate` commit per step, a reset one's `$reset`.
-        // A record is never unassigned, never silently reset, and its history
-        // says what each deploy did to it.
+        // a migrated one's `$migrate` commit per step, a reset one's `$reset`,
+        // and one reset with no initial value to reset to back to unassigned.
+        // A record declared with an initial value is never unassigned, none is
+        // silently reset, and its history says what each deploy did to it. One
+        // declared without is unassigned, as the package's ref written above
+        // leaves it, until its first state is committed as its `$init`.
         await commitDeployRecords(storage, repo, name, recordDeployCommits(deployments, migrated));
         await commitDeployIndexes(storage, repo, name, indexBuilds);
 

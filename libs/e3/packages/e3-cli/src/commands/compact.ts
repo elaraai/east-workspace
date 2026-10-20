@@ -17,11 +17,7 @@
 
 import { LocalStorage, recordCompact } from '@elaraai/e3-core';
 import { workspaceRecordCompact } from '@elaraai/e3-api-client';
-import { parseRepoLocation, formatError, exitError } from '../utils.js';
-
-function actor(): string {
-  return `cli:${process.env.USER ?? process.env.USERNAME ?? 'unknown'}`;
-}
+import { actor, parseRepoLocation, formatError, exitError } from '../utils.js';
 
 /** Report a compact outcome (committed / invalid / conflict). */
 function renderOutcome(record: string, kind: string, fields: { commitHash?: unknown; message?: unknown; attempts?: unknown }): void {

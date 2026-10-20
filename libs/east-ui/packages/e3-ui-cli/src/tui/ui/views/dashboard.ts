@@ -716,6 +716,8 @@ function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dc
         if (state.summary.type === 'some') {
             const s = state.summary.value;
             detail += ` ${sep} ${formatDuration(executionDuration(state) ?? s.duration)} ${sep} executed ${s.executed} ${sep} cached ${s.cached} ${sep} failed ${s.failed} ${sep} skipped ${s.skipped}`;
+            // The tasks the run left waiting on an input nothing has set, when it left any
+            if (s.waiting > 0n) detail += ` ${sep} waiting ${s.waiting}`;
         }
         right = [b(`${cell.glyph} ${cell.word}`, cell.tone), d(detail)];
     }
