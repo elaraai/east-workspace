@@ -26,14 +26,29 @@ import { TestRackAgent } from '../testing/test-rack-agent.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+/** Whether a process has exited, waiting up to `ms` for it to. */
+async function exited(pid: number, ms: number): Promise<boolean> {
+  for (const end = Date.now() + ms; ; await delay(20)) {
+    try { process.kill(pid, 0); } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return true;
+      throw err;
+    }
+    if (Date.now() >= end) return false;
+  }
+}
 async function home() {
   const path = await mkdtemp(join(tmpdir(), 'e3c-'));
   cleanup.push(() => rm(path, { recursive: true, force: true }));
   cleanup.push(async () => {
-    await new HubClient(path).stop().catch(() => {});
-    for (let i = 0; i < 100 && await readHubLock(path) !== null; i++) await delay(20);
+    // The hub the home started, if one did, holds the home's files — its log among them — until its process exits,
+    // after its lock is gone: on Windows a file held open is not removed, and nor is the directory holding it.
     const lock = await readHubLock(path);
-    if (lock !== null) try { process.kill(Number(lock.pid), 'SIGKILL'); } catch { /* already gone */ }
+    await new HubClient(path).stop().catch(() => {});
+    if (lock === null) return;
+    const pid = Number(lock.pid);
+    if (await exited(pid, 2000)) return;
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    assert(await exited(pid, 10_000), `the hub ${pid} did not exit once killed`);
   });
   return path;
 }
