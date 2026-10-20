@@ -23,7 +23,8 @@
  *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
  *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
- *   share (`Schedule.events`, `Schedule.resources`).
+ *   share (`Schedule.events`, `Schedule.resources`), and what a builder
+ *   publishes (`Schedule.periods`).
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
@@ -188,12 +189,15 @@ export {
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,
 // `Schedule.field`, `Schedule.patch`, `Schedule.days`, `Schedule.unscheduled`
-// and `Schedule.Types` — with Plan's options beside the Calendar's.
+// and `Schedule.Types` — with Plan's options beside the Calendar's, and the
+// Roster's and the Allocation's beside them, with what a builder publishes,
+// `Schedule.periods` (#1367).
 export {
     Schedule, type ScheduleNamespace,
     type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig, type ScheduleInstantEventsConfig,
-    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type SchedulePatchInput, type SchedulePatchOf, type ScheduleQuantity,
-    type ScheduleRecordHandle, type ScheduleResourceKind, type ScheduleResourcesConfig, type ScheduleTemplate,
+    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type ScheduleParts, type SchedulePatchInput, type SchedulePatchOf,
+    type SchedulePeriods, type SchedulePeriodsConfig, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceKind,
+    type ScheduleResourcesConfig, type ScheduleTemplate,
 } from './schedule/index.js';
 
 // e3 `<Diff>` tag + its types

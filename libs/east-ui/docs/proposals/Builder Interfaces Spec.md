@@ -114,9 +114,11 @@ Approved 20 Oct 2026 with the proposal.
 `ScheduleEventsBase` gains the roles below, each checked against the row type
 at compile time (a field-name type, as `title` and `state` are) and again at
 build (`schedule/events.ts`' `role(…)`), refused naming the role, the field and
-its type. `title` becomes optional on `ScheduleEventsBase`; the Calendar and
-Plan refuse a kind without it (`Calendar: events.<slot> has no title — the
-Calendar draws an event's title: give \`title\``).
+its type (`` `shift` names a String field — "unpaidBreak" holds .Float ``).
+`title` becomes optional on `ScheduleEventsBase`; the Calendar and Plan refuse
+a kind without it through `scheduleTitled` (`Calendar: events.<slot> has no
+title — the Calendar draws each event's title: give the kind a \`title\`, a
+String field of its row`).
 
 | Role | Field type | Builder | |
 |---|---|---|---|
@@ -132,26 +134,52 @@ Calendar draws an event's title: give \`title\``).
 
 The kind gains two builds beside `build` and `buildPlan`, each closed behind
 East functions over beast2 bytes, so a builder's payload is one type whatever
-the record holds:
+the record holds. Schedule reads and writes a builder's roles, a struct of
+fixed type; the builder composes its own view from them and the row
+(`Assignment(R)`, `Bin(R)`, §5.3, §6.3), as only it knows what they mean (a
+duty's day is the nearest shift start, §5.5). Schedule needs none of a
+builder's types.
 
-- **`buildRoster(slot, part)`** (`RosterEventKindType`): the Calendar's kind
-  seams it reuses (`editing`, `entries`, `history`, `ready`, the record's
-  reads, through the slice part or the record whole); `rows(from, to)`, the
-  stored rows overlapping `[from, to)` by key, as bytes, `none` while a read is
-  in flight; `view(row, key, context)`, the row as the Roster reads it
-  (`Assignment(R)` as bytes, `none` for a row whose shift or group isn't
-  configured); `unview(row, assignment)`, the row with every mapped field
-  written from the assignment and every other field as it was; and `rowType`.
-  It refuses a kind with no `shift` or `group`, an instant kind (`at`), and
-  `start`/`end` that are Options (a duty has its times).
-- **`buildAllocation(slot, part)`** (`AllocationEventKindType`): the same
-  seams; `view(row, key)` is `Bin(R)`, `unview(row, bin)` writes the bin's
-  roles back. It refuses a span kind, and a kind with no `resource`, `arrival`,
-  `quantity`, `parts` or `hold`.
+- **`buildRoster(slot, part)`** (`ScheduleRosterKindType`, `Schedule.Types.RosterKind`):
+  - `kind`: the Calendar's closed kind, built through the slice part or over
+    the record whole — its `editing`, `entries`, `history` and `ready`, and its
+    `fields`, a form over the fields none of the Roster's roles writes;
+  - `rows(from, to)`: each stored duty overlapping `[from, to)`, by its key,
+    as its roles (`ScheduleRosterRolesType`: `start`, `end`, `resource`,
+    `shift`, `group`, `position`, `activity`, `hours`) and its row's bytes
+    (`ScheduleRosterEntryType`), read in one pass, so the roles cost no second
+    decode; `none` while a read is in flight;
+  - `read(row, key)`: a drafted row's roles, from its bytes;
+  - `write(row, roles)`: the row with every mapped field written from the
+    roles and every other field as it was (B1), `none` for a resource of a
+    kind the duty kind doesn't take;
+  - `create(roles)`: a new row, every unmapped field its type's default;
+  - `roles`: whether `position` and `activity` are mapped; and `rowType`.
+
+  It refuses an instant kind (`at`), `start`/`end` that are Options (a duty has
+  its times), a record keyed by anything but String, a kind with no `shift` or
+  `group`, or no `resource`, and two roles naming one field.
+- **`buildAllocation(slot, part)`** (`ScheduleAllocationKindType`, `Schedule.Types.AllocationKind`):
+  - the same `kind` and `rows`, each bin's roles (`ScheduleAllocationRolesType`:
+    `at`, `lane`, `arrival`, `quantity`, `parts`, `hold`, `kind`) beside its
+    bytes (`ScheduleAllocationEntryType`);
+  - `read(row)` and `write(row, roles)`, as the Roster's;
+  - `create(roles, values)`: a new bin, its unmapped fields an arrival's
+    `values` (bytes at the `values` type), or with none their type's default
+    (B13);
+  - `lanes` (`resource.of`), `parts` (`parts.of`), `kinded`, `unit` (the
+    `quantity` role's), `values` (the struct of the fields no role maps) and
+    `rowType`.
+
+  It refuses a span kind, a record keyed by anything but String, a kind with
+  no `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a
+  String key of one kind (a variant or an Option), and two roles naming one
+  field.
 
 The Calendar and Plan ignore the Roster's and the Allocation's roles, and the
 Roster and the Allocation ignore Plan's. A kind given roles of both the Roster
-and the Allocation is refused, naming both.
+and the Allocation is refused, naming both. An `hours` accessor returning no
+Float is refused, naming what it returns.
 
 ### 4.2 `Schedule.resources`: the builders' accessors
 
@@ -172,12 +200,17 @@ and the Allocation is refused, naming both.
 
 `label` is the person's name, the lane's or the resource's name; `group`
 (Plan's, `String`) is a person's home group and a resource's group; `meta` is
-Schedule's. The kind gains `buildRoster(slot)` (`Array<Roster.Types.Person>`
-for `people`, `Array<Roster.Types.Agency>` for `agencies`) and
-`buildAllocation(slot)` (`Array<Allocation.Types.Lane>` or
-`Array<Allocation.Types.Resource>`), each resolved once per row. The Roster's
-`people` kind requires `group`; the Allocation's resources kind requires `min`
-and `max`.
+Schedule's. Each accessor is reified once (`schedule/accessor.ts`), held to the
+type it returns — one returning another is refused naming what it returns
+(`` Schedule.resources: "People": `contract` returns a Float, a person's
+contracted weekly hours — and this one returns .String ``) — and the kind
+carries them all as `accessors` (`ScheduleResourceAccessors`: `label`, `meta`,
+`group` and each above, `undefined` where not given). The builder's tag calls
+them once per row to build its own rows — `Roster.Types.Person` and `Agency`,
+`Allocation.Types.Lane` and `Resource` — as Schedule knows none of a builder's
+types; and it makes the checks only it can, as it knows its slots: the Roster's
+`people` kind requires `group`, the Allocation's resources kind `min` and
+`max` (§5, §6).
 
 ### 4.3 `Schedule.periods`
 
@@ -196,7 +229,8 @@ periods={Schedule.periods(Record.bind(rotaWeeks, [rotaWeeksPatch]), {
 2. **Status.** `status.field` names a variant field of `P` (not an Option);
    `draft` and `published` name two of its cases. The published case holds
    `Null` or `{ at: DateTime }`; any other payload is refused at build, naming
-   both forms. A period with no row is Not started.
+   both forms. A status reads as `published { at }`, `at` an Option: `none` for
+   a published case holding `Null`. A period with no row is Not started.
 3. **Read-only.** A period whose status is the published case is read-only in
    every layout, phones included. A period in a case that is neither is
    read-only too, its chip naming the case.
@@ -206,16 +240,31 @@ periods={Schedule.periods(Record.bind(rotaWeeks, [rotaWeeksPatch]), {
    period a draft with its drafts kept, so a published period never sits over
    unsaved rows.
 5. **New rows.** A period row the builder creates holds the type's default
-   (`defaultValue`) in every field it doesn't map.
+   (`defaultValue`) in every field it doesn't map: its status the published
+   case when it publishes, else the draft case, holding its payload's default.
 6. **Without `periods`** there is no status chip and no Publish. Save works as
    ever.
 7. **Reads.** The periods are read by key through `entries` when given (the
-   week, the week before it, the open picker's month), else whole.
+   week, the week before it, the open picker's month), each span one key search
+   and one page, else whole.
 
-`build()` (`SchedulePeriodsType`) carries the session's `editing`, `entries`,
-the read by key, `status(row)` (as `Roster.Types.Status`: `draft`,
-`published { at }`, or `other: String`, the case's name), `publish(row, at)`,
-and the Roster's `dismissed(row)` and `dismiss(row, keys)`.
+`build()` (`SchedulePeriodsKindType`, `Schedule.Types.PeriodsKind`) carries
+`every`; the session's `editing` and `entries` (`schedule/session.ts`, the
+event kinds' session too); `rows(from, to)`, the periods starting in the span,
+by their start, as bytes; `status(row)` (`SchedulePeriodStatusType`: `draft`,
+`published { at: Option<DateTime> }`, or `other: String`, the case's name);
+`publish(row?, at)`; the Roster's `dismissible`, `dismissed(row)` and
+`dismiss(row?, keys)`; `history`; and `rowType`. `publish` and `dismiss` take
+the period's row, or none to make one (rule 5).
+
+Refused at build, naming the option: a record not bound with its patch
+mutation, not keyed by DateTime, or whose rows are not structs; an `every`
+that is neither `"week"` nor `"day"`; a `status.field` the row lacks, that is
+no variant or is an Option; a `status.draft` or `status.published` that is no
+case of it (`` `status.published` names a case of "state" (cancelled, issued,
+open) — and it names "sent" ``), or both naming one; the published case's
+payload (rule 2); a `dismissed` that is no `Set<String>` field; and `entries`
+that is not the record's own entries.
 
 ## 5. Roster
 
@@ -296,7 +345,7 @@ Roster.Types.Slot           = StructType({ day: IntegerType, group: StringType, 
 Roster.Types.Assignment(R)  = StructType({ slot: Slot, who: Who, position: StringType, activity: OptionType(StringType),
                                           start: DateTimeType, end: DateTimeType, hours: FloatType, row: R });
 Roster.Types.Requirement    = StructType({ positions: IntegerType, hours: DictType(StringType, FloatType) });   // as today
-Roster.Types.Status         = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }), other: StringType });
+Roster.Types.Status         = VariantType({ draft: NullType, published: StructType({ at: OptionType(DateTimeType) }), other: StringType });   // Schedule's period status
 Roster.Types.Week(R)        = StructType({ status: Status, assignments: DictType(StringType, Assignment(R)),
                                           requirements: DictType(Slot, Requirement), dismissed: SetType(StringType) });
 Roster.Types.Context        = StructType({ people, groups, activities, shifts, positions, agencies, rules });   // loses `costs`
@@ -633,7 +682,7 @@ Lanes take `offset?` (§4.2); resources take `min` and `max`, and `note?`,
 Allocation.Types.Bin(R)          = StructType({ lane: StringType, at: DateTimeType, arrival: OptionType(StringType), quantity: FloatType,
                                                kind: OptionType(StringType), hold: TimeStepType, parts: DictType(StringType, FloatType), row: R });
 Allocation.Types.Day(R)          = StructType({ status: Status, bins: DictType(StringType, Bin(R)) });
-Allocation.Types.Status          = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }), other: StringType });
+Allocation.Types.Status          = VariantType({ draft: NullType, published: StructType({ at: OptionType(DateTimeType) }), other: StringType });   // Schedule's period status
 Allocation.Types.Arrival         = /* today's Event: key, label, meta, quantity, hold, kind, due, window, details */;
 Allocation.Types.Context         = /* as today, `events` → `arrivals` */;
 Allocation.Types.FitAsk          = VariantType({ place: StructType({ subject: VariantType({ bin: StringType, arrival: StringType }), quantity: FloatType }),
@@ -823,7 +872,7 @@ with Book, Reserve, Allocate, Unlink and Back to Arrivals in anchored popovers.
 
 | # | Rule | Owner | Test |
 |---|---|---|---|
-| B1 | A gesture writes only its roles' fields; every other field of the row reads back as it was. | `e3-ui/src/schedule/events.ts` (`unview`) | spec: a row with fields of the app's own, moved and saved, reads back whole |
+| B1 | A gesture writes only its roles' fields; every other field of the row reads back as it was. | `e3-ui/src/schedule/events.ts` (`write`) | spec: a row with fields of the app's own, moved and saved, reads back whole |
 | B2 | A role naming a missing field, or a field of the wrong type, is refused at build, naming the role, the field and its type. | `schedule/events.ts` | spec per role |
 | B3 | The Calendar and Plan refuse a kind without `title`; the Roster and the Allocation take one. | `calendar/index.ts`, `plan/plan.ts` | spec |
 | B4 | Each removed prop and type (§2) is refused at build, naming its replacement. | `roster/index.ts`, `allocation/index.ts` | spec per prop |
@@ -836,7 +885,7 @@ with Book, Reserve, Allocate, Unlink and Back to Arrivals in anchored popovers.
 | B11 | Coverage, pay, checks and fits read every duty of the week, whatever the rail shows. | `roster/coverage.ts`, renderer | DOM with a narrowed rail |
 | B12 | The board's day holds the bins whose `at` falls in it; a batch's bins keep one minute apart. | `e3-ui/src/allocation/` | spec |
 | B13 | Booking an arrival writes the roles and `values`' fields; a reservation's unmapped fields take their type's default. | `schedule/events.ts`, allocation writes | spec |
-| B14 | Through its kind's source, a builder reads only its period's events, never the record whole. | `schedule/record-window.ts` | e3-web: bounded reads |
+| B14 | Through its kind's source, a builder reads only its period's events, never the record whole. | `schedule/record-window.ts`, `schedule/events.ts` (`rows`), `schedule/periods.ts` | spec: a kind's `rows` and the periods' through paged reads in memory, searches and pages counted, no whole read; e3-web: bounded reads through the slice |
 | B15 | A new duty's, bin's or target's key is minted unique in its record, across every period. | renderer | DOM |
 | B16 | The fit's, the pay's and the check's requests carry each assignment's and bin's own row. | e3-ui types | spec over a decoded request |
 | B17 | Pay is asked a person at a time; a change asks again only for the people whose duties it touched; the totals are its sums, and the check is given them. | renderer `model.ts` | DOM: moving one person's duty past their threshold asks for that person alone, and every total follows |
@@ -856,11 +905,17 @@ don't change.
 - `schedule/events.ts`: the roles of §4.1, checked as Plan's `state`,
   `quantity` and `lane` are; `title` optional; `buildRoster(slot, part)` and
   `buildAllocation(slot, part)` beside `build` and `buildPlan`, reusing
-  `readsOf`, `withDraftsFor`, `readEvent`, the setters and
-  `Record.onApply(record, { keyed: true })`.
-- `schedule/resources.ts`: the accessors of §4.2, and `buildRoster(slot)` and
-  `buildAllocation(slot)`.
+  `kindParts` and `readsOf` (the kind's reads, through its source or whole),
+  `refOf` and `resourceValue` (a resource's ref and its field's value).
+- `schedule/session.ts` (new): the editing session over a record, moved out of
+  `events.ts` unchanged — `Record.onApply(record, { keyed: true })`, its
+  snapshot or its revision, its reads by key — which each event kind and the
+  periods build.
+- `schedule/accessor.ts` (new): an accessor reified once, held to the type it
+  returns; `schedule/resources.ts` reifies every accessor through it, and
+  carries them as `accessors` (§4.2).
 - `schedule/periods.ts` (new): `Schedule.periods` (§4.3).
+- `schedule/index.ts`: `scheduleTitled`, the Calendar's and Plan's title check.
 - `roster/`: the props and types of §5.1 and §5.3; `Roster.shifts`, `groups`,
   `positions`, `proposals` and `targets`; the functions of §5.4 over the row
   type; `pay`; the refusals of §2.
@@ -870,13 +925,17 @@ don't change.
 **e3-ui-components (the renderers).**
 
 - `roster/editing.ts`, `allocation/editing.ts`: one `useEditHistory` over a
-  session per record; the week or day assembled from those sessions' rows
-  through the kind's `view`.
+  session per record; the week or day assembled from those sessions' rows —
+  each stored row's roles from the kind's `rows`, a drafted row's from `read`.
 - `roster/actions.ts`, `allocation/actions.ts`: each command computes the next
-  week or day as today, then records the rows it changed (through `unview`)
-  across sessions as one step; Publish runs Save, then the status (§7).
+  week or day as today, then records the rows it changed (through `write`, and
+  `create` for a new one) across sessions as one step; Publish runs Save, then
+  the status (§7).
 - `roster/data.ts`, `allocation/data.ts`: the period's rows through the kind's
-  `rows`; the period row by key.
+  `rows`, kept by the record's revision and the window, so a render never reads
+  them again (a read costs some 30 µs a row, half of it the bytes; a gesture's
+  write 0.04 ms); a row decoded only where a request needs it; the period row
+  by key through the periods' `rows`.
 - `roster/model.ts`: the pure functions compiled once per row type (as the
   Allocation's domain is); pay per person, cached by the bytes of that
   person's duties.
@@ -888,7 +947,8 @@ don't change.
 
 | Part | Where |
 |---|---|
-| field checks, gesture writes (`rowWith`, `placeIn`), drafts in place (`withDraftsFor`), reads by key (`readEvent`) | `e3-ui/src/schedule/events.ts` |
+| field checks (`role(…)`), a kind's reads (`readsOf`), a resource's ref and value (`refOf`, `resourceValue`) | `e3-ui/src/schedule/events.ts` |
+| a record's editing session, its Save and its reads by key | `e3-ui/src/schedule/session.ts` |
 | a kind's reads through its source of the slice | `e3-ui/src/schedule/record-window.ts`, `utils/record-sources.ts` |
 | Save per row, conflicts by entry | `Record.onApply(record, { keyed: true })`, `e3-ui/src/bind/record.ts` |
 | one history over several sessions; session banners | `east-ui-components/src/editing/history.ts`, `use-edit-history.ts`, `SessionBanners` |
@@ -925,8 +985,12 @@ Each is a sub-issue of the epic and a checkbox in the PR.
 1. **The spec.** This document, and `Allocation Spec.md` brought onto it (§2's
    Allocation rows).
 2. **Schedule.** §4: the builders' roles on `Schedule.events`, an optional
-   `title`, `buildRoster` and `buildAllocation`; the accessors on
-   `Schedule.resources`; `Schedule.periods`. B1–B3, B13 (the write), B14.
+   `title` and `scheduleTitled`, `buildRoster` and `buildAllocation` (each
+   stored row's roles beside its bytes, `read`, `write`, `create`); the
+   accessors on `Schedule.resources`; `Schedule.periods`; the shared session
+   (`session.ts`) and accessor (`accessor.ts`). B1–B3, B13 (the write), B14 (in
+   memory). `Schedule.periods'` and the roles' examples are the builders'
+   (tasks 5 and 8), as `Schedule.events'` are the Calendar's and Plan's.
 3. **The Roster's tag.** §5.1–§5.6: the props, the types, the list accessors,
    `Roster.targets`, `pay`, the functions over the row type, the payload, the
    refusals. B4, B10, B16.

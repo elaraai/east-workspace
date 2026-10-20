@@ -21,6 +21,16 @@
  * events on one resource at once are a conflict (`overlaps`), and the kind's
  * own inspector for one event (`inspector`, #1197).
  *
+ * The builders over the app's own records take their roles beside Plan's
+ * (#1367, `Builder Interfaces Spec.md` §4.1): the Roster's — the fields a
+ * duty's shift, group, position and activity are (`shift`, `group`,
+ * `position`, `activity`), and the hours it counts (`hours`, an accessor) —
+ * and the Allocation's — the fields a bin's arrival, parts, hold and kind are
+ * (`arrival`, `parts`, `hold`, `kind`). A kind is one builder's or the
+ * other's. A builder ignores the roles it has no use for, so one record of
+ * duties drives a Calendar and the Roster at once. `title` is optional: the
+ * Calendar and Plan, which draw it, refuse a kind without one.
+ *
  * The kind closes the record behind East functions over beast2 bytes
  * ({@link ScheduleKindType}): its events over a window and its backlog, each
  * with the drafts in place; a gesture written into an entry; the author's
@@ -53,10 +63,17 @@
  * editing session's, which is a session over the record's revision rather
  * than its snapshot — its drafts held by key, each checked by the record
  * against what it began from, and a Save's entries read back by key. It builds
- * two ways:
+ * four ways:
  * `build(slot, part)` is the Calendar's kind, which takes no notice of Plan's
- * options, and `buildPlan(slot, part)` Plan's ({@link PlanEventKindType}), the
- * same kind with how it draws, its roles, and its events as Plan draws them.
+ * options; `buildPlan(slot, part)` Plan's ({@link PlanEventKindType}), the
+ * same kind with how it draws, its roles, and its events as Plan draws them;
+ * and `buildRoster(slot, part)` the Roster's ({@link ScheduleRosterKindType})
+ * and `buildAllocation(slot, part)` the Allocation's
+ * ({@link ScheduleAllocationKindType}): the Calendar's kind, its form over the
+ * fields none of the builder's roles writes, with the stored rows of a
+ * period, and the builder's roles read from a row and written into one —
+ * every other field of the row as it was (B1), a new row's its type's
+ * default.
  *
  * A record may be keyed by any type: an event is named by its key's text, a
  * String key as it is, any other key as East prints it.
@@ -66,25 +83,24 @@
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, StringType, StructType,
-    isTypeEqual, none, printType, some, toEastTypeValue, variant,
-    type EastType, type ExprType, type FunctionType, type NullType, type SubtypeExprOrValue, type VariantType,
+    defaultValue, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    type EastType, type ExprType, type FunctionType, type NullType, type SetType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import { EventStateType, type UIComponentType } from "@elaraai/east-ui";
-import {
-    EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingReadinessType, EditingType,
-    EditingWireApplyType, Fields, FieldSpecType, TickFormatType, type FieldHints,
-} from "@elaraai/east-ui/internal";
-import { Record } from "../bind/record.js";
+import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/east-ui";
+import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
+import { scheduleAccessor } from "./accessor.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
-import { checkEntries, checkIndexWindow, scheduleBacklogWindow, scheduleDayWindow, scheduleEntryByKey, scheduleLastKey } from "./window.js";
+import { scheduleRecordSession } from "./session.js";
+import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayWindow, typeText } from "./window.js";
 import {
-    PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEntriesType,
-    ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleStatusCasesFor, ScheduleStatusType,
-    ScheduleWriteType, ScheduleTemplateType, ScheduleReadType, type ScheduleStatusCasesType,
+    PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType,
+    ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType,
+    ScheduleRosterEntryType, ScheduleRosterKindType, ScheduleRosterRolesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleWriteType,
+    ScheduleTemplateType, ScheduleReadType, type ScheduleStatusCasesType,
 } from "./types.js";
 
 // ============================================================================
@@ -144,6 +160,21 @@ export type ScheduleFloatField<R extends StructType> = FieldsOf<R, FloatType>;
 
 /** An `EventStateType` field of the row: the lifecycle an event wears on a Plan. */
 export type ScheduleStateField<R extends StructType> = FieldsOf<R, EventStateType>;
+
+/** An `Option<String>` field of the row: a duty's activity, a bin's arrival or its kind. */
+export type ScheduleOptionStringField<R extends StructType> = FieldsOf<R, OptionType<StringType>>;
+
+/** A `TimeStep` field of the row (east-ui's `TimeStepType`): how long a resource holds a bin. */
+export type ScheduleTimeStepField<R extends StructType> = FieldsOf<R, TimeStepType>;
+
+/** A `Dict<String, Float>` field of the row: a bin's quantity on each resource, by its key. */
+export type ScheduleDictFloatField<R extends StructType> = FieldsOf<R, DictType<StringType, FloatType>>;
+
+/** A `Set<String>` field of the row: the proposals a period dismissed. */
+export type ScheduleSetStringField<R extends StructType> = FieldsOf<R, SetType<StringType>>;
+
+/** The cases of a variant, by name. */
+export type ScheduleCaseOf<T> = T extends VariantType<infer C> ? keyof C & string : never;
 
 /**
  * A field of the row that names a resource: a String or an `Option<String>`,
@@ -250,10 +281,24 @@ export interface ScheduleQuantity<R extends StructType> {
 export type ScheduleOverlapsLiteral = "warn" | "allow";
 
 /**
+ * The bin's parts, the Allocation's: the field holding its quantity on each
+ * resource, by key, and the resource slot those keys are of.
+ *
+ * @typeParam R - The row type
+ */
+export interface ScheduleParts<R extends StructType> {
+    /** The `Dict<String, Float>` field: the quantity on each resource, by its key; empty while the bin is linked to none. */
+    field: ScheduleDictFloatField<R>;
+    /** The resource slot its keys are of: the builder's `resources` slot of the resources a bin is allocated to (`kilns`). */
+    of: string;
+}
+
+/**
  * What every event kind declares, whether its events run from a start to an
  * end or are each one instant (`Calendar Spec.md` §4.1, `Plan Builder Spec.md`
- * §4.1). An option a builder has no use for is accepted and ignored there:
- * the Calendar takes no notice of Plan's.
+ * §4.1, `Builder Interfaces Spec.md` §4.1). An option a builder has no use
+ * for is accepted and ignored there: the Calendar takes no notice of Plan's,
+ * the Roster's or the Allocation's.
  *
  * @typeParam K - The record's key type
  * @typeParam R - Its row type
@@ -265,8 +310,11 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     name: string;
     /** Its Font Awesome icon. */
     icon: string;
-    /** The String field an event's title is: drawn on its block, edited in the inspector. */
-    title: ScheduleStringField<R>;
+    /**
+     * The String field an event's title is: drawn on its block, edited in the inspector. The Calendar and Plan, which
+     * draw it, require it; the Roster and the Allocation draw a duty and a bin by their roles, and take no notice of it.
+     */
+    title?: ScheduleStringField<R>;
     /** The resource an event is on: a key field of one kind (`of: "people"`), or a variant field with a kind per case. Omitted, no resource. */
     resource?: { field: F; of: ScheduleResourceOf<R["fields"][F]> };
     /** A variant field shown as the event's status, a Status per case. On a Plan, a warning tone rings the element. */
@@ -301,6 +349,24 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     lane?: ScheduleStringField<R>;
     /** Whether two events of the kind on one resource at once are a conflict (`"warn"`, the default) or run in parallel (`"allow"`). */
     overlaps?: ScheduleOverlapsLiteral;
+    /** The Roster: the String field naming a duty's shift, a key of its `shifts`. The Roster requires it. */
+    shift?: ScheduleStringField<R>;
+    /** The Roster: the String field naming the group a duty is rostered in, a key of its `groups`. The Roster requires it. */
+    group?: ScheduleStringField<R>;
+    /** The Roster: the String field naming the position a duty holds, a key of its `positions`, which its lead rule reads. Omitted, no positions and no lead rule. */
+    position?: ScheduleStringField<R>;
+    /** The Roster: the `Option<String>` field naming a duty's one skill or task, a key of its `activities`. */
+    activity?: ScheduleOptionStringField<R>;
+    /** The Roster: the hours a duty counts for coverage, skill hours, contract hours, rest and pay. Omitted, its length. */
+    hours?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<FloatType>;
+    /** The Allocation: the `Option<String>` field naming the arrival a bin books, a key of its `arrivals`; `none` is a reservation. The Allocation requires it. */
+    arrival?: ScheduleOptionStringField<R>;
+    /** The Allocation: a bin's quantity on each resource, and the resource slot it is on. The Allocation requires it. */
+    parts?: ScheduleParts<R>;
+    /** The Allocation: the TimeStep field holding how long a resource holds a bin, kept from booking. The Allocation requires it. */
+    hold?: ScheduleTimeStepField<R>;
+    /** The Allocation: the `Option<String>` field naming what a bin goes with on a resource, kept from booking. Omitted, kind mates don't score. */
+    kind?: ScheduleOptionStringField<R>;
     /**
      * Plan and Calendar: the kind's own inspector for one event (PB60) — an East function
      * over the event's row and a writer of the edited row,
@@ -384,6 +450,8 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly name: string;
     /** Its Font Awesome icon: what each of its elements on a Plan wears (#1192). */
     readonly icon: string;
+    /** The String field its events' titles are; `undefined` for a kind with none, which the Calendar and Plan refuse (#1367). */
+    readonly title: string | undefined;
     /** The resource kinds its events may be on, by slot name: `resource.of`'s. */
     readonly takes: readonly string[];
     /** Plan: how it draws — bars, tiles, chips or marks; a resource draws a row for each way its kinds draw (#1192). */
@@ -417,13 +485,41 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * @throws {Error} As `build` does
      */
     buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType>;
+    /**
+     * The kind on the wire as the Roster takes it, under its slot (#1367): the
+     * Calendar's kind, its form over the fields none of the Roster's roles
+     * writes, with the stored rows of a period and a duty's roles read from its
+     * row and written into it.
+     *
+     * @param slot - The builder's slot name for it
+     * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
+     * @returns The kind, closed
+     * @throws {Error} For an instant kind (`at`), times that are Options, a record keyed by anything but String, a kind
+     *   with no `shift`, `group` or `resource`, and two of the Roster's roles naming one field; and as `build` does
+     */
+    buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType>;
+    /**
+     * The kind on the wire as the Allocation takes it, under its slot (#1367):
+     * the Calendar's kind, its form over the fields none of the Allocation's
+     * roles writes, with the stored rows of a period, a bin's roles read from
+     * its row and written into it, and a new bin from its roles and an
+     * arrival's values.
+     *
+     * @param slot - The builder's slot name for it
+     * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
+     * @returns The kind, closed
+     * @throws {Error} For a span kind (`start` and `end`), a record keyed by anything but String, a kind with no
+     *   `resource`, `arrival`, `quantity`, `parts` or `hold`, a lane that is not a String key of one kind, and two of the
+     *   Allocation's roles naming one field; and as `build` does
+     */
+    buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType>;
 }
 
 /** The config, erased — what the implementation reads. */
 interface AnyConfig {
     name: string;
     icon: string;
-    title: string;
+    title?: string;
     start?: string;
     end?: string;
     at?: string;
@@ -442,18 +538,26 @@ interface AnyConfig {
     lane?: string;
     overlaps?: string;
     inspector?: unknown;
+    shift?: string;
+    group?: string;
+    position?: string;
+    activity?: string;
+    hours?: (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<FloatType>;
+    arrival?: string;
+    parts?: { field: string; of: string };
+    hold?: string;
+    kind?: string;
 }
+
+/** The Roster's roles, as a kind's options name them. */
+const ROSTER_ROLES = ["shift", "group", "position", "activity", "hours"] as const;
+
+/** The Allocation's roles, as a kind's options name them. */
+const ALLOCATION_ROLES = ["arrival", "parts", "hold", "kind"] as const;
 
 // ============================================================================
 // Reading East types
 // ============================================================================
-
-/** Whether a type is an Option, and of what. */
-function optionOf(type: EastType): EastType | undefined {
-    if (type.type !== "Variant") return undefined;
-    const some = (type.cases as Record<string, EastType | undefined>)["some"];
-    return some !== undefined && isTypeEqual(type, OptionType(some)) ? some : undefined;
-}
 
 /** A variant's cases, when every one of them holds a String. */
 function stringCases(type: EastType): string[] | undefined {
@@ -465,12 +569,6 @@ function stringCases(type: EastType): string[] | undefined {
 /** A field of a struct as an East expression, by name. */
 function fieldOf(row: unknown, name: string): ExprType<EastType> {
     return (row as Record<string, ExprType<EastType>>)[name]!;
-}
-
-/** A type as the refusals name it: an Option as an Option of what it holds. */
-function typeText(type: EastType): string {
-    const inner = optionOf(type);
-    return inner === undefined ? printType(type) : `an Option of ${printType(inner)}`;
 }
 
 /** The ways a kind draws. */
@@ -504,8 +602,11 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  *   that reads no rows (`join` not true) is refused as it is read, naming `join: true`; a `slice` or a `filter`, which
  *   move to the builder's `Slice.bindRecords` (#1343);
  *   a `draw` that is not a way to draw, or draws two ends of an instant; a `state`, `quantity` or `lane` field of
- *   another type; a `review`, which is removed (#1260); an `overlaps` that is neither `"warn"` nor `"allow"`; and an
- *   `inspector` that is not an East function `(row, update) => UIComponentType` over the row
+ *   another type; a `review`, which is removed (#1260); an `overlaps` that is neither `"warn"` nor `"allow"`; an
+ *   `inspector` that is not an East function `(row, update) => UIComponentType` over the row; and a Roster role (`shift`,
+ *   `group`, `position`, `activity`) or an Allocation role (`arrival`, `parts.field`, `hold`, `kind`) naming a field of
+ *   another type, a `parts.of` naming no slot, an `hours` accessor returning no Float, or roles of both builders on one
+ *   kind (#1367)
  * @example
  * ```tsx
  * import { DateTimeType, DictType, East, NullType, OptionType, StringType, StructType, VariantType, variant } from "@elaraai/east";
@@ -572,7 +673,6 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     if ("filter" in (config as object)) {
         throw new Error(`${where}: \`filter\` is gone — narrow the kind through its builder's Slice.bindRecords, a source named after its slot, over the record's indexes`);
     }
-    const handle = record as Record<string, ExprType<EastType>>;
     const handleType = Expr.type(record as Expr) as EastType;
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
     if (handleType.type !== "Struct" || read === undefined || read.type !== "Function"
@@ -592,9 +692,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         return type;
     };
 
-    // The title.
-    if (!isTypeEqual(fieldType("title", config.title), StringType)) {
-        throw new Error(`${where}: \`title\` names a String field — "${config.title}" holds ${typeText(fields[config.title]!)}`);
+    // The title: optional, as the Roster and the Allocation draw none (#1367); the Calendar and Plan refuse a kind without one.
+    const titleField = config.title;
+    if (titleField !== undefined && !isTypeEqual(fieldType("title", titleField), StringType)) {
+        throw new Error(`${where}: \`title\` names a String field — "${titleField}" holds ${typeText(fields[titleField]!)}`);
     }
     // The times: `start` and `end`, DateTime or Options of DateTime alike; or an instant kind's `at`, in their place.
     const instantKind = config.at !== undefined;
@@ -700,6 +801,30 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const stateField = role("state", config.state, EventStateType, "an EventStateType field, the lifecycle an event wears");
     const quantityField = role("quantity.field", config.quantity === undefined ? undefined : config.quantity.field, FloatType, "a Float field, the quantity a bar prints");
     const laneField = role("lane", config.lane, StringType, "a String field, the lane a tile sits in");
+    // The builders' roles (#1367, `Builder Interfaces Spec.md` §4.1), each a field of the row, checked as Plan's are. A
+    // kind is the Roster's duties or the Allocation's bins, never both.
+    const given = (roles: readonly string[]) => roles.filter((r) => (config as unknown as Readonly<Record<string, unknown>>)[r] !== undefined);
+    const rosterGiven = given(ROSTER_ROLES);
+    const allocationGiven = given(ALLOCATION_ROLES);
+    if (rosterGiven.length > 0 && allocationGiven.length > 0) {
+        throw new Error(`${where}: holds roles of both the Roster (${rosterGiven.join(", ")}) and the Allocation (${allocationGiven.join(", ")}) — ` +
+            "a kind is the Roster's duties or the Allocation's bins: give it one builder's roles");
+    }
+    const shiftField = role("shift", config.shift, StringType, "a String field");
+    const groupField = role("group", config.group, StringType, "a String field");
+    const positionField = role("position", config.position, StringType, "a String field");
+    const activityField = role("activity", config.activity, OptionType(StringType), "an Option of a String field");
+    const arrivalField = role("arrival", config.arrival, OptionType(StringType), "an Option of a String field");
+    const partsField = role("parts.field", config.parts === undefined ? undefined : config.parts.field, DictType(StringType, FloatType),
+        "a Dict of String to Float field");
+    if (config.parts !== undefined && (typeof config.parts.of !== "string" || config.parts.of === "")) {
+        throw new Error(`${where}: \`parts.of\` names the resource slot its keys are of — the builder's resources a bin is allocated to (of: "kilns")`);
+    }
+    const holdField = role("hold", config.hold, TimeStepType, "a TimeStep field");
+    const kindField = role("kind", config.kind, OptionType(StringType), "an Option of a String field");
+    // The hours a duty counts, reified once and called per row.
+    const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
+        (returns) => `${where}: \`hours\` returns a Float, the hours a duty counts — and this one returns ${returns}`);
     // The removed verdict, named (#1260) — a plain JS caller would otherwise lose it silently.
     if ("review" in (config as object)) {
         throw new Error(`${where}: \`review\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of its session, saved together`);
@@ -761,28 +886,21 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
     }
 
-    const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
-    const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
+    // The record's session (`session.ts`): its reads, whole and by key, and its Save, one patch commit through the
+    // record's patch door, its entries checked against what the drafts began from — declared now, so a record bound
+    // without its patch door is refused where its kind is.
+    const session = scheduleRecordSession(record, keyType, rowType, entries);
+    const { readAll, byKey, idOf, keyOf } = session;
 
-    // The inspector's form: the fields a gesture does not write, in the hints' order.
-    const omit = [...new Set([config.title, ...placed, ...(config.status === undefined ? [] : [config.status.field])])];
-    const formSpecs = Fields.specs(rowType, (config.fields ?? {}) as never, omit as never);
-
-    // The Save: one patch commit through the record's patch door, its entries
-    // checked against what the drafts began from.
-    const apply = Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
+    // The inspector's form: the fields a gesture does not write, in the hints' order. A builder over the app's own
+    // records draws its roles in its own sections, so its form leaves out the fields they name too.
+    const formOver = (omitted: readonly (string | undefined)[]) => Fields.specs(rowType, (config.fields ?? {}) as never,
+        [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
+    const formSpecs = formOver([titleField, ...placed, config.status?.field]);
 
     // ── The East the seams share ─────────────────────────────────────────
     const draftType = EditingDraftFieldType(rowType);
     const EntryRowType = StructType({ id: StringType, key: keyType, row: rowType });
-    const readAll = handle["read"] as unknown as () => ExprType<DictType<EastType, EastType>>;
-    // An entry's id is its key's text: a String key as it is, any other key as East prints it.
-    const idOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
-    const keyOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, id) => id)
-        : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
     // The entry a draft leaves: the drafted entry, none for one deleted, the held one for a draft it cannot read.
     const drafted = East.function([BlobType, OptionType(rowType)], OptionType(rowType), (_$, bytes, held) =>
         bytes.decodeBeast(draftType, "v2").match({
@@ -1111,8 +1229,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
     });
 
-    /** The Calendar's kind, part by part, under its slot and through its source's part — and the function that makes one of its events. */
-    const kindParts = (slot: string, part: ScheduleKindPart | undefined) => {
+    /**
+     * The Calendar's kind, part by part, under its slot and through its source's part, its form `form` — and the
+     * function that makes one of its events.
+     */
+    const kindParts = (slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs) => {
         const reads = readsOf(slot, part);
         // One event, as every view draws it.
         const itemOf = East.function([EntryRowType], ScheduleItemType, ($, entry) => {
@@ -1149,7 +1270,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             return East.value({
                 kind: slot,
                 key: entry.id,
-                title: fieldOf(row, config.title) as ExprType<StringType>,
+                // A kind with no title titles its events with nothing (#1367): the Calendar and Plan refuse one.
+                title: titleField === undefined ? "" : fieldOf(row, titleField) as ExprType<StringType>,
                 start,
                 end,
                 resource: ref(row),
@@ -1238,63 +1360,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 });
             });
         })();
-        // The shared session over the record: whole-entry drafts, keyed batches, Save through the patch door.
-        // Its base is the record's snapshot — or, for a kind read a window at a time (#1199), its revision,
-        // every entry it reads read by key through the record's own entries.
-        const batchType = EditingChangeSetTypeFor(rowType as StructType<Record<never, never>>, keyType);
-        const encodedEntry = (row: ExprType<EastType>) => East.value(some(East.Blob.encodeBeast(row, "v2")), OptionType(BlobType));
-        const readEntry = byKey === undefined
-            ? East.function([StringType, IntegerType], OptionType(BlobType), ($, id, _offset) => {
-                const parse = $.const(keyOf);
-                const held = $.const(readAll());
-                return held.tryGet(parse(id)).match({
-                    some: (_$2, row) => encodedEntry(row),
-                    none: (_$2) => East.value(none, OptionType(BlobType)),
-                });
-            })
-            : East.function([StringType, IntegerType], OptionType(BlobType), ($, id, _offset) => {
-                const find = $.const(byKey);
-                const result = $.let(none, OptionType(BlobType));
-                $.match(find(id), { held: ($2, row) => { $2.assign(result, encodedEntry(row as ExprType<EastType>)); } });
-                return result;
-            });
-        const onApply = East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
-            const commit = $.const(apply as unknown as ExprType<FunctionType<[typeof batchType], typeof EditingApplyResultType>>);
-            return commit(blob.decodeBeast(batchType, "v2"));
-        });
-        const editing = East.value({
-            sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
-            entryType: toEastTypeValue(rowType),
-            idField: none,
-            draftType: toEastTypeValue(draftType),
-            children: none,
-            keyType: some(toEastTypeValue(keyType)),
-            snapshot: byKey === undefined ? some(East.Blob.encodeBeast(readAll(), "v2")) : none,
-            readEntry,
-            onPatch: none,
-            onApply: some(East.value(variant("async", onApply), EditingWireApplyType)),
-            mode: variant("batch", null),
-        } as never, EditingType);
-        // The record read by key (#1199): its revision and a move to another, one event's row, and its largest key.
-        let entriesSeam: ExprType<OptionType<typeof ScheduleEntriesType>>;
-        if (entries === undefined || byKey === undefined || lastKey === undefined) {
-            entriesSeam = East.value(none, OptionType(ScheduleEntriesType));
-        } else {
-            const pinned = entries as unknown as ExprType<StructType<{
-                revision: FunctionType<[], OptionType<StringType>>;
-                refresh: FunctionType<[OptionType<StringType>], NullType>;
-            }>>;
-            const entry = East.function([StringType], OptionType(OptionType(BlobType)), ($, id) => {
-                const find = $.const(byKey);
-                const result = $.let(none, OptionType(OptionType(BlobType)));
-                $.match(find(id), {
-                    held: ($2, row) => { $2.assign(result, some(encodedEntry(row as ExprType<EastType>))); },
-                    absent: ($2) => { $2.assign(result, some(none)); },
-                });
-                return result;
-            });
-            entriesSeam = East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey }) as never, OptionType(ScheduleEntriesType));
-        }
+        // The shared session over the record (`session.ts`): whole-entry drafts, keyed batches, Save through the
+        // patch door; its base the record's snapshot, or for a kind read a window at a time (#1199) its revision.
+        const { editing, entries: entriesSeam } = session.build();
         const fieldsOfKind = {
             key: slot,
             name: config.name,
@@ -1304,16 +1372,17 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             backlog: optional,
             templates: templateRows,
             templatesSource: templatesSource === undefined ? none : some(templatesSource),
-            fields: East.value(formSpecs, ArrayType(FieldSpecType)),
+            fields: East.value(form, ArrayType(FieldSpecType)),
             items,
             unscheduled,
             write,
             ready: ready === undefined ? none : some(ready),
             editing,
             entries: entriesSeam,
-            history: handle["history"],
+            history: session.history,
             event: readEvent(itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, ScheduleReadType, reads),
-            schedule: { title: config.title, start: startField, end: endField,
+            // A kind with no title names none: the Calendar and Plan, whose inspectors draw it, refuse one.
+            schedule: { title: titleField ?? "", start: startField, end: endField,
                 resource: resource === undefined ? none : some(resource.field),
                 status: config.status === undefined ? none : some(config.status.field) },
             overlaps: variant(overlaps, null),
@@ -1322,21 +1391,244 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         return { fields: fieldsOfKind, itemOf, reads };
     };
 
+    // ── The builders over the app's own records (#1367) ─────────────────────
+    /**
+     * The stored rows overlapping `[from, to)`, by their key's text: each its roles, read by `rolesOf` in the pass that
+     * reads the row, and the row as bytes — through the kind's reads (its source's part, its day index, or the record
+     * whole), `none` while a read is in flight. Overlap is the views' rule: a row starts before the window ends and
+     * ends after it starts, or, of no length, sits inside it. The builder puts its drafts in place itself (`Builder
+     * Interfaces Spec.md` §9). The times are plain DateTime fields: both builds refuse Option times.
+     */
+    const storedRows = (reads: Reads, EntryType: StructType, rolesOf: ExprType<FunctionType<[EastType, StringType], EastType>>) => {
+        const RowsType = OptionType(DictType(StringType, EntryType));
+        return East.function([DateTimeType, DateTimeType], RowsType, ($, from, to) => {
+            const text = $.const(idOf);
+            const roles = $.const(rolesOf);
+            const result = $.let(East.value(none, RowsType), RowsType);
+            let read: ExprType<OptionType<DictType<EastType, EastType>>>;
+            if (reads.days === undefined) {
+                read = $.let(East.value(some(readAll()), OptionType(HeldType)));
+            } else {
+                const days = $.const(reads.days);
+                read = $.let(days(from, to));
+            }
+            $.match(read, {
+                some: ($2, held) => {
+                    const out = $2.let(new Map(), DictType(StringType, EntryType));
+                    $2.for(held, ($3, row, key) => {
+                        const start = $3.const(fieldOf(row, startField) as unknown as ExprType<DateTimeType>);
+                        const end = $3.const(fieldOf(row, endField) as unknown as ExprType<DateTimeType>);
+                        $3.if(East.less(start, to).and(() => East.greater(end, from).or(() => East.greaterEqual(start, from))), ($4) => {
+                            const id = $4.const(text(key));
+                            $4(out.insert(id, East.value({ roles: roles(row, id), row: East.Blob.encodeBeast(row, "v2") } as never, EntryType)));
+                        });
+                    });
+                    $2.assign(result, East.value(some(out), RowsType));
+                },
+            });
+            return result;
+        });
+    };
+    /** Refuses two of a builder's roles naming one field: a builder writes each of its roles into a field of its own (B1). */
+    const oneFieldEach = (builder: string, named: readonly (readonly [string, string | undefined])[]): void => {
+        const seen = new Map<string, string>();
+        for (const [prop, name] of named) {
+            if (name === undefined) continue;
+            const prior = seen.get(name);
+            if (prior !== undefined) {
+                throw new Error(`${where}: \`${prior}\` and \`${prop}\` both name "${name}" — the ${builder} writes each of its roles into a field of its own`);
+            }
+            seen.set(name, prop);
+        }
+    };
+
     return {
         [SCHEDULE_DEF]: "events",
         keyType,
         rowType,
         name: config.name,
         icon: config.icon,
+        title: titleField,
         takes,
         draw: draw as PlanDrawLiteral,
         templatesSource,
         templatesList: config.templates === undefined ? "none" : SCHEDULE_TEMPLATES in config.templates ? "record" : "code",
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
-            return East.value(kindParts(slot, part).fields as never, ScheduleKindType);
+            return East.value(kindParts(slot, part, formSpecs).fields as never, ScheduleKindType);
+        },
+        buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
+            // A duty runs from its start to its end, keyed by String, on its slot's shift and group, rostered to someone.
+            if (instantKind) {
+                throw new Error(`${where}: the Roster reads a duty's \`start\` and \`end\`; this kind is one instant (\`at\`) — give \`start\` and \`end\` in its place`);
+            }
+            if (optional) throw new Error(`${where}: a duty has its times — \`start\` and \`end\` are DateTime fields, not Options`);
+            if (keyType.type !== "String") {
+                throw new Error(`${where}: the Roster's duties are keyed by String — a duty is named by its key, and this record is keyed by ${printType(keyType)}`);
+            }
+            if (shiftField === undefined || groupField === undefined) {
+                throw new Error(`${where}: the Roster places a duty by its \`shift\` and its \`group\` — give both`);
+            }
+            if (resource === undefined || resourceValue === undefined) {
+                throw new Error(`${where}: the Roster rosters each duty to a person or an agency, its \`resource\` — give it, resource: { field, of: "people" }`);
+            }
+            oneFieldEach("Roster", [["start", startField], ["end", endField], ["resource.field", resource.field], ["shift", shiftField],
+                ["group", groupField], ["position", positionField], ["activity", activityField]]);
+            const shift = shiftField;
+            const group = groupField;
+            const who = resource.field;
+            const whoOf = resourceValue;
+            const parts = kindParts(slot, part, formOver([startField, endField, who, shift, group, positionField, activityField]));
+            const Roles = ScheduleRosterRolesType;
+            // A row with the Roster's roles written from `roles`, the resource field from `value`, and every other field
+            // from `source`: the row as it was, or a new row's defaults. A kind with no `position` writes none.
+            const rosterRow = (source: ExprType<EastType>, roles: ExprType<typeof Roles>, value: ExprType<EastType>): ExprType<EastType> =>
+                East.value(Object.fromEntries(Object.keys(fields).map((f) => [f,
+                    f === startField ? roles.start
+                        : f === endField ? roles.end
+                            : f === who ? value
+                                : f === shift ? roles.shift
+                                    : f === group ? roles.group
+                                        : f === positionField ? roles.position.match({ some: (_$, held) => held, none: () => fieldOf(source, f) as ExprType<StringType> })
+                                            : f === activityField ? roles.activity
+                                                : fieldOf(source, f)])) as never, rowType) as ExprType<EastType>;
+            // A duty's roles, from its row and its key: its times and who, its shift and group, its position and
+            // activity, and the hours it counts.
+            const rolesOf = East.function([rowType, StringType], Roles, ($, row, key) => {
+                const ref = $.const(refOf);
+                const start = $.const(fieldOf(row, startField) as unknown as ExprType<DateTimeType>);
+                const end = $.const(fieldOf(row, endField) as unknown as ExprType<DateTimeType>);
+                let hours: ExprType<FloatType>;
+                if (hoursOf === undefined) {
+                    // Its length.
+                    hours = $.const(start.durationMinutes(end).divide(60.0));
+                } else {
+                    const count = $.const(hoursOf);
+                    hours = $.const(count(row as never, key as never));
+                }
+                return East.value({
+                    start, end, resource: ref(row), shift: fieldOf(row, shift), group: fieldOf(row, group),
+                    position: positionField === undefined ? none : some(fieldOf(row, positionField)),
+                    activity: activityField === undefined ? none : fieldOf(row, activityField),
+                    hours,
+                } as never, Roles);
+            });
+            // A drafted duty's roles, from its bytes: what `rows` gives a stored one in the pass that reads it.
+            const read = East.function([BlobType, StringType], Roles, ($, bytes, key) => {
+                const of = $.const(rolesOf);
+                return of(bytes.decodeBeast(rowType, "v2") as never, key);
+            });
+            // The row with its roles written, and every other field as it was (B1); `none` for a resource the kind refuses.
+            const write = East.function([BlobType, Roles], OptionType(BlobType), ($, bytes, roles) => {
+                const row = $.const(bytes.decodeBeast(rowType, "v2"));
+                const resolve = $.const(whoOf);
+                const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
+                $.match(resolve(roles.resource), {
+                    some: ($2, value) => { $2.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType))); },
+                });
+                return result;
+            });
+            // A new duty: its roles written, and every other field its type's default.
+            const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
+            const create = East.function([Roles], OptionType(BlobType), ($, roles) => {
+                const row = $.const(blank);
+                const resolve = $.const(whoOf);
+                const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
+                $.match(resolve(roles.resource), {
+                    some: ($2, value) => { $2.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType))); },
+                });
+                return result;
+            });
+            return East.value({
+                kind: East.value(parts.fields as never, ScheduleKindType),
+                rows: storedRows(parts.reads, ScheduleRosterEntryType, rolesOf as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>),
+                read,
+                write,
+                create,
+                roles: { position: positionField !== undefined, activity: activityField !== undefined },
+                rowType: toEastTypeValue(rowType),
+            } as never, ScheduleRosterKindType);
+        },
+        buildAllocation(slot: string, part?: ScheduleKindPart): ExprType<ScheduleAllocationKindType> {
+            // A bin is one instant, keyed by String, in one lane, booking an arrival, its quantity on its parts for its hold.
+            if (!instantKind) {
+                throw new Error(`${where}: the Allocation's bins are an instant kind: give \`at\` in place of \`start\` and \`end\``);
+            }
+            if (keyType.type !== "String") {
+                throw new Error(`${where}: the Allocation's bins are keyed by String — a bin is named by its key, and this record is keyed by ${printType(keyType)}`);
+            }
+            if (resource === undefined) throw new Error(`${where}: the Allocation books a bin into a lane, its \`resource\` — give it`);
+            if (resource.shape !== "key" || resource.optional) {
+                throw new Error(`${where}: the Allocation books each bin into one lane — \`resource\` names a String field, a key of the lanes' kind, ` +
+                    `and "${resource.field}" holds ${typeText(fields[resource.field]!)}`);
+            }
+            if (arrivalField === undefined) throw new Error(`${where}: the Allocation books a bin's \`arrival\` — give it`);
+            if (quantityField === undefined) throw new Error(`${where}: the Allocation reads a bin's \`quantity\` — give it`);
+            if (partsField === undefined || config.parts === undefined) throw new Error(`${where}: the Allocation allocates a bin's \`parts\` — give it`);
+            if (holdField === undefined) throw new Error(`${where}: the Allocation holds a bin for its \`hold\` — give it`);
+            oneFieldEach("Allocation", [["at", startField], ["resource.field", resource.field], ["arrival", arrivalField], ["quantity.field", quantityField],
+                ["parts.field", partsField], ["hold", holdField], ["kind", kindField]]);
+            const lane = resource.field;
+            const arrival = arrivalField;
+            const quantity = quantityField;
+            const shares = partsField;
+            const hold = holdField;
+            const mapped = new Set([startField, lane, arrival, quantity, shares, hold, ...(kindField === undefined ? [] : [kindField])]);
+            // The fields no role maps: what an arrival's values give a booked bin, a reservation's their type's default.
+            const ValuesType = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !mapped.has(name))));
+            const parts = kindParts(slot, part, formOver([...mapped]));
+            const Roles = ScheduleAllocationRolesType;
+            // A row with the Allocation's roles written from `roles`, and every other field from `source`: the row as it
+            // was, or a booked bin's values. A kind with no `kind` writes none.
+            const binRow = (source: ExprType<EastType>, roles: ExprType<typeof Roles>): ExprType<EastType> =>
+                East.value(Object.fromEntries(Object.keys(fields).map((f) => [f,
+                    f === startField ? roles.at
+                        : f === lane ? roles.lane
+                            : f === arrival ? roles.arrival
+                                : f === quantity ? roles.quantity
+                                    : f === shares ? roles.parts
+                                        : f === hold ? roles.hold
+                                            : f === kindField ? roles.kind
+                                                : fieldOf(source, f)])) as never, rowType) as ExprType<EastType>;
+            // A bin's roles, from its row: its time and lane, the arrival it books, its quantity and parts, its hold and kind.
+            const rolesOf = East.function([rowType, StringType], Roles, (_$, row, _key) => East.value({
+                at: fieldOf(row, startField), lane: fieldOf(row, lane), arrival: fieldOf(row, arrival), quantity: fieldOf(row, quantity),
+                parts: fieldOf(row, shares), hold: fieldOf(row, hold), kind: kindField === undefined ? none : fieldOf(row, kindField),
+            } as never, Roles));
+            // A drafted bin's roles, from its bytes: what `rows` gives a stored one in the pass that reads it.
+            const read = East.function([BlobType], Roles, ($, bytes) => {
+                const of = $.const(rolesOf);
+                return of(bytes.decodeBeast(rowType, "v2") as never, "");
+            });
+            // The row with its roles written, and every other field as it was (B1).
+            const write = East.function([BlobType, Roles], BlobType, ($, bytes, roles) => {
+                const row = $.const(bytes.decodeBeast(rowType, "v2"));
+                return East.Blob.encodeBeast(binRow(row, roles), "v2");
+            });
+            // A new bin: its roles written, and every other field the arrival's values' — or, with none, its type's default (B13).
+            const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
+            const create = East.function([Roles, OptionType(BlobType)], BlobType, ($, roles, values) => {
+                const given = $.const(values.match({
+                    some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
+                    none: (_$2) => blank,
+                }) as ExprType<EastType>);
+                return East.Blob.encodeBeast(binRow(given, roles), "v2");
+            });
+            return East.value({
+                kind: East.value(parts.fields as never, ScheduleKindType),
+                rows: storedRows(parts.reads, ScheduleAllocationEntryType, rolesOf as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>),
+                read,
+                write,
+                create,
+                lanes: resource.of,
+                parts: config.parts.of,
+                kinded: kindField !== undefined,
+                unit: config.quantity?.unit === undefined ? none : some(config.quantity.unit),
+                values: toEastTypeValue(ValuesType),
+                rowType: toEastTypeValue(rowType),
+            } as never, ScheduleAllocationKindType);
         },
         buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType> {
-            const parts = kindParts(slot, part);
+            const parts = kindParts(slot, part, formSpecs);
             const quantity = config.quantity;
             const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
             // One event as Plan draws it: what every view draws, with its roles read from their fields.

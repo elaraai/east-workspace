@@ -236,7 +236,7 @@ Allocation.Types.Bin(R)        = StructType({                 // the board's rea
     parts:    DictType(StringType, FloatType),               // the quantity on each resource, by key; empty: not linked
     row:      R,                                             // the app's row, every field of it
 });
-Allocation.Types.Status        = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }), other: StringType });
+Allocation.Types.Status        = VariantType({ draft: NullType, published: StructType({ at: OptionType(DateTimeType) }), other: StringType });   // Schedule's period status
 Allocation.Types.Day(R)        = StructType({ status: Status, bins: DictType(StringType, Bin(R)) });   // a view: the day's bins and its period's status
 
 Allocation.Types.Job           = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
@@ -315,10 +315,11 @@ different row type than its bin kind's is refused at build, naming both types.
 
 ### 5.2 The payload
 
-The payload carries the bin kind as `buildAllocation` closes it (its sessions'
-seams, `rows`, `view`, `unview` and `rowType`; builder-interfaces spec §4.1),
-the periods as `Schedule.periods` closes them (§4.3), the lanes and the
-resources as `Schedule.resources`' `buildAllocation` resolves them, the
+The payload carries the bin kind as `buildAllocation` closes it (its session's
+seams; `rows`, each bin's roles beside its row; `read`, `write` and `create`;
+`unit`, `values` and `rowType`; builder-interfaces spec §4.1), the periods as
+`Schedule.periods` closes them (§4.3), the lanes and the resources as the tag
+resolves them through each kind's `accessors` (§4.2), the
 arrivals, each arrival's starting fields as bytes at the row type, the
 narrowing, the fit's binding, `check` and the columns over bytes at the row
 type, and the settings, the library, the inspector, the labels and the Table's

@@ -68,7 +68,7 @@ import {
 import { CanDropFnType, EastUI, RowSourceType, type UIElement } from "@elaraai/east-ui";
 import { resolveRowSource, type RecordSliceAffordance, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../schedule/types.js";
-import { scheduleCheck } from "../schedule/index.js";
+import { scheduleCheck, scheduleTitled } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
@@ -391,7 +391,8 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  * @param props - The Plan's props, as `<Plan>` takes them
  * @returns An East expression of {@link PlanPayloadType}
  * @throws {Error} Naming the prop and the remedy: no rows from any source; `resources` without `events`; an event kind's
- *   resource naming a slot `resources` has not, or one not keyed by String; event kinds on a number or ordinal axis; a
+ *   resource naming a slot `resources` has not, or one not keyed by String; an event kind with no `title` (#1367); event
+ *   kinds on a number or ordinal axis; a
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
  *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
@@ -414,6 +415,8 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     const kinds = events === undefined ? [] : Object.keys(events);
     if (events !== undefined) {
         scheduleCheck(resources ?? {}, events, "Plan");
+        // A Plan draws each event's title, which `Schedule.events` takes as optional (#1367).
+        scheduleTitled(events, "Plan");
     } else if (resources !== undefined) {
         throw new Error("Plan: `resources` are the rows events are placed on — declare `events`, the event kinds over records (Schedule.events)");
     }

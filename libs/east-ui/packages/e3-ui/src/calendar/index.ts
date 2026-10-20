@@ -10,7 +10,7 @@ import {
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
-import { Schedule, scheduleCheck, type ScheduleNamespace } from "../schedule/index.js";
+import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleTabDeclaration, type ScheduleLibraryTabConfig } from "../schedule/library.js";
@@ -111,14 +111,17 @@ export interface CalendarProps {
  * interaction behavior belongs to the renderer, not this factory.
  * @param props - Calendar's props
  * @returns The closed payload
- * @throws {Error} When kinds or library tabs are invalid, working hours are outside the day, `slice` is not
- *   `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is written in the code or
- *   names no source of the slice (templates are records, #1340), or a tab names a source the slice lacks
+ * @throws {Error} When kinds or library tabs are invalid, a kind has no `title` (#1367), working hours are outside the
+ *   day, `slice` is not `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is
+ *   written in the code or names no source of the slice (templates are records, #1340), or a tab names a source the
+ *   slice lacks
  * @internal
  */
 export function createCalendarPayload(props: CalendarProps): ExprType<typeof CalendarPayloadType> {
     const resources = props.resources ?? {};
     scheduleCheck(resources, props.events, "Calendar");
+    // The Calendar draws each event's title, which `Schedule.events` takes as optional.
+    scheduleTitled(props.events, "Calendar");
     if (Object.keys(props.events).length === 0) throw new Error("Calendar: declare at least one event kind");
     const hours = props.hours ?? { from: 6n, to: 22n };
     if (hours.from < 0n || hours.to > 24n || hours.from >= hours.to) throw new Error("Calendar: hours must satisfy 0 <= from < to <= 24");

@@ -468,19 +468,26 @@ export * from './flowchart/types.js';
 export {
     ScheduleInternal as Schedule,
     scheduleCheck,
+    scheduleTitled,
     type ScheduleNamespace,
     type ScheduleInternalNamespace,
 } from './schedule/index.js';
 export * from './schedule/types.js';
 export {
     scheduleEvents,
-    type ScheduleAtField, type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig,
-    type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
-    type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
-    type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
-    type ScheduleTemplate, type ScheduleValuesOf,
+    type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,
+    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleOptionStringField, type ScheduleOverlapsLiteral, type ScheduleParts, type ScheduleQuantity, type ScheduleRecordHandle,
+    type ScheduleResourceField, type ScheduleResourceOf, type ScheduleSetStringField, type ScheduleStateField, type ScheduleStatusCasesOf,
+    type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField, type ScheduleTemplate, type ScheduleTimeStepField,
+    type ScheduleValuesOf,
 } from './schedule/events.js';
-export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from './schedule/resources.js';
+// What a builder publishes (#1367): the app's record of periods, its status a field of the app's.
+export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from './schedule/periods.js';
+export {
+    SCHEDULE_DEF, scheduleResources, type ScheduleResourceAccessor, type ScheduleResourceAccessors, type ScheduleResourceKind,
+    type ScheduleResourcesConfig,
+} from './schedule/resources.js';
 export { scheduleDays, scheduleUnscheduled } from './schedule/days.js';
 // The number the Allocation's and the Roster's pure functions write, one printer for both.
 export { scheduleNumberText } from './schedule/words.js';

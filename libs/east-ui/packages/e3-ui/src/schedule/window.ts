@@ -70,15 +70,25 @@ type IndexHandle = ExprType<StructType<{
 /** Which of a kind's windows: the days in view, or the backlog. */
 export type ScheduleWindowProp = "window" | "backlogWindow";
 
-/** Whether a type is an Option, and of what. */
-function optionOf(type: EastType): EastType | undefined {
+/**
+ * Whether a type is an Option, and of what.
+ *
+ * @param type - The type
+ * @returns What the Option holds; `undefined` for a type that is no Option
+ */
+export function optionOf(type: EastType): EastType | undefined {
     if (type.type !== "Variant") return undefined;
     const some = (type.cases as Record<string, EastType | undefined>)["some"];
     return some !== undefined && isTypeEqual(type, OptionType(some)) ? some : undefined;
 }
 
-/** A type as a refusal names it: an Option as an Option of what it holds. */
-function typeText(type: EastType): string {
+/**
+ * A type as Schedule's refusals name it: an Option as an Option of what it holds.
+ *
+ * @param type - The type
+ * @returns Its words (`.Float`, `an Option of .String`)
+ */
+export function typeText(type: EastType): string {
     const inner = optionOf(type);
     return inner === undefined ? printType(type) : `an Option of ${printType(inner)}`;
 }
