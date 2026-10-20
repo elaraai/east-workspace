@@ -123,7 +123,8 @@ export interface E3Harness {
     readonly workspace: string;
     /**
      * Mounts an example as the showcase does, and settles once what it reads
-     * whole has loaded and it has rendered.
+     * whole has loaded, it has rendered and a poll has told it e3's status of
+     * what it reads (the run that status brings, the showcase's a second in).
      *
      * @param example - The example
      * @param options - A program in its place, where its sessions are kept, the workspace it reads
@@ -132,8 +133,9 @@ export interface E3Harness {
     mount(example: Example, options?: MountOptions): Promise<RenderResult>;
     /**
      * Installs the runtimes over the test's workspace, as a mounted example's
-     * providers do, with what a program reads whole loaded: for a test that
-     * evaluates a program, or renders a hook, outside a mounted example.
+     * providers do, with what a program reads whole loaded and its status
+     * heard: for a test that evaluates a program, or renders a hook, outside a
+     * mounted example.
      *
      * @param example - What the program reads: an example, or a program's own East function as one (`{ fn }`)
      * @returns What unmounts them
@@ -227,6 +229,18 @@ async function refreshMounted(workspace: string): Promise<void> {
 }
 
 /**
+ * Lets what was just mounted hear e3's status of what it reads, as the
+ * showcase's first poll a second in does: the first status a poll reports of
+ * a dataset is news to the cache, which tells every reader of it — a Reactive
+ * body reading it runs again, its value unchanged (`dataset-store.ts`). Heard
+ * before the test begins, that run lands nowhere in what the test does or
+ * counts; a later poll reports nothing new unless e3's data moves.
+ *
+ * @param workspace - The workspace mounted
+ */
+const heardStatus = (workspace: string): Promise<void> => refreshMounted(workspace);
+
+/**
  * Gives a test file its e3, and each test a workspace of its own.
  *
  * Called as the file is collected. Before the file's tests, e3-web starts
@@ -311,6 +325,7 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
                 if (mounted.container.querySelector("[data-e3-reads=failed]") !== null) throw new Error(`what the example reads did not load: ${mounted.container.textContent ?? ""}`);
             }, { timeout: 30_000 });
             await settle();
+            await heardStatus(ws);
             return mounted;
         },
         async install(example) {
@@ -326,6 +341,7 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
                 if (mounted.container.querySelector("[data-e3-reads=loaded]") === null) throw new Error("what the program reads has not loaded");
             }, { timeout: 30_000 });
             await settle();
+            await heardStatus(ws);
             return () => mounted.unmount();
         },
         read: (dataset) => readDataset(e3(), workspace(), dataset),
