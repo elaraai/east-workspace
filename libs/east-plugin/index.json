@@ -42340,9 +42340,10 @@
         "window"
       ],
       "imports": [
-        "import { East, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DictType, East, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders, indexedWorkPatch, indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
@@ -42367,9 +42368,10 @@
         "paging"
       ],
       "imports": [
-        "import { East, example, some } from \"@elaraai/east\";",
+        "import { ArrayType, DictType, East, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";",
         "import { IndexedWork, indexedWorkOrders, indexedWorkPatch, indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag } from \"../sheet/sheet-records.examples.js\";"
       ],
       "languages": [
