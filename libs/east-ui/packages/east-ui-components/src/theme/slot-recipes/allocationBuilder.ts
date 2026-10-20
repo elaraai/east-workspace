@@ -163,9 +163,10 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
 
         // ── The Timeline ── three panes side by side: the lane grid, the link channel, the resources.
         timeline: { position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", overflow: "hidden", isolation: "isolate", background: "bg.surface" },
-        // Each pane's head: one 48px row across the board, over its 1px rule; every block in it 47px, 24 + 23.
+        // Each pane's head: one 48px row across the board, over its 1px rule; every block in it 47px, 24 + 23. Over a card risen
+        // over the links (6) as a scroll takes it under the head.
         head: {
-            position: "sticky", top: 0, zIndex: 6, display: "flex", height: "48px", boxSizing: "border-box",
+            position: "sticky", top: 0, zIndex: 7, display: "flex", height: "48px", boxSizing: "border-box",
             borderBottomWidth: "1px", borderColor: "border.subtle", background: "bg.surface",
         },
         headCaption: {
@@ -374,7 +375,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-tone=danger]": { color: "fg.danger", fontWeight: "semibold" },
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
         },
-        plot: { position: "relative", flex: 1, minWidth: 0 },
+        // A stacking context of its own: what it draws over itself — the now line, a preview's bar — stays under the sticky resource
+        // column as the pane scrolls right, and under the head as it scrolls down, never over them.
+        plot: { position: "relative", flex: 1, minWidth: 0, isolation: "isolate" },
         shade: { position: "absolute", top: 0, bottom: 0, background: "bg.canvas", pointerEvents: "none" },
         weekRule: { position: "absolute", top: 0, bottom: 0, width: "1px", background: "border.subtle", pointerEvents: "none" },
         // The focus's hold, banded across the plot (A13).

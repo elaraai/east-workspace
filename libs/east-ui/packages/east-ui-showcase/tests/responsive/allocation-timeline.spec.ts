@@ -179,6 +179,81 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
+    test(`A18–A21 — what scrolls under a pane's sticky parts passes under them: the today line under the resource column scrolled right and under the head scrolled down, at 1440/1024/768, and a selected card under the lane pane's head (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1200 });
+        const entry = await open(page, "allocationKilnYard", theme);
+        const timeline = entry.locator("[data-allocation-timeline]").first();
+        let reached = 0;
+        for (const width of [1440, 1024, 768]) {
+            await size(page, entry, width);
+            await timeline.evaluate(el => el.scrollIntoView({ block: "center" })); await settled(page);
+            const at = await timeline.evaluate(async (root) => {
+                const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const pane = root.querySelector<HTMLElement>("[data-virtual-rows]")!;
+                // What paints on top of a point is what the pointer would hit there: each today line takes the pointer for the probe.
+                const topAt = async (x: number, y: number) => {
+                    const lines = [...pane.querySelectorAll<HTMLElement>("[data-allocation-now]")];
+                    for (const line of lines) line.style.pointerEvents = "auto";
+                    const top = document.elementFromPoint(x, y);
+                    for (const line of lines) line.style.pointerEvents = "";
+                    return top;
+                };
+                const faults: string[] = [];
+                // The rows' mandatory snap would move a programmatic scroll: it waits, as the board's own scrolls do.
+                pane.setAttribute("data-snap-suspended", "");
+                pane.scrollTop = 0; pane.scrollLeft = 0; await frames();
+                const row = pane.querySelector<HTMLElement>("[data-allocation-resource]")!, label = row.firstElementChild!;
+                const line = () => row.querySelector<HTMLElement>("[data-allocation-now]")!.getBoundingClientRect();
+                // Scrolled right until the today line sits under the resource column's middle, where the pane scrolls that far.
+                const want = line().left - (label.getBoundingClientRect().left + label.getBoundingClientRect().width / 2);
+                const reached = want > 0 && want <= pane.scrollWidth - pane.clientWidth;
+                if (reached) {
+                    pane.scrollLeft = want; await frames();
+                    const l = label.getBoundingClientRect(), b = line();
+                    const top = await topAt(b.left + b.width / 2, l.top + l.height / 2);
+                    if (top === null || !label.contains(top)) faults.push(`over the resource column: ${top === null ? "nothing" : top.closest("[data-allocation-now]") !== null ? "the today line" : top.tagName}`);
+                }
+                // Scrolled back and down two rows, under the head: the head, its ruler and its today mark, over every row's today line.
+                pane.scrollLeft = 0; pane.scrollTop = 72; await frames();
+                const head = pane.querySelector("[data-allocation-resource-head]")!, h = head.getBoundingClientRect();
+                const under = [...pane.querySelectorAll<HTMLElement>("[data-allocation-now]")].map(el => el.getBoundingClientRect()).find(r => r.top < h.bottom && r.bottom > h.top);
+                if (under === undefined) faults.push("no row's today line runs under the head");
+                else {
+                    const top = await topAt(under.left + under.width / 2, h.bottom - 6);
+                    if (top === null || !head.contains(top)) faults.push(`over the head: ${top === null ? "nothing" : top.closest("[data-allocation-now]") !== null ? "a row's today line" : top.tagName}`);
+                }
+                pane.scrollTop = 0; await frames();
+                pane.removeAttribute("data-snap-suspended");
+                return { reached, faults };
+            });
+            if (at.reached) reached++;
+            expect(at.faults, `${width}px`).toEqual([]);
+        }
+        // The case is met: at some width the resource pane scrolls the today line under its column.
+        expect(reached).toBeGreaterThan(0);
+        // A selected card rises over the links with its connector (A21): LD-2201, scrolled under the lane pane's head, stays under it.
+        await size(page, entry, 1440);
+        const card = timeline.locator('[data-allocation-card="3101"]');
+        await card.scrollIntoViewIfNeeded(); await card.click(); await settled(page);
+        await page.mouse.move(0, 0);
+        const lanes = await timeline.evaluate((root) => {
+            const pane = root.querySelector<HTMLElement>("[data-allocation-lanes]")!, card = root.querySelector('[data-allocation-card="3101"]')!;
+            const head = pane.querySelector("[data-allocation-lanes] > * > :first-child")!;
+            // The rows' mandatory snap would land the scroll on a row below the head: off for the probe, a scroll's moment before it snaps.
+            pane.style.scrollSnapType = "none";
+            const c0 = card.getBoundingClientRect(), h0 = head.getBoundingClientRect();
+            pane.scrollTop += (c0.top + c0.height / 2) - (h0.top + h0.height / 2);
+            const c = card.getBoundingClientRect(), h = head.getBoundingClientRect();
+            const top = document.elementFromPoint(c.left + c.width / 2, h.top + h.height / 2);
+            const fault = Math.abs((c.top + c.height / 2) - (h.top + h.height / 2)) > 1 ? "the lane pane does not scroll the card under its head"
+                : top === null || !head.contains(top) ? `over the lane pane's head: ${top === null ? "nothing" : card.contains(top) ? "the selected card" : top.tagName}` : null;
+            pane.style.scrollSnapType = "";
+            pane.scrollTop = 0;
+            return { selected: card.hasAttribute("data-selected"), fault };
+        });
+        expect(lanes).toEqual({ selected: true, fault: null });
+    });
+
     test(`A12 — selecting follows the selection: a bin scrolls its lane hour into view and levels its resource row with it (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);

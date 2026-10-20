@@ -450,3 +450,118 @@ for (const theme of ["light", "dark"] as const) {
         await expect(restored).toHaveAttribute('aria-expanded', 'false');
     });
 }
+
+for (const theme of ["light", "dark"] as const) {
+    test(`what scrolls under a sticky part passes under it: the today line under the Day's and the Week's head scrolled down and under the hour column scrolled sideways, its dot wholly inside today's column; under the Timeline's resource column scrolled right; a dragged chip under the Month's weekdays (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator("[data-calendar-frame]").first();
+        // What paints on top of a point is what the pointer would hit there: the probed layer takes the pointer for the probe.
+        for (const period of ["Day", "Week"]) {
+            await viewChoice(page, frame, period);
+            const grid = await frame.locator("[data-calendar-time-grid]").evaluate((scroller) => {
+                const head = scroller.querySelector("[data-calendar-header]")!, line = scroller.querySelector<HTMLElement>("[data-calendar-now]");
+                if (line === null) return "no today line";
+                const room = scroller.scrollHeight - scroller.clientHeight;
+                if (room < 120) return `the grid does not scroll under its head (${room}px)`;
+                scroller.scrollTop = 120;
+                // The line sits at the clock's time: laid under the head, it is where a later hour scrolled up would put it.
+                const h = head.getBoundingClientRect(), at = line.getBoundingClientRect(), top = line.style.top;
+                line.style.top = `${line.offsetTop + (h.top + h.height / 2) - (at.top + at.height / 2)}px`;
+                line.style.pointerEvents = "auto";
+                const l = line.getBoundingClientRect(), hit = document.elementFromPoint(l.left + l.width / 2, h.top + h.height / 2);
+                line.style.pointerEvents = ""; line.style.top = top;
+                return hit !== null && head.contains(hit) ? "under" : `over the head: ${hit === null ? "nothing" : hit.closest("[data-calendar-now]") !== null ? "the today line" : hit.tagName}`;
+            });
+            expect(grid, period).toBe("under");
+        }
+
+        // Today's dot sits wholly inside today's column (ruled 20 Oct): the Day's hour column, beside it, covers none of it.
+        await viewChoice(page, frame, "Day");
+        const dot = await frame.locator("[data-calendar-time-grid]").evaluate((scroller) => {
+            const line = scroller.querySelector<HTMLElement>("[data-calendar-now]"), mark = line?.firstElementChild ?? null;
+            if (line === null || mark === null) return "no today dot";
+            const column = line.closest<HTMLElement>("[data-calendar-cell]")!, gutter = column.parentElement!.firstElementChild!;
+            // The line half-way down the grid, wherever the clock puts it.
+            const room = scroller.scrollHeight - scroller.clientHeight;
+            scroller.scrollTop = Math.max(0, Math.min(room, scroller.scrollTop + line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2));
+            const d = mark.getBoundingClientRect(), g = gutter.getBoundingClientRect();
+            line.style.pointerEvents = "auto";
+            const hit = document.elementFromPoint(d.left + 1.5, d.top + d.height / 2);
+            line.style.pointerEvents = "";
+            const faults: string[] = [];
+            if (d.left < g.right - 0.5) faults.push(`it starts ${Math.round(g.right - d.left)}px over the hour column`);
+            if (hit === null || !mark.contains(hit)) faults.push(`its edge is under ${hit === null ? "nothing" : gutter.contains(hit) ? "the hour column" : hit.tagName}`);
+            return faults.length === 0 ? "inside" : faults.join("; ");
+        });
+        expect(dot).toBe("inside");
+
+        // Sideways: a main under the week's 840px scrolls it under the hour column, and today's line stays under that column.
+        await viewChoice(page, frame, "Week");
+        await size(page, entry, 1280);
+        const sideways = await frame.locator("[data-calendar-time-grid]").evaluate((scroller) => {
+            const line = scroller.querySelector<HTMLElement>("[data-calendar-now]");
+            if (line === null) return "no today line";
+            const room = scroller.scrollWidth - scroller.clientWidth;
+            if (room < 40) return `the week does not scroll sideways (${room}px)`;
+            const column = line.closest<HTMLElement>("[data-calendar-cell]")!, gutter = column.parentElement!.firstElementChild!;
+            scroller.scrollLeft = room;
+            const rows = scroller.scrollHeight - scroller.clientHeight;
+            scroller.scrollTop = Math.max(0, Math.min(rows, scroller.scrollTop + line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2));
+            // Today's column is wherever the date puts it: the line, run left to the hour column's edge, is where a scroll would take today's column.
+            const g = gutter.getBoundingClientRect(), left = line.style.left;
+            line.style.left = `${g.left - column.getBoundingClientRect().left - column.clientLeft}px`;
+            line.style.pointerEvents = "auto";
+            const l = line.getBoundingClientRect(), hit = document.elementFromPoint(g.left + g.width / 2, l.top + l.height / 2);
+            line.style.pointerEvents = ""; line.style.left = left;
+            scroller.scrollLeft = 0;
+            return hit !== null && gutter.contains(hit) ? "under" : `over the hour column: ${hit === null ? "nothing" : hit.closest("[data-calendar-now]") !== null ? "the today line" : hit.tagName}`;
+        });
+        expect(sideways).toBe("under");
+        await size(page, entry, 1440);
+
+        await viewChoice(page, frame, "Timeline"); await viewChoice(page, frame, "Week");
+        const timeline = await frame.locator("[data-calendar-timeline]").evaluate((scroller) => {
+            const row = [...scroller.querySelectorAll("[data-calendar-resource-row]")].find(r => r.querySelector("[data-calendar-now]") !== null);
+            if (row === undefined) return "no today line";
+            const head = row.firstElementChild!, line = row.querySelector<HTMLElement>("[data-calendar-now]")!;
+            // Scrolled right until the today line sits under the resource column's middle.
+            const at = line.getBoundingClientRect(), h0 = head.getBoundingClientRect(), room = scroller.scrollWidth - scroller.clientWidth;
+            const want = scroller.scrollLeft + (at.left + at.width / 2) - (h0.left + h0.width / 2);
+            if (want <= scroller.scrollLeft || want > room) return `the timeline does not scroll its today line under its resource column (${Math.round(want)} from ${scroller.scrollLeft} of ${room}px)`;
+            scroller.scrollLeft = want;
+            const h = head.getBoundingClientRect(), l = line.getBoundingClientRect();
+            line.style.pointerEvents = "auto";
+            const hit = document.elementFromPoint(l.left + l.width / 2, h.top + h.height / 2);
+            line.style.pointerEvents = "";
+            return hit !== null && head.contains(hit) ? "under" : `over the resource column: ${hit === null ? "nothing" : hit.closest("[data-calendar-now]") !== null ? "the today line" : hit.tagName}`;
+        });
+        expect(timeline).toBe("under");
+
+        // A frame short enough for the month to scroll under its weekdays.
+        await viewChoice(page, frame, "Calendar"); await viewChoice(page, frame, "Month");
+        await frame.locator("xpath=..").evaluate((el) => { (el as HTMLElement).style.height = "480px"; }); await settled(page);
+        const month = frame.locator("[data-calendar-month-grid]");
+        // A chip picked up: the drag raises it over its neighbours.
+        const chip = month.locator("[data-calendar-event][data-draggable]").first();
+        const box = (await chip.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+        for (let i = 1; i <= 4; i++) await page.mouse.move(box.x + box.width / 2 + i * 3, box.y + box.height / 2 + i * 2);
+        await expect(chip).toHaveAttribute("data-dragging", "");
+        const dragged = await month.evaluate((scroller) => {
+            const head = scroller.querySelector("[data-calendar-header]")!, chip = scroller.querySelector<HTMLElement>("[data-calendar-event][data-dragging]")!;
+            const c0 = chip.getBoundingClientRect(), h0 = head.getBoundingClientRect(), room = scroller.scrollHeight - scroller.clientHeight;
+            const want = scroller.scrollTop + (c0.top + c0.height / 2) - (h0.top + h0.height / 2);
+            if (want <= 0 || want > room) return `the month does not scroll its dragged chip under its weekdays (${Math.round(want)} of ${room}px)`;
+            // As a drag's edge scroll would take it.
+            scroller.scrollTop = want;
+            const c = chip.getBoundingClientRect(), h = head.getBoundingClientRect(), events = chip.style.pointerEvents;
+            chip.style.pointerEvents = "auto";
+            const hit = document.elementFromPoint(c.left + c.width / 2, h.top + h.height / 2);
+            chip.style.pointerEvents = events;
+            return hit !== null && head.contains(hit) ? "under" : `over the weekdays: ${hit === null ? "nothing" : chip.contains(hit) ? "the dragged chip" : hit.tagName}`;
+        });
+        await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
+        expect(dragged).toBe("under");
+    });
+}

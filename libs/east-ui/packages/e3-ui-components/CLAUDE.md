@@ -343,6 +343,19 @@ treatments and test combinations. Decorative grips are quiet until hover or
 keyboard focus, following Plan and Library. A drag preview and its caption must
 remain readable even when the source event is a very short timeline bar.
 
+What scrolls under a sticky column or head passes under it. A plot or grid that
+a scroll takes under sticky parts is a stacking context of its own (`isolation:
+isolate` in its slot), so what it raises over itself — the shared now line
+(z 7), a drop's ghost, a dragged event — never paints over a resource's name,
+an hour or a head; and nothing it draws reaches past its edge onto a sticky
+part beside it, so the time grid's today dot sits wholly inside its day column
+(ruled 20 Oct). A part raised above the board's other layers (a selected
+Allocation card over the links) stays under the sticky heads' z. The
+Allocation's resource rows and lane pane, and the Calendar's day columns,
+month and timeline rows, are held to it in both themes by paint-order checks
+(`elementFromPoint`, the probed layer taking the pointer) in the responsive
+suite.
+
 ### Required evidence before reporting completion
 
 - Run examples through the actual e3-ui dispatcher and e3-web bindings. Check
