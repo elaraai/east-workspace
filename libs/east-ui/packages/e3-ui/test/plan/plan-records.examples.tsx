@@ -3,10 +3,24 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { East, example, some } from "@elaraai/east";
+import { ArrayType, DictType, East, OptionType, StringType, StructType, example, none, some } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
+import e3 from "@elaraai/e3";
 import { IndexedWork, indexedWorkOrders, indexedWorkPatch, indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag } from "../sheet/sheet-records.examples.js";
+
+/** A job dropped on a press: a decision at the bucket it landed in. */
+export const PlanPressJob = StructType({ key: StringType, at: Plan.Types.Instant });
+/** A press: its name, the crew that runs it (none yet), and the jobs dropped on it. */
+export const PlanPress = StructType({ label: StringType, crew: OptionType(StringType), jobs: ArrayType(PlanPressJob) });
+/** Three presses a Plan canvas takes dropped jobs on, a row each, read a window at a time: Press 2 has no crew yet. */
+export const planPresses = e3.record("plan_presses", DictType(StringType, PlanPress), new Map([
+    ["p1", { label: "Press 1", crew: some("Crew A"), jobs: [] }],
+    ["p2", { label: "Press 2", crew: none, jobs: [] }],
+    ["p3", { label: "Press 3", crew: some("Crew C"), jobs: [] }],
+]));
+/** The presses' patch door: a canvas's Save commits through it. */
+export const planPressesPatch = e3.mutation.patch(planPresses);
 
 export const planRecordIndexes = example({
     description: "The Sheet's 50,000 bound work orders on a Plan, narrowed through one rail: the slice's `rows` source (`Slice.bindRecords`) gives the canvas its rows, paged from it. Multiple statuses combine with the Due range through the status/due index, and the Due range is the canvas's window — the toolbar's dates, its range and the horizon brush write it. Operations remain nested under their original work-order keys when moved and saved.",

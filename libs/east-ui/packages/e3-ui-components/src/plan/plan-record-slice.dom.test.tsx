@@ -3,33 +3,24 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  */
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
+import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-records";
 import * as records from "@elaraai/e3-ui/examples/sheet/sheet-records";
-import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../platform/index.js";
-import { countWholeReads, recordPaging } from "../platform/record-paging.test-utils.js";
-import { act, builderHarness, mount, settle, slot, width } from "../shared/builder-harness.test-utils.js";
+import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import "./index.js";
 
-const WORKSPACE = "plan-indexed-record";
-const h = builderHarness(WORKSPACE, [records.indexedWorkOrders], "data-plan-body");
-afterEach(() => clearPagedApi());
+const h = e3Harness({ "plan/plan-records": ex, "sheet/sheet-records": records }, { main: "data-plan-body" });
+/** The work orders' record, as its dataset's requests name it. */
+const ORDERS = `records.${records.indexedWorkOrders.name}`;
 
 test("indexed Plan preserves order and hidden operation drafts through Undo, Redo, remount and primary-key Save", async () => {
     const store = new UIStore(); StateRuntime.initializeStore(store);
-    const reads = countWholeReads(h.cache); initializeRecordApi(reads.serve(h.memory), h.cache, WORKSPACE);
     const record = records.indexedWorkOrders;
-    const indexes = [records.indexedWorkByStatusDue, records.indexedWorkByDue, records.indexedWorkByJob, records.indexedWorkByQuantity, records.indexedWorkByUrgent, records.indexedWorkByTag];
-    const paging = recordPaging(h.cache, reads.raw, [{ path: record.path, type: record.type, indexes: indexes.map(index => {
-        const fn = East.compile(index.keyFn as never, []) as (key: unknown, row: unknown) => unknown;
-        return { name: index.name, keyType: index.keyType, keys: (key: unknown, row: unknown) => index.multi ? fn(key, row) as Iterable<unknown> : [fn(key, row)] };
-    }) }]);
-    initializePagedApi(paging.api, WORKSPACE);
-    let ui = mount(ex.planRecordIndexes);
+    let ui = await h.mount(ex.planRecordIndexes);
     const bar = () => ui.container.querySelector<HTMLElement>('[data-run="JOB-10000-run"]');
     await waitFor(() => expect(bar()).not.toBeNull()); await settle();
     const first = [...ui.container.querySelectorAll('[data-plan-row] [role="rowheader"]')].map(el => el.textContent);
@@ -56,13 +47,16 @@ test("indexed Plan preserves order and hidden operation drafts through Undo, Red
     await waitFor(() => expect(bar()?.getAttribute("aria-label")).toBe(drafted));
     await act(async () => { store.write(sliceKey, encodeBeast2For(RecordSliceStateType)(hidden)); });
     await waitFor(() => expect(bar()).toBeNull());
-    ui.unmount(); ui = mount(ex.planRecordIndexes); await settle(); await width(390);
+    ui.unmount(); ui = await h.mount(ex.planRecordIndexes); await width(390);
     expect(within(slot(ui.container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", false);
+    // Save is disabled while its patch is in flight: what e3 holds is read once the patch and the confirming reads are done.
     await action("Save");
-    await waitFor(() => expect(within(slot(ui.container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true));
-    const committed = decodeBeast2For(record.type)(reads.raw(WORKSPACE, record.path)!);
+    expect(h.requests("mutate", record.name).map(request => request.name)).toEqual(["patch"]);
+    expect(within(slot(ui.container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+    const committed = await h.read(record);
     expect(committed.get("JOB-10000")!.operations[0]!.start).toEqual(new Date("2026-10-02T06:00:00Z"));
-    expect(reads.paths).toEqual([]);
-    expect(paging.requests.some(request => request.includes('seek "JOB-10000"'))).toBe(true);
+    // Read through its indexes' searches and pages and by its keys: nothing is read whole.
+    expect(h.requests("read")).toEqual([]);
+    expect(h.requests("find", ORDERS).some(request => request.query.get("key") === '"JOB-10000"')).toBe(true);
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
 });

@@ -38,7 +38,7 @@ import {
 } from "./platform/index.js";
 import type { RecordHistoryResult } from "@elaraai/e3-api-client";
 import {
-    patchRecord, readDataset, recordHistory, startTestE3, writeDataset, type E3Dataset, type E3Record, type E3Request, type TestE3,
+    patchRecord, readDataset, recordHistory, runDataflow, startTestE3, writeDataset, type E3Dataset, type E3Record, type E3Request, type TestE3,
 } from "./e3-web.test-utils.js";
 import { act, isolateRuns } from "./test-runs.test-utils.js";
 
@@ -168,6 +168,11 @@ export interface E3Harness {
      */
     history(record: { readonly name: string }): Promise<RecordHistoryResult>;
     /**
+     * Runs the test's workspace's dataflow, as another session's run would,
+     * then lets the mounted examples see what it wrote.
+     */
+    run(): Promise<void>;
+    /**
      * The requests made of the test's workspace so far.
      *
      * @param kind - Only those of this kind (`read`, `find`, `page`, …)
@@ -177,8 +182,23 @@ export interface E3Harness {
     requests(kind?: E3Request["kind"], of?: string): E3Request[];
 }
 
-/** The file's harness, which {@link settle} waits on. */
-let current: { e3: TestE3 | undefined } | undefined;
+/** The file's harness, which {@link settle} waits on and {@link E3Surface} renders over. */
+let current: { e3: TestE3 | undefined; workspace: string | undefined } | undefined;
+
+/** The file's harness, once it has called {@link e3Harness}: what a helper mounting outside an example drives. */
+let fileHarness: E3Harness | undefined;
+
+/**
+ * The harness the file called {@link e3Harness} for: what a helper that
+ * mounts a component of its own reads, writes and holds through.
+ *
+ * @returns The harness
+ * @throws {Error} When the file has called no e3Harness
+ */
+export function currentHarness(): E3Harness {
+    if (fileHarness === undefined) throw new Error("the file calls no e3Harness: call it once, at the file's top");
+    return fileHarness;
+}
 
 /** The dataset caches of the examples mounted now: another session's change reaches each at once ({@link E3Harness.patch}). */
 const mountedCaches = new Set<ReactiveDatasetCacheInterface>();
@@ -259,7 +279,7 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         await state.e3?.idle();
         state.workspace = undefined;
     });
-    return {
+    const harness: E3Harness = {
         get e3() { return e3(); },
         get workspace() { return workspace(); },
         async mount(example, mountOptions = {}) {
@@ -306,6 +326,10 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             await refreshMounted(workspace());
         },
         history: (record) => recordHistory(e3(), workspace(), record),
+        async run() {
+            await runDataflow(e3(), workspace());
+            await refreshMounted(workspace());
+        },
         requests(kind, of) {
             const ws = workspace();
             return e3().requests.filter((request) => request.workspace === ws
@@ -313,6 +337,8 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
                 && (of === undefined || request.dataset === of || request.record === of));
         },
     };
+    fileHarness = harness;
+    return harness;
 }
 
 /** What an example reads whole, loaded before it renders and polled while it shows, as the showcase's gate loads and polls it. */
@@ -326,6 +352,35 @@ function ExampleReads({ example, workspace, children }: { example: Example; work
         </ReactiveDatasetLoader>
     );
 }
+
+/**
+ * What a component a test renders itself reads e3 under — a Plan canvas
+ * mounted outside an example, say: `E3Provider` over the file's e3 and the
+ * test's workspace, and `ReactiveDatasetProvider`, which installs the runtimes
+ * `Data.bind`, `Data.bindPaged`, `Func.bind` and `Record.bind` resolve
+ * through. Its children render once the runtimes are installed, and another
+ * session's change reaches its cache at once ({@link E3Harness.patch}).
+ *
+ * @param props - What renders under it
+ * @returns The providers over the children
+ * @throws {Error} When the file has no e3 harness, or the test no workspace yet
+ */
+export function E3Surface({ children }: { children: ReactNode }) {
+    const e3 = current?.e3;
+    const workspace = current?.workspace;
+    if (e3 === undefined || workspace === undefined) throw new Error("E3Surface renders under a file's e3Harness, inside a test");
+    return (
+        <E3Provider config={{ apiUrl: e3.apiUrl, fetch: e3.fetch, repo: e3.repo, workspace, token: null }}>
+            <ReactiveDatasetProvider>
+                <PolledReads datasets={NO_READS} />
+                {children}
+            </ReactiveDatasetProvider>
+        </E3Provider>
+    );
+}
+
+/** No dataset read whole. */
+const NO_READS: readonly { workspace: string; path: TreePath }[] = [];
 
 /** Polls what an example reads for as long as it shows, and keeps its cache where another session's change reaches it. */
 function PolledReads({ datasets }: { datasets: readonly { workspace: string; path: TreePath }[] }) {

@@ -37,9 +37,8 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { initializePagedApi } from "../../platform/index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
-import { WORKSPACE, act, el, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, el, entry, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { setPlanFrameRenderProbe } from "./index.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
 
@@ -58,7 +57,6 @@ const maybeTime = printFor(OptionType(DateTimeType));
 const stockOf = printFor(ex.PrintJob.fields.stock);
 const decodeState = decodeBeast2For(RecordSliceStateType);
 const encodeState = encodeBeast2For(RecordSliceStateType);
-const decodeJobs = decodeBeast2For(ex.planPrintJobs.type);
 
 type Job = ValueTypeOf<typeof ex.PrintJob>;
 /** A source's state, as the store keeps it. */
@@ -167,8 +165,8 @@ async function choose(field: HTMLElement, label: string) {
     await press(within(screen.getByRole("listbox")).getAllByRole("option").find((option) => option.textContent === label));
 }
 
-/** The jobs as their record holds them now, read uncounted. */
-const storedJobs = () => decodeJobs(h.raw(WORKSPACE, ex.planPrintJobs.path)!) as ReadonlyMap<string, Job>;
+/** The jobs as e3 holds them now, read as another planner would: no request of the Plan's. */
+const storedJobs = async () => (await h.read(ex.planPrintJobs)) as ReadonlyMap<string, Job>;
 /** The jobs' record as e3 names it: what a whole read of it is counted by. */
 const JOBS = `records.${ex.planPrintJobs.name}`;
 
@@ -178,7 +176,7 @@ const JOBS = `records.${ex.planPrintJobs.name}`;
 
 describe("the Plan's one window (#1344)", () => {
     test("every event source's range holds the window: the toolbar's navigation writes both, a range written to the leading one is followed, and the resolution goes to each — no range is a chip of the rail", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         // The axis's four weeks, in the jobs' optional start and the shifts' start alike.
         expect(narrowing("job").get("start")).toEqual(range(FIRST, LAST, true));
@@ -217,7 +215,7 @@ describe("the Plan's one window (#1344)", () => {
 
 describe("each source narrows every place its records appear (#1344)", () => {
     test("the jobs' source narrows their events alone: a stock chosen leaves the other stocks' jobs out, and every shift in", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const start = narrowing("job").get("start")!;
         await narrow("job", where(["start", start], ["stock", values(stockOf(variant("board", null)))]));
@@ -232,7 +230,7 @@ describe("each source narrows every place its records appear (#1344)", () => {
     });
 
     test("the presses' source narrows their rows and strips, never the crews'; the bulk edit's Chooser offers the presses it shows and those the selected jobs are on", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         await pick(bar(container, "J-1001", "Hall A", "a1"));
         await pick(bar(container, "J-1013", "Hall B", "b1"), true);
@@ -250,7 +248,7 @@ describe("each source narrows every place its records appear (#1344)", () => {
     });
 
     test("the customers' tab follows their source, its count `6 of 16`; one the rail empties says so, and its Clear filters clears that source alone", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
         await narrow("customers", where(["district", values(text("Old Town"))]));
@@ -269,7 +267,7 @@ describe("each source narrows every place its records appear (#1344)", () => {
     });
 
     test("a templates record's source narrows the Events tab: one it empties says so above the other kinds' templates, and its Clear filters clears it alone", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         await narrow("jobTemplates", where(["group", values(text("Nothing"))]));
         expect(tabs(pane(container))[0]).toBe("Events 8 of 12");
@@ -285,7 +283,7 @@ describe("each source narrows every place its records appear (#1344)", () => {
     });
 
     test("the backlog is the jobs' own narrowing: it counts what their choices hide, and its Clear filters keeps the window", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const start = narrowing("job").get("start")!;
         await narrow("job", where(["start", start], ["stock", values(stockOf(variant("board", null)))]));
@@ -306,7 +304,7 @@ describe("each source narrows every place its records appear (#1344)", () => {
     });
 
     test("a Save that moves a job out of its kind's narrowing says so in the footer, and the jobs are never read whole", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const start = narrowing("job").get("start")!;
         await narrow("job", where(["start", start], ["stock", values(stockOf(variant("coated", null)))]));
@@ -315,9 +313,9 @@ describe("each source narrows every place its records appear (#1344)", () => {
         await choose(slot(container, "end")!.querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='stock']")!, "Uncoated");
         await press(toolbar(container).getByRole("button", { name: editingMessages.apply() }));
         await waitFor(() => expect(slot(container, "footer")!.querySelector("[data-record-save-notice]")?.textContent).toBe("1 print job event left this view"));
-        expect(storedJobs().get("J-1013")!.stock).toEqual(variant("uncoated", null));
+        expect((await storedJobs()).get("J-1013")!.stock).toEqual(variant("uncoated", null));
         expect(bar(container, "J-1013", "Hall B", "b1")).toBeNull();
-        expect(h.wholeReads.filter((path) => path === JOBS)).toEqual([]);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 });
 
@@ -365,19 +363,15 @@ describe("a source's methods share one descriptor (#1352)", () => {
 // ============================================================================
 
 describe("a window read through interval indexes re-renders its readers, never the frame (#1344)", () => {
-    /** Every key search through the jobs' and the shifts' interval indexes, held until it is let land, in the order asked. */
+    /** Every key search through the jobs' and the shifts' interval indexes, held on its way to e3 until it is let land, in the order asked. */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.planPrintJobsByTime.name, ex.planPrintJobsByStockTime.name, ex.planPrintShiftsByTime.name]);
-        const held: (() => void)[] = [];
-        const served = h.paging.api;
-        initializePagedApi({ ...served, findKey: (workspace, path, query) => query.index !== undefined && intervals.has(query.index)
-            ? new Promise((resolve) => { held.push(() => resolve(served.findKey(workspace, path, query))); })
-            : served.findKey(workspace, path, query) }, WORKSPACE);
+        const held = h.e3.hold((request) => request.kind === "find" && intervals.has(request.query.get("index") ?? ""));
         /** Lets every held search but the last land, one at a time; then the rest. */
         return {
-            held,
-            async landAllButOne() { while (held.length > 1) { await act(async () => { held.shift()!(); }); } await settle(); },
-            async landAll() { while (held.length > 0) { await act(async () => { held.shift()!(); }); await settle(); } },
+            get held() { return held.held; },
+            async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
+            async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
         };
     }
 
@@ -386,10 +380,10 @@ describe("a window read through interval indexes re-renders its readers, never t
         let renders = 0;
         setPlanFrameRenderProbe(() => { renders += 1; });
         try {
-            const { container } = mount(programOf(ex.planPrintWorks));
+            const { container } = await h.mount(ex.planPrintWorks);
             await settle();
             // A start range and the carry-in ranges at each span, for the jobs' window and the shifts'.
-            expect(searches.held.length).toBeGreaterThan(2 * 50);
+            expect(searches.held).toBeGreaterThan(2 * 50);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
@@ -399,7 +393,7 @@ describe("a window read through interval indexes re-renders its readers, never t
             // With a job selected, the next window's searches render nothing until they have all landed either.
             await pick(bar(container, "J-1001", "Hall A", "a1"));
             await press(toolbar(container).getByRole("button", { name: "Next day" }));
-            expect(searches.held.length).toBeGreaterThan(2 * 50);
+            expect(searches.held).toBeGreaterThan(2 * 50);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
@@ -420,7 +414,7 @@ describe("a filter change rebuilds no builder (#1354)", () => {
     test("a choice on the rail, and the window's navigation, build the Plan no more: the rows, the events, the tabs and their counts follow over the payload it mounted with", async () => {
         const builds = countBuilds("Plan", programOf(ex.planPrintWorks));
         try {
-            const { container } = mount(builds.program);
+            const { container } = await h.mount(ex.planPrintWorks, { program: builds.program });
             await settle();
             const mounted = [builds.runs, builds.decodes];
             expect(Math.min(...mounted)).toBeGreaterThan(0);

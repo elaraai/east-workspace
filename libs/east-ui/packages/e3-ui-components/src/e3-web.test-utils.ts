@@ -155,6 +155,15 @@ export interface TestE3 {
     hold(match: E3Match): E3Hold;
     /** Answers each request it matches as e3 answers a failure, from now until the returned function stops it. */
     fail(match: E3Match, failure?: E3Failure): () => void;
+    /**
+     * Counts the test's own work as a request in flight until it settles, so
+     * {@link idle} waits for it: another session's write that a held request
+     * waits on, say.
+     *
+     * @param work - The work
+     * @returns The same work
+     */
+    background<T>(work: Promise<T>): Promise<T>;
     /** Lets every hold go and stops every fault, as a test ends. */
     reset(): void;
     /** Stops e3-web. */
@@ -381,6 +390,12 @@ function testE3Over(web: WebE3): TestE3 {
                 release: () => { hold.live = false; for (const go of hold.parked.splice(0)) go(); },
             };
         },
+        background(work) {
+            inFlight++;
+            const done = () => { inFlight--; tellIdle(); };
+            work.then(done, done);
+            return work;
+        },
         fail(match, failure = {}) {
             const fault = { match, failure };
             faults.push(fault);
@@ -460,4 +475,20 @@ export async function patchRecord<T extends EastType>(
  */
 export async function recordHistory(e3: TestE3, workspace: string, record: { readonly name: string }): Promise<RecordHistoryResult> {
     return workspaceRecordHistory(e3.apiUrl, e3.repo, workspace, record.name, undefined, e3.direct);
+}
+
+/**
+ * Runs a workspace's dataflow, as another session's run would: each task whose
+ * inputs moved runs again.
+ *
+ * @param e3 - e3 under test
+ * @param workspace - The workspace
+ * @throws {Error} When the run does not succeed, naming the tasks that failed
+ */
+export async function runDataflow(e3: TestE3, workspace: string): Promise<void> {
+    const run = await dataflowExecute(e3.apiUrl, e3.repo, workspace, {}, e3.direct, { pollInterval: 10 });
+    if (!run.success) {
+        const failed = run.tasks.filter((task) => task.state.type === "error" || task.state.type === "failed").map((task) => task.name);
+        throw new Error(`the dataflow did not succeed: ${failed.join(", ") || "no task failed, but the run did not succeed"}`);
+    }
 }

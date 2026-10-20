@@ -14,6 +14,7 @@ import {
     IntegerType,
     NullType,
     OptionType,
+    PatchType,
     StringType,
     StructType,
     VariantType,
@@ -92,6 +93,9 @@ export const planPrintPresses = e3.record("plan_print_presses", DictType(StringT
     ["b2", { name: "Press B2", hall: "Hall B", sheets_per_hour: 12000.0 }],
     ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
 ]));
+
+/** The presses' patch door: the works edits its presses elsewhere, and a Plan reads them live. */
+export const planPrintPressesPatch = e3.mutation.patch(planPrintPresses);
 
 /** The crews: two in each hall. */
 export const planPrintCrews = e3.record("plan_print_crews", DictType(StringType, PrintCrew), new Map([
@@ -187,6 +191,26 @@ export const planPrintShifts = e3.record("plan_print_shifts", DictType(StringTyp
 /** The shifts' patch door. */
 export const planPrintShiftsPatch = e3.mutation.patch(planPrintShifts);
 
+/** A crew roster the works has locked for the week: Crew 1's two early shifts. */
+export const planLockedShifts = e3.record("plan_locked_shifts", DictType(StringType, PrintShift), new Map([
+    ["SH-01", { title: "Early", start: new Date("2026-10-05T06:00:00Z"), end: new Date("2026-10-05T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+    ["SH-02", { title: "Early", start: new Date("2026-10-07T06:00:00Z"), end: new Date("2026-10-07T14:00:00Z"), crew: "c1", state: variant("confirmed", null) }],
+]));
+
+/**
+ * The locked roster's patch door, a checked one: it takes any change to a
+ * shift, and refuses one that takes a shift off the roster, naming why — what
+ * a Save that deletes one is answered.
+ */
+export const planLockedShiftsPatch = e3.mutation.reduce("patch", planLockedShifts,
+    East.function([DictType(StringType, PrintShift), PatchType(DictType(StringType, PrintShift))], DictType(StringType, PrintShift), ($, roster, patch) => {
+        const next = $.let(East.applyPatch(roster, patch));
+        $.for(roster, ($2, _shift, key) => {
+            $2.if(next.has(key).not(), ($3) => { $3.error("the crew roster is locked for the week"); });
+        });
+        return next;
+    }));
+
 /** The customers the jobs are printed for, by account, in three districts: what the print works' library lists. A Plan never writes them. */
 export const planPrintCustomers = e3.record("plan_print_customers", DictType(StringType, PrintCustomer), new Map([
     ["alder-finch", { name: "Alder & Finch", district: "Old Town", trade: "Retail" }],
@@ -206,6 +230,9 @@ export const planPrintCustomers = e3.record("plan_print_customers", DictType(Str
     ["northwind", { name: "Northwind Outfitters", district: "North Quay", trade: "Retail" }],
     ["orchard-market", { name: "Orchard Street Market", district: "Old Town", trade: "Markets" }],
 ]));
+
+/** The customers' patch door: the works edits its customers elsewhere, and a Plan reads them live. */
+export const planPrintCustomersPatch = e3.mutation.patch(planPrintCustomers);
 
 /**
  * Each press's utilisation (%): a reading a day from 5 October, as the

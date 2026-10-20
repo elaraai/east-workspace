@@ -5,18 +5,17 @@
  * @vitest-environment jsdom
  *
  * `<Plan>` read a window at a time (#1199, `Plan Builder Spec.md` §9.11,
- * PB54–PB55), over the windows example's records in memory — the 2,000
- * presses its task generates from its count, and the jobs on them — served by
- * a stand-in paging service with `Data.bindPaged`'s contract: the real paged
- * runtime (`defaultPagedRuntime`, its channels and its revision pinning) asks
- * it for windows of the jobs' indexes — the interval index the rail's `job`
- * source narrows them through (#1344), and the day index and backlog index a
- * kind with no rail reads — each entry joined to its row, of the jobs' own
- * entries, of the job templates, and of the presses, each pinned to the
- * content it holds, and for their key searches; a request is held in flight
- * while a test says so, and every one is counted. Every whole read of a
- * dataset the cache answers is counted too — but the stand-in record server's
- * own, which reads the record to apply a patch, as e3 does.
+ * PB54–PB55), over the windows example's records on e3 itself (#1375) — the
+ * 2,000 presses its task generates from its count, and the jobs on them — read
+ * through `Data.bindPaged`: the real paged runtime (`defaultPagedRuntime`, its
+ * channels and its revision pinning) asks e3 for windows of the jobs' indexes
+ * — the interval index the rail's `job` source narrows them through (#1344),
+ * and the day index and backlog index a kind with no rail reads — each entry
+ * joined to its row, of the jobs' own entries, of the job templates, and of
+ * the presses, each pinned to the content it holds, and for their key
+ * searches. What each request asked is read from the harness's request log; a
+ * request is held in flight, or refused, at the harness's fetch; another
+ * planner's write is a real commit.
  *
  * - The jobs are narrowed through the Plan's one rail (#1344): its `job`
  *   source reads the jobs overlapping the days the canvas draws through their
@@ -50,252 +49,101 @@ import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } 
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, PatchType, SortedMap, StringType, StructType, applyFor, compareFor,
-    decodeBeast2For, diffFor, encodeBeast2For, none, parseFor, printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType,
+    none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
-import { PrintJob, PrintPress, PrintStock, planLinkStock, planPrintJobTemplates, planPrintJobTemplatesByGroup } from "@elaraai/e3-ui/examples/plan/plan-events";
-import { DatasetHashMismatchError, type DatasetFindQuery, type DatasetFindResult, type DatasetPage } from "@elaraai/e3-api-client";
+import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates, planPrintJobTemplatesByGroup } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
-import {
-    clearPagedApi, createInMemoryRecordApi, initializePagedApi, initializeRecordApi, type PagedApi, type RecordApi,
-} from "../../platform/index.js";
-import { recordPaging, servedIndex } from "../../platform/record-paging.test-utils.js";
+import { patchRecord, type E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
-import { WORKSPACE, act, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
-const h = planHarness();
+const h = planHarness({ "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events });
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
 type Job = ValueTypeOf<typeof PrintJob>;
-type Press = ValueTypeOf<typeof PrintPress>;
-type Jobs = ValueTypeOf<typeof ex.planWindowJobs.type>;
-
-const compareString = compareFor(StringType);
-const parseString = parseFor(StringType);
 
 const FIRST = new Date("2026-10-05T00:00:00Z");
 const TWO_WEEKS = new Date("2026-10-19T00:00:00Z");
 const NOW = new Date("2026-10-14T09:00:00Z");
 const at = (text: string) => new Date(text);
 
-// ── The records, and the stand-in paging service over them ───────────────────
+// ── The records, and what the Plan asks e3 of them ───────────────────────────
 
-/** The jobs' record, the job templates' and the presses' dataset, where e3 keeps them. */
-const JOBS_PATH = ex.planWindowJobs.path as TreePath;
-const TEMPLATES_PATH = planPrintJobTemplates.path as TreePath;
-const PRESSES_PATH = ex.planWindowPresses.output.path as TreePath;
-/** A dataset's path as e3 names it: its fields, joined by dots. */
+/** A dataset's path as e3's requests name it: its fields, joined by dots. */
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
-
-/** How many presses the example's input says the works runs: ten windows of them. */
-const PRESS_COUNT = (() => {
-    const source = ex.planWindowPressCount.source;
-    if (source?.type !== "value") throw new Error("the example's press count is a value");
-    return source.value as bigint;
-})();
-/** The presses, as the example's task generates them from that count. */
-const generatePresses = East.compile(ex.generateWindowPresses, []) as (count: bigint) => ReadonlyMap<string, Press>;
-const PRESSES = generatePresses(PRESS_COUNT);
-const encodePresses = encodeBeast2For(DictType(StringType, PrintPress));
-const decodeJobs = decodeBeast2For(ex.planWindowJobs.type);
+/** The jobs' record, the job templates' and the presses' dataset, as e3's requests name them. */
+const JOBS = pathText(ex.planWindowJobs.path as TreePath);
+const TEMPLATES = pathText(planPrintJobTemplates.path as TreePath);
+const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
 
 /**
- * Which of the service's collections a request reads: the jobs through the
- * interval index the rail's `job` source narrows them through, or by the day
- * index and the backlog index a kind with no rail reads, or their own
- * entries; the job templates; or the presses.
+ * Which collection a request reads: the jobs through the interval index the
+ * rail's `job` source narrows them through, or by the day index and the
+ * backlog index a kind with no rail reads, or their own entries; the job
+ * templates; or the presses.
  */
 type Served = "interval" | "days" | "backlog" | "entries" | "templates" | "presses";
 
-/** One request the service was sent: what it read, and where — a page's `offset+limit`, or a search's query. */
-interface Asked {
-    served: Served;
-    op: "page" | "seek";
-    at: string;
+/** The collection a page or a key search reads; none for any other request. */
+function servedOf(request: E3Request): Served | undefined {
+    if (request.kind !== "page" && request.kind !== "find") return undefined;
+    const index = request.query.get("index") ?? undefined;
+    if (request.dataset === PRESSES && index === undefined) return "presses";
+    if (request.dataset === TEMPLATES) return "templates";
+    if (request.dataset !== JOBS) return undefined;
+    if (index === undefined) return "entries";
+    if (index === ex.planWindowJobsByTime.name) return "interval";
+    if (index === ex.planWindowJobsByDay.name) return "days";
+    if (index === ex.planWindowJobsUnscheduled.name) return "backlog";
+    return undefined;
 }
 
 /**
- * Where a key search lands among keys in key order: by a key's text, as East
- * prints it, or a key's first letters.
- *
- * @param keys - The keys, in key order
- * @param query - The search
- * @returns The first row at or after it, and how many rows match
+ * What a request asked: a page's `offset+limit`; a key search's key text, an
+ * index's exact fields then the prefix after them, a key's first letters, or a
+ * range from its bound — each field its literal, space apart.
  */
-function seekKey(keys: readonly string[], query: DatasetFindQuery): { found: boolean; row: number; count: number; text: string } {
-    const text = "key" in query ? query.key : "prefix" in query ? query.prefix : undefined;
-    if (text === undefined) throw new Error("a dataset's own keys are sought by a key or a prefix");
-    const key = "key" in query ? (() => { const read = parseString(text); return read.success ? read.value : text; })() : text;
-    const row = keys.filter((k) => compareString(k, key) < 0).length;
-    const count = "key" in query
-        ? keys.filter((k) => compareString(k, key) === 0).length
-        : keys.filter((k) => k.startsWith(key)).length;
-    return { found: count > 0, row, count, text };
+function askedOf(request: E3Request): string {
+    const query = request.query;
+    if (request.kind === "page") return `page ${query.get("offset")}+${query.get("limit")}`;
+    const key = query.get("key");
+    if (key !== null) return `seek ${key}`;
+    const fields = query.getAll("field");
+    const prefix = query.get("prefix");
+    if (fields.length > 0) return `seek ${[...fields, ...(prefix === null ? [] : [prefix])].join(" ")}`;
+    if (prefix !== null) return `seek ${prefix}`;
+    const from = query.getAll("from");
+    if (from.length > 0) return `seek ${from.join(" ")}`;
+    return `seek ${query.toString()}`;
 }
 
-/**
- * What a key search asks, as the service counts it: a key's text; an index's
- * exact fields, then the prefix after them; a key's first letters; or a range
- * from its bound — each field its literal, space apart.
- */
-function sought(query: DatasetFindQuery): string {
-    if ("key" in query) return query.key;
-    if ("fields" in query && query.fields !== undefined) return [...query.fields, ...(query.prefix === undefined ? [] : [query.prefix])].join(" ");
-    if ("prefix" in query && query.prefix !== undefined) return query.prefix;
-    if ("from" in query && query.from !== undefined) return query.from.join(" ");
-    return JSON.stringify(query);
+/** The requests of one collection, as `op at`, in order. */
+const of = (served: Served) => h.requests().filter((request) => servedOf(request) === served).map(askedOf);
+
+/** The works' presses cut to a count — the count written, its task run again — before a Plan mounts or under one. */
+async function pressCount(count: bigint) {
+    await h.write(ex.planWindowPressCount, count);
+    await h.run();
 }
 
-/**
- * The paging service, as e3 serves a record's indexes and a task's output:
- * each window its rows in order — an index's entries each joined to its row
- * when asked — pinned to the content it holds, a stale pin refused naming the
- * content held now; the key search; and the jobs' revision followed as their
- * record commits. The jobs and the templates are served as e3 serves a record
- * (`recordPaging`): its entries in key order, and each index by its own key
- * function. Every request is counted, held in flight while `hold` says so,
- * and refused for good while `refuse` says so.
- *
- * @param presses - The presses it serves: the example's by default
- * @returns The service, its requests, what it holds and its API
- */
-function pagingService(presses: ReadonlyMap<string, Press> = PRESSES) {
-    // The presses it holds now, and their keys in key order: another write to them may change them (`movePresses`).
-    let pressesNow = presses;
-    let pressKeys = [...presses.keys()];
-    // The jobs, through each index a Plan reads them by, and the templates a kind with no rail drops from.
-    const records = recordPaging(h.cache, rawRead, [
-        { path: JOBS_PATH, type: ex.planWindowJobs.type, indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByDay, ex.planWindowJobsUnscheduled].map(servedIndex) },
-        { path: TEMPLATES_PATH, type: planPrintJobTemplates.type, indexes: [servedIndex(planPrintJobTemplatesByGroup)] },
-    ]);
-    const requests: Asked[] = [];
-    const waiting: (() => void)[] = [];
-    // The presses' revision, and who follows it: another write to them moves it (`movePresses`).
-    let pressesRevision = "presses-1";
-    const pressesWatchers = new Set<(hash: string | null) => void>();
-    const service = {
-        requests,
-        /** Another write to the presses: the rows it leaves — the same ones, unless given — at a new revision, every follower told. */
-        movePresses(next: ReadonlyMap<string, Press> = pressesNow) {
-            pressesNow = next;
-            pressKeys = [...next.keys()];
-            pressesRevision = `presses-${Number(pressesRevision.slice("presses-".length)) + 1}`;
-            for (const watcher of [...pressesWatchers]) watcher(pressesRevision);
-        },
-        /** Which requests wait in flight until {@link release}. */
-        hold: (_request: Asked): boolean => false,
-        /** Which requests are refused, as a request no retry can help is. */
-        refuse: (_request: Asked): boolean => false,
-        /** Lets every held request answer, and holds none from now on. */
-        release() {
-            service.hold = () => false;
-            for (const go of waiting.splice(0)) go();
-        },
-        /** The requests of one collection, as `op at`. */
-        of(served: Served): string[] {
-            return requests.filter((r) => r.served === served).map((r) => `${r.op} ${r.at}`);
-        },
-    };
-    const servedOf = (path: TreePath, index: string | undefined): Served => {
-        if (pathText(path) === pathText(PRESSES_PATH) && index === undefined) return "presses";
-        if (pathText(path) === pathText(TEMPLATES_PATH)) return "templates";
-        if (pathText(path) === pathText(JOBS_PATH) && index === undefined) return "entries";
-        if (pathText(path) === pathText(JOBS_PATH) && index === ex.planWindowJobsByTime.name) return "interval";
-        if (pathText(path) === pathText(JOBS_PATH) && index === ex.planWindowJobsByDay.name) return "days";
-        if (pathText(path) === pathText(JOBS_PATH) && index === ex.planWindowJobsUnscheduled.name) return "backlog";
-        throw new Error(`the service holds no ${pathText(path)}${index === undefined ? "" : ` @${index}`}`);
-    };
-    const pinnedPresses = (hash: string | undefined) => {
-        if (hash !== undefined && hash !== pressesRevision) throw new DatasetHashMismatchError("stale pin", pressesRevision);
-        return pressesRevision;
-    };
-    const asked = async (request: Asked) => {
-        requests.push(request);
-        if (service.refuse(request)) throw Object.assign(new Error(`${request.served} ${request.at} is refused`), { code: "bad_request" });
-        if (service.hold(request)) await new Promise<void>((resolve) => { waiting.push(resolve); });
-    };
-    const api: PagedApi = {
-        async getRevision(ws, path) { return pathText(path) === pathText(PRESSES_PATH) ? pressesRevision : records.api.getRevision(ws, path); },
-        async getPage(ws, path, window): Promise<DatasetPage> {
-            const served = servedOf(path, window.index);
-            await asked({ served, op: "page", at: `${window.offset}+${window.limit}` });
-            if (served !== "presses") return records.api.getPage(ws, path, window);
-            const hash = pinnedPresses(window.hash);
-            const keys = pressKeys.slice(window.offset, window.offset + window.limit);
-            const data = encodePresses(new SortedMap(keys.map((key) => [key, pressesNow.get(key)!] as const), compareString));
-            return { data, totalElements: pressKeys.length, totalBytes: data.length, totalExact: true, segmentCount: 1, offset: window.offset, count: keys.length, hash };
-        },
-        async findKey(ws, path, query: DatasetFindQuery): Promise<DatasetFindResult> {
-            const served = servedOf(path, query.index);
-            if (served !== "presses") {
-                await asked({ served, op: "seek", at: sought(query) });
-                return records.api.findKey(ws, path, query);
-            }
-            // By a key's text, or a key's first letters.
-            const hash = pinnedPresses(query.hash);
-            const found = seekKey(pressKeys, query);
-            await asked({ served, op: "seek", at: found.text });
-            return { found: found.found, row: found.row, count: found.count, hash };
-        },
-        watchRevision(ws, path, onChange) {
-            if (pathText(path) !== pathText(PRESSES_PATH)) return records.api.watchRevision(ws, path, onChange);
-            pressesWatchers.add(onChange);
-            return () => { pressesWatchers.delete(onChange); };
-        },
-    };
-    return Object.assign(service, { api });
-}
-
-/** The jobs' record in memory, its patch door applying each patch with East's checks. */
-function jobsRecord() {
-    const applyPatch = applyFor(ex.planWindowJobs.type);
-    return {
-        name: ex.planWindowJobs.name, stateType: ex.planWindowJobs.type, initial: ex.planWindowJobs.default!,
-        mutations: [{ name: "patch", argTypes: [PatchType(ex.planWindowJobs.type)], reduce: (state: unknown, patch: unknown) => applyPatch(state as never, patch as never) }],
-    };
-}
-
-/** The job templates' record in memory: a Plan only reads it — the library lists them, and a drop creates a job from one. */
-function templatesRecord() {
-    return { name: planPrintJobTemplates.name, stateType: planPrintJobTemplates.type, initial: planPrintJobTemplates.default!, mutations: [] };
-}
-
-let service: ReturnType<typeof pagingService>;
-/** The records' API the Plan writes through: the jobs' patch door, and its history — as e3's server answers. */
-let memory: RecordApi;
-/** A records' API as e3's server answers: its own reads of a record uncounted, each state it commits named by its content. */
-let served: (server: RecordApi) => RecordApi;
 /** What is logged as an error: the Plan's and the paged runtime's say what failed to read. */
 let errors: MockInstance<typeof console.error>;
-/** Every whole read of a dataset the cache answered, by its path. */
-let wholeReads: string[];
-/** The cache's own read, uncounted: what the service and the test read the record by. */
-let rawRead: (workspace: string, path: TreePath) => Uint8Array | undefined;
 
 beforeEach(() => {
     errors = vi.spyOn(console, "error");
-    // The harness's count of whole reads, and its record server's naming of the states it commits.
-    wholeReads = h.wholeReads;
-    rawRead = h.raw;
-    served = h.serve;
-    memory = served(createInMemoryRecordApi(h.cache, WORKSPACE, [jobsRecord(), templatesRecord()]));
-    initializeRecordApi(memory, h.cache, WORKSPACE);
-    // The presses as a deployed task's manifest leaves them: whole in the cache, which the canvas never reads.
-    void h.cache.write(WORKSPACE, PRESSES_PATH, encodePresses(PRESSES as never));
-    service = pagingService();
-    initializePagedApi(service.api, WORKSPACE);
 });
 afterEach(() => {
-    clearPagedApi();
     // Nothing failed to read, not even for a moment: no window, no search, no read of the event kinds' rows.
     const failed = errors.mock.calls.map((call) => call.map(String).join(" "))
         .filter((line) => line.startsWith("[Plan]") || line.startsWith("Data.bindPaged"));
@@ -303,20 +151,19 @@ afterEach(() => {
     expect(failed).toEqual([]);
 });
 
-/** The jobs as their record holds them now. */
-const readJobs = () => decodeJobs(rawRead(WORKSPACE, JOBS_PATH)!) as ReadonlyMap<string, Job>;
+/** The jobs as e3 holds them now, read as another planner would. */
+const readJobs = async () => (await h.read(ex.planWindowJobs)) as ReadonlyMap<string, Job>;
+
+/** One job changed in the jobs e3 holds now: what another planner's write commits. */
+async function jobChanged(key: string, change: Partial<Job>) {
+    const next = new Map(await readJobs());
+    next.set(key, { ...next.get(key)!, ...change });
+    return next;
+}
 
 /** Another planner's write to one job, through the record's patch door. */
 async function writeJob(key: string, change: Partial<Job>) {
-    const now = readJobs();
-    const next = new SortedMap([...now], compareString);
-    next.set(key, { ...now.get(key)!, ...change });
-    await act(async () => {
-        await memory.mutate(WORKSPACE, ex.planWindowJobs.name, "patch", {
-            args: [encodeBeast2For(PatchType(ex.planWindowJobs.type))(diffFor(ex.planWindowJobs.type)(now as Jobs, next as unknown as Jobs))],
-        });
-    });
-    await settle();
+    await h.patch(ex.planWindowJobs, await jobChanged(key, change));
 }
 
 // ── The Plan ─────────────────────────────────────────────────────────────────
@@ -332,7 +179,7 @@ const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) })
  * bulk edit moves the drafts, and the paper in stock as rows of the Plan's own
  * after the presses (`Plan.over`, over the print works' stock).
  */
-const windowsPlan = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
@@ -363,7 +210,7 @@ const windowsPlan = East.compile(East.function([], UIComponentType, (_$) => Reac
         ])],
         library: [Plan.library.backlog()],
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 // ── What the canvas draws ────────────────────────────────────────────────────
 
@@ -380,8 +227,8 @@ const counted = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan
 /** The inspector's gesture button. */
 const action = (c: HTMLElement, name: string) => slot(c, "end")!.querySelector<HTMLButtonElement>(`[data-inspector-action=${JSON.stringify(name)}]`)!;
 /** The jobs' requests, by which collection of theirs each read. */
-const jobReads = () => service.requests.filter((r) => r.served === "interval" || r.served === "days" || r.served === "backlog" || r.served === "entries")
-    .map((r) => r.served);
+const jobReads = () => h.requests().map(servedOf)
+    .filter((served) => served === "interval" || served === "days" || served === "backlog" || served === "entries");
 
 /** Pans the canvas a day: `]` on, `[` back. */
 async function pan(c: HTMLElement, key: "[" | "]", times = 1) {
@@ -412,7 +259,7 @@ async function press(node: Element) {
 
 describe("the jobs narrowed through the rail's interval index (PB54, #1344)", () => {
     test("only the jobs overlapping the days the canvas draws, through the interval index alone; a pan reads the ones the days it brings in hold — the record never read whole", async () => {
-        const { container } = mount(windowsPlan);
+        const { container } = await h.mount(windowsPlan);
         await settle();
         // The fortnight in view and the two days laid out beyond each edge: Saturday 3 to Tuesday 20 October.
         expect(bars(container, "W-0001")).toHaveLength(1);
@@ -421,24 +268,24 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
         expect(counted(container)).toBe("13 events");
         // Read through the interval index, and the record's own entries a row at a time — the session's newest key.
         expect(new Set(jobReads())).toEqual(new Set(["interval", "entries"]));
-        expect(service.of("entries").every((r) => r.startsWith("seek") || r.endsWith("+1"))).toBe(true);
-        const sought = service.of("interval").filter((r) => r.startsWith("seek")).length;
+        expect(of("entries").every((r) => r.startsWith("seek") || r.endsWith("+1"))).toBe(true);
+        const sought = of("interval").filter((r) => r.startsWith("seek")).length;
         expect(sought).toBeGreaterThan(0);
         // A day on, then another: the days brought in are sought through the index; the ticket books on Thursday 22 draw.
         await pan(container, "]");
-        expect(service.of("interval").filter((r) => r.startsWith("seek")).length).toBeGreaterThan(sought);
+        expect(of("interval").filter((r) => r.startsWith("seek")).length).toBeGreaterThan(sought);
         expect(bars(container, "W-0014")).toHaveLength(0);
         await pan(container, "]");
         expect(bar(container, "W-0014", "P-1001")).not.toBeNull();
         expect(counted(container)).toBe("10 events");
         // Never the day index, the backlog index, the jobs' own entries but a row at a time, or the record whole.
         expect(new Set(jobReads())).toEqual(new Set(["interval", "entries"]));
-        expect(service.of("entries").every((r) => r.startsWith("seek") || r.endsWith("+1"))).toBe(true);
-        expect(wholeReads).not.toContain(pathText(JOBS_PATH));
+        expect(of("entries").every((r) => r.startsWith("seek") || r.endsWith("+1"))).toBe(true);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("an event running several days draws once: the three-day run, and the night run into the next day", async () => {
-        const { container } = mount(windowsPlan);
+        const { container } = await h.mount(windowsPlan);
         await settle();
         expect(bars(container, "W-0004")).toHaveLength(1);
         expect(bars(container, "W-0002")).toHaveLength(1);
@@ -446,7 +293,7 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
     });
 
     test("the drafts draw over the window the narrowing holds: a job shifted out of the days it reads leaves, and draws again once they hold it; one the narrowing no longer holds stays a draft, unseen, kept for Save", async () => {
-        const { container } = mount(windowsPlan);
+        const { container } = await h.mount(windowsPlan);
         await settle();
         // Two days on, the canvas draws Monday 5 to Thursday 22: the brochure run on the 5th and the ticket books on the 22nd.
         await pan(container, "]", 2);
@@ -465,25 +312,26 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
         expect(bar(container, "W-0001", "P-1001")).not.toBeNull();
         expect(bars(container, "W-0014")).toHaveLength(0);
         expect(pending(container)).toBe("2 pending");
-        expect(readJobs().get("W-0014")!.start).toEqual(some(at("2026-10-22T06:00:00Z")));
-        expect(readJobs().get("W-0001")!.start).toEqual(some(at("2026-10-05T06:00:00Z")));
+        expect((await readJobs()).get("W-0014")!.start).toEqual(some(at("2026-10-22T06:00:00Z")));
+        expect((await readJobs()).get("W-0001")!.start).toEqual(some(at("2026-10-05T06:00:00Z")));
     });
 
     test("while the interval index is read again the rows drawn before stand: a commit moves the window, and its rows draw once its page lands", async () => {
-        const { container } = mount(windowsPlan);
+        const { container } = await h.mount(windowsPlan);
         await settle();
         const guide = () => bar(container, "W-0003", "P-1002");
         expect(guide()!.textContent).toContain("Museum guide");
         // The record moves; its interval index is read again, pinned to the new content, the page held on the wire.
-        service.hold = (request) => request.served === "interval" && request.op === "page";
-        const before = service.requests.length;
+        const pages = h.e3.hold((request) => servedOf(request) === "interval" && request.kind === "page");
+        const before = h.requests().length;
         await writeJob("W-0003", { title: "Museum guide, second edition" });
-        expect(service.requests.slice(before).some((r) => r.served === "interval" && r.op === "page")).toBe(true);
+        await pages.holding;
+        expect(h.requests().slice(before).some((r) => servedOf(r) === "interval" && r.kind === "page")).toBe(true);
         expect(guide()!.textContent).toContain("Museum guide");
         expect(guide()!.textContent).not.toContain("second edition");
         // The page lands: the same bar, its new title.
         const element = guide();
-        await act(async () => { service.release(); });
+        await act(async () => { pages.release(); });
         await settle();
         await waitFor(() => expect(guide()!.textContent).toContain("Museum guide, second edition"));
         expect(guide()).toBe(element);
@@ -496,7 +344,7 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
 
 describe("the backlog read through the rail's interval index (PB54, #1344)", () => {
     test("the Backlog tab lists the jobs with no start, read through the same index under an unset start", async () => {
-        const { container } = mount(windowsPlan);
+        const { container } = await h.mount(windowsPlan);
         await settle();
         const pane = slot(container, "start")!;
         expect(tabs(pane)).toEqual(["Backlog 4"]);
@@ -508,8 +356,8 @@ describe("the backlog read through the rail's interval index (PB54, #1344)", () 
             .map((card) => [...card.children].find((part) => part.tagName === "DIV" && part.querySelector(":scope > svg") === null)!.children[0]!.textContent);
         expect(names).toEqual(["Order forms", "Winter brochure", "Prospectus", "Proof sheets"]);
         // Sought exactly under the unset start — the jobs with none, its span's — and never through the backlog index.
-        expect(service.of("interval")).toContain(`seek 0 ${printFor(OptionType(DateTimeType))(none)}`);
-        expect(service.of("backlog")).toEqual([]);
+        expect(of("interval")).toContain(`seek 0 ${printFor(OptionType(DateTimeType))(none)}`);
+        expect(of("backlog")).toEqual([]);
     });
 });
 
@@ -564,20 +412,20 @@ describe("the presses paged (PB55)", () => {
     test("a window of presses at a time: those in view and the ring around them, the next read as the page scrolls to it — and the presses never read whole", async () => {
         const restore = emulateWindowScroll();
         try {
-            const { container } = mount(windowsPlan);
+            const { container } = await h.mount(windowsPlan);
             await settle();
             expect(container.querySelector(rowAt(pressRow("P-1001")))!.textContent).toContain("Press 1001");
             // The windows in view and the ring around them: three of the ten.
-            expect(service.of("presses")).toEqual(["page 0+200", "page 200+200", "page 400+200"]);
+            expect(of("presses")).toEqual(["page 0+200", "page 200+200", "page 400+200"]);
             expect(draws(container, "P-1601")).toBe(false);
             // Scrolled past the presses read so far: the next window is read, and its rows draw.
             act(() => { window.scrollTo({ top: 600 * ROW_PX }); });
-            await waitFor(() => expect(service.of("presses")).toContain("page 600+200"), { timeout: 10_000 });
+            await waitFor(() => expect(of("presses")).toContain("page 600+200"), { timeout: 10_000 });
             await waitFor(() => expect(draws(container, "P-1601")).toBe(true), { timeout: 10_000 });
             expect(container.querySelector(rowAt(pressRow("P-1601")))!.textContent).toContain("Press 1601");
             // Never the last window, nor the presses whole.
-            expect(service.of("presses")).not.toContain("page 1800+200");
-            expect(wholeReads).not.toContain(pathText(PRESSES_PATH));
+            expect(of("presses")).not.toContain("page 1800+200");
+            expect(h.requests("read", PRESSES)).toEqual([]);
         } finally {
             restore();
         }
@@ -586,19 +434,19 @@ describe("the presses paged (PB55)", () => {
     test("the key search seeks a press by its key: the window holding it read and its row drawn, the windows between never", async () => {
         const restore = emulateWindowScroll();
         try {
-            const { container } = mount(windowsPlan);
+            const { container } = await h.mount(windowsPlan);
             await settle();
             const search = () => slot(container, "toolbar")!.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
             const input = search().querySelector<HTMLInputElement>("input")!;
             // Typed as a planner types it, a key at a time.
             for (const key of "P-2870") await userEvent.type(input, key);
             await waitFor(() => expect(search().textContent).toMatch(/1 match/), { timeout: 5_000 });
-            expect(service.of("presses")).toContain("seek P-2870");
+            expect(of("presses")).toContain("seek P-2870");
             fireEvent.keyDown(input, { key: "Enter" });
             await waitFor(() => expect(draws(container, "P-2870")).toBe(true), { timeout: 10_000 });
-            expect(service.of("presses")).toContain("page 1800+200");
-            expect(service.of("presses")).not.toContain("page 1000+200");
-            expect(wholeReads).not.toContain(pathText(PRESSES_PATH));
+            expect(of("presses")).toContain("page 1800+200");
+            expect(of("presses")).not.toContain("page 1000+200");
+            expect(h.requests("read", PRESSES)).toEqual([]);
         } finally {
             restore();
         }
@@ -607,8 +455,10 @@ describe("the presses paged (PB55)", () => {
 
 describe("a window of presses that cannot be read (PB55)", () => {
     test("is a band where its rows would be, saying why, with its Retry — read once", async () => {
-        service.refuse = (request) => request.served === "presses" && request.at === "0+200";
-        const { container } = mount(windowsPlan);
+        // The presses' first window refused, as a request no retry can help is.
+        h.e3.fail((request) => servedOf(request) === "presses" && askedOf(request) === "page 0+200",
+            { status: 400, type: "bad_request", message: "the first window of presses is refused" });
+        const { container } = await h.mount(windowsPlan);
         await settle();
         const band = container.querySelector<HTMLElement>('[data-plan-failed="0"]');
         expect(band).not.toBeNull();
@@ -617,11 +467,11 @@ describe("a window of presses that cannot be read (PB55)", () => {
         expect(band!.querySelector('[data-plan-retry="0"]')).not.toBeNull();
         expect(draws(container, "P-1001")).toBe(false);
         // Asked once: a refusal no retry can help is not asked again while the presses hold the same content.
-        expect(service.of("presses").filter((r) => r === "page 0+200")).toHaveLength(1);
+        expect(of("presses").filter((r) => r === "page 0+200")).toHaveLength(1);
         // Said where it failed, and only that: the window, by the paged runtime and the Plan.
         const failed = errors.mock.calls.map((call) => String(call[0]));
         expect(failed).toContain("[Plan] paged source page 0 failed:");
-        expect(failed.every((line) => line.includes("page 0") || line.includes(`${pathText(PRESSES_PATH)}@`))).toBe(true);
+        expect(failed.every((line) => line.includes("page 0") || line.includes(`${PRESSES}@`))).toBe(true);
         errors.mockClear();
     });
 });
@@ -635,9 +485,8 @@ type Stock = ValueTypeOf<typeof planLinkStock.type>;
 describe("the Plan's own rows after a paged kind's (PB55)", () => {
     test("a new value of their dataset reads the windows again: the paper in stock drawn after the presses with it", async () => {
         // Thirty presses, one window: every row the canvas draws mounts.
-        service = pagingService(generatePresses(30n));
-        initializePagedApi(service.api, WORKSPACE);
-        const { container } = mount(windowsPlan);
+        await pressCount(30n);
+        const { container } = await h.mount(windowsPlan);
         await settle();
         const board = () => container.querySelector<HTMLElement>(rowAt(entry("stock", "board")));
         expect(draws(container, "P-1030")).toBe(true);
@@ -652,12 +501,11 @@ describe("the Plan's own rows after a paged kind's (PB55)", () => {
         if (source?.type !== "value") throw new Error("the stock is a value");
         const recounted = new Map(source.value as ReadonlyMap<string, ValueTypeOf<typeof PrintStock>>);
         recounted.set("board", { name: "Board", weekly: [77.0, 22.0, 31.0, 18.0] });
-        const reads = service.of("presses").length;
-        await act(async () => { await h.cache.write(WORKSPACE, planLinkStock.path, encodeBeast2For(planLinkStock.type)(recounted as unknown as Stock)); });
-        await settle();
-        expect(board()!.textContent).toContain("77");
-        // The presses' window read again from the runtime, not the service.
-        expect(service.of("presses").length).toBe(reads);
+        const reads = of("presses").length;
+        await h.write(planLinkStock, recounted as unknown as Stock);
+        await waitFor(() => expect(board()!.textContent).toContain("77"));
+        // The presses' window read again from the runtime, not from e3.
+        expect(of("presses").length).toBe(reads);
     });
 });
 
@@ -677,7 +525,7 @@ const Customer = StructType({ name: StringType });
  * inspector. Every edit is a draft of a session over the jobs' revision, never
  * their record whole.
  */
-const editedPlan = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const jobDays = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
@@ -710,12 +558,10 @@ const editedPlan = East.compile(East.function([], UIComponentType, (_$) => React
             drop: (cu) => Schedule.patch(PrintJob, { customer: cu.name }),
         })],
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /** Each Plan is mounted under the page's drag layer, so its cards and elements drag. */
 const DRAG = { drag: true } as const;
-/** The jobs' record, as the whole reads name it. */
-const JOBS = pathText(JOBS_PATH);
 
 type Rect = { left: number; top: number; width: number; height: number };
 /** The plots' left edge, and a day's width in px. */
@@ -791,25 +637,15 @@ async function typeInto(c: HTMLElement, key: string, text: string) {
     await settle();
 }
 
-/** Another planner's write to a job, through the record's patch door — begun, not awaited. */
-function writeJobNow(key: string, change: Partial<Job>): Promise<unknown> {
-    const now = readJobs();
-    const next = new SortedMap([...now], compareString);
-    next.set(key, { ...now.get(key)!, ...change });
-    return memory.mutate(WORKSPACE, ex.planWindowJobs.name, "patch", {
-        args: [encodeBeast2For(PatchType(ex.planWindowJobs.type))(diffFor(ex.planWindowJobs.type)(now as Jobs, next as unknown as Jobs))],
-    });
-}
 
 describe("the jobs edited, their record never read whole (#1199)", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         // Thirty presses, one window: every row the canvas draws mounts.
-        service = pagingService(generatePresses(30n));
-        initializePagedApi(service.api, WORKSPACE);
+        await pressCount(30n);
     });
 
     test("a template dropped, a job moved across presses and one resized: each one step, its job read where the canvas draws it — Undo and Redo walk them", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         let y = layOutPlots(c, ["P-1001", "P-1002", "P-1003", "P-1004"]);
         // A drop: the brochure template, on Press 1004's Thursday — a new job under a new key.
@@ -839,11 +675,11 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await press(historyButton(c, REDO));
         expect(bar(c, "W-0001", "P-1002")).not.toBeNull();
         expect(pending(c)).toBe("2 pending");
-        expect(wholeReads).not.toContain(JOBS);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("a backlog job scheduled and a job unscheduled on the Backlog tab: each one step, read where the backlog and the days hold it", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await openTab(c, "Backlog");
         // The job templates, all four: the rail narrows none of them.
@@ -866,11 +702,11 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         // Its card names the press it keeps, read by its key.
         await waitFor(() => expect(cardOf(c, elementKey("job", "W-0002"))!.textContent).toContain("Press 1001"));
         expect(pending(c)).toBe("2 pending");
-        expect(wholeReads).not.toContain(JOBS);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("an author's card dropped on a job sets its customer, one step — the job read where the canvas draws it", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await openTab(c, "Customers");
         // The course handbooks run from Wednesday 06:00 to Friday 18:00 on Press 1003, the third row.
@@ -883,17 +719,17 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(pending(c)).toBe("1 pending");
         await select(bar(c, "W-0004", "P-1003")!);
         expect(customerOf(c)).toBe("Harbour Arts Society");
-        expect(wholeReads).not.toContain(JOBS);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("the inspector's job — its press named by its key — its form, its Duplicate and Delete, and the bulk edit: each one step", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
         expect(slot(c, "end")!.querySelector("[data-inspector-title]")!.textContent).toBe("Brochure run");
         // Its press, a paged kind's, named once it is read by its key.
         await waitFor(() => expect(factOf(c, "resource")).toBe("Press 1001"));
-        expect(service.of("presses")).toContain(`seek "P-1001"`);
+        expect(of("presses")).toContain(`seek "P-1001"`);
         // A field of its form: one step, tinted against what the record holds.
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(false);
         await typeInto(c, "customer", "Alder & Finch Ltd");
@@ -914,89 +750,90 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await press(action(c, "shift:1hour"));
         expect(named(bar(c, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 6, 2026, 07:00 – Oct 6, 2026, 13:00/);
         expect(pending(c)).toBe("2 pending");
-        expect(wholeReads).not.toContain(JOBS);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("a press's row in the inspector: its name and its hall read by its key, its jobs in the window counted — neither the presses nor the jobs read whole", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         fireEvent.click(c.querySelector(`${rowAt(pressRow("P-1002"))} [role="rowheader"]`)!);
         await settle();
         const end = slot(c, "end")!;
         await waitFor(() => expect(end.querySelector("[data-inspector-title]")!.textContent).toBe("Press 1002"));
         expect([...end.querySelectorAll("[data-inspector-line]")].map((n) => n.textContent)).toEqual(["Hall 2"]);
-        expect(service.of("presses")).toContain(`seek "P-1002"`);
+        expect(of("presses")).toContain(`seek "P-1002"`);
         // The museum guide, six hours, in the window.
         expect(factOf(c, "events")).toBe("1");
         expect(factOf(c, "hours")).toBe("6");
-        expect(wholeReads).not.toContain(JOBS);
-        expect(wholeReads).not.toContain(pathText(PRESSES_PATH));
+        expect(h.requests("read", JOBS)).toEqual([]);
+        expect(h.requests("read", PRESSES)).toEqual([]);
     });
 
     test("Save commits through the patch door, each job read back by its key at the revision it committed", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
         await typeInto(c, "customer", "Alder & Finch Ltd");
-        const before = service.of("entries").length;
+        const before = of("entries").length;
         await press(historyButton(c, SAVE));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
         expect(bannerTexts(c)).toEqual([]);
-        expect(readJobs().get("W-0001")!.customer).toBe("Alder & Finch Ltd");
-        expect(service.of("entries").slice(before)).toContain(`seek "W-0001"`);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Ltd");
+        expect(of("entries").slice(before)).toContain(`seek "W-0001"`);
         expect(customerOf(c)).toBe("Alder & Finch Ltd");
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(false);
-        expect(wholeReads).not.toContain(JOBS);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("a Save's conflict names the job another planner moved — read by its key at the record's new revision — and who changed the record last; the other job is not named", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
         await typeInto(c, "customer", "Alder & Finch Ltd");
         await select(bar(c, "W-0003", "P-1002")!);
         await typeInto(c, "customer", "Driftwood Museum Trust");
-        // Another planner changes the brochure run's customer just as Save goes.
+        // Another planner changes the brochure run's customer just as Save goes: the Save's write reaches e3 after theirs.
+        const write = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.planWindowJobs.name);
         await act(async () => {
-            void writeJobNow("W-0001", { customer: "Alder & Finch Group" });
             fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
             fireEvent.click(historyButton(c, SAVE));
         });
+        await write.holding;
+        await patchRecord(h.e3, h.workspace, ex.planWindowJobs, await jobChanged("W-0001", { customer: "Alder & Finch Group" }));
+        await act(async () => { write.release(); });
         await settle();
         await waitFor(() => expect(bannerTexts(c).map((b) => b.kind)).toEqual(["conflict", "stale"]));
         const conflict = bannerTexts(c)[0]!.text;
         expect(conflict).toContain(editingMessages.bannerSource({ source: "Print job", title: editingMessages.bannerConflict({ n: 1, count: "1" }) }));
-        expect(conflict).toContain(editingMessages.bannerIssue({ where: "Brochure run", message: "Changed since this edit began — last changed by memory" }));
+        expect(conflict).toContain(editingMessages.bannerIssue({ where: "Brochure run", message: "Changed since this edit began — last changed by another session" }));
         expect(conflict).not.toContain("Museum guide");
-        expect(service.of("entries")).toEqual(expect.arrayContaining([`seek "W-0001"`, `seek "W-0003"`]));
+        expect(of("entries")).toEqual(expect.arrayContaining([`seek "W-0001"`, `seek "W-0003"`]));
         // Nothing of the job's draft was written; the other planner's stands.
-        expect(readJobs().get("W-0001")!.customer).toBe("Alder & Finch Group");
-        expect(wholeReads).not.toContain(JOBS);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 
     test("a write with no answer: Retry resends it under its request id, and it is read back by its key", async () => {
-        const { container: c } = mount(editedPlan, DRAG);
+        const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
         await typeInto(c, "customer", "Alder & Finch Ltd");
-        // The write lands, and its answer is lost.
-        const keys: (string | undefined)[] = [];
-        let lost = true;
-        initializeRecordApi({ ...memory, mutate: async (ws, record, mutation, req) => {
-            const result = await memory.mutate(ws, record, mutation, req);
-            keys.push(req.idempotencyKey);
-            if (lost) { lost = false; throw new Error("The connection closed"); }
-            return result;
-        } }, h.cache, WORKSPACE);
-        await press(historyButton(c, SAVE));
-        expect(bannerTexts(c).map((b) => b.kind)).toEqual(["unknown"]);
+        // The write lands on e3, and every answer to it is lost: the client tries again under the same id until it gives up.
+        const losing = h.e3.fail((request) => request.kind === "mutate" && request.record === ex.planWindowJobs.name, "lost");
+        await act(async () => {
+            fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
+            fireEvent.click(historyButton(c, SAVE));
+        });
+        await waitFor(() => expect(bannerTexts(c).map((b) => b.kind)).toEqual(["unknown"]), { timeout: 15_000 });
+        losing();
         await press(historyButton(c, RETRY));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
-        expect(keys).toHaveLength(2);
-        expect(keys[1]).toBe(keys[0]);
-        expect(readJobs().get("W-0001")!.customer).toBe("Alder & Finch Ltd");
+        const keys = h.requests("mutate", ex.planWindowJobs.name).map((request) => request.idempotencyKey);
+        expect(keys.length).toBeGreaterThan(1);
+        expect(new Set(keys).size).toBe(1);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Ltd");
         expect(bannerTexts(c)).toEqual([]);
-        expect(wholeReads).not.toContain(JOBS);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 });
 
@@ -1008,19 +845,19 @@ describe("the key search standing (#1199)", () => {
     test("a pan, reading the jobs again over the same presses, leaves a standing search as it is — its text and its matches — asking nothing again", async () => {
         const restore = emulateWindowScroll();
         try {
-            const { container } = mount(windowsPlan);
+            const { container } = await h.mount(windowsPlan);
             await settle();
             const search = () => slot(container, "toolbar")!.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
             const input = search().querySelector<HTMLInputElement>("input")!;
             for (const key of "P-1450") await userEvent.type(input, key);
             await waitFor(() => expect(search().textContent).toMatch(/\b1 match\b/), { timeout: 5_000 });
-            const asked = service.of("presses").filter((r) => r.startsWith("seek")).length;
+            const asked = of("presses").filter((r) => r.startsWith("seek")).length;
             // A day on, from a row the canvas draws: the jobs' rows are read again; the presses are the same.
             await act(async () => { fireEvent.keyDown(container.querySelector("[data-plan-row]")!, { key: "]" }); });
             await settle();
             expect(search().querySelector<HTMLInputElement>("input")!.value).toBe("P-1450");
             expect(search().textContent).toMatch(/\b1 match\b/);
-            expect(service.of("presses").filter((r) => r.startsWith("seek"))).toHaveLength(asked);
+            expect(of("presses").filter((r) => r.startsWith("seek"))).toHaveLength(asked);
         } finally {
             restore();
         }
@@ -1029,23 +866,21 @@ describe("the key search standing (#1199)", () => {
     test("a new snapshot of the presses asks a standing search again there — its text kept, its matches the new snapshot's", async () => {
         const restore = emulateWindowScroll();
         try {
-            const { container } = mount(windowsPlan);
+            const { container } = await h.mount(windowsPlan);
             await settle();
             const search = () => slot(container, "toolbar")!.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
             const input = search().querySelector<HTMLInputElement>("input")!;
             // The presses whose keys start P-145: ten of them.
             for (const key of "P-145") await userEvent.type(input, key);
             await waitFor(() => expect(search().textContent).toMatch(/\b10 matches\b/), { timeout: 5_000 });
-            const seeks = () => service.of("presses").filter((r) => r === "seek P-145");
+            const seeks = () => of("presses").filter((r) => r === "seek P-145");
             const asked = seeks().length;
-            // Another write to the presses retires five of them: a new snapshot, whose rows the matches held no longer index.
-            const retired = new SortedMap(
-                [...PRESSES].filter(([key]) => compareString(key, "P-1450") < 0 || compareString(key, "P-1454") > 0), compareString);
-            await act(async () => { service.movePresses(retired); });
-            await settle();
+            // The works cut to 453 presses, its task run again: a new snapshot, the presses to P-1453, whose rows the matches
+            // held no longer index.
+            await pressCount(453n);
             await waitFor(() => expect(seeks().length).toBeGreaterThan(asked), { timeout: 5_000 });
-            // Asked again there: the matches the new snapshot holds, the text as it was typed.
-            await waitFor(() => expect(search().textContent).toMatch(/\b5 matches\b/), { timeout: 5_000 });
+            // Asked again there: the matches the new snapshot holds, P-1450 to P-1453, the text as it was typed.
+            await waitFor(() => expect(search().textContent).toMatch(/\b4 matches\b/), { timeout: 5_000 });
             expect(search().querySelector<HTMLInputElement>("input")!.value).toBe("P-145");
         } finally {
             restore();
@@ -1060,23 +895,11 @@ describe("the key search standing (#1199)", () => {
 describe("planRowDrop's data session, its record read a window at a time (#1199)", () => {
     test("a Save's conflict names the entry another write moved — read by its key at the record's new revision — and the record is never read whole", async () => {
         const ops = rowDrop.planDropOps;
-        const opsPath = ops.path as TreePath;
-        // The palette's cards: the input's declared value.
-        const cards = rowDrop.planDropCards;
-        if (cards.source?.type !== "value") throw new Error("the cards input declares no value");
-        await h.cache.write(WORKSPACE, cards.path, encodeBeast2For(cards.type)(cards.source.value as never));
-        const applyOps = applyFor(ops.type);
-        const server = served(createInMemoryRecordApi(h.cache, WORKSPACE, [{
-            name: ops.name, stateType: ops.type, initial: ops.default!,
-            mutations: [{ name: "patch", argTypes: [PatchType(ops.type)], reduce: (state: unknown, patch: unknown) => applyOps(state as never, patch as never) }],
-        }]));
-        initializeRecordApi(server, h.cache, WORKSPACE);
-        const paging = recordPaging(h.cache, rawRead, [{ path: opsPath, type: ops.type }]);
-        initializePagedApi(paging.api, WORKSPACE);
+        const opsPath = pathText(ops.path as TreePath);
         // Its canvas is bounded: laid out, its rows mount.
         const restore = boundFrame(2000);
         try {
-            const { container } = mount(programOf(rowDrop.planRowDrop), DRAG);
+            const { container } = await h.mount(rowDrop.planRowDrop, DRAG);
             await settle();
             const run = () => container.querySelector<HTMLElement>(`${rowAt(entry("press", "p03"))} [data-run="j4642"]`);
             expect(run()).not.toBeNull();
@@ -1087,24 +910,26 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
             await keyOn({ key: " " });
             expect(carrySaid(container)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
             expect(pending(container)).toBe("1 pending");
-            // Another write moves the same run two weeks on, just as Save goes.
-            const decodeOps = decodeBeast2For(ops.type);
-            const now = decodeOps(rawRead(WORKSPACE, opsPath)!) as ReadonlyMap<string, ValueTypeOf<typeof rowDrop.DropOpsRow>>;
-            const p03 = now.get("p03")!;
-            const job = p03.jobs[0]!;
-            const next = new SortedMap([...now], compareString);
-            next.set("p03", { ...p03, jobs: [{ ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }] });
+            // Another write moves the same run two weeks on, just as Save goes: the Save's write reaches e3 after it.
+            const write = h.e3.hold((request) => request.kind === "mutate" && request.record === ops.name);
             await act(async () => {
-                void server.mutate(WORKSPACE, ops.name, "patch", { args: [encodeBeast2For(PatchType(ops.type))(diffFor(ops.type)(now as never, next as never))] });
                 fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
                 fireEvent.click(historyButton(container, SAVE));
             });
+            await write.holding;
+            const now = await h.read(ops);
+            const p03 = now.get("p03")!;
+            const job = p03.jobs[0]!;
+            const next = new Map(now);
+            next.set("p03", { ...p03, jobs: [{ ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }] });
+            await patchRecord(h.e3, h.workspace, ops, next);
+            await act(async () => { write.release(); });
             await settle();
             await waitFor(() => expect(bannerTexts(container).map((b) => b.kind)).toEqual(["conflict", "stale"]));
             expect(bannerTexts(container)[0]!.text)
-                .toContain(editingMessages.bannerIssue({ where: "H1-P03", message: "Changed since this edit began — last changed by memory" }));
-            expect(paging.requests).toContain(`${pathText(opsPath)} seek "p03"`);
-            expect(wholeReads).not.toContain(pathText(opsPath));
+                .toContain(editingMessages.bannerIssue({ where: "H1-P03", message: "Changed since this edit began — last changed by another session" }));
+            expect(h.requests("find", opsPath).some((request) => request.query.get("key") === '"p03"')).toBe(true);
+            expect(h.requests("read", opsPath)).toEqual([]);
         } finally {
             restore();
         }

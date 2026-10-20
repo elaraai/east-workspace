@@ -35,8 +35,11 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowSel, testKeyOf } from "./plan.test-utils.js";
 import {
     JOBS, PHASES, Press, SEED, SURFACE,
-    dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases, settle,
+    canvasHarness, dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases, settle,
 } from "./plan-editing.test-utils.js";
+
+// The paged canvases' presses, on e3.
+canvasHarness();
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -168,7 +171,7 @@ describe("Plan drop target (#880)", () => {
             const canvas = await mountCanvas({ arm: "inline", axis });
             await dropJob(canvas, "job-1", "p1");
             await history(canvas, "Save");
-            const jobs = canvas.stored().get("p1")!.jobs;
+            const jobs = (await canvas.stored()).get("p1")!.jobs;
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             // jsdom's zero-width rect puts the pointer in the FIRST bucket.
             expect(sameInstant(jobs[0]!.at, at)).toBe(true);
@@ -293,7 +296,7 @@ describe("Plan drop target by keyboard (#608)", () => {
             expect(marks(c)).toEqual({ p2: "pending" });
             expect(canvas.patches.map((p) => p.label)).toEqual(["Drop job-1 on Press 2"]);
             await history(canvas, "Save");
-            const jobs = canvas.stored().get("p2")!.jobs;
+            const jobs = (await canvas.stored()).get("p2")!.jobs;
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             expect(sameInstant(jobs[0]!.at, variant("time", W28))).toBe(true);
         });

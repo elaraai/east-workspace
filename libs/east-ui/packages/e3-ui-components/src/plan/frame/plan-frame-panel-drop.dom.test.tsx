@@ -29,9 +29,9 @@ import { DragLayerProvider, editingMessages, getRegisteredPlatformImplementation
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { EastChakraPlanPayload, type PlanValue } from "./index.js";
-import { entry, mount, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
-planHarness();
+const h = planHarness();
 
 /** Each Plan is mounted under the page's drag layer, so its cards drag. */
 const DRAG = { drag: true } as const;
@@ -76,7 +76,7 @@ const STEPS = Plan.axis.number({ window: { min: 1, max: 13 }, step: 1 });
 function palettePlan(takes: "create" | "move", { misplaced = false, editable = true }: { misplaced?: boolean; editable?: boolean } = {}) {
     const seed = misplaced ? BUSY : PRESSES;
     const axisValue = misplaced ? STEPS : WEEKS;
-    return East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.const(State.bind([DictType(StringType, Press)], "plan-1259.presses", seed));
         const cards = $.const(CARDS, DictType(StringType, Card));
         const lastBind = $.const(State.bind([StringType], "plan-1259.last", "none"));
@@ -111,7 +111,7 @@ function palettePlan(takes: "create" | "move", { misplaced = false, editable = t
             library: [Plan.library.tab(cards, { name: "Palette", icon: "palette", label: (c) => c.name, group: (c) => c.family })],
             footer: [{ text: East.str`LAST · ${last}`, end: true }],
         });
-    }))), getRegisteredPlatformImplementations());
+    }))) };
 }
 
 /**
@@ -162,7 +162,7 @@ function carryOver(c: HTMLElement, key: string, press: string) {
 
 describe("the library panel's cards on the rows that take them (#1259)", () => {
     test("a card dragged from the panel onto a press drafts the job its series makes of it, with no `id` or `sources`; Save keeps it", async () => {
-        const { container: c } = mount(palettePlan("create"), DRAG);
+        const { container: c } = await h.mount(palettePlan("create"), DRAG);
         await settle();
         expect(cardOf(c, "job-poster").hasAttribute("data-draggable")).toBe(true);
         carryOver(c, "job-poster", "p1");
@@ -183,7 +183,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
     });
 
     test("`canDrop` refuses a card of another family: the press is lit refused, and the drop drafts nothing", async () => {
-        const { container: c } = mount(palettePlan("create"), DRAG);
+        const { container: c } = await h.mount(palettePlan("create"), DRAG);
         await settle();
         carryOver(c, "van-drop", "p1");
         expect(cellOf(c, "p1").hasAttribute("data-drop-invalid")).toBe(true);
@@ -198,7 +198,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
 
     test("from the keyboard: Space picks a card up in the panel, the arrows carry it onto a press and along its weeks, and Space drops it there", async () => {
         stubScrollIntoView();
-        const { container: c } = mount(palettePlan("create"), DRAG);
+        const { container: c } = await h.mount(palettePlan("create"), DRAG);
         await settle();
         const card = cardOf(c, "job-poster");
         const [p1, p2] = [cellOf(c, "p1"), cellOf(c, "p2")];
@@ -230,7 +230,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
     });
 
     test("a Plan whose rows make no item of a card drags nothing from its panel — though its runs move on its rows", async () => {
-        const { container: c } = mount(palettePlan("move"), DRAG);
+        const { container: c } = await h.mount(palettePlan("move"), DRAG);
         await settle();
         // The rows are drop cells, for their own runs' moves…
         expect(c.querySelectorAll("[data-plan-row] [data-drag-cell]")).toHaveLength(2);
@@ -240,7 +240,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
     });
 
     test("a Plan whose rows that make an item of a card cannot be placed — their instants ride another arm — drags nothing from its panel", async () => {
-        const { container: c } = mount(palettePlan("create", { misplaced: true }), DRAG);
+        const { container: c } = await h.mount(palettePlan("create", { misplaced: true }), DRAG);
         await settle();
         // Each press draws as its diagnostic, which takes no drop.
         expect(c.querySelectorAll("[data-plan-diagnostic]")).toHaveLength(2);
@@ -249,7 +249,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
     });
 
     test("a Plan with no `editing` drags nothing from its panel — though its rows make an item of a card, nothing would hold one", async () => {
-        const { container: c } = mount(palettePlan("create", { editable: false }), DRAG);
+        const { container: c } = await h.mount(palettePlan("create", { editable: false }), DRAG);
         await settle();
         expect(c.querySelectorAll("[data-plan-row]")).toHaveLength(2);
         expect(c.querySelectorAll("[data-drag-cell]")).toHaveLength(0);

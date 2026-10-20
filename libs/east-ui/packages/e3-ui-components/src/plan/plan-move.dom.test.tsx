@@ -24,8 +24,11 @@ import { UIStore } from "@elaraai/east-ui-components";
 import { announced, layOut } from "@elaraai/east-ui-components/testing";
 import { rowSel } from "./plan.test-utils.js";
 import {
-    MARKS, history, historyButton, mountCanvas, releaseCanvases, type PressValue,
+    MARKS, canvasHarness, history, historyButton, mountCanvas, releaseCanvases, type PressValue,
 } from "./plan-editing.test-utils.js";
+
+// The paged canvases' presses, on e3.
+canvasHarness();
 import {
     D, Job, SEED, W,
     carry, carrySaid, dragTo, elementOf, keyOn, keysOf, layOutPlots, markOf, mountMoves, plotOf, xAt,
@@ -320,8 +323,8 @@ describe("the same move inline and paged (#825)", () => {
             await history(canvas, "Redo");
             await history(canvas, "Save");
             await canvas.confirm();
-            expect(canvas.stored().get("p1")!.jobs).toEqual([]);
-            const moved = canvas.stored().get("p2")!.jobs;
+            expect((await canvas.stored()).get("p1")!.jobs).toEqual([]);
+            const moved = (await canvas.stored()).get("p2")!.jobs;
             expect(moved.map((j) => j.key)).toEqual(["k1"]);
             expect(sameInstant(moved[0]!.at, variant("time", W(30)))).toBe(true);
             expect(drawnMarks("p2")).toEqual(["k1"]);

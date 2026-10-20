@@ -21,11 +21,11 @@ import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { East, some, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "../model.js";
-import { el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot } from "./harness.test-utils.js";
+import { el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -74,7 +74,7 @@ const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 
 /** The presses and their jobs, the jobs' overlaps warned of. */
-const warnedByPress = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const warnedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -88,10 +88,10 @@ const warnedByPress = East.compile(East.function([], UIComponentType, (_$) => Re
             }),
         },
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /** The same, the jobs' overlaps allowed: they run in parallel. */
-const allowedByPress = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const allowedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -105,10 +105,10 @@ const allowedByPress = East.compile(East.function([], UIComponentType, (_$) => R
             }),
         },
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /** The jobs drawn three more ways — as chips, as tiles and as marks — each way a kind of its own that warns of its overlaps. */
-const drawnThreeWays = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const drawnThreeWays = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -130,11 +130,11 @@ const drawnThreeWays = East.compile(East.function([], UIComponentType, (_$) => R
             }),
         },
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 describe("an overlap pair (#1198, PB51)", () => {
     test("each way an event draws wears the ring: a chip, a tile and a mark of a pair; the rest none", async () => {
-        const { container } = mount(drawnThreeWays);
+        const { container } = await h.mount(drawnThreeWays);
         await settle();
         const ring = (selector: string) => container.querySelector(selector)!.hasAttribute("data-overlap");
         for (const [attr, kind] of [["data-chip", "chips"], ["data-event", "tiles"], ["data-mark", "marks"]] as const) {
@@ -147,7 +147,7 @@ describe("an overlap pair (#1198, PB51)", () => {
     });
 
     test("two jobs on one press at once are a pair: both wear the warn ring, and the toolbar's chip counts it", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         expect(ringed(container)).toEqual(new Set([elementKey("job", "J-1018"), elementKey("job", "J-1019")]));
         expect(bar(container, B2, "J-1018")!.hasAttribute("data-overlap")).toBe(true);
@@ -158,11 +158,11 @@ describe("an overlap pair (#1198, PB51)", () => {
 
     test("not a pair: two jobs of a kind that allows overlaps, two jobs on two presses, and two that only meet", async () => {
         // The same jobs, warned of, and allowed.
-        const warned = mount(warnedByPress);
+        const warned = await h.mount(warnedByPress);
         await settle();
         expect(ringed(warned.container)).toEqual(new Set([elementKey("job", "J-1018"), elementKey("job", "J-1019")]));
         warned.unmount();
-        const allowed = mount(allowedByPress);
+        const allowed = await h.mount(allowedByPress);
         await settle();
         expect(bar(allowed.container, entry("presses.span", "b2"), "J-1019")).not.toBeNull();
         expect(ringed(allowed.container)).toEqual(new Set());
@@ -170,14 +170,14 @@ describe("an overlap pair (#1198, PB51)", () => {
         allowed.unmount();
         // The loyalty cards on Press B1, which prints nothing on the 20th.
         await h.commit(ex.planPrintJobs, jobsWith({ "J-1019": { press: some("b1") } }));
-        const apart = mount(programOf(ex.planPrintWorks));
+        const apart = await h.mount(ex.planPrintWorks);
         await settle();
         expect(ringed(apart.container)).toEqual(new Set());
         expect(chip(apart.container)).toBeNull();
         apart.unmount();
         // The loyalty cards starting as the posters end: they only meet.
         await h.commit(ex.planPrintJobs, jobsWith({ "J-1019": { start: some(at("2026-10-20T12:00:00Z")) } }));
-        const meeting = mount(programOf(ex.planPrintWorks));
+        const meeting = await h.mount(ex.planPrintWorks);
         await settle();
         expect(ringed(meeting.container)).toEqual(new Set());
         expect(chip(meeting.container)).toBeNull();
@@ -190,7 +190,7 @@ describe("the overlaps chip (#1198, PB52)", () => {
         await h.commit(ex.planPrintJobs, jobsWith({
             "J-1031": { title: "Proof run", start: some(at("2026-10-05T10:00:00Z")), end: some(at("2026-10-05T12:00:00Z")), press: some("a1") },
         }));
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         expect(chip(container)!.textContent).toBe("2 overlaps");
         // The bindery starts collapsed, so the first action may be Expand all.
@@ -219,7 +219,7 @@ describe("the overlaps chip (#1198, PB52)", () => {
     test("on a phone, the chip in the date navigator's View opens the pair's hall in the Rows tab and scrolls its press's card into view", async () => {
         const { scrolled, restore } = onAPhone();
         try {
-            const { container } = mount(programOf(ex.planPrintWorks));
+            const { container } = await h.mount(ex.planPrintWorks);
             await settle();
             expect(container.querySelector("[data-plan-narrow]")).not.toBeNull();
             // The phone's row holds the rail's icon, the View and the history item: the chip is in the View (#1344).
@@ -254,7 +254,7 @@ describe("the overlaps chip (#1198, PB52)", () => {
         await h.commit(ex.planPrintJobs, jobsWith({ "J-1018": { press: some("b9") }, "J-1019": { press: some("b9") } }));
         const { scrolled, restore } = onAPhone();
         try {
-            const { container } = mount(warnedByPress);
+            const { container } = await h.mount(warnedByPress);
             await settle();
             const B9 = `[data-plan-card=${JSON.stringify(rowKeyOf(entry("presses.span", "b9")))}]`;
             expect(container.querySelector(B9)).toBeNull();
@@ -300,7 +300,7 @@ function onAPhone(): { scrolled: Element[]; restore: () => void } {
 
 describe("the inspector's overlaps (#1198, PB53, PB40)", () => {
     test("one event's banner lists what it overlaps, under its head; a click on one selects it; an event in no pair has none", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(bar(container, B2, "J-1018")!);
         await settle();
@@ -319,7 +319,7 @@ describe("the inspector's overlaps (#1198, PB53, PB40)", () => {
     });
 
     test("a press's view lists its pairs, each over when they overlap; a click selects the pair; a press with none shows none", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(container.querySelector(`${rowAt(B2)} [role="rowheader"]`)!);
         await settle();
@@ -337,7 +337,7 @@ describe("the inspector's overlaps (#1198, PB53, PB40)", () => {
 
 describe("overlaps never block Save (#1198, PB53)", () => {
     test("they raise no issue and no banner of the sessions': a warning on the canvas alone — and a draft beside them saves (#1194)", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         expect(chip(container)).not.toBeNull();
         expect(slot(container, "banners")!.querySelector("[data-session-banner]")).toBeNull();
